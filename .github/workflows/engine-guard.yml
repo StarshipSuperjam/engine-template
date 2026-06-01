@@ -1,0 +1,35 @@
+# engine-guard — the guardrail-weakening classifier (required check #2).
+# Runs on pull_request_target so the guard logic is read from the protected base
+# branch: a pull request cannot tamper with the guard that judges it. It reads
+# the diff via the API and NEVER checks out the pull request's head code — the
+# workflow checks out only the base (trusted) branch. The job name `engine-guard`
+# is the FROZEN check context bound in the branch ruleset; renaming it is itself
+# a guardrail-weakening change (stage-0-harness §3; D-051 / D-134).
+name: engine-guard
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  engine-guard:
+    name: engine-guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the base (trusted) branch — never the PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Set up uv (pinned)
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.8"
+      - name: Materialize the engine tool-runtime
+        run: uv sync --directory .engine --frozen
+      - name: Guardrail-weakening classifier (reads the diff via API; never checks out head)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: uv run --directory .engine --frozen -- python tools/weakening_guard.py
