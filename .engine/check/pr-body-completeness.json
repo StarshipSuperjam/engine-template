@@ -1,7 +1,7 @@
 {
   "id": "engine/check/pr-body-completeness",
   "target": { "context": "pull-request-body" },
-  "kind": "pr-body-completeness",
+  "kind": "presence",
   "params": {
     "sections": [
       "Purpose",

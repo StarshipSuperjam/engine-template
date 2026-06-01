@@ -30,9 +30,13 @@ import urllib.request
 ACK_LABEL = "guardrail-ack"
 # Path prefixes whose files enforce the safety gates.
 GUARDRAIL_PREFIXES = (".github/workflows/", ".engine/check/", ".engine/tools/")
-# Exact-path guardrails: CODEOWNERS (reserved) and the tool-runtime lockfiles, which
-# define the runtime every guard and the validator execute in (foundation artifacts).
-GUARDRAIL_EXACT = (".github/CODEOWNERS", ".engine/pyproject.toml", ".engine/uv.lock")
+# Exact-path guardrails: CODEOWNERS (reserved); the tool-runtime lockfiles, which
+# define the runtime every guard and the validator execute in (foundation artifacts);
+# and the suite declarations, which decide WHICH suite blocks the merge — a loosened
+# context there (e.g. CI -> local-nudge) would silently un-gate the CI check, so a
+# change to it must be acknowledged like any other guardrail weakening (core slice 4).
+GUARDRAIL_EXACT = (".github/CODEOWNERS", ".engine/pyproject.toml", ".engine/uv.lock",
+                   ".engine/suites.json")
 # A pure addition strengthens; removal/rename/modification/copy can weaken.
 # 'copied' is in GitHub's file-status enum — without it, a weakened *copy* of a
 # guardrail file would slip through ungated.

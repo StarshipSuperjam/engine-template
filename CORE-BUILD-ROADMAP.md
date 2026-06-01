@@ -160,6 +160,45 @@ surface — it is the meta-contract `template` field; see the slice-1 resolution
    *Consent:* ⚖️ (the validator itself). *Leaves:* the seven-field check-rule JSON Schema; concrete
    trigger-set values; **whether the `schema`/`shape` kinds need a non-stdlib library (e.g. a JSON-Schema
    2020-12 validator) — if so, the CI uv-group seam applies (cross-cutting flag below).**
+   *Plan-gate resolution (slice-4 session, ≥4 cold lenses; folded fixes below):* the seed `validate.py`
+   dispatcher gains three generic data-driven kinds — **`presence`** (absorbs the seed PR-body teeth
+   verbatim — `section_blocks`/`is_empty_section`/`_placeholder_only` reused; the `pr-body-completeness`
+   rule is re-expressed `kind: presence`, the ratchet), **`schema`** (JSON Schema 2020-12 via the
+   **`jsonschema`** library — maintainer-chosen, mandated by the locked "no bespoke meta-machinery"
+   rule), and **`shape`** (consumes the slice-3 `template.v1` shape-spec from `params`; required/ordering
+   are the rule tier, over-`length_budget` is always `soft`; **no live rule** — fixture-tested, first
+   live consumer slice 13). `REGISTRY` = the closed core set only (`presence`/`schema`/`shape` +
+   transient `link-integrity`, which folds into `coverage` at slice 5); module/`custom-script`
+   discovery-by-presence arrives at slice 5 and must **not** extend this dict. **Schema resolution is
+   CATALOG-FIRST** (schemas README: "no separate routing table") — the surface's `governing_schema`; a
+   rule's `params.schema` is an override only for well-formedness and the catalog self-governance edge
+   (`surface-catalog.json` is governed by its meta-contract, not the meta-schema URL its `schema`-surface
+   record carries); **offline only**, an unresolvable `$ref` is a caught loud finding, never a fetch.
+   **Suite declarations** live at **`.engine/suites.json`** (a non-surface engine file — NOT under
+   `.engine/check/`, so it never enters the rules glob and slice-5 coverage will not flag it), governed by
+   `suites.v1.json`, validated on every run; each suite names a trigger from the closed v1 set and an
+   **execution context** (`blocking-gate`|`local-nudge`|`report-only`) — the dispatcher gates iff the run
+   suite's context is `blocking-gate` (CI), generalizing the seed's hardcoded CI gate per the locked
+   tier-vs-context law (CI behavior preserved exactly). The **seven-field check-rule schema**
+   (`check.v1.json`) is authored and the catalog's `check.governing_schema` wired to it, **but no
+   enforcing rule ships** — per **D-090 "core ships the engine and zero rules, `validators-core` ships
+   the corpus,"** only the two grandfathered seed rules stay committed; the schema/dangling demos use
+   **throwaway, uncommitted** rules. **The uv-group leaf [4→25] resolves to `[tool.uv]
+   default-groups = ["core"]`** (group `core = ["jsonschema>=4.18"]`): every `uv sync`/`uv run` (CI and
+   local) resolves it with no per-command flag, so **`engine-ci.yml` is untouched** and future
+   dep-carrying modules append their group here, no workflow edit, until slice 25 derives the selection.
+   Guardrail-weakening (one `guardrail-ack`): the one substantive weakening is **the new outside
+   dependency `jsonschema` + the lockfile re-resolve**; the `validate.py`/`test_seed.py`/
+   `pr-body-completeness.json`/`pyproject.toml`/`uv.lock` edits are its downstream consequences. Frozen
+   names preserved; the `engine-guard` `pull_request_target` base-only/diff-only/never-head property is
+   untouched (its guard is stdlib). *Deliverable-gate finding, folded in:* the new gating config
+   `.engine/suites.json` is itself a merge-gate kill-switch — a schema-valid edit of CI's context
+   (`blocking-gate`→`local-nudge`) would silently un-gate CI — so this slice **adds `.engine/suites.json`
+   to `weakening_guard.py`'s guarded set** (a small additive *strengthening*: a future modification now
+   trips `guardrail-ack`; this PR's pure addition does not). The broader `.engine/schemas/` directory is
+   **deliberately not** added to the guarded set — schemas are not guardrail-class (the schemas-evolution
+   design makes additive schema changes free), and the only schema-mediated un-gate route still requires a
+   `suites.json` edit, which is now guarded; revisit at slice 5's guard re-homing if warranted.
 5. **`coverage` + `coherence` + `custom/script` kinds; re-home the two guards.** *Delivers:* the
    remaining closed kinds (coverage = catalog-coverage + link-integrity; coherence = directly-callable
    library entry); the `custom/script` escape-hatch kind; **re-home the protection-detection guard and
