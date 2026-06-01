@@ -6,3 +6,4 @@ requires-python = ">=3.11"
 name = "engine-tools"
 version = "0.0.0"
 source = { virtual = "." }
+dependencies = [{ name = "left-pad" }]
