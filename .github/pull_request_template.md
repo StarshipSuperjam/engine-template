@@ -1,23 +1,63 @@
 ## Purpose
-<why this change exists>
+
+**<one-line summary of why this change exists>**
+
+- <supporting detail; add bullets as needed>
+
+*<Impact: what this enables or unblocks>*
 
 ## Scope
-<what is in>
+
+**<one-line summary of what is included>**
+
+- <the specific items, as bullets>
+
+*<Impact: what this change delivers>*
 
 ## Out of scope
-<what is deliberately not>
+
+**<one-line summary of what is deliberately excluded>**
+
+- <the specific exclusions, as bullets>
+
+*<Impact: why these are out, not gaps>*
 
 ## Risk
-<what could break; any guardrail-weakening called out here, plainly>
+
+**<one-line summary of what could break; call out any guardrail-weakening plainly>**
+
+- <the specific risks, as bullets>
+
+*<Impact: the consequence and how it is bounded>*
 
 ## Validation
-<mechanical-check results>
+
+**<one-line summary of how this was checked>**
+
+- <the mechanical-check results, as bullets>
+
+*<Impact: what an approver can rely on>*
 
 ## Review
-<what review ran: depth, lenses, dispositions — the engine's own account; the maintainer's merge is the real gate>
+
+**<one-line summary of what review ran — depth, lenses, dispositions>**
+
+- <the specifics, as bullets>
+
+*<Impact: the engine's own account; the approver's merge is the binding gate>*
 
 ## Files of interest
-<where to look first>
+
+**<one-line summary of where to look first>**
+
+- <the key paths, as bullets>
+
+*<Impact: what these most determine>*
 
 ## Claude involvement
-<design decisions vs mechanical edits; references to the decision/contract surface>
+
+**<one-line summary: design decisions vs mechanical edits>**
+
+- <the specifics, with references to the decision/contract surface>
+
+*<Impact: where AI judgment is load-bearing vs mechanical>*

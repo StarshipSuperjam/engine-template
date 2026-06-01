@@ -168,5 +168,40 @@ class TestProtectionFloor(unittest.TestCase):
         self.assertTrue(any("conversations" in m for m in missing))
 
 
+class TestDecoratedScaffold(unittest.TestCase):
+    """The visible-scaffold template: decorated placeholder slots still read as
+    unfilled, real content reads as filled, and an inline <token> in real text is
+    not mistaken for a placeholder (the over-strip guard)."""
+
+    def test_decorated_placeholder_lines_are_empty(self):
+        for line in ("**<summary>**", "- <detail>", "*<Impact: why>*",
+                     "<bare>", "__<x>__", "  - <y>  "):
+            self.assertTrue(validate.is_empty_section(line), line)
+
+    def test_real_content_lines_are_not_empty(self):
+        for line in ("**Real bold summary**", "- a real detail", "*Impact: real text*",
+                     "Uses the <head> ref here.", "- text with <token> inside"):
+            self.assertFalse(validate.is_empty_section(line), line)
+
+    def test_decorated_section_with_one_real_line_is_not_empty(self):
+        self.assertFalse(validate.is_empty_section("**<summary>**\n- a real bullet\n*<Impact: x>*"))
+
+    def test_committed_template_body_fails_completeness(self):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(root, ".github", "pull_request_template.md"), encoding="utf-8") as fh:
+            tmpl = fh.read()
+        passed, found = validate.kind_pr_body_completeness(COMPLETENESS_RULE, {"pr_body": tmpl})
+        self.assertFalse(passed)
+        self.assertEqual(len(found), len(SECTIONS))  # every section unfilled
+
+    def test_filled_scaffold_passes(self):
+        body = "\n".join(
+            f"## {s}\n**Real summary for {s}**\n- a real bullet\n*Impact: real impact*"
+            for s in SECTIONS)
+        passed, found = validate.kind_pr_body_completeness(COMPLETENESS_RULE, {"pr_body": body})
+        self.assertTrue(passed)
+        self.assertEqual(found, [])
+
+
 if __name__ == "__main__":
     unittest.main()
