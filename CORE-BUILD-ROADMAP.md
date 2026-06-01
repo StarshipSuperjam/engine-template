@@ -121,6 +121,31 @@ surface — it is the meta-contract `template` field; see the slice-1 resolution
    length as a `soft-warn` budget. *Deps:* 1, 2. *Supersedes:* —. *Demo:* author a prose surface from a
    template, drop a required section → shape check fires; restore → passes; over-length → soft note only.
    *Consent:* normal. *Leaves:* —.
+   *Plan-gate resolution (slice-3 session):* `template.v1` is authored at `.engine/schemas/template.v1.json`
+   — the shape-spec grammar: `required_sections` (ordered; the listed order is the required order),
+   `allowed_sections`, `length_budget` (soft-warn, lines); a closed object with `required_sections`
+   required; 2020-12, no `$id` (relative-`$ref`, the slice-1/2 precedent); an `examples` block carries the
+   real contract shape-spec (Decision/Significance/Rationale/Anti-choice/Status + `Supersedes` allowed) as
+   concrete grounding (maintainer-chosen Option A — no committed template; the contract template lands at
+   slice 13). **Format:** a template is one markdown file — frontmatter = the shape-spec (governed by
+   `template.v1`), body = the prose skeleton using the PR template's `<...>` placeholder convention, so
+   slice 4's `shape` kind carries the `_placeholder_only` decoration-stripping forward rather than
+   reinventing it. **Templates live at `.engine/templates/`** (a non-surface engine dir, the `boot/`
+   precedent), created when the first real template lands (13/14/19). **Seam boundaries (the locked
+   shape-spec grammar is exactly required/allowed sections + ordering + length — nothing more):** (a) the
+   enforcement *tier* (hard for a governance-critical surface, soft for a lighter one) is the slice-4 check
+   *rule's* `tier`, not a `template.v1` field (validation README: "the rule's tier decides"); (b) *ordering*
+   is the `required_sections` array order, read by the slice-4 `shape` kind — `allowed_sections` are
+   position-free; (c) *conditional-required* (the contract's `Supersedes`, required only when superseding)
+   is out of the shape-grammar's scope — it is `allowed_sections` here, and the required-when-superseding
+   condition is the contract surface's own concern at slice 13. **No catalog amend, no committed template,
+   no check rule, no shape-checker** (the `shape` kind is slice 4); **the PR template is untouched** (a
+   GitHub control-plane infrastructure file, not an engine surface — outside `template.v1`). The shipped
+   schema's descriptions are plain-language; this maintainer rationale lives here, not in the traveling
+   artifact. *Forward-note (slice 16):* `required_sections` carries `minItems: 1` (no vacuous shape-spec);
+   since skill/agent governance is primarily frontmatter (the schema's domain, not the body), confirm the
+   persona/skill body-template names ≥1 required body section, or relax `minItems` — a free, additive
+   schema change.
 
 ### Phase 2 — Validation engine (early keystone) ⚖️
 4. **Dispatcher + `schema`/`presence`/`shape` kinds + suites + triggers.** *Delivers:* the thin dispatcher
