@@ -1,0 +1,11 @@
+# Engine tool-runtime: materialized by `uv sync`, never committed.
+# A regenerable derivative of the committed pyproject.toml + uv.lock
+# (repository-topology Law 5; decision-log D-156).
+.engine/.venv/
+
+# Python bytecode cache (regenerable; never committed)
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

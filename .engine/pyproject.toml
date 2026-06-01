@@ -1,0 +1,15 @@
+# Engine tool-runtime dependency spec (foundation infrastructure artifact).
+#
+# The engine's tools are Python, run inside an engine-namespaced, uv-managed
+# tool-runtime: this committed spec + the pinned uv.lock resolve it, and a
+# gitignored .engine/.venv/ is materialized by `uv sync` (decision-log D-156).
+#
+# Stage-0 seed: the seed validator is stdlib-only, so there are no third-party
+# dependencies and no [dependency-groups] yet. Groups are added append-as-built,
+# one per dependency-carrying module (named by the module's id, PEP 735
+# normalized), as packages land (stage-0-harness §4; decision-log D-158).
+[project]
+name = "engine-tools"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = []
