@@ -89,8 +89,10 @@ Each hand-built seed piece is **superseded** by the engine module that prefigure
 `validators-core`; the PR-body completeness rule → the validation `presence` kind; this `CLAUDE.md` → the
 `core` grammar + boot floor; ad-hoc write-discipline → the modes Explore write-gate. The protected-branch
 human merge gate is the one rung that never retires. The `CORE-BUILD-ROADMAP.md` scaffold (the approved
-`core` decomposition) retires the same way — **deleted as the core build's final task at M1**, with its
-resume-order pointer removed; it never ships in v1. The path to **M1**: `repository-topology` → `core` →
+`core` decomposition) covers only `core`'s 27 slices, so it retires **earlier**, at the **end of the
+`core` build** — deleted when its final slice merges, before M1 (which also needs `validators-core` +
+`memory-substrate-sqlite-fts5`) — with its resume-order pointer removed; it never ships in v1. The path
+to **M1**: `repository-topology` → `core` →
 `validators-core` + `memory-substrate-sqlite-fts5` + the control-plane bootstrap, after which Builder B
 builds the rest of v1 in-repo under the same merge gate.
 
@@ -100,8 +102,8 @@ builds the rest of v1 in-repo under the same merge gate.
 2. `../engine-planning/CLAUDE.md`, then `principles.md` + `constraints.md` + `goals-and-quality.md`.
 3. `../engine-planning/wbs/stage-0-harness.md` and `module-order.md` for where the build is.
 4. `CORE-BUILD-ROADMAP.md` (this repo) — the plan-gate-approved decomposition of `core` into its PR-slice
-   sequence; check which slice is next. *(A Builder-A genesis scaffold, retired at M1 — see its Retirement
-   clause and the ratchet below.)*
+   sequence; check which slice is next. *(A Builder-A genesis scaffold, retired at the end of the `core`
+   build — before M1 — see its Retirement clause and the ratchet below.)*
 5. The `systems/**` / `modules/**` docs governing the current step, and `wbs/build-conformance.md` for the
    deliverable-gate protocol.
 6. Plan the one next step, run the plan gate, build, run the deliverable gate, assemble the evidence bundle.

@@ -3,7 +3,8 @@
 > **Maintainer-layer construction scaffold (Builder-A genesis).** This is not an engine surface and not
 > a deployed artifact; it is the approved map for building the locked `core` module PR by PR, the same
 > tier as the construction `CLAUDE.md`. It carries no `stub|designed|locked` status. It is **retired —
-> deleted — at M1** as the core build's final task (see **Retirement** below); it must never ship in v1
+> deleted when the `core` build completes** (its final slice merged) — before M1, which also needs
+> `validators-core` + `memory-substrate-sqlite-fts5` (see **Retirement** below); it must never ship in v1
 > or travel to a generated repo. Because the template is not generated-from until v1, and this file is
 > gone before then, it never reaches an adopter.
 
@@ -538,18 +539,22 @@ and the Stop block-cap [17].
 
 ## Retirement (the "do not let it linger" clause)
 
-This roadmap is a **Builder-A genesis scaffold**, not a deployed artifact. Its job ends when `core` is
-built and Builder B takes over. Its **final task at M1 is its own deletion** — the same crossover where
-the construction `CLAUDE.md` is superseded by the `core` grammar + boot floor. Concretely:
+This roadmap is a **Builder-A genesis scaffold**, not a deployed artifact, and it covers **only `core`'s
+27 slices**. Its job is therefore done when the **`core` build completes** — when the final slice (#27)
+merges. That is **earlier than M1**: M1 also requires `validators-core` and `memory-substrate-sqlite-fts5`
+(both built afterward, still by Builder A), and it is at M1 that the construction `CLAUDE.md` itself is
+superseded. The roadmap does not track those later modules, so it has no remaining function once `core`
+is done. Concretely:
 
-- The PR that lands the last `core` slice (or the first Builder-B/in-repo PR after M1) **deletes
-  `CORE-BUILD-ROADMAP.md`** and removes its pointer from the construction `CLAUDE.md` resume order.
+- The PR that lands the **final `core` slice (#27)** — or the immediately following PR — **deletes
+  `CORE-BUILD-ROADMAP.md`** and removes its pointer from the construction `CLAUDE.md` resume order. This
+  is distinct from, and earlier than, the construction `CLAUDE.md`'s own supersession at M1.
 - This obligation is recorded in the construction `CLAUDE.md` **Supersession ratchet → M1** so it cannot
   be silently dropped.
 - It **must not ship in v1** and must never travel to a generated repo. (It cannot, in practice: the
-  template is not generated-from until v1, and this file is deleted at M1, well before then.)
+  template is not generated-from until v1, and this file is deleted at end-of-`core`, well before then.)
 - Until retired, it is freely revisable — superseded slices may be struck through or annotated as each
-  lands, so the file always shows where the build stands.
+  lands, so the file always shows where the `core` build stands.
 
 ## Next action
 
