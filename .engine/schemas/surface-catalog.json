@@ -34,7 +34,7 @@
       "purpose": "Declarative validation rules the validator dispatches (target, kind, params, tier, suites, message) — authored as data, never as validator code.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
-      "governing_schema": null,
+      "governing_schema": "check.v1.json",
       "template": null
     },
     "tool": {

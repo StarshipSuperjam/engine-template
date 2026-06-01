@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "check.v1 — the shape of a single validation rule",
+  "description": "A check is one validation rule, authored as data (never as validator code): it names what to inspect, which check-kind evaluates it, how hard it bites, and which suites run it. The validation engine loads every check file and dispatches each to its kind. This schema governs the rule's shape — its seven required fields and no others. It does not decide whether the named kind exists (an unknown kind is caught when the rule runs) or whether the rule's claim is true (only that the rule is well-formed).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "target", "kind", "params", "tier", "suites", "message"],
+  "properties": {
+    "id": {
+      "description": "The rule's stable, engine-namespaced name (for example engine/check/pr-body-completeness). It stays fixed so the rule's history can be tracked over time. Lower-case words and digits separated by slashes and hyphens.",
+      "type": "string",
+      "pattern": "^engine/check/[a-z0-9][a-z0-9-]*$"
+    },
+    "target": {
+      "description": "What the rule inspects: a repository file path or glob, a surface category from the ontology catalog, and/or a named context such as the pull-request body. At least one of these must be given.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "path": {
+          "description": "A file path or glob, relative to the repository root (for example **/*.md, or .engine/schemas/surface-catalog.json).",
+          "type": "string",
+          "minLength": 1
+        },
+        "surface": {
+          "description": "A surface category named in the ontology catalog (for example schema or check).",
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "description": "A named non-file context the rule reads instead of a file, for example pull-request-body.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "kind": {
+      "description": "Which check-kind evaluates this rule. The validation engine ships a closed core set (schema, presence, shape, and — added in a later slice — coverage and coherence, plus a custom/script escape hatch); a module may add more by providing a matching callable. A rule naming a kind the engine does not know is reported as a finding, never silently passed. This field is left as a free string (not a fixed list) so module-provided kinds stay valid.",
+      "type": "string",
+      "minLength": 1
+    },
+    "params": {
+      "description": "The settings this kind needs — for example the list of required sections for a presence check, or a schema reference for a schema check. The exact shape depends on the kind; an empty object is allowed.",
+      "type": "object"
+    },
+    "tier": {
+      "description": "How hard the rule bites: hard (a failure that, in the merge-gating suite, blocks the merge) or soft (a warning that never blocks). Whether a hard rule actually blocks depends on the suite that runs it — only the merge-gating suite stops a merge.",
+      "enum": ["hard", "soft"]
+    },
+    "suites": {
+      "description": "The suites this rule joins, named from the suite declarations. Membership runs this way round — each rule declares its own suites, and no central list enumerates them — so installing or removing a rule changes a suite's roster simply by adding or removing the file. At least one suite.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "message": {
+      "description": "The plain-language explanation shown when the rule finds a problem: what is wrong, why it matters, and how to fix it, written so a non-engineer reviewer and a remediating AI can both act on it. The schema checks the message is present; whether it is clearly written is a matter for review, which the validator cannot grade.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
