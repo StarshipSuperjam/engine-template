@@ -39,7 +39,9 @@ CHECK_DIR = os.path.join(ROOT, ".engine", "check")
 
 LINK_RE = re.compile(r"\]\(([^)]+)\)")
 HEADING_RE = re.compile(r"^##\s+(.*?)\s*$")          # a level-2 (## ) heading; ### does not match
-PLACEHOLDER_LINE_RE = re.compile(r"^\s*<[^>]*>\s*$")  # a template prompt, e.g. <why this change exists>
+PLACEHOLDER_RE = re.compile(r"^<[^>]*>$")             # a prompt token (decoration stripped), e.g. <why this exists>
+LIST_MARKER_RE = re.compile(r"^[-*+]\s+")             # a leading unordered-list bullet marker
+EMPHASIS_RE = re.compile(r"^(\*\*|__|\*|_)(.+?)\1$")  # a surrounding bold/italic emphasis wrapper
 
 
 # ---- finding.v1 ------------------------------------------------------------
@@ -95,9 +97,27 @@ def section_blocks(body: str) -> dict:
     return blocks
 
 
+def _placeholder_only(line: str) -> bool:
+    """True if the line, once its Markdown scaffolding is stripped — a leading list
+    marker and any surrounding bold/italic emphasis — is nothing but a single <...>
+    prompt token. So a decorated, unfilled template slot (**<summary>**, - <detail>,
+    *<Impact: ...>*) still counts as a placeholder, while a line carrying real text
+    (even one with an inline <token>) does not reduce to a bare token and is kept."""
+    s = LIST_MARKER_RE.sub("", line.strip()).strip()
+    prev = None
+    while prev != s:                       # peel possibly-nested emphasis wrappers
+        prev = s
+        m = EMPHASIS_RE.match(s)
+        if m:
+            s = m.group(2).strip()
+    return bool(PLACEHOLDER_RE.match(s))
+
+
 def is_empty_section(text: str) -> bool:
+    """Empty if every line is blank or a placeholder slot (decorated or bare). Any
+    line with real content makes the section non-empty, so a filled section passes."""
     for line in text.splitlines():
-        if not line.strip() or PLACEHOLDER_LINE_RE.match(line):
+        if not line.strip() or _placeholder_only(line):
             continue
         return False
     return True
