@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Surface catalog (the ontology meta-contract)",
+  "description": "The single schema-governed catalog enumerating one meta-contract record per engine surface. The meta-contract is the record shape every surface entry satisfies (see $defs/surfaceRecord). This catalog carries two laws of the grammar: (1) AMEND-FIRST — a surface is named in this catalog before any instance of it is authored, and rework of a surface amends this catalog first; the grammar precedes the content. (2) COVERAGE — every catalogued surface has its declared `location` home, no orphan surface directory exists, and no uncatalogued surface is in use; coverage staleness fails loud. Enforcement teeth for both arrive with the validation engine (the `coverage` check-kind); at this stage the catalog is committed as authored data and the two laws are documented, not yet machine-enforced. Membership stays sized to the v1 surface set by locking these laws, not the catalog's contents — a new surface attaches additively (an amend-first edit) without changing this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["surfaces"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional pointer from the catalog data file to this governing schema, for editor and tooling validation."
+    },
+    "surfaces": {
+      "type": "object",
+      "description": "One meta-contract record per surface, keyed by the surface's canonical name. The `name` meta-contract field is carried as the map key, so one-record-per-surface is structural (object keys are unique).",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/surfaceName" },
+      "additionalProperties": { "$ref": "#/$defs/surfaceRecord" }
+    }
+  },
+  "$defs": {
+    "surfaceName": {
+      "type": "string",
+      "description": "Canonical, glossary-aligned surface name (lowercase, hyphen-separated).",
+      "pattern": "^[a-z][a-z-]*$"
+    },
+    "surfaceRecord": {
+      "type": "object",
+      "description": "The surface meta-contract: the record every surface declaration satisfies. `name` is carried as the map key; the remaining seven authored fields are below. No other fields are permitted (the grammar does not invent record fields).",
+      "additionalProperties": false,
+      "required": ["class", "location", "purpose", "authority", "lifecycle", "governing_schema", "template"],
+      "properties": {
+        "class": {
+          "description": "Decides which governance applies. prose = body governed by a template, frontmatter by a schema; structured = whole file governed by a schema; code = governed by tests and lint, carrying neither schema nor template.",
+          "enum": ["prose", "structured", "code"]
+        },
+        "location": {
+          "description": "Where instances live, under the repository-topology placement law (one home per surface). Engine surfaces live under .engine/<surface>/; Claude-native surfaces (skill, agent) live where the tool dictates, under .claude/.",
+          "type": "string",
+          "pattern": "^\\.(engine|claude)/[A-Za-z0-9._-]+/$"
+        },
+        "purpose": {
+          "description": "One line: what the surface is for.",
+          "type": "string",
+          "minLength": 1
+        },
+        "authority": {
+          "description": "Semantic precedence — which statement governs when two disagree. Precedence: decisions > standing-rules > mechanics-and-guidance > derived-observational. Tiers 1-2 are reserved by law to the self-referential core (`contract` is the sole decisions surface; `policy` the sole standing-rules surface); additive surfaces occupy mechanics-and-guidance. derived-observational is the tier of system-owned outputs (reports, telemetry, knowledge-graph output), which are not catalogued; it is named here only for grammatical completeness.",
+          "enum": ["decisions", "standing-rules", "mechanics-and-guidance", "derived-observational"]
+        },
+        "lifecycle": {
+          "description": "Which lifecycle vocabulary instances follow. decision = proposed -> accepted -> superseded (supersession feeds authority resolution); artifact = active -> deprecated -> retired.",
+          "enum": ["decision", "artifact"]
+        },
+        "governing_schema": {
+          "description": "Reference to the schema governing the surface's structured content (the whole file for structured surfaces; the frontmatter for prose surfaces). null where none applies: code surfaces are not schema-governed, and a surface whose schema is authored in a later build slice carries null until then, filled by an amend-first catalog edit.",
+          "type": ["string", "null"]
+        },
+        "template": {
+          "description": "Reference to the surface's template (the scaffold-plus-shape-spec governing the prose body). Prose surfaces only; null for structured and code surfaces, and null for a prose surface whose template is authored in a later build slice (filled amend-first).",
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

@@ -71,9 +71,10 @@ unless a Dep says otherwise; the only hard rule is no slice precedes a slice it 
 **Catalog amend-first handling (applies to every surface-introducing slice):** per the ontology
 amend-first rule, a surface is named in the catalog *before* any instance is authored. Slice 1 enumerates
 the **full v1 surface set** — including the surfaces that never get a dedicated slice (`tool`,
-`operations`, `check`, `schema`, `template`) — OR each surface-introducing slice carries an explicit
+`operations`, `check`, `schema`) — OR each surface-introducing slice carries an explicit
 amend-the-catalog-first sub-step. Decide which at slice 1; either way no instance lands without its
-catalog record.
+catalog record. *(Slice-1 plan gate chose the full-enumeration-upfront branch. `template` is **not** a
+surface — it is the meta-contract `template` field; see the slice-1 resolution note below.)*
 
 ### Phase 0 — Preconditions (already satisfied)
 - `repository-topology` — satisfied-by-seed (above).
@@ -85,19 +86,29 @@ catalog record.
 ### Phase 1 — Grammar root (the dependency floor)
 1. **Ontology meta-contract + surface catalog + coverage.** *Delivers:* the surface meta-contract record,
    the single schema-governed catalog (one record per surface; self-referential core = `contract`,
-   `policy`, `schema`; **the full v1 surface set enumerated**, incl. `tool`/`operations`/`check`/
-   `template`), the amend-first rule, coverage-staleness notion. *Deps:* none — **the first core slice;
+   `policy`, `schema`; **the full v1 surface set enumerated**, incl. `tool`/`operations`/`check`),
+   the amend-first rule, coverage-staleness notion. *Deps:* none — **the first core slice;
    the root everything dereferences.** *Supersedes:* —. *Demo:* hand-edit a surface out of the catalog /
    add an `.engine/<surface>/` with no record → coverage drift surfaces (full teeth once slice 4 lands);
    restore → clean. *Consent:* ⚖️-light — **contagion note:** the catalog root propagates to every
    surface in every generated project; carry a named-residual consent line even though it has no runtime
    behavior. *Leaves:* catalog exact fields; each surface's engine-prefixed identifier scheme; **each
    prose surface's `location` directory name** (authored, not derivable — see slice 13).
+   *Plan-gate resolution (slice-1 session, decided with the maintainer):* `template` is **not** a
+   catalogued surface — the locked ontology makes `template` a meta-contract *field* (a reference to a
+   prose surface's template), and the locked templates spec calls it "templates-foundation machinery
+   referenced by the catalog, not a self-referential-core surface". The catalog therefore enumerates
+   **10** surfaces (`contract`, `policy`, `schema`, `check`, `tool`, `operation`, `skill`, `agent`,
+   `interface`, `doc`); the earlier "incl. `template`" wording here and the slice-3 title are corrected
+   to match the locked design (which governs over this revisable roadmap). The catalog is homed at
+   `.engine/schemas/` (it is itself a `schema` instance, so it lives where schema instances live);
+   `class` uses the closed `prose|structured|code` vocabulary; identifier-scheme and JSON-encoding
+   leaves are decided and recorded in the PR; every surface's `location` is pinned by this slice.
 2. **`schema` surface + the `finding.v1` base.** *Delivers:* the `schema` surface home + the canonical
    `finding.v1` base `{severity, message, location}` (D-113/D-115/D-118) every checker/finding rides.
    *Deps:* 1. *Supersedes:* —. *Demo:* a finding omitting a required base field fails schema validation;
    add it → passes. *Consent:* normal. *Leaves:* per-finding JSON Schema fields under the base.
-3. **`template` surface machinery.** *Delivers:* template = prose skeleton + structured shape-spec
+3. **`template` machinery (the templates foundation, referenced by the catalog's `template` field — not a catalogued surface).** *Delivers:* template = prose skeleton + structured shape-spec
    governed by a schema; the `catalog → template → shape-rules → instance` path; sections as the control,
    length as a `soft-warn` budget. *Deps:* 1, 2. *Supersedes:* —. *Demo:* author a prose surface from a
    template, drop a required section → shape check fires; restore → passes; over-length → soft note only.
