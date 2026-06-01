@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "finding.v1 — the canonical finding base",
+  "description": "The shared structural base every finding rides — produced by checkers, agent reviews, and telemetry alike (decision-log D-113). A finding is `{severity, message, location}`. This is the extracted common shape; consumers reference it by relative `$ref` and narrow or extend it via `allOf` (a check result narrows `severity` to its rule tier; an agent review/audit role narrows `severity` to its own set; the telemetry finding-record adds source and first/last-seen markers as siblings of these fields). The base is therefore an OPEN object — it sets no top-level `additionalProperties` bound — so those `allOf` extensions compose; a consumer that wants to close its own extended set uses `unevaluatedProperties`. This base ships as authored data; no engine validator enforces it until the validation dispatcher's `schema` kind lands. Its own well-formedness is checked against the JSON-Schema 2020-12 meta-schema.",
+  "type": "object",
+  "required": ["severity", "message", "location"],
+  "properties": {
+    "severity": {
+      "type": "string",
+      "description": "The finding's severity on the producing consumer's own axis — a per-consumer value the base deliberately leaves open (each consumer narrows it via its own schema). It is a backstage field, never rendered to a non-engineer: operator-facing surfaces translate it to plain language (the operator-communication leak guard, restated here so the shared field is not a leak vector). The base requires only that it is present and a string."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A clear, complete, plain-language statement of the finding — what is wrong, why it matters, and how to resolve it — written so both a non-engineer and a remediating AI can act on it, explaining rather than assuming any technical term. The base enforces presence; the clear-and-complete quality is a semantic standard, not mechanically gradable."
+    },
+    "location": {
+      "type": ["object", "null"],
+      "description": "Where the finding sits, or null when it has no file locus (e.g. a finding about a whole document or a non-file condition). When present it is a file reference with an optional line.",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Repository-relative path of the file the finding concerns."
+        },
+        "line": {
+          "type": ["integer", "null"],
+          "description": "1-based line number within the file, or null when the finding is not line-specific."
+        }
+      },
+      "required": ["file"],
+      "additionalProperties": false
+    }
+  }
+}
