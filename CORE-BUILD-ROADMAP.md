@@ -108,6 +108,14 @@ surface — it is the meta-contract `template` field; see the slice-1 resolution
    `finding.v1` base `{severity, message, location}` (D-113/D-115/D-118) every checker/finding rides.
    *Deps:* 1. *Supersedes:* —. *Demo:* a finding omitting a required base field fails schema validation;
    add it → passes. *Consent:* normal. *Leaves:* per-finding JSON Schema fields under the base.
+   *Plan-gate resolution (slice-2 session):* `finding.v1` is authored at `.engine/schemas/finding.v1.json`
+   to match the shape the seed validator already emits — `location` is `object|null`; the object is closed
+   (`file` required, `line` typed `integer|null`, no extras), so every seed finding conforms and slice 4's
+   dispatcher inherits a satisfied base. The base is an open object (no top-level `additionalProperties`) so
+   consumers extend it via `allOf`; it carries no `$id` (consumers reference it by relative path, the
+   slice-1 precedent — a bare `urn:` `$ref` does not resolve under the validator). `severity` is left open
+   at the base (per-consumer, backstage, never-rendered). No catalog amend and no agents/telemetry/check
+   edit (D-113: additive instance, schemas/agents do not re-lock). Enforcement teeth deferred to slice 4.
 3. **`template` machinery (the templates foundation, referenced by the catalog's `template` field — not a catalogued surface).** *Delivers:* template = prose skeleton + structured shape-spec
    governed by a schema; the `catalog → template → shape-rules → instance` path; sections as the control,
    length as a `soft-warn` budget. *Deps:* 1, 2. *Supersedes:* —. *Demo:* author a prose surface from a
