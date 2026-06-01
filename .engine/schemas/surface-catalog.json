@@ -1,0 +1,95 @@
+{
+  "$schema": "./surface-catalog.schema.json",
+  "surfaces": {
+    "contract": {
+      "class": "prose",
+      "location": ".engine/contracts/",
+      "purpose": "Architecturally significant decision records — one decision each, with rationale and the rejected alternative; the top authority tier, file-per-decision, append-only.",
+      "authority": "decisions",
+      "lifecycle": "decision",
+      "governing_schema": null,
+      "template": null
+    },
+    "policy": {
+      "class": "prose",
+      "location": ".engine/policies/",
+      "purpose": "Standing rules — ongoing directives that govern behavior across sessions; the second authority tier.",
+      "authority": "standing-rules",
+      "lifecycle": "decision",
+      "governing_schema": null,
+      "template": null
+    },
+    "schema": {
+      "class": "structured",
+      "location": ".engine/schemas/",
+      "purpose": "Structural contracts — JSON Schema (2020-12) declaring the shape of structured files and of prose frontmatter.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": "https://json-schema.org/draft/2020-12/schema",
+      "template": null
+    },
+    "check": {
+      "class": "structured",
+      "location": ".engine/check/",
+      "purpose": "Declarative validation rules the validator dispatches (target, kind, params, tier, suites, message) — authored as data, never as validator code.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": null,
+      "template": null
+    },
+    "tool": {
+      "class": "code",
+      "location": ".engine/tools/",
+      "purpose": "The engine's executable machinery — the validator, hooks, MCP servers, the wiring library, and interface implementations.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": null,
+      "template": null
+    },
+    "operation": {
+      "class": "prose",
+      "location": ".engine/operations/",
+      "purpose": "The authoritative steps of a multi-step engine procedure performed by reading-and-following; one procedure, one home, referenced by its invokers rather than restated.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": null,
+      "template": null
+    },
+    "skill": {
+      "class": "prose",
+      "location": ".claude/skills/",
+      "purpose": "In-session procedures (Claude Code SKILL.md, progressive disclosure), engine-prefixed; invoked per the model-auto / operator-typed / model-only axis.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": null,
+      "template": null
+    },
+    "agent": {
+      "class": "prose",
+      "location": ".claude/agents/",
+      "purpose": "Personas the engine runs for a trigger (review, worker, and audit roles), routed by role, lens, model tier, permissions, and output contract.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": null,
+      "template": null
+    },
+    "interface": {
+      "class": "structured",
+      "location": ".engine/interfaces/",
+      "purpose": "Protocol contracts — a stable callable boundary a swappable implementation satisfies; implementations bind by presence, resolve single-active, and name a fallback.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": null,
+      "template": null
+    },
+    "doc": {
+      "class": "prose",
+      "location": ".engine/docs/",
+      "purpose": "Operator-facing, hand-authored plain-language explanations of the engine — written for the human, not the AI.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": null,
+      "template": null
+    }
+  }
+}
