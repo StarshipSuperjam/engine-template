@@ -8,7 +8,7 @@ Engine release `0.0.0-dev` · identity `solo`
 
 ## Surfaces
 
-Every kind of file the engine governs — one home and one authority each (10 surfaces).
+Every kind of file the engine governs — one home and one authority each (11 surfaces).
 
 | surface | purpose | home | authority | lifecycle | class |
 | --- | --- | --- | --- | --- | --- |
@@ -21,6 +21,7 @@ Every kind of file the engine governs — one home and one authority each (10 su
 | `policy` | Standing rules — ongoing directives that govern behavior across sessions; the second authority tier. | `.engine/policies/` | standing-rules | decision | prose |
 | `schema` | Structural contracts — JSON Schema (2020-12) declaring the shape of structured files and of prose frontmatter. | `.engine/schemas/` | mechanics-and-guidance | artifact | structured |
 | `skill` | In-session procedures (Claude Code SKILL.md, progressive disclosure), engine-prefixed; invoked per the model-auto / operator-typed / model-only axis. | `.claude/skills/` | mechanics-and-guidance | artifact | prose |
+| `state` | The project's committed cursor — the small pointers-and-counts file that answers 'where does the work stand?' at the start of every session, and stays readable when online services are down. | `.engine/state/` | mechanics-and-guidance | artifact | structured |
 | `tool` | The engine's executable machinery — the validator, hooks, MCP servers, the wiring library, and interface implementations. | `.engine/tools/` | mechanics-and-guidance | artifact | code |
 
 ## Modules
@@ -34,5 +35,6 @@ The packages your engine is assembled from, and how they wire together (1 instal
   - check: `.engine/check/*.json`
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - schema: `.engine/schemas/*.json`
+  - state: `.engine/state/*.json`
   - tool: `.engine/tools/*.py`
 - wires: none (this module adds no shared-state edits)
