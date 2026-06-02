@@ -50,7 +50,8 @@
           "module:core"
         ],
         "targets": [
-          "interface:knowledge-retrieval"
+          "interface:knowledge-retrieval",
+          "interface:search"
         ]
       },
       "slug": "interface-declaration",
@@ -215,6 +216,25 @@
       "source": {
         "fingerprint": "sha256:e5d7dfc15bfa8c85aca0ce7396d23c9d89edbaf5ffb1b857df64b20225b52858",
         "path": ".engine/interfaces/knowledge-retrieval.json"
+      },
+      "type": "interface"
+    },
+    {
+      "id": "interface:search",
+      "name": ".engine/interfaces/search.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:interface.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "search",
+      "source": {
+        "fingerprint": "sha256:c6a2315b8068f2b851a71296647eb001442d4e4e5acd0ff8e5b0341da9a1995e",
+        "path": ".engine/interfaces/search.json"
       },
       "type": "interface"
     },
@@ -564,7 +584,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:57a57292b3412cecdd7e3a33f949378343da4be8ebdc54d492c03837702a4cf3",
+        "fingerprint": "sha256:2c6c746cba0a505a6d4afd04f6d16bcc8d6a8b9a00ad9ff2b38ef3828ecccc64",
         "path": ".engine/tools/test_interface.py"
       },
       "type": "tool"
@@ -580,7 +600,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:00527523e3e2cf5510d66ca6283ba88b2c717095211704c1b9846b3ced652e0c",
+        "fingerprint": "sha256:577af0f7f688cfe7cdab6f856da421c778d18fb549894f9b77b65756b56c3819",
         "path": ".engine/tools/test_knowledge.py"
       },
       "type": "tool"
