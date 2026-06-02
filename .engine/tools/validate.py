@@ -350,9 +350,32 @@ def kind_coverage(rule, ctx):
         return _coverage_links(rule, ctx)
     if mode == "catalog":
         return _coverage_catalog(rule, ctx)
+    if mode == "fingerprint":
+        return _coverage_fingerprint(rule, ctx)
     tier = rule["tier"]
     return False, [finding(tier, f"Check rule '{rule.get('id')}' (kind 'coverage') names an "
                    f"unrecognized mode '{mode}'; cannot evaluate (fails closed).")]
+
+
+def _coverage_fingerprint(rule, ctx):
+    """Knowledge fingerprint-coverage (§16 detection relay, decision-log D-090): re-derive the
+    knowledge graph from the current surfaces and compare to the committed entities, so a surface
+    that changed/was added/was removed without an entity regen is caught at CI. Detection is
+    KNOWLEDGE's — this RELAYS to knowledge_gen.check() (the self-map drift-gate model), holding zero
+    derivation logic here. The import is DEFERRED (function-local) so the coverage kind loads no
+    module at import time; it resolves wherever this rule runs (.engine/tools/ is on sys.path). Any
+    failure to load or derive FAILS CLOSED as a hard finding at the rule's tier — the gate cannot
+    silently pass when the graph is missing or the generator is broken. The drift finding (when it
+    fires) is knowledge's own plain-language message naming the regenerate fix."""
+    tier = rule["tier"]
+    try:
+        import knowledge_gen  # deferred sibling import; resolves in CLI/import/test contexts
+        f = knowledge_gen.check(tier=tier)
+    except Exception as exc:
+        return False, [finding(tier, f"Check rule '{rule.get('id')}' could not verify the knowledge "
+                       f"graph (fingerprint coverage): {exc} (fails closed). {rule.get('message', '')}")]
+    findings = [f] if f.get("severity") == "hard" else []
+    return (len(findings) == 0), findings
 
 
 def _coverage_links(rule, ctx):
