@@ -48,10 +48,10 @@
       "enum": ["hard", "soft"]
     },
     "suites": {
-      "description": "The suites this rule joins, named from the suite declarations. Membership runs this way round — each rule declares its own suites, and no central list enumerates them — so installing or removing a rule changes a suite's roster simply by adding or removing the file. At least one suite.",
+      "description": "The suites this rule joins, named from the suite declarations. Membership runs this way round — each rule declares its own suites, and no central list enumerates them — so installing or removing a rule changes a suite's roster simply by adding or removing the file. An empty list is allowed and means the rule joins no trigger-driven suite because it is invoked directly instead — run by id from its own workflow, as the guardrail-weakening guard is — not an accidentally-inert rule.",
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "minItems": 1,
+      "minItems": 0,
       "uniqueItems": true
     },
     "message": {

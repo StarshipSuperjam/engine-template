@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guardrail-weakening classifier (stage-0 seed).
+"""Guardrail-weakening classifier (stage-0 seed; re-homed onto custom/script in core slice 5b).
 
 Runs on pull_request_target so its logic is read from the protected base branch
 — a pull request cannot tamper with the guard that judges it. It READS THE DIFF
@@ -13,6 +13,18 @@ workflow, a check rule, an engine tool, or CODEOWNERS). A flagged change blocks
 the merge until the operator applies the distinct, deliberate acknowledgment —
 the `guardrail-ack` label — after reading, in plain language, what protection
 could weaken (control-plane §weakening hard-gate; D-051 / D-134; principles §15).
+
+It now runs as a frozen-named `custom/script` check rule (engine/check/guardrail-weakening),
+invoked BY ID from engine-guard.yml (`validate.py --check`), NOT as part of the CI
+suite — so its execution stays on the trusted-base pull_request_target workflow and
+never moves into the head-checkout engine-ci context (the D-051 isolation). It emits
+finding.v1 JSON on stdout (the custom/script machine channel) and returns 0 on a
+successful evaluation: an empty array when nothing weakens or the `guardrail-ack`
+label is present (the ack is an INPUT to this one guard, D-134); one finding at the
+rule's tier (ENGINE_RULE_TIER, passed by the kind) — carrying the plain-language
+ack guidance — on an unacknowledged guardrail change; and a fail-closed finding when
+the pull-request context cannot be read. An internal crash returns non-zero, which
+the custom/script kind turns into a hard fail-closed finding (defense in depth).
 
 Honest bound: in solo the operator holds admin and could bypass the ruleset, so
 this makes weakening NON-SILENT and DELIBERATE ("cannot weaken silently"), not
@@ -74,51 +86,58 @@ def api_get(path: str, token: str):
         return json.loads(resp.read().decode("utf-8"))
 
 
+def emit(findings: list) -> int:
+    """Write the finding.v1 array to stdout (the custom/script machine channel) and return
+    0 — a successful evaluation, whatever it found. Each finding carries its own severity;
+    the dispatcher's custom/script kind decides where the teeth land. Human-readable prose
+    — including the deliberate guardrail-ack guidance — lives inside each finding's
+    `message`, so stdout stays pure JSON."""
+    print(json.dumps(findings))
+    return 0
+
+
 def main() -> int:
+    tier = os.environ.get("ENGINE_RULE_TIER", "hard")  # the rule's tier, passed by the kind
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     token = os.environ.get("GITHUB_TOKEN", "")
     event_path = os.environ.get("GITHUB_EVENT_PATH", "")
     if not (repo and token and event_path and os.path.exists(event_path)):
-        print("GUARDRAIL CHECK: could not read the pull request context; failing closed.")
-        return 1
+        # Fail closed: a required check that cannot read the PR context blocks until it can.
+        return emit([{"severity": tier, "location": None,
+                      "message": "GUARDRAIL CHECK: could not read the pull request "
+                      "context; failing closed."}])
     with open(event_path, encoding="utf-8") as fh:
         event = json.loads(fh.read())
     pr = event.get("pull_request") or {}
     number = pr.get("number")
     labels = {l.get("name") for l in (pr.get("labels") or [])}
     if number is None:
-        print("GUARDRAIL CHECK: no pull request number in the event; failing closed.")
-        return 1
-
+        return emit([{"severity": tier, "location": None,
+                      "message": "GUARDRAIL CHECK: no pull request number in the "
+                      "event; failing closed."}])
     try:
         files = api_get(f"/repos/{repo}/pulls/{number}/files?per_page=100", token)
     except Exception as e:  # fail closed — never wave a change through unjudged
-        print(f"GUARDRAIL CHECK: could not read the changed files ({e}); failing closed.")
-        return 1
+        return emit([{"severity": tier, "location": None,
+                      "message": f"GUARDRAIL CHECK: could not read the changed files "
+                      f"({e}); failing closed."}])
 
     flagged = flagged_changes(files)
-
     if not flagged:
-        print("GUARDRAIL CHECK: no guardrail-weakening change detected.")
-        return 0
-
+        return emit([])  # no guardrail-weakening change
     if ACK_LABEL in labels:
-        print(f"GUARDRAIL CHANGE acknowledged via the `{ACK_LABEL}` label:")
-        for status, shown in flagged:
-            print(f"  - {status}: {shown}")
-        return 0
+        return emit([])  # acknowledged via the label -> cleared (the ack is an INPUT here, D-134)
 
-    print("GUARDRAIL CHANGE DETECTED — this pull request changes files that "
-          "enforce your safety gates:")
-    for status, shown in flagged:
-        print(f"  - {status}: {shown}")
-    print("\nIf merged unwatched, a safety check could be turned off, renamed, or "
-          "loosened — letting future changes reach the protected branch without "
-          "being checked.\n"
-          f"To approve this deliberately, apply the `{ACK_LABEL}` label to this "
-          "pull request (one deliberate action, distinct from the merge click). "
-          "Until then, this check blocks the merge.")
-    return 1
+    listing = "\n".join(f"  - {status}: {shown}" for status, shown in flagged)
+    return emit([{"severity": tier, "location": None,
+                  "message": "GUARDRAIL CHANGE DETECTED — this pull request changes "
+                  "files that enforce your safety gates:\n" + listing + "\n\n"
+                  "If merged unwatched, a safety check could be turned off, renamed, or "
+                  "loosened — letting future changes reach the protected branch without "
+                  "being checked.\n"
+                  f"To approve this deliberately, apply the `{ACK_LABEL}` label to this "
+                  "pull request (one deliberate action, distinct from the merge click). "
+                  "Until then, this check blocks the merge."}])
 
 
 if __name__ == "__main__":

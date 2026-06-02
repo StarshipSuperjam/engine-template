@@ -620,5 +620,153 @@ class TestProtectionReHome(unittest.TestCase):
         self.assertIn("not fully in force", out[0]["message"])
 
 
+# ---- slice 5b: re-home the weakening guard as a custom/script rule (D-051) ----
+
+class TestWeakeningReHome(unittest.TestCase):
+    """The re-homed weakening guard emits finding.v1 JSON via the custom/script contract:
+    [] when nothing weakens or the ack label is present, one hard finding (carrying the
+    plain-language ack guidance) on an unacknowledged guardrail change, and a hard
+    fail-closed finding when the pull-request context cannot be read."""
+
+    def _main_json(self, event, files):
+        import contextlib
+        import io
+        saved, orig_api = dict(os.environ), weakening_guard.api_get
+        buf = io.StringIO()
+        with tempfile.TemporaryDirectory() as d:
+            ep = os.path.join(d, "event.json")
+            with open(ep, "w", encoding="utf-8") as fh:
+                json.dump(event, fh)
+            os.environ.update({"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "x",
+                               "ENGINE_RULE_TIER": "hard", "GITHUB_EVENT_PATH": ep})
+            weakening_guard.api_get = lambda path, token: files
+            try:
+                with contextlib.redirect_stdout(buf):
+                    rc = weakening_guard.main()
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+                weakening_guard.api_get = orig_api
+        return rc, json.loads(buf.getvalue())
+
+    def test_no_weakening_is_empty_and_exit_zero(self):
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": "README.md", "status": "modified"}])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, [])
+
+    def test_unacked_weakening_is_one_hard_with_ack_guidance(self):
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/tools/validate.py", "status": "modified"}])
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("guardrail-ack", out[0]["message"])  # the informed-consent surface (D-134)
+
+    def test_ack_label_clears_to_empty(self):
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+            [{"filename": ".engine/tools/validate.py", "status": "modified"}])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, [])
+
+    def test_missing_pr_context_is_hard_fail_closed(self):
+        import contextlib
+        import io
+        saved = dict(os.environ)
+        for k in ("GITHUB_REPOSITORY", "GITHUB_TOKEN", "GITHUB_EVENT_PATH"):
+            os.environ.pop(k, None)
+        os.environ["ENGINE_RULE_TIER"] = "hard"
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = weakening_guard.main()
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        out = json.loads(buf.getvalue())
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+
+
+class TestRunCheckById(unittest.TestCase):
+    """validate.py --check <id> runs ONE rule by id, outside any suite: it gates on a
+    hard finding (exit 1 / 0 clean / 2 on unknown id), fails closed on a dangling or
+    erroring kind, and does NOT load suites.json (the D-051 isolation from the suite grammar)."""
+    def setUp(self):
+        self._rules, self._reg, self._suites = (
+            validate.load_rules, dict(validate.REGISTRY), validate.SUITES_PATH)
+
+    def tearDown(self):
+        validate.load_rules = self._rules
+        validate.SUITES_PATH = self._suites
+        validate.REGISTRY.clear()
+        validate.REGISTRY.update(self._reg)
+
+    def _install(self, kind_fn, kind="synthetic", tier="hard", rid="engine/check/synthetic"):
+        validate.load_rules = lambda: [{"id": rid, "kind": kind, "tier": tier,
+                                        "suites": [], "params": {}}]
+        validate.REGISTRY[kind] = kind_fn
+
+    def test_hard_finding_exits_one(self):
+        self._install(lambda rule, ctx: (False, [validate.finding("hard", "boom")]))
+        self.assertEqual(validate.run_check("engine/check/synthetic", {}), 1)
+
+    def test_clean_exits_zero(self):
+        self._install(lambda rule, ctx: (True, []))
+        self.assertEqual(validate.run_check("engine/check/synthetic", {}), 0)
+
+    def test_soft_only_exits_zero(self):
+        self._install(lambda rule, ctx: (False, [validate.finding("soft", "note")]))
+        self.assertEqual(validate.run_check("engine/check/synthetic", {}), 0)
+
+    def test_unknown_id_exits_two(self):
+        self._install(lambda rule, ctx: (True, []))
+        self.assertEqual(validate.run_check("engine/check/nope", {}), 2)
+
+    def test_dangling_kind_fails_closed(self):
+        validate.load_rules = lambda: [{"id": "engine/check/x", "kind": "ghost",
+                                        "tier": "hard", "suites": [], "params": {}}]
+        self.assertEqual(validate.run_check("engine/check/x", {}), 1)
+
+    def test_erroring_kind_fails_closed(self):
+        def boom(rule, ctx):
+            raise RuntimeError("kaboom")
+        self._install(boom)
+        self.assertEqual(validate.run_check("engine/check/synthetic", {}), 1)
+
+    def test_does_not_load_suites_json(self):
+        # Point SUITES_PATH at garbage; a by-id run must still work — it never reads the
+        # suite declarations, so a broken/loosened suites.json cannot strand the guard.
+        with tempfile.TemporaryDirectory() as d:
+            validate.SUITES_PATH = _write(d, "suites.json", "{ not json")
+            self._install(lambda rule, ctx: (True, []))
+            self.assertEqual(validate.run_check("engine/check/synthetic", {}), 0)
+
+
+class TestGuardRuleIsolation(unittest.TestCase):
+    """The re-homed weakening guard joins NO suite (suites: []), so the head-checkout CI
+    suite can never run it — it is invoked only by id from engine-guard.yml, which runs
+    from the trusted base (D-051). The rule is also well-formed under check.v1.json."""
+    def _guard_rule(self):
+        return validate.load_json(os.path.join(validate.CHECK_DIR, "guardrail-weakening.json"))
+
+    def test_guard_rule_joins_no_suite(self):
+        self.assertEqual(self._guard_rule().get("suites"), [])
+
+    def test_ci_roster_excludes_the_guard(self):
+        # Over the real committed rules, the CI suite roster never includes the guard.
+        ci = [r["id"] for r in validate.load_rules() if "CI" in r.get("suites", [])]
+        self.assertNotIn("engine/check/guardrail-weakening", ci)
+
+    def test_guard_rule_validates_against_check_schema(self):
+        schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))
+        errs = list(validate.Draft202012Validator(schema).iter_errors(self._guard_rule()))
+        self.assertEqual(errs, [])
+
+
 if __name__ == "__main__":
     unittest.main()
