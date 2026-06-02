@@ -46,8 +46,11 @@ import validate  # noqa: E402
 ENGINE_MANIFEST_REL = ".engine/engine.json"
 NAMED_INFRA = {ENGINE_MANIFEST_REL, ".engine/pyproject.toml", ".engine/uv.lock"}
 
-# Directories under .engine/ that are regenerable derivatives or caches — never owned files.
-PRUNE_DIRS = {".venv", "__pycache__"}
+# Directories under .engine/ that are regenerable derivatives or caches — never owned files. The
+# inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts
+# (the uv venv, Python bytecode, and knowledge's derived `.cache/` query index, slice 11). Pruning
+# them keeps the ownership leg from flagging a derived cache as an unowned orphan.
+PRUNE_DIRS = {".venv", "__pycache__", ".cache"}
 
 MODULES_GLOB = ".engine/modules/*/manifest.json"
 

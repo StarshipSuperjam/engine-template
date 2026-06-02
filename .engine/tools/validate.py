@@ -567,6 +567,56 @@ def ownership_findings(inventory: list, claims: dict, exempt, tier: str, message
     return findings
 
 
+def interface_resolution_findings(interfaces: list, present_impls: dict, present_handles, tier: str,
+                                  message: str) -> list:
+    """Single-active resolution + structural conformance for the declared interfaces — the locked
+    `coherence` posture for interfaces (introduces no new check-kind, surfaces never silently picks).
+    The third coherence concern beside dependency-coherence (coherence_findings) and ownership
+    (ownership_findings). Pure + fixture-testable.
+
+    `interfaces` is the list of interface declaration dicts; `present_impls` maps an interface id to
+    the present NON-DEFAULT implementations [{'handle': ..., 'operations': [op-name, ...]}, ...]
+    discovered by presence; `present_handles` is the set of all present/answerable implementation
+    handles (default fallback and non-default alike). Findings:
+      - HARD: more than one non-default implementation present for one interface — exactly one may
+        answer (single-active; a silent arbitrary pick is the trust breach the design forbids).
+      - HARD: a present implementation that does not provide every operation the interface declares
+        (structural conformance; full behavioural equivalence is a test concern, not a check).
+      - NOTE: an interface with no non-default implementation whose named fallback is not yet present
+        — an expected pending-setup state (e.g. a fallback that ships with a later module), surfaced
+        as setup, never as coherence drift.
+
+    No live rule wires this in core: only the shipped fallback is present and the module manager that
+    installs richer implementations is a later slice, so the single-active finding has nothing live to
+    fire on (the slice-6 coherence_findings/ownership_findings precedent — built + fixture-tested, no
+    live rule). The module manager discovers the present set and runs this post-install."""
+    present_handles = set(present_handles or [])
+    findings = []
+    for decl in interfaces:
+        iface_id = decl.get("id")
+        declared_ops = {op.get("name") for op in (decl.get("operations") or [])}
+        fallback_handle = (decl.get("fallback") or {}).get("handle")
+        impls = [im for im in (present_impls.get(iface_id) or [])
+                 if im.get("handle") != fallback_handle]
+        if len(impls) > 1:
+            handles = ", ".join(sorted(str(im.get("handle")) for im in impls))
+            findings.append(finding(tier, f"Interface '{iface_id}' has more than one implementation "
+                            f"present ({handles}); exactly one may answer (single-active). Remove all "
+                            f"but one. {message}"))
+        for im in impls:
+            missing = sorted(declared_ops - set(im.get("operations") or []))
+            if missing:
+                findings.append(finding(tier, f"Implementation '{im.get('handle')}' for interface "
+                                f"'{iface_id}' does not provide the operation(s) {missing} the "
+                                f"interface declares. {message}"))
+        if not impls and fallback_handle not in present_handles:
+            findings.append(finding("note", f"Interface '{iface_id}' is answered by its named "
+                            f"fallback '{fallback_handle}', which is not yet present — an expected "
+                            f"pending-setup state (its implementation ships with a later module). "
+                            f"{message}"))
+    return findings
+
+
 def kind_coherence(rule, ctx):
     """The installed module set is consistent. A directly-callable library entry the
     slice-6 module manager invokes right after an install; the manifests it reads land with

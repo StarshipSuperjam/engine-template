@@ -9,3 +9,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+# BEGIN engine-managed block: core-knowledge-cache - do not edit inside
+.engine/knowledge/.cache/
+# END engine-managed block: core-knowledge-cache
