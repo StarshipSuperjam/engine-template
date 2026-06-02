@@ -79,7 +79,7 @@
       "purpose": "Protocol contracts — a stable callable boundary a swappable implementation satisfies; implementations bind by presence, resolve single-active, and name a fallback.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
-      "governing_schema": null,
+      "governing_schema": "interface.v1.json",
       "template": null
     },
     "doc": {

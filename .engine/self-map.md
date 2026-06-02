@@ -34,8 +34,9 @@ The packages your engine is assembled from, and how they wire together (1 instal
 - provides:
   - check: `.engine/check/*.json`
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
+  - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
   - schema: `.engine/schemas/*.json`
   - state: `.engine/state/*.json`
   - tool: `.engine/tools/*.py`
-- wires: none (this module adds no shared-state edits)
+- wires: gitignore, mcp

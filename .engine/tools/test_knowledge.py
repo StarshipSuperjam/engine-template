@@ -122,6 +122,21 @@ class TestLiveDerivation(unittest.TestCase):
         # the module entity exists
         self.assertIn("module:core", self.by_id)
 
+    def test_known_edges_for_the_interface_and_its_declaration_check(self):
+        # slice 11a: the interface declaration is governed by interface.v1 (the catalog
+        # governing_schema flip) and provided by core; the interface-declaration check targets it.
+        # The non-fingerprint correlate for edge correctness — the fingerprint gate proves the graph
+        # MATCHES the surfaces, never that the derived edges are right; this asserts the edges.
+        iface = self.by_id.get("interface:knowledge-retrieval")
+        self.assertIsNotNone(iface, "expected an interface:knowledge-retrieval entity")
+        self.assertEqual(iface["predicates"].get("governed_by"), ["schema:interface.v1"])
+        self.assertEqual(iface["predicates"].get("provided_by"), ["module:core"])
+        self.assertIn("schema:interface.v1", self.by_id)
+        chk = self.by_id.get("check:interface-declaration")
+        self.assertIsNotNone(chk, "expected a check:interface-declaration entity")
+        self.assertEqual(chk["predicates"].get("targets"), ["interface:knowledge-retrieval"])
+        self.assertEqual(chk["predicates"].get("governed_by"), ["schema:check.v1"])
+
     def test_schema_surface_files_have_no_governed_by(self):
         """A schema file's governing authority is the external 2020-12 dialect (a URI), not an in-repo
         schema entity, so it carries no governed_by edge — by design, not a gap."""

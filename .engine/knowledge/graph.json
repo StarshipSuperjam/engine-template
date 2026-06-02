@@ -39,6 +39,28 @@
       "type": "check"
     },
     {
+      "id": "check:interface-declaration",
+      "name": ".engine/check/interface-declaration.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "targets": [
+          "interface:knowledge-retrieval"
+        ]
+      },
+      "slug": "interface-declaration",
+      "source": {
+        "fingerprint": "sha256:a68a3f7e72758c8340e7cb4a5629218dc94a3e23e5b461d45be10b0415bbbeee",
+        "path": ".engine/check/interface-declaration.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:knowledge-coverage",
       "name": ".engine/check/knowledge-coverage.json",
       "owner": "core",
@@ -178,13 +200,32 @@
       "type": "check"
     },
     {
+      "id": "interface:knowledge-retrieval",
+      "name": ".engine/interfaces/knowledge-retrieval.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:interface.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "knowledge-retrieval",
+      "source": {
+        "fingerprint": "sha256:e5d7dfc15bfa8c85aca0ce7396d23c9d89edbaf5ffb1b857df64b20225b52858",
+        "path": ".engine/interfaces/knowledge-retrieval.json"
+      },
+      "type": "interface"
+    },
+    {
       "id": "module:core",
       "name": "core",
       "owner": "core",
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a237934f504ddf723a179ef0978903eba848423251a8091dc77041d4b9993fba",
+        "fingerprint": "sha256:9af8c0dac9389ee450ec7bce7c1917d04c8807a27948b75c3e99d114dbefb4e7",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -234,6 +275,22 @@
       "source": {
         "fingerprint": "sha256:4f45d0691dd42cacd1f324c216d843c3f7f95b8ddde1be837d712d31ec613f9e",
         "path": ".engine/schemas/finding.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:interface.v1",
+      "name": ".engine/schemas/interface.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "interface.v1",
+      "source": {
+        "fingerprint": "sha256:9aed92f1a9b34679098d9e89931e6a66431d8538c43970553a56d63a623cabe7",
+        "path": ".engine/schemas/interface.v1.json"
       },
       "type": "schema"
     },
@@ -312,7 +369,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:210e1d07d38233d5ba4c024321b0b3a7c890c8d4e47eea690f34cd63650c3286",
+        "fingerprint": "sha256:54b56f20093eaabc70c409272915b066631e429b2fcc492d16e30e2c0c92316c",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "type": "schema"
@@ -385,6 +442,54 @@
       "type": "tool"
     },
     {
+      "id": "tool:knowledge_index",
+      "name": ".engine/tools/knowledge_index.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "knowledge_index",
+      "source": {
+        "fingerprint": "sha256:1f5b24592196974520d7a8f7a4fff152b0b7639b516e94bde297b158814faac1",
+        "path": ".engine/tools/knowledge_index.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:knowledge_mcp_server",
+      "name": ".engine/tools/knowledge_mcp_server.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "knowledge_mcp_server",
+      "source": {
+        "fingerprint": "sha256:f2c2e05a6d55617a726a1b6201eaf13e53d54c8475fc8ae1cd9ed068865ed379",
+        "path": ".engine/tools/knowledge_mcp_server.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:knowledge_query",
+      "name": ".engine/tools/knowledge_query.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "knowledge_query",
+      "source": {
+        "fingerprint": "sha256:23813fe79c55dde591736f56a6935c231af5132aee79e8bf80ae510c9f00ea65",
+        "path": ".engine/tools/knowledge_query.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:module_coherence",
       "name": ".engine/tools/module_coherence.py",
       "owner": "core",
@@ -395,7 +500,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:35358613364c27e0d54035ff5ff0deca09794f8239b91470e50f87108c18d305",
+        "fingerprint": "sha256:50d75254a95b369421f956a1cce89439c93e91ec00287e56ec2f385a17add82b",
         "path": ".engine/tools/module_coherence.py"
       },
       "type": "tool"
@@ -449,6 +554,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_interface",
+      "name": ".engine/tools/test_interface.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_interface",
+      "source": {
+        "fingerprint": "sha256:57a57292b3412cecdd7e3a33f949378343da4be8ebdc54d492c03837702a4cf3",
+        "path": ".engine/tools/test_interface.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_knowledge",
       "name": ".engine/tools/test_knowledge.py",
       "owner": "core",
@@ -459,8 +580,24 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:f88f74abe2c60e5dc92b309eac015d933619b290e5eeb391afd57b2e84061c2a",
+        "fingerprint": "sha256:00527523e3e2cf5510d66ca6283ba88b2c717095211704c1b9846b3ced652e0c",
         "path": ".engine/tools/test_knowledge.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_knowledge_query",
+      "name": ".engine/tools/test_knowledge_query.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_knowledge_query",
+      "source": {
+        "fingerprint": "sha256:ba7a8692b5e1e897cdcea79eacdc1d58905e4775e0ba47f49552515b6d5c6198",
+        "path": ".engine/tools/test_knowledge_query.py"
       },
       "type": "tool"
     },
@@ -555,7 +692,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:4cb9727918e5d569276a143ad5788e9c8d813d318638fecdd18cf3003e7da612",
+        "fingerprint": "sha256:fa647f3da3d68e18df55225e8c5f549884b6bc694ada2c3c96cfb8cb0889c7fc",
         "path": ".engine/tools/validate.py"
       },
       "type": "tool"
