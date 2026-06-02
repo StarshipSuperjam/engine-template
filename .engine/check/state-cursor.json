@@ -1,0 +1,9 @@
+{
+  "id": "engine/check/state-cursor",
+  "target": { "path": ".engine/state/state.json" },
+  "kind": "schema",
+  "params": {},
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "The project's state cursor (.engine/state/state.json) must match state.v1.json — the small pointers-and-counts file that says where the work stands. If it is not valid JSON, or its shape is wrong, it is refused rather than read, because a corrupt cursor would silently mislead every session about the project's status. This check reports the exact problem in plain language and the session does not crash. It catches a broken SHAPE only: a cursor whose shape is fine but whose values are wrong (a wrong milestone, a stale count) passes here and is caught instead by the operator reviewing the committed change. The cursor's schema is resolved through the surface catalog (the 'state' surface), so this rule names no schema directly. Fix the file to match state.v1.json before merging."
+}
