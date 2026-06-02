@@ -1,8 +1,9 @@
 {
   "id": "engine/check/link-integrity",
   "target": { "path": "**/*.md" },
-  "kind": "link-integrity",
+  "kind": "coverage",
   "params": {
+    "mode": "links",
     "exclude_dirs": [".git", ".engine/.venv"]
   },
   "tier": "hard",

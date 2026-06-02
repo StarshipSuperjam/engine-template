@@ -35,7 +35,7 @@
       }
     },
     "kind": {
-      "description": "Which check-kind evaluates this rule. The validation engine ships a closed core set (schema, presence, shape, and — added in a later slice — coverage and coherence, plus a custom/script escape hatch); a module may add more by providing a matching callable. A rule naming a kind the engine does not know is reported as a finding, never silently passed. This field is left as a free string (not a fixed list) so module-provided kinds stay valid.",
+      "description": "Which check-kind evaluates this rule. The validation engine ships a closed core set (schema, presence, shape, coverage, and coherence), plus a custom/script escape hatch; a module may add more by providing a matching callable. A rule naming a kind the engine does not know is reported as a finding, never silently passed. This field is left as a free string (not a fixed list) so module-provided kinds stay valid.",
       "type": "string",
       "minLength": 1
     },
