@@ -6,7 +6,7 @@
     "check": [".engine/check/*.json"],
     "schema": [".engine/schemas/*.json"],
     "tool": [".engine/tools/*.py"],
-    "foundation": [".engine/suites.json"]
+    "foundation": [".engine/suites.json", ".engine/self-map.md"]
   },
   "depends": {}
 }
