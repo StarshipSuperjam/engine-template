@@ -1,0 +1,7 @@
+{
+  "engine_release": "0.0.0-dev",
+  "packages": {
+    "core": "0.0.0-dev"
+  },
+  "identity": "solo"
+}

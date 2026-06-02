@@ -518,6 +518,32 @@ def coherence_findings(manifests: list, tier: str, message: str) -> list:
     return findings
 
 
+def ownership_findings(inventory: list, claims: dict, exempt, tier: str, message: str) -> list:
+    """Pure ownership coherence — the third coherence leg, beside dependency-coherence
+    (coherence_findings) in the validation foundation. Given the engine file `inventory`
+    (relpaths), a `claims` map {relpath: [module-id, ...]} of which present modules'
+    `provides` match each file, and the set of `exempt` relpaths a module legitimately need
+    not claim (the named foundation infrastructure artifacts + the module manifests
+    themselves), return a finding for every ORPHAN (an engine file no module claims and that
+    is not exempt) and every DOUBLE-CLAIM (a file two or more modules claim). The leg is
+    kept pure — the filesystem walk and the glob matching that build `inventory`/`claims`,
+    and the policy of what is exempt, live in the module-coherence consumer — so it is
+    testable without the live filesystem and the module manager (slice 25) reuses it."""
+    exempt = set(exempt)
+    findings = []
+    for rel in inventory:
+        owners = claims.get(rel) or []
+        if len(owners) > 1:
+            findings.append(finding(tier, f"Engine file '{rel}' is claimed by more than one "
+                            f"module ({', '.join(sorted(owners))}); exactly one module must "
+                            f"own each engine file. {message}", loc(os.path.join(ROOT, rel))))
+        elif not owners and rel not in exempt:
+            findings.append(finding(tier, f"Engine file '{rel}' belongs to no module (an "
+                            f"orphan); add it to a module's 'provides', or remove it. "
+                            f"{message}", loc(os.path.join(ROOT, rel))))
+    return findings
+
+
 def kind_coherence(rule, ctx):
     """The installed module set is consistent. A directly-callable library entry the
     slice-6 module manager invokes right after an install; the manifests it reads land with

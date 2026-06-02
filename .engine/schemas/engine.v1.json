@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "engine.v1 — the shape of the engine manifest",
+  "description": "The engine manifest is the one committed file that records what this repository's engine is made of: which engine release it runs, the version of each installed module, and the identity tier that governs how guardrail changes are gated. It is a lockfile-style inventory — the source of truth an upgrade reads to know each module's starting version — and doubles as the operator-readable record of the engine's contents. It lives at .engine/engine.json. This schema governs its shape only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["engine_release", "packages", "identity"],
+  "properties": {
+    "engine_release": {
+      "description": "The engine release this repository runs, as a version string (for example 1.2.0, or 0.0.0-dev while the engine is still being built). This is the single version an operator sees.",
+      "type": "string",
+      "minLength": 1
+    },
+    "packages": {
+      "description": "Each installed module mapped to its installed version (for example { \"core\": \"1.2.0\" }). These per-module versions are internal bookkeeping — the 'from' versions an upgrade reads before it overlays new code — not numbers the operator manages directly.",
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "identity": {
+      "description": "The identity tier governing how the engine's own guardrails may change. solo: a single gate-holder — a guardrail can never weaken silently, but a weakening can still happen with the operator's explicit consent (the engine acts with the operator's credentials). team: a distinct engine identity holds enforcement-admin, so a guardrail cannot weaken at all. This is per-repository and re-chosen at first-run setup; it is not inherited from a template.",
+      "enum": ["solo", "team"]
+    }
+  }
+}

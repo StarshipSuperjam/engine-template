@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "module.v1 — the shape of a module manifest",
+  "description": "A module is a unit of engine capability. Its files are scattered across the repository by surface (its checks under .engine/check/, its commands under .claude/, and so on), so the manifest is the one place that records what belongs to the module — which makes a clean uninstall, the consistency checks, and the engine self-map possible. Each module owns exactly one manifest at .engine/modules/<id>/manifest.json. This schema governs the manifest's shape — its fields and no others. It does not decide whether the module's dependencies are present or whether its declared files actually exist; that is the module-consistency check's job.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "status", "provides"],
+  "properties": {
+    "id": {
+      "description": "The module's stable identifier, matching the folder it lives in (.engine/modules/<id>/). Lower-case letters, digits, and hyphens; it stays fixed for the life of the module so its history can be tracked.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "version": {
+      "description": "The module's version, as a dotted number (for example 1.4.0), optionally with a pre-release suffix such as -dev during development. This is internal bookkeeping used to drive upgrades and migrations; an operator sees a single engine version, not per-module numbers.",
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "description": "How the module is carried: required (a foundation, always present), default-on (installed unless the operator opts out), optional (installed only if chosen), experimental (opt-in, not yet stable), or retired (kept for migration history, no longer active).",
+      "enum": ["required", "default-on", "optional", "experimental", "retired"]
+    },
+    "provides": {
+      "description": "The files this module owns, listed file-precisely (exact paths or globs) and grouped by category — usually a surface name such as check, schema, or tool, plus a foundation group for engine-config files that are not a surface. The groups together must not overlap with another module's files: every engine file is owned by exactly one module (or is a named foundation artifact). This is what makes uninstall and the self-map exact.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "uniqueItems": true
+      }
+    },
+    "depends": {
+      "description": "Other modules this one needs, each named with an optional version range (for example { \"core\": \">=1.0.0\" }). An empty range means any version. This is a presence-and-range assertion the consistency check verifies — that the named module is installed and in range — not a problem solved by a version resolver.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "wires": {
+      "description": "The shared-state edits this module makes beyond copying its files, each drawn from a fixed, reversible vocabulary so every edit can be cleanly undone on uninstall. Each entry names its kind; the full per-kind detail is tightened when the wiring library lands. The five kinds are the only ones allowed — there is no free-form escape hatch, because an un-reversible edit to shared state is exactly the failure the module system exists to prevent.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "description": "Which shared seam this edit touches.",
+            "enum": ["hook", "mcp", "ontology-entry", "permission", "gitignore"]
+          }
+        }
+      }
+    },
+    "migrations": {
+      "description": "Version-keyed data or schema transforms, run in dependency order when the module is upgraded. Empty or absent for a module that needs none; the detailed transform format is defined when the upgrade machinery lands.",
+      "type": "object"
+    }
+  }
+}
