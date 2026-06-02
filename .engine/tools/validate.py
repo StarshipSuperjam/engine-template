@@ -6,19 +6,27 @@ small registry of kind callables, so adding a check adds a rule file and never
 edits this dispatcher (systems/guardrails/validation/README.md). This is the
 `core` validation engine the stage-0 seed validator grew into; the engine ships
 here, while the engine-self-validation rule *corpus* rides `validators-core`
-(decision-log D-090), so only the two grandfathered seed rules are committed.
+(decision-log D-090), so only the three grandfathered seed rules are committed
+(PR-body completeness, link integrity, and the re-homed protection guard).
 
-Closed core kinds (this slice ships three of the five):
+The five closed core kinds, plus the `custom/script` escape hatch:
   - presence  — named sections/fields are present and non-empty.
   - schema    — a structured file conforms to its governing JSON Schema (2020-12),
-                resolved from the ontology catalog (`governing_schema`) or, for the
-                cases the catalog cannot express, an explicit rule `params.schema`.
+                resolved catalog-first (`governing_schema`), with a `params.schema`
+                override for the cases the catalog cannot express.
   - shape     — a prose instance matches a template's shape-spec (required and
                 allowed sections, ordering, a soft length budget).
-  - link-integrity — a transient seed kind; folds into the `coverage` kind at the
-                next slice. (coverage / coherence / custom-script are not here yet.)
-Module-provided kinds bind by presence at a later slice and must NOT extend the
-hardcoded REGISTRY below; it holds the closed core set only.
+  - coverage  — referential integrity; `params.mode` selects `links` (every relative
+                Markdown link resolves) or `catalog` (every catalogued surface has its
+                directory; no orphan surface directory).
+  - coherence — the installed module set is consistent (dependency presence, acyclicity,
+                version range). A directly-callable library entry the module manager
+                invokes after an install; no live consumer until the module system lands
+                (slice 6), so it ships built + fixture-tested.
+  - custom/script — the escape hatch: run a committed script and map its result to
+                findings (the §15 guards re-home onto this kind).
+Module-provided kinds bind by presence at a later slice and must NOT extend the hardcoded
+REGISTRY below; it holds the closed core set + the `custom/script` escape hatch.
 
 Each kind callable returns a Result: a pass/fail verdict plus zero or more findings
 on the canonical finding.v1 base {severity, message, location}. A check finding's
@@ -45,6 +53,7 @@ import glob as _glob
 import json
 import os
 import re
+import subprocess
 import sys
 
 from jsonschema import Draft202012Validator
@@ -318,12 +327,28 @@ def kind_shape(rule, ctx):
     return (not any(f["severity"] == "hard" for f in findings)), findings
 
 
-# ---- kind: link-integrity (transient seed kind; folds into `coverage` next slice) ----
+# ---- kind: coverage (referential integrity: links + catalog-coverage) ------
 
-def kind_link_integrity(rule, ctx):
-    """Every relative Markdown link must resolve to an existing file. A link that
-    resolves OUTSIDE the repo cannot be checked in a CI checkout, so it is a soft
-    note, never a hard failure."""
+def kind_coverage(rule, ctx):
+    """Referential-integrity coverage; `params.mode` selects the check. `links` folds in
+    the former link-integrity (every relative Markdown link resolves). `catalog` is
+    catalog-coverage (every catalogued surface has its location directory; no orphan
+    surface directory). An unrecognized mode fails closed as a finding — `mode` is OPEN,
+    not a fixed enum, so a later mode (e.g. knowledge fingerprint-coverage) adds no edit
+    here. Per D-090 core ships this kind; the catalog-coverage RULE rides validators-core."""
+    mode = (rule.get("params") or {}).get("mode")
+    if mode == "links":
+        return _coverage_links(rule, ctx)
+    if mode == "catalog":
+        return _coverage_catalog(rule, ctx)
+    tier = rule["tier"]
+    return False, [finding(tier, f"Check rule '{rule.get('id')}' (kind 'coverage') names an "
+                   f"unrecognized mode '{mode}'; cannot evaluate (fails closed).")]
+
+
+def _coverage_links(rule, ctx):
+    """Every relative Markdown link must resolve to an existing file. A link that resolves
+    OUTSIDE the repo cannot be checked in a CI checkout, so it is a soft note, never hard."""
     tier = rule["tier"]
     exclude = set((rule.get("params") or {}).get("exclude_dirs", []))
     findings = []
@@ -348,6 +373,49 @@ def kind_link_integrity(rule, ctx):
     return (not any(f["severity"] == "hard" for f in findings)), findings
 
 
+def catalog_coverage_findings(surfaces: dict, present_locations: set, tier: str,
+                              message: str, infra=()) -> list:
+    """Pure catalog-coverage: given the catalogued surfaces {name: record} and the set of
+    surface-location strings present on disk, return findings — a catalogued surface whose
+    `location` directory is absent, or a present surface-location no surface claims (an
+    orphan), skipping a known non-surface infra location. The 'uncatalogued surface in use'
+    leg (a surface referenced with no record) is not mechanically general here — a named
+    limitation. Kept pure so it is testable without the live filesystem."""
+    catalogued = {rec.get("location") for rec in surfaces.values()}
+    findings = []
+    for name, rec in surfaces.items():
+        if rec.get("location") not in present_locations:
+            findings.append(finding(tier, f"Catalogued surface '{name}' has no directory at "
+                            f"'{rec.get('location')}'. {message}"))
+    for location in sorted(present_locations):
+        if location not in catalogued and location not in set(infra):
+            findings.append(finding(tier, f"Directory '{location}' exists but no catalogued "
+                            f"surface claims it (orphan surface directory). {message}"))
+    return findings
+
+
+def _coverage_catalog(rule, ctx):
+    """catalog-coverage over the live surface catalog + filesystem (see the pure
+    catalog_coverage_findings); non-surface infra directories are passed via
+    params.infra_dirs."""
+    tier = rule["tier"]
+    try:
+        surfaces = load_json(CATALOG_PATH).get("surfaces", {})
+    except Exception as exc:
+        return False, [finding(tier, f"Could not read the surface catalog to check coverage: "
+                       f"{exc}. {rule['message']}", loc(CATALOG_PATH))]
+    infra = set((rule.get("params") or {}).get("infra_dirs", []))
+    present = set()
+    for root in (".engine", ".claude"):
+        abs_root = os.path.join(ROOT, root)
+        if os.path.isdir(abs_root):
+            for name in sorted(os.listdir(abs_root)):
+                if os.path.isdir(os.path.join(abs_root, name)):
+                    present.add(f"{root}/{name}/")
+    findings = catalog_coverage_findings(surfaces, present, tier, rule["message"], infra)
+    return (not any(f["severity"] == "hard" for f in findings)), findings
+
+
 def markdown_files(exclude_dirs: set) -> list:
     out = []
     for dirpath, dirs, files in os.walk(ROOT):
@@ -358,13 +426,167 @@ def markdown_files(exclude_dirs: set) -> list:
     return out
 
 
-# The closed core kind registry. Module-provided / custom-script kinds bind by
-# presence at a later slice and must NOT be added here.
+# ---- kind: coherence (the installed module set is consistent) --------------
+
+def _ver_tuple(v: str) -> tuple:
+    return tuple(int(x) for x in re.findall(r"\d+", v or "0")) or (0,)
+
+
+def _version_in_range(version: str, spec: str) -> bool:
+    """A pragmatic version-range check on dotted-integer versions: a space/comma list of
+    comparators (>=, >, <=, <, ==/=, ^). The exact manifest range grammar is pinned by the
+    module-system manifest schema (slice 6); this is the stable presence/acyclicity/range
+    seam the module manager calls — slice 6 may extend the comparator set."""
+    vt = _ver_tuple(version)
+    for part in re.split(r"[,\s]+", (spec or "").strip()):
+        if not part:
+            continue
+        m = re.match(r"(\^|>=|<=|==|=|>|<)?\s*(.+)", part)
+        op, ref = (m.group(1) or "=="), _ver_tuple(m.group(2))
+        if op in ("==", "=") and vt != ref:
+            return False
+        if op == ">=" and vt < ref:
+            return False
+        if op == ">" and vt <= ref:
+            return False
+        if op == "<=" and vt > ref:
+            return False
+        if op == "<" and vt >= ref:
+            return False
+        if op == "^" and not (vt >= ref and vt[:1] == ref[:1]):
+            return False
+    return True
+
+
+def _dependency_cycle(by_id: dict) -> list:
+    """A dependency cycle as a list of module ids, or [] if acyclic (DFS over `depends`)."""
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {k: WHITE for k in by_id}
+    stack = []
+
+    def visit(node):
+        color[node] = GRAY
+        stack.append(node)
+        for dep in (by_id.get(node, {}).get("depends") or {}):
+            if dep not in by_id:
+                continue
+            if color.get(dep) == GRAY:
+                return stack[stack.index(dep):] + [dep]
+            if color.get(dep) == WHITE:
+                found = visit(dep)
+                if found:
+                    return found
+        stack.pop()
+        color[node] = BLACK
+        return None
+
+    for n in list(by_id):
+        if color[n] == WHITE:
+            found = visit(n)
+            if found:
+                return found
+    return []
+
+
+def coherence_findings(manifests: list, tier: str, message: str) -> list:
+    """Pure module-set coherence: given installed module manifests
+    [{id, version, depends: {id: range}}, ...], return findings for an absent dependency,
+    a version outside a declared range, or a dependency cycle. The slice-6 module manager
+    imports this directly (a library call, not a suite trigger)."""
+    by_id = {m.get("id"): m for m in manifests}
+    findings = []
+    for m in manifests:
+        for dep_id, dep_range in (m.get("depends") or {}).items():
+            if dep_id not in by_id:
+                findings.append(finding(tier, f"Module '{m.get('id')}' depends on '{dep_id}', "
+                                f"which is not installed. {message}"))
+            elif dep_range and not _version_in_range(by_id[dep_id].get("version"), dep_range):
+                findings.append(finding(tier, f"Module '{m.get('id')}' needs '{dep_id}' {dep_range}, "
+                                f"but version {by_id[dep_id].get('version')} is installed. {message}"))
+    cycle = _dependency_cycle(by_id)
+    if cycle:
+        findings.append(finding(tier, f"Module dependency cycle: {' -> '.join(cycle)}. {message}"))
+    return findings
+
+
+def kind_coherence(rule, ctx):
+    """The installed module set is consistent. A directly-callable library entry the
+    slice-6 module manager invokes right after an install; the manifests it reads land with
+    the module system, so in core it ships built + fixture-tested with no live rule. As a
+    kind callable it reads the manifest set from ctx['manifests'] (empty until slice 6)."""
+    tier = rule["tier"]
+    findings = coherence_findings(ctx.get("manifests") or [], tier, rule.get("message", ""))
+    return (not any(f["severity"] == "hard" for f in findings)), findings
+
+
+# ---- kind: custom/script (the escape hatch; runs a committed script) -------
+
+def kind_custom_script(rule, ctx):
+    """Run a committed, in-repo script (params.script, resolved under ROOT) with the engine
+    interpreter (sys.executable, so it inherits the engine venv). The rule's tier is passed
+    via ENGINE_RULE_TIER; the repo token (GITHUB_TOKEN) is passed ONLY if the rule opts in
+    with params.pass_token, so the secret reaches only the scripts that need it. CONTRACT:
+      exit 0 + stdout a parseable finding.v1 JSON array -> those findings pass through (the
+        script sets each severity: the rule tier for a real finding, `soft` for a
+        could-not-evaluate note — the fail-open-locally pattern). An empty array = pass.
+      non-zero exit OR unparseable stdout -> ONE hard fail-closed finding regardless of the
+        rule's tier, so a crashing or uninstalled guard can never silently pass.
+    stdout is the machine channel (JSON only); human prose lives in each finding's message."""
+    tier = rule["tier"]
+    script = (rule.get("params") or {}).get("script")
+    if not script:
+        return False, [finding("hard", f"Check rule '{rule.get('id')}' (kind 'custom/script') "
+                       f"names no params.script; cannot evaluate (fails closed).")]
+    path = os.path.normpath(os.path.join(ROOT, script))
+    if not (os.path.abspath(path) == ROOT or os.path.abspath(path).startswith(ROOT + os.sep)):
+        return False, [finding("hard", f"Check rule '{rule.get('id')}' (kind 'custom/script') names "
+                       f"a script outside the repository ('{script}'); refusing to run it (fails "
+                       f"closed). A custom/script must be a committed, reviewed, in-repo file.")]
+    if not os.path.isfile(path):
+        return False, [finding("hard", f"Check rule '{rule.get('id')}' (kind 'custom/script') script "
+                       f"'{script}' does not exist; cannot evaluate (fails closed).")]
+    # Scope the child environment: a custom/script does NOT inherit the CI repository token
+    # unless its rule opts in (params.pass_token), so the secret reaches only the scripts that
+    # need it (the protection guard) rather than every script the suite runs.
+    env = {k: v for k, v in os.environ.items() if k != "GITHUB_TOKEN"}
+    env["ENGINE_RULE_TIER"] = tier
+    if (rule.get("params") or {}).get("pass_token") and os.environ.get("GITHUB_TOKEN"):
+        env["GITHUB_TOKEN"] = os.environ["GITHUB_TOKEN"]
+    try:
+        proc = subprocess.run([sys.executable, path], capture_output=True, text=True,
+                              env=env, timeout=120)
+    except Exception as exc:
+        return False, [finding("hard", f"Check '{rule.get('id')}' could not run '{script}': "
+                       f"{exc} (fails closed).")]
+    if proc.returncode != 0:
+        detail = (proc.stdout or proc.stderr or f"exit {proc.returncode}").strip()
+        return False, [finding("hard", f"Check '{rule.get('id')}' could not verify — its script "
+                       f"exited with an error: {detail[:300]} (fails closed).")]
+    try:
+        raw = json.loads(proc.stdout or "[]")
+        if not isinstance(raw, list):
+            raise ValueError("expected a JSON array of findings")
+    except Exception:
+        return False, [finding("hard", f"Check '{rule.get('id')}' produced unreadable output; "
+                       f"cannot verify (fails closed).")]
+    findings = []
+    for f in raw:
+        if not isinstance(f, dict):
+            return False, [finding("hard", f"Check '{rule.get('id')}' produced a malformed finding "
+                           f"(not an object); cannot verify (fails closed).")]
+        findings.append(finding(f.get("severity", tier), f.get("message", ""), f.get("location")))
+    return (not any(f["severity"] == "hard" for f in findings)), findings
+
+
+# The closed core kind registry: the five closed kinds + the `custom/script` escape hatch.
+# Module-provided kinds bind by presence at a later slice and must NOT be added here.
 REGISTRY = {
     "presence": kind_presence,
     "schema": kind_schema,
     "shape": kind_shape,
-    "link-integrity": kind_link_integrity,
+    "coverage": kind_coverage,
+    "coherence": kind_coherence,
+    "custom/script": kind_custom_script,
 }
 
 

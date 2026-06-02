@@ -8,9 +8,13 @@ in force. The evaluated-rules endpoint omits rules left in 'evaluate' or
 bite reads as absent here — "is protection on?" is answered by what bites, not
 by configuration (control-plane bootstrap contract; stage-0-harness §5).
 
-Runs as a step in the `engine-ci` job, so an unprotected branch turns engine-ci
-red. The default GITHUB_TOKEN (Metadata: read) can read this endpoint; it never
-reads the admin-gated ruleset-configuration endpoints.
+Runs as a `custom/script` check rule in the CI suite (re-homed in core slice 5a),
+so an unprotected branch turns engine-ci red. It emits finding.v1 JSON on stdout
+(the custom/script machine channel): a hard finding when the gate is not in force,
+and a soft "not checked here" note when no token is available (locally — fail open;
+the CI run, which has a token, performs the real check). The default GITHUB_TOKEN
+(Metadata: read) can read this endpoint; it never reads the admin-gated
+ruleset-configuration endpoints.
 
 Superseded by the control-plane bootstrap guard once that module lands.
 """
@@ -75,40 +79,42 @@ def api_get(path: str, token: str):
         return json.loads(resp.read().decode("utf-8"))
 
 
+def emit(findings: list) -> int:
+    """Write the finding.v1 array to stdout (the custom/script machine channel) and return
+    0 — a successful evaluation, whatever it found. Each finding carries its own severity;
+    the dispatcher's custom/script kind decides where the teeth land. Human-readable prose
+    lives inside each finding's `message`, so stdout stays pure JSON."""
+    print(json.dumps(findings))
+    return 0
+
+
 def main() -> int:
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     branch = os.environ.get("PROTECTED_BRANCH", "main")
     token = os.environ.get("GITHUB_TOKEN", "")
+    tier = os.environ.get("ENGINE_RULE_TIER", "hard")  # the rule's tier, passed by the kind
     if not repo or not token:
-        print("SAFETY GATE: UNKNOWN — missing GITHUB_REPOSITORY or GITHUB_TOKEN; "
-              "cannot check protection (failing closed).")
-        return 1
+        # Local / no credentials: FAIL OPEN with a soft note — a soft finding never blocks,
+        # and the CI run (which has a token) performs the real check. Mirrors the presence
+        # kind's fail-open-locally posture; never a false local block.
+        return emit([{"severity": "soft", "location": None,
+                      "message": "Branch protection was not checked here — no repository "
+                      "access token is available, which is normal on your own machine. The "
+                      "check that can actually block a bad merge runs in CI."}])
     try:
         rules = api_get(f"/repos/{repo}/rules/branches/{branch}", token)
-    except urllib.error.HTTPError as e:
-        print(f"SAFETY GATE: UNKNOWN — could not read the evaluated rules for "
-              f"'{branch}' (HTTP {e.code}); failing closed.")
-        return 1
-    except Exception as e:  # network/parse — fail closed, never assume protected
-        print(f"SAFETY GATE: UNKNOWN — could not read the evaluated rules for "
-              f"'{branch}' ({e}); failing closed.")
-        return 1
-
+    except Exception as e:  # token present but the API could not be read -> fail closed in CI
+        return emit([{"severity": tier, "location": None,
+                      "message": f"Branch protection could not be verified for '{branch}' "
+                      f"({e}); treating it as not in force until confirmed."}])
     missing = missing_floor(rules, REQUIRED_CHECKS)
-
     if missing:
-        print(f"SAFETY GATE: OFF — the protected-branch ruleset on '{branch}' is "
-              "not fully in force.\nWhat is missing:")
-        for m in missing:
-            print("  - " + m)
-        print("\nUntil this is on, an unreviewed change could reach the protected "
-              "branch. Apply the ruleset using the setup recipe you were handed, "
-              "then re-run this check.")
-        return 1
-    print(f"SAFETY GATE: ON — '{branch}' requires a pull request and the checks "
-          f"{', '.join(REQUIRED_CHECKS)}; unresolved conversations block merging; "
-          "force-pushes and deletion are blocked.")
-    return 0
+        return emit([{"severity": tier, "location": None,
+                      "message": f"The protected-branch safety gate on '{branch}' is not fully "
+                      "in force: " + "; ".join(missing) + ". Until this is on, an unreviewed "
+                      "change could reach the protected branch. Apply the ruleset using the "
+                      "setup recipe you were handed, then re-run."}])
+    return emit([])  # protection is fully in force
 
 
 if __name__ == "__main__":

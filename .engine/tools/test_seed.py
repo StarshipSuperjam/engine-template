@@ -428,5 +428,197 @@ class TestSuiteContextGating(unittest.TestCase):
         self.assertEqual(validate.run("CI", {}), 2)
 
 
+# ---- slice 5a: coverage / coherence / custom-script + protection re-home ----
+
+class TestCoverageKind(unittest.TestCase):
+    def test_unrecognized_mode_fails_closed(self):
+        passed, found = validate.kind_coverage(_rule(kind="coverage", params={"mode": "bogus"}), {})
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" for f in found))
+
+    def test_links_hard_in_repo_soft_outside(self):
+        # mode=links keeps the link-integrity teeth: an in-repo missing target is hard,
+        # an outside-repo target is a soft note. ROOT + markdown_files are stubbed so the
+        # in/out-of-repo split is exercised against a controlled tree.
+        with tempfile.TemporaryDirectory() as d:
+            md = os.path.join(d, "doc.md")
+            with open(md, "w", encoding="utf-8") as fh:
+                fh.write("[broken](./missing.md)\n[outside](../nope.md)\n[ok](https://x)\n")
+            orig_root, orig_mf = validate.ROOT, validate.markdown_files
+            validate.ROOT = d
+            validate.markdown_files = lambda exclude: [md]
+            try:
+                passed, found = validate.kind_coverage(
+                    _rule(kind="coverage", params={"mode": "links"}), {})
+            finally:
+                validate.ROOT, validate.markdown_files = orig_root, orig_mf
+        sev = {f["severity"] for f in found}
+        self.assertIn("hard", sev)   # the in-repo missing target
+        self.assertIn("soft", sev)   # the outside-repo target
+        self.assertFalse(passed)
+
+    def test_catalog_coverage_pure(self):
+        surfaces = {"alpha": {"location": ".engine/alpha/"},
+                    "beta": {"location": ".engine/beta/"}}
+        present = {".engine/alpha/", ".engine/orphan/"}
+        msgs = " ".join(f["message"] for f in
+                        validate.catalog_coverage_findings(surfaces, present, "hard", "msg"))
+        self.assertIn("beta", msgs)      # catalogued but absent
+        self.assertIn("orphan", msgs)    # present but unclaimed
+        self.assertNotIn("alpha", msgs)  # present + catalogued -> fine
+        self.assertEqual(validate.catalog_coverage_findings(
+            {"alpha": {"location": ".engine/alpha/"}}, {".engine/alpha/"}, "hard", "m"), [])
+        self.assertEqual(validate.catalog_coverage_findings(  # infra allowlist suppresses an orphan
+            {}, {".engine/boot/"}, "hard", "m", infra=[".engine/boot/"]), [])
+
+
+class TestCoherenceKind(unittest.TestCase):
+    def test_missing_dependency(self):
+        m = [{"id": "a", "version": "1.0.0", "depends": {"b": ""}}]
+        self.assertTrue(any("not installed" in x["message"]
+                            for x in validate.coherence_findings(m, "hard", "msg")))
+
+    def test_version_out_of_range(self):
+        m = [{"id": "a", "version": "1.0.0", "depends": {"b": ">=2.0.0"}},
+             {"id": "b", "version": "1.5.0", "depends": {}}]
+        self.assertTrue(any("needs 'b'" in x["message"]
+                            for x in validate.coherence_findings(m, "hard", "msg")))
+
+    def test_in_range_is_clean(self):
+        m = [{"id": "a", "version": "1.0.0", "depends": {"b": ">=1.0.0"}},
+             {"id": "b", "version": "1.5.0", "depends": {}}]
+        self.assertEqual(validate.coherence_findings(m, "hard", "msg"), [])
+
+    def test_dependency_cycle(self):
+        m = [{"id": "a", "version": "1.0.0", "depends": {"b": ""}},
+             {"id": "b", "version": "1.0.0", "depends": {"a": ""}}]
+        self.assertTrue(any("cycle" in x["message"]
+                            for x in validate.coherence_findings(m, "hard", "msg")))
+
+    def test_kind_with_no_manifests_is_clean(self):
+        passed, found = validate.kind_coherence(_rule(kind="coherence"), {})
+        self.assertTrue(passed)
+        self.assertEqual(found, [])
+
+
+class TestCustomScriptKind(unittest.TestCase):
+    def _run(self, body, tier="hard", params_extra=None):
+        # ROOT is repointed at the temp dir so the in-repo containment check accepts the
+        # fixture script (a custom/script must be a committed, in-repo file).
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "s.py"), "w", encoding="utf-8") as fh:
+                fh.write(body)
+            params = {"script": "s.py"}
+            if params_extra:
+                params.update(params_extra)
+            rule = _rule(kind="custom/script", tier=tier, params=params)
+            orig = validate.ROOT
+            validate.ROOT = d
+            try:
+                return validate.kind_custom_script(rule, {})
+            finally:
+                validate.ROOT = orig
+
+    def test_findings_pass_through(self):
+        passed, found = self._run(
+            "import json; print(json.dumps([{'severity':'hard','message':'boom','location':None}]))")
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" and "boom" in f["message"] for f in found))
+
+    def test_empty_array_is_pass(self):
+        passed, found = self._run("print('[]')")
+        self.assertTrue(passed)
+        self.assertEqual(found, [])
+
+    def test_nonzero_exit_is_hard_regardless_of_tier(self):
+        # A soft-tier rule whose script crashes still fails CLOSED (hard) — a broken guard
+        # can never silently pass.
+        passed, found = self._run("import sys; print('[]'); sys.exit(3)", tier="soft")
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" for f in found))
+
+    def test_unparseable_output_is_hard_fail_closed(self):
+        passed, found = self._run("print('not json at all')")
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" for f in found))
+
+    def test_non_dict_finding_is_hard(self):
+        passed, found = self._run("import json; print(json.dumps(['a', 'b']))")
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" for f in found))
+
+    def test_missing_script_param_is_hard(self):
+        passed, found = validate.kind_custom_script(_rule(kind="custom/script", params={}), {})
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" for f in found))
+
+    def test_out_of_repo_script_is_refused(self):
+        rule = _rule(kind="custom/script", params={"script": "../../../../etc/passwd"})
+        passed, found = validate.kind_custom_script(rule, {})
+        self.assertFalse(passed)
+        self.assertTrue(any("outside the repository" in f["message"] for f in found))
+
+    def test_nonexistent_in_repo_script_is_hard(self):
+        rule = _rule(kind="custom/script",
+                     params={"script": ".engine/tools/_nope_does_not_exist.py"})
+        passed, found = validate.kind_custom_script(rule, {})
+        self.assertFalse(passed)
+        self.assertTrue(any("does not exist" in f["message"] for f in found))
+
+    def test_token_reaches_only_opted_in_scripts(self):
+        body = ("import os, json; print(json.dumps([{'severity': 'soft', 'location': None, "
+                "'message': 'TOKEN_SEEN' if os.environ.get('GITHUB_TOKEN') else 'no-token'}]))")
+        saved = dict(os.environ)
+        os.environ["GITHUB_TOKEN"] = "secret"
+        try:
+            _, without = self._run(body)
+            _, withtok = self._run(body, params_extra={"pass_token": True})
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        self.assertEqual(without[0]["message"], "no-token")    # not forwarded by default
+        self.assertEqual(withtok[0]["message"], "TOKEN_SEEN")  # forwarded on opt-in
+
+
+class TestProtectionReHome(unittest.TestCase):
+    """The re-homed protection guard emits finding.v1 JSON: a soft fail-open note with no
+    token (local), and a hard finding when the floor is missing (token present, CI)."""
+    def _main_json(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = protection_guard.main()
+        return rc, json.loads(buf.getvalue())
+
+    def test_no_token_is_soft_and_exit_zero(self):
+        saved = dict(os.environ)
+        os.environ.pop("GITHUB_TOKEN", None)
+        os.environ.pop("GITHUB_REPOSITORY", None)
+        try:
+            rc, out = self._main_json()
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "soft")
+
+    def test_missing_floor_emits_hard(self):
+        saved, orig_api = dict(os.environ), protection_guard.api_get
+        os.environ.update({"GITHUB_TOKEN": "x", "GITHUB_REPOSITORY": "o/r",
+                           "ENGINE_RULE_TIER": "hard"})
+        protection_guard.api_get = lambda path, token: []  # no rules in force -> floor missing
+        try:
+            rc, out = self._main_json()
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+            protection_guard.api_get = orig_api
+        self.assertEqual(rc, 0)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("not fully in force", out[0]["message"])
+
+
 if __name__ == "__main__":
     unittest.main()

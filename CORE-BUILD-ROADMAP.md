@@ -216,6 +216,33 @@ surface — it is the meta-contract `template` field; see the slice-1 resolution
    `pull_request`/`engine-ci` context would silently regress the D-051 "a PR cannot disarm its own guard"
    property. *Leaves:* the module-provided check-kind discovery directory + filename↔kind convention (not
    a core-lock blocker).
+   *Plan-gate resolution (slice-5 session) — SPLIT INTO TWO PRs (maintainer decision) to isolate the most
+   dangerous change.* **PR-1 (5a, this PR):** the `coverage` + `coherence` + `custom/script` kinds, and
+   re-homing the **protection** guard — built with the **weakening guard left untouched and fully armed**,
+   so it guards the machinery PR-1 adds. `coverage` is one kind with an **open `mode` param** (`links` folds
+   in the ex-`link-integrity` seed rule, re-kinded; `catalog` = catalog-coverage; an unrecognized mode
+   fail-closes — leaving fingerprint-coverage-as-a-mode open for slices 6/10). `coherence` is the
+   **directly-callable library entry** (`coherence(manifests)→findings`) — fixture-tested only, no live
+   consumer until the slice-6 module manager. `custom/script` is the **escape-hatch kind** (a sixth REGISTRY
+   entry, distinct from module-by-presence discovery, which stays the flagged deferred leaf): it runs a
+   committed script via `sys.executable`, passing the rule's `tier`; **success** (exit 0 + finding.v1 JSON on
+   stdout) passes findings through with the script's severity (the merged `presence` fail-open-soft pattern —
+   no D-113 departure), **failure** (non-zero/unparseable) is **always a hard fail-closed finding regardless
+   of tier**. Per **D-090** PR-1 ships **no new corpus rule** — the protection re-home is a ratchet
+   re-expression of the existing seed guardrail (its engine-ci STEP → a `custom/script` rule in the CI suite;
+   `protection_guard.py` now emits finding.v1 JSON and **fails open soft locally** (no token) / hard in CI;
+   `engine-ci.yml` moves the token env onto the validator step and drops the separate step — the frozen
+   **job** name `engine-ci` is unchanged, so the ruleset binding is untouched, D-156). **PR-2 (5b, separate):**
+   re-home the **weakening** guard as a frozen-named `custom/script` rule whose execution stays on
+   `engine-guard.yml`/`pull_request_target`/base/never-head (D-051), invoked by id (not the CI suite), with
+   the security sub-demo. Cold plan gate (4 lenses) confirmed the PR-1/PR-2/slice-6 seams; the D-051
+   "PR-1 leaves the weakening guard untouched" claim was ground-truthed against `weakening_guard.py`.
+   The deliverable gate (conformance + adversarial + security) folded in two hardenings: a `custom/script`
+   script must be an **in-repo file** (out-of-repo paths refused, fail-closed), and the repo token reaches
+   **only `pass_token` rules** (the protection rule opts in) — with a named residual that the validator step
+   holds the read-only token at PR-open, gated by `guardrail-ack` on any edit to that code. The
+   catalog-coverage kind builds two of its three legs; the "uncatalogued-surface-in-use" leg is a named
+   deferral to the validators-core catalog rule.
 
 ### Phase 3 — Module composition
 6. **Module-system manifest grammar + coherence consumer + engine-manifest hand-seeding.** *Delivers:* the
