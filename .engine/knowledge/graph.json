@@ -1,0 +1,597 @@
+{
+  "entities": [
+    {
+      "id": "check:engine-manifest",
+      "name": ".engine/check/engine-manifest.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-manifest",
+      "source": {
+        "fingerprint": "sha256:b6672ec2188f0090acd5e845da82496d8103938fbfc05389418d3008997c21f1",
+        "path": ".engine/check/engine-manifest.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:guardrail-weakening",
+      "name": ".engine/check/guardrail-weakening.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "guardrail-weakening",
+      "source": {
+        "fingerprint": "sha256:70f4779a1ebd19b159b5a41ab2f616343415942b89be3485e9c5c2e5e023be41",
+        "path": ".engine/check/guardrail-weakening.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:knowledge-coverage",
+      "name": ".engine/check/knowledge-coverage.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "knowledge-coverage",
+      "source": {
+        "fingerprint": "sha256:da312323fff00884520f906a5d2bb7347cf4548c22be58b0d98fc6905e1381c4",
+        "path": ".engine/check/knowledge-coverage.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:link-integrity",
+      "name": ".engine/check/link-integrity.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "link-integrity",
+      "source": {
+        "fingerprint": "sha256:bb655a3925ae535f45bdbb6962d75f90bd527a543ff11388fed889dce8347d6b",
+        "path": ".engine/check/link-integrity.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:module-manifest",
+      "name": ".engine/check/module-manifest.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "targets": [
+          "module:core"
+        ]
+      },
+      "slug": "module-manifest",
+      "source": {
+        "fingerprint": "sha256:2ae0714e5c7c5527aa57d7ab79b402640b89cfc2e4161300dd44c713a7c3c642",
+        "path": ".engine/check/module-manifest.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:pr-body-completeness",
+      "name": ".engine/check/pr-body-completeness.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "pr-body-completeness",
+      "source": {
+        "fingerprint": "sha256:d34b6f802400153b1fb6d37488a8716c63a31a89fcb6e575d85b9dd385f12c44",
+        "path": ".engine/check/pr-body-completeness.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:protection",
+      "name": ".engine/check/protection.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "protection",
+      "source": {
+        "fingerprint": "sha256:80d7664cab7d91a4b95cf11fc7b175e956d61ac86140b1d7dd2f423833cd9e14",
+        "path": ".engine/check/protection.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:self-map-drift",
+      "name": ".engine/check/self-map-drift.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "self-map-drift",
+      "source": {
+        "fingerprint": "sha256:ef42ad2b6eacd40cb59c60db662f2870580be377b107ff92230ffa3230805a12",
+        "path": ".engine/check/self-map-drift.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:state-cursor",
+      "name": ".engine/check/state-cursor.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "targets": [
+          "state:state"
+        ]
+      },
+      "slug": "state-cursor",
+      "source": {
+        "fingerprint": "sha256:f30776019d0331e07704f0476eddf8497e4d6bf1867ca0290db513efb37f0f26",
+        "path": ".engine/check/state-cursor.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "module:core",
+      "name": "core",
+      "owner": "core",
+      "predicates": {},
+      "slug": "core",
+      "source": {
+        "fingerprint": "sha256:a237934f504ddf723a179ef0978903eba848423251a8091dc77041d4b9993fba",
+        "path": ".engine/modules/core/manifest.json"
+      },
+      "type": "module"
+    },
+    {
+      "id": "schema:check.v1",
+      "name": ".engine/schemas/check.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "check.v1",
+      "source": {
+        "fingerprint": "sha256:28e323d7a95eef2edcae9c788bae7926d15e277c2bbf67a900aa53be219abe12",
+        "path": ".engine/schemas/check.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:engine.v1",
+      "name": ".engine/schemas/engine.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine.v1",
+      "source": {
+        "fingerprint": "sha256:8e27b7554f84556f140223754c69d8e237835a9898870c3dc42e61ac9d325ec1",
+        "path": ".engine/schemas/engine.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:finding.v1",
+      "name": ".engine/schemas/finding.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "finding.v1",
+      "source": {
+        "fingerprint": "sha256:4f45d0691dd42cacd1f324c216d843c3f7f95b8ddde1be837d712d31ec613f9e",
+        "path": ".engine/schemas/finding.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:knowledge.v1",
+      "name": ".engine/schemas/knowledge.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "knowledge.v1",
+      "source": {
+        "fingerprint": "sha256:0a8c26e6eea86fc5ac042b603c99ee26b3a89a97245870aa40f8d2b9f458a873",
+        "path": ".engine/schemas/knowledge.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:module.v1",
+      "name": ".engine/schemas/module.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module.v1",
+      "source": {
+        "fingerprint": "sha256:37137f4241c5646b6ad5a10c5da856e00456cdee9d9ce16c6c7de625e46e34c6",
+        "path": ".engine/schemas/module.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:state.v1",
+      "name": ".engine/schemas/state.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "state.v1",
+      "source": {
+        "fingerprint": "sha256:61148111ad2dc8f1613ec396e26c3977dddc610fdb4da76a54a19c5546797679",
+        "path": ".engine/schemas/state.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:suites.v1",
+      "name": ".engine/schemas/suites.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "suites.v1",
+      "source": {
+        "fingerprint": "sha256:6f4b17fd62d17c02b90c6e8dc555b1c609e71d0c678ccd84284f8d7af9d5d255",
+        "path": ".engine/schemas/suites.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:surface-catalog",
+      "name": ".engine/schemas/surface-catalog.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "surface-catalog",
+      "source": {
+        "fingerprint": "sha256:210e1d07d38233d5ba4c024321b0b3a7c890c8d4e47eea690f34cd63650c3286",
+        "path": ".engine/schemas/surface-catalog.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:surface-catalog.schema",
+      "name": ".engine/schemas/surface-catalog.schema.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "surface-catalog.schema",
+      "source": {
+        "fingerprint": "sha256:8f85bd77986da5d07ce761b050169f405c4cbe383d1bae27bc35c8151a19beec",
+        "path": ".engine/schemas/surface-catalog.schema.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:template.v1",
+      "name": ".engine/schemas/template.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "template.v1",
+      "source": {
+        "fingerprint": "sha256:591cd0e6caaca59b6aea66689dd68b0efe64b73a27c47abd0698ae31916f5279",
+        "path": ".engine/schemas/template.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "state:state",
+      "name": ".engine/state/state.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:state.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "state",
+      "source": {
+        "fingerprint": "sha256:1da7f001fbf8fcf69851430efe41f60d17bbbd71103bad8b026b7ffb40127794",
+        "path": ".engine/state/state.json"
+      },
+      "type": "state"
+    },
+    {
+      "id": "tool:knowledge_gen",
+      "name": ".engine/tools/knowledge_gen.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "knowledge_gen",
+      "source": {
+        "fingerprint": "sha256:b95a09b3f2f7d62ced8c78514541c5a9c94aa22c7cbc7be36c2c99474ed5b1ee",
+        "path": ".engine/tools/knowledge_gen.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:module_coherence",
+      "name": ".engine/tools/module_coherence.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module_coherence",
+      "source": {
+        "fingerprint": "sha256:35358613364c27e0d54035ff5ff0deca09794f8239b91470e50f87108c18d305",
+        "path": ".engine/tools/module_coherence.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:protection_guard",
+      "name": ".engine/tools/protection_guard.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "protection_guard",
+      "source": {
+        "fingerprint": "sha256:607f45d2305bb5028d33d4b38a92fc5b78aa95f8ee6cfd1fe7b28a4c2050220b",
+        "path": ".engine/tools/protection_guard.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:self_map",
+      "name": ".engine/tools/self_map.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "self_map",
+      "source": {
+        "fingerprint": "sha256:f8b2ca209f9431bc0ab073f05960ce6adb987c9542c58286231fd92a675069af",
+        "path": ".engine/tools/self_map.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:self_map_check",
+      "name": ".engine/tools/self_map_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "self_map_check",
+      "source": {
+        "fingerprint": "sha256:bb8f84ce91cdee031f4a89ddb166804d341764acf9fd385e147bb8959ff676bb",
+        "path": ".engine/tools/self_map_check.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_knowledge",
+      "name": ".engine/tools/test_knowledge.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_knowledge",
+      "source": {
+        "fingerprint": "sha256:f88f74abe2c60e5dc92b309eac015d933619b290e5eeb391afd57b2e84061c2a",
+        "path": ".engine/tools/test_knowledge.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_modules",
+      "name": ".engine/tools/test_modules.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_modules",
+      "source": {
+        "fingerprint": "sha256:79f0a93e3a8b9400e85ee1a52b6bdeb4ee7073f6c4edc0de15ccaf5434c7130d",
+        "path": ".engine/tools/test_modules.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_seed",
+      "name": ".engine/tools/test_seed.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_seed",
+      "source": {
+        "fingerprint": "sha256:5b4181867d423e805e5f4317df482bb94094876c08413a1fc1da1958e1a37db7",
+        "path": ".engine/tools/test_seed.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_self_map",
+      "name": ".engine/tools/test_self_map.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_self_map",
+      "source": {
+        "fingerprint": "sha256:4e7e62a5b81c211695d874dd988939f9205a5ff280192ce3f2106fc0ec55c775",
+        "path": ".engine/tools/test_self_map.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_state",
+      "name": ".engine/tools/test_state.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_state",
+      "source": {
+        "fingerprint": "sha256:9d131b4a83ba5f57c20a78b0ae80636be130118b86a8e26688fe0fbf65098b79",
+        "path": ".engine/tools/test_state.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_wiring",
+      "name": ".engine/tools/test_wiring.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_wiring",
+      "source": {
+        "fingerprint": "sha256:31eaeb085b72b36639837fa9234b494162bf1fa5b0aa7a9d7aaa8dd42574c18a",
+        "path": ".engine/tools/test_wiring.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:validate",
+      "name": ".engine/tools/validate.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "validate",
+      "source": {
+        "fingerprint": "sha256:4cb9727918e5d569276a143ad5788e9c8d813d318638fecdd18cf3003e7da612",
+        "path": ".engine/tools/validate.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:weakening_guard",
+      "name": ".engine/tools/weakening_guard.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "weakening_guard",
+      "source": {
+        "fingerprint": "sha256:07e8b84e098d5a8dec0987094b5b327bbd2a5adc9eeab7d94ee37d018d00fe5a",
+        "path": ".engine/tools/weakening_guard.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:wiring",
+      "name": ".engine/tools/wiring.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "wiring",
+      "source": {
+        "fingerprint": "sha256:43082f105cf792466b1c072194b78fdcd8f0278dc96b59b7b9b8ac2610e1de7b",
+        "path": ".engine/tools/wiring.py"
+      },
+      "type": "tool"
+    }
+  ],
+  "schema_version": 1
+}
