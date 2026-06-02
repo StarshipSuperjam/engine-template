@@ -43,6 +43,15 @@ un-enforced. A malformed suites.json or check/schema file fails loud.
 Usage:
   validate.py --suite CI                      # run the CI suite (default)
   validate.py --suite CI --pr-body-file PATH  # supply the PR body explicitly
+  validate.py --check engine/check/<id>       # run ONE rule by id, outside any suite
+
+A check is also a directly-callable unit, not only a trigger-driven one: --check
+runs the single rule with that `id` and gates on a hard finding (exit 1), with no
+suite involved. This is how a guard that must run from the trusted base — the §15
+guardrail-weakening guard — is invoked from its own workflow (engine-guard.yml),
+NOT from the head-checkout CI suite, so a pull request cannot run its own edited
+guard (decision-log D-051). The by-id path loads only the check rules, never the
+suite declarations, so a broken or loosened suites.json cannot strand or alter it.
 
 The PR body is read from --pr-body-file, else from $GITHUB_EVENT_PATH
 (.pull_request.body — the safe path: never interpolated into a shell command), else
@@ -663,6 +672,45 @@ def run(suite: str, ctx: dict) -> int:
     return 1 if (gates and hard_fired) else 0
 
 
+def run_check(check_id: str, ctx: dict) -> int:
+    """Run ONE check rule, selected by its `id` field, directly — the "a check is a
+    directly-callable unit, not only trigger-driven" path the validation README blesses.
+    It loads ONLY the check rules (NOT suites.json), so a broken or loosened suite
+    declaration can never strand or alter a directly-invoked guard — the isolation the
+    §15 weakening guard relies on (D-051). It dispatches via the same kind registry as
+    run(), and a dangling kind or an erroring callable FAILS CLOSED (a hard finding),
+    exactly as in run(). A by-id run always gates (it is invoked deliberately, outside a
+    suite's context): exit 1 on any hard finding, 0 if clean, 2 on an unknown id (a loud
+    config error, like run()'s undeclared-suite path)."""
+    try:
+        rules = load_rules()
+    except Exception as exc:  # a broken check rule file halts loudly (config error), in plain language
+        print(f"\nCONFIG ERROR: cannot load the check rules: {exc}", file=sys.stderr)
+        return 2
+    matches = [r for r in rules if r.get("id") == check_id]
+    if not matches:
+        print(f"\nCONFIG ERROR: no check rule has id '{check_id}'.", file=sys.stderr)
+        return 2
+    findings = []
+    for rule in matches:
+        kind, tier = rule.get("kind"), rule.get("tier", "hard")
+        fn = REGISTRY.get(kind)
+        if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
+            findings.append(finding(tier, f"Check rule '{rule.get('id')}' names "
+                            f"unregistered kind '{kind}'; cannot evaluate (fails closed)."))
+            continue
+        try:
+            _verdict, found = fn(rule, ctx)
+        except Exception as exc:  # a kind that errors fails closed
+            findings.append(finding("hard", f"Check rule '{rule.get('id')}' (kind "
+                            f"'{kind}') errored and could not evaluate: {exc}"))
+            continue
+        findings.extend(found)
+    report(check_id, findings, True)  # a by-id run always gates
+    hard_fired = any(f["severity"] == "hard" for f in findings)
+    return 1 if hard_fired else 0
+
+
 def fmt(f: dict) -> str:
     where = ""
     if f.get("location"):
@@ -691,16 +739,21 @@ def report(suite: str, findings: list, gates: bool) -> None:
 
 
 def main(argv: list) -> int:
-    suite, body_file, i = "CI", None, 0
+    suite, body_file, check_id, i = "CI", None, None, 0
     while i < len(argv):
         if argv[i] == "--suite" and i + 1 < len(argv):
             suite, i = argv[i + 1], i + 2
         elif argv[i] == "--pr-body-file" and i + 1 < len(argv):
             body_file, i = argv[i + 1], i + 2
+        elif argv[i] == "--check" and i + 1 < len(argv):
+            check_id, i = argv[i + 1], i + 2
         else:
             print(f"unknown argument: {argv[i]}", file=sys.stderr)
             return 2
-    return run(suite, {"pr_body": get_pr_body(body_file)})
+    ctx = {"pr_body": get_pr_body(body_file)}  # the same ctx both entry points build
+    if check_id is not None:
+        return run_check(check_id, ctx)
+    return run(suite, ctx)
 
 
 if __name__ == "__main__":

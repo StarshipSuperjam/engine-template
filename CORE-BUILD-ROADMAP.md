@@ -243,6 +243,29 @@ surface — it is the meta-contract `template` field; see the slice-1 resolution
    holds the read-only token at PR-open, gated by `guardrail-ack` on any edit to that code. The
    catalog-coverage kind builds two of its three legs; the "uncatalogued-surface-in-use" leg is a named
    deferral to the validators-core catalog rule.
+   *Deliverable (PR-2 / 5b — SLICE 5 COMPLETE).* The **weakening** guard is re-homed as the frozen-named
+   `custom/script` rule `engine/check/guardrail-weakening` (`target.context: "pull-request-diff"`,
+   `pass_token: true`, **`suites: []`**), invoked **by id** from `engine-guard.yml` via a new
+   `validate.py --check <id>` mode (`run_check`, which loads **only the check rules, never `suites.json`** —
+   the isolation from the suite grammar). `weakening_guard.py`'s `main()` now emits finding.v1 JSON
+   (`emit()`/return-0, the slice-5a protection template), preserving the plain-language `guardrail-ack`
+   guidance (D-134) and the fail-closed posture; its classifier helpers + constants are **byte-for-byte
+   unchanged**. The guard's *execution* is untouched — `engine-guard.yml` stays on `pull_request_target`,
+   base-only checkout, same `permissions`/`env`; only the final command changed — so **D-051 ("a PR cannot
+   run its own edited guard") holds** (the by-id rule's `suites: []` also keeps it out of the head-checkout
+   `engine-ci`). `check.v1.json` `suites.minItems` relaxed **1→0** (an empty list = a directly-invoked
+   rule; `.engine/schemas/` stays unguarded, discharging the slice-4 note). Per **D-090** this is a ratchet
+   re-expression of the existing seed guard, not new corpus. *Deliverable gate (5 cold lenses: conformance,
+   adversarial divergence-hunter, security/D-051, non-engineer-operator, technical-feasibility):* CONFORMS /
+   SAFE / D-051 PRESERVED / FEASIBLE; the platform base-branch fact was re-verified against current GitHub
+   docs (a 2025-12-08 change strengthens it) and `uv` default-groups was live-confirmed to install
+   `jsonschema` so the validator imports under `engine-guard.yml` with no workflow dep edit. The one serious
+   finding — the ⚖️-maximal consent surface must live in the **PR body**, not only the plan — is resolved by
+   authoring the full 8-section body. **Named residual (for `validators-core`):** with `minItems: 0`, a rule
+   that joins no suite *and* is never invoked by id would be silently inert and still schema-valid; the
+   corpus-level "every rule is reachable" check rides the deferred catalog rule. The operator security
+   sub-demo (a PR that neuters the guard is still caught because `engine-guard` runs the trusted base) is
+   **post-merge-inherent** and is the behavioral evidence the maintainer runs himself.
 
 ### Phase 3 — Module composition
 6. **Module-system manifest grammar + coherence consumer + engine-manifest hand-seeding.** *Delivers:* the
