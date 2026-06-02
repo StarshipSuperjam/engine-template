@@ -1,0 +1,12 @@
+{
+  "id": "core",
+  "version": "0.0.0-dev",
+  "status": "required",
+  "provides": {
+    "check": [".engine/check/*.json"],
+    "schema": [".engine/schemas/*.json"],
+    "tool": [".engine/tools/*.py"],
+    "foundation": [".engine/suites.json"]
+  },
+  "depends": {}
+}
