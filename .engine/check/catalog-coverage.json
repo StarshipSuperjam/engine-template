@@ -1,0 +1,18 @@
+{
+  "id": "engine/check/catalog-coverage",
+  "target": { "context": "catalog-coverage" },
+  "kind": "coverage",
+  "params": {
+    "mode": "catalog",
+    "infra_dirs": [
+      ".engine/knowledge/",
+      ".engine/modules/",
+      ".engine/state/",
+      ".engine/templates/",
+      ".engine/.venv/"
+    ]
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "Every catalogued surface in the surface catalog (.engine/schemas/surface-catalog.json) must have its home directory present on disk, and every surface directory present on disk must be catalogued — so the engine's map of what kinds of file it governs stays honest, and a surface cannot quietly drift in (a directory with no catalog record) or vanish (a catalogued surface with no home). The non-surface foundation directories — knowledge, modules, state, templates, and the local tool-runtime .venv — are listed here as infrastructure and are not expected to be catalogued surfaces. This check fails loud so the drift is caught before merge rather than silently misdescribing the engine to every future session. To fix: add the missing catalog record, or create the missing surface directory; or, if a newly-present directory is engine infrastructure rather than a surface, add it to this rule's infra_dirs. The surface catalog is the source of truth for the surface set; conform the directories and the records to it."
+}

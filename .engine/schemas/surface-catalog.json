@@ -90,15 +90,6 @@
       "lifecycle": "artifact",
       "governing_schema": null,
       "template": null
-    },
-    "state": {
-      "class": "structured",
-      "location": ".engine/state/",
-      "purpose": "The project's committed cursor — the small pointers-and-counts file that answers 'where does the work stand?' at the start of every session, and stays readable when online services are down.",
-      "authority": "mechanics-and-guidance",
-      "lifecycle": "artifact",
-      "governing_schema": "state.v1.json",
-      "template": null
     }
   }
 }

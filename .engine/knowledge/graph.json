@@ -1,6 +1,25 @@
 {
   "entities": [
     {
+      "id": "check:catalog-coverage",
+      "name": ".engine/check/catalog-coverage.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "catalog-coverage",
+      "source": {
+        "fingerprint": "sha256:c87d2242ce07af85e0a7ff2fec5344ce89869a101ec4f252f0cd8383dcec99ab",
+        "path": ".engine/check/catalog-coverage.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:contract-shape",
       "name": ".engine/check/contract-shape.json",
       "owner": "validators-core",
@@ -252,14 +271,11 @@
         ],
         "provided_by": [
           "module:validators-core"
-        ],
-        "targets": [
-          "state:state"
         ]
       },
       "slug": "state-cursor",
       "source": {
-        "fingerprint": "sha256:f30776019d0331e07704f0476eddf8497e4d6bf1867ca0290db513efb37f0f26",
+        "fingerprint": "sha256:62391ff9c0693a97518d2c7ece97f86a910224a54c4e11fdea205213ca266679",
         "path": ".engine/check/state-cursor.json"
       },
       "type": "check"
@@ -282,6 +298,22 @@
         "path": ".engine/contracts/.gitkeep"
       },
       "type": "contract"
+    },
+    {
+      "id": "doc:.gitkeep",
+      "name": ".engine/docs/.gitkeep",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": ".gitkeep",
+      "source": {
+        "fingerprint": "sha256:0d1262ebf98d17f8d38c4f4a916aaa7302d5d7b58707187ad97745b62710c9fb",
+        "path": ".engine/docs/.gitkeep"
+      },
+      "type": "doc"
     },
     {
       "id": "interface:knowledge-retrieval",
@@ -328,7 +360,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:db8dea1a2662c622e5fc654b2c2072b962bdc5b61cdd7d1fa5907dc7a3f085ad",
+        "fingerprint": "sha256:bc4521c23f17686a166f8d08cfef92e2ab9c78465afff0eb1143358e2f6ab667",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -344,10 +376,26 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:23c0f285d0043f8cce80eec6fba5680aacb7ad7ca9ef99df7b780c9933c1673b",
+        "fingerprint": "sha256:d1f95c84a9e846c42d4250db9cfe80461575450164e289dff177da720e6f3f5f",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
+    },
+    {
+      "id": "operation:.gitkeep",
+      "name": ".engine/operations/.gitkeep",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": ".gitkeep",
+      "source": {
+        "fingerprint": "sha256:46a2ebc8ab6d6035fccc94c141fbca705c1414d2ef4b223a3177384c07510cb4",
+        "path": ".engine/operations/.gitkeep"
+      },
+      "type": "operation"
     },
     {
       "id": "policy:contract-threshold",
@@ -596,7 +644,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:a7418c712f6b116781e5f4e5c9f8cfa49dce8652954b51959cab2fca8487a6fe",
+        "fingerprint": "sha256:139d389783177acd909bc3861b0445502c575aefe35453f415019330e8d7fa03",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "type": "schema"
@@ -634,25 +682,6 @@
       "type": "schema"
     },
     {
-      "id": "state:state",
-      "name": ".engine/state/state.json",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:state.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "state",
-      "source": {
-        "fingerprint": "sha256:1da7f001fbf8fcf69851430efe41f60d17bbbd71103bad8b026b7ffb40127794",
-        "path": ".engine/state/state.json"
-      },
-      "type": "state"
-    },
-    {
       "id": "tool:knowledge_gen",
       "name": ".engine/tools/knowledge_gen.py",
       "owner": "core",
@@ -663,7 +692,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:b95a09b3f2f7d62ced8c78514541c5a9c94aa22c7cbc7be36c2c99474ed5b1ee",
+        "fingerprint": "sha256:cc6fe311efb12619131faeaaea2c6bc0cde790a11ff5b3b3c280c99ad19a0e4a",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "type": "tool"
@@ -823,7 +852,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:2d0f12feac5ca4b0ad74e09c52cda4aab477bd18121c38a238e47c175ab3e7fb",
+        "fingerprint": "sha256:6264a0f0e5c69772a97100b92f978a268dfdaf514a1d3a42dd9b2a12941984bf",
         "path": ".engine/tools/test_knowledge.py"
       },
       "type": "tool"
@@ -855,7 +884,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:345ade796cea33fd33ddbfed9691a526b5658d2e37e42d6e3ceb1d29f726272c",
+        "fingerprint": "sha256:89553244bebc999232d2714e3d02a73dc4327eaab429a8ad60e4932227e4ab40",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
@@ -919,7 +948,7 @@
       },
       "slug": "test_state",
       "source": {
-        "fingerprint": "sha256:9d131b4a83ba5f57c20a78b0ae80636be130118b86a8e26688fe0fbf65098b79",
+        "fingerprint": "sha256:58f2021bb45e0e35a13971dae3ac0c4dd234aff80011e4fb19f3da0fd1530a3e",
         "path": ".engine/tools/test_state.py"
       },
       "type": "tool"

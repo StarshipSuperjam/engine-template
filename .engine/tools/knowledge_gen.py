@@ -4,7 +4,7 @@
 Knowledge answers "how does this world work?" — the purely STRUCTURAL, purely DERIVED layer:
 what engine surfaces exist and how they relate. This tool generates ONE committed JSON file,
 `.engine/knowledge/graph.json`, holding one entity per engine surface-instance file (each schema,
-each check, each tool, the state cursor, and — as they appear — each contract, policy, operation,
+each check, each tool, and — as they appear — each contract, policy, operation,
 skill, agent, interface, and doc) plus one entity per installed module, with the mechanical edges
 between them. It is DERIVED from the declarations the engine already requires — the surface catalog,
 the module manifests, and the check rules — so it cannot diverge from them, and it is never
