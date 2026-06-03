@@ -626,12 +626,26 @@ class TestWeakeningReHome(unittest.TestCase):
     """The re-homed weakening guard emits finding.v1 JSON via the custom/script contract:
     [] when nothing weakens or the ack label is present, one hard finding (carrying the
     plain-language ack guidance) on an unacknowledged guardrail change, and a hard
-    fail-closed finding when the pull-request context cannot be read."""
+    fail-closed finding when the pull-request context cannot be read OR the guard could not
+    read every changed file (a partial view — a too-large PR past GitHub's file-listing
+    cap). The latter is the principles §15 non-falsifiability property: a weakening edit
+    must not hide past file 100 of a big PR, so the guard paginates the diff to completion
+    and cross-checks what it read against the pull request's authoritative changed_files."""
 
-    def _main_json(self, event, files):
+    _AUTO = object()  # sentinel: derive expected from len(files) unless overridden
+
+    def _main_json(self, event, files, expected=_AUTO):
+        """Drive main() with the two network seams stubbed: the complete changed-file list
+        and the authoritative changed_files count. `expected` defaults to len(files) (a
+        fully-seen PR); pass a larger int to simulate a truncated / over-cap view, or None
+        to simulate the count being unavailable."""
         import contextlib
         import io
-        saved, orig_api = dict(os.environ), weakening_guard.api_get
+        if expected is self._AUTO:
+            expected = len(files)
+        saved = dict(os.environ)
+        orig_fetch = weakening_guard.fetch_all_changed_files
+        orig_count = weakening_guard.changed_files_total
         buf = io.StringIO()
         with tempfile.TemporaryDirectory() as d:
             ep = os.path.join(d, "event.json")
@@ -639,14 +653,16 @@ class TestWeakeningReHome(unittest.TestCase):
                 json.dump(event, fh)
             os.environ.update({"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "x",
                                "ENGINE_RULE_TIER": "hard", "GITHUB_EVENT_PATH": ep})
-            weakening_guard.api_get = lambda path, token: files
+            weakening_guard.fetch_all_changed_files = lambda repo, number, token: files
+            weakening_guard.changed_files_total = lambda repo, number, token: expected
             try:
                 with contextlib.redirect_stdout(buf):
                     rc = weakening_guard.main()
             finally:
                 os.environ.clear()
                 os.environ.update(saved)
-                weakening_guard.api_get = orig_api
+                weakening_guard.fetch_all_changed_files = orig_fetch
+                weakening_guard.changed_files_total = orig_count
         return rc, json.loads(buf.getvalue())
 
     def test_no_weakening_is_empty_and_exit_zero(self):
@@ -690,6 +706,94 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "hard")
+
+    # ---- issue #25: paginate the changed-files fetch; fail closed on a partial view ----
+
+    def test_next_link_parses_next_url_and_none_when_absent(self):
+        """_next_link returns the rel="next" URL, and None when there is no next page."""
+        header = ('<https://api.github.com/repositories/1/pulls/1/files?per_page=100&page=2>; '
+                  'rel="next", <https://api.github.com/repositories/1/pulls/1/files?'
+                  'per_page=100&page=9>; rel="last"')
+        self.assertEqual(
+            weakening_guard._next_link(header),
+            "https://api.github.com/repositories/1/pulls/1/files?per_page=100&page=2")
+        # only rel="last" (the last page) -> no next; and no header at all -> no next
+        self.assertIsNone(weakening_guard._next_link(
+            '<https://api.github.com/repositories/1/pulls/1/files?page=9>; rel="last"'))
+        self.assertIsNone(weakening_guard._next_link(None))
+
+    def test_fetch_all_changed_files_follows_pagination(self):
+        """The loop follows Link: rel="next" across pages and returns EVERY changed file —
+        the direct regression guard for the fail-open bug (a late-page file was invisible)."""
+        page1 = [{"filename": f"docs/f{i}.md", "status": "modified"} for i in range(100)]
+        page2 = [{"filename": ".engine/check/pr-body-completeness.json", "status": "modified"}]
+        page2_url = ("https://api.github.com/repos/o/r/pulls/1/files?per_page=100&page=2")
+        pages = {
+            "/repos/o/r/pulls/1/files?per_page=100": (page1, f'<{page2_url}>; rel="next"'),
+            page2_url: (page2, None),
+        }
+        orig = weakening_guard._get_page
+        weakening_guard._get_page = lambda url, token: pages[url]
+        try:
+            got = weakening_guard.fetch_all_changed_files("o/r", 1, "x")
+        finally:
+            weakening_guard._get_page = orig
+        self.assertEqual(len(got), 101)  # both pages, not just the first 100
+        self.assertEqual(got[-1]["filename"], ".engine/check/pr-body-completeness.json")
+
+    def test_weakening_on_a_late_page_is_caught(self):
+        """The classifier sees the WHOLE paginated list, so a guardrail edit that lands
+        after file 100 is flagged — the behavior the single-page fetch missed."""
+        files = [{"filename": f"docs/f{i}.md", "status": "modified"} for i in range(100)]
+        files.append({"filename": ".engine/tools/validate.py", "status": "modified"})
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, files)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("guardrail-ack", out[0]["message"])
+        self.assertIn("validate.py", out[0]["message"])
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+
+    def test_oversized_pr_fails_closed_not_clean(self):
+        """When the guard reads fewer files than the PR's authoritative changed_files (a
+        too-large PR past the listing cap), it fails CLOSED — a hard finding demanding the
+        ack, naming PR SIZE as the cause, never the 'weakening detected' message, never []."""
+        files = [{"filename": f"docs/f{i}.md", "status": "modified"} for i in range(100)]
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}},
+                                  files, expected=5000)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("guardrail-ack", out[0]["message"])
+        self.assertIn("5000", out[0]["message"])
+        self.assertNotIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+
+    def test_duplicate_listing_entry_cannot_mask_a_missing_file(self):
+        """The completeness gate counts DISTINCT filenames, so a duplicate listing entry
+        cannot inflate the tally to match changed_files while a real file goes unseen
+        (§15: the guard must not be falsifiable by the change it judges). This would pass
+        clean under a raw len() comparator — it must fail closed."""
+        files = [{"filename": f"docs/f{i}.md", "status": "modified"} for i in range(99)]
+        files.append({"filename": "docs/f0.md", "status": "modified"})  # dup -> len 100, distinct 99
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}},
+                                  files, expected=100)  # the PR truly changed 100 files
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("guardrail-ack", out[0]["message"])
+        self.assertNotIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+
+    def test_unavailable_count_fails_closed(self):
+        """If the authoritative count is unavailable (not an int), the guard cannot confirm
+        it read every file, so it fails closed rather than judging a partial view."""
+        files = [{"filename": "README.md", "status": "modified"}]
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}},
+                                  files, expected=None)  # count unavailable
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("guardrail-ack", out[0]["message"])
+        self.assertNotIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
 
 
 class TestRunCheckById(unittest.TestCase):
