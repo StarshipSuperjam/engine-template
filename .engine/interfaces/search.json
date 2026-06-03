@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "id": "search",
+  "title": "Memory recall",
+  "description": "Read-only recall over the engine's memory ledger — the project's narrative \"how did I get here?\" record (past decisions, the pushback and rationale behind them, lessons, dead-ends, preferences, intents). Every conforming implementation answers the same recall operation, so a session can ask \"what do we already know about this?\" and get the relevant past episodes ranked best-first, without knowing whether the offline keyword floor or a richer meaning-based engine is answering. It returns narrative recall only and never structural fact (knowledge's job); a caller that wants the entities a memory references composes that itself by filtering on an entity-id tag at read time.",
+  "status": "active",
+  "operations": [
+    {
+      "name": "search",
+      "description": "Recall the memory records most relevant to a query, ranked best-first. An optional role filter narrows to record kinds (the closed memory role vocabulary: decision, rationale/pushback, lesson, dead-end, preference, intent, observation); an optional tag filter narrows to records carrying given tags (entity references such as eADR-#### or free topic tags — the read-time link to knowledge is composed by filtering on an entity-id tag); an optional limit caps how many results are returned.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "description": "The recall query text, matched against the records' narrative content.",
+            "type": "string",
+            "minLength": 1
+          },
+          "roles": {
+            "description": "Restrict to these record roles (the closed memory role vocabulary: decision, rationale/pushback, lesson, dead-end, preference, intent, observation). Omit for all roles. Validated against the implementation's own role schema, not frozen by this contract.",
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "tags": {
+            "description": "Restrict to records carrying any of these tags (entity references such as 'eADR-0007' or free topic tags). Omit for no tag filter.",
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "limit": {
+            "description": "The maximum number of ranked results to return. Omit for the implementation's default.",
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["results"],
+        "properties": {
+          "results": {
+            "description": "The matching memory records, ordered best-first by relevance (the ranking is the implementation's — BM25 for the lexical floor, reinforced by usage). Each result is a record object whose exact shape is the memory substrate's own (role, narrative, tags, provenance, score), not frozen by this contract.",
+            "type": "array",
+            "items": { "type": "object" }
+          }
+        }
+      }
+    }
+  ],
+  "fallback": {
+    "kind": "mcp",
+    "handle": "engine-memory"
+  }
+}

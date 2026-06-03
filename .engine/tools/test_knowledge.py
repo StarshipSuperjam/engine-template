@@ -122,19 +122,23 @@ class TestLiveDerivation(unittest.TestCase):
         # the module entity exists
         self.assertIn("module:core", self.by_id)
 
-    def test_known_edges_for_the_interface_and_its_declaration_check(self):
-        # slice 11a: the interface declaration is governed by interface.v1 (the catalog
-        # governing_schema flip) and provided by core; the interface-declaration check targets it.
+    def test_known_edges_for_the_interfaces_and_their_declaration_check(self):
+        # slices 11a/11b: each interface declaration is governed by interface.v1 (the catalog
+        # governing_schema flip) and provided by core; the interface-declaration check targets BOTH.
         # The non-fingerprint correlate for edge correctness — the fingerprint gate proves the graph
         # MATCHES the surfaces, never that the derived edges are right; this asserts the edges.
-        iface = self.by_id.get("interface:knowledge-retrieval")
-        self.assertIsNotNone(iface, "expected an interface:knowledge-retrieval entity")
-        self.assertEqual(iface["predicates"].get("governed_by"), ["schema:interface.v1"])
-        self.assertEqual(iface["predicates"].get("provided_by"), ["module:core"])
+        for iid in ("interface:knowledge-retrieval", "interface:search"):
+            iface = self.by_id.get(iid)
+            self.assertIsNotNone(iface, f"expected an {iid} entity")
+            self.assertEqual(iface["predicates"].get("governed_by"), ["schema:interface.v1"], iid)
+            self.assertEqual(iface["predicates"].get("provided_by"), ["module:core"], iid)
         self.assertIn("schema:interface.v1", self.by_id)
         chk = self.by_id.get("check:interface-declaration")
         self.assertIsNotNone(chk, "expected a check:interface-declaration entity")
-        self.assertEqual(chk["predicates"].get("targets"), ["interface:knowledge-retrieval"])
+        # the check globs .engine/interfaces/*.json, so its derived `targets` are BOTH declarations
+        # (sorted) — adding search.json widened this edge, the 11b graph delta the operator eyeballs.
+        self.assertEqual(chk["predicates"].get("targets"),
+                         ["interface:knowledge-retrieval", "interface:search"])
         self.assertEqual(chk["predicates"].get("governed_by"), ["schema:check.v1"])
 
     def test_schema_surface_files_have_no_governed_by(self):

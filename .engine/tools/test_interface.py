@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 11a — the interface surface: the interface.v1 declaration grammar, the
-committed knowledge-retrieval declaration, the schema-kind validation rule, and the single-active /
-conformance coherence leg (validate.interface_resolution_findings).
+"""Self-tests for the interface surface (slices 11a + 11b): the interface.v1 declaration grammar, the
+committed knowledge-retrieval (11a) and search (11b) declarations, the schema-kind validation rule, and
+the single-active / conformance coherence leg (validate.interface_resolution_findings).
 
 Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
 
@@ -10,7 +10,10 @@ the committed knowledge-retrieval declaration conforms and pins the D-116 op-set
 renamed operation fails this suite, not only review); each operation's inline input/output schema is
 itself a well-formed JSON Schema; the catalog-resolved schema-kind rule joins CI and passes on the real
 declaration; and the coherence leg fires single-active (>1 non-default → hard) + conformance (missing
-op → hard) and treats an absent named fallback as an expected-pending NOTE, never drift.
+op → hard) and treats an absent named fallback as an expected-pending NOTE, never drift. The GENERIC
+properties (conforms, id==filename stem, fallback shape, status-in-enum) are checked over EVERY
+declaration so a new interface is auto-covered; the search declaration's op-set/signature/fallback
+(engine-memory) and its live expected-pending note are pinned explicitly (11b).
 """
 from __future__ import annotations
 import json
@@ -22,10 +25,25 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 
 INTERFACE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "interface.v1.json"))
-KR_PATH = os.path.join(validate.ENGINE_DIR, "interfaces", "knowledge-retrieval.json")
+INTERFACES_DIR = os.path.join(validate.ENGINE_DIR, "interfaces")
+KR_PATH = os.path.join(INTERFACES_DIR, "knowledge-retrieval.json")
 KR = validate.load_json(KR_PATH)
+SEARCH_PATH = os.path.join(INTERFACES_DIR, "search.json")
+SEARCH = validate.load_json(SEARCH_PATH)
 RULE_PATH = os.path.join(validate.CHECK_DIR, "interface-declaration.json")
 D116_OPS = {"get-entity", "find", "neighbors", "relate"}
+STATUS_ENUM = INTERFACE_SCHEMA["properties"]["status"]["enum"]
+
+
+def _all_declarations():
+    """(path, declaration) for every committed interface declaration under .engine/interfaces/ — so the
+    generic property tests auto-cover a newly-added interface without an edit here."""
+    out = []
+    for name in sorted(os.listdir(INTERFACES_DIR)):
+        if name.endswith(".json"):
+            p = os.path.join(INTERFACES_DIR, name)
+            out.append((p, validate.load_json(p)))
+    return out
 
 
 def _errors(schema, instance):
@@ -53,6 +71,19 @@ class TestSchema(unittest.TestCase):
             validate.Draft202012Validator.check_schema(op["input_schema"])
             validate.Draft202012Validator.check_schema(op["output_schema"])
 
+    def test_every_declaration_conforms(self):
+        """Generic coverage: every interface declaration (knowledge-retrieval, search, and any future
+        one) conforms to interface.v1 — a new interface file is auto-covered without editing this test."""
+        for path, decl in _all_declarations():
+            self.assertEqual(_errors(INTERFACE_SCHEMA, decl), [],
+                             f"{os.path.basename(path)} must conform to interface.v1")
+
+    def test_every_operation_io_schema_is_well_formed(self):
+        for path, decl in _all_declarations():
+            for op in decl["operations"]:
+                validate.Draft202012Validator.check_schema(op["input_schema"])
+                validate.Draft202012Validator.check_schema(op["output_schema"])
+
 
 class TestDeclaration(unittest.TestCase):
     def test_id_matches_filename_stem(self):
@@ -69,6 +100,35 @@ class TestDeclaration(unittest.TestCase):
 
     def test_status_active(self):
         self.assertEqual(KR["status"], "active")
+
+    def test_every_id_matches_filename_stem(self):
+        for path, decl in _all_declarations():
+            self.assertEqual(decl["id"], os.path.splitext(os.path.basename(path))[0],
+                             f"{os.path.basename(path)} id must match its filename stem")
+
+    def test_every_fallback_is_engine_prefixed_mcp(self):
+        for path, decl in _all_declarations():
+            self.assertEqual(decl["fallback"]["kind"], "mcp", os.path.basename(path))
+            self.assertTrue(decl["fallback"]["handle"].startswith("engine-"), os.path.basename(path))
+
+    def test_every_status_is_in_the_enum(self):
+        for path, decl in _all_declarations():
+            self.assertIn(decl["status"], STATUS_ENUM, os.path.basename(path))
+
+    def test_search_op_set_and_signature(self):
+        """11b: the search contract is ONE read-recall op pinning the query + role/tag/limit boundary."""
+        self.assertEqual({op["name"] for op in SEARCH["operations"]}, {"search"})
+        op = SEARCH["operations"][0]
+        self.assertEqual(op["input_schema"]["required"], ["query"])
+        self.assertEqual(set(op["input_schema"]["properties"]), {"query", "roles", "tags", "limit"})
+        self.assertEqual(op["output_schema"]["required"], ["results"])
+
+    def test_search_fallback_is_engine_memory(self):
+        """11b: the frozen cross-slice handle the memory-substrate slice must register its server under."""
+        self.assertEqual(SEARCH["fallback"], {"kind": "mcp", "handle": "engine-memory"})
+
+    def test_search_status_active(self):
+        self.assertEqual(SEARCH["status"], "active")
 
 
 class TestCheckRule(unittest.TestCase):
@@ -119,12 +179,22 @@ class TestResolutionLeg(unittest.TestCase):
         self.assertTrue(any(x["severity"] == "hard" and "does not provide" in x["message"] for x in f))
 
     def test_absent_named_fallback_is_a_note_not_hard(self):
-        # a protocol-only interface whose fallback ships with a later module (the 11b `search` case)
-        search = {"id": "search", "operations": [{"name": "search"}],
-                  "fallback": {"kind": "mcp", "handle": "engine-memory-search"}}
-        f = validate.interface_resolution_findings([search], {}, set(), "hard", "m")
+        # a synthetic protocol-only interface whose named fallback is not present -> expected-pending note
+        # (the LIVE search.json exercise of this path is test_live_search_is_expected_pending_note below)
+        synthetic = {"id": "synthetic-pending", "operations": [{"name": "noop"}],
+                     "fallback": {"kind": "mcp", "handle": "engine-not-yet-present"}}
+        f = validate.interface_resolution_findings([synthetic], {}, set(), "hard", "m")
         self.assertEqual([x["severity"] for x in f], ["note"])
         self.assertTrue(any("pending-setup" in x["message"] for x in f))
+
+    def test_live_search_is_expected_pending_note(self):
+        """11b: the REAL committed search.json — its named fallback engine-memory is absent in core (it
+        ships with memory-substrate, a later module), so resolution is a single expected-pending NOTE,
+        never a hard finding. This is the slice's observable: nothing in CI chokes on the absent fallback."""
+        f = validate.interface_resolution_findings([SEARCH], {}, set(), "hard", "m")
+        self.assertEqual([x["severity"] for x in f], ["note"])
+        self.assertIn("engine-memory", f[0]["message"])
+        self.assertIn("pending-setup", f[0]["message"])
 
 
 if __name__ == "__main__":
