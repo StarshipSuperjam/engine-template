@@ -11,9 +11,11 @@ here, while the engine-self-validation rule *corpus* rides `validators-core`
 
 The five closed core kinds, plus the `custom/script` escape hatch:
   - presence  — named sections/fields are present and non-empty.
-  - schema    — a structured file conforms to its governing JSON Schema (2020-12),
-                resolved catalog-first (`governing_schema`), with a `params.schema`
-                override for the cases the catalog cannot express.
+  - schema    — a structured file, or a prose surface's YAML frontmatter, conforms to its
+                governing JSON Schema (2020-12), resolved catalog-first (`governing_schema`),
+                with a `params.schema` override for the cases the catalog cannot express.
+                The loader is chosen by surface class: prose frontmatter is read by the
+                YAML `frontmatter` reader, every other target by `load_json`.
   - shape     — a prose instance matches a template's shape-spec (required and
                 allowed sections, ordering, a soft length budget).
   - coverage  — referential integrity; `params.mode` selects `links` (every relative
@@ -58,6 +60,7 @@ The PR body is read from --pr-body-file, else from $GITHUB_EVENT_PATH
 treated as unavailable (the PR-body presence check fails OPEN locally, evaluates in CI).
 """
 from __future__ import annotations
+import datetime
 import glob as _glob
 import json
 import os
@@ -65,6 +68,7 @@ import re
 import subprocess
 import sys
 
+import yaml
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
@@ -112,6 +116,42 @@ def load_json(path: str):
     than misleading the AI (schemas/README.md design commitment)."""
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def _json_model(obj):
+    """Render a YAML-loaded object into the JSON data model JSON Schema governs. YAML's
+    native types are richer than JSON's: an unquoted ISO-8601 value (e.g. `date: 2026-06-03`)
+    loads as a datetime.date, which a `{"type": "string"}` schema would reject — so a
+    date/datetime scalar is rendered to its ISO-8601 string form, while numbers, booleans,
+    null, and strings stay native (so `persistence: 3` stays a number). Recurses through
+    mappings and sequences. This keeps frontmatter authors free of quoting rituals: the
+    reader, not the document, reconciles YAML's type system with the schema's."""
+    if isinstance(obj, dict):
+        return {k: _json_model(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_model(v) for v in obj]
+    if isinstance(obj, (datetime.date, datetime.datetime)):
+        return obj.isoformat()
+    return obj
+
+
+def frontmatter(path: str) -> dict:
+    """Parse a prose file's YAML frontmatter (the block between the first two `---`
+    fences) to a data object, normalized to the JSON data model (see _json_model). This
+    is the frontmatter reader the locked schemas/validation foundation calls for ("parses
+    a file or its YAML frontmatter to a data object before validating"; D-090's deferral,
+    resolved). A file that does not open with a `---` fence yields {} — the governing
+    schema's `required` then catches a frontmatter-less file. Malformed YAML RAISES (loud),
+    caught by the caller as a fail-closed finding (the halt-on-malformed posture).
+    `safe_load` only, never `load`: no arbitrary object construction from frontmatter."""
+    text = read(path)
+    if not text.startswith("---"):
+        return {}
+    parts = text.split("---", 2)          # maxsplit=2: a `---` thematic break in the body stays in the body
+    if len(parts) < 3:
+        return {}
+    data = yaml.safe_load(parts[1])
+    return _json_model(data) if isinstance(data, dict) else {}
 
 
 def target_files(rule: dict) -> list:
@@ -258,18 +298,27 @@ def _governing_schema(rule: dict, rel_path: str):
 
 
 def kind_schema(rule, ctx):
-    """A structured file conforms to its governing JSON Schema (2020-12). Validates
-    the file's PARSED data, not its raw text. A malformed file, an unresolvable or
-    offline schema reference, or a malformed governing schema is a loud finding (the
-    halt-on-malformed posture), never an uncaught error and never a network fetch."""
+    """A structured file — or a prose file's YAML frontmatter — conforms to its governing
+    JSON Schema (2020-12). Validates the PARSED data, not raw text. The loader is chosen by
+    the target's surface CLASS (catalog-resolved, the same routing _governing_schema uses):
+    a `prose` surface's frontmatter is read (and normalized to the JSON data model) by
+    `frontmatter`; every other target — structured surfaces, and the override-schema targets
+    that carry no surface record at all — is read by `load_json`, exactly as before. A
+    malformed file, an unresolvable or offline schema reference, or a malformed governing
+    schema is a loud finding (the halt-on-malformed posture), never an uncaught error and
+    never a network fetch."""
     tier = rule["tier"]
     findings = []
     for path in target_files(rule):
         rel = os.path.relpath(path, ROOT)
+        rec = _surface_record_for(rel)                 # None for override-schema targets (engine.json, state.json, manifests)
+        is_prose = bool(rec) and rec.get("class") == "prose"
         try:
-            data = load_json(path)
+            data = frontmatter(path) if is_prose else load_json(path)
         except Exception as exc:
-            findings.append(finding(tier, f"'{rel}' is not valid JSON and cannot be "
+            malformed = ("has a malformed settings block (its YAML frontmatter could not be read)"
+                         if is_prose else "is not valid JSON")
+            findings.append(finding(tier, f"'{rel}' {malformed} and cannot be "
                             f"schema-checked: {exc}. {rule['message']}", loc(path)))
             continue
         try:
