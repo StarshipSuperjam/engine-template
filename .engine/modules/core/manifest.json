@@ -10,6 +10,7 @@
     "state": [".engine/state/*.json"],
     "knowledge": [".engine/knowledge/*.json"],
     "contract": [".engine/contracts/*.md", ".engine/contracts/.gitkeep"],
+    "policy": [".engine/policies/*.md"],
     "template": [".engine/templates/*.md"],
     "foundation": [".engine/suites.json", ".engine/self-map.md"]
   },
