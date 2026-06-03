@@ -33,10 +33,12 @@ The packages your engine is assembled from, and how they wire together (1 instal
 - depends on: nothing
 - provides:
   - check: `.engine/check/*.json`
+  - contract: `.engine/contracts/*.md`, `.engine/contracts/.gitkeep`
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
   - schema: `.engine/schemas/*.json`
   - state: `.engine/state/*.json`
+  - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`
 - wires: gitignore, mcp

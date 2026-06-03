@@ -1,6 +1,25 @@
 {
   "entities": [
     {
+      "id": "check:contract-shape",
+      "name": ".engine/check/contract-shape.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "contract-shape",
+      "source": {
+        "fingerprint": "sha256:0f15d1bb80f20a1d9a1b7acccca57e51e3a18cc3c7b02773f0d778945e06d91b",
+        "path": ".engine/check/contract-shape.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:engine-manifest",
       "name": ".engine/check/engine-manifest.json",
       "owner": "core",
@@ -201,6 +220,25 @@
       "type": "check"
     },
     {
+      "id": "contract:.gitkeep",
+      "name": ".engine/contracts/.gitkeep",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": ".gitkeep",
+      "source": {
+        "fingerprint": "sha256:d442af95eb3bc1b9b41bb166039dd1d81fbe0aa31a98501e39e148e1df9f453c",
+        "path": ".engine/contracts/.gitkeep"
+      },
+      "type": "contract"
+    },
+    {
       "id": "interface:knowledge-retrieval",
       "name": ".engine/interfaces/knowledge-retrieval.json",
       "owner": "core",
@@ -245,7 +283,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:9af8c0dac9389ee450ec7bce7c1917d04c8807a27948b75c3e99d114dbefb4e7",
+        "fingerprint": "sha256:a4590d276bed04279d7f7b675e90486c085972a1569356321f23f6084c8a9c57",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -263,6 +301,22 @@
       "source": {
         "fingerprint": "sha256:28e323d7a95eef2edcae9c788bae7926d15e277c2bbf67a900aa53be219abe12",
         "path": ".engine/schemas/check.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:contract.v1",
+      "name": ".engine/schemas/contract.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "contract.v1",
+      "source": {
+        "fingerprint": "sha256:de17559f1633deedbfb128cc736e83b98c2576e3506fc7b2c70982b2f7bf9010",
+        "path": ".engine/schemas/contract.v1.json"
       },
       "type": "schema"
     },
@@ -389,7 +443,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:54b56f20093eaabc70c409272915b066631e429b2fcc492d16e30e2c0c92316c",
+        "fingerprint": "sha256:4d895f105fe9df48c6552da31f79a338d7cd873525393973a0768a39198306ae",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "type": "schema"
@@ -570,6 +624,22 @@
       "source": {
         "fingerprint": "sha256:bb8f84ce91cdee031f4a89ddb166804d341764acf9fd385e147bb8959ff676bb",
         "path": ".engine/tools/self_map_check.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_contract",
+      "name": ".engine/tools/test_contract.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_contract",
+      "source": {
+        "fingerprint": "sha256:a3823847589d461f4e41fe56c116ebeb130c1c8e24ab4d40a5b24c231bf3d66c",
+        "path": ".engine/tools/test_contract.py"
       },
       "type": "tool"
     },
