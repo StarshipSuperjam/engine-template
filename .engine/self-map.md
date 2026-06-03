@@ -37,6 +37,7 @@ The packages your engine is assembled from, and how they wire together (1 instal
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
+  - policy: `.engine/policies/*.md`
   - schema: `.engine/schemas/*.json`
   - state: `.engine/state/*.json`
   - template: `.engine/templates/*.md`

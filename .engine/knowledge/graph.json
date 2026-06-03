@@ -20,6 +20,25 @@
       "type": "check"
     },
     {
+      "id": "check:contract-threshold",
+      "name": ".engine/check/contract-threshold.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "contract-threshold",
+      "source": {
+        "fingerprint": "sha256:75537b4b4ea8f117d76c2c54a3a9ae1bf405ed29c501db99f07f777c2220f859",
+        "path": ".engine/check/contract-threshold.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:engine-manifest",
       "name": ".engine/check/engine-manifest.json",
       "owner": "core",
@@ -137,6 +156,31 @@
       "source": {
         "fingerprint": "sha256:2ae0714e5c7c5527aa57d7ab79b402640b89cfc2e4161300dd44c713a7c3c642",
         "path": ".engine/check/module-manifest.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:policy-shape",
+      "name": ".engine/check/policy-shape.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "targets": [
+          "policy:contract-threshold",
+          "policy:escalation",
+          "policy:finding-disposition",
+          "policy:triage-threshold"
+        ]
+      },
+      "slug": "policy-shape",
+      "source": {
+        "fingerprint": "sha256:673b23c493a3dc9f634d2f5447782f3643c809807b963ccf01c85e2e6aed1a3b",
+        "path": ".engine/check/policy-shape.json"
       },
       "type": "check"
     },
@@ -283,10 +327,86 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a4590d276bed04279d7f7b675e90486c085972a1569356321f23f6084c8a9c57",
+        "fingerprint": "sha256:22138208e90a68ccb9bede2baa67fd2c2999dd03ea91b5f313339eb2e2cec1ed",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
+    },
+    {
+      "id": "policy:contract-threshold",
+      "name": ".engine/policies/contract-threshold.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "contract-threshold",
+      "source": {
+        "fingerprint": "sha256:cbf8857029fc9e330e6beb69864c5c253fa5d77ca1b43cd09b54e8c3c3cd6c85",
+        "path": ".engine/policies/contract-threshold.md"
+      },
+      "type": "policy"
+    },
+    {
+      "id": "policy:escalation",
+      "name": ".engine/policies/escalation.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "escalation",
+      "source": {
+        "fingerprint": "sha256:1afa7a089840a32b3ece65f138e418dad06150e0f3863385c9e3f5ecf1becb22",
+        "path": ".engine/policies/escalation.md"
+      },
+      "type": "policy"
+    },
+    {
+      "id": "policy:finding-disposition",
+      "name": ".engine/policies/finding-disposition.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "finding-disposition",
+      "source": {
+        "fingerprint": "sha256:d8d86b37bbb8d1ce88163000984ee6199f6a5d7efcf7a0072ab380ff4bd7df48",
+        "path": ".engine/policies/finding-disposition.md"
+      },
+      "type": "policy"
+    },
+    {
+      "id": "policy:triage-threshold",
+      "name": ".engine/policies/triage-threshold.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "triage-threshold",
+      "source": {
+        "fingerprint": "sha256:af414b5cd99160404643850df7ed458c9ec8ab40d75ca0ecb3c329c4b9b4b3c8",
+        "path": ".engine/policies/triage-threshold.md"
+      },
+      "type": "policy"
     },
     {
       "id": "schema:check.v1",
@@ -401,6 +521,22 @@
       "type": "schema"
     },
     {
+      "id": "schema:policy.v1",
+      "name": ".engine/schemas/policy.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "policy.v1",
+      "source": {
+        "fingerprint": "sha256:f74ce9bb80acec4d032b43473ac401a456c9817a47f3376079e65d39a4bd5168",
+        "path": ".engine/schemas/policy.v1.json"
+      },
+      "type": "schema"
+    },
+    {
       "id": "schema:state.v1",
       "name": ".engine/schemas/state.v1.json",
       "owner": "core",
@@ -443,7 +579,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:4d895f105fe9df48c6552da31f79a338d7cd873525393973a0768a39198306ae",
+        "fingerprint": "sha256:a7418c712f6b116781e5f4e5c9f8cfa49dce8652954b51959cab2fca8487a6fe",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "type": "schema"
@@ -704,6 +840,22 @@
       "source": {
         "fingerprint": "sha256:79f0a93e3a8b9400e85ee1a52b6bdeb4ee7073f6c4edc0de15ccaf5434c7130d",
         "path": ".engine/tools/test_modules.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_policy",
+      "name": ".engine/tools/test_policy.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_policy",
+      "source": {
+        "fingerprint": "sha256:9d72a70dfd696c5657b8b0d6db14b1175572e85e248a5be03274f9f0f7fcfe9b",
+        "path": ".engine/tools/test_policy.py"
       },
       "type": "tool"
     },

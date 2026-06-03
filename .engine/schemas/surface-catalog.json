@@ -16,8 +16,8 @@
       "purpose": "Standing rules — ongoing directives that govern behavior across sessions; the second authority tier.",
       "authority": "standing-rules",
       "lifecycle": "decision",
-      "governing_schema": null,
-      "template": null
+      "governing_schema": "policy.v1.json",
+      "template": "../templates/policy.md"
     },
     "schema": {
       "class": "structured",
