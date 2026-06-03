@@ -1,3 +1,5 @@
+<!-- If this PR closes GitHub issue(s): add one `Closes #N` line per issue directly below this comment (the keyword is required for GitHub to auto-close them on merge — "Closes #1, #2" does NOT work). Delete this comment if the PR closes no issue. -->
+
 ## Purpose
 
 **<one-line summary of why this change exists>**
