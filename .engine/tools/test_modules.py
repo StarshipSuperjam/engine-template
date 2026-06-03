@@ -194,6 +194,51 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
+    def test_check_corpus_split_core_two_guards_validators_core_eleven(self):
+        # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
+        # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
+        # the 11-rule self-validation corpus is validators-core's. The files stay under .engine/check/ —
+        # ownership is a `provides` claim, not a location. This test pins that exact split so a future
+        # wildcard re-introduction (which would double-claim the 11) cannot pass silently.
+        manifests = module_coherence.discover_manifests()
+        ids = {m.get("id") for _path, m in manifests}
+        self.assertIn("validators-core", ids, "validators-core must be a present module")
+
+        claims = module_coherence.provides_claims(manifests)
+        check_owner = {rel: owners for rel, owners in claims.items()
+                       if rel.startswith(".engine/check/") and rel.endswith(".json")}
+        # every check file is owned by exactly one module (no orphan, no double-claim)
+        for rel, owners in check_owner.items():
+            self.assertEqual(len(owners), 1, f"{rel} must have exactly one owner, got {owners}")
+
+        core_checks = sorted(r for r, o in check_owner.items() if o == ["core"])
+        vc_checks = sorted(r for r, o in check_owner.items() if o == ["validators-core"])
+        self.assertEqual(core_checks, [
+            ".engine/check/guardrail-weakening.json",
+            ".engine/check/protection.json",
+        ], "core owns exactly the two §15 guards")
+        self.assertEqual(vc_checks, [
+            ".engine/check/contract-shape.json",
+            ".engine/check/contract-threshold.json",
+            ".engine/check/engine-manifest.json",
+            ".engine/check/interface-declaration.json",
+            ".engine/check/knowledge-coverage.json",
+            ".engine/check/link-integrity.json",
+            ".engine/check/module-manifest.json",
+            ".engine/check/policy-shape.json",
+            ".engine/check/pr-body-completeness.json",
+            ".engine/check/self-map-drift.json",
+            ".engine/check/state-cursor.json",
+        ], "validators-core owns exactly the 11 corpus rules")
+        # the split partitions ALL committed check files — nothing left unclaimed
+        all_checks = sorted(r for r in module_coherence.engine_file_inventory()
+                            if r.startswith(".engine/check/") and r.endswith(".json"))
+        self.assertEqual(sorted(core_checks + vc_checks), all_checks,
+                         "every .engine/check/*.json is claimed by exactly one of core / validators-core")
+        # validators-core depends on core (presence assertion, any version)
+        vc = next(m for _p, m in manifests if m.get("id") == "validators-core")
+        self.assertEqual(vc.get("depends"), {"core": ""})
+
     def test_real_repository_is_coherent(self):
         # The whole point of the slice: the committed tree has no unowned engine file and no
         # broken dependency. This is the green baseline the operator's fail-then-pass demo

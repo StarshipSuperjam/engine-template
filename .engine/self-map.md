@@ -26,13 +26,13 @@ Every kind of file the engine governs — one home and one authority each (11 su
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (1 installed).
+The packages your engine is assembled from, and how they wire together (2 installed).
 
 ### `core` — version `0.0.0-dev` (required)
 
 - depends on: nothing
 - provides:
-  - check: `.engine/check/*.json`
+  - check: `.engine/check/guardrail-weakening.json`, `.engine/check/protection.json`
   - contract: `.engine/contracts/*.md`, `.engine/contracts/.gitkeep`
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
@@ -43,3 +43,10 @@ The packages your engine is assembled from, and how they wire together (1 instal
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`
 - wires: gitignore, mcp
+
+### `validators-core` — version `0.0.0-dev` (required)
+
+- depends on: `core`
+- provides:
+  - check: `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/engine-manifest.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/link-integrity.json`, `.engine/check/module-manifest.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/self-map-drift.json`, `.engine/check/state-cursor.json`
+- wires: none (this module adds no shared-state edits)

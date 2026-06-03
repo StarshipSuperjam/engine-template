@@ -3,7 +3,7 @@
   "version": "0.0.0-dev",
   "status": "required",
   "provides": {
-    "check": [".engine/check/*.json"],
+    "check": [".engine/check/guardrail-weakening.json", ".engine/check/protection.json"],
     "schema": [".engine/schemas/*.json"],
     "tool": [".engine/tools/*.py"],
     "interface": [".engine/interfaces/*.json"],
