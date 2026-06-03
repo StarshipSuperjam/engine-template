@@ -107,24 +107,35 @@ class TestLiveDerivation(unittest.TestCase):
             self.assertNotIn(e["type"], {"integration-debt", "audit-finding", "session-claim", "feature"})
             self.assertNotIn("pushback_drawers", e.get("predicates") or {})
 
-    def test_known_edges_for_the_state_cursor_and_its_check(self):
-        # the committed state-cursor check governs nothing but is governed by check.v1 and targets the cursor
+    def test_known_edges_for_the_state_cursor_check(self):
+        # the committed state-cursor check is governed by check.v1 and owned by validators-core (one of
+        # the corpus rules). Its target — the state cursor — is a FOUNDATION, not a catalogued surface
+        # (issue #24), so the cursor is not a knowledge entity and the check carries no `targets` edge.
         chk = self.by_id.get("check:state-cursor")
         self.assertIsNotNone(chk, "expected a check:state-cursor entity")
         self.assertEqual(chk["predicates"].get("governed_by"), ["schema:check.v1"])
-        self.assertEqual(chk["predicates"].get("targets"), ["state:state"])
-        # the state-cursor *check* is one of the 11 corpus rules, owned by validators-core; its
-        # *target* (the state:state instance, below) stays core's — ownership of the rule and of the
-        # surface it validates are distinct
         self.assertEqual(chk["predicates"].get("provided_by"), ["module:validators-core"])
-        # the state cursor instance is governed by state.v1 and owned by core
-        st = self.by_id.get("state:state")
-        self.assertIsNotNone(st, "expected a state:state entity")
-        self.assertEqual(st["predicates"].get("governed_by"), ["schema:state.v1"])
-        self.assertEqual(st["predicates"].get("provided_by"), ["module:core"])
+        self.assertNotIn("targets", chk["predicates"])  # the cursor is a foundation, not a surface entity
+        # no state:state surface entity exists (state left the catalog); its schema state.v1.json
+        # remains a schema-surface entity, governed by the external dialect (no governed_by edge)
+        self.assertNotIn("state:state", self.by_id)
+        self.assertIn("schema:state.v1", self.by_id)
         # both module entities exist (validators-core was stood up alongside core)
         self.assertIn("module:core", self.by_id)
         self.assertIn("module:validators-core", self.by_id)
+
+    def test_catalog_coverage_rule_and_provisioned_surface_homes(self):
+        # issue #30: the catalog-coverage gate is a validators-core corpus rule; the two newly
+        # provisioned .engine/ surface homes (operations, docs) appear as core-owned gitkeep
+        # entities. operations/docs have governing_schema:null, so they carry NO governed_by edge.
+        cov = self.by_id.get("check:catalog-coverage")
+        self.assertIsNotNone(cov, "expected a check:catalog-coverage entity")
+        self.assertEqual(cov["predicates"].get("provided_by"), ["module:validators-core"])
+        for eid in ("operation:.gitkeep", "doc:.gitkeep"):
+            home = self.by_id.get(eid)
+            self.assertIsNotNone(home, f"expected a {eid} entity")
+            self.assertEqual(home["predicates"].get("provided_by"), ["module:core"], eid)
+            self.assertNotIn("governed_by", home["predicates"], eid)
 
     def test_known_edges_for_the_interfaces_and_their_declaration_check(self):
         # slices 11a/11b: each interface declaration is governed by interface.v1 (the catalog
@@ -163,7 +174,7 @@ class TestLiveDerivation(unittest.TestCase):
         """Concrete spot-checks, independent of the _surface_for oracle the total-coverage test
         reuses — so a classification bug cannot pass both tests."""
         for eid in ("tool:validate", "tool:knowledge_gen", "schema:check.v1", "schema:knowledge.v1",
-                    "check:knowledge-coverage", "state:state", "module:core"):
+                    "check:knowledge-coverage", "check:catalog-coverage", "module:core"):
             self.assertIn(eid, self.by_id, eid)
 
 

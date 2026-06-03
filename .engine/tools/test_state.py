@@ -135,8 +135,9 @@ class TestStateSchema(unittest.TestCase):
 
 
 class TestStateRuleIntegration(unittest.TestCase):
-    """The committed rule joins CI, resolves its schema catalog-first (the 'state' surface),
-    passes the real cursor, and refuses a malformed or shape-invalid cursor as a plain finding."""
+    """The committed rule joins CI, names its schema directly via params.schema (state is a
+    foundation, not a catalogued surface), passes the real cursor, and refuses a malformed or
+    shape-invalid cursor as a plain finding."""
 
     def _rule(self):
         return validate.load_json(os.path.join(validate.CHECK_DIR, "state-cursor.json"))
@@ -147,19 +148,18 @@ class TestStateRuleIntegration(unittest.TestCase):
         self.assertEqual(list(validate.Draft202012Validator(check_schema).iter_errors(rule)), [])
         self.assertIn("CI", rule.get("suites", []))
 
-    def test_real_cursor_passes_via_the_catalog_routed_rule(self):
-        """The real rule carries no params.schema; this proves the 'state' surface routes
-        .engine/state/state.json to state.v1.json and the genesis cursor passes."""
+    def test_real_cursor_passes_via_the_schema_routed_rule(self):
+        """The real rule names state.v1.json via params.schema (state is a foundation, not a
+        catalogued surface), so .engine/state/state.json is schema-checked directly and the
+        genesis cursor passes."""
         rule = self._rule()
-        self.assertEqual(rule.get("params"), {})  # catalog-routed, no override
+        self.assertEqual(rule.get("params"), {"schema": ".engine/schemas/state.v1.json"})  # names schema directly
         passed, found = _run_kind(validate.kind_schema, rule, [REAL_CURSOR])
         self.assertTrue(passed)
         self.assertEqual(found, [])
 
     def test_malformed_json_is_refused_as_a_plain_finding_not_a_crash(self):
-        # Temp-file path won't match the catalog 'state' location, so use the schema override
-        # (the test_modules idiom) to route the temp file to the real schema.
-        rule = {**self._rule(), "params": {"schema": ".engine/schemas/state.v1.json"}}
+        rule = self._rule()  # the real rule now names its schema via params.schema
         with tempfile.TemporaryDirectory() as d:
             bad = _write(d, "state.json", "{ not json")
             passed, found = _run_kind(validate.kind_schema, rule, [bad])
@@ -169,7 +169,7 @@ class TestStateRuleIntegration(unittest.TestCase):
                             for f in found))
 
     def test_schema_invalid_cursor_is_refused_at_tier(self):
-        rule = {**self._rule(), "params": {"schema": ".engine/schemas/state.v1.json"}}
+        rule = self._rule()  # the real rule now names its schema via params.schema
         with tempfile.TemporaryDirectory() as d:
             bad = _write(d, "state.json", {"schema_version": 1})  # missing the two required objects
             passed, found = _run_kind(validate.kind_schema, rule, [bad])

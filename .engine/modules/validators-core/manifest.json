@@ -4,6 +4,7 @@
   "status": "required",
   "provides": {
     "check": [
+      ".engine/check/catalog-coverage.json",
       ".engine/check/contract-shape.json",
       ".engine/check/contract-threshold.json",
       ".engine/check/engine-manifest.json",
