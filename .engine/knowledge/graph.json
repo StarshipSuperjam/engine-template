@@ -3,13 +3,13 @@
     {
       "id": "check:contract-shape",
       "name": ".engine/check/contract-shape.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ]
       },
       "slug": "contract-shape",
@@ -22,13 +22,13 @@
     {
       "id": "check:contract-threshold",
       "name": ".engine/check/contract-threshold.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ]
       },
       "slug": "contract-threshold",
@@ -41,13 +41,13 @@
     {
       "id": "check:engine-manifest",
       "name": ".engine/check/engine-manifest.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ]
       },
       "slug": "engine-manifest",
@@ -79,13 +79,13 @@
     {
       "id": "check:interface-declaration",
       "name": ".engine/check/interface-declaration.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ],
         "targets": [
           "interface:knowledge-retrieval",
@@ -102,13 +102,13 @@
     {
       "id": "check:knowledge-coverage",
       "name": ".engine/check/knowledge-coverage.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ]
       },
       "slug": "knowledge-coverage",
@@ -121,13 +121,13 @@
     {
       "id": "check:link-integrity",
       "name": ".engine/check/link-integrity.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ]
       },
       "slug": "link-integrity",
@@ -140,16 +140,17 @@
     {
       "id": "check:module-manifest",
       "name": ".engine/check/module-manifest.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ],
         "targets": [
-          "module:core"
+          "module:core",
+          "module:validators-core"
         ]
       },
       "slug": "module-manifest",
@@ -162,13 +163,13 @@
     {
       "id": "check:policy-shape",
       "name": ".engine/check/policy-shape.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ],
         "targets": [
           "policy:contract-threshold",
@@ -187,13 +188,13 @@
     {
       "id": "check:pr-body-completeness",
       "name": ".engine/check/pr-body-completeness.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ]
       },
       "slug": "pr-body-completeness",
@@ -225,13 +226,13 @@
     {
       "id": "check:self-map-drift",
       "name": ".engine/check/self-map-drift.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ]
       },
       "slug": "self-map-drift",
@@ -244,13 +245,13 @@
     {
       "id": "check:state-cursor",
       "name": ".engine/check/state-cursor.json",
-      "owner": "core",
+      "owner": "validators-core",
       "predicates": {
         "governed_by": [
           "schema:check.v1"
         ],
         "provided_by": [
-          "module:core"
+          "module:validators-core"
         ],
         "targets": [
           "state:state"
@@ -327,8 +328,24 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:22138208e90a68ccb9bede2baa67fd2c2999dd03ea91b5f313339eb2e2cec1ed",
+        "fingerprint": "sha256:db8dea1a2662c622e5fc654b2c2072b962bdc5b61cdd7d1fa5907dc7a3f085ad",
         "path": ".engine/modules/core/manifest.json"
+      },
+      "type": "module"
+    },
+    {
+      "id": "module:validators-core",
+      "name": "validators-core",
+      "owner": "validators-core",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "validators-core",
+      "source": {
+        "fingerprint": "sha256:23c0f285d0043f8cce80eec6fba5680aacb7ad7ca9ef99df7b780c9933c1673b",
+        "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
     },
@@ -806,7 +823,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:577af0f7f688cfe7cdab6f856da421c778d18fb549894f9b77b65756b56c3819",
+        "fingerprint": "sha256:2d0f12feac5ca4b0ad74e09c52cda4aab477bd18121c38a238e47c175ab3e7fb",
         "path": ".engine/tools/test_knowledge.py"
       },
       "type": "tool"
@@ -838,7 +855,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:79f0a93e3a8b9400e85ee1a52b6bdeb4ee7073f6c4edc0de15ccaf5434c7130d",
+        "fingerprint": "sha256:345ade796cea33fd33ddbfed9691a526b5658d2e37e42d6e3ceb1d29f726272c",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"

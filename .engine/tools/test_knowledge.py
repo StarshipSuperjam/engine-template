@@ -113,14 +113,18 @@ class TestLiveDerivation(unittest.TestCase):
         self.assertIsNotNone(chk, "expected a check:state-cursor entity")
         self.assertEqual(chk["predicates"].get("governed_by"), ["schema:check.v1"])
         self.assertEqual(chk["predicates"].get("targets"), ["state:state"])
-        self.assertEqual(chk["predicates"].get("provided_by"), ["module:core"])
+        # the state-cursor *check* is one of the 11 corpus rules, owned by validators-core; its
+        # *target* (the state:state instance, below) stays core's — ownership of the rule and of the
+        # surface it validates are distinct
+        self.assertEqual(chk["predicates"].get("provided_by"), ["module:validators-core"])
         # the state cursor instance is governed by state.v1 and owned by core
         st = self.by_id.get("state:state")
         self.assertIsNotNone(st, "expected a state:state entity")
         self.assertEqual(st["predicates"].get("governed_by"), ["schema:state.v1"])
         self.assertEqual(st["predicates"].get("provided_by"), ["module:core"])
-        # the module entity exists
+        # both module entities exist (validators-core was stood up alongside core)
         self.assertIn("module:core", self.by_id)
+        self.assertIn("module:validators-core", self.by_id)
 
     def test_known_edges_for_the_interfaces_and_their_declaration_check(self):
         # slices 11a/11b: each interface declaration is governed by interface.v1 (the catalog
