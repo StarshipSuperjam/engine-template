@@ -23,7 +23,10 @@ successful evaluation: an empty array when nothing weakens or the `guardrail-ack
 label is present (the ack is an INPUT to this one guard, D-134); one finding at the
 rule's tier (ENGINE_RULE_TIER, passed by the kind) — carrying the plain-language
 ack guidance — on an unacknowledged guardrail change; and a fail-closed finding when
-the pull-request context cannot be read. An internal crash returns non-zero, which
+the pull-request context cannot be read, or when the full changed-file list cannot be
+retrieved (it paginates the diff to completion and cross-checks what it read against the
+pull request's authoritative `changed_files` count, failing closed on a partial view so a
+weakening edit cannot hide past GitHub's file-listing cap). An internal crash returns non-zero, which
 the custom/script kind turns into a hard fail-closed finding (defense in depth).
 
 Honest bound: in solo the operator holds admin and could bypass the ruleset, so
@@ -37,6 +40,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ACK_LABEL = "guardrail-ack"
@@ -72,9 +76,27 @@ def flagged_changes(files: list) -> list:
     return flagged
 
 
-def api_get(path: str, token: str):
-    req = urllib.request.Request(
-        "https://api.github.com" + path,
+API_HOST = "api.github.com"
+# A generous page bound: ~10k files at 100/page, well past GitHub's ~3000-file listing
+# cap. It exists only to halt a pathological Link cycle — exceeding it raises (the caller
+# fails closed), never silently truncates the file list it then judges.
+MAX_PAGES = 100
+
+
+def _request(url_or_path: str, token: str):
+    """Build the authenticated GitHub API request. Accepts an api.github.com-relative
+    path (e.g. '/repos/o/r/pulls/1/files?per_page=100') OR an absolute https URL taken
+    verbatim from a Link: rel="next" header. An absolute URL must point at the GitHub API
+    host: a token-bearing pull_request_target request must never be redirected off-host by
+    a crafted Link header, so an off-host URL raises (→ fail closed)."""
+    if url_or_path.startswith("http"):
+        url = url_or_path
+        if urllib.parse.urlparse(url).netloc != API_HOST:
+            raise ValueError(f"refusing to follow an off-host pagination link: {url}")
+    else:
+        url = "https://" + API_HOST + url_or_path
+    return urllib.request.Request(
+        url,
         headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
@@ -82,8 +104,60 @@ def api_get(path: str, token: str):
             "User-Agent": "engine-seed-weakening-guard",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+
+
+def _get_page(url_or_path: str, token: str):
+    """GET one page; return (parsed_body, link_header_or_None). The Link header carries
+    pagination (rel="next") for list endpoints; HTTPMessage.get is case-insensitive."""
+    with urllib.request.urlopen(_request(url_or_path, token), timeout=30) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+        return body, resp.headers.get("Link")
+
+
+def api_get(path: str, token: str):
+    """GET a single JSON resource (body only) — for non-paginated reads."""
+    body, _ = _get_page(path, token)
+    return body
+
+
+def _next_link(link_header):
+    """The rel="next" URL from a GitHub Link header, or None when there is no next page."""
+    if not link_header:
+        return None
+    for part in link_header.split(","):
+        segments = part.split(";")
+        if len(segments) < 2:
+            continue
+        url = segments[0].strip().lstrip("<").rstrip(">").strip()
+        for param in segments[1:]:
+            if param.strip() == 'rel="next"':
+                return url
+    return None
+
+
+def fetch_all_changed_files(repo: str, number, token: str) -> list:
+    """The COMPLETE list of changed-file objects for the pull request, following Link
+    pagination to exhaustion. Raises on a pathological Link cycle (more than MAX_PAGES
+    pages) so the caller fails closed rather than judging a truncated set."""
+    files = []
+    url = f"/repos/{repo}/pulls/{number}/files?per_page=100"
+    pages = 0
+    while url:
+        pages += 1
+        if pages > MAX_PAGES:
+            raise RuntimeError(f"changed-files pagination exceeded {MAX_PAGES} pages")
+        page, link = _get_page(url, token)
+        files.extend(page)
+        url = _next_link(link)
+    return files
+
+
+def changed_files_total(repo: str, number, token: str):
+    """The pull request's authoritative changed-file count (GET /pulls/{n} -> changed_files).
+    This count is the true total and is NOT subject to the files-listing cap, so it is the
+    yardstick for whether the paginated listing was complete."""
+    pr = api_get(f"/repos/{repo}/pulls/{number}", token)
+    return pr.get("changed_files")
 
 
 def emit(findings: list) -> int:
@@ -116,11 +190,46 @@ def main() -> int:
                       "message": "GUARDRAIL CHECK: no pull request number in the "
                       "event; failing closed."}])
     try:
-        files = api_get(f"/repos/{repo}/pulls/{number}/files?per_page=100", token)
+        # Read ALL changed files (paginated to completion) AND the authoritative count —
+        # both inside this fail-closed block, so any read failure, an off-host Link, or a
+        # pathological Link cycle becomes the plain-language fail-closed finding below,
+        # never an unhandled path.
+        files = fetch_all_changed_files(repo, number, token)
+        expected = changed_files_total(repo, number, token)
     except Exception as e:  # fail closed — never wave a change through unjudged
         return emit([{"severity": tier, "location": None,
                       "message": f"GUARDRAIL CHECK: could not read the changed files "
                       f"({e}); failing closed."}])
+
+    # Completeness gate (the principles §15 non-falsifiability property): a guardrail-
+    # weakening edit must not hide past GitHub's file-listing cap. If the guard could not
+    # read EVERY changed file — fewer files seen than the pull request's authoritative
+    # changed_files count, or no count at all — it fails closed and asks for the deliberate
+    # acknowledgment; it never judges a pull request from a partial view. The cause here is
+    # PR SIZE, not a detected weakening, so the message says so plainly and stays distinct
+    # from the change-detected message below — the operator must never be told a guard
+    # weakened when none was confirmed.
+    # Count DISTINCT filenames — the same way GitHub's changed_files counts — so a
+    # duplicate listing entry (or a pagination overlap) can never inflate the tally to
+    # match the authoritative count while a real file goes unseen (§15: the guard must not
+    # be falsifiable by the change it judges).
+    seen = len({f.get("filename", "") for f in files})
+    if not isinstance(expected, int) or seen < expected:
+        if isinstance(expected, int):
+            detail = (f"changes {expected} files — more than the safety check can read in "
+                      f"one pass (it could read {seen}; GitHub limits how many files it "
+                      "lists at once)")
+        else:
+            detail = ("did not report how many files it changes, so the safety check "
+                      f"cannot confirm it read them all (it read {seen})")
+        return emit([{"severity": tier, "location": None,
+                      "message": "GUARDRAIL CHECK — this pull request " + detail + ".\n\n"
+                      "Rather than judge your safety gates from a partial view, this check "
+                      "is blocking.\n"
+                      f"To approve this deliberately, apply the `{ACK_LABEL}` label to this "
+                      "pull request (one deliberate action, distinct from the merge click). "
+                      "Splitting the change into smaller pull requests also lets the check "
+                      "read every file. Until then, this check blocks the merge."}])
 
     flagged = flagged_changes(files)
     if not flagged:
