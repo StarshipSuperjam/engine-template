@@ -9,6 +9,8 @@
     "interface": [".engine/interfaces/*.json"],
     "state": [".engine/state/*.json"],
     "knowledge": [".engine/knowledge/*.json"],
+    "contract": [".engine/contracts/*.md", ".engine/contracts/.gitkeep"],
+    "template": [".engine/templates/*.md"],
     "foundation": [".engine/suites.json", ".engine/self-map.md"]
   },
   "wires": [

@@ -7,8 +7,8 @@
       "purpose": "Architecturally significant decision records — one decision each, with rationale and the rejected alternative; the top authority tier, file-per-decision, append-only.",
       "authority": "decisions",
       "lifecycle": "decision",
-      "governing_schema": null,
-      "template": null
+      "governing_schema": "contract.v1.json",
+      "template": "../templates/contract.md"
     },
     "policy": {
       "class": "prose",
