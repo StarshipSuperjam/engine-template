@@ -31,8 +31,9 @@ values:
 
 This policy is the home of the dials that decide what the engine shows you first, and how much room each
 kind of thing gets, every time it gets its bearings. The numbers live in this file's settings block — the
-`values` at the very top — in plain sight and editable, never buried in code. To change what surfaces first,
-change a number there; that block is the one place the engine actually reads.
+`values` at the very top — in plain sight rather than buried in code, so the engine's priorities can be read
+and checked. That block is the one place the engine actually reads; the numbers are not set by hand or by
+feel but calibrated from how the engine performs, and any change to them is proposed and reviewed, never silent.
 
 There are five kinds of thing the engine can surface, and they always come in the same fixed order of
 importance: anything **blocking** your work, then **work already in flight**, then **decisions made
@@ -69,14 +70,14 @@ documented, working starting point that the ranking tool already reads.
 ## Rationale
 
 Left to itself, an assistant shows you whatever is easiest to reach, not what matters most. These dials make
-that choice explicit and yours. The fixed order of importance is the safety net: a real blocker can never be
-pushed below a routine feature by a mis-set number, because the order is built into the structure, not into a
-weight someone has to get right. The dials inside that frame are ordinary tuning — give a kind a bigger share
-if you are not seeing enough of it, a smaller one if it crowds the rest; raise the bar that decides when a
-problem stops you if you are halted too readily, lower it if real blockers slip through; raise the keyword
-bar if hints fire too eagerly, lower it to be pointed to things sooner. Nothing here is urgent: these are
-deliberate starting values, not yet proven against real use — expect to revisit them once you have watched
-the engine work.
+that choice explicit. The fixed order of importance is the safety net: a real blocker can never be pushed
+below a routine feature by a mis-set number, because the order is built into the structure, not into a weight
+someone has to get right. The dials inside that frame are not set by hand or by guesswork — each is meant to
+be calibrated from how the engine actually performs (which things it surfaced, which blockers it caught or
+missed), and any change is proposed and reviewed before it takes effect. They are kept here, explicit and
+legible, so the engine's priorities can be inspected and questioned, not so they are fiddled with by feel.
+Nothing here is urgent: these are deliberate starting values, not yet proven against real use; they earn
+their numbers as the engine is observed in practice.
 
 ## Enforcement-tier
 
@@ -87,4 +88,5 @@ their ranked slots before any weight is applied, so the order holds even if a di
 weights, and thresholds take real effect only once the start-of-session and per-prompt orientation events
 ship in later slices; today the tool reads them and would apply them, but no orientation event yet surfaces
 the result and nothing blocks work. This policy's whole force is the expectation that these numbers stay
-here — legible and tunable — rather than being hidden as fixed constants in code.
+here — legible, calibrated from evidence, and surfaced for review when they change — rather than being
+hidden as fixed constants in code.
