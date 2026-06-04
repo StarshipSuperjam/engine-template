@@ -218,6 +218,57 @@ class TestDecoratedScaffold(unittest.TestCase):
         self.assertEqual(found, [])
 
 
+class TestPRContractNoDrift(unittest.TestCase):
+    """The control-plane 8-section PR-body contract must not silently drift.
+
+    The locked contract names eight required sections, in order — Purpose, Scope,
+    Out of scope, Risk, Validation, Review, Files of interest, Claude involvement —
+    transcribed once above as SECTIONS (a human transcription of the control-plane
+    spec; there is no in-repo machine source to derive it from, so the transcription
+    itself has no mechanical correlate and is read by a human against the spec). The
+    two legs below pin BOTH committed artifacts to that canonical anchor: the PR
+    template a contributor fills, and the pr-body-completeness check (owned by
+    validators-core) that gates the merge. A future edit that drops, renames,
+    reorders, or adds a section to either one then fails CI instead of slipping
+    through.
+
+    These close two real gaps the existing completeness tests leave: those assert
+    behaviour against the in-file COMPLETENESS_RULE *fixture* and only count the
+    committed template's unfilled sections (test_committed_template_body_fails_
+    completeness) — neither pins the heading IDENTITY of the committed template,
+    nor reads the committed check at all. A `## Review` -> `## Reviewed` rename in
+    the template passes the count-only test but fails leg (b) here.
+
+    Honest ceiling: a *consistent* trim across the template, the check, AND this
+    SECTIONS literal would pass both legs (the trimmer edits the anchor too). That
+    residue is walled elsewhere, not here — the check and this test file both sit
+    under guarded `.engine/` prefixes, so editing either is a guardrail-weakening
+    change requiring `guardrail-ack`, and the operator's merge is the binding gate.
+    """
+
+    def _repo_root(self):
+        return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    def test_committed_template_headings_match_canonical(self):
+        # Leg (b): the committed PR template's level-2 (##) headings equal the
+        # canonical eight, in order, with no extras or omissions. Catches a
+        # dropped/renamed/reordered section the count-only completeness test misses.
+        path = os.path.join(self._repo_root(), ".github", "pull_request_template.md")
+        with open(path, encoding="utf-8") as fh:
+            headings = validate.section_order(fh.read())
+        self.assertEqual(headings, SECTIONS)
+
+    def test_committed_completeness_check_sections_match_canonical(self):
+        # Leg (a): the committed pr-body-completeness check (validators-core) enforces
+        # exactly the canonical eight, in order. Pins the real gating enforcement to
+        # the contract; the other completeness tests only exercise the in-file fixture.
+        path = os.path.join(self._repo_root(), ".engine", "check",
+                            "pr-body-completeness.json")
+        with open(path, encoding="utf-8") as fh:
+            rule = json.load(fh)
+        self.assertEqual(rule["params"]["sections"], SECTIONS)
+
+
 # ---- slice 4: the generic closed kinds + suite-context gating --------------
 
 META = validate.META_SCHEMA_URI
