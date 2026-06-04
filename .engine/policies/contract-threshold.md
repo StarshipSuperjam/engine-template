@@ -2,13 +2,15 @@
 title: Contract threshold
 status: accepted
 date: 2026-06-03
+values:
+  contract_rate_max: 3
 ---
 
 ## Rule
 
 A decision is recorded as its own contract (a permanent decision record) only when all four of these hold: it is architecturally significant, it constrains future work, it is hard to reverse, and it has a genuine alternative that was seriously weighed and turned down. Every decision below that bar is recorded in the pull request's description instead, which carries it as the durable record. As a safety net, an unusual burst of new contracts is flagged for a look:
 
-- Contract-rate signal: more than **3** contracts reaching the accepted state within any 7-day stretch raises a gentle "are decisions being over-recorded?" note at the next start-up.
+- Contract-rate signal (`contract_rate_max`): when more contracts reach the accepted state within any 7-day stretch than the limit set in this policy's settings block — the `values` at the top of this file — the next start-up raises a gentle "are decisions being over-recorded?" note. Change the limit there.
 
 ## Scope
 
@@ -16,7 +18,7 @@ Applies to every decision made while working inside this engine — the live que
 
 ## Rationale
 
-Permanent decision records are only valuable if they stay rare and meaningful. If every small choice becomes one, the record turns into noise nobody reads, and the genuinely important decisions are lost in the pile. This rule keeps records reserved for the significant, hard-to-undo choices and routes everything else to the pull request, where it still lives durably. The burst signal exists so that a non-engineer notices — without having to watch for it — if decision records start accumulating faster than expected. Raise the number if a genuinely busy stretch makes the note fire too readily; lower it if you would rather be warned sooner.
+Permanent decision records are only valuable if they stay rare and meaningful. If every small choice becomes one, the record turns into noise nobody reads, and the genuinely important decisions are lost in the pile. This rule keeps records reserved for the significant, hard-to-undo choices and routes everything else to the pull request, where it still lives durably. The burst signal exists so that a non-engineer notices — without having to watch for it — if decision records start accumulating faster than expected. Raise the limit in this policy's settings if a genuinely busy stretch makes the note fire too readily; lower it if you would rather be warned sooner.
 
 ## Enforcement-tier
 

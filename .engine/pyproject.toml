@@ -9,7 +9,11 @@
 # (stage-0-harness §4; decision-log D-158). The `core` group carries the first:
 # the `jsonschema` validator the `core` validation engine's `schema` kind needs
 # to enforce JSON Schema 2020-12 (the locked schemas design requires the standard
-# built-in meta-schema, not bespoke meta-machinery). `default-groups` lists it so
+# built-in meta-schema, not bespoke meta-machinery), and `pyyaml`, which that same
+# `schema` kind uses to read a prose surface's YAML frontmatter to a data object
+# before validating it (the locked schemas/validation foundation parses "a file or
+# its YAML frontmatter"; the frontmatter reader D-090 deferred now lands here).
+# `default-groups` lists it so
 # every `uv sync`/`uv run` (CI and local) resolves it with no per-command flag —
 # future dep-carrying modules append their group here, no workflow edit needed,
 # until slice 25's module manager derives the selection (the CI uv-group seam).
@@ -20,7 +24,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [dependency-groups]
-core = ["jsonschema>=4.18", "mcp>=1.0"]
+core = ["jsonschema>=4.18", "mcp>=1.0", "pyyaml>=6.0"]
 
 [tool.uv]
 default-groups = ["core"]

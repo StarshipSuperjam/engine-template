@@ -51,5 +51,5 @@ The packages your engine is assembled from, and how they wire together (2 instal
 
 - depends on: `core`
 - provides:
-  - check: `.engine/check/catalog-coverage.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/engine-manifest.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/link-integrity.json`, `.engine/check/module-manifest.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/self-map-drift.json`, `.engine/check/state-cursor.json`
+  - check: `.engine/check/catalog-coverage.json`, `.engine/check/contract-frontmatter.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/engine-manifest.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/link-integrity.json`, `.engine/check/module-manifest.json`, `.engine/check/policy-frontmatter.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/self-map-drift.json`, `.engine/check/state-cursor.json`
 - wires: none (this module adds no shared-state edits)

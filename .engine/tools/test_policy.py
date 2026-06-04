@@ -6,8 +6,9 @@ filled-presence rule (the slice-13 forward-obligation), and the catalog flip tha
 Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
 
 These lock: policy.v1 is a well-formed schema with teeth (a status outside the decision lifecycle, a bad
-date, a missing required field, an unknown extra field, or a malformed established_by link is rejected, and
-the optional established_by conforms when present and when absent); the committed policy template's body
+date, a missing required field, an unknown extra field, a malformed established_by link, or a values block
+that is empty, badly-keyed, or carries a non-number is rejected, while the optional established_by and the
+optional values block of plain tuning numbers conform when present and when absent); the committed policy template's body
 carries exactly the four required sections in order, its frontmatter shape-spec matches the policy-shape
 rule's params byte-for-byte (no drift between the authoring scaffold and the machine-read rule), and that
 shape-spec is a well-formed template.v1; the policy-shape rule is well-formed, joins CI, dispatches the shape
@@ -16,8 +17,11 @@ stray section fires a hard finding and an over-length body is only a soft nudge;
 is a well-formed presence rule that joins CI, is green on the empty contract stream, and fires a hard finding
 when Significance or Anti-choice is blank or only the template placeholder (presence is checkable), passing
 when both are filled; and the catalog now routes the policy surface to its in-repo schema and template.
-Frontmatter is NOT live-checked in core (no frontmatter reader yet, D-090) — that conformance is proven here
-over fixtures, with the live check deferred to a later module.
+Policy frontmatter is now LIVE-validated against policy.v1 by the policy-frontmatter schema rule — the
+validation foundation's YAML reader parses it, so a malformed value (a tuning number written as text, say)
+blocks the merge — and the same conformance is also proven here over fixtures (the frontmatter reader D-090
+deferred has now landed in the validation foundation; the live rule + reader are exercised here over the real
+committed policies, including their real unquoted YAML dates).
 """
 from __future__ import annotations
 import glob
@@ -36,7 +40,11 @@ TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "policy.md")
 POLICIES_DIR = os.path.join(validate.ENGINE_DIR, "policies")
 SHAPE_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "policy-shape.json"))
 CT_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "contract-threshold.json"))
+FM_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "policy-frontmatter.json"))
 STATUS_ENUM = POLICY_SCHEMA["properties"]["status"]["enum"]
+# The pre-existing kind:schema rules — none target a prose surface, so the prose class-routing must leave
+# them on the load_json path (the byte-identical-behavior regression lock).
+EXISTING_SCHEMA_RULES = ("engine-manifest", "interface-declaration", "module-manifest", "state-cursor")
 
 # The four v1-core policies that ship from layer one (modules/core/README.md), non-removable.
 EXPECTED_POLICIES = {"contract-threshold", "finding-disposition", "escalation", "triage-threshold"}
@@ -83,9 +91,12 @@ def _write(d, name, text):
 
 
 def _template_frontmatter_shape_spec(path):
-    """Parse the template's frontmatter shape-spec WITHOUT a YAML dependency (core has no frontmatter
-    reader): the three keys' values are all JSON-compatible (quoted strings, arrays, an int), so each
-    'key: <value>' line in the block between the first two '---' fences parses with json.loads."""
+    """Parse the TEMPLATE's frontmatter shape-spec with a line-wise json.loads. This is deliberately NOT
+    the validation foundation's YAML `frontmatter` reader (which now exists, and which policy INSTANCE
+    frontmatter is live-validated through): a template's shape-spec is a different frontmatter dialect — its
+    keys' values are all JSON-compatible (quoted strings, arrays, an int), so each 'key: <value>' line in
+    the block between the first two '---' fences parses with json.loads, with no YAML coupling to the
+    instance grammar. Unifying the two is out of scope here; they govern different things."""
     text = validate.read(path)
     block = text.split("---", 2)[1]
     spec = {}
@@ -135,6 +146,32 @@ class TestSchema(unittest.TestCase):
     def test_unknown_extra_field_is_rejected(self):
         bad = {**VALID_FM, "enforcement_tier": "posture"}   # enforcement tier is the body section, not frontmatter
         self.assertNotEqual(_errors(POLICY_SCHEMA, bad), [], "the schema is closed (additionalProperties false)")
+
+    def test_values_block_of_numbers_conforms(self):
+        ok = {**VALID_FM, "values": {"persistence": 3, "auto_resolve": 2, "triage_pressure": 10}}
+        self.assertEqual(_errors(POLICY_SCHEMA, ok), [])
+        # a fractional value conforms too — number, not integer, so attention's ranking weights reuse this carrier
+        self.assertEqual(_errors(POLICY_SCHEMA, {**VALID_FM, "values": {"weight": 0.5}}), [])
+
+    def test_values_is_optional(self):
+        # the value-less policies (finding-disposition, escalation) omit the block entirely
+        self.assertEqual(_errors(POLICY_SCHEMA, VALID_FM), [])
+
+    def test_non_numeric_value_is_rejected(self):
+        # the headline: a tuning number written as text is schema-caught (the machine cannot read it)
+        self.assertNotEqual(_errors(POLICY_SCHEMA, {**VALID_FM, "values": {"persistence": "three"}}), [])
+        # a YAML boolean is not a number either
+        self.assertNotEqual(_errors(POLICY_SCHEMA, {**VALID_FM, "values": {"persistence": True}}), [])
+
+    def test_empty_values_block_is_rejected(self):
+        # if a policy declares values, it must carry at least one (minProperties)
+        self.assertNotEqual(_errors(POLICY_SCHEMA, {**VALID_FM, "values": {}}), [])
+
+    def test_badly_keyed_value_is_rejected(self):
+        # keys are stable lower-snake machine identifiers the reading machinery looks up (propertyNames pattern)
+        for bad_key in ("Persistence", "1st", "triage pressure"):
+            self.assertNotEqual(_errors(POLICY_SCHEMA, {**VALID_FM, "values": {bad_key: 3}}), [],
+                                f"{bad_key!r} is not a valid machine key")
 
     def test_schema_carries_no_id_field(self):
         # policies are slug-named (no numbered id scheme), unlike contracts' eADR-####.
@@ -265,6 +302,131 @@ class TestCatalog(unittest.TestCase):
         self.assertEqual(rec["class"], "prose")
         self.assertEqual(rec["lifecycle"], "decision")
         self.assertEqual(rec["authority"], "standing-rules")
+
+
+class TestPolicyFrontmatterRule(unittest.TestCase):
+    """The live policy-frontmatter schema rule: it validates each policy's parsed YAML frontmatter against
+    policy.v1 at the merge (the frontmatter reader D-090 deferred, now landed)."""
+
+    def test_rule_is_well_formed_and_joins_ci(self):
+        check_schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))
+        self.assertEqual(_errors(check_schema, FM_RULE), [])
+        self.assertIn("CI", FM_RULE.get("suites", []))
+        self.assertEqual(FM_RULE["kind"], "schema")
+        self.assertEqual(FM_RULE["target"], {"path": ".engine/policies/*.md"})
+        self.assertEqual(FM_RULE["tier"], "hard")
+        self.assertEqual(FM_RULE.get("params"), {})   # catalog-routed: no params.schema override
+
+    def test_live_rule_is_green_over_the_four_real_policies(self):
+        # the REAL rule + REAL YAML reader over the REAL committed policies, including their real UNQUOTED
+        # `date:` — which YAML coerces to a date object; the reader normalizes it back to a string so the
+        # schema's date:{type:string} is satisfied. This locks the date-coercion fix against the real files.
+        passed, found = validate.kind_schema(FM_RULE, {})
+        self.assertTrue(passed)
+        self.assertEqual([f for f in found if f["severity"] == "hard"], [])
+
+    def test_real_policies_carry_machine_readable_values(self):
+        # the values load straight from frontmatter with no prose parsing — the numbers telemetry/attention read
+        triage = validate.frontmatter(os.path.join(POLICIES_DIR, "triage-threshold.md"))
+        self.assertEqual(triage["values"], {"persistence": 3, "auto_resolve": 2, "triage_pressure": 10})
+        contract = validate.frontmatter(os.path.join(POLICIES_DIR, "contract-threshold.md"))
+        self.assertEqual(contract["values"], {"contract_rate_max": 3})
+        for slug in ("finding-disposition", "escalation"):     # the value-less policies carry no block
+            self.assertNotIn("values", validate.frontmatter(os.path.join(POLICIES_DIR, slug + ".md")))
+
+    def _run_live_rule_over_fixture(self, body):
+        """Write a fixture INTO .engine/policies/ (so the surface-class router reads it as a prose policy
+        via the YAML reader), run the REAL rule pointed at just that file, and clean up. The fixture is
+        scoped to one test and removed by addCleanup, so it never pollutes the real-policy assertions."""
+        path = os.path.join(POLICIES_DIR, "_test_frontmatter_fixture.md")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        return _run_kind(validate.kind_schema, FM_RULE, [path])
+
+    def test_non_numeric_value_fails_the_live_rule(self):
+        # the schema-caught regression lock: a tuning number written as text blocks via the real rule + reader
+        body = ("---\ntitle: T\nstatus: accepted\ndate: 2026-06-03\n"
+                "values:\n  persistence: \"three\"\n---\n"
+                "## Rule\nr\n## Scope\ns\n## Rationale\nw\n## Enforcement-tier\np\n")
+        passed, found = self._run_live_rule_over_fixture(body)
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" and "values/persistence" in f["message"]
+                            and "number" in f["message"] for f in found))
+
+    def test_malformed_frontmatter_fails_closed_with_a_prose_message(self):
+        # malformed YAML frontmatter -> a hard, plain-language 'settings block' finding (NOT 'not valid JSON')
+        body = ("---\ntitle: T\nstatus: accepted\nvalues:\n  persistence: [unclosed\n---\n"
+                "## Rule\nr\n## Scope\ns\n## Rationale\nw\n## Enforcement-tier\np\n")
+        passed, found = self._run_live_rule_over_fixture(body)
+        self.assertFalse(passed)
+        msgs = " ".join(f["message"] for f in found if f["severity"] == "hard")
+        self.assertIn("settings block", msgs)
+        self.assertNotIn("not valid JSON", msgs)
+
+
+class TestFrontmatterReader(unittest.TestCase):
+    """The validation foundation's YAML frontmatter reader (validate.frontmatter)."""
+
+    def test_parses_a_nested_yaml_block(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(d, "x.md", "---\ntitle: T\nvalues:\n  a: 1\n  b: 2\n---\n## Body\ntext\n")
+            self.assertEqual(validate.frontmatter(p), {"title": "T", "values": {"a": 1, "b": 2}})
+
+    def test_date_scalar_normalizes_to_a_string(self):
+        # YAML coerces an unquoted ISO date to a datetime.date; the reader renders it back to an ISO string
+        # so a schema {type: string} is satisfied (the date-coercion regression lock, at the reader level).
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(d, "x.md", "---\ndate: 2026-06-03\n---\n## Body\ntext\n")
+            fm = validate.frontmatter(p)
+        self.assertIsInstance(fm["date"], str)
+        self.assertEqual(fm["date"], "2026-06-03")
+
+    def test_numbers_stay_native(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(d, "x.md", "---\nvalues:\n  n: 3\n  f: 0.5\n---\n## Body\nb\n")
+            fm = validate.frontmatter(p)
+        self.assertEqual(fm["values"], {"n": 3, "f": 0.5})
+        self.assertIsInstance(fm["values"]["n"], int)
+
+    def test_no_frontmatter_yields_empty_dict(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(d, "x.md", "## Body only\nno fence here\n")
+            self.assertEqual(validate.frontmatter(p), {})
+
+    def test_a_body_thematic_break_is_not_mistaken_for_frontmatter(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(d, "x.md", "---\ntitle: T\n---\n## A\none\n\n---\n\n## B\ntwo\n")
+            self.assertEqual(validate.frontmatter(p), {"title": "T"})
+
+    def test_malformed_yaml_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(d, "x.md", "---\ntitle: [unclosed\n---\n## Body\nb\n")
+            with self.assertRaises(Exception):
+                validate.frontmatter(p)
+
+
+class TestSchemaKindRoutingRegression(unittest.TestCase):
+    """The prose class-routing added to kind_schema must leave every pre-existing kind:schema rule on the
+    load_json path, byte-identical (the three override-schema rules carry no surface record — a naive
+    rec.get('class') would crash on None — and interface-declaration is a structured surface)."""
+
+    def test_existing_schema_rules_route_as_structured_not_prose(self):
+        for rid in EXISTING_SCHEMA_RULES:
+            rule = validate.load_json(os.path.join(validate.CHECK_DIR, rid + ".json"))
+            self.assertEqual(rule["kind"], "schema")
+            for path in validate.target_files(rule):
+                rel = os.path.relpath(path, validate.ROOT)
+                rec = validate._surface_record_for(rel)
+                cls = rec.get("class") if rec else None
+                self.assertNotEqual(cls, "prose", f"{rid} target {rel} would route as prose; must load_json")
+
+    def test_existing_schema_rules_remain_green(self):
+        for rid in EXISTING_SCHEMA_RULES:
+            rule = validate.load_json(os.path.join(validate.CHECK_DIR, rid + ".json"))
+            passed, found = validate.kind_schema(rule, {})
+            hard = [f["message"] for f in found if f["severity"] == "hard"]
+            self.assertTrue(passed, f"{rid} regressed after the routing change: {hard}")
 
 
 if __name__ == "__main__":

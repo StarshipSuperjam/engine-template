@@ -20,6 +20,25 @@
       "type": "check"
     },
     {
+      "id": "check:contract-frontmatter",
+      "name": ".engine/check/contract-frontmatter.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "contract-frontmatter",
+      "source": {
+        "fingerprint": "sha256:9845436e6b9cc2178cd5512acc1f5ae5aa1bd798063fdd717eff4e5a7c20ed01",
+        "path": ".engine/check/contract-frontmatter.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:contract-shape",
       "name": ".engine/check/contract-shape.json",
       "owner": "validators-core",
@@ -176,6 +195,31 @@
       "source": {
         "fingerprint": "sha256:2ae0714e5c7c5527aa57d7ab79b402640b89cfc2e4161300dd44c713a7c3c642",
         "path": ".engine/check/module-manifest.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:policy-frontmatter",
+      "name": ".engine/check/policy-frontmatter.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "policy:contract-threshold",
+          "policy:escalation",
+          "policy:finding-disposition",
+          "policy:triage-threshold"
+        ]
+      },
+      "slug": "policy-frontmatter",
+      "source": {
+        "fingerprint": "sha256:b279d23260f61f6eb37f6ae134bc472b9636a2d6030eedeee26784b5229479f0",
+        "path": ".engine/check/policy-frontmatter.json"
       },
       "type": "check"
     },
@@ -376,7 +420,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:d1f95c84a9e846c42d4250db9cfe80461575450164e289dff177da720e6f3f5f",
+        "fingerprint": "sha256:732944c6b18d84ee484a4529c5d011f6b7fe8126033c6767a89defee41406ce6",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
@@ -411,7 +455,7 @@
       },
       "slug": "contract-threshold",
       "source": {
-        "fingerprint": "sha256:cbf8857029fc9e330e6beb69864c5c253fa5d77ca1b43cd09b54e8c3c3cd6c85",
+        "fingerprint": "sha256:a64ad6150b6b159874dd6ab55850590b9987a6bfb91e73add30646df290a90fe",
         "path": ".engine/policies/contract-threshold.md"
       },
       "type": "policy"
@@ -468,7 +512,7 @@
       },
       "slug": "triage-threshold",
       "source": {
-        "fingerprint": "sha256:af414b5cd99160404643850df7ed458c9ec8ab40d75ca0ecb3c329c4b9b4b3c8",
+        "fingerprint": "sha256:d47d923a7d9cf1e6f6ead0b57865d380b60a544a887b4c2765940118d79e90e4",
         "path": ".engine/policies/triage-threshold.md"
       },
       "type": "policy"
@@ -500,7 +544,7 @@
       },
       "slug": "contract.v1",
       "source": {
-        "fingerprint": "sha256:de17559f1633deedbfb128cc736e83b98c2576e3506fc7b2c70982b2f7bf9010",
+        "fingerprint": "sha256:aeae0626c119b3d8a6f87627c9bc8594692719ca6e21c5b3778ed3b3385dafd3",
         "path": ".engine/schemas/contract.v1.json"
       },
       "type": "schema"
@@ -596,7 +640,7 @@
       },
       "slug": "policy.v1",
       "source": {
-        "fingerprint": "sha256:f74ce9bb80acec4d032b43473ac401a456c9817a47f3376079e65d39a4bd5168",
+        "fingerprint": "sha256:c98f652b7414a370de0bac63e618f6f56a3de59252c2d48deeec31061592506a",
         "path": ".engine/schemas/policy.v1.json"
       },
       "type": "schema"
@@ -820,7 +864,7 @@
       },
       "slug": "test_contract",
       "source": {
-        "fingerprint": "sha256:a3823847589d461f4e41fe56c116ebeb130c1c8e24ab4d40a5b24c231bf3d66c",
+        "fingerprint": "sha256:e85fb93f9fb4b39aedf4267012f53f7f772d5597e0b62e8cdefe30c5a4170583",
         "path": ".engine/tools/test_contract.py"
       },
       "type": "tool"
@@ -884,7 +928,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:89553244bebc999232d2714e3d02a73dc4327eaab429a8ad60e4932227e4ab40",
+        "fingerprint": "sha256:d3dafd446d352b490047831326ceba70fc6d8fa41f2e392898c83830e903e6a4",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
@@ -900,7 +944,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:9d72a70dfd696c5657b8b0d6db14b1175572e85e248a5be03274f9f0f7fcfe9b",
+        "fingerprint": "sha256:9e2e17751c9f55c3825bafa91849ecbcbcc81978536bfdfa078bcc3e254a11cd",
         "path": ".engine/tools/test_policy.py"
       },
       "type": "tool"
@@ -980,7 +1024,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:fa647f3da3d68e18df55225e8c5f549884b6bc694ada2c3c96cfb8cb0889c7fc",
+        "fingerprint": "sha256:7d56f941c2078926169bf04aa528cf4f5a46169aa2e8d0673685aacddace9e24",
         "path": ".engine/tools/validate.py"
       },
       "type": "tool"

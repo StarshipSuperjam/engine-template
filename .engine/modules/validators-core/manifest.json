@@ -5,6 +5,7 @@
   "provides": {
     "check": [
       ".engine/check/catalog-coverage.json",
+      ".engine/check/contract-frontmatter.json",
       ".engine/check/contract-shape.json",
       ".engine/check/contract-threshold.json",
       ".engine/check/engine-manifest.json",
@@ -12,6 +13,7 @@
       ".engine/check/knowledge-coverage.json",
       ".engine/check/link-integrity.json",
       ".engine/check/module-manifest.json",
+      ".engine/check/policy-frontmatter.json",
       ".engine/check/policy-shape.json",
       ".engine/check/pr-body-completeness.json",
       ".engine/check/self-map-drift.json",

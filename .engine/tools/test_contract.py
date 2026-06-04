@@ -13,8 +13,10 @@ required sections plus Supersedes, in order; the shape rule is well-formed, join
 kind over .engine/contracts/*.md, and is green on the empty stream; the rule has teeth (a missing
 Anti-choice, an out-of-order section, and a stray section each fire a hard finding, while an over-length
 body is only a soft nudge); and the catalog now routes the contract surface to its in-repo schema and
-template. Frontmatter is NOT live-checked in core (no frontmatter reader yet, D-090) — that conformance is
-proven here over fixtures, with the live check deferred to a later module.
+template. Contract frontmatter is now LIVE-validated against contract.v1 by the contract-frontmatter schema
+rule (the validation foundation's YAML reader parses it) — green over the empty contract stream today, with
+teeth on a malformed record — and the same conformance is also proven here over fixtures (the frontmatter
+reader D-090 deferred has now landed in the validation foundation).
 """
 from __future__ import annotations
 import json
@@ -31,6 +33,8 @@ TEMPLATE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "templat
 TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "contract.md")
 RULE_PATH = os.path.join(validate.CHECK_DIR, "contract-shape.json")
 RULE = validate.load_json(RULE_PATH)
+FM_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "contract-frontmatter.json"))
+CONTRACTS_DIR = os.path.join(validate.ENGINE_DIR, "contracts")
 STATUS_ENUM = CONTRACT_SCHEMA["properties"]["status"]["enum"]
 
 # A representative, conforming contract frontmatter instance.
@@ -196,6 +200,39 @@ class TestCheckRule(unittest.TestCase):
         self.assertTrue(passed)  # soft only -> still passes
         self.assertTrue(any(f["severity"] == "soft" and "budget" in f["message"] for f in found))
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])
+
+
+class TestContractFrontmatterRule(unittest.TestCase):
+    """The live contract-frontmatter schema rule — the folded-in sibling of policy-frontmatter, validating
+    each decision record's parsed YAML frontmatter against contract.v1 at the merge."""
+
+    def test_rule_is_well_formed_and_joins_ci(self):
+        check_schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))
+        self.assertEqual(_errors(check_schema, FM_RULE), [])
+        self.assertIn("CI", FM_RULE.get("suites", []))
+        self.assertEqual(FM_RULE["kind"], "schema")
+        self.assertEqual(FM_RULE["target"], {"path": ".engine/contracts/*.md"})
+        self.assertEqual(FM_RULE["tier"], "hard")
+        self.assertEqual(FM_RULE.get("params"), {})   # catalog-routed: no params.schema override
+
+    def test_live_rule_is_green_on_the_empty_contract_stream(self):
+        passed, found = validate.kind_schema(FM_RULE, {})
+        self.assertTrue(passed)
+        self.assertEqual([f for f in found if f["severity"] == "hard"], [])
+
+    def test_malformed_record_fails_the_live_rule(self):
+        # the rule has teeth: a contract whose frontmatter drops the required id is schema-caught via the
+        # real rule + reader. The fixture lives under .engine/contracts/ (so the prose router engages) and
+        # is scoped to this one test by addCleanup.
+        path = os.path.join(CONTRACTS_DIR, "_test_frontmatter_fixture.md")
+        body = ("---\ntitle: A decision missing its id\nstatus: accepted\ndate: 2026-06-03\n---\n"
+                "## Decision\nd\n## Significance\ns\n## Rationale\nr\n## Anti-choice\na\n## Status\naccepted\n")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        passed, found = _run_kind(validate.kind_schema, FM_RULE, [path])
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" and "id" in f["message"] for f in found))
 
 
 class TestCatalog(unittest.TestCase):

@@ -194,10 +194,11 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
-    def test_check_corpus_split_core_two_guards_validators_core_twelve(self):
+    def test_check_corpus_split_core_two_guards_validators_core_fourteen(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
-        # the self-validation corpus is validators-core's (12 rules after catalog-coverage, issue #30).
+        # the self-validation corpus is validators-core's (14 rules: the 12 after catalog-coverage/issue #30,
+        # plus the policy- and contract-frontmatter live schema rules, issue #26).
         # The files stay under .engine/check/ — ownership is a `provides` claim, not a location. This
         # test pins that exact split so a future wildcard re-introduction (which would double-claim the
         # corpus) cannot pass silently.
@@ -220,6 +221,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         ], "core owns exactly the two §15 guards")
         self.assertEqual(vc_checks, [
             ".engine/check/catalog-coverage.json",
+            ".engine/check/contract-frontmatter.json",
             ".engine/check/contract-shape.json",
             ".engine/check/contract-threshold.json",
             ".engine/check/engine-manifest.json",
@@ -227,11 +229,12 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/knowledge-coverage.json",
             ".engine/check/link-integrity.json",
             ".engine/check/module-manifest.json",
+            ".engine/check/policy-frontmatter.json",
             ".engine/check/policy-shape.json",
             ".engine/check/pr-body-completeness.json",
             ".engine/check/self-map-drift.json",
             ".engine/check/state-cursor.json",
-        ], "validators-core owns exactly the 12 corpus rules")
+        ], "validators-core owns exactly the 14 corpus rules")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
