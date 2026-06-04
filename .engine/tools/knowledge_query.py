@@ -12,9 +12,10 @@ must answer —
   relate(id_a, id_b)                      the shortest edge path between two entities, or null
 
 Traversal is pushed into the indexed store (recursive CTEs over the dst-indexed edge table), so it
-scales to a real adopter's repo. Degrade-to-git-native: every op ensures the index first, rebuilding
-it from the committed graph if it is missing or stale; if the committed graph itself is gone the op
-reports knowledge unavailable in plain language, never a crash. The graph-query MCP server
+scales to a real adopter's repo. Degrade-to-git-native (knowledge/README.md:51): every op ensures the
+index first, rebuilding it from the committed graph if it is missing or stale; if the committed graph
+is ABSENT it rebuilds from a LIVE WALK of the surfaces (loudly degraded), and only if that live walk
+also fails is knowledge reported unavailable in plain language, never a crash. The graph-query MCP server
 (knowledge_mcp_server.py) is a thin transport over this library; the CLI here is the operator's
 no-Claude-Desktop demo path.
 """
@@ -134,7 +135,10 @@ def _relate(conn, id_a: str, id_b: str):
 # ---- public ops: open a fresh index, query, close (returns data only) -----------------------
 
 def _with_conn(fn, index_path, graph_path):
-    conn, _rebuilt = knowledge_index.connect(index_path, graph_path)
+    # The library ops return DATA ONLY: the degrade `source` is deliberately discarded here, so a
+    # library/MCP caller answers from a live-walk fallback with no degrade flag in the response. Surfacing
+    # a degraded read loudly is the CLI's job below (and boot's, at its slice) — not an op-set change.
+    conn, _source = knowledge_index.connect(index_path, graph_path)
     try:
         return fn(conn)
     finally:
@@ -160,11 +164,18 @@ def relate(id_a, id_b, *, index_path=None, graph_path=None):
 
 # ---- CLI (the operator's no-Claude-Desktop demo path) ---------------------------------------
 
-def _note_degrade(rebuilt: bool) -> None:
-    if rebuilt:
+def _note_degrade(source) -> None:
+    """Surface a degraded read on stderr (the operator/CLI channel). None = the index was fresh (silent);
+    'committed' = rebuilt from the committed graph (git-native); 'live' = a LOUD live-walk fallback."""
+    if source == "committed":
         print(f"(the knowledge query index was absent or stale, so this answer was rebuilt from the "
               f"committed graph — {knowledge_gen._display(knowledge_gen.GRAPH_PATH)}, the git-native "
               f"source of truth)", file=sys.stderr)
+    elif source == "live":
+        print(f"KNOWLEDGE DEGRADED: the committed graph "
+              f"({knowledge_gen._display(knowledge_gen.GRAPH_PATH)}) is absent, so this answer came from "
+              f"a LIVE WALK of the on-disk surfaces — regenerate and commit the graph "
+              f"(`{knowledge_gen.REGEN_CMD}`) to restore the committed source.", file=sys.stderr)
 
 
 def main(argv: list) -> int:
@@ -175,14 +186,14 @@ def main(argv: list) -> int:
         return 2
     cmd, rest = argv[0], argv[1:]
     try:
-        conn, rebuilt = knowledge_index.connect()
+        conn, source = knowledge_index.connect()
     except KnowledgeUnavailable as exc:
         print(f"Knowledge is unavailable: {exc}. Restore or regenerate "
               f"{knowledge_gen._display(knowledge_gen.GRAPH_PATH)} "
               f"(`{knowledge_gen.REGEN_CMD}`), then try again.", file=sys.stderr)
         return 1
     try:
-        _note_degrade(rebuilt)
+        _note_degrade(source)
         if cmd == "get-entity" and len(rest) == 1:
             result = _get_entity(conn, rest[0])
         elif cmd == "find":

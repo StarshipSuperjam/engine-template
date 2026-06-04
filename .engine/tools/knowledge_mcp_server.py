@@ -5,8 +5,9 @@ This is the named fallback the knowledge-retrieval interface declares
 (.engine/interfaces/knowledge-retrieval.json, handle 'engine-knowledge-graph'). It is a thin MCP
 transport over the knowledge_query op-set: it exposes the four declared operations
 (get-entity / find / neighbors / relate) as MCP tools, each delegating to knowledge_query, which reads
-the committed knowledge graph through the gitignored SQLite index and rebuilds that index from the
-committed graph when it is missing (degrade-to-git-native).
+the committed knowledge graph through the gitignored SQLite index, rebuilds that index from the
+committed graph when it is missing, and falls back to a live walk of the surfaces when the committed
+graph is absent (degrade-to-git-native; knowledge/README.md:51).
 
 Built on the official MCP SDK (the `mcp` package) so protocol conformance — the handshake, capability
 negotiation, framing, and future protocol-version changes — is maintained upstream rather than

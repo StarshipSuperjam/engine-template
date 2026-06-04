@@ -8,10 +8,11 @@ These lock the load-bearing teeth over a controlled FIXTURE graph (so assertions
 independent of the evolving real graph): get-entity returns the entity + edges (or None); find selects
 by type/glob/owner; neighbors traverses out / in (the REVERSE edges the committed graph cannot give) /
 both, honours an edge filter and multi-hop depth; relate finds the shortest undirected path (or null).
-Then degrade-to-git-native: a missing index is rebuilt from the committed graph; a stale index is
-rebuilt; a missing committed graph raises KnowledgeUnavailable (never a crash). Finally the MCP server,
-headless (no Claude Desktop): tools/list is exactly the four declared ops, and tools/call delegates to
-the op-set.
+Then the four-rung degrade cascade (knowledge/README.md:51): a missing index rebuilds from the committed
+graph; a stale index rebuilds; an ABSENT committed graph rebuilds from a live walk of the surfaces and
+still answers; only if that live walk also fails is KnowledgeUnavailable raised (never a crash). Finally
+the MCP server, headless (no Claude Desktop): tools/list is exactly the four declared ops, and tools/call
+delegates to the op-set.
 """
 from __future__ import annotations
 import json
@@ -19,10 +20,12 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import knowledge_index as ki      # noqa: E402
 import knowledge_query as kq      # noqa: E402
+import knowledge_gen as kg        # noqa: E402
 
 D116_OPS = {"get-entity", "find", "neighbors", "relate"}
 
@@ -141,6 +144,10 @@ class TestQueryOps(unittest.TestCase):
 
 
 class TestDegradeToGitNative(unittest.TestCase):
+    """The four-rung degrade cascade (knowledge/README.md:51): a fresh index answers; a missing/stale
+    index rebuilds from the committed graph (rung 2); an ABSENT committed graph rebuilds from a LIVE WALK
+    of the surfaces (rung 3); only if that live walk also fails is knowledge unavailable (rung 4)."""
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.graph_path = os.path.join(self._tmp.name, "graph.json")
@@ -156,14 +163,14 @@ class TestDegradeToGitNative(unittest.TestCase):
     def test_missing_index_is_rebuilt_from_committed_graph(self):
         self._write_graph(_fixture_graph())
         self.assertFalse(os.path.exists(self.index_path))
-        path, rebuilt = ki.ensure_index(self.index_path, self.graph_path)
-        self.assertTrue(rebuilt)
+        path, source = ki.ensure_index(self.index_path, self.graph_path)
+        self.assertEqual(source, "committed")           # rung 2
         self.assertTrue(os.path.isfile(path))
         # the answer is correct off the rebuilt index, and a second ensure is a no-op
         e = kq.get_entity("check:c1", index_path=self.index_path, graph_path=self.graph_path)
         self.assertEqual(e["id"], "check:c1")
-        _p, rebuilt2 = ki.ensure_index(self.index_path, self.graph_path)
-        self.assertFalse(rebuilt2)
+        _p, source2 = ki.ensure_index(self.index_path, self.graph_path)
+        self.assertIsNone(source2)                       # already fresh -> no rebuild
 
     def test_stale_index_is_rebuilt(self):
         self._write_graph(_fixture_graph())
@@ -174,13 +181,38 @@ class TestDegradeToGitNative(unittest.TestCase):
         smaller["entities"] = [e for e in smaller["entities"] if e["id"] != "doc:orphan"]
         self._write_graph(smaller)
         self.assertFalse(ki.is_fresh(self.index_path, self.graph_path))
-        _p, rebuilt = ki.ensure_index(self.index_path, self.graph_path)
-        self.assertTrue(rebuilt)
+        _p, source = ki.ensure_index(self.index_path, self.graph_path)
+        self.assertEqual(source, "committed")            # rebuilt from the (changed) committed graph
 
-    def test_missing_committed_graph_raises_unavailable(self):
-        # neither index nor committed graph present -> knowledge is unavailable, reported (not crashed)
-        with self.assertRaises(ki.KnowledgeUnavailable):
-            ki.ensure_index(self.index_path, self.graph_path)
+    def test_missing_committed_graph_falls_back_to_live_walk(self):
+        # rung 3: no committed graph at the temp path, but the real surfaces ARE present -> the index is
+        # rebuilt from a LIVE WALK (knowledge_gen.canonical_graph()) and still answers (loudly degraded).
+        self.assertFalse(os.path.exists(self.graph_path))
+        path, source = ki.ensure_index(self.index_path, self.graph_path)
+        self.assertEqual(source, "live")
+        self.assertTrue(os.path.isfile(path))
+        # module:core is always derived from the core manifest, so a real live walk must surface it
+        e = kq.get_entity("module:core", index_path=self.index_path, graph_path=self.graph_path)
+        self.assertIsNotNone(e)
+        self.assertEqual(e["id"], "module:core")
+        # while the committed graph stays absent, every ensure re-walks (never wrongly deemed fresh)
+        _p, source2 = ki.ensure_index(self.index_path, self.graph_path)
+        self.assertEqual(source2, "live")
+
+    def test_live_walk_failure_reports_unavailable(self):
+        # rung 4: committed graph absent AND the live walk also fails -> KnowledgeUnavailable (reported,
+        # not crashed). Fake only the boundary (the live walk); the real cascade logic runs.
+        def _boom():
+            raise RuntimeError("simulated live-walk failure")
+        with mock.patch.object(kg, "canonical_graph", _boom):
+            with self.assertRaises(ki.KnowledgeUnavailable) as cm:
+                ki.ensure_index(self.index_path, self.graph_path)
+        # Pin that it failed AT the live-walk rung (3->4), not earlier: the message names the live walk
+        # and the chained cause is the simulated failure. This makes the test revert-proof on its own —
+        # the old 3-rung code raised on absence with neither signal, so these asserts would fail on it.
+        self.assertIn("live walk", str(cm.exception))
+        self.assertIsInstance(cm.exception.__cause__, RuntimeError)
+        self.assertIn("simulated live-walk failure", str(cm.exception.__cause__))
 
 
 class TestMcpServer(unittest.IsolatedAsyncioTestCase):
