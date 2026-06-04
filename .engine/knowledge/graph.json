@@ -210,6 +210,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "policy:attention",
           "policy:contract-threshold",
           "policy:escalation",
           "policy:finding-disposition",
@@ -235,6 +236,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "policy:attention",
           "policy:contract-threshold",
           "policy:escalation",
           "policy:finding-disposition",
@@ -442,6 +444,25 @@
       "type": "operation"
     },
     {
+      "id": "policy:attention",
+      "name": ".engine/policies/attention.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "attention",
+      "source": {
+        "fingerprint": "sha256:efd2b241a105e04991ea8a6ae47e7087c822759f66fb9fd0c98a0b6a8c95bfbf",
+        "path": ".engine/policies/attention.md"
+      },
+      "type": "policy"
+    },
+    {
       "id": "policy:contract-threshold",
       "name": ".engine/policies/contract-threshold.md",
       "owner": "core",
@@ -516,6 +537,22 @@
         "path": ".engine/policies/triage-threshold.md"
       },
       "type": "policy"
+    },
+    {
+      "id": "schema:attention-result.v1",
+      "name": ".engine/schemas/attention-result.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "attention-result.v1",
+      "source": {
+        "fingerprint": "sha256:abb061bc0dc53f39f2a19c04b3debafb9ddfdf1ed74b8ee203f57759c1229f1d",
+        "path": ".engine/schemas/attention-result.v1.json"
+      },
+      "type": "schema"
     },
     {
       "id": "schema:check.v1",
@@ -726,6 +763,38 @@
       "type": "schema"
     },
     {
+      "id": "tool:attention",
+      "name": ".engine/tools/attention.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "attention",
+      "source": {
+        "fingerprint": "sha256:aab11bda4e2a1ec71b0bd9a95f9c13196d3a145240e31db8719e231b085c59d9",
+        "path": ".engine/tools/attention.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:attention_rank",
+      "name": ".engine/tools/attention_rank.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "attention_rank",
+      "source": {
+        "fingerprint": "sha256:59844c131a87985a3c578931fae39f6a899776210f099e94029d4587b0c46ea5",
+        "path": ".engine/tools/attention_rank.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:knowledge_gen",
       "name": ".engine/tools/knowledge_gen.py",
       "owner": "core",
@@ -854,6 +923,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_attention",
+      "name": ".engine/tools/test_attention.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_attention",
+      "source": {
+        "fingerprint": "sha256:a7b79cded1b2acdfc0d6b8c1e589cd4a76e31a1609188121cd240903fd14fb7c",
+        "path": ".engine/tools/test_attention.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_contract",
       "name": ".engine/tools/test_contract.py",
       "owner": "core",
@@ -944,7 +1029,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:9e2e17751c9f55c3825bafa91849ecbcbcc81978536bfdfa078bcc3e254a11cd",
+        "fingerprint": "sha256:c00c16a934e453673f5007e55f608879811140c35f9d09c8dc181935db9cd5df",
         "path": ".engine/tools/test_policy.py"
       },
       "type": "tool"
