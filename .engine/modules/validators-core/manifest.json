@@ -4,6 +4,8 @@
   "status": "required",
   "provides": {
     "check": [
+      ".engine/check/agent-frontmatter.json",
+      ".engine/check/agent-shape.json",
       ".engine/check/catalog-coverage.json",
       ".engine/check/contract-frontmatter.json",
       ".engine/check/contract-shape.json",

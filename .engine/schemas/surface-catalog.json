@@ -70,8 +70,8 @@
       "purpose": "Personas the engine runs for a trigger (review, worker, and audit roles), routed by role, lens, model tier, permissions, and output contract.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
-      "governing_schema": null,
-      "template": null
+      "governing_schema": "agent.v1.json",
+      "template": "../templates/agent.md"
     },
     "interface": {
       "class": "structured",
