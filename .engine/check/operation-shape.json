@@ -1,0 +1,13 @@
+{
+  "id": "engine/check/operation-shape",
+  "target": { "path": ".engine/operations/*.md" },
+  "kind": "shape",
+  "params": {
+    "required_sections": ["Purpose", "Steps", "Done when"],
+    "allowed_sections": ["Notes"],
+    "length_budget": 120
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "An operation (a runbook under .engine/operations/) must contain, as level-2 headings in this order, Purpose, then Steps, then Done when, and it may also contain a Notes section, and no others. These sections are what make a runbook followable — what it is for, the ordered steps, and how to know it is done — so an operation that omits a required one is structurally incomplete. This check catches a broken SHAPE only: that the required sections are present, correctly ordered, and that no stray section appears. It cannot judge whether a section's content is substantive — an empty or hand-wavy section passes here and is caught instead by the operator reviewing the committed change, and whether the runbook actually tells a cold operator how to perform the procedure is the audits layer's judgment, not this check's. Length over the 120-line budget is only a soft nudge to trim, never a block. Add or reorder the flagged sections to match the operation template (.engine/templates/operation.md) before merging."
+}
