@@ -20,9 +20,10 @@ graph in memory and compares; any difference is drift — a surface changed, was
 without a regenerate. The gate runs in CI as the `coverage`-kind rule engine/check/knowledge-coverage
 (mode: fingerprint), which RELAYS to check() here — knowledge owns the detection, the rule relays it.
 
-DERIVED, NOT THE QUERY LAYER: the derived query index, the graph-query MCP server, and the boot slice
-are separate, regenerable, gitignored layers shipped by a later slice; this committed file is the
-source of truth and the offline cold-start readout. Reverse traversal (who governs/enforces/provides
+DERIVED, NOT THE QUERY LAYER: the derived query index and the graph-query MCP server are separate,
+regenerable, gitignored layers (slice 11a); the prioritized boot slice is a further gitignored layer,
+DEFERRED — its producer awaits its consumer (boot), so it is not yet produced. This committed file is
+the source of truth and the offline cold-start readout. Reverse traversal (who governs/enforces/provides
 me) is the derived index's job — entities store OUTGOING edges only.
 
 Library + CLI (mirrors self_map.py — plain language first; no JSON channel needed):
@@ -50,8 +51,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import module_coherence  # noqa: E402
 
-# The committed graph's home: a directory (slice 11's gitignored index + boot slice live alongside),
-# owned by core's provides.knowledge so the ownership leg does not flag it an orphan. NOT a catalogued
+# The committed graph's home: a directory (slice 11a's gitignored index lives alongside under .cache/;
+# the gitignored boot slice is a deferred layer, not yet produced), owned by core's provides.knowledge
+# so the ownership leg does not flag it an orphan. NOT a catalogued
 # surface (the knowledge map is derived-observational, excluded from the catalog by design), so it
 # never becomes an entity of itself.
 KNOWLEDGE_DIR = os.path.join(validate.ENGINE_DIR, "knowledge")

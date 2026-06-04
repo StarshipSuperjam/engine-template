@@ -736,7 +736,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:cc6fe311efb12619131faeaaea2c6bc0cde790a11ff5b3b3c280c99ad19a0e4a",
+        "fingerprint": "sha256:f687b4cf3c97edfc14b46c9f8eac884ca15e13c2d0097f211299c92d77f4c8d9",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "type": "tool"
@@ -752,7 +752,7 @@
       },
       "slug": "knowledge_index",
       "source": {
-        "fingerprint": "sha256:1f5b24592196974520d7a8f7a4fff152b0b7639b516e94bde297b158814faac1",
+        "fingerprint": "sha256:cdf6d22c3ec2dc5242c3ac03fd57a0851788e5e55a3c24c149db06a57a2ef6ca",
         "path": ".engine/tools/knowledge_index.py"
       },
       "type": "tool"
@@ -768,7 +768,7 @@
       },
       "slug": "knowledge_mcp_server",
       "source": {
-        "fingerprint": "sha256:f2c2e05a6d55617a726a1b6201eaf13e53d54c8475fc8ae1cd9ed068865ed379",
+        "fingerprint": "sha256:2d712dbb96eba3ccb1a6d54c5e0b2cc3c2af5efdf9146bc2ecca280d9b3aa726",
         "path": ".engine/tools/knowledge_mcp_server.py"
       },
       "type": "tool"
@@ -784,7 +784,7 @@
       },
       "slug": "knowledge_query",
       "source": {
-        "fingerprint": "sha256:23813fe79c55dde591736f56a6935c231af5132aee79e8bf80ae510c9f00ea65",
+        "fingerprint": "sha256:cef26ef0c2a8f62d6e0e3eb205c496a85ed788fe03f55eb3417e613b36430317",
         "path": ".engine/tools/knowledge_query.py"
       },
       "type": "tool"
@@ -912,7 +912,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:ba7a8692b5e1e897cdcea79eacdc1d58905e4775e0ba47f49552515b6d5c6198",
+        "fingerprint": "sha256:1ce0eac67b2a2dd7ce2bdc22ce2fccb09a5ffde6fcdac19daf39069ab6e12318",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "type": "tool"

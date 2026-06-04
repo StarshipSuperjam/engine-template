@@ -12,9 +12,13 @@ committed graph's fingerprint moves. SQLite (stdlib `sqlite3`) is the end-state 
 real adopter's repo and serves neighbors(depth) / relate(path) / find(selector) via indexed SQL and
 recursive CTEs, with no third-party dependency.
 
-Degrade chain (knowledge/README.md:51): a fresh index answers; a missing/stale index is rebuilt from
-the committed graph; a missing committed graph raises KnowledgeUnavailable (the query layer reports it
-in plain language, never a crash).
+Degrade chain (knowledge/README.md:51) — these are the QUERY path's four rungs (rung-1 fast cache = this
+SQLite index; the boot path's rung-1 is its own boot-slice cache, and rungs 2-4 are shared): a fresh
+index answers; a missing/stale index is rebuilt from the committed graph; if the committed graph is
+ABSENT, the index is rebuilt from a LIVE WALK of the surfaces (knowledge_gen.canonical_graph() — loudly
+degraded, so a fresh worktree or the D-024 upgrade-overlay window still answers); and only if that live
+walk also fails is knowledge reported unavailable (the query layer reports it in plain language, never a
+crash, never blocking boot).
 """
 from __future__ import annotations
 import hashlib
@@ -34,6 +38,12 @@ CACHE_DIR = os.path.join(knowledge_gen.KNOWLEDGE_DIR, ".cache")
 INDEX_PATH = os.path.join(CACHE_DIR, "index.sqlite")
 
 EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on")
+
+# The staleness key an index built from a LIVE WALK records in its `meta` (rung 3). It is never equal
+# to a real "sha256:" graph fingerprint, and never equal to the None that graph_fingerprint() returns
+# while the committed graph is absent — so a live-walk index is never deemed fresh: it re-walks on every
+# query while degraded, and self-heals to a committed rebuild the moment graph.json returns.
+LIVE_WALK_FINGERPRINT = "live-walk"
 
 SCHEMA_SQL = """
 CREATE TABLE entities (
@@ -57,8 +67,9 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 
 class KnowledgeUnavailable(Exception):
-    """The committed knowledge graph is absent, so the index cannot be built — knowledge is
-    unavailable. Raised (never crashed-through) so the query layer surfaces it in plain language."""
+    """Knowledge cannot be read: the committed graph is absent AND a live walk of the surfaces also
+    failed — the last two rungs of the degrade chain both gave out. Raised (never crashed-through) so
+    the query layer surfaces it in plain language, without blocking boot."""
 
 
 def graph_fingerprint(graph_path: str | None = None) -> str | None:
@@ -71,22 +82,38 @@ def graph_fingerprint(graph_path: str | None = None) -> str | None:
         return "sha256:" + hashlib.sha256(fh.read()).hexdigest()
 
 
-def _load_graph(graph_path: str) -> dict:
+def _load_graph(graph_path: str):
+    """The graph to index, as (graph_dict, source) — the degrade chain's middle rungs:
+      'committed' — the committed graph is present → rebuild the index from it (rung 2).
+      'live'      — the committed graph is ABSENT → fall back to a LIVE WALK of the surfaces
+                    (knowledge_gen.canonical_graph(), rung 3), so a fresh worktree or the D-024
+                    upgrade-overlay window still answers (loudly degraded).
+    Only ABSENCE (read_committed -> None) triggers the live walk; a present-but-corrupt committed graph
+    still raises from json.loads (unchanged — its validity is the CI knowledge-coverage gate's job).
+    Raises KnowledgeUnavailable only when the committed graph is absent AND the live walk also fails
+    (rung 4) — reported, never crashed, so the read path never blocks boot (README:51)."""
     text = knowledge_gen.read_committed(graph_path)
-    if text is None:
+    if text is not None:
+        return json.loads(text), "committed"
+    try:
+        return json.loads(knowledge_gen.canonical_graph()), "live"
+    except Exception as exc:                            # rung 4: the read path must never block boot
         raise KnowledgeUnavailable(
-            f"the committed knowledge graph ({knowledge_gen._display(graph_path)}) is missing")
-    return json.loads(text)
+            f"the committed knowledge graph ({knowledge_gen._display(graph_path)}) is absent and a "
+            f"live walk of the surfaces also failed: {exc}") from exc
 
 
-def build_index(index_path: str | None = None, graph_path: str | None = None) -> str:
-    """(Re)build the SQLite index from the committed graph; return the index path. Builds into a
+def build_index(index_path: str | None = None, graph_path: str | None = None):
+    """(Re)build the SQLite index; return (index_path, source) — source is 'committed' (built from the
+    committed graph, rung 2) or 'live' (built from a LIVE WALK of the surfaces, rung 3). Builds into a
     temp file then atomically replaces, so a reader never sees a half-built index. Raises
-    KnowledgeUnavailable if the committed graph is gone."""
+    KnowledgeUnavailable only when the committed graph is absent AND the live walk also fails (rung 4)."""
     index_path = INDEX_PATH if index_path is None else index_path
     graph_path = knowledge_gen.GRAPH_PATH if graph_path is None else graph_path
-    graph = _load_graph(graph_path)
-    fp = graph_fingerprint(graph_path)
+    graph, source = _load_graph(graph_path)
+    # The staleness key: the committed graph's byte-fingerprint, or the live-walk sentinel (never a
+    # real fp, never the None graph_fingerprint() gives while the committed graph is absent).
+    fp = graph_fingerprint(graph_path) if source == "committed" else LIVE_WALK_FINGERPRINT
     os.makedirs(os.path.dirname(index_path) or ".", exist_ok=True)
     # A process-unique temp name so two concurrent rebuilds of the same index (e.g. parallel test
     # runners sharing one worktree) cannot collide on the in-progress file; the final os.replace is
@@ -113,7 +140,7 @@ def build_index(index_path: str | None = None, graph_path: str | None = None) ->
     finally:
         conn.close()
     os.replace(tmp, index_path)
-    return index_path
+    return index_path, source
 
 
 def is_fresh(index_path: str | None = None, graph_path: str | None = None) -> bool:
@@ -134,24 +161,24 @@ def is_fresh(index_path: str | None = None, graph_path: str | None = None) -> bo
 
 
 def ensure_index(index_path: str | None = None, graph_path: str | None = None):
-    """Return (index_path, rebuilt) — a fresh index, rebuilding from the committed graph if missing
-    or stale (the git-native degrade step). `rebuilt` is True when this call had to rebuild, so the
-    query layer can surface that it answered from the committed graph. Raises KnowledgeUnavailable if
-    the committed graph is gone."""
+    """Return (index_path, source) — `source` is None when the index was already fresh; otherwise it
+    names what this call rebuilt from: 'committed' (the committed graph, rung 2) or 'live' (a LIVE WALK
+    of the surfaces, rung 3), so the query layer can surface a degraded read. Raises KnowledgeUnavailable
+    only when the committed graph is absent AND the live walk also fails (rung 4)."""
     index_path = INDEX_PATH if index_path is None else index_path
     graph_path = knowledge_gen.GRAPH_PATH if graph_path is None else graph_path
     if is_fresh(index_path, graph_path):
-        return index_path, False
-    return build_index(index_path, graph_path), True
+        return index_path, None
+    return build_index(index_path, graph_path)
 
 
 def connect(index_path: str | None = None, graph_path: str | None = None):
-    """A read connection to a fresh index (ensuring it first). Returns (sqlite3.Connection, rebuilt).
-    The caller closes the connection."""
-    path, rebuilt = ensure_index(index_path, graph_path)
+    """A read connection to a fresh index (ensuring it first). Returns (sqlite3.Connection, source) —
+    source is None (already fresh) / 'committed' / 'live' (see ensure_index). The caller closes it."""
+    path, source = ensure_index(index_path, graph_path)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    return conn, rebuilt
+    return conn, source
 
 
 # ---- CLI ------------------------------------------------------------------------------------
@@ -160,8 +187,10 @@ def main(argv: list) -> int:
     cmd = argv[0] if argv else "status"
     try:
         if cmd == "build":
-            path = build_index()
-            print(f"Built the knowledge index ({knowledge_gen._display(path)}) from the committed graph.")
+            path, source = build_index()
+            whence = ("a live walk of the surfaces (the committed graph is absent — loudly degraded)"
+                      if source == "live" else "the committed graph")
+            print(f"Built the knowledge index ({knowledge_gen._display(path)}) from {whence}.")
             return 0
         if cmd == "status":
             fresh = is_fresh()
