@@ -832,7 +832,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:f8b2ca209f9431bc0ab073f05960ce6adb987c9542c58286231fd92a675069af",
+        "fingerprint": "sha256:135f9f4cf0846b5ab72c4f62a02b0b735e28178622794adbf377fe4b579535f8",
         "path": ".engine/tools/self_map.py"
       },
       "type": "tool"
@@ -928,7 +928,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:5d748ab384a274905a77019221622cada616ef26844b8fdc797865dc11a7da37",
+        "fingerprint": "sha256:f375e870d2ec0f788a1ab431afeacb996ce4b4e0f8e9bff7b851997d9793c156",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
@@ -976,7 +976,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:4e7e62a5b81c211695d874dd988939f9205a5ff280192ce3f2106fc0ec55c775",
+        "fingerprint": "sha256:bc25e8859d0a4b81d6f32eed280d7b832f6f52238d000adf4cf0a92b096b7940",
         "path": ".engine/tools/test_self_map.py"
       },
       "type": "tool"
@@ -1024,7 +1024,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:8e5044ee6c9b461050518f8908663f10c42bb4a62933dd9d958dcb42bfb0fa87",
+        "fingerprint": "sha256:c5464236d34f6ed4604e152436b37a736354f7bd37946141a0100b7a33ab1dda",
         "path": ".engine/tools/validate.py"
       },
       "type": "tool"

@@ -39,8 +39,11 @@ def _surface(**over):
 
 
 CATALOG = {"surfaces": {
+    # tool: governing_schema + template both null -> render the `(none)` sentinel.
     "tool": _surface(location=".engine/tools/", purpose="machinery", **{"class": "code"}),
-    "check": _surface(location=".engine/check/", purpose="rules"),
+    # check: a non-null governing_schema + template -> both values must render (the full record).
+    "check": _surface(location=".engine/check/", purpose="rules",
+                      governing_schema="check.v1.json", template="../templates/check.md"),
 }}
 
 CORE = {"id": "core", "version": "0.0.0-dev", "status": "required",
@@ -61,11 +64,15 @@ class TestRenderSurfaces(unittest.TestCase):
         self.assertIn("(2 surfaces)", out)
         for name in ("tool", "check"):
             self.assertIn(f"`{name}`", out)
-        # fields present
-        self.assertIn("machinery", out)
-        self.assertIn("`.engine/tools/`", out)
-        self.assertIn("code", out)
-        self.assertIn("mechanics-and-guidance", out)
+        # EVERY governed field of the locked surface record is rendered (the name is now true):
+        self.assertIn("machinery", out)                 # purpose
+        self.assertIn("`.engine/tools/`", out)          # home / location
+        self.assertIn("code", out)                      # class
+        self.assertIn("mechanics-and-guidance", out)    # authority
+        self.assertIn("artifact", out)                  # lifecycle
+        self.assertIn("`check.v1.json`", out)           # governing_schema (non-null)
+        self.assertIn("`../templates/check.md`", out)   # template (non-null)
+        self.assertIn("(none)", out)                    # tool's null governing_schema/template sentinel
         # sorted: check's row precedes tool's row
         self.assertLess(out.index("`check`"), out.index("`tool`"))
 
@@ -100,6 +107,35 @@ class TestRenderModule(unittest.TestCase):
         # proving the per-module version source is the manifest's own `version` field.
         m = dict(WIDGET, version="9.9.9")
         self.assertIn("version `9.9.9`", "\n".join(self_map.render_module(m)))
+
+
+class TestRenderModulesGraph(unittest.TestCase):
+    """The Modules section renders the dependency graph in TOPOLOGICAL order with an explicit edge
+    view — not a flat alphabetical block (defect a)."""
+
+    # alpha depends on zebra, so the topological order is [zebra, alpha] — the REVERSE of
+    # alphabetical [alpha, zebra]. This is the case that proves the sort is real, not coincidental.
+    ZEBRA = {"id": "zebra", "version": "1.0.0", "status": "required", "provides": {}, "depends": {}}
+    ALPHA = {"id": "alpha", "version": "1.0.0", "status": "optional", "provides": {},
+             "depends": {"zebra": ">=1.0.0"}}
+
+    def test_modules_render_in_topological_not_alphabetical_order(self):
+        # MUTATION-BOUND: revert render_modules to a sort-by-id and this assertion FAILS (alpha < zebra
+        # alphabetically, so the alphabetical order would render alpha's block before zebra's).
+        out = "\n".join(self_map.render_modules([self.ALPHA, self.ZEBRA]))
+        self.assertLess(out.index("### `zebra`"), out.index("### `alpha`"),
+                        "a dependency must render before the module that depends on it")
+
+    def test_wiring_graph_edge_view_is_rendered(self):
+        out = "\n".join(self_map.render_modules([self.ALPHA, self.ZEBRA]))
+        self.assertIn("The dependency graph", out)
+        self.assertIn("`alpha` → `zebra`", out)          # the edge
+        self.assertIn("`zebra` (no dependencies)", out)  # the root
+        # locality: the edge lines carry no `](` link sequence (also backstopped by TestNoLinkSequence)
+        edge_lines = [ln for ln in out.split("\n") if "→" in ln]
+        self.assertTrue(edge_lines)
+        for ln in edge_lines:
+            self.assertNotIn("](", ln)
 
 
 class TestRenderMapDeterminism(unittest.TestCase):

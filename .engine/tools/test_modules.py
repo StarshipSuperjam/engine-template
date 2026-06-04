@@ -375,5 +375,54 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertIn("CONFIG ERROR", err.getvalue())
 
 
+class TestTopologicalOrder(unittest.TestCase):
+    """The pure validate.topological_order — dependency-first, deterministic, input-order-independent,
+    cycle-safe. The self-map (slice 8) renders in this order; the module manager (slice 25) installs
+    in it."""
+
+    @staticmethod
+    def _m(mid, *deps):
+        return {"id": mid, "depends": {d: "" for d in deps}}  # empty-string range, as on disk
+
+    def _ids(self, manifests):
+        return [m["id"] for m in validate.topological_order(manifests)]
+
+    def test_linear_chain_orders_dependencies_first(self):
+        # a depends-on b depends-on c  ->  c, b, a
+        ms = [self._m("a", "b"), self._m("b", "c"), self._m("c")]
+        self.assertEqual(self._ids(ms), ["c", "b", "a"])
+
+    def test_topological_differs_from_alphabetical(self):
+        # alpha depends-on zebra -> [zebra, alpha], the REVERSE of alphabetical [alpha, zebra]
+        self.assertEqual(self._ids([self._m("alpha", "zebra"), self._m("zebra")]),
+                         ["zebra", "alpha"])
+
+    def test_independent_roots_break_ties_alphabetically(self):
+        self.assertEqual(self._ids([self._m("c"), self._m("a"), self._m("b")]), ["a", "b", "c"])
+
+    def test_diamond_orders_base_first_dependents_last(self):
+        # d depends-on b,c ; b,c depend-on a  ->  a, b, c, d
+        ms = [self._m("d", "b", "c"), self._m("b", "a"), self._m("c", "a"), self._m("a")]
+        self.assertEqual(self._ids(ms), ["a", "b", "c", "d"])
+
+    def test_input_order_independent(self):
+        import itertools
+        ms = [self._m("d", "b", "c"), self._m("b", "a"), self._m("c", "a"), self._m("a")]
+        outs = {tuple(self._ids(list(p))) for p in itertools.permutations(ms)}
+        self.assertEqual(len(outs), 1, "topological order must not depend on input sequence")
+
+    def test_cycle_is_deterministic_and_lossless(self):
+        # a<->b cycle (separately flagged hard by coherence_findings): no crash, all ids present,
+        # deterministic (alphabetical fallback), independent of input order.
+        ms = [self._m("b", "a"), self._m("a", "b")]
+        out = self._ids(ms)
+        self.assertEqual(sorted(out), ["a", "b"])
+        self.assertEqual(out, self._ids(list(reversed(ms))))
+
+    def test_absent_dependency_is_ignored(self):
+        # a depends-on a module not in the set -> treated as a root, no crash (mirrors _dependency_cycle)
+        self.assertEqual(self._ids([self._m("x", "not-present")]), ["x"])
+
+
 if __name__ == "__main__":
     unittest.main()
