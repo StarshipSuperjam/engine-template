@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Self-tests for the policy surface (slice 14): the policy.v1 frontmatter grammar, the committed policy
-template, the live policy-shape rule, the four committed v1-core policy instances, the contract-threshold
-filled-presence rule (the slice-13 forward-obligation), and the catalog flip that wires schema + template in.
+template, the live policy-shape rule, the committed policy instances (the four v1-core policies plus the
+attention policy the slice-12 cognitive floor contributes), the contract-threshold filled-presence rule (the
+slice-13 forward-obligation), and the catalog flip that wires schema + template in.
 
 Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
 
@@ -12,7 +13,7 @@ optional values block of plain tuning numbers conform when present and when abse
 carries exactly the four required sections in order, its frontmatter shape-spec matches the policy-shape
 rule's params byte-for-byte (no drift between the authoring scaffold and the machine-read rule), and that
 shape-spec is a well-formed template.v1; the policy-shape rule is well-formed, joins CI, dispatches the shape
-kind over .engine/policies/*.md, and the FOUR real committed policies pass it, while a missing/ out-of-order/
+kind over .engine/policies/*.md, and the real committed policies pass it, while a missing/ out-of-order/
 stray section fires a hard finding and an over-length body is only a soft nudge; the contract-threshold rule
 is a well-formed presence rule that joins CI, is green on the empty contract stream, and fires a hard finding
 when Significance or Anti-choice is blank or only the template placeholder (presence is checkable), passing
@@ -46,8 +47,13 @@ STATUS_ENUM = POLICY_SCHEMA["properties"]["status"]["enum"]
 # them on the load_json path (the byte-identical-behavior regression lock).
 EXISTING_SCHEMA_RULES = ("engine-manifest", "interface-declaration", "module-manifest", "state-cursor")
 
-# The four v1-core policies that ship from layer one (modules/core/README.md), non-removable.
-EXPECTED_POLICIES = {"contract-threshold", "finding-disposition", "escalation", "triage-threshold"}
+# The four v1-core policies that ship from layer one (modules/core/README.md), non-removable: three
+# trust-model policies plus triage-threshold. The attention cognitive floor (slice 12) contributes a FIFTH
+# policy on the same surface — the tuning values its ranking tool reads — which is NOT one of the foundational
+# four but the attention system's own governed policy (systems/cognitive/attention/README.md). The committed
+# set is their union; growing it here is how a missing/renamed attention policy fails this suite.
+FOUNDATIONAL_POLICIES = {"contract-threshold", "finding-disposition", "escalation", "triage-threshold"}
+EXPECTED_POLICIES = FOUNDATIONAL_POLICIES | {"attention"}
 
 # A representative, conforming policy frontmatter instance (a foundational policy omits established_by).
 VALID_FM = {"title": "Contract threshold", "status": "accepted", "date": "2026-06-03"}
@@ -209,9 +215,10 @@ class TestPolicyShapeRule(unittest.TestCase):
         self.assertEqual(SHAPE_RULE["target"], {"path": ".engine/policies/*.md"})
         self.assertEqual(SHAPE_RULE["tier"], "hard")
 
-    def test_the_four_committed_policies_exist_and_pass_the_live_rule(self):
+    def test_the_committed_policies_exist_and_pass_the_live_rule(self):
         slugs = {os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(POLICIES_DIR, "*.md"))}
-        self.assertEqual(slugs, EXPECTED_POLICIES, "the four v1-core policies must be committed")
+        self.assertEqual(slugs, EXPECTED_POLICIES,
+                         "the committed policies must be the foundational four plus the attention policy")
         passed, found = validate.kind_shape(SHAPE_RULE, {})        # the REAL rule over the REAL policies
         self.assertTrue(passed)
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])
@@ -317,7 +324,7 @@ class TestPolicyFrontmatterRule(unittest.TestCase):
         self.assertEqual(FM_RULE["tier"], "hard")
         self.assertEqual(FM_RULE.get("params"), {})   # catalog-routed: no params.schema override
 
-    def test_live_rule_is_green_over_the_four_real_policies(self):
+    def test_live_rule_is_green_over_the_real_policies(self):
         # the REAL rule + REAL YAML reader over the REAL committed policies, including their real UNQUOTED
         # `date:` — which YAML coerces to a date object; the reader normalizes it back to a string so the
         # schema's date:{type:string} is satisfied. This locks the date-coercion fix against the real files.
@@ -331,6 +338,11 @@ class TestPolicyFrontmatterRule(unittest.TestCase):
         self.assertEqual(triage["values"], {"persistence": 3, "auto_resolve": 2, "triage_pressure": 10})
         contract = validate.frontmatter(os.path.join(POLICIES_DIR, "contract-threshold.md"))
         self.assertEqual(contract["values"], {"contract_rate_max": 3})
+        attention = validate.frontmatter(os.path.join(POLICIES_DIR, "attention.md"))   # slice 12 ranking dials
+        self.assertTrue(attention.get("values"), "the attention policy carries the ranking tool's tuning values")
+        self.assertTrue(all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                            for v in attention["values"].values()),
+                        "every attention tuning value is a plain number the ranking tool can read")
         for slug in ("finding-disposition", "escalation"):     # the value-less policies carry no block
             self.assertNotIn("values", validate.frontmatter(os.path.join(POLICIES_DIR, slug + ".md")))
 
