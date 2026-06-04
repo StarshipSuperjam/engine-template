@@ -729,6 +729,57 @@ def interface_resolution_findings(interfaces: list, present_impls: dict, present
     return findings
 
 
+def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
+    """Pure persona-set coherence — the agent surface's coherence leg, beside dependency
+    (coherence_findings), ownership (ownership_findings), forward wiring (wiring_findings), and
+    interface resolution (interface_resolution_findings). Given the present personas' parsed
+    frontmatter [{name, role, lens?, model-tier, ...}, ...], return a finding for:
+
+      - a `role` outside the closed set {plan-review, worker, pre-submission-review, audit} (an
+        'unknown role' is impossible by construction once caught; agents/README §Coherence),
+      - a `model-tier` outside the closed demand set {judgment, mechanical} (D-100),
+      - a `lens` declared by a `worker` or `audit` role — the symmetric guard to the closed-role
+        check: those two roles carry no lens (agents/README: "a worker or audit instance that
+        declares one is a coherence finding"). Scoped to the two KNOWN lensless roles, not "any
+        non-review role", so an unknown role carrying a lens yields only the role finding (no
+        redundant second finding), and a review role's lens is valid.
+
+    It does NOT do the dangling/unconsumed-lens check (an installed review lens nothing in the
+    orchestration consumes): that needs build-orchestration's consumed-lens set (which gate
+    consumes which lens), deferred to that surface's design (agents/README §Coherence) — the
+    build-orchestration slice. The closed sets live HERE (the leg), NOT as agent.v1 enums: agent.v1
+    governs role/model-tier/lens as well-formed strings and this leg owns membership, so each set
+    is defined in one place (the locked grammar routes membership through the coherence kind, not
+    the schema). `lens` stays an OPEN vocabulary — only role/model-tier are closed sets.
+
+    Pure + fixture-testable, mirroring the other legs: the persona frontmatter is parsed by the
+    consumer (the build-orchestration roster derivation) and passed in, so this stays
+    filesystem-free. No live rule wires this in core: the build roster is derived by
+    build-orchestration (a later slice) and no persona instance ships with the grammar (D-066), so
+    the leg has nothing live to fire on — the interface_resolution_findings precedent (built +
+    fixture-tested, no live rule). That slice discovers the present persona set and runs this
+    alongside the deferred dangling-lens check."""
+    roles = {"plan-review", "worker", "pre-submission-review", "audit"}
+    lensless_roles = {"worker", "audit"}   # the recognized roles that carry no lens
+    tiers = {"judgment", "mechanical"}
+    findings = []
+    for a in agents:
+        name = a.get("name", "(unnamed)")
+        role = a.get("role")
+        if role not in roles:
+            findings.append(finding(tier, f"Persona '{name}' declares role '{role}', which is not a "
+                            f"recognized role ({sorted(roles)}). {message}"))
+        mtier = a.get("model-tier")
+        if mtier not in tiers:
+            findings.append(finding(tier, f"Persona '{name}' declares model-tier '{mtier}', which is "
+                            f"not a recognized demand level ({sorted(tiers)}). {message}"))
+        if a.get("lens") and role in lensless_roles:
+            findings.append(finding(tier, f"Persona '{name}' has role '{role}', which carries no lens, "
+                            f"but declares lens '{a.get('lens')}'; only the review roles carry a "
+                            f"lens. {message}"))
+    return findings
+
+
 def kind_coherence(rule, ctx):
     """The installed module set is consistent. A directly-callable library entry the
     slice-6 module manager invokes right after an install; the manifests it reads land with

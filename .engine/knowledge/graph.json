@@ -1,6 +1,44 @@
 {
   "entities": [
     {
+      "id": "check:agent-frontmatter",
+      "name": ".engine/check/agent-frontmatter.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "agent-frontmatter",
+      "source": {
+        "fingerprint": "sha256:bb0e2e221699211c05d5d8bb9fd7ef367bb825c1ff81f39091dc51a4fd90ffe8",
+        "path": ".engine/check/agent-frontmatter.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:agent-shape",
+      "name": ".engine/check/agent-shape.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "agent-shape",
+      "source": {
+        "fingerprint": "sha256:5a5c16c28664d3fd8260f4d386c6d9cdddde4ce741583578ba3d5006e17b6c73",
+        "path": ".engine/check/agent-shape.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:catalog-coverage",
       "name": ".engine/check/catalog-coverage.json",
       "owner": "validators-core",
@@ -422,7 +460,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:732944c6b18d84ee484a4529c5d011f6b7fe8126033c6767a89defee41406ce6",
+        "fingerprint": "sha256:2cb3c76fef7c1a499a60d2469668dd1469106f5a78dac05625543183c4bd76b0",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
@@ -537,6 +575,22 @@
         "path": ".engine/policies/triage-threshold.md"
       },
       "type": "policy"
+    },
+    {
+      "id": "schema:agent.v1",
+      "name": ".engine/schemas/agent.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "agent.v1",
+      "source": {
+        "fingerprint": "sha256:23ce35423e8494fd0d1a4421e2784569ee22d0b3e4bdcadcba4605567d144acd",
+        "path": ".engine/schemas/agent.v1.json"
+      },
+      "type": "schema"
     },
     {
       "id": "schema:attention-result.v1",
@@ -725,7 +779,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:139d389783177acd909bc3861b0445502c575aefe35453f415019330e8d7fa03",
+        "fingerprint": "sha256:a8b836d57c37a155ec5177dc419d00945548959bc70ffa5eded3578e62122be5",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "type": "schema"
@@ -923,6 +977,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_agent",
+      "name": ".engine/tools/test_agent.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_agent",
+      "source": {
+        "fingerprint": "sha256:288190876ab1ef9f9514a46c28f4a1407463535be01f5171f38eb08e54b1dbe0",
+        "path": ".engine/tools/test_agent.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_attention",
       "name": ".engine/tools/test_attention.py",
       "owner": "core",
@@ -1013,7 +1083,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:f375e870d2ec0f788a1ab431afeacb996ce4b4e0f8e9bff7b851997d9793c156",
+        "fingerprint": "sha256:d15087b3b5940dc1821b717e5b7c50a45f056f154e647f1df68530e35682cb4c",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
@@ -1109,7 +1179,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:c5464236d34f6ed4604e152436b37a736354f7bd37946141a0100b7a33ab1dda",
+        "fingerprint": "sha256:a6d90c2bfe4b86803e09e81cecd93cd3c92fbc00df188b9ad71a6d6d2d58f8a1",
         "path": ".engine/tools/validate.py"
       },
       "type": "tool"

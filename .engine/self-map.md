@@ -12,7 +12,7 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 | surface | purpose | home | authority | lifecycle | class | governing schema | template |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `agent` | Personas the engine runs for a trigger (review, worker, and audit roles), routed by role, lens, model tier, permissions, and output contract. | `.claude/agents/` | mechanics-and-guidance | artifact | prose | (none) | (none) |
+| `agent` | Personas the engine runs for a trigger (review, worker, and audit roles), routed by role, lens, model tier, permissions, and output contract. | `.claude/agents/` | mechanics-and-guidance | artifact | prose | `agent.v1.json` | `../templates/agent.md` |
 | `check` | Declarative validation rules the validator dispatches (target, kind, params, tier, suites, message) — authored as data, never as validator code. | `.engine/check/` | mechanics-and-guidance | artifact | structured | `check.v1.json` | (none) |
 | `contract` | Architecturally significant decision records — one decision each, with rationale and the rejected alternative; the top authority tier, file-per-decision, append-only. | `.engine/contracts/` | decisions | decision | prose | `contract.v1.json` | `../templates/contract.md` |
 | `doc` | Operator-facing, hand-authored plain-language explanations of the engine — written for the human, not the AI. | `.engine/docs/` | mechanics-and-guidance | artifact | prose | (none) | (none) |
@@ -56,5 +56,5 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
-  - check: `.engine/check/catalog-coverage.json`, `.engine/check/contract-frontmatter.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/engine-manifest.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/link-integrity.json`, `.engine/check/module-manifest.json`, `.engine/check/policy-frontmatter.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/self-map-drift.json`, `.engine/check/state-cursor.json`
+  - check: `.engine/check/agent-frontmatter.json`, `.engine/check/agent-shape.json`, `.engine/check/catalog-coverage.json`, `.engine/check/contract-frontmatter.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/engine-manifest.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/link-integrity.json`, `.engine/check/module-manifest.json`, `.engine/check/policy-frontmatter.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/self-map-drift.json`, `.engine/check/state-cursor.json`
 - wires: none (this module adds no shared-state edits)
