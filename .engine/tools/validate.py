@@ -616,6 +616,32 @@ def ownership_findings(inventory: list, claims: dict, exempt, tier: str, message
     return findings
 
 
+def wiring_findings(declared: list, tier: str, message: str) -> list:
+    """Pure forward wiring coherence (declared -> applied) — the wiring leg of module coherence,
+    beside dependency (coherence_findings) and ownership (ownership_findings). Given `declared`, a
+    list of (module_id, seam_type, target_label, is_applied: bool) — one per `wires` directive of
+    each present manifest, with the applied flag computed live by the module-coherence consumer (so
+    this leg stays pure and filesystem-free, exactly like ownership_findings) — return a hard `tier`
+    finding for every directive NOT applied in its shared target. Uniform across all five seams: a
+    declared wire the engine has not applied, or whose applied entry has drifted, is real coherence
+    drift.
+
+    The MCP carve-out is APPROVAL-BLINDNESS, not a soft tier: the applied flag for an `mcp` wire
+    reflects the committed `.mcp.json` definition (engine wiring), never the operator's runtime
+    approval (operator state, surfaced loudly at boot and in the control-plane PR-Validation section,
+    not here) — so a defined-but-unapproved server is simply is_applied=True and never flags
+    (module-system/README.md §"MCP registration", §Coherence). FORWARD direction only; the orphan-wire
+    REVERSE direction (nothing engine-identified applied that no manifest declares) needs a per-seam
+    enumerator and remains the module manager's, slice 25."""
+    findings = []
+    for module_id, seam_type, target_label, applied in declared:
+        if not applied:
+            findings.append(finding(tier, f"Module '{module_id}' declares a {seam_type} wire that is "
+                            f"not applied in {target_label}; re-run the install / wiring step to apply "
+                            f"it, then re-check. {message}"))
+    return findings
+
+
 def interface_resolution_findings(interfaces: list, present_impls: dict, present_handles, tier: str,
                                   message: str) -> list:
     """Single-active resolution + structural conformance for the declared interfaces — the locked

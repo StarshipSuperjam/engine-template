@@ -516,10 +516,14 @@ def reverse_all(directives: list) -> list:
 
 
 def is_applied(directive: dict) -> bool:
-    """Is this directive's engine entry currently present in its target file? The presence check
-    the appliers already make for insert-iff-absent, exposed as a reusable predicate so the
-    module manager (slice 25) can build the declared⟹applied coherence leg without re-deriving.
-    (The orphan-wire direction needs a per-seam enumerator — slice 25.)"""
+    """Is this directive's engine entry currently applied in its target file — by FULL CONTENT, not
+    just by name? Mirrors each applier's insert-iff-absent test exactly (hook: would-be-no-op;
+    gitignore: fence presence; permission: value membership; mcp / ontology-entry: definition /
+    record EQUALITY), so a same-name-but-DRIFTED entry reads as NOT applied — an apply would rewrite
+    it. Exposed as a reusable predicate so the coherence wiring leg (module_coherence) and the module
+    manager (slice 25) build the declared→applied direction without re-deriving. (The orphan-wire
+    REVERSE direction — nothing engine-identified applied that no manifest declares — needs a per-seam
+    enumerator and remains slice 25.)"""
     seam = directive.get("type") if isinstance(directive, dict) else None
     try:
         if seam == "gitignore":
@@ -534,10 +538,13 @@ def is_applied(directive: dict) -> bool:
             return not changed  # would-be-no-op ⇒ already present
         if seam == "mcp":
             data, err = _read_json_tolerant(MCP_PATH, create=True)
-            return err is None and directive["name"] in (data.get("mcpServers") or {})
+            # FULL-CONTENT, mirroring mcp_add's `servers.get(name) == definition` (a drifted
+            # same-name definition reads as NOT applied, exactly as the applier would rewrite it).
+            return err is None and (data.get("mcpServers") or {}).get(directive["name"]) == directive["definition"]
         if seam == "ontology-entry":
             data, err = _read_json_tolerant(CATALOG_PATH, create=True)
-            return err is None and directive["name"] in (data.get("surfaces") or {})
+            # FULL-CONTENT, mirroring catalog_add's `surfaces.get(name) == record`.
+            return err is None and (data.get("surfaces") or {}).get(directive["name"]) == directive["record"]
     except (WiringError, KeyError, TypeError):
         return False
     return False
