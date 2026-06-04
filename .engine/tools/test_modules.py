@@ -20,6 +20,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import module_coherence  # noqa: E402
+import wiring            # noqa: E402
 
 MODULE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "module.v1.json"))
 ENGINE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "engine.v1.json"))
@@ -74,10 +75,31 @@ class TestModuleSchema(unittest.TestCase):
     def test_field_outside_the_grammar_is_flagged(self):
         self.assertTrue(_errors(MODULE_SCHEMA, {**VALID_MODULE, "extra": 1}))
 
-    def test_wires_type_must_be_a_closed_seam(self):
-        self.assertEqual(_errors(MODULE_SCHEMA, {**VALID_MODULE, "wires": [{"type": "hook"}]}), [])
+    def test_wires_must_be_fully_formed_per_seam(self):
+        # The closed-seam gate is retained: an unknown type is still rejected (no escape hatch).
         self.assertTrue(_errors(MODULE_SCHEMA, {**VALID_MODULE, "wires": [{"type": "custom"}]}),
                         "an unknown seam type must be rejected (no wiring escape hatch)")
+        # A fully-formed wire of each seam passes.
+        full = {
+            "hook": {"type": "hook", "event": "PreToolUse", "matcher": "Bash",
+                     "hook": {"type": "command", "command": "${CLAUDE_PROJECT_DIR}/.engine/x.py"}},
+            "mcp": {"type": "mcp", "name": "engine-x", "definition": {"command": "uv", "args": []}},
+            "ontology-entry": {"type": "ontology-entry", "name": "widget", "record": {"a": 1}},
+            "permission": {"type": "permission", "value": "Read(./src/**)"},
+            "gitignore": {"type": "gitignore", "key": "core", "lines": [".engine/.venv/"]},
+        }
+        for seam, wire in full.items():
+            self.assertEqual(_errors(MODULE_SCHEMA, {**VALID_MODULE, "wires": [wire]}), [],
+                             f"a fully-formed {seam} wire must pass")
+        # A BARE wire (type only, missing the seam's required fields) is now REJECTED — the gap this
+        # slice closes (a {type:mcp} with no definition used to pass the hard CI module-manifest gate).
+        for seam in ("hook", "mcp", "ontology-entry", "permission", "gitignore"):
+            self.assertTrue(_errors(MODULE_SCHEMA, {**VALID_MODULE, "wires": [{"type": seam}]}),
+                            f"a bare {seam} wire (missing required fields) must be rejected")
+        # An extra key beyond the seam's vocabulary is rejected (additionalProperties:false).
+        self.assertTrue(_errors(MODULE_SCHEMA, {**VALID_MODULE,
+                        "wires": [{"type": "mcp", "name": "engine-x", "definition": {}, "extra": 1}]}),
+                        "an unexpected key on a wire must be rejected")
 
     def test_depends_with_range_is_allowed(self):
         self.assertEqual(_errors(MODULE_SCHEMA, {**VALID_MODULE, "depends": {"core": ">=1.0.0"}}), [])
@@ -143,6 +165,16 @@ class TestSchemaRulesIntegration(unittest.TestCase):
         self.assertFalse(passed)
         self.assertTrue(any(f["severity"] == "hard" for f in found))
 
+    def test_malformed_wire_is_flagged_via_the_rule(self):
+        # The end-to-end CI path for defect (a): a manifest whose wire is missing its seam's
+        # required fields ({type:mcp} with no definition) fails the hard module-manifest gate.
+        rule = self._rule("module-manifest.json")
+        with tempfile.TemporaryDirectory() as d:
+            bad = _write(d, "manifest.json", {**VALID_MODULE, "wires": [{"type": "mcp"}]})
+            passed, found = _run_kind(validate.kind_schema, rule, [bad])
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" for f in found))
+
 
 class TestOwnershipFindings(unittest.TestCase):
     """The pure ownership leg: orphan (no owner, not exempt), double-claim (>1 owner),
@@ -172,6 +204,25 @@ class TestOwnershipFindings(unittest.TestCase):
         self.assertIn("more than one module", found[0]["message"])
         self.assertIn("core", found[0]["message"])
         self.assertIn("other", found[0]["message"])
+
+
+class TestWiringFindings(unittest.TestCase):
+    """The pure forward wiring leg: a not-applied directive flags HARD (uniform across all five
+    seams — mcp too, because the carve-out is approval-blindness, not a soft tier), an applied one
+    does not. The applied flag is supplied by the caller, so the leg is pure (no filesystem here)."""
+
+    def test_applied_directives_produce_no_finding(self):
+        declared = [("core", "mcp", ".mcp.json", True), ("core", "gitignore", ".gitignore", True)]
+        self.assertEqual(validate.wiring_findings(declared, "hard", "m"), [])
+
+    def test_not_applied_is_a_hard_finding_uniformly(self):
+        for seam in ("hook", "mcp", "ontology-entry", "permission", "gitignore"):
+            found = validate.wiring_findings([("core", seam, ".target", False)], "hard", "fix it")
+            self.assertEqual(len(found), 1, f"a not-applied {seam} wire must flag")
+            self.assertEqual(found[0]["severity"], "hard",
+                             f"{seam} flags HARD (mcp too — approval-blind, not a soft tier)")
+            self.assertIn(seam, found[0]["message"])
+            self.assertIn("not applied", found[0]["message"])
 
 
 class TestModuleCoherenceConsumer(unittest.TestCase):
@@ -251,6 +302,57 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         findings = module_coherence.check_coherence()
         hard = [f for f in findings if f["severity"] == "hard"]
         self.assertEqual(hard, [], f"unexpected coherence findings: {[f['message'] for f in hard]}")
+
+    def test_real_repository_is_wiring_coherent_and_approval_blind(self):
+        # The committed tree's declared wires are ALL applied -> the forward wiring leg is silent.
+        # And it is green even though this repo has NO operator approval (no .claude/settings.json):
+        # the mcp leg checks the committed .mcp.json definition, never the operator's approval -> the
+        # approval-blind MCP-pending-setup carve-out, shown positively.
+        status = module_coherence.wiring_status(module_coherence.discover_manifests())
+        self.assertTrue(any(s[1] == "mcp" for s in status), "core declares an mcp wire to exercise")
+        self.assertTrue(all(applied for _id, _seam, _t, applied in status),
+                        f"every committed wire must be applied: {status}")
+        self.assertFalse(os.path.exists(os.path.join(validate.ROOT, ".claude", "settings.json")),
+                         "this repo records no operator approval — yet the wiring leg is green")
+        self.assertEqual(validate.wiring_findings(status, "hard", "m"), [])
+
+    def test_unapplied_declared_wires_are_hard_findings(self):
+        # Redirect the wiring library's shared targets to empty temp files -> the wires core declares
+        # are no longer applied -> check_coherence reports them as HARD drift (the half-applied/stale
+        # catcher). Dependency + ownership stay green (they don't read the wiring targets).
+        saved = (wiring.GITIGNORE_PATH, wiring.MCP_PATH, wiring.CATALOG_PATH, wiring.SETTINGS_PATH)
+        with tempfile.TemporaryDirectory() as d:
+            wiring.GITIGNORE_PATH = os.path.join(d, ".gitignore")
+            wiring.MCP_PATH = os.path.join(d, ".mcp.json")
+            wiring.CATALOG_PATH = os.path.join(d, "surface-catalog.json")
+            wiring.SETTINGS_PATH = os.path.join(d, "settings.json")
+            try:
+                findings = module_coherence.check_coherence()
+            finally:
+                (wiring.GITIGNORE_PATH, wiring.MCP_PATH, wiring.CATALOG_PATH,
+                 wiring.SETTINGS_PATH) = saved
+        msgs = " ".join(f["message"] for f in findings if f["severity"] == "hard")
+        self.assertIn("mcp wire that is not applied", msgs)
+        self.assertIn("gitignore wire that is not applied", msgs)
+
+    def test_drifted_mcp_definition_is_a_hard_wiring_finding(self):
+        # Binds leg (c) to fix (b): a committed .mcp.json whose engine-knowledge-graph definition has
+        # DRIFTED from the manifest -> the full-content is_applied reads it not-applied -> a HARD
+        # wiring finding. (Name-only is_applied would have stayed green here.) Only MCP_PATH is
+        # redirected, so the gitignore wire stays applied and silent.
+        saved = wiring.MCP_PATH
+        with tempfile.TemporaryDirectory() as d:
+            wiring.MCP_PATH = os.path.join(d, ".mcp.json")
+            with open(wiring.MCP_PATH, "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"engine-knowledge-graph":
+                                          {"command": "DRIFTED", "args": []}}}, fh)
+            try:
+                findings = module_coherence.check_coherence()
+            finally:
+                wiring.MCP_PATH = saved
+        hard = [f for f in findings if f["severity"] == "hard"]
+        self.assertTrue(any("mcp wire that is not applied" in f["message"] for f in hard),
+                        "a drifted mcp definition must flag a hard wiring finding")
 
     def test_main_exit_zero_on_clean_tree(self):
         self.assertEqual(module_coherence.main([]), 0)

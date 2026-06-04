@@ -524,6 +524,21 @@ class TestIsApplied(_Redirected):
         wiring.ontology_entry_apply(ONTO)
         self.assertTrue(wiring.is_applied(ONTO))
 
+    def test_drifted_mcp_and_ontology_read_as_not_applied(self):
+        # FULL-CONTENT (defect b): a same-NAME entry whose definition/record has DRIFTED must read
+        # NOT applied — an apply would rewrite it, so it is not coherent. The old name-only check
+        # wrongly read True here (mutation-bound: reverting the fix makes this test fail).
+        wiring._write_json(wiring.CATALOG_PATH, VALID_CATALOG)
+        wiring.mcp_apply(MCP)
+        wiring.ontology_entry_apply(ONTO)
+        self.assertTrue(wiring.is_applied(MCP))
+        self.assertTrue(wiring.is_applied(ONTO))
+        drifted_mcp = {**MCP, "definition": {**MCP["definition"],
+                                             "args": MCP["definition"]["args"] + ["--EXTRA"]}}
+        drifted_onto = {**ONTO, "record": {**ONTO["record"], "purpose": "DRIFTED"}}
+        self.assertFalse(wiring.is_applied(drifted_mcp), "a drifted mcp definition must read NOT applied")
+        self.assertFalse(wiring.is_applied(drifted_onto), "a drifted ontology record must read NOT applied")
+
 
 # ---- CLI anchor (the exact thing the operator runs is tested) --------------------------------
 

@@ -35,7 +35,7 @@
       "additionalProperties": { "type": "string" }
     },
     "wires": {
-      "description": "The shared-state edits this module makes beyond copying its files, each drawn from a fixed, reversible vocabulary so every edit can be cleanly undone on uninstall. Each entry names its kind; the full per-kind detail is tightened when the wiring library lands. The five kinds are the only ones allowed — there is no free-form escape hatch, because an un-reversible edit to shared state is exactly the failure the module system exists to prevent.",
+      "description": "The shared-state edits this module makes beyond copying its files, each drawn from a fixed, reversible vocabulary so every edit can be cleanly undone on uninstall. Each entry names its kind and carries that kind's required fields, enforced per-seam below now that the wiring library has landed. The five kinds are the only ones allowed — there is no free-form escape hatch, because an un-reversible edit to shared state is exactly the failure the module system exists to prevent.",
       "type": "array",
       "items": {
         "type": "object",
@@ -45,7 +45,69 @@
             "description": "Which shared seam this edit touches.",
             "enum": ["hook", "mcp", "ontology-entry", "permission", "gitignore"]
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "const": "hook" } }, "required": ["type"] },
+            "then": {
+              "required": ["type", "event", "matcher", "hook"],
+              "properties": {
+                "type": {},
+                "event": { "type": "string", "minLength": 1, "description": "The lifecycle event this hook fires on (for example PreToolUse), as named by the hooks system." },
+                "matcher": { "type": "string", "description": "Which tools or contexts the hook applies to, as a matcher string." },
+                "hook": { "type": "object", "description": "The hook entry itself — its command (which must point into .engine/) and its type; the wiring library validates the command when it applies the wire." }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "mcp" } }, "required": ["type"] },
+            "then": {
+              "required": ["type", "name", "definition"],
+              "properties": {
+                "type": {},
+                "name": { "type": "string", "minLength": 1, "description": "The engine-prefixed server name (engine-...), the key under which the definition is registered in the root .mcp.json." },
+                "definition": { "type": "object", "description": "The MCP server definition (its command and args) written into .mcp.json under the server name." }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "ontology-entry" } }, "required": ["type"] },
+            "then": {
+              "required": ["type", "name", "record"],
+              "properties": {
+                "type": {},
+                "name": { "type": "string", "minLength": 1, "description": "The surface name this record introduces in the engine ontology catalog." },
+                "record": { "type": "object", "description": "The catalog record for the surface, written into the engine-owned ontology catalog." }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "permission" } }, "required": ["type"] },
+            "then": {
+              "required": ["type", "value"],
+              "properties": {
+                "type": {},
+                "value": { "type": "string", "minLength": 1, "description": "The permission string added to the operator's allow-list (a bare string the engine never auto-removes)." }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "if": { "properties": { "type": { "const": "gitignore" } }, "required": ["type"] },
+            "then": {
+              "required": ["type", "key", "lines"],
+              "properties": {
+                "type": {},
+                "key": { "type": "string", "minLength": 1, "description": "The engine-managed block id (the fence key) under which the lines are added to the root .gitignore." },
+                "lines": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "description": "The .gitignore lines the engine manages inside its comment-fenced block." }
+              },
+              "additionalProperties": false
+            }
+          }
+        ]
       }
     },
     "migrations": {
