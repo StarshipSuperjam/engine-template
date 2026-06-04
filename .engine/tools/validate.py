@@ -590,6 +590,43 @@ def coherence_findings(manifests: list, tier: str, message: str) -> list:
     return findings
 
 
+def topological_order(manifests: list) -> list:
+    """The present manifests in dependency (topological) order — every module appears AFTER the
+    modules it `depends` on. Deterministic and INPUT-ORDER-INDEPENDENT: ready modules are emitted in
+    alphabetical id order (Kahn's algorithm), so the order is a function of the dependency edges, not
+    of the input sequence. A `depends` id not present in the set is ignored (an absent dependency is a
+    separate coherence finding, not this function's concern — mirrors `_dependency_cycle`). CYCLE-SAFE:
+    if a dependency cycle leaves modules unresolved (a cycle is flagged hard by `coherence_findings`),
+    the unresolved modules are appended in alphabetical id order so a caller never crashes — the result
+    stays deterministic. Pure (no IO): the self-map (slice 8) renders modules in this order and the
+    module manager (slice 25) installs/migrates in it (module-system/README.md §Dependency resolution
+    — "the build order is its topological sort")."""
+    by_id = {m.get("id"): m for m in manifests}
+    indeg = {mid: 0 for mid in by_id}            # count of THIS module's deps present in the set
+    dependents: dict = {mid: [] for mid in by_id}  # dep id -> modules that depend on it
+    for mid, m in by_id.items():
+        for dep in (m.get("depends") or {}):
+            if dep in by_id:
+                indeg[mid] += 1
+                dependents[dep].append(mid)
+    ready = sorted(mid for mid, d in indeg.items() if d == 0)
+    order: list = []
+    while ready:
+        node = ready.pop(0)                       # alphabetically-smallest ready id
+        order.append(node)
+        newly = []
+        for child in dependents[node]:
+            indeg[child] -= 1
+            if indeg[child] == 0:
+                newly.append(child)
+        if newly:
+            ready = sorted(ready + newly)          # keep ready alphabetical -> deterministic
+    if len(order) < len(by_id):                    # cycle fallback: emit the rest alphabetically
+        emitted = set(order)
+        order.extend(sorted(mid for mid in by_id if mid not in emitted))
+    return [by_id[mid] for mid in order]
+
+
 def ownership_findings(inventory: list, claims: dict, exempt, tier: str, message: str) -> list:
     """Pure ownership coherence — the third coherence leg, beside dependency-coherence
     (coherence_findings) in the validation foundation. Given the engine file `inventory`

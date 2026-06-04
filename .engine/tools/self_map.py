@@ -29,6 +29,11 @@ finding.v1 + path helpers from validate.py via the sibling-import precedent. The
 is exposed as render_module() so the permanent module manager (slice 25) reuses the operator-facing
 module prose rather than diverge into a second renderer.
 
+The wiring-graph portion renders the module dependency graph in TOPOLOGICAL order (each module after
+the ones it depends on) with an explicit dependency-edge view (module-system/README.md §"the dependency
+graph … its topological sort"); the surface portion renders EVERY governed field of the locked surface
+record, so the fingerprint covers the whole record (a repointed governing_schema/template trips the gate).
+
 Scope (named): the map renders module `wires` as the directive TYPE list only — the closed seam
 vocabulary (hook/mcp/ontology-entry/permission/gitignore), the part locked in module.v1.json; the
 per-type directive BODY rendering lands with the first wires-bearing manifest (slice 25). The
@@ -67,6 +72,14 @@ def _code(value) -> str:
     return f"`{value}`"
 
 
+def _opt_code(value) -> str:
+    """An OPTIONAL governed field (governing_schema / template) as a table cell: an inline code span
+    when present, else the ASCII sentinel `(none)` — consistent with render_module's empty-list
+    rendering, and ASCII-stable in the byte-compared fingerprinted map (no non-ASCII sentinel). A
+    null/empty value is the catalog's own "no schema/template governs this surface"."""
+    return _code(value) if value else "(none)"
+
+
 def _display(path: str) -> str:
     """A path for human messages: repo-relative when inside the repo (e.g. `.engine/self-map.md`),
     else an absolute path — never a `../../..` chain, which reads to a non-engineer like a bug
@@ -100,23 +113,28 @@ def render_header(engine: dict) -> list:
 
 
 def render_surfaces(surfaces: dict) -> list:
-    """The surface-level portion: one table row per catalogued surface, sorted by name. `surfaces`
-    is the catalog's `surfaces` map {name: record}."""
+    """The surface-level portion: one table row per catalogued surface, sorted by name, carrying
+    EVERY governed field of the locked surface record (ontology/README.md §"The surface meta-contract":
+    name, purpose, home/location, authority, lifecycle, class, governing_schema, template). Rendering
+    the whole record is what makes the fingerprint total — a repointed/nulled governing_schema or
+    template now changes the map and trips the drift gate, so the "cannot diverge" guarantee holds for
+    the whole record, not a subset. `surfaces` is the catalog's `surfaces` map {name: record}."""
     out = [
         "## Surfaces",
         "",
-        f"Every kind of file the engine governs — one home and one authority each "
-        f"({len(surfaces)} surfaces).",
+        f"Every kind of file the engine governs — its home and authority, and the schema and template "
+        f"that govern it ({len(surfaces)} surfaces).",
         "",
-        "| surface | purpose | home | authority | lifecycle | class |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| surface | purpose | home | authority | lifecycle | class | governing schema | template |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for name in sorted(surfaces):
         rec = surfaces[name] or {}
         out.append(
             f"| {_code(name)} | {_cell(rec.get('purpose', ''))} | "
             f"{_code(rec.get('location', ''))} | {_cell(rec.get('authority', ''))} | "
-            f"{_cell(rec.get('lifecycle', ''))} | {_cell(rec.get('class', ''))} |")
+            f"{_cell(rec.get('lifecycle', ''))} | {_cell(rec.get('class', ''))} | "
+            f"{_opt_code(rec.get('governing_schema'))} | {_opt_code(rec.get('template'))} |")
     return out
 
 
@@ -155,9 +173,35 @@ def render_module(manifest: dict) -> list:
     return out
 
 
+def render_wiring_graph(ordered: list) -> list:
+    """The explicit dependency-edge view: the modules in topological order, each shown with the
+    modules it depends on (`→`), so the wiring reads as a graph rather than a flat block. Edges are
+    the manifest `depends` ids (sorted); a root module shows "(no dependencies)". `ordered` is the
+    already-topologically-sorted manifest list. Rendered with code spans (no `](` sequence), so
+    link-integrity passes; deterministic, so it is part of the byte-compared fingerprint."""
+    out = [
+        "The dependency graph — each module is listed after the ones it builds on "
+        "(`→` means \"depends on\"):",
+        "",
+    ]
+    for m in ordered:
+        mid = m.get("id", "?")
+        deps = sorted((m.get("depends") or {}).keys())
+        if deps:
+            out.append(f"- {_code(mid)} → " + ", ".join(_code(d) for d in deps))
+        else:
+            out.append(f"- {_code(mid)} (no dependencies)")
+    return out
+
+
 def render_modules(manifests: list) -> list:
-    """The wiring-graph portion: one block per installed module, sorted by id. `manifests` is a
-    list of manifest dicts (the values from module_coherence.discover_manifests())."""
+    """The wiring-graph portion: the module dependency graph rendered in TOPOLOGICAL order (each
+    module after the ones it `depends` on, via validate.topological_order) with an explicit edge view,
+    then one detail block per installed module in that same order — so the section reads as a graph,
+    not a flat alphabetical block (module-system/README.md §"the dependency graph … its topological
+    sort"). `manifests` is a list of manifest dicts (the values from
+    module_coherence.discover_manifests())."""
+    ordered = validate.topological_order(manifests)
     out = [
         "## Modules",
         "",
@@ -165,7 +209,9 @@ def render_modules(manifests: list) -> list:
         f"({len(manifests)} installed).",
         "",
     ]
-    for m in sorted(manifests, key=lambda m: m.get("id", "")):
+    out.extend(render_wiring_graph(ordered))
+    out.append("")
+    for m in ordered:
         out.extend(render_module(m))
         out.append("")
     if out and out[-1] == "":
