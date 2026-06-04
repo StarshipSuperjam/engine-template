@@ -33,8 +33,10 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import attention_rank    # noqa: E402
+import attention         # noqa: E402
 from attention_rank import (rank, assign_partition, intra_weight, session_condition, apply_flex,  # noqa: E402
-                            budget_split, CATEGORIES, SUBSTRATES, EXPECTED_VALUE_KEYS)
+                            budget_split, CATEGORIES, SUBSTRATES, EXPECTED_VALUE_KEYS,
+                            PRECEDENCE_KEYS, TRIM_KEYS)
 
 RESULT_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "attention-result.v1.json"))
 POLICY_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "policy.v1.json"))
@@ -295,6 +297,124 @@ class TestReferenceTime(unittest.TestCase):
         b = rank([FEATURE], FIXTURE_POLICY, "2026-06-04T00:00:00Z", set())
         self.assertEqual(a, b)
         self.assertEqual(a["as_of"], "2026-06-04T00:00:00Z")
+
+
+ATTENTION_STRUCTURAL = set(PRECEDENCE_KEYS) | set(TRIM_KEYS)
+
+
+class TestEffectiveValues(unittest.TestCase):
+    """Issue #42 — the operator policy-override read-time merge (D-167). Exercises the REAL core merge
+    (validate.effective_policy_values) and the REAL consumer (attention.load_policy_values). The merge is
+    static-data only, so determinism is preserved and the structural ordering cannot be out-tuned. No live
+    rule exists this slice (slice 26 wires the stale-key rule on the committed override file); these fixtures
+    plus the operator demo are the merge's only proof. The eligibility partition: every attention value is
+    override-eligible EXCEPT the structural precedence/trim keys (Shane's flex-is-tunable leaf — flex merges)."""
+
+    def _merge(self, override, *, structural=ATTENTION_STRUCTURAL):
+        return validate.effective_policy_values(FIXTURE_POLICY, override, structural_keys=structural,
+                                                tier="soft", message="")
+
+    def test_sparse_override_merges_per_key(self):
+        effective, findings = self._merge({"budget_orientation": 0.40, "weight_recency": 0.9})
+        self.assertEqual(findings, [])
+        self.assertEqual(effective["budget_orientation"], 0.40)
+        self.assertEqual(effective["weight_recency"], 0.9)
+        for k, v in FIXTURE_POLICY.items():           # every unnamed key keeps the shipped default
+            if k not in ("budget_orientation", "weight_recency"):
+                self.assertEqual(effective[k], v)
+
+    def test_partial_override_leaves_unset_keys_at_default(self):
+        effective, findings = self._merge({"weight_severity": 2.0})
+        self.assertEqual(findings, [])
+        self.assertEqual(effective["weight_severity"], 2.0)
+        self.assertEqual({k: effective[k] for k in FIXTURE_POLICY if k != "weight_severity"},
+                         {k: v for k, v in FIXTURE_POLICY.items() if k != "weight_severity"})
+
+    def test_empty_override_returns_default_unchanged(self):
+        effective, findings = self._merge({})
+        self.assertEqual(effective, FIXTURE_POLICY)
+        self.assertEqual(findings, [])
+
+    def test_stale_key_falls_back_and_is_surfaced(self):
+        effective, findings = self._merge({"budget_legacy_thing": 0.1})
+        self.assertNotIn("budget_legacy_thing", effective)   # falls back: never enters the effective map
+        self.assertEqual(effective, FIXTURE_POLICY)          # everything else is the default
+        self.assertEqual(len(findings), 1)
+        self.assertIn("budget_legacy_thing", findings[0]["message"])
+
+    def test_ineligible_precedence_key_refused_at_the_merge_layer(self):
+        # the law guard asserted at the MERGE layer (not only via the downstream rank): a structural key is
+        # refused and the shipped default value stands in the effective map.
+        effective, findings = self._merge({"precedence_blocking_debt": 5})
+        self.assertEqual(effective["precedence_blocking_debt"], FIXTURE_POLICY["precedence_blocking_debt"])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("precedence_blocking_debt", findings[0]["message"])
+
+    def test_ineligible_trim_key_refused(self):
+        effective, findings = self._merge({"trim_orientation": 9})
+        self.assertEqual(effective["trim_orientation"], FIXTURE_POLICY["trim_orientation"])
+        self.assertEqual(len(findings), 1)
+
+    def test_flex_keys_are_eligible_and_merge(self):
+        # Shane's leaf: the two flex dials ARE tunable (only precedence/trim are structural).
+        effective, findings = self._merge({"flex_orientation_delta": 0.25, "flex_high_debt_count": 7})
+        self.assertEqual(findings, [])
+        self.assertEqual(effective["flex_orientation_delta"], 0.25)
+        self.assertEqual(effective["flex_high_debt_count"], 7)
+
+    def test_eligibility_partition_over_every_key(self):
+        # comprehensive: every non-structural key merges with no finding; every structural key is refused.
+        for k in FIXTURE_POLICY:
+            effective, findings = self._merge({k: 99})
+            if k in ATTENTION_STRUCTURAL:
+                self.assertEqual(effective[k], FIXTURE_POLICY[k], f"{k} must be refused (structural)")
+                self.assertEqual(len(findings), 1, f"{k} must surface a finding")
+            else:
+                self.assertEqual(effective[k], 99, f"{k} must merge (eligible)")
+                self.assertEqual(findings, [], f"{k} must merge cleanly")
+
+    def test_determinism_same_inputs_byte_identical(self):
+        override = {"budget_orientation": 0.4, "trim_orientation": 9, "stale": 1}
+        self.assertEqual(json.dumps(self._merge(override), sort_keys=True),
+                         json.dumps(self._merge(override), sort_keys=True))
+        # order-independent: a differently-ordered override yields the identical effective map AND the
+        # identical finding order — the merge iterates `sorted(override)`, so dict insertion order never leaks.
+        eff_a, find_a = self._merge(override)
+        eff_b, find_b = self._merge({"stale": 1, "trim_orientation": 9, "budget_orientation": 0.4})
+        self.assertEqual(eff_a, eff_b)
+        self.assertEqual([f["message"] for f in find_a], [f["message"] for f in find_b])
+
+    def test_findings_are_finding_v1_shape(self):
+        _effective, findings = self._merge({"precedence_blocking_debt": 5, "stale_key": 1})
+        self.assertEqual(len(findings), 2)
+        for f in findings:
+            self.assertEqual(set(f.keys()), {"severity", "message", "location"})
+            self.assertEqual(f["severity"], "soft")
+
+    def test_precedence_override_cannot_reorder_the_partition(self):
+        # end-to-end law guard: an override that tries to demote blocking debt below in-flight is refused, so
+        # rank() over the same fixture STILL leads with blocking debt — structural, not out-tunable.
+        effective, findings = self._merge({"precedence_blocking_debt": 5, "precedence_in_flight": 1})
+        self.assertEqual(len(findings), 2)   # both structural keys refused
+        flat = _flatten(rank([FEATURE, DEBT], effective, AS_OF, set()))
+        self.assertLess(flat.index("debt:overdue"), flat.index("feat:shiny"))
+
+    def test_load_policy_values_no_override_matches_shipped_default(self):
+        # the regression lock: the live path (no override) returns the committed default bit-for-bit.
+        shipped = validate.frontmatter(POLICY_PATH).get("values", {})
+        self.assertEqual(attention.load_policy_values(), shipped)
+        self.assertEqual(attention.load_policy_values(POLICY_PATH, None), shipped)
+
+    def test_load_policy_values_with_override_returns_effective(self):
+        shipped = validate.frontmatter(POLICY_PATH).get("values", {})
+        effective = attention.load_policy_values(POLICY_PATH, {"budget_orientation": 0.40})
+        self.assertEqual(effective["budget_orientation"], 0.40)
+        for k, v in shipped.items():
+            if k != "budget_orientation":
+                self.assertEqual(effective[k], v)
+        # a structural override through the consumer is still refused (the default stands)
+        effective2 = attention.load_policy_values(POLICY_PATH, {"trim_blocking_debt": 1})
+        self.assertEqual(effective2["trim_blocking_debt"], shipped["trim_blocking_debt"])
 
 
 if __name__ == "__main__":

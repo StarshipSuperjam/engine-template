@@ -780,6 +780,51 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     return findings
 
 
+def effective_policy_values(default: dict, override: dict, *, structural_keys, tier: str,
+                            message: str) -> tuple[dict, list]:
+    """Merge a per-deployment operator policy-override over a policy's shipped default tuning values,
+    per-key at read time — the core merge mechanism for the operator policy-override (D-167: "the
+    merge-mechanism is core"; policies/README §Per-deployment value override). Returns
+    (effective, findings): the effective value map a consumer reads, plus a finding per refused key.
+
+    Given the shipped `default` value map (read from the policy frontmatter by the consumer) and a sparse
+    `override` map (committed operator config — its file path/format belong to the authoring slice, NOT
+    this function), merge each override key over the default, EXCEPT:
+
+      - a key in `structural_keys` — a value that encodes a structural LAW an override may never retune
+        (for attention, the partition precedence + trim order, so "blocking-debt-first holds by
+        construction") — is REFUSED and surfaced; the shipped default value stands.
+      - a key absent from `default` — a STALE key (a knob the policy no longer carries after an upgrade) —
+        falls back to the default (it is simply not present in the result) and is surfaced (the
+        freshly-stale catch at the merge; a lingering one is the audit's job, audits/README).
+
+    An unset eligible key (a partial override) silently keeps the default — the normal case, no finding.
+    Eligibility is the CALLER'S parameter (`structural_keys`), so one mechanism serves attention (structural
+    = precedence + trim) and telemetry's triage-threshold (its own set, empty) without re-derivation — and a
+    consumer never imports another substrate's tool to merge, so there is no layering inversion.
+
+    PURE + fixture-testable: the merged value is static data, so a deterministic consumer (attention's
+    ranking function) stays deterministic — the merge adds another recorded input; no clock, no IO. The
+    override is taken as DATA: this function does not read a file — the consumer (or the authoring slice)
+    loads it. Findings are ordered by key (sorted) for a reproducible result. No live rule wires this in
+    core yet: the `custom/script` stale-key rule that runs it on a committed override file needs that file's
+    path (the authoring slice's leaf), so the leg is built + fixture-tested here and consumed live later
+    (the interface_resolution_findings / agent_coherence_findings precedent)."""
+    structural = set(structural_keys)
+    effective = dict(default)
+    findings = []
+    for key in sorted(override):
+        if key in structural:
+            findings.append(finding(tier, f"Override key '{key}' sets a structural-law value that is not "
+                            f"override-eligible; it is refused and the shipped default stands. {message}"))
+        elif key not in default:
+            findings.append(finding(tier, f"Override key '{key}' is not carried by the policy's shipped "
+                            f"default; it is ignored and falls back to the default. {message}"))
+        else:
+            effective[key] = override[key]
+    return effective, findings
+
+
 def kind_coherence(rule, ctx):
     """The installed module set is consistent. A directly-callable library entry the
     slice-6 module manager invokes right after an install; the manifests it reads land with

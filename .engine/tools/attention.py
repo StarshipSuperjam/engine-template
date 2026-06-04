@@ -29,7 +29,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import attention_rank    # noqa: E402
-from attention_rank import rank, SUBSTRATES, CATEGORIES  # noqa: E402
+from attention_rank import rank, SUBSTRATES, CATEGORIES, PRECEDENCE_KEYS, TRIM_KEYS  # noqa: E402
 
 try:
     import knowledge_query   # noqa: E402
@@ -42,10 +42,26 @@ STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
 
 # ---- policy + substrate reads ---------------------------------------------------------------
 
-def load_policy_values(policy_path: str = POLICY_PATH) -> dict:
+def load_policy_values(policy_path: str = POLICY_PATH, override: dict | None = None) -> dict:
     """The attention policy's machine-read tuning values (the flat snake_case->number map), read straight
-    from its YAML frontmatter by the validation foundation's reader — never parsed out of the prose body."""
-    return validate.frontmatter(policy_path).get("values", {})
+    from its YAML frontmatter by the validation foundation's reader — never parsed out of the prose body.
+
+    When an operator policy-override is supplied, this returns the EFFECTIVE values: the shipped default with
+    the override merged per-key at read time (D-167), via the core merge `validate.effective_policy_values`.
+    ATTENTION owns which of its keys are structural — the partition precedence + trim order, never
+    override-eligible, so "blocking-debt-first holds by construction" — and CORE owns the merge. The override
+    is operator config supplied as DATA; this slice never reads an override FILE: its path/format is the
+    policy-tuning authoring slice's leaf (slice 26), which loads the file and passes it here, and wires the
+    live stale-key rule that consumes the merge's findings. With no override (the live path today), the
+    shipped default is returned unchanged — the new `override` is a trailing keyword arg, so the existing
+    positional callers are bit-for-bit unaffected."""
+    default = validate.frontmatter(policy_path).get("values", {})
+    if override is None:
+        return default
+    effective, _findings = validate.effective_policy_values(
+        default, override, structural_keys=set(PRECEDENCE_KEYS) | set(TRIM_KEYS), tier="soft",
+        message="An operator policy-override tunes values only, never the structural ordering.")
+    return effective
 
 
 def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH, focus: str | None = None,
