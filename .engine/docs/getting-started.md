@@ -24,9 +24,9 @@ When you ask for something that changes your project, the Engine works in carefu
 
 ## Finding the commands
 
-Alongside plain conversation, the Engine gives you a set of shortcuts — short typed commands for common things, each beginning with a slash, like `/`.
+Alongside plain conversation, the Engine gives you a set of shortcuts — short typed commands, each beginning with **`/engine-`** so you can tell them apart from the other commands your assistant offers.
 
-To see what is available, **type `/` in the message box**: your assistant lists the commands you can use, each with a short description. You can also simply ask, in plain words — *"what can you do?"* or *"what commands are there?"* — and it will tell you. You never have to memorize anything; the list is always one keystroke or one question away.
+To see them, **type `/engine` in the message box**: the list narrows to the Engine's own commands, each with a short description. (Typing just `/` shows *every* command your assistant has — its built-in ones and others — not only the Engine's; the `/engine-` start is how you spot the Engine's among them.) You can also simply ask, in plain words — *"what can the Engine do?"* — and it will tell you. You never have to memorize anything; the list is always a few keystrokes or one question away.
 
 ## When the engine suggests removing a part of itself
 
@@ -36,4 +36,4 @@ This is normal, healthy upkeep, not a sign that anything is wrong and not the En
 
 ## Where to go next
 
-The simplest way to begin is to tell the Engine what you want to work on, in your own words. At the start of each session it will orient you — showing where your project stands — and from there you just keep the conversation going. When you want to know what else you can ask for, type `/` to see the commands.
+The simplest way to begin is to tell the Engine what you want to work on, in your own words. At the start of each session it will orient you — showing where your project stands — and from there you just keep the conversation going. When you want to know what else you can ask for, type `/engine` to see the Engine's commands.

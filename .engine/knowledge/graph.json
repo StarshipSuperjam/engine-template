@@ -517,7 +517,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:76a481aaa1d5736878840f4b119be11e23e0650af7df3398d8de32fd6363cf37",
+        "fingerprint": "sha256:f12f6c21f2c5cf76b3a9877c6350bc2b8798e359394b15bad868ad31e19afa09",
         "path": ".engine/docs/getting-started.md"
       },
       "type": "doc"
