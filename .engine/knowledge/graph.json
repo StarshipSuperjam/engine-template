@@ -52,7 +52,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:c87d2242ce07af85e0a7ff2fec5344ce89869a101ec4f252f0cd8383dcec99ab",
+        "fingerprint": "sha256:4af685f9ed4504a14b57e104773a6eebf7201dab219b6731d62ce75b81a8c607",
         "path": ".engine/check/catalog-coverage.json"
       },
       "type": "check"
@@ -520,7 +520,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:bc4521c23f17686a166f8d08cfef92e2ab9c78465afff0eb1143358e2f6ab667",
+        "fingerprint": "sha256:f21aaca0d454f0f9944d12264032fc9836a2c8cc034542d6e32887d7e35e64d9",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -672,6 +672,22 @@
       "type": "schema"
     },
     {
+      "id": "schema:ambient-capture.v1",
+      "name": ".engine/schemas/ambient-capture.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "ambient-capture.v1",
+      "source": {
+        "fingerprint": "sha256:fc8d108c6220d32f1d7ff16904a41a1c75df284c87741c6721e741dc9954d476",
+        "path": ".engine/schemas/ambient-capture.v1.json"
+      },
+      "type": "schema"
+    },
+    {
       "id": "schema:attention-result.v1",
       "name": ".engine/schemas/attention-result.v1.json",
       "owner": "core",
@@ -732,6 +748,22 @@
       "source": {
         "fingerprint": "sha256:8e27b7554f84556f140223754c69d8e237835a9898870c3dc42e61ac9d325ec1",
         "path": ".engine/schemas/engine.v1.json"
+      },
+      "type": "schema"
+    },
+    {
+      "id": "schema:finding-record.v1",
+      "name": ".engine/schemas/finding-record.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "finding-record.v1",
+      "source": {
+        "fingerprint": "sha256:04d0738da9aeab17c306e8ddb7b3164f6788008e81fa68e6d947deca6cb18440",
+        "path": ".engine/schemas/finding-record.v1.json"
       },
       "type": "schema"
     },
@@ -1104,6 +1136,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:telemetry",
+      "name": ".engine/tools/telemetry.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "telemetry",
+      "source": {
+        "fingerprint": "sha256:ff4184e82e0794985a82fae62900c9d34ca8f335374a7cfed35b692ad7e4429e",
+        "path": ".engine/tools/telemetry.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_agent",
       "name": ".engine/tools/test_agent.py",
       "owner": "core",
@@ -1324,6 +1372,22 @@
       "source": {
         "fingerprint": "sha256:58f2021bb45e0e35a13971dae3ac0c4dd234aff80011e4fb19f3da0fd1530a3e",
         "path": ".engine/tools/test_state.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_telemetry",
+      "name": ".engine/tools/test_telemetry.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_telemetry",
+      "source": {
+        "fingerprint": "sha256:dc1d20394ee723d2d01fc951976e251dfdbb8deed05190161315efcd913e5051",
+        "path": ".engine/tools/test_telemetry.py"
       },
       "type": "tool"
     },

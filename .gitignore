@@ -12,3 +12,6 @@ __pycache__/
 # BEGIN engine-managed block: core-knowledge-cache - do not edit inside
 .engine/knowledge/.cache/
 # END engine-managed block: core-knowledge-cache
+# BEGIN engine-managed block: core-telemetry-cache - do not edit inside
+.engine/telemetry/.cache/
+# END engine-managed block: core-telemetry-cache

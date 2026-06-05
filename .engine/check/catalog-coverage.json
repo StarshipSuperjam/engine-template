@@ -8,6 +8,7 @@
       ".engine/knowledge/",
       ".engine/modules/",
       ".engine/state/",
+      ".engine/telemetry/",
       ".engine/templates/",
       ".engine/.venv/"
     ]

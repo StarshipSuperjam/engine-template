@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""Self-tests for slice 18 — telemetry detect->surface machinery.
+
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+
+Each test locks one load-bearing law against the REAL reconcile logic, faking ONLY the network
+(the demo-fidelity rule): source-keyed dedup collapses repeats onto one Issue and ignores
+per-occurrence location; two distinct signals get two Issues; a trust-critical signal promotes
+immediately while a benign one waits for the persistence threshold; auto-resolve closes after the
+absent-observation count; a degraded read RAISES and is never swallowed as "no issues" (and makes
+zero writes); the engine-domain label is ensured-then-applied idempotently; the triage-pressure
+meter is render-only; telemetry's own crash fails open; the State refresh writes a schema-valid
+cursor and preserves the rest; an absent or wiped cache reads as empty (best-effort); a stripped
+signal marker yields at most one duplicate, never a missed signal; and both new schemas are valid
+2020-12 schemas whose enum and trailing-Z pattern bite. The deliverable-gate cold review attests
+each test's assertion matches its name.
+"""
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import telemetry  # noqa: E402
+import validate  # noqa: E402
+
+TH = {"persistence": 3, "auto_resolve": 2, "triage_pressure": 10}
+T = ["2026-06-05T0%d:00:00Z" % n for n in range(1, 10)]
+
+
+def rec(sid, severity="persistent-but-benign", message="A check keeps reporting a minor issue.",
+        location=None):
+    return {"source_id": sid, "severity": severity, "message": message, "location": location}
+
+
+class FakeGH:
+    """In-memory GitHub for the transport seam. Records every call; serves labels + issues; can be
+    told to fail issue reads with a given status. The harness under test is the REAL GitHubIssues +
+    reconcile — only this network stand-in is fake."""
+
+    def __init__(self, *, labels=None, fail_read=None, fail_label=None, fail_write=None):
+        self.issues: dict = {}
+        self.labels: set = set(labels or [])
+        self._next = 1
+        self.fail_read = fail_read      # status the issues GET returns
+        self.fail_label = fail_label    # status the label GET returns (a non-404 error)
+        self.fail_write = fail_write    # status an issue POST/PATCH returns
+        self.calls: list = []
+
+    def transport(self, method, path, body):
+        self.calls.append((method, path.split("?")[0]))
+        base = path.split("?")[0]
+        if base.endswith("/issues") and method == "GET":
+            if self.fail_read:
+                return self.fail_read, None
+            rows = [i for i in self.issues.values() if i["state"] == "open"]
+            return 200, rows  # single page (the fake never needs pagination)
+        if base.endswith("/labels") and method == "POST":
+            self.labels.add(body["name"])
+            return 201, body
+        if "/labels/" in base and method == "GET":
+            if self.fail_label:
+                return self.fail_label, None
+            name = base.rsplit("/", 1)[1]
+            return (200, {"name": name}) if name in self.labels else (404, None)
+        if base.endswith("/issues") and method == "POST":
+            if self.fail_write:
+                return self.fail_write, None
+            num = self._next
+            self._next += 1
+            self.issues[num] = {"number": num, "title": body["title"], "body": body["body"],
+                                "labels": body.get("labels", []), "state": "open"}
+            return 201, self.issues[num]
+        if base.split("/")[-1].isdigit() and method == "PATCH":
+            num = int(base.split("/")[-1])
+            self.issues[num].update(body)
+            return 200, self.issues[num]
+        return 404, None
+
+    def open_count(self):
+        return sum(1 for i in self.issues.values() if i["state"] == "open")
+
+    def writes(self):
+        return [c for c in self.calls if c[0] in ("POST", "PATCH")]
+
+
+def gh(fake):
+    return telemetry.GitHubIssues("you/proj", "tok", transport=fake.transport)
+
+
+class TestPureHelpers(unittest.TestCase):
+    def test_source_key_is_source_id_and_ignores_location(self):
+        a = rec("rule:x", location={"file": "a.py", "line": 1})
+        b = rec("rule:x", location={"file": "b.py", "line": 99})
+        self.assertEqual(telemetry.derive_source_key(a), "rule:x")
+        self.assertEqual(telemetry.derive_source_key(a), telemetry.derive_source_key(b))
+
+    def test_promotion_trust_critical_is_immediate(self):
+        self.assertTrue(telemetry.promotion_due(rec("c", "trust-critical"), 1, 3))
+        self.assertTrue(telemetry.promotion_due(rec("c", "trust-critical"), 0, 99))
+
+    def test_promotion_benign_waits_for_persistence(self):
+        r = rec("b", "persistent-but-benign")
+        self.assertFalse(telemetry.promotion_due(r, 1, 3))
+        self.assertFalse(telemetry.promotion_due(r, 2, 3))
+        self.assertTrue(telemetry.promotion_due(r, 3, 3))
+
+    def test_resolution_due_after_threshold(self):
+        self.assertFalse(telemetry.resolution_due(1, 2))
+        self.assertTrue(telemetry.resolution_due(2, 2))
+
+    def test_triage_pressure_is_render_only(self):
+        self.assertIsNone(telemetry.triage_pressure_line(10, 10))   # not over -> nothing
+        self.assertIsNotNone(telemetry.triage_pressure_line(11, 10))
+
+    def test_sentinel_round_trips_and_strips(self):
+        body = telemetry.issue_body(rec("rule:y"), T[0], T[0])
+        self.assertEqual(telemetry.parse_source_id(body), "rule:y")
+        self.assertIsNone(telemetry.parse_source_id("no marker here"))
+
+    def test_issue_body_has_no_backstage_jargon(self):
+        body = telemetry.issue_body(rec("rule:y"), T[0], T[0]).lower()
+        # the operator-visible prose (everything but the invisible HTML-comment marker)
+        prose = body.split("<!--")[0]
+        for banned in ("stream", "severity class", "trust-critical", "persistent-but-benign",
+                       "persistence", "triage", "source-id", "source_id"):
+            self.assertNotIn(banned, prose, f"backstage term {banned!r} leaked into the issue body")
+
+
+class TestDedupAndPromotion(unittest.TestCase):
+    def test_benign_waits_then_opens_one_issue(self):
+        # One accruing cache across runs: persist 1, 2 (no issue), then 3 -> the one issue opens.
+        f = FakeGH(labels={"engine"})
+        cache = telemetry.Cache(_tmpcache())
+        for k in range(2):
+            r = telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[k])
+            self.assertEqual(r.opened, 0)
+            self.assertEqual(f.open_count(), 0)
+        r = telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[2])
+        self.assertEqual(r.opened, 1)
+        self.assertEqual(f.open_count(), 1)
+
+    def test_refire_updates_one_issue_never_duplicates(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        crit = rec("check/p", "trust-critical", "A safety check could not run.")
+        telemetry.run(gh(f), [crit], cache, TH, T[0])           # opens immediately
+        self.assertEqual(f.open_count(), 1)
+        for k in range(1, 4):
+            r = telemetry.run(gh(f), [crit], cache, TH, T[k])
+            self.assertEqual(r.opened, 0)
+            self.assertEqual(r.updated, 1)
+        self.assertEqual(f.open_count(), 1)                     # still one — dedup holds
+
+    def test_dedup_ignores_location(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        telemetry.run(gh(f), [rec("check/p", "trust-critical", location={"file": "a"})], cache, TH, T[0])
+        telemetry.run(gh(f), [rec("check/p", "trust-critical", location={"file": "b"})], cache, TH, T[1])
+        self.assertEqual(f.open_count(), 1)
+
+    def test_two_distinct_sources_two_issues(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        telemetry.run(gh(f), [rec("check/a", "trust-critical"), rec("check/b", "trust-critical")],
+                      cache, TH, T[0])
+        self.assertEqual(f.open_count(), 2)
+
+    def test_trust_critical_opens_immediately(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
+        self.assertEqual(r.opened, 1)
+
+
+class TestAutoResolve(unittest.TestCase):
+    def test_closes_after_auto_resolve_absent_observations(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        crit = rec("check/p", "trust-critical")
+        telemetry.run(gh(f), [crit], cache, TH, T[0])          # open
+        r1 = telemetry.run(gh(f), [], cache, TH, T[1])         # absent 1
+        self.assertEqual(r1.closed, 0)
+        self.assertEqual(f.open_count(), 1)
+        r2 = telemetry.run(gh(f), [], cache, TH, T[2])         # absent 2 -> close
+        self.assertEqual(r2.closed, 1)
+        self.assertEqual(f.open_count(), 0)
+
+
+class TestDegradedRead(unittest.TestCase):
+    def test_list_raises_on_auth_error_never_returns_empty(self):
+        for status in (401, 403, 404):
+            f = FakeGH(labels={"engine"}, fail_read=status)
+            with self.assertRaises(telemetry.DegradedReadError):
+                gh(f).list_open_engine_issues()
+
+    def test_run_degrades_on_read_failure_makes_no_issue_writes(self):
+        f = FakeGH(labels={"engine"}, fail_read=403)
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, open_count=7, as_of="2026-06-01T00:00:00Z")
+            r = telemetry.run(gh(f), [rec("rule:b")], telemetry.Cache(_tmpcache()), TH, T[0], state_path=sp)
+        self.assertTrue(r.degraded)
+        self.assertIn("7 open problems", r.degraded_line)
+        self.assertIn("re-ground before you rely on it", r.degraded_line)
+        self.assertIn("until GitHub returns", r.degraded_line)
+        # zero Issue writes (POST /issues or PATCH /issues/N) — the read failed before any write
+        self.assertEqual([c for c in f.calls if c[0] == "POST" and c[1].endswith("/issues")], [])
+        self.assertFalse(any(c[0] == "PATCH" for c in f.calls))   # no update/close either
+
+    def test_run_degrades_when_ensure_label_fails_never_raises(self):
+        # A transient 5xx on the label check (BEFORE the read) must degrade, not strand the session.
+        f = FakeGH(fail_label=500)
+        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], telemetry.Cache(_tmpcache()), TH, T[0])
+        self.assertTrue(r.degraded)
+        self.assertEqual(f.open_count(), 0)
+        self.assertEqual([c for c in f.calls if c[0] == "POST" and c[1].endswith("/issues")], [])
+
+    def test_run_degrades_when_a_write_fails_never_raises(self):
+        # A clean read then a write 4xx/5xx must degrade (not raise); writes already applied stand.
+        f = FakeGH(labels={"engine"}, fail_write=422)
+        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], telemetry.Cache(_tmpcache()), TH, T[0])
+        self.assertTrue(r.degraded)        # the open_issue write failed -> degraded, no exception
+        self.assertEqual(r.opened, 0)      # the failing write did not count
+
+    def test_degraded_readout_unknown_when_no_offline_count(self):
+        line = telemetry.degraded_readout(None, None)
+        self.assertIn("unknown until GitHub returns", line)
+
+
+class TestLabelEnsure(unittest.TestCase):
+    def test_creates_label_iff_absent(self):
+        f = FakeGH(labels=set())                  # label missing
+        gh(f).ensure_label()
+        self.assertIn(("POST", "/repos/you/proj/labels"), f.calls)
+        self.assertIn("engine", f.labels)
+
+    def test_idempotent_when_present(self):
+        f = FakeGH(labels={"engine"})
+        gh(f).ensure_label()
+        self.assertNotIn(("POST", "/repos/you/proj/labels"), f.calls)
+
+    def test_label_applied_at_issue_creation(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
+        created = next(iter(f.issues.values()))
+        self.assertIn("engine", created["labels"])
+
+
+class TestTriagePressure(unittest.TestCase):
+    def test_pressure_line_promotes_nothing(self):
+        # 11 distinct benign signals already open and re-firing -> over threshold(10) -> a line,
+        # but the meter itself opens/closes nothing this run.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        sids = [f"rule:b{n}" for n in range(11)]
+        for k in range(3):                                   # accrue all 11 benign to promotion
+            telemetry.run(gh(f), [rec(s) for s in sids], cache, TH, T[k])
+        self.assertEqual(f.open_count(), 11)
+        r = telemetry.run(gh(f), [rec(s) for s in sids], cache, TH, T[3])
+        self.assertIsNotNone(r.pressure_line)                # over threshold -> render the line
+        self.assertEqual(r.opened, 0)                        # ...but promotes nothing
+        self.assertEqual(r.closed, 0)
+
+
+class TestStateRefresh(unittest.TestCase):
+    def test_refresh_writes_schema_valid_cursor_preserving_rest(self):
+        schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "state.v1.json"))
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, milestone="M1", phase="core", open_count=0, as_of=None)
+            telemetry.refresh_state(sp, {"open_count": 4, "as_of": T[0],
+                                         "register": "https://github.com/you/proj/issues?q=is:open+label:engine"})
+            data = validate.load_json(sp)
+        self.assertEqual(data["standing_situation"], {"milestone": "M1", "phase": "core"})  # preserved
+        self.assertEqual(data["integration_debt"]["open_count"], 4)
+        self.assertEqual(set(data["integration_debt"]), {"open_count", "as_of", "register"})
+        self.assertEqual(list(validate.Draft202012Validator(schema).iter_errors(data)), [])
+
+    def test_run_does_not_touch_state_when_no_path_given(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])  # state_path=None
+        self.assertFalse(r.degraded)
+        self.assertEqual(r.debt["open_count"], 1)            # computed and returned, not committed anywhere
+
+    def test_utc_now_matches_state_pattern(self):
+        schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "state.v1.json"))
+        now = telemetry.utc_now()
+        probe = {"schema_version": 1, "standing_situation": {"milestone": None, "phase": None},
+                 "integration_debt": {"open_count": 0, "as_of": now, "register": None}}
+        self.assertEqual(list(validate.Draft202012Validator(schema).iter_errors(probe)), [])
+
+
+class TestCacheBestEffort(unittest.TestCase):
+    def test_absent_cache_reads_as_empty(self):
+        c = telemetry.Cache(os.path.join(tempfile.gettempdir(), "engine-telemetry-does-not-exist.json"))
+        self.assertEqual(c.load(), {})
+
+    def test_mid_accrual_wipe_resets_counts_no_crash(self):
+        f = FakeGH(labels={"engine"})
+        cache = telemetry.Cache(_tmpcache())
+        telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[0])   # persist 1
+        telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[1])   # persist 2
+        os.remove(cache.path)                                    # wipe mid-accrual (fresh clone)
+        r = telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[2])  # restarts at persist 1
+        self.assertEqual(r.opened, 0)                            # not yet at threshold again
+        self.assertEqual(f.open_count(), 0)
+
+
+class TestSentinelRecovery(unittest.TestCase):
+    def test_cache_recovers_dedup_when_marker_stripped(self):
+        # An open issue whose body marker an operator stripped; the cache still remembers its number.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
+        num = next(iter(f.issues))
+        f.issues[num]["body"] = "operator stripped the marker"   # sentinel gone from the body
+        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[1])
+        self.assertEqual(r.opened, 0)                            # cache recovered the match
+        self.assertEqual(f.open_count(), 1)
+
+    def test_worst_case_one_duplicate_never_a_missed_signal(self):
+        # Both layers fail (marker stripped AND cache wiped): at most ONE duplicate, never zero.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
+        num = next(iter(f.issues))
+        f.issues[num]["body"] = "stripped"
+        os.remove(cache.path)
+        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[1])
+        self.assertEqual(r.opened, 1)                            # a duplicate, not a missed signal
+        self.assertEqual(f.open_count(), 2)
+
+
+class TestFailOpen(unittest.TestCase):
+    def test_own_crash_exits_zero_with_a_soft_finding(self):
+        orig = telemetry._demo
+        telemetry._demo = lambda argv: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = telemetry.main(["demo"])
+        finally:
+            telemetry._demo = orig
+        self.assertEqual(code, 0)                                # fail-open: never breaks the session
+        self.assertIn("self-monitoring hit an unexpected error", err.getvalue())
+
+
+class TestThresholdsRead(unittest.TestCase):
+    def test_reads_policy_values_structural_keys_empty(self):
+        eff = telemetry.load_thresholds()                        # the real committed policy
+        self.assertEqual(eff["persistence"], 3)
+        self.assertEqual(eff["auto_resolve"], 2)
+        self.assertEqual(eff["triage_pressure"], 10)
+
+    def test_override_retunes_value(self):
+        eff = telemetry.load_thresholds(override={"persistence": 5})
+        self.assertEqual(eff["persistence"], 5)                  # an override retunes a value...
+        self.assertEqual(eff["auto_resolve"], 2)                 # ...others keep the default
+
+
+class TestSchemas(unittest.TestCase):
+    def _schema(self, name):
+        return validate.load_json(os.path.join(validate.SCHEMAS_DIR, name))
+
+    def test_both_schemas_are_well_formed(self):
+        for name in ("finding-record.v1.json", "ambient-capture.v1.json"):
+            validate.Draft202012Validator.check_schema(self._schema(name))
+
+    def test_finding_record_enum_and_pattern_bite(self):
+        s = self._schema("finding-record.v1.json")
+        good = {"severity": "trust-critical", "message": "m", "location": None,
+                "source_id": "rule:x", "first_seen": "2026-06-05T01:00:00Z",
+                "last_seen": "2026-06-05T01:00:00Z"}
+        self.assertEqual(list(validate.Draft202012Validator(s).iter_errors(good)), [])
+        bad_sev = {**good, "severity": "blocking"}              # not one of the two classes
+        self.assertTrue(list(validate.Draft202012Validator(s).iter_errors(bad_sev)))
+        bad_ts = {**good, "first_seen": "2026-06-05T01:00:00+02:00"}  # non-UTC
+        self.assertTrue(list(validate.Draft202012Validator(s).iter_errors(bad_ts)))
+        extra = {**good, "stream": "x"}                         # additionalProperties:false
+        self.assertTrue(list(validate.Draft202012Validator(s).iter_errors(extra)))
+
+    def test_ambient_capture_enum_and_required(self):
+        s = self._schema("ambient-capture.v1.json")
+        good = {"rule_id": "engine/check/x", "outcome": "pass", "target": "a.py",
+                "observed_at": "2026-06-05T01:00:00Z"}
+        self.assertEqual(list(validate.Draft202012Validator(s).iter_errors(good)), [])
+        self.assertEqual(list(validate.Draft202012Validator(s).iter_errors({**good, "target": None})), [])
+        self.assertTrue(list(validate.Draft202012Validator(s).iter_errors({**good, "outcome": "maybe"})))
+        miss = {k: v for k, v in good.items() if k != "rule_id"}
+        self.assertTrue(list(validate.Draft202012Validator(s).iter_errors(miss)))
+
+
+# ---- helpers ---------------------------------------------------------------
+
+_TMP = []
+
+
+def _tmpcache():
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    os.remove(path)            # start absent (best-effort empty)
+    _TMP.append(path)
+    return path
+
+
+def _write_state(d, *, milestone=None, phase=None, open_count=0, as_of=None, register=None):
+    p = os.path.join(d, "state.json")
+    with open(p, "w", encoding="utf-8") as fh:
+        json.dump({"schema_version": 1,
+                   "standing_situation": {"milestone": milestone, "phase": phase},
+                   "integration_debt": {"open_count": open_count, "as_of": as_of, "register": register}}, fh)
+    return p
+
+
+def tearDownModule():
+    for p in _TMP:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+
+if __name__ == "__main__":
+    unittest.main()
