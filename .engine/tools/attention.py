@@ -104,12 +104,36 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH, fo
     return candidates, available, cursor_as_of
 
 
-# ---- CLI ------------------------------------------------------------------------------------
+# ---- live ranking (the single assembler shared by the CLI and boot) -------------------------
 
 def _now_z() -> str:
     """The wall-clock reference moment, trailing-Z UTC. The ONLY clock read in attention, and only on the
     live path when the cursor carries no as-of; the result is marked as_of_is_wallclock."""
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def rank_live(*, policy_path: str = POLICY_PATH, focus: str | None = None, depth: int = 1,
+              budget_total: int | None = None, as_of: str | None = None,
+              apply_precedence: bool = True) -> dict:
+    """The live ranking path over the substrates present today, returning the attention-result.v1 dict
+    (whose own `degraded_inputs` records the absent substrates). This is the ONE assembler the CLI (`rank`)
+    and boot's SessionStart pack both call, so boot CONSUMES the partition it is handed — in the locked
+    precedence order — and never re-ranks (boot/README relay-not-detect; the result contract is attention's,
+    not boot's to re-derive). `as_of` defaults to the cursor's integration-debt as-of, falling back to the
+    wall clock (the run then marked `as_of_is_wallclock`) — the only clock read; the pure core stays
+    clock-free. `budget_total` (boot owns it) sizes the per-category split when supplied."""
+    policy_values = load_policy_values(policy_path)
+    candidates, available, cursor_as_of = assemble_candidates(policy_values, focus=focus, depth=depth)
+    resolved_as_of = as_of or cursor_as_of
+    as_of_is_wallclock = False
+    if resolved_as_of is None:
+        resolved_as_of, as_of_is_wallclock = _now_z(), True
+    return rank(candidates, policy_values, resolved_as_of, available,
+                budget_total=budget_total, apply_precedence=apply_precedence,
+                as_of_is_wallclock=as_of_is_wallclock)
+
+
+# ---- CLI ------------------------------------------------------------------------------------
 
 
 def _emit(result: dict) -> None:
@@ -125,22 +149,15 @@ def _note_degrade(degraded: list) -> None:
 
 
 def _cmd_rank(rest: list) -> int:
-    """Live rank over the substrates present today."""
-    policy_path = _flag(rest, "--policy", POLICY_PATH)
-    policy_values = load_policy_values(policy_path)
-    focus = _flag(rest, "--focus", None)
-    depth = int(_flag(rest, "--depth", "1"))
+    """Live rank over the substrates present today (the operator CLI over the shared `rank_live`)."""
     budget = _flag(rest, "--budget", None)
-    apply_precedence = "--no-precedence" not in rest
-    candidates, available, cursor_as_of = assemble_candidates(
-        policy_values, focus=focus, depth=depth)
-    as_of = _flag(rest, "--as-of", None) or cursor_as_of
-    as_of_is_wallclock = False
-    if as_of is None:
-        as_of, as_of_is_wallclock = _now_z(), True
-    result = rank(candidates, policy_values, as_of, available,
-                  budget_total=int(budget) if budget is not None else None,
-                  apply_precedence=apply_precedence, as_of_is_wallclock=as_of_is_wallclock)
+    result = rank_live(
+        policy_path=_flag(rest, "--policy", POLICY_PATH),
+        focus=_flag(rest, "--focus", None),
+        depth=int(_flag(rest, "--depth", "1")),
+        budget_total=int(budget) if budget is not None else None,
+        as_of=_flag(rest, "--as-of", None),
+        apply_precedence="--no-precedence" not in rest)
     _note_degrade(result["degraded_inputs"])
     _emit(result)
     return 0

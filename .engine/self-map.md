@@ -43,14 +43,14 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
-  - operation: `.engine/operations/.gitkeep`
+  - operation: `.engine/operations/*.md`
   - policy: `.engine/policies/*.md`
   - schema: `.engine/schemas/*.json`
   - skill: `.claude/skills/.gitkeep`
   - state: `.engine/state/*.json`
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`
-- wires: gitignore, mcp
+- wires: gitignore, hook, mcp
 
 ### `validators-core` — version `0.0.0-dev` (required)
 

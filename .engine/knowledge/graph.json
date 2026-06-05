@@ -290,6 +290,9 @@
         ],
         "provided_by": [
           "module:validators-core"
+        ],
+        "targets": [
+          "operation:boot-session-start"
         ]
       },
       "slug": "operation-frontmatter",
@@ -309,6 +312,9 @@
         ],
         "provided_by": [
           "module:validators-core"
+        ],
+        "targets": [
+          "operation:boot-session-start"
         ]
       },
       "slug": "operation-shape",
@@ -567,7 +573,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:54d4e955ab189a546b0179e214549e4b30c31d079100479e15d657a8aa051ed1",
+        "fingerprint": "sha256:2314de0c68ed4efa2b48390f0bb70910425039f941caefef0606b06a56667153",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -589,8 +595,8 @@
       "type": "module"
     },
     {
-      "id": "operation:.gitkeep",
-      "name": ".engine/operations/.gitkeep",
+      "id": "operation:boot-session-start",
+      "name": ".engine/operations/boot-session-start.md",
       "owner": "core",
       "predicates": {
         "governed_by": [
@@ -600,10 +606,10 @@
           "module:core"
         ]
       },
-      "slug": ".gitkeep",
+      "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:46a2ebc8ab6d6035fccc94c141fbca705c1414d2ef4b223a3177384c07510cb4",
-        "path": ".engine/operations/.gitkeep"
+        "fingerprint": "sha256:02651436ef1d68a096a936b90f34c7fb142b3fbfffff42fb15066656b2161702",
+        "path": ".engine/operations/boot-session-start.md"
       },
       "type": "operation"
     },
@@ -1033,7 +1039,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:887f870d532842a8f9528e1290f9f83accd0a454d2d16289ce58bb14dcbe8c0b",
+        "fingerprint": "sha256:20c93c37516eebfa9cac4a5ddf98a0384967e30434a9a3b333b867c2e11d47ed",
         "path": ".engine/tools/attention.py"
       },
       "type": "tool"
@@ -1051,6 +1057,22 @@
       "source": {
         "fingerprint": "sha256:59844c131a87985a3c578931fae39f6a899776210f099e94029d4587b0c46ea5",
         "path": ".engine/tools/attention_rank.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:boot",
+      "name": ".engine/tools/boot.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "boot",
+      "source": {
+        "fingerprint": "sha256:b168d0bd6bd74abaef60a65b031d98e4a8005266a5f81165454468cffec00504",
+        "path": ".engine/tools/boot.py"
       },
       "type": "tool"
     },
@@ -1145,7 +1167,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:dac9d9ab10ce517120e02d1e6cf374553cfa8acf938a8e776e711b86fcb54bbc",
+        "fingerprint": "sha256:27017de72845f83e167e15a00645d955fa224254ee70e6321c9741d0fda3c2e4",
         "path": ".engine/tools/module_coherence.py"
       },
       "type": "tool"
@@ -1247,6 +1269,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_boot",
+      "name": ".engine/tools/test_boot.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_boot",
+      "source": {
+        "fingerprint": "sha256:a2f3edc25ad85001b45741b5c2bf304ca0e4bc9bb72c1482be77682e0b24b420",
+        "path": ".engine/tools/test_boot.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_contract",
       "name": ".engine/tools/test_contract.py",
       "owner": "core",
@@ -1321,7 +1359,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:054ad57d959a1ea7146d32c93603866bd0d3377f904e2e600dd2a9deeae02959",
+        "fingerprint": "sha256:b2308921941448c8ac385936f8498af5c29607986422960e93873ebdbfdefec4",
         "path": ".engine/tools/test_knowledge.py"
       },
       "type": "tool"
@@ -1353,7 +1391,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:edede3a57074a05810dc8cb2f0db6faa4f9a06e33c89241e43669c63ab2ca03d",
+        "fingerprint": "sha256:0970b48bdc66aa50b77170a6c3c0b7ea5110c2325424ec5f82454fa782f6d03f",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
