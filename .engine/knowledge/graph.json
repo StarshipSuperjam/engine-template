@@ -629,7 +629,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:9d8fe7bb152c44e668ed6d4d52d6b5f6beeb5b8a24a09cc7086fd7f2f0f62751",
+        "fingerprint": "sha256:a5a776690464e3fbf637545d14d0d5c3d087695ffd59aa9bbe38929c4021bad1",
         "path": ".engine/operations/operating-modes.md"
       },
       "type": "operation"
@@ -1188,7 +1188,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:e9a66db668dea603ed98225616450514ee911791aff0f8ffbcfc0fd8a7591b67",
+        "fingerprint": "sha256:15d5cb6966d8b735f95c97492bd9f3de00aa6e3b7c04d062ba5a37ad0f364856",
         "path": ".engine/tools/modes.py"
       },
       "type": "tool"

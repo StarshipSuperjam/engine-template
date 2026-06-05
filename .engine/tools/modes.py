@@ -22,13 +22,15 @@ This module ships TWO things (the Build-entry verb and Routine entry are later �
      There is NO default-deny: an action it cannot classify resolves to ALLOW (modes/README §"Explore").
 
 THE GATE IS A §6 NUDGE, NOT A WALL — stated honestly, never overstated (modes/README §"the gate is a
-strong default, and its enforcement is fallible"). The current platform DOES honor a PreToolUse deny
-emitted as the engine's format (exit 0 + a hookSpecificOutput-wrapped permissionDecision — hooks.decide,
-which is why the gate uses decide() and never exit-2 block(), which the platform reads as a CRASH). But:
+strong default, and its enforcement is fallible"; D-171). The gate emits its deny in the form the platform
+acts on — exit 0 + a hookSpecificOutput-wrapped permissionDecision (hooks.decide), the path the engine
+uses (hooks/README), which the current platform honors across built-in AND GitHub-MCP tools; it never uses
+exit-2 block(), which the platform reads as a CRASH and drops. The fallibility rests on two DURABLE limits,
+not a brittle platform claim: the hooks fail-open law means a crashing gate lets the action through, and
 detecting a build-by-`git`/`gh` in a shell string is best-effort (aliases / eval / substitution / chaining
-evade it); the hooks fail-open law means a crashing gate lets the action through; and an operator who
-allow-lists a gated tool in settings.json disarms the gate (allow > hook). The only unbypassable guarantee
-stays the protected-branch merge — a write that ever slips the gate is bounded by that wall.
+evade it). The only unbypassable guarantee is the protected-branch merge — a write that ever slips the gate
+(a crash, an evaded verb, or an operator `permissions.allow` entry that outranks the hook, which is why the
+engine never allow-lists a gated tool) is bounded by that wall.
 
 THE BLOCK BUDGET — the gate is the explore write-gate's PreToolUse member of the hook block budget. modes
 DECLARES it (BLOCK_INVARIANT); hooks names no invariant itself, so the consumer (module_coherence) assembles

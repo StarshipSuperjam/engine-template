@@ -45,10 +45,10 @@ card ("Exploring — I won't change files…").
 ## Notes
 
 The gate is a **deliberate-effort nudge, not a wall** — stated honestly, never overstated. The current
-platform does honor the gate's deny for file edits and shell commands (the deny is emitted as the exit-0
-+ `hookSpecificOutput` form the platform reads as a real decision). But: a build verb hidden behind an
-alias, `eval`, substitution, or chaining slips the best-effort shell match; a crashing gate fails open
-(the action proceeds, by design — a gate must never strand the operator); and an operator who adds a
-gated tool to a `permissions.allow` list disarms the gate (an explicit allow outranks a hook). The only
-unbypassable guarantee is the **protected-branch merge** — any write that ever slips the gate still
-cannot reach the protected branch unreviewed. Never dress the local gate as the wall.
+platform honors the gate's deny (emitted as the exit-0 + `hookSpecificOutput` form, across built-in and
+GitHub-MCP tools); it is still fallible for two durable reasons: a crashing gate fails open (the action
+proceeds, by design — a gate must never strand the operator), and detecting a build verb in a shell
+string is best-effort (an alias, `eval`, substitution, or chaining evades it). The only unbypassable
+guarantee is the **protected-branch merge** — any write that ever slips the gate (a crash, an evaded
+verb, or a `permissions.allow` entry that outranks the hook, which is why the engine never allow-lists a
+gated tool) still cannot reach the protected branch unreviewed. Never dress the local gate as the wall.
