@@ -292,7 +292,8 @@
           "module:validators-core"
         ],
         "targets": [
-          "operation:boot-session-start"
+          "operation:boot-session-start",
+          "operation:operating-modes"
         ]
       },
       "slug": "operation-frontmatter",
@@ -314,7 +315,8 @@
           "module:validators-core"
         ],
         "targets": [
-          "operation:boot-session-start"
+          "operation:boot-session-start",
+          "operation:operating-modes"
         ]
       },
       "slug": "operation-shape",
@@ -573,7 +575,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2314de0c68ed4efa2b48390f0bb70910425039f941caefef0606b06a56667153",
+        "fingerprint": "sha256:87f701035964ae1cfe861699eda42345cf7c17832d78a02aa64e254f7a9993d8",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -610,6 +612,25 @@
       "source": {
         "fingerprint": "sha256:02651436ef1d68a096a936b90f34c7fb142b3fbfffff42fb15066656b2161702",
         "path": ".engine/operations/boot-session-start.md"
+      },
+      "type": "operation"
+    },
+    {
+      "id": "operation:operating-modes",
+      "name": ".engine/operations/operating-modes.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "operating-modes",
+      "source": {
+        "fingerprint": "sha256:9d8fe7bb152c44e668ed6d4d52d6b5f6beeb5b8a24a09cc7086fd7f2f0f62751",
+        "path": ".engine/operations/operating-modes.md"
       },
       "type": "operation"
     },
@@ -1071,7 +1092,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:b168d0bd6bd74abaef60a65b031d98e4a8005266a5f81165454468cffec00504",
+        "fingerprint": "sha256:ac770dadc125d5f89eff67e363090cdee27439b3632c7a7dac35dbb5f76d96aa",
         "path": ".engine/tools/boot.py"
       },
       "type": "tool"
@@ -1157,6 +1178,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:modes",
+      "name": ".engine/tools/modes.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "modes",
+      "source": {
+        "fingerprint": "sha256:e9a66db668dea603ed98225616450514ee911791aff0f8ffbcfc0fd8a7591b67",
+        "path": ".engine/tools/modes.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:module_coherence",
       "name": ".engine/tools/module_coherence.py",
       "owner": "core",
@@ -1167,7 +1204,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:27017de72845f83e167e15a00645d955fa224254ee70e6321c9741d0fda3c2e4",
+        "fingerprint": "sha256:2d71ba24a6c8da4e3e3e5c8960dafee22ff789bc9ad46cafda30a9033407c5e7",
         "path": ".engine/tools/module_coherence.py"
       },
       "type": "tool"
@@ -1279,7 +1316,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:a2f3edc25ad85001b45741b5c2bf304ca0e4bc9bb72c1482be77682e0b24b420",
+        "fingerprint": "sha256:b2dfba61acea5f7af0ad787ff691f51cf3f67fe5e3ca1e649f14fa9ca3f25c8e",
         "path": ".engine/tools/test_boot.py"
       },
       "type": "tool"
@@ -1359,7 +1396,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:b2308921941448c8ac385936f8498af5c29607986422960e93873ebdbfdefec4",
+        "fingerprint": "sha256:496239bc160c226b6c0f84c6e0099109af9a185b91636012790c22b94872b67c",
         "path": ".engine/tools/test_knowledge.py"
       },
       "type": "tool"
@@ -1377,6 +1414,22 @@
       "source": {
         "fingerprint": "sha256:1ce0eac67b2a2dd7ce2bdc22ce2fccb09a5ffde6fcdac19daf39069ab6e12318",
         "path": ".engine/tools/test_knowledge_query.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_modes",
+      "name": ".engine/tools/test_modes.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_modes",
+      "source": {
+        "fingerprint": "sha256:ee75fd32700d9ff4ede7565cf7aafeb9fab22515a78a4766569038890910f2a0",
+        "path": ".engine/tools/test_modes.py"
       },
       "type": "tool"
     },

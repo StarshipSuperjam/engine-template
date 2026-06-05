@@ -31,10 +31,11 @@ present", a directory listing, never a hand-authored registry — and the engine
     foundation `.venv` .gitignore block (D-156) is outside this leg: no manifest declares it, so the
     forward leg never iterates it.
   - BLOCK-BUDGET (validate.block_budget_findings over the declared block registry): every block an
-    owning system declares (hooks.BLOCK_ELIGIBLE_INVARIANTS) sits on a block-eligible event — only
-    PreToolUse and Stop may hard-block (hooks/README §the block-budget law). Born at this, the first
-    hook-wiring slice (slice 20), now that .claude/settings.json exists and hooks are wired; the
-    registry is EMPTY in core (modes/21 + close/22 populate it), so the leg is green-but-present.
+    owning system declares sits on a block-eligible event — only PreToolUse and Stop may hard-block
+    (hooks/README §the block-budget law). The registry is ASSEMBLED from each owner's declaration
+    (hooks names none): modes' explore write-gate (PreToolUse, slice 21) is the first real member;
+    close's findings-disposition Stop block appends at slice 22. PreToolUse is eligible, so the leg is
+    green with a real member (and would fire the moment any owner declared a block on a non-eligible event).
 
 Deferred (named): the WIRING REVERSE / orphan-wire direction needs a per-seam enumerator, slice 25;
 the uncatalogued-surface leg belongs to catalog coverage (validators-core).
@@ -53,6 +54,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 import wiring     # noqa: E402  (the wiring library: is_applied per directive for the forward wiring leg)
 import hooks      # noqa: E402  (the block-eligible invariant registry the block-budget leg checks)
+import modes      # noqa: E402  (modes declares its explore write-gate block; the consumer assembles it)
 
 # The named foundation infrastructure artifacts that live under .engine/ and are owned by no
 # module's `provides` — exactly the engine manifest plus the tool-runtime lockfiles
@@ -145,16 +147,17 @@ def wiring_status(manifests: list) -> list:
 
 
 def block_eligible_registrations() -> list:
-    """The block declarations the block-budget leg governs: the owning systems' declared block
-    invariants (hooks.BLOCK_ELIGIBLE_INVARIANTS), each {event, name, owner}. These — NOT bare
-    .claude/settings.json hook registrations — are the authoritative "this blocks" source: a wired
-    hook command is opaque, so registration alone never implies a block (boot's SessionStart hook is
-    wired in settings.json yet declares no block). The committed settings.json, BORN at this first
-    hook-wiring slice, is the wiring CONTEXT that makes this leg live; the declared registry is what it
-    checks. Empty in core today — modes' explore write-gate (slice 21) and close's findings-disposition
-    block (slice 22) populate it — so the leg is green-but-present: it checks every declared block's
-    event the moment one is registered."""
-    return [dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS]
+    """The block declarations the block-budget leg governs, ASSEMBLED from each owning system's own
+    declaration — hooks names no invariant itself (hooks/README §the block-budget law), so the registry
+    is the hooks-owned set (none) PLUS each owning lifecycle system's block: modes' explore write-gate
+    (modes.BLOCK_INVARIANT, slice 21); close's findings-disposition Stop block appends here at slice 22.
+    Each entry is {event, name, owner}; the validator reads only `event`. These — NOT bare
+    .claude/settings.json hook registrations — are the authoritative "this blocks" source: a wired hook
+    command is opaque, so registration alone never implies a block (boot's SessionStart hook is wired yet
+    declares none; modes' PreToolUse hook is the one that declares a block). So the leg now validates a
+    REAL member — the explore write-gate on PreToolUse, which is block-eligible → green with a real
+    member; it would fire the moment any owner declared a block on a non-eligible event."""
+    return [dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS] + [dict(modes.BLOCK_INVARIANT)]
 
 
 def check_coherence(tier: str = "hard") -> list:

@@ -140,14 +140,15 @@ class TestLiveDerivation(unittest.TestCase):
         self.assertIsNotNone(doc_home, "expected a doc:getting-started entity")
         self.assertEqual(doc_home["predicates"].get("provided_by"), ["module:core"])
         self.assertEqual(doc_home["predicates"].get("governed_by"), ["schema:doc.v1"])
-        # the operation surface flip (slice 20): the placeholder operation:.gitkeep is gone (the first
-        # lifecycle operation — boot's SessionStart pack — landed), and the operation home is now the
-        # core-provided boot runbook, governed by operation.v1.
+        # the operation surface (slice 20 landed the first instance, boot's SessionStart pack; slice 21
+        # adds the modes operation): the placeholder operation:.gitkeep is gone, and BOTH core-provided
+        # lifecycle operations are governed by operation.v1.
         self.assertNotIn("operation:.gitkeep", self.by_id)
-        op_home = self.by_id.get("operation:boot-session-start")
-        self.assertIsNotNone(op_home, "expected an operation:boot-session-start entity")
-        self.assertEqual(op_home["predicates"].get("provided_by"), ["module:core"])
-        self.assertEqual(op_home["predicates"].get("governed_by"), ["schema:operation.v1"])
+        for op_id in ("operation:boot-session-start", "operation:operating-modes"):
+            op_home = self.by_id.get(op_id)
+            self.assertIsNotNone(op_home, f"expected an {op_id} entity")
+            self.assertEqual(op_home["predicates"].get("provided_by"), ["module:core"], op_id)
+            self.assertEqual(op_home["predicates"].get("governed_by"), ["schema:operation.v1"], op_id)
 
     def test_known_edges_for_the_interfaces_and_their_declaration_check(self):
         # slices 11a/11b: each interface declaration is governed by interface.v1 (the catalog
@@ -185,7 +186,8 @@ class TestLiveDerivation(unittest.TestCase):
     def test_expected_entities_are_present(self):
         """Concrete spot-checks, independent of the _surface_for oracle the total-coverage test
         reuses — so a classification bug cannot pass both tests."""
-        for eid in ("tool:validate", "tool:knowledge_gen", "schema:check.v1", "schema:knowledge.v1",
+        for eid in ("tool:validate", "tool:knowledge_gen", "tool:modes", "schema:check.v1",
+                    "schema:knowledge.v1",
                     "check:knowledge-coverage", "check:catalog-coverage", "module:core"):
             self.assertIn(eid, self.by_id, eid)
 
