@@ -237,6 +237,44 @@
       "type": "check"
     },
     {
+      "id": "check:operation-frontmatter",
+      "name": ".engine/check/operation-frontmatter.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "operation-frontmatter",
+      "source": {
+        "fingerprint": "sha256:a139bd2c6ee8c75e91d66f2467a970ea497c55b5d6035c6d63c75b8e9ee0c6df",
+        "path": ".engine/check/operation-frontmatter.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:operation-shape",
+      "name": ".engine/check/operation-shape.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "operation-shape",
+      "source": {
+        "fingerprint": "sha256:2912fa66fe45b6b1900aa8971f29deed3b8c482e24b2e28caf5e4ba41ea67599",
+        "path": ".engine/check/operation-shape.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:policy-frontmatter",
       "name": ".engine/check/policy-frontmatter.json",
       "owner": "validators-core",
@@ -460,7 +498,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:2cb3c76fef7c1a499a60d2469668dd1469106f5a78dac05625543183c4bd76b0",
+        "fingerprint": "sha256:c8adc3b99868188dbd4213dd557a33164705aba69e7f85a00e0d8aa3827a16db",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
@@ -470,6 +508,9 @@
       "name": ".engine/operations/.gitkeep",
       "owner": "core",
       "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
         "provided_by": [
           "module:core"
         ]
@@ -721,6 +762,22 @@
       "type": "schema"
     },
     {
+      "id": "schema:operation.v1",
+      "name": ".engine/schemas/operation.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "operation.v1",
+      "source": {
+        "fingerprint": "sha256:7a2a7130a5e7ad3ffc9796f2ddca6cba7eb2bc501db2f81d4f712b2703671278",
+        "path": ".engine/schemas/operation.v1.json"
+      },
+      "type": "schema"
+    },
+    {
       "id": "schema:policy.v1",
       "name": ".engine/schemas/policy.v1.json",
       "owner": "core",
@@ -779,7 +836,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:a8b836d57c37a155ec5177dc419d00945548959bc70ffa5eded3578e62122be5",
+        "fingerprint": "sha256:6f84d25489e8e4b8ea361d9431a482e93a5d26b865d61b494159209b934d1f15",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "type": "schema"
@@ -1051,7 +1108,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:6264a0f0e5c69772a97100b92f978a268dfdaf514a1d3a42dd9b2a12941984bf",
+        "fingerprint": "sha256:164a92b5db6147392e4eed3a945a6a7945d64d2995e2ceaa3aca86ad6783a980",
         "path": ".engine/tools/test_knowledge.py"
       },
       "type": "tool"
@@ -1083,8 +1140,24 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:d15087b3b5940dc1821b717e5b7c50a45f056f154e647f1df68530e35682cb4c",
+        "fingerprint": "sha256:3c5dc30430e76acafb2ef7aed8cc0340897c2c86b20000744865c95d7f08816a",
         "path": ".engine/tools/test_modules.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_operation",
+      "name": ".engine/tools/test_operation.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_operation",
+      "source": {
+        "fingerprint": "sha256:4f8fdfc96e7cf5067aa0745442f26a7973178f1a7f99b1d06de0f8cd1ba48f2a",
+        "path": ".engine/tools/test_operation.py"
       },
       "type": "tool"
     },

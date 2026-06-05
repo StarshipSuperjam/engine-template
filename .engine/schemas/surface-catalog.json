@@ -52,8 +52,8 @@
       "purpose": "The authoritative steps of a multi-step engine procedure performed by reading-and-following; one procedure, one home, referenced by its invokers rather than restated.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
-      "governing_schema": null,
-      "template": null
+      "governing_schema": "operation.v1.json",
+      "template": "../templates/operation.md"
     },
     "skill": {
       "class": "prose",

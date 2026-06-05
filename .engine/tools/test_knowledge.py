@@ -125,17 +125,23 @@ class TestLiveDerivation(unittest.TestCase):
         self.assertIn("module:validators-core", self.by_id)
 
     def test_catalog_coverage_rule_and_provisioned_surface_homes(self):
-        # issue #30: the catalog-coverage gate is a validators-core corpus rule; the two newly
-        # provisioned .engine/ surface homes (operations, docs) appear as core-owned gitkeep
-        # entities. operations/docs have governing_schema:null, so they carry NO governed_by edge.
+        # issue #30: the catalog-coverage gate is a validators-core corpus rule; the provisioned .engine/
+        # surface homes appear as core-owned gitkeep entities. The `doc` surface still has
+        # governing_schema:null, so doc:.gitkeep carries NO governed_by edge; the `operation` surface
+        # gained its grammar at slice OG, so operation:.gitkeep is now governed by schema:operation.v1.
         cov = self.by_id.get("check:catalog-coverage")
         self.assertIsNotNone(cov, "expected a check:catalog-coverage entity")
         self.assertEqual(cov["predicates"].get("provided_by"), ["module:validators-core"])
-        for eid in ("operation:.gitkeep", "doc:.gitkeep"):
-            home = self.by_id.get(eid)
-            self.assertIsNotNone(home, f"expected a {eid} entity")
-            self.assertEqual(home["predicates"].get("provided_by"), ["module:core"], eid)
-            self.assertNotIn("governed_by", home["predicates"], eid)
+        # doc remains an ungoverned provisioned home (governing_schema:null -> no governed_by edge)
+        doc_home = self.by_id.get("doc:.gitkeep")
+        self.assertIsNotNone(doc_home, "expected a doc:.gitkeep entity")
+        self.assertEqual(doc_home["predicates"].get("provided_by"), ["module:core"])
+        self.assertNotIn("governed_by", doc_home["predicates"])
+        # the operation grammar flip (slice OG) is the knowledge-graph correlate: its home is now governed
+        op_home = self.by_id.get("operation:.gitkeep")
+        self.assertIsNotNone(op_home, "expected an operation:.gitkeep entity")
+        self.assertEqual(op_home["predicates"].get("provided_by"), ["module:core"])
+        self.assertEqual(op_home["predicates"].get("governed_by"), ["schema:operation.v1"])
 
     def test_known_edges_for_the_interfaces_and_their_declaration_check(self):
         # slices 11a/11b: each interface declaration is governed by interface.v1 (the catalog

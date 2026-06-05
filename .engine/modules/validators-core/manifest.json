@@ -15,6 +15,8 @@
       ".engine/check/knowledge-coverage.json",
       ".engine/check/link-integrity.json",
       ".engine/check/module-manifest.json",
+      ".engine/check/operation-frontmatter.json",
+      ".engine/check/operation-shape.json",
       ".engine/check/policy-frontmatter.json",
       ".engine/check/policy-shape.json",
       ".engine/check/pr-body-completeness.json",
