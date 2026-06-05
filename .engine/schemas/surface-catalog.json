@@ -61,8 +61,8 @@
       "purpose": "In-session procedures (Claude Code SKILL.md, progressive disclosure), engine-prefixed; invoked per the model-auto / operator-typed / model-only axis.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
-      "governing_schema": null,
-      "template": null
+      "governing_schema": "skill.v1.json",
+      "template": "../templates/skill.md"
     },
     "agent": {
       "class": "prose",
