@@ -960,6 +960,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:hooks",
+      "name": ".engine/tools/hooks.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "hooks",
+      "source": {
+        "fingerprint": "sha256:0aa36b900362589c1b59da74ebdf8bc1a5d1dc079127efe4d8c2f341766533bd",
+        "path": ".engine/tools/hooks.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:knowledge_gen",
       "name": ".engine/tools/knowledge_gen.py",
       "owner": "core",
@@ -1132,6 +1148,22 @@
       "source": {
         "fingerprint": "sha256:e85fb93f9fb4b39aedf4267012f53f7f772d5597e0b62e8cdefe30c5a4170583",
         "path": ".engine/tools/test_contract.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_hooks",
+      "name": ".engine/tools/test_hooks.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_hooks",
+      "source": {
+        "fingerprint": "sha256:68e8f4a9a35b3f7d45c70461c67806285ca0e48c649502001b257a409257c107",
+        "path": ".engine/tools/test_hooks.py"
       },
       "type": "tool"
     },
@@ -1322,7 +1354,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:58028e06c3b9088e6c4e26edcd21f00adb47a69945fb0dcac316ceaa274e30fc",
+        "fingerprint": "sha256:24aded18e4fababcec0efd0bb23cb29bbb75fc4ad5bdb9fdb2c34d61fa7505ae",
         "path": ".engine/tools/validate.py"
       },
       "type": "tool"
