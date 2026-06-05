@@ -384,6 +384,44 @@
       "type": "check"
     },
     {
+      "id": "check:skill-frontmatter",
+      "name": ".engine/check/skill-frontmatter.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "skill-frontmatter",
+      "source": {
+        "fingerprint": "sha256:11d75ebadee985e048724db14f997c656e18ca9ff98536d6ac68a9a304955940",
+        "path": ".engine/check/skill-frontmatter.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:skill-shape",
+      "name": ".engine/check/skill-shape.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "skill-shape",
+      "source": {
+        "fingerprint": "sha256:6d400181b8ebce2ec7ae7d886053b27e623dd8352353742d4ecb60853787b40e",
+        "path": ".engine/check/skill-shape.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:state-cursor",
       "name": ".engine/check/state-cursor.json",
       "owner": "validators-core",
@@ -498,7 +536,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:c8adc3b99868188dbd4213dd557a33164705aba69e7f85a00e0d8aa3827a16db",
+        "fingerprint": "sha256:9617f13e4ba333bb974752380f3ce39016902a6eed306cd616a670e741c49dd9",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
@@ -794,6 +832,22 @@
       "type": "schema"
     },
     {
+      "id": "schema:skill.v1",
+      "name": ".engine/schemas/skill.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "skill.v1",
+      "source": {
+        "fingerprint": "sha256:806eb401dd3dd20d12734930b327bc7ab244cc6c3a80217d2be0a574b2171714",
+        "path": ".engine/schemas/skill.v1.json"
+      },
+      "type": "schema"
+    },
+    {
       "id": "schema:state.v1",
       "name": ".engine/schemas/state.v1.json",
       "owner": "core",
@@ -836,7 +890,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:6f84d25489e8e4b8ea361d9431a482e93a5d26b865d61b494159209b934d1f15",
+        "fingerprint": "sha256:c78d942d3695cca8237b6b81134e01b260b2b35f0fa940be0ff5e99697fa93fa",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "type": "schema"
@@ -1140,7 +1194,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:3c5dc30430e76acafb2ef7aed8cc0340897c2c86b20000744865c95d7f08816a",
+        "fingerprint": "sha256:70335548dcb388fd31d643a2135db65a98bd625c47861921ad1a17588823f51c",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
@@ -1210,6 +1264,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_skill",
+      "name": ".engine/tools/test_skill.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_skill",
+      "source": {
+        "fingerprint": "sha256:fd3abb1ef1d2110d8f3ee66cabf191f525e92617d6aa74b8d3f12eafb23d89b4",
+        "path": ".engine/tools/test_skill.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_state",
       "name": ".engine/tools/test_state.py",
       "owner": "core",
@@ -1252,7 +1322,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:57577dd55b55e782b02fa4117e2f7e1766ac0fa482e22e15f11faec6a1a73d78",
+        "fingerprint": "sha256:58028e06c3b9088e6c4e26edcd21f00adb47a69945fb0dcac316ceaa274e30fc",
         "path": ".engine/tools/validate.py"
       },
       "type": "tool"

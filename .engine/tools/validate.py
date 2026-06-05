@@ -780,6 +780,82 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     return findings
 
 
+def skill_coherence_findings(skills: list, tier: str, message: str) -> list:
+    """Pure skill-set coherence — the skill surface's coherence leg, beside dependency
+    (coherence_findings), ownership (ownership_findings), forward wiring (wiring_findings),
+    interface resolution (interface_resolution_findings), and persona coherence
+    (agent_coherence_findings). Given the present skills' parsed SKILL.md frontmatter
+    [{description, invocation?, disable-model-invocation?, user-invocable?, ...}, ...], return a
+    finding for:
+
+      - an `invocation` outside the closed set {model-auto, operator-typed, model-only} (an
+        OMITTED invocation is model-auto, the platform default — NOT a finding; skills/README
+        §"The invocation axis"),
+      - an invocation that DISAGREES with the real platform flags the instance carries — the
+        self-election leak-guard, the load-bearing CROSS-FIELD rule: the engine reads
+        `invocation`, Claude Code reads the flags (disable-model-invocation: true makes a skill
+        operator-typed; user-invocable: false makes it model-only), and the two must agree.
+        `operator-typed` without `disable-model-invocation: true` is the safety case — the model
+        could still self-invoke. A restricting flag carried under a model-auto (or omitted)
+        declaration is the symmetric case — the skill behaves restricted but does not declare it.
+
+    An invocation OUTSIDE the set yields only the one membership finding (the flag-mapping is
+    skipped for that instance — the agent-leg precedent: one unknown value, one finding). The
+    closed set lives HERE (the leg), NOT as a skill.v1 enum: skill.v1 governs `invocation` as a
+    well-formed string and this leg owns both membership AND the cross-field flag-mapping a schema
+    enum cannot express, so the set is defined in one place (skills/README §"The invocation
+    axis", the platform-flag table).
+
+    Pure + fixture-testable, mirroring the other legs: the SKILL.md frontmatter is parsed by the
+    consumer and passed in, so this stays filesystem-free. No live rule wires this in core: the
+    consumer (the slice-26 operator verbs, which discover the present skill set and decide the
+    engine-vs-operator scope) runs this live and proves the Build-entry verb's self-election
+    safety on the live platform — the interface_resolution_findings / agent_coherence_findings
+    precedent (built + fixture-tested, no live rule). ZERO skill instances ship with the grammar,
+    so the leg has nothing live to fire on yet."""
+    invocations = {"model-auto", "operator-typed", "model-only"}
+    findings = []
+    for s in skills:
+        name = s.get("name") or "(unnamed)"
+        inv = s.get("invocation")
+        if inv is not None and inv not in invocations:
+            findings.append(finding(tier, f"Skill '{name}' declares invocation '{inv}', which is not "
+                            f"a recognized invocation value ({sorted(invocations)}). {message}"))
+            continue   # an unknown value yields only the one finding (skip the flag-mapping)
+        effective = inv or "model-auto"   # an omitted invocation is the platform default
+        dmi = s.get("disable-model-invocation") is True
+        uif = s.get("user-invocable") is False
+        # Expected flags per effective invocation: model-auto -> neither; operator-typed -> dmi
+        # only; model-only -> uif only. Any mismatch is a self-election / leak-guard finding.
+        if effective == "operator-typed":
+            if not dmi:
+                findings.append(finding(tier, f"Skill '{name}' declares invocation 'operator-typed' "
+                                f"but does not carry 'disable-model-invocation: true', so the model "
+                                f"could still self-invoke it. {message}"))
+            if uif:
+                findings.append(finding(tier, f"Skill '{name}' declares invocation 'operator-typed' "
+                                f"but also carries 'user-invocable: false' (model-only); the two "
+                                f"conflict. {message}"))
+        elif effective == "model-only":
+            if not uif:
+                findings.append(finding(tier, f"Skill '{name}' declares invocation 'model-only' but "
+                                f"does not carry 'user-invocable: false', so it is not hidden from the "
+                                f"operator's menu. {message}"))
+            if dmi:
+                findings.append(finding(tier, f"Skill '{name}' declares invocation 'model-only' but "
+                                f"also carries 'disable-model-invocation: true' (operator-typed); the "
+                                f"two conflict. {message}"))
+        elif dmi or uif:   # effective is model-auto (declared or omitted) but a flag restricts it
+            carried = "disable-model-invocation: true" if dmi else "user-invocable: false"
+            declared = ("declares invocation 'model-auto'" if inv
+                        else "carries no invocation (defaulting to model-auto)")
+            findings.append(finding(tier, f"Skill '{name}' {declared} but carries '{carried}', which "
+                            f"restricts who may invoke it; declare the matching invocation "
+                            f"(operator-typed or model-only) so the engine and the platform agree. "
+                            f"{message}"))
+    return findings
+
+
 def effective_policy_values(default: dict, override: dict, *, structural_keys, tier: str,
                             message: str) -> tuple[dict, list]:
     """Merge a per-deployment operator policy-override over a policy's shipped default tuning values,
