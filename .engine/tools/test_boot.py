@@ -6,8 +6,9 @@ byte-identity (boot's card title == the floor's verify-presence token in CLAUDE.
 refused state cursor DEGRADES and never halts, that boot CONSUMES attention's order and never re-ranks,
 that governance-critical alarms pin first and the protected-branch signal is honest in all three states
 (off / unknown-never-green / on), that any reader failure fails open with the card still rendered, that
-the SessionStart hook is wired on the session-start sources and NOT on compact, and that the block-budget
-coherence leg born this slice has teeth.
+the SessionStart hook is wired on the session-start sources and NOT on compact, that boot clears the modes
+stance signal at SessionStart and names the current stance (slice 21), and that the block-budget coherence
+leg now validates modes' real explore-write-gate member.
 """
 from __future__ import annotations
 
@@ -284,15 +285,17 @@ class TestHookRegistration(unittest.TestCase):
 
 
 class TestBlockBudgetLeg(unittest.TestCase):
-    """The block-budget coherence leg born this slice (validate.block_budget_findings, run live in
-    module_coherence). It is green-but-present today and must have teeth for slices 21/22."""
+    """The block-budget coherence leg (validate.block_budget_findings, run live in module_coherence).
+    Slice 20 born it green-but-present; slice 21 registered modes' explore write-gate, so it now
+    validates a REAL member — and still has teeth for a misplaced block."""
 
-    def test_registry_is_empty_today_and_leg_is_green(self):
-        self.assertEqual(module_coherence.block_eligible_registrations(), [])
-        block = [f for f in module_coherence.check_coherence("hard")]
-        # the whole module set is coherent, so check_coherence is empty — and in particular carries no
-        # block-budget finding (the registry is empty).
-        self.assertEqual(block, [])
+    def test_registry_has_the_modes_member_and_leg_is_green(self):
+        # Slice 21 registered modes' explore write-gate — the registry is no longer empty; it carries a
+        # real member, on PreToolUse (block-eligible), so the leg stays green over it.
+        registry = module_coherence.block_eligible_registrations()
+        self.assertIn({"event": "PreToolUse", "name": "explore-write-gate", "owner": "modes"}, registry)
+        # every declared block sits on a block-eligible event -> the leg produces no finding.
+        self.assertEqual(validate.block_budget_findings(registry, "hard", "move it."), [])
 
     def test_leg_has_teeth_when_a_block_is_misplaced(self):
         msg = "move it."
@@ -304,6 +307,34 @@ class TestBlockBudgetLeg(unittest.TestCase):
         clean = validate.block_budget_findings(
             [{"event": "Stop", "name": "disposition", "owner": "close"}], "hard", msg)
         self.assertEqual(clean, [])                           # an eligible event is clean
+
+
+class TestStanceLine(unittest.TestCase):
+    """Slice 21 — boot clears the modes stance signal at SessionStart and names the current stance."""
+
+    def test_pack_names_the_explore_stance(self):
+        patchers = _offline()
+        try:
+            pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        # at boot the stance is always Explore (the handler clears the signal first); boot places modes'
+        # own stance copy (modes owns the vocabulary).
+        self.assertIn(boot.modes.describe_stance("explore"), pack)
+        self.assertIn("Exploring", pack)
+
+    def test_handler_clears_the_stance_for_this_session(self):
+        # the handler's FIRST job is to clear the stance signal for the session id the payload carries,
+        # so every session — including a resume — boots Explore and never inherits a prior Build signal.
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.modes, "clear_stance") as clear:
+                boot.handler({"session_id": "sess-xyz"})
+        finally:
+            for p in patchers:
+                p.stop()
+        clear.assert_called_once_with("sess-xyz")
 
 
 if __name__ == "__main__":

@@ -24,12 +24,18 @@ Boot's laws, all load-bearing here (systems/lifecycle/boot/README.md):
     session-START sources startup/resume/clear, never compact — the post-compaction floor is the
     re-injected CLAUDE.md + the next scent), and the memory consolidation sweep is memory's, not
     boot's (boot does not fire it; it lands with the memory substrate, post-core).
+  - THE MODES STANCE CLEAR is modes' operation, invoked at boot's SessionStart MOMENT (the event also
+    carries non-orientation operations — cf. memory's sweep above): the handler calls modes.clear_stance
+    FIRST so every session, including a resume, boots Explore and never inherits a prior Build signal;
+    then it renders the stance line. The clear is modes' logic; boot's ORIENTATION rendering stays
+    read-only (it regenerates no derived state — the read-only law is about derived state, not an
+    ephemeral OS-temp session signal).
 
 The present-marker is the card title `Project status` (PRESENT_MARKER), byte-identical to the floor's
 verify-presence instruction in CLAUDE.deployed.md — a healthy boot renders this card, so its ABSENCE
-is how the floor tells the operator boot did not ground (the double-fault check). Memory's
-reversible-forgetting readout and the modes stance line are rendered only when those substrates
-exist, so on the genesis repo they are simply absent (no genesis-only scaffolding).
+is how the floor tells the operator boot did not ground (the double-fault check). The modes stance line
+renders now that modes exists (slice 21); memory's reversible-forgetting readout is rendered only once
+that substrate exists, so on the genesis repo it is simply absent (no genesis-only scaffolding).
 
 CLI:  python tools/boot.py pack     # print the assembled pack (the operator demo / no Claude Desktop)
       python tools/boot.py          # hook mode: run the SessionStart handler over stdin (what the
@@ -48,6 +54,7 @@ import hooks             # noqa: E402  (the fail-open harness + inject/proceed +
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
 import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-branch evaluation)
+import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 
 # The card title a healthy boot always renders — byte-identical to the present-marker the floor names
 # in CLAUDE.deployed.md (slice 19 `owes ←`). The byte-identity is locked by test_boot.py; renaming it
@@ -237,7 +244,7 @@ def recently_shipped(count: int = RECENTLY_SHIPPED_COUNT) -> list[str]:
 
 # ---- assembly (the Project status card, alarm pinned inside) --------------------------------
 
-def assemble_pack() -> str:
+def assemble_pack(session_id: str | None = None) -> str:
     """Assemble the full orientation pack as plain-language markdown. The `Project status` card is
     always first (the present-marker), any governance-critical alarm pins as a loud quoted line at its
     top, then the status facts + any degraded notice, then the ranked work and the recently-shipped
@@ -296,6 +303,11 @@ def assemble_pack() -> str:
         else:
             out.append("**Open problems:** none recorded yet.")
 
+    # The current stance in plain language (modes owns the vocabulary; boot only places it — boot/README
+    # §Seams). At a real SessionStart the handler has just cleared the signal, so this resolves to
+    # Explore: every session boots Explore. The live signal is the gate's concern mid-session, not boot's.
+    out.append(f"**Stance:** {modes.describe_stance(modes.current_stance(session_id))}")
+
     # Attention-ranked work + its degraded inputs (folded into the consolidated notice).
     att_lines, att_degraded = needs_attention(state)
     if att_degraded:
@@ -328,10 +340,16 @@ def assemble_pack() -> str:
 # ---- the hook handler + CLI -----------------------------------------------------------------
 
 def handler(payload: dict) -> dict:
-    """The SessionStart handler: assemble the pack and inject it as additionalContext. Read-only and
-    non-blocking — SessionStart cannot halt, and run_hook fail-opens on any exception. An empty pack
-    (should never happen — the card title always renders) would simply inject nothing of substance."""
-    pack = assemble_pack()
+    """The SessionStart handler. FIRST it clears the modes stance signal for this session (modes' own
+    operation, run at boot's SessionStart moment) so every session — including a resume — boots Explore
+    and never inherits a prior Build signal; THEN it assembles the orientation pack and injects it as
+    additionalContext. Non-blocking — SessionStart cannot halt, and run_hook fail-opens on any exception.
+    The clear is the FIRST statement so a later failure cannot skip it; if the platform cannot even
+    deliver the payload, run_hook fail-opens before this runs — but the gate still defaults to Explore on
+    any unreadable signal, and the merge wall backstops any write that slips that window."""
+    session_id = payload.get("session_id") if isinstance(payload, dict) else None
+    modes.clear_stance(session_id)
+    pack = assemble_pack(session_id)
     return hooks.inject(pack) if pack else hooks.proceed()
 
 
