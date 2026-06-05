@@ -41,6 +41,13 @@
       "lines": [
         ".engine/knowledge/.cache/"
       ]
+    },
+    {
+      "type": "gitignore",
+      "key": "core-telemetry-cache",
+      "lines": [
+        ".engine/telemetry/.cache/"
+      ]
     }
   ],
   "depends": {}
