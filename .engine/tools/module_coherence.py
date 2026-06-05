@@ -12,7 +12,7 @@ It also runs as a CLI so the coherence behaviour has an operator-runnable demons
 
 It reads the present module manifests (.engine/modules/*/manifest.json) — "installed means
 present", a directory listing, never a hand-authored registry — and the engine manifest
-(.engine/engine.json), then reports three coherence legs:
+(.engine/engine.json), then reports four coherence legs:
 
   - DEPENDENCY (reused from the validation foundation, validate.coherence_findings): every
     declared dependency is installed and within its version range, and the graph is acyclic.
@@ -30,6 +30,11 @@ present", a directory listing, never a hand-authored registry — and the engine
     module manager (slice 25), so wiring coherence is incomplete until then, by design. The
     foundation `.venv` .gitignore block (D-156) is outside this leg: no manifest declares it, so the
     forward leg never iterates it.
+  - BLOCK-BUDGET (validate.block_budget_findings over the declared block registry): every block an
+    owning system declares (hooks.BLOCK_ELIGIBLE_INVARIANTS) sits on a block-eligible event — only
+    PreToolUse and Stop may hard-block (hooks/README §the block-budget law). Born at this, the first
+    hook-wiring slice (slice 20), now that .claude/settings.json exists and hooks are wired; the
+    registry is EMPTY in core (modes/21 + close/22 populate it), so the leg is green-but-present.
 
 Deferred (named): the WIRING REVERSE / orphan-wire direction needs a per-seam enumerator, slice 25;
 the uncatalogued-surface leg belongs to catalog coverage (validators-core).
@@ -47,6 +52,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 import wiring     # noqa: E402  (the wiring library: is_applied per directive for the forward wiring leg)
+import hooks      # noqa: E402  (the block-eligible invariant registry the block-budget leg checks)
 
 # The named foundation infrastructure artifacts that live under .engine/ and are owned by no
 # module's `provides` — exactly the engine manifest plus the tool-runtime lockfiles
@@ -138,11 +144,24 @@ def wiring_status(manifests: list) -> list:
     return out
 
 
+def block_eligible_registrations() -> list:
+    """The block declarations the block-budget leg governs: the owning systems' declared block
+    invariants (hooks.BLOCK_ELIGIBLE_INVARIANTS), each {event, name, owner}. These — NOT bare
+    .claude/settings.json hook registrations — are the authoritative "this blocks" source: a wired
+    hook command is opaque, so registration alone never implies a block (boot's SessionStart hook is
+    wired in settings.json yet declares no block). The committed settings.json, BORN at this first
+    hook-wiring slice, is the wiring CONTEXT that makes this leg live; the declared registry is what it
+    checks. Empty in core today — modes' explore write-gate (slice 21) and close's findings-disposition
+    block (slice 22) populate it — so the leg is green-but-present: it checks every declared block's
+    event the moment one is registered."""
+    return [dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS]
+
+
 def check_coherence(tier: str = "hard") -> list:
-    """All three coherence legs over the present set: dependency (reused) + ownership + forward
-    wiring (declared->applied). Returns a flat list of finding.v1 dicts. The library entry the
-    module manager (slice 25) calls. (The orphan-wire REVERSE wiring direction is deferred to
-    slice 25 — see the module docstring.)"""
+    """All four coherence legs over the present set: dependency (reused) + ownership + forward
+    wiring (declared->applied) + block-budget (only PreToolUse/Stop may hard-block). Returns a flat
+    list of finding.v1 dicts. The library entry the module manager (slice 25) calls. (The orphan-wire
+    REVERSE wiring direction is deferred to slice 25 — see the module docstring.)"""
     manifests = discover_manifests()
     dep = validate.coherence_findings(
         [m for _path, m in manifests], tier,
@@ -155,7 +174,10 @@ def check_coherence(tier: str = "hard") -> list:
     wiring_leg = validate.wiring_findings(
         wiring_status(manifests), tier,
         "Declared wiring must be applied in the shared files.")
-    return dep + own + wiring_leg
+    block = validate.block_budget_findings(
+        block_eligible_registrations(), tier,
+        "Only PreToolUse and Stop may hard-block; move the block to an eligible event before merging.")
+    return dep + own + wiring_leg + block
 
 
 def _print_report(findings: list, n_modules: int, n_files: int) -> None:

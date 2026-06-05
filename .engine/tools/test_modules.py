@@ -314,15 +314,19 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
 
     def test_real_repository_is_wiring_coherent_and_approval_blind(self):
         # The committed tree's declared wires are ALL applied -> the forward wiring leg is silent.
-        # And it is green even though this repo has NO operator approval (no .claude/settings.json):
-        # the mcp leg checks the committed .mcp.json definition, never the operator's approval -> the
-        # approval-blind MCP-pending-setup carve-out, shown positively.
+        # The mcp leg is APPROVAL-BLIND: it reports the engine-knowledge-graph server applied from the
+        # committed .mcp.json DEFINITION, never from the operator's runtime client-approval (which the
+        # repo does not record) -> the MCP-pending-setup carve-out, shown positively. (Slice 20 BORNed
+        # .claude/settings.json for the SessionStart hook wiring; that is the engine's own hook config,
+        # not an operator MCP approval, so it is irrelevant to approval-blindness — the point is that the
+        # mcp wire is green on the committed definition alone.)
         status = module_coherence.wiring_status(module_coherence.discover_manifests())
-        self.assertTrue(any(s[1] == "mcp" for s in status), "core declares an mcp wire to exercise")
+        mcp = [s for s in status if s[1] == "mcp"]
+        self.assertTrue(mcp, "core declares an mcp wire to exercise")
+        self.assertTrue(all(applied for _id, _seam, _t, applied in mcp),
+                        "the mcp wire is applied from the committed .mcp.json definition (approval-blind)")
         self.assertTrue(all(applied for _id, _seam, _t, applied in status),
                         f"every committed wire must be applied: {status}")
-        self.assertFalse(os.path.exists(os.path.join(validate.ROOT, ".claude", "settings.json")),
-                         "this repo records no operator approval — yet the wiring leg is green")
         self.assertEqual(validate.wiring_findings(status, "hard", "m"), [])
 
     def test_unapplied_declared_wires_are_hard_findings(self):

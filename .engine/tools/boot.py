@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""Slice 20 — boot: the SessionStart orientation pack (the hook-DEPENDENT rich layer).
+
+Beneath this sits slice 19's hook-INDEPENDENT floor (the root CLAUDE.md the platform always loads).
+This module is the rich layer that rides on top when the SessionStart hook fires: it assembles a
+bounded, prioritized, plain-language orientation pack from committed state and the substrates that
+exist today, and injects it as `additionalContext` before the first prompt. The two-layer story is
+the floor (always) + this pack (when the hook runs).
+
+Boot's laws, all load-bearing here (systems/lifecycle/boot/README.md):
+  - READ-ONLY orientation. Boot regenerates NO derived state; it only reads and surfaces.
+  - RELAY, NOT DETECT. Boot reuses the substrates' own detection — attention's ranking
+    (attention.rank_live, consumed in its given precedence order and NEVER re-ranked), telemetry's
+    debt readout, protection_guard's protected-branch evaluation — and renders them. It computes none.
+  - NEVER a SessionStart halt. The hooks harness (hooks.run_hook) fail-opens on any exception, and
+    SessionStart is not block-eligible, so boot can only inject or fail open. Each substrate read is
+    additionally wrapped so one absent/broken source degrades that line only, never the whole pack.
+  - DEGRADE LOUD. A figure from a degraded source is rendered so it cannot be mistaken for current;
+    an unreachable live source is named, never silently dropped, and a couldn't-verify safety gate
+    NEVER reads as a green all-clear.
+  - ALARMS PINNED + LEGIBLE. Governance-critical alarms render first, as loud quoted lines at the top
+    of the Project status card, above the ranked work.
+  - NO CHANGELOG ("recently shipped" reads merged PRs), NO compact re-render (the hook fires on the
+    session-START sources startup/resume/clear, never compact — the post-compaction floor is the
+    re-injected CLAUDE.md + the next scent), and the memory consolidation sweep is memory's, not
+    boot's (boot does not fire it; it lands with the memory substrate, post-core).
+
+The present-marker is the card title `Project status` (PRESENT_MARKER), byte-identical to the floor's
+verify-presence instruction in CLAUDE.deployed.md — a healthy boot renders this card, so its ABSENCE
+is how the floor tells the operator boot did not ground (the double-fault check). Memory's
+reversible-forgetting readout and the modes stance line are rendered only when those substrates
+exist, so on the genesis repo they are simply absent (no genesis-only scaffolding).
+
+CLI:  python tools/boot.py pack     # print the assembled pack (the operator demo / no Claude Desktop)
+      python tools/boot.py          # hook mode: run the SessionStart handler over stdin (what the
+                                     #   wired hook invokes; injects additionalContext, fail-open)
+"""
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import validate          # noqa: E402
+import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
+import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
+import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
+import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-branch evaluation)
+
+# The card title a healthy boot always renders — byte-identical to the present-marker the floor names
+# in CLAUDE.deployed.md (slice 19 `owes ←`). The byte-identity is locked by test_boot.py; renaming it
+# here without the floor (or vice-versa) breaks the double-fault check, so the two move together.
+PRESENT_MARKER = "Project status"
+
+# The SessionStart sources boot grounds on: the genuine session-START moments. `compact` is DELIBERATELY
+# excluded — a full boot-pack re-render on compaction is a deferred enhancement that must never be
+# depended on (boot/README §Post-compaction grounding); the reliable post-compaction floor is the
+# re-injected CLAUDE.md + the next per-prompt scent. These are the matcher values the hook registers on.
+SESSION_START_SOURCES = ("startup", "resume", "clear")
+
+# owes -> 25 (provisioning): the committed `.claude/settings.json` + the core-manifest hook `wires` carry
+# the POSIX interpreter form (`.engine/.venv/bin/python`) — correct for the construction repo + CI, but a
+# static committed file can name only ONE OS. Provisioning's Apply step must RE-RENDER each hook command
+# per target OS at generation, via hooks.hook_command(relpath, os_name=<target>) (Windows = Scripts\python.exe),
+# or a Windows adopter's interpreter path will not exist and the boot hook will fail open to floor-only boot.
+
+PROTECTED_BRANCH = os.environ.get("PROTECTED_BRANCH", "main")
+STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
+
+RECENTLY_SHIPPED_COUNT = 5   # the bounded "what just happened" digest
+NEEDS_ATTENTION_CAP = 4      # render at most this many items per attention category (a bounded view;
+                             #   boot renders a prefix of attention's order — it never re-orders)
+
+
+# ---- the git / gh boundary (best-effort, degrade-loud — never raises to the caller) ---------
+
+def _run(cmd: list, timeout: int = 10) -> str | None:
+    """Run a local command and return stripped stdout, or None on any failure. Never raises — boot's
+    every external read is best-effort and degrades rather than stranding the session."""
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        return out.stdout.strip() if out.returncode == 0 else None
+    except Exception:  # noqa: BLE001 — a missing binary / timeout / OS error all degrade to "unavailable"
+        return None
+
+
+def repo_slug() -> str | None:
+    """`owner/repo` for the GitHub reads, derived from the origin remote (env wins for CI). None when
+    it cannot be determined — the live reads then degrade to the offline/floor posture."""
+    env = os.environ.get("GITHUB_REPOSITORY")
+    if env:
+        return env
+    url = _run(["git", "remote", "get-url", "origin"])
+    if not url:
+        return None
+    m = re.search(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?$", url)
+    return m.group(1) if m else None
+
+
+def gh_token() -> str | None:
+    """A GitHub token for the live reads: the environment first (CI), else the operator's own logged-in
+    `gh` CLI (so a logged-in laptop gets the REAL protected-branch + findings reads). None when neither
+    is available — the live reads then degrade, never error."""
+    env = os.environ.get("GITHUB_TOKEN")
+    if env:
+        return env
+    return _run(["gh", "auth", "token"])
+
+
+# ---- committed state (the card facts; refuse-on-malformed) ----------------------------------
+
+def read_state() -> tuple[dict | None, bool]:
+    """Return (state, refused). `refused` is True when the committed cursor is unreadable or not a
+    schema_version-1 cursor — boot then says project status is unknown and falls through to the rest of
+    the pack, NEVER halting. A readable cursor returns (state, False), rendered defensively with .get().
+
+    Boot surfaces the refusal in-band (the operator-facing half). The spec also has boot emit a telemetry
+    FINDING on a refused cursor; that is a WRITE, which is the deferred hooks-stderr->findings-inbox relay
+    telemetry owns — not boot's read-only path. So boot surfaces the refusal here and the finding-emission
+    rides telemetry's writer relay (owes -> telemetry writer)."""
+    try:
+        state = validate.load_json(STATE_PATH)
+        if not isinstance(state, dict) or state.get("schema_version") != 1:
+            return None, True
+        return state, False
+    except Exception:  # noqa: BLE001 — absent / malformed cursor degrades to "unknown", never a crash
+        return None, True
+
+
+# ---- governance alarms (relayed from the substrates; pinned at the top of the card) ---------
+
+def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, str | None]:
+    """The protected-branch governance signal, RELAYED from protection_guard (the control-plane's own
+    evaluation), in three honest states:
+      ("off", reason)       -> the gate is NOT in force: a pinned governance alarm (a NAG — boot does not
+                               apply the fix; the one-click apply is provisioning, slice 25).
+      ("on", None)          -> the gate fully bites: no alarm.
+      ("unknown", None)     -> boot could not verify it (no token/repo/unreachable): a clear degraded line
+                               that must NEVER read as a green all-clear.
+    """
+    if not repo or not token:
+        return "unknown", None
+    try:
+        rules = protection_guard.api_get(
+            f"/repos/{repo}/rules/branches/{PROTECTED_BRANCH}", token)
+        if not isinstance(rules, list):   # a 200 with an unexpected body (an error object, null) is NOT
+            return "unknown", None         # a confirmation that protection is on -> honest "unknown"
+        missing = protection_guard.missing_floor(rules, protection_guard.REQUIRED_CHECKS)
+    except Exception:  # noqa: BLE001 — unreachable / auth / malformed body -> unknown, never a false "on"
+        return "unknown", None
+    if missing:
+        return "off", "; ".join(missing)
+    return "on", None
+
+
+def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str | None]:
+    """The engine's open self-monitoring findings, RELAYED read-only from telemetry's debt register
+    (the engine-labelled open Issues) via telemetry's own reader — NEVER the write loop. Returns
+    (count, register_url): count is None when the register could not be read (degraded), 0 when the
+    register is reachable and empty. Boot only reads; telemetry owns the register and its triage."""
+    if not repo or not token:
+        return None, None
+    try:
+        gh = telemetry.GitHubIssues(repo, token)
+        issues = gh.list_open_engine_issues()
+        return len(issues), gh.issues_query_url()
+    except Exception:  # noqa: BLE001 — DegradedReadError or any transport failure -> unknown (degraded)
+        return None, None
+
+
+# ---- attention (consume the ranked partition; resolve member ids to plain language) ---------
+
+def _resolve_member(member_id: str, state: dict | None) -> str:
+    """Resolve one attention member id (a reference, not content) to a plain-language line. Boot
+    resolves; it does not re-rank. Unknown ids fall back to the id itself so nothing is silently lost."""
+    situation = (state or {}).get("standing_situation") or {}
+    if member_id == "state:standing-situation":
+        where = " / ".join(p for p in (situation.get("milestone"), situation.get("phase")) if p)
+        return f"Pick up where you left off: {where}." if where else "Continue the current work."
+    if member_id == "state:integration-debt":
+        # No count here: the card header already renders the authoritative open-problem figure (live
+        # when reachable, else the offline shadow marked loud-if-stale). Restating a second, possibly-
+        # disagreeing number would undercut it — so this line is the actionable nudge only.
+        return "Open integration debt is waiting — clear it before new work piles on top."
+    if ":" in member_id:
+        kind, _, slug = member_id.partition(":")
+        return f"Related: {slug} ({kind}) — query and verify before relying on it."
+    return member_id
+
+
+def needs_attention(state: dict | None) -> tuple[list[str], list[str]]:
+    """Consume attention.rank_live and render the ranked partition in its GIVEN precedence order as
+    plain-language lines (a bounded prefix per category — boot renders, never re-orders). Returns
+    (lines, degraded_inputs). On the genesis repo the partition is largely empty and degraded_inputs
+    is non-empty every run (telemetry-as-register + the git work-record reader do not exist yet) — the
+    normal path, surfaced as a routine degraded notice, not an alarm."""
+    try:
+        result = attention.rank_live()
+    except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
+        return [], ["attention"]
+    lines: list[str] = []
+    for entry in result.get("partition", []):
+        members = entry.get("members") or []
+        for member in members[:NEEDS_ATTENTION_CAP]:
+            line = _resolve_member(member.get("id", ""), state)
+            if line:                       # skip an id-less member rather than render a blank bullet
+                lines.append(line)
+    return lines, list(result.get("degraded_inputs") or [])
+
+
+# ---- "what just happened" — merged PRs, never a changelog -----------------------------------
+
+def recently_shipped(count: int = RECENTLY_SHIPPED_COUNT) -> list[str]:
+    """A bounded digest reconstructed from merged pull requests (the structured PR body is the engine's
+    narrative; there is no changelog file). Reads local merge commits — degrades to [] when unavailable."""
+    raw = _run(["git", "log", "--merges", "--first-parent", f"-n{count}",
+                "--format=%s%x1f%b%x1e"])
+    if not raw:
+        return []
+    items: list[str] = []
+    for record in raw.split("\x1e"):
+        record = record.strip()
+        if not record:
+            continue
+        subject, _, body = record.partition("\x1f")
+        m = re.search(r"#(\d+)", subject)
+        number = f"#{m.group(1)}" if m else ""
+        title = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
+        if not title:  # fall back to a humanized branch name from the merge subject
+            b = re.search(r"from \S+?/(\S+)", subject)
+            title = b.group(1).replace("-", " ").replace("/", " ") if b else subject
+        items.append(f"{number} — {title}".strip(" —"))
+    return items
+
+
+# ---- assembly (the Project status card, alarm pinned inside) --------------------------------
+
+def assemble_pack() -> str:
+    """Assemble the full orientation pack as plain-language markdown. The `Project status` card is
+    always first (the present-marker), any governance-critical alarm pins as a loud quoted line at its
+    top, then the status facts + any degraded notice, then the ranked work and the recently-shipped
+    digest. Every section is guarded so one failure degrades that line only — the card title always
+    renders, which is exactly what the floor's double-fault check looks for."""
+    state, refused = read_state()
+    repo, token = repo_slug(), gh_token()
+
+    pinned: list[str] = []        # governance-critical alarms, loudest first
+    degraded: list[str] = []      # the consolidated "what I couldn't refresh / verify" notice
+
+    # Governance-critical: the protected branch.
+    gate, reason = protected_branch_signal(repo, token)
+    if gate == "off":
+        pinned.append(
+            f"⛔ **Your safety gate is off** — `{PROTECTED_BRANCH}` isn't protected, so unreviewed work "
+            f"could reach your main branch ({reason}). It needs re-enabling; an automated one-click fix "
+            f"is coming, but for now turn branch protection back on in your repository settings.")
+    elif gate == "unknown":
+        degraded.append(
+            f"I couldn't verify your safety gate from here (no GitHub access), so **don't assume "
+            f"`{PROTECTED_BRANCH}` is protected** — confirm it before merging anything important.")
+
+    # The engine's own open findings (incl. any guardrail-weakening telemetry has tracked).
+    finding_count, register = open_findings(repo, token)
+    if finding_count:
+        pinned.append(
+            f"⚠️ **{finding_count} open engine finding(s)** about the engine's own health need review: "
+            f"{register}")
+    elif finding_count is None and (repo and token is None):
+        degraded.append("I couldn't check the engine's open findings (no GitHub access from here).")
+
+    # The card.
+    out: list[str] = [f"## {PRESENT_MARKER}"]
+    out.extend(f"> {line}" for line in pinned)
+    if pinned:
+        out.append("")
+
+    if refused:
+        out.append(
+            "**I couldn't read where the project stands**, so I'm treating project status as unknown. "
+            "Don't trust a status summary until the engine re-grounds.")
+    else:
+        situation = (state or {}).get("standing_situation") or {}
+        debt = (state or {}).get("integration_debt") or {}
+        milestone = situation.get("milestone") or "none set yet"
+        phase = situation.get("phase") or "—"
+        out.append(f"**Milestone:** {milestone} · **Phase:** {phase}")
+        # The open-problem count: the live register first, else the committed offline shadow rendered
+        # loud-if-stale (degrade-loud) so a number can never be mistaken for freshly refreshed.
+        count, as_of = telemetry.read_state_debt(STATE_PATH)
+        if finding_count is not None:
+            out.append(f"**Open problems:** {finding_count}")
+        elif count:
+            out.append(f"**Open problems:** {telemetry.degraded_readout(count, as_of)}")
+        else:
+            out.append("**Open problems:** none recorded yet.")
+
+    # Attention-ranked work + its degraded inputs (folded into the consolidated notice).
+    att_lines, att_degraded = needs_attention(state)
+    if att_degraded:
+        # Phrased about ranking DEPTH, not raw substrate names: those names ("telemetry"...) would
+        # collide with the live, authoritative figures rendered above (e.g. an "Open problems" count
+        # boot DID read live) and make the operator doubt a number that is in fact current.
+        degraded.append(
+            "I couldn't rank your work by priority this session — some of the ranking inputs aren't "
+            "wired up yet, so the list below may be thin. (Expected on a new engine; it doesn't mean "
+            "anything is wrong with your project.)")
+
+    if degraded:
+        out.append("")
+        out.extend(f"_{line}_" for line in degraded)
+
+    out.append("")
+    out.append("### Needs your attention")
+    out.extend(f"- {line}" for line in att_lines) if att_lines else out.append(
+        "- Nothing is blocking right now.")
+
+    shipped = recently_shipped()
+    out.append("")
+    out.append("### Recently shipped")
+    out.extend(f"- {line}" for line in shipped) if shipped else out.append(
+        "- (no recent merges found)")
+
+    return "\n".join(out)
+
+
+# ---- the hook handler + CLI -----------------------------------------------------------------
+
+def handler(payload: dict) -> dict:
+    """The SessionStart handler: assemble the pack and inject it as additionalContext. Read-only and
+    non-blocking — SessionStart cannot halt, and run_hook fail-opens on any exception. An empty pack
+    (should never happen — the card title always renders) would simply inject nothing of substance."""
+    pack = assemble_pack()
+    return hooks.inject(pack) if pack else hooks.proceed()
+
+
+def main(argv: list) -> int:
+    if argv and argv[0] == "pack":
+        print(assemble_pack())
+        return 0
+    if not argv or argv[0] == "hook":
+        # Hook mode: what the wired SessionStart hook invokes. run_hook reads the event JSON from
+        # stdin, runs the handler, and translates inject -> structured stdout (additionalContext),
+        # fail-open on any error. The harness owns the exit code; boot never halts a session.
+        return hooks.run_hook("SessionStart", handler)
+    print("usage: boot.py [pack | hook]", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

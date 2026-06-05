@@ -140,9 +140,12 @@ class TestLiveDerivation(unittest.TestCase):
         self.assertIsNotNone(doc_home, "expected a doc:getting-started entity")
         self.assertEqual(doc_home["predicates"].get("provided_by"), ["module:core"])
         self.assertEqual(doc_home["predicates"].get("governed_by"), ["schema:doc.v1"])
-        # the operation grammar flip (slice OG) is the knowledge-graph correlate: its home is now governed
-        op_home = self.by_id.get("operation:.gitkeep")
-        self.assertIsNotNone(op_home, "expected an operation:.gitkeep entity")
+        # the operation surface flip (slice 20): the placeholder operation:.gitkeep is gone (the first
+        # lifecycle operation — boot's SessionStart pack — landed), and the operation home is now the
+        # core-provided boot runbook, governed by operation.v1.
+        self.assertNotIn("operation:.gitkeep", self.by_id)
+        op_home = self.by_id.get("operation:boot-session-start")
+        self.assertIsNotNone(op_home, "expected an operation:boot-session-start entity")
         self.assertEqual(op_home["predicates"].get("provided_by"), ["module:core"])
         self.assertEqual(op_home["predicates"].get("governed_by"), ["schema:operation.v1"])
 
