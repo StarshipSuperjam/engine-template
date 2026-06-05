@@ -115,6 +115,50 @@
       "type": "check"
     },
     {
+      "id": "check:doc-frontmatter",
+      "name": ".engine/check/doc-frontmatter.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "doc:getting-started"
+        ]
+      },
+      "slug": "doc-frontmatter",
+      "source": {
+        "fingerprint": "sha256:2805c9a748c2484778b76a1d3ecb49a740ad023982b6dcf6152f5fd769da9ba6",
+        "path": ".engine/check/doc-frontmatter.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:doc-shape",
+      "name": ".engine/check/doc-shape.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "doc:getting-started"
+        ]
+      },
+      "slug": "doc-shape",
+      "source": {
+        "fingerprint": "sha256:20da81d7decf69eed2067aa9d03515539189227793c92cb68f00663efbebc856",
+        "path": ".engine/check/doc-shape.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:engine-manifest",
       "name": ".engine/check/engine-manifest.json",
       "owner": "validators-core",
@@ -460,18 +504,21 @@
       "type": "contract"
     },
     {
-      "id": "doc:.gitkeep",
-      "name": ".engine/docs/.gitkeep",
+      "id": "doc:getting-started",
+      "name": ".engine/docs/getting-started.md",
       "owner": "core",
       "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
-      "slug": ".gitkeep",
+      "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:0d1262ebf98d17f8d38c4f4a916aaa7302d5d7b58707187ad97745b62710c9fb",
-        "path": ".engine/docs/.gitkeep"
+        "fingerprint": "sha256:6e8606ba42288b571efa4ec631fc93a41faf641f2d2cd3bbf1efdee61c7d004f",
+        "path": ".engine/docs/getting-started.md"
       },
       "type": "doc"
     },
@@ -520,7 +567,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:f21aaca0d454f0f9944d12264032fc9836a2c8cc034542d6e32887d7e35e64d9",
+        "fingerprint": "sha256:54d4e955ab189a546b0179e214549e4b30c31d079100479e15d657a8aa051ed1",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -536,7 +583,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:9617f13e4ba333bb974752380f3ce39016902a6eed306cd616a670e741c49dd9",
+        "fingerprint": "sha256:07424ca52e112b75c676fd0adcb6d15f0c5ea15c2100fdd62e193546180f160c",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
@@ -736,6 +783,22 @@
       "type": "schema"
     },
     {
+      "id": "schema:doc.v1",
+      "name": ".engine/schemas/doc.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "doc.v1",
+      "source": {
+        "fingerprint": "sha256:aa7ed900a61895e90f7c0eb292cf2837e7e950408eeef94c593b9d2b7a2a401b",
+        "path": ".engine/schemas/doc.v1.json"
+      },
+      "type": "schema"
+    },
+    {
       "id": "schema:engine.v1",
       "name": ".engine/schemas/engine.v1.json",
       "owner": "core",
@@ -922,7 +985,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:c78d942d3695cca8237b6b81134e01b260b2b35f0fa940be0ff5e99697fa93fa",
+        "fingerprint": "sha256:5e359ee5e25f332619f9c7a345eb5c30d12ec9052e41555f1a656d912cf36964",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "type": "schema"
@@ -1200,6 +1263,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_doc",
+      "name": ".engine/tools/test_doc.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_doc",
+      "source": {
+        "fingerprint": "sha256:72db548894988b8affebf3d773757a70789d0d5e50bbb578a9d5e9ec08be09d8",
+        "path": ".engine/tools/test_doc.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_hooks",
       "name": ".engine/tools/test_hooks.py",
       "owner": "core",
@@ -1242,7 +1321,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:164a92b5db6147392e4eed3a945a6a7945d64d2995e2ceaa3aca86ad6783a980",
+        "fingerprint": "sha256:054ad57d959a1ea7146d32c93603866bd0d3377f904e2e600dd2a9deeae02959",
         "path": ".engine/tools/test_knowledge.py"
       },
       "type": "tool"
@@ -1274,7 +1353,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:70335548dcb388fd31d643a2135db65a98bd625c47861921ad1a17588823f51c",
+        "fingerprint": "sha256:edede3a57074a05810dc8cb2f0db6faa4f9a06e33c89241e43669c63ab2ca03d",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"

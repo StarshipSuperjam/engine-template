@@ -10,7 +10,7 @@
     "operation": [".engine/operations/.gitkeep"],
     "skill": [".claude/skills/.gitkeep"],
     "agent": [".claude/agents/.gitkeep"],
-    "doc": [".engine/docs/.gitkeep"],
+    "doc": [".engine/docs/*.md"],
     "state": [".engine/state/*.json"],
     "knowledge": [".engine/knowledge/*.json"],
     "contract": [".engine/contracts/*.md", ".engine/contracts/.gitkeep"],

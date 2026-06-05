@@ -88,8 +88,8 @@
       "purpose": "Operator-facing, hand-authored plain-language explanations of the engine — written for the human, not the AI.",
       "authority": "mechanics-and-guidance",
       "lifecycle": "artifact",
-      "governing_schema": null,
-      "template": null
+      "governing_schema": "doc.v1.json",
+      "template": "../templates/doc.md"
     }
   }
 }
