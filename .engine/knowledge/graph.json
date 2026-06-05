@@ -293,6 +293,7 @@
         ],
         "targets": [
           "operation:boot-session-start",
+          "operation:close-turn",
           "operation:operating-modes"
         ]
       },
@@ -316,6 +317,7 @@
         ],
         "targets": [
           "operation:boot-session-start",
+          "operation:close-turn",
           "operation:operating-modes"
         ]
       },
@@ -575,7 +577,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:87f701035964ae1cfe861699eda42345cf7c17832d78a02aa64e254f7a9993d8",
+        "fingerprint": "sha256:2c60ba73797fba82908eec816d54ee0833d7c472529ee012ab47028745a39b66",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -612,6 +614,25 @@
       "source": {
         "fingerprint": "sha256:02651436ef1d68a096a936b90f34c7fb142b3fbfffff42fb15066656b2161702",
         "path": ".engine/operations/boot-session-start.md"
+      },
+      "type": "operation"
+    },
+    {
+      "id": "operation:close-turn",
+      "name": ".engine/operations/close-turn.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "close-turn",
+      "source": {
+        "fingerprint": "sha256:b476d509d3c4d625bb4ae061c802cfc26847077badb26ec4b1b2ee15e6e1ae8a",
+        "path": ".engine/operations/close-turn.md"
       },
       "type": "operation"
     },
@@ -1098,6 +1119,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:close",
+      "name": ".engine/tools/close.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "close",
+      "source": {
+        "fingerprint": "sha256:17afe46566bd786bf3b2176e554fc6fc7d285e91a7897e26ca079714e3ead2ab",
+        "path": ".engine/tools/close.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:hooks",
       "name": ".engine/tools/hooks.py",
       "owner": "core",
@@ -1108,7 +1145,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:0aa36b900362589c1b59da74ebdf8bc1a5d1dc079127efe4d8c2f341766533bd",
+        "fingerprint": "sha256:2ca19d308bb76a358980d88afa148e67640ad615bb1ab5de821d2f62f895d8d4",
         "path": ".engine/tools/hooks.py"
       },
       "type": "tool"
@@ -1204,7 +1241,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:2d71ba24a6c8da4e3e3e5c8960dafee22ff789bc9ad46cafda30a9033407c5e7",
+        "fingerprint": "sha256:31eca7ae6f943d3217bd38192163066979c5e5c09d8a5d6fed3f6cae09fa5005",
         "path": ".engine/tools/module_coherence.py"
       },
       "type": "tool"
@@ -1268,7 +1305,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:ff4184e82e0794985a82fae62900c9d34ca8f335374a7cfed35b692ad7e4429e",
+        "fingerprint": "sha256:d155363fc90be9ecb856f62df9faec772a76795f0a39a3baa2f15f10f926cb0d",
         "path": ".engine/tools/telemetry.py"
       },
       "type": "tool"
@@ -1316,8 +1353,24 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:b2dfba61acea5f7af0ad787ff691f51cf3f67fe5e3ca1e649f14fa9ca3f25c8e",
+        "fingerprint": "sha256:d153e60aaa3676fbbef55e7ed349b63273ff6469564a0e4fb84b204e66b997a2",
         "path": ".engine/tools/test_boot.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_close",
+      "name": ".engine/tools/test_close.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_close",
+      "source": {
+        "fingerprint": "sha256:5d98753bfb062946738395ff64a3b7b92bfc9f2c11a4f2c70afc1eb0cdf62c82",
+        "path": ".engine/tools/test_close.py"
       },
       "type": "tool"
     },
@@ -1364,7 +1417,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:68e8f4a9a35b3f7d45c70461c67806285ca0e48c649502001b257a409257c107",
+        "fingerprint": "sha256:bd87dd0632296ad1e74802d2c41d59b33690801ec72f64f1db1fb5fe91925cd2",
         "path": ".engine/tools/test_hooks.py"
       },
       "type": "tool"
@@ -1396,7 +1449,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:496239bc160c226b6c0f84c6e0099109af9a185b91636012790c22b94872b67c",
+        "fingerprint": "sha256:754c0a33b4da0e4f089f97df15b472d65fd3799ef386f9fa2e8dba6704b15c87",
         "path": ".engine/tools/test_knowledge.py"
       },
       "type": "tool"
@@ -1556,7 +1609,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:dc1d20394ee723d2d01fc951976e251dfdbb8deed05190161315efcd913e5051",
+        "fingerprint": "sha256:b00c82960ef186b25a2fb6d76733ccbc3ed4af68f23ac51fbe1444dc062af23e",
         "path": ".engine/tools/test_telemetry.py"
       },
       "type": "tool"

@@ -286,14 +286,17 @@ class TestHookRegistration(unittest.TestCase):
 
 class TestBlockBudgetLeg(unittest.TestCase):
     """The block-budget coherence leg (validate.block_budget_findings, run live in module_coherence).
-    Slice 20 born it green-but-present; slice 21 registered modes' explore write-gate, so it now
-    validates a REAL member — and still has teeth for a misplaced block."""
+    Slice 20 born it green-but-present; slice 21 registered modes' explore write-gate (PreToolUse) and
+    slice 22 registers close's findings-disposition gate (Stop), so it now validates TWO real members —
+    and still has teeth for a misplaced block."""
 
-    def test_registry_has_the_modes_member_and_leg_is_green(self):
-        # Slice 21 registered modes' explore write-gate — the registry is no longer empty; it carries a
-        # real member, on PreToolUse (block-eligible), so the leg stays green over it.
+    def test_registry_has_both_block_members_and_leg_is_green(self):
+        # The registry assembles each owning system's declaration: modes' explore write-gate on PreToolUse
+        # (slice 21) and close's findings-disposition gate on Stop (slice 22) — both block-eligible, so the
+        # leg stays green over the whole assembled set.
         registry = module_coherence.block_eligible_registrations()
         self.assertIn({"event": "PreToolUse", "name": "explore-write-gate", "owner": "modes"}, registry)
+        self.assertIn({"event": "Stop", "name": "findings-disposition", "owner": "close"}, registry)
         # every declared block sits on a block-eligible event -> the leg produces no finding.
         self.assertEqual(validate.block_budget_findings(registry, "hard", "move it."), [])
 
@@ -305,7 +308,7 @@ class TestBlockBudgetLeg(unittest.TestCase):
         self.assertEqual(len(fired), 1)                       # a block on an ineligible event fires
         self.assertIn("SessionStart", fired[0]["message"])
         clean = validate.block_budget_findings(
-            [{"event": "Stop", "name": "disposition", "owner": "close"}], "hard", msg)
+            [{"event": "Stop", "name": "findings-disposition", "owner": "close"}], "hard", msg)
         self.assertEqual(clean, [])                           # an eligible event is clean
 
 

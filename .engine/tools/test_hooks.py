@@ -14,8 +14,10 @@ These lock the laws hooks owns (systems/infrastructure/hooks/README.md):
     python.exe), never bare python / uv run.
   - the harness FAILS OPEN: a crashing handler, a malformed event payload, or a block requested on a
     non-eligible event all PROCEED (a non-2 exit) and emit a plain-language finding — never a hard block;
-    only a handler that returns block() on PreToolUse/Stop exits 2; a Stop hook honors stop_hook_active and
-    does not re-block.
+    only a handler that returns block() on PreToolUse/Stop exits 2; on a forced Stop continuation
+    (stop_hook_active) the handler STILL runs but its block is downgraded to proceed, so it can never
+    re-block and loop the cap (slice 22 — close needs the give-up moment to log; the guarantee is the
+    harness's, by construction, not the handler's).
   - the static block-budget leg flags a block declared on a non-eligible event, is silent on an empty set,
     and agrees with the runtime BLOCK_ELIGIBLE_EVENTS (a drift guard). The leg is built + fixture-tested
     with no live rule (the interface_resolution_findings / agent_coherence_findings precedent); the live
@@ -155,16 +157,32 @@ class TestHarnessFailOpen(unittest.TestCase):
 
 
 class TestStopHookActive(unittest.TestCase):
-    def test_forced_continuation_does_not_reblock(self):
+    def test_forced_continuation_runs_handler_but_never_reblocks(self):
+        # Slice 22 (deliberate law change from slice 17's skip-the-handler): on a forced continuation the
+        # handler STILL runs — close uses the give-up moment to log a still-undispositioned finding — but
+        # its block is downgraded to proceed in run_hook, so the no-re-block / no-loop guarantee holds by
+        # construction (the harness owns it, not the handler).
         called = []
 
         def would_block(_payload):
             called.append(True)
             return hooks.block("disposition still open")
         code, _out, err = _run("Stop", would_block, payload={"stop_hook_active": True})
-        self.assertEqual(code, hooks.EXIT_PROCEED)   # proceeds, no re-block
-        self.assertEqual(called, [])                 # handler not even invoked
-        self.assertEqual(err, "")
+        self.assertEqual(code, hooks.EXIT_PROCEED)   # downgraded to proceed — never re-blocks
+        self.assertEqual(called, [True])             # ...but the handler DID run (its side effects fire)
+        self.assertEqual(err, "")                    # and no block reason was emitted
+
+    def test_forced_continuation_proceed_passes_through(self):
+        code, _out, _err = _run("Stop", lambda p: hooks.proceed(), payload={"stop_hook_active": True})
+        self.assertEqual(code, hooks.EXIT_PROCEED)
+
+    def test_forced_continuation_handler_crash_fails_open(self):
+        # The give-up handler itself crashing must fail open (the turn ends) and flag — never block.
+        def boom(_payload):
+            raise RuntimeError("give-up handler crashed")
+        code, _out, err = _run("Stop", boom, payload={"stop_hook_active": True})
+        self.assertEqual(code, hooks.EXIT_NONBLOCKING)   # non-blocking → the turn ends, never strands
+        self.assertIn("could not run", err)              # ...and the failure is surfaced as a finding
 
     def test_normal_stop_still_blocks(self):
         code, _out, _err = _run("Stop", lambda p: hooks.block("nope"),
