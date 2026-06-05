@@ -126,17 +126,20 @@ class TestLiveDerivation(unittest.TestCase):
 
     def test_catalog_coverage_rule_and_provisioned_surface_homes(self):
         # issue #30: the catalog-coverage gate is a validators-core corpus rule; the provisioned .engine/
-        # surface homes appear as core-owned gitkeep entities. The `doc` surface still has
-        # governing_schema:null, so doc:.gitkeep carries NO governed_by edge; the `operation` surface
-        # gained its grammar at slice OG, so operation:.gitkeep is now governed by schema:operation.v1.
+        # surface homes appear as core-owned entities. The `doc` surface gained its grammar at slice 19
+        # (governing_schema null -> doc.v1) and landed its first instance, so its .gitkeep was removed and
+        # the doc home is now the governed orientation instance; the `operation` surface gained its grammar
+        # at slice OG, so operation:.gitkeep is now governed by schema:operation.v1.
         cov = self.by_id.get("check:catalog-coverage")
         self.assertIsNotNone(cov, "expected a check:catalog-coverage entity")
         self.assertEqual(cov["predicates"].get("provided_by"), ["module:validators-core"])
-        # doc remains an ungoverned provisioned home (governing_schema:null -> no governed_by edge)
-        doc_home = self.by_id.get("doc:.gitkeep")
-        self.assertIsNotNone(doc_home, "expected a doc:.gitkeep entity")
+        # the doc grammar flip (slice 19): the placeholder doc:.gitkeep is gone (the first operator doc
+        # landed), and the doc home is now the core-provided orientation instance, governed by doc.v1.
+        self.assertNotIn("doc:.gitkeep", self.by_id)
+        doc_home = self.by_id.get("doc:getting-started")
+        self.assertIsNotNone(doc_home, "expected a doc:getting-started entity")
         self.assertEqual(doc_home["predicates"].get("provided_by"), ["module:core"])
-        self.assertNotIn("governed_by", doc_home["predicates"])
+        self.assertEqual(doc_home["predicates"].get("governed_by"), ["schema:doc.v1"])
         # the operation grammar flip (slice OG) is the knowledge-graph correlate: its home is now governed
         op_home = self.by_id.get("operation:.gitkeep")
         self.assertIsNotNone(op_home, "expected an operation:.gitkeep entity")

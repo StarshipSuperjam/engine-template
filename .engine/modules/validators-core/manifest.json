@@ -10,6 +10,8 @@
       ".engine/check/contract-frontmatter.json",
       ".engine/check/contract-shape.json",
       ".engine/check/contract-threshold.json",
+      ".engine/check/doc-frontmatter.json",
+      ".engine/check/doc-shape.json",
       ".engine/check/engine-manifest.json",
       ".engine/check/interface-declaration.json",
       ".engine/check/knowledge-coverage.json",
