@@ -13,6 +13,7 @@ matches its name; CI runs them as a step in engine-ci.
 from __future__ import annotations
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -225,6 +226,55 @@ class TestWiringFindings(unittest.TestCase):
             self.assertIn("not applied", found[0]["message"])
 
 
+class TestOrphanWireFindings(unittest.TestCase):
+    """The pure REVERSE wiring leg (orphan-wire, slice 25b): an applied engine entry no manifest
+    declares flags HARD; a declared one does not; a drifted same-identity entry is NOT double-flagged
+    (the forward leg owns drift). permission and ontology-entry are excluded by construction —
+    declared_wire_identity returns None and the enumerator never emits them."""
+
+    def test_undeclared_applied_entry_is_flagged_per_shared_seam(self):
+        for seam, key in (("hook", ("PreToolUse", "", "command", ".engine/x.py")),
+                          ("mcp", "engine-x"), ("gitignore", "x-cache")):
+            found = validate.orphan_wire_findings([(seam, key, ".target")], set(), "hard", "fix it")
+            self.assertEqual(len(found), 1, f"an undeclared applied {seam} must flag")
+            self.assertEqual(found[0]["severity"], "hard")
+            self.assertIn(seam, found[0]["message"])
+            self.assertIn("no installed module declares", found[0]["message"])
+
+    def test_declared_applied_entry_is_not_flagged(self):
+        applied = [("mcp", "engine-x", ".mcp.json")]
+        self.assertEqual(validate.orphan_wire_findings(applied, {("mcp", "engine-x")}, "hard", "m"), [])
+
+    def test_drifted_name_identity_entry_is_not_an_orphan(self):
+        # mcp/gitignore identity is the name/key (not content), so a content-drifted entry keeps its
+        # identity, still matches a declared directive, and is reported ONCE by the forward leg — not
+        # double-flagged here.
+        applied = [("mcp", "engine-knowledge-graph", ".mcp.json")]
+        self.assertEqual(
+            validate.orphan_wire_findings(applied, {("mcp", "engine-knowledge-graph")}, "hard", "m"), [])
+
+    def test_hook_with_a_changed_command_is_an_orphan_by_the_identity_model(self):
+        # A hook's identity is the full (event, matcher, type, command) tuple (module-system §"The wiring
+        # library"), so an applied engine hook whose command differs from every declared one IS an orphan
+        # here — while the declared hook is separately reported not-applied by the forward leg. Two
+        # accurate findings about two real facts, by design (documented on orphan_wire_findings).
+        applied = [("hook", ("Stop", "", "command", ".engine/EDITED.py"), ".claude/settings.json")]
+        declared = {("hook", ("Stop", "", "command", ".engine/orig.py"))}
+        found = validate.orphan_wire_findings(applied, declared, "hard", "m")
+        self.assertEqual(len(found), 1)
+        self.assertIn("hook", found[0]["message"])
+
+    def test_declared_wire_identity_is_single_homed_and_excludes_permission_and_ontology(self):
+        self.assertIsNone(wiring.declared_wire_identity({"type": "permission", "value": "Bash(x)"}))
+        self.assertIsNone(wiring.declared_wire_identity({"type": "ontology-entry", "name": "x"}))
+        self.assertEqual(wiring.declared_wire_identity({"type": "mcp", "name": "engine-x"}),
+                         ("mcp", "engine-x"))
+        self.assertEqual(wiring.declared_wire_identity(
+            {"type": "hook", "event": "Stop", "matcher": "",
+             "hook": {"type": "command", "command": ".engine/c"}}),
+            ("hook", ("Stop", "", "command", ".engine/c")))
+
+
 class TestModuleCoherenceConsumer(unittest.TestCase):
     """The consumer over the REAL repository: discovery reads the present set, and both
     coherence legs report the committed tree as coherent (the clean baseline the demo
@@ -366,6 +416,59 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         hard = [f for f in findings if f["severity"] == "hard"]
         self.assertTrue(any("mcp wire that is not applied" in f["message"] for f in hard),
                         "a drifted mcp definition must flag a hard wiring finding")
+
+    def test_real_repository_has_no_orphan_wires(self):
+        # The slice-25b REVERSE leg adds zero findings over the committed tree: every applied
+        # engine-identified hook / mcp / gitignore entry is declared by a present manifest, and the
+        # foundation .venv ignore is a plain line (not a fence) so it is never enumerated (D-156).
+        manifests = module_coherence.discover_manifests()
+        orphans = validate.orphan_wire_findings(
+            wiring.applied_engine_wires(), module_coherence.declared_wire_identities(manifests),
+            "hard", "m")
+        self.assertEqual(orphans, [], f"unexpected orphan wires: {[f['message'] for f in orphans]}")
+
+    def test_permission_and_venv_plain_line_are_never_enumerated(self):
+        applied = wiring.applied_engine_wires()
+        self.assertNotIn("permission", {seam for seam, _k, _t in applied})  # not engine-identifiable
+        fences = {key for seam, key, _t in applied if seam == "gitignore"}
+        self.assertNotIn(".engine/.venv/", fences)         # the plain line is not a fence id
+
+    def test_injected_undeclared_engine_hook_is_an_orphan_wire(self):
+        # Redirect only SETTINGS_PATH to a faithful COPY + an engine hook NO manifest declares -> the
+        # reverse leg flags it; the other shared files stay real (and fully declared), adding nothing.
+        saved = wiring.SETTINGS_PATH
+        with tempfile.TemporaryDirectory() as d:
+            copy = os.path.join(d, "settings.json")
+            shutil.copyfile(saved, copy)
+            wiring.SETTINGS_PATH = copy
+            try:
+                wiring.apply({"type": "hook", "event": "PostToolUse", "matcher": "",
+                              "hook": {"type": "command",
+                                       "command": ".engine/.venv/bin/python .engine/tools/boot.py --x"}})
+                findings = module_coherence.check_coherence()
+            finally:
+                wiring.SETTINGS_PATH = saved
+        hard = [f for f in findings if f["severity"] == "hard"]
+        self.assertTrue(any("hook" in f["message"] and "no installed module declares" in f["message"]
+                            for f in hard),
+                        "an applied engine hook no manifest declares must be an orphan-wire finding")
+
+    def test_injected_orphan_gitignore_fence_is_flagged(self):
+        saved = wiring.GITIGNORE_PATH
+        with tempfile.TemporaryDirectory() as d:
+            copy = os.path.join(d, ".gitignore")
+            shutil.copyfile(saved, copy)
+            wiring.GITIGNORE_PATH = copy
+            try:
+                wiring.apply({"type": "gitignore", "key": "ghost-cache",
+                              "lines": [".engine/ghost/.cache/"]})
+                findings = module_coherence.check_coherence()
+            finally:
+                wiring.GITIGNORE_PATH = saved
+        hard = [f for f in findings if f["severity"] == "hard"]
+        self.assertTrue(any("gitignore" in f["message"] and "no installed module declares" in f["message"]
+                            for f in hard),
+                        "an undeclared engine-managed fence must be an orphan-wire finding")
 
     def test_main_exit_zero_on_clean_tree(self):
         import contextlib

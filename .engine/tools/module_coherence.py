@@ -12,7 +12,7 @@ It also runs as a CLI so the coherence behaviour has an operator-runnable demons
 
 It reads the present module manifests (.engine/modules/*/manifest.json) — "installed means
 present", a directory listing, never a hand-authored registry — and the engine manifest
-(.engine/engine.json), then reports four coherence legs:
+(.engine/engine.json), then reports five coherence legs:
 
   - DEPENDENCY (reused from the validation foundation, validate.coherence_findings): every
     declared dependency is installed and within its version range, and the graph is acyclic.
@@ -20,16 +20,19 @@ present", a directory listing, never a hand-authored registry — and the engine
     exactly one module's `provides`, or is a named foundation infrastructure artifact, or is
     a module manifest (owned by its own module by construction). An unclaimed file is an
     orphan; a doubly-claimed file is a conflict.
-  - WIRING — FORWARD declared->applied (validate.wiring_findings over wiring.is_applied): every
-    `wires` directive a present manifest declares is applied in its shared target file (the wiring
-    library landed at slice 7, so this leg is owed now). An mcp wire is APPROVAL-BLIND — it checks
-    the committed .mcp.json definition, never the operator's runtime approval (that pending state is
-    surfaced at boot / the control-plane PR-Validation section, not here). This is the FORWARD
-    direction ONLY: it CANNOT catch undeclared-but-applied wiring (a stale leftover after a botched
-    uninstall) — that orphan-wire REVERSE leg needs a per-seam enumerator and is deferred to the
-    module manager (slice 25), so wiring coherence is incomplete until then, by design. The
-    foundation `.venv` .gitignore block (D-156) is outside this leg: no manifest declares it, so the
-    forward leg never iterates it.
+  - WIRING — BIDIRECTIONAL "declared <-> applied". FORWARD declared->applied (validate.wiring_findings
+    over wiring.is_applied): every `wires` directive a present manifest declares is applied in its shared
+    target file. An mcp wire is APPROVAL-BLIND — it checks the committed .mcp.json definition, never the
+    operator's runtime approval (that pending state is surfaced at boot / the control-plane PR-Validation
+    section, not here). REVERSE applied->declared, the orphan-wire leg (validate.orphan_wire_findings over
+    wiring.applied_engine_wires + declared_wire_identities): nothing engine-identified applied in the
+    PLATFORM-SHARED files matches no present manifest's `wires` (a stale leftover after an incomplete
+    uninstall). The reverse leg covers the three shared-file seams (hook / mcp / gitignore) — the only
+    place an orphan has no other governance; PERMISSION (not engine-identifiable) and ONTOLOGY-ENTRY (the
+    engine-owned catalog, covered by the OWNERSHIP leg + the separate catalog-coverage gate) are excluded.
+    A drifted same-identity entry is reported once, by the forward leg (not double-flagged). The foundation
+    `.venv` .gitignore block (D-156) is a plain line, not a fence: no manifest declares it and neither
+    direction iterates it.
   - BLOCK-BUDGET (validate.block_budget_findings over the declared block registry): every block an
     owning system declares sits on a block-eligible event — only PreToolUse and Stop may hard-block
     (hooks/README §the block-budget law). The registry is ASSEMBLED from each owner's declaration
@@ -37,18 +40,22 @@ present", a directory listing, never a hand-authored registry — and the engine
     gate (Stop, slice 22). Both events are eligible, so the leg is green over the two real members (and
     would fire the moment any owner declared a block on a non-eligible event).
 
-Deferred (named): the WIRING REVERSE / orphan-wire direction needs a per-seam enumerator, slice 25;
-the uncatalogued-surface leg belongs to catalog coverage (validators-core).
+Deferred (named): the uncatalogued-surface leg belongs to catalog coverage (validators-core); the one
+pathological ontology residue a botched uninstall could leave (a catalog record whose home dir exists but
+is empty, so neither catalog-coverage nor the ownership leg fires) is a catalog-coverage hardening
+concern, not module coherence's (owes -> catalog-coverage).
 
 Discovery and loading are exposed as reusable functions (discover_manifests,
-load_engine_manifest) so the self-map (slice 8) and the module manager (slice 25) read the
+load_engine_manifest) so the self-map (slice 8) and the module manager read the
 present set from here rather than re-walking it — one present-set reader, no drift.
 """
 from __future__ import annotations
 import glob as _glob
 import json
 import os
+import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
@@ -147,6 +154,21 @@ def wiring_status(manifests: list) -> list:
     return out
 
 
+def declared_wire_identities(manifests: list) -> set:
+    """The set of (seam_type, identity_key) every present manifest's `wires` declares — the orphan-wire
+    reverse leg's "allowed" set, compared against wiring.applied_engine_wires(). Built with
+    wiring.declared_wire_identity so the keying is single-homed with the applied-side enumerator (no
+    second copy of the identity rule). A permission or ontology-entry directive maps to None and is
+    skipped — those seams are excluded from the reverse leg (see validate.orphan_wire_findings)."""
+    ids = set()
+    for _path, m in manifests:
+        for directive in (m.get("wires") or []):
+            key = wiring.declared_wire_identity(directive)
+            if key is not None:
+                ids.add(key)
+    return ids
+
+
 def block_eligible_registrations() -> list:
     """The block declarations the block-budget leg governs, ASSEMBLED from each owning system's own
     declaration — hooks names no invariant itself (hooks/README §the block-budget law), so the registry
@@ -164,10 +186,10 @@ def block_eligible_registrations() -> list:
 
 
 def check_coherence(tier: str = "hard") -> list:
-    """All four coherence legs over the present set: dependency (reused) + ownership + forward
-    wiring (declared->applied) + block-budget (only PreToolUse/Stop may hard-block). Returns a flat
-    list of finding.v1 dicts. The library entry the module manager (slice 25) calls. (The orphan-wire
-    REVERSE wiring direction is deferred to slice 25 — see the module docstring.)"""
+    """All five coherence legs over the present set: dependency (reused) + ownership + the BIDIRECTIONAL
+    wiring leg — forward (declared->applied) AND reverse (applied->declared, the orphan-wire leg) —
+    + block-budget (only PreToolUse/Stop may hard-block). Returns a flat list of finding.v1 dicts. The
+    library entry the module manager calls after any install / uninstall."""
     manifests = discover_manifests()
     dep = validate.coherence_findings(
         [m for _path, m in manifests], tier,
@@ -179,11 +201,14 @@ def check_coherence(tier: str = "hard") -> list:
         "Every engine file must be owned by exactly one module.")
     wiring_leg = validate.wiring_findings(
         wiring_status(manifests), tier,
-        "Declared wiring must be applied in the shared files.")
+        "Each module's declared settings must be applied in the shared files.")
+    orphan_leg = validate.orphan_wire_findings(
+        wiring.applied_engine_wires(), declared_wire_identities(manifests), tier,
+        "Each applied engine setting must belong to an installed module.")
     block = validate.block_budget_findings(
         block_eligible_registrations(), tier,
         "Only PreToolUse and Stop may hard-block; move the block to an eligible event before merging.")
-    return dep + own + wiring_leg + block
+    return dep + own + wiring_leg + orphan_leg + block
 
 
 def _print_report(findings: list, n_modules: int, n_files: int) -> None:
@@ -204,7 +229,59 @@ def _print_report(findings: list, n_modules: int, n_files: int) -> None:
               f"{n_files} engine file(s), all owned.")
 
 
+def _demo(_argv: list) -> int:
+    """Operator-runnable, MUTATION-FREE fail-then-pass for the orphan-wire reverse leg. On a private
+    COPY of the real shared hook file (never the live one), it adds an engine setting that belongs to no
+    installed module — exactly the leftover an incomplete removal would leave — shows coherence catch it,
+    removes it, and shows coherence green again. The REAL check_coherence / applied_engine_wires logic
+    runs; only the file it reads is a throwaway, so nothing real is changed."""
+    saved = wiring.SETTINGS_PATH
+    orphan = {"type": "hook", "event": "PostToolUse", "matcher": "",
+              "hook": {"type": "command",
+                       "command": ".engine/.venv/bin/python .engine/tools/boot.py --orphan-demo"}}
+
+    def _hard():
+        return [f for f in check_coherence() if f["severity"] == "hard"]
+
+    with tempfile.TemporaryDirectory() as d:
+        copy = os.path.join(d, "settings.json")
+        if os.path.exists(saved):
+            shutil.copyfile(saved, copy)
+        else:
+            with open(copy, "w", encoding="utf-8") as fh:
+                fh.write("{}\n")
+        wiring.SETTINGS_PATH = copy
+        try:
+            print("This demo touches only a throwaway copy of your settings — your real files are "
+                  "never changed.\n")
+            print("(1) Baseline — is the engine consistent?")
+            base = _hard()
+            print("    " + ("OK — no problems." if not base
+                            else f"UNEXPECTED baseline issues: {[f['message'] for f in base]}"))
+            print("\n(2) Adding a setting that belongs to no installed module "
+                  "(the kind a half-finished removal leaves behind):")
+            print("    " + validate.fmt(wiring.apply(orphan)))
+            flagged = _hard()
+            print("    Re-checking:")
+            for f in flagged:
+                print("      - " + validate.fmt(f))
+            print(f"    -> {len(flagged)} problem(s) found (expected 1).")
+            print("\n(3) Removing that leftover and checking again:")
+            print("    " + validate.fmt(wiring.reverse(orphan)))
+            after = _hard()
+            print("    " + ("OK — consistent again." if not after
+                            else f"UNEXPECTED remaining issues: {[f['message'] for f in after]}"))
+            ok = (not base) and len(flagged) == 1 and (not after)
+            print("\n" + ("DEMO PASSED: the leftover was caught, then cleared."
+                          if ok else "DEMO DID NOT BEHAVE AS EXPECTED — see above."))
+            return 0 if ok else 1
+        finally:
+            wiring.SETTINGS_PATH = saved
+
+
 def main(argv: list) -> int:
+    if argv and argv[0] == "demo":
+        return _demo(argv[1:])
     try:
         manifests = discover_manifests()
         inventory = engine_file_inventory()

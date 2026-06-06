@@ -521,9 +521,9 @@ def is_applied(directive: dict) -> bool:
     gitignore: fence presence; permission: value membership; mcp / ontology-entry: definition /
     record EQUALITY), so a same-name-but-DRIFTED entry reads as NOT applied — an apply would rewrite
     it. Exposed as a reusable predicate so the coherence wiring leg (module_coherence) and the module
-    manager (slice 25) build the declared→applied direction without re-deriving. (The orphan-wire
-    REVERSE direction — nothing engine-identified applied that no manifest declares — needs a per-seam
-    enumerator and remains slice 25.)"""
+    manager build the declared→applied direction without re-deriving. (The orphan-wire REVERSE direction
+    — nothing engine-identified applied that no manifest declares — is the companion enumerator
+    applied_engine_wires() below, over declared_wire_identity for like-with-like comparison.)"""
     seam = directive.get("type") if isinstance(directive, dict) else None
     try:
         if seam == "gitignore":
@@ -548,6 +548,89 @@ def is_applied(directive: dict) -> bool:
     except (WiringError, KeyError, TypeError):
         return False
     return False
+
+
+# ---- the orphan-wire REVERSE enumerator (applied -> declared; slice 25b) ----------------------
+# The companion to is_applied()'s forward test: is_applied asks "is THIS declared directive applied?";
+# applied_engine_wires() asks "what engine-identified wiring is applied that may match NO directive?".
+# Both compute identity by the SAME rule (declared_wire_identity below) so the reverse-leg comparison
+# in module_coherence is like-with-like and the keying is single-homed.
+
+def declared_wire_identity(directive: dict):
+    """The (seam_type, identity_key) a DECLARED wires directive resolves to — in the SAME vocabulary
+    applied_engine_wires() emits, so the orphan-wire reverse leg compares like with like from ONE
+    identity rule. Returns None for the seams the reverse leg excludes — a `permission` (a bare string
+    is not engine-identifiable; reversal "errs toward leaving it"), an `ontology-entry` (the engine-owned
+    catalog is governed by the ownership + catalog-coverage gates, not this leg) — and for a
+    malformed/unknown directive."""
+    if not isinstance(directive, dict):
+        return None
+    seam = directive.get("type")
+    if seam == "hook":
+        h = directive.get("hook") or {}
+        return ("hook", (directive.get("event"), directive.get("matcher"),
+                         h.get("type"), h.get("command")))
+    if seam == "mcp":
+        return ("mcp", directive.get("name"))
+    if seam == "gitignore":
+        return ("gitignore", directive.get("key"))
+    return None  # permission / ontology-entry / unknown: outside the reverse-leg seam set
+
+
+def _applied_fence_ids() -> list:
+    """The ids of every well-formed engine-managed fence currently in .gitignore. The id is parsed from
+    each begin marker (single-homed off FENCE_BEGIN) and confirmed as a single well-formed begin..end
+    pair via _find_fence; a malformed/half fence is skipped (the forward leg / fence_reverse surface it).
+    The foundation .engine/.venv/ ignore is a PLAIN line carrying no marker, so it is never returned
+    (the D-156 carve-out, automatic)."""
+    pre, post = FENCE_BEGIN.split("{id}")
+    lines = _read_text(GITIGNORE_PATH).split("\n")
+    ids = []
+    for ln in lines:
+        if ln.startswith(pre) and ln.endswith(post) and len(ln) > len(pre) + len(post):
+            fence_id = ln[len(pre):len(ln) - len(post)]
+            try:
+                if _ID_RE.match(fence_id) and _find_fence(lines, fence_id) is not None:
+                    ids.append(fence_id)
+            except WiringError:
+                continue
+    return ids
+
+
+def applied_engine_wires() -> list:
+    """Every ENGINE-IDENTIFIED wiring entry currently APPLIED in the PLATFORM-SHARED files, as
+    (seam_type, identity_key, target_label) — the input to the orphan-wire reverse coherence leg
+    (validate.orphan_wire_findings). Covers the three platform-shared-file seams, the only place an
+    orphan has no OTHER governance:
+      - hook: a hook in .claude/settings.json whose command resolves under .engine/ (ENGINE_DIR_MARKER);
+        an operator's own non-engine hook is skipped (the engine-namespaced-identity keying firewall).
+      - mcp: an engine-prefixed server name in .mcp.json (MCP_NAME_PREFIX).
+      - gitignore: each well-formed engine-managed fence id in .gitignore.
+    PERMISSION (not engine-identifiable) and ONTOLOGY-ENTRY (engine-owned catalog, covered by the
+    ownership + catalog-coverage gates) are excluded by construction — see declared_wire_identity and
+    validate.orphan_wire_findings. Reads the live files with the same tolerant readers is_applied uses;
+    an absent/unreadable file yields no entries for that seam (fail-open)."""
+    out = []
+    data, err = _read_json_tolerant(SETTINGS_PATH, create=True)
+    if err is None:
+        for event, groups in (data.get("hooks") or {}).items():
+            for group in (groups or []):
+                if not isinstance(group, dict):
+                    continue
+                matcher = group.get("matcher")
+                for h in (group.get("hooks") or []):
+                    command = (h or {}).get("command", "") if isinstance(h, dict) else ""
+                    if isinstance(command, str) and ENGINE_DIR_MARKER in command:
+                        out.append(("hook", (event, matcher, h.get("type"), command),
+                                    _rel(SETTINGS_PATH)))
+    data, err = _read_json_tolerant(MCP_PATH, create=True)
+    if err is None:
+        for name in (data.get("mcpServers") or {}):
+            if isinstance(name, str) and name.startswith(MCP_NAME_PREFIX):
+                out.append(("mcp", name, _rel(MCP_PATH)))
+    for fence_id in _applied_fence_ids():
+        out.append(("gitignore", fence_id, _rel(GITIGNORE_PATH)))
+    return out
 
 
 # ---- CLI (the operator-runnable gitignore demo, on a scratch file) ---------------------------
