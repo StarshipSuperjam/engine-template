@@ -476,6 +476,36 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
                   opened=opened, updated=updated, closed=closed)
 
 
+def promote_finding(github: GitHubIssues, record: dict, now: str):
+    """Promote ONE finding to a tracked engine Issue — the out-of-band "log it" relay a producer hands
+    a single concern to for durable tracking WITHOUT running a full triage pass. Close (slice 22) calls
+    it at cap-exhaustion / fail-open to degrade a still-undispositioned finding to logged (never lost).
+
+    Open-or-update, deduped by `source_id` (the same source-keyed dedup `run` uses, via
+    list_open_engine_issues + the body sentinel). It does **no auto-resolve**: unlike `run`, it never
+    closes Issues absent from a records list, so logging one finding can never silently close every
+    OTHER open engine Issue — the exact hazard that bars `run([one_finding])`. It is **cache-free and
+    State-free**: a one-shot surfacing, not a triage pass, so it never disturbs `run`'s persistence
+    accrual or the committed debt cursor.
+
+    Degrades to **False** when GitHub is unreachable or errors (DegradedReadError) — the finding was
+    already surfaced to the operator in-session and the protected-branch merge is the durable backstop;
+    a caller must NOT claim durable tracking when the write could not land. Returns the Issue number
+    (opened or updated) on success. An unexpected (non-GitHub) error is left to surface to the caller's
+    own fail-open boundary (close's Stop handler rides hooks.run_hook's fail-open)."""
+    sid = derive_source_key(record)
+    first_seen = record.get("first_seen") or now
+    try:
+        github.ensure_label()
+        existing = next((i for i in github.list_open_engine_issues() if i.get("source_id") == sid), None)
+        if existing is not None:
+            github.update_issue(existing["number"], issue_body(record, first_seen, now))
+            return existing["number"]
+        return github.open_issue(issue_title(record), issue_body(record, first_seen, now)).get("number")
+    except DegradedReadError:
+        return False
+
+
 # ---- the operator demo (faked GitHub, REAL reconcile logic) ----------------
 
 class _FakeGitHub:

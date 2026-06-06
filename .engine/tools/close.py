@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""Slice 22 — close: the turn-close `Stop` hook (the finding-disposition gate + ambient-capture trigger).
+
+"Close" has two senses; this tool owns the TURN close (systems/lifecycle/close/README.md). SESSION close —
+the submitted pull request — is build-orchestration's (slice 24) and is not here. The `Stop` hook does
+exactly two things at the end of every turn:
+
+  1. AMBIENT CAPTURE — relay the turn's delta to MEMORY's ledger. This is memory's mechanism; close only
+     TRIGGERS it and never gates it. Memory-substrate is L2 (post-core / ~M1), so the trigger is a DORMANT
+     relay seam here: best-effort, a no-op until memory ships, never raising into the handler.
+
+  2. THE FINDING-DISPOSITION GATE — the trust spine. Under the standing pushback habit every concern the
+     session raises takes exactly one durable disposition (fix in line / log a tracked issue / escalate;
+     finding-disposition policy). While the session's ephemeral, session-scoped findings record holds an
+     UNDISPOSITIONED entry, the `Stop` hook HARD-BLOCKS the turn (looping the model back to disposition it),
+     then proceeds. This is the second member of the hooks block budget (the first is modes' explore
+     write-gate); Stop is block-eligible, so the block-budget coherence leg stays green over it.
+
+THE HONEST TIER — posture plus a STRONG LOCAL BLOCK over the RECORDED SUBSET, never an absolute wall
+(close/README §"The finding-disposition gate"). It is mechanical only on what was recorded (writing a raised
+concern into the record is the AI's discipline — posture); the durable, unbypassable backstop is the
+protected-branch merge. Cap-exhaustion degrades a recorded finding to LOGGED, never lost. The gate fails
+open (a crash lets the turn END — the inverse direction of modes' write-gate, both "fail toward
+not-stranding"). Routine is satisfiable non-interactively (log-it discharges without a human). It never
+deadlocks.
+
+THE CHANNELS (stated honestly, never overstated). The RELIABLE surface is the PUSHBACK: a `Stop` block is
+exit-2 + stderr (hooks.block), and the platform feeds that reason back to Claude. A clean (exit-0) `Stop`
+has no quiet read-and-stop channel: its stdout is debug-log only, and a `Stop` hook's one inject channel
+(`hookSpecificOutput.additionalContext`) CONTINUES the turn rather than ending it — so the engine declines
+it for an end-of-turn summary (EVENT_INVENTORY marks Stop `injects:False` deliberately). The clean-turn
+disposition summary is therefore ASSISTANT-NARRATED (computed here via `summary`, quiet when nothing needed
+action), and the cap-stop / fail-open notices are best-effort whose DURABLE record is the logged Issue
+(re-surfaced at the next boot). Never dress a best-effort line as a guaranteed operator surface. (The gate
+acts only on the `stop_hook_active` boolean — true on a continuation after a Stop block, the platform's
+documented loop-guard — blocking while it is false and logging+proceeding when true, so it is robust to the
+exact multi-block timing either way.)
+
+CLI (the operator-runnable demo; the live gate is what the wired `Stop` hook invokes):
+  python tools/close.py                                   # hook mode: run the Stop gate over stdin
+  python tools/close.py record  --session S --message M   # record a raised concern (undispositioned)
+  python tools/close.py dispose --session S --id F --kind fixed|logged|escalated
+  python tools/close.py pending --session S               # the undispositioned findings (what holds a turn)
+  python tools/close.py summary --session S               # the plain-language disposition summary
+  python tools/close.py clear   --session S               # wipe the record (a fresh turn)
+  python tools/close.py demo                              # a scripted held-then-ends demonstration
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import hooks      # noqa: E402  (run_hook + block/proceed: the fail-open harness the gate rides)
+import telemetry  # noqa: E402  (promote_finding: the out-of-band 'log it' relay; §16 — telemetry owns it)
+
+
+# ---- the block this owning system declares for the hook block budget ------------------------
+# hooks.py "names no invariant itself", so the consumer (module_coherence.block_eligible_registrations)
+# assembles the registry from each owner's declaration; the validator reads only `event`. Stop is
+# block-eligible. (This exact dict is fixtured by test_hooks.py's block-eligibility test.)
+BLOCK_INVARIANT = {"event": "Stop", "name": "findings-disposition", "owner": "close"}
+
+# The three durable dispositions every raised concern must reach (finding-disposition policy).
+DISPOSITIONS = frozenset({"fixed", "logged", "escalated"})
+
+
+# ---- the ephemeral findings record: OS-temp, session-keyed checklist ------------------------
+# A session_id-keyed JSON checklist in OS-temp storage (the modes stance-signal pattern; the build-spec
+# leaf close/README names). NON-committed, never read across sessions, no repo footprint, no gitignore
+# wire, no catalog entry — a committed or gitignored ledger would resurrect the dissolved session archive
+# (D-038). It tracks what the session raised and whether each has a disposition; the gate reads the
+# UNDISPOSITIONED subset. Distinct by construction from telemetry's cache and memory's ledger (the three
+# "capture" records stay separate). The prefix differs from modes' `engine-stance-` (no collision).
+_RECORD_PREFIX = "engine-findings-"
+
+
+def _sanitize(session_id):
+    """A filename-safe, length-bounded slug of the platform session id (it keys the OS-temp record). An
+    empty/garbled id yields "" -> _record_path returns None -> the record is empty -> nothing pending ->
+    the turn ENDS (degrade SAFE). A local copy of the modes stance-signal pattern (keeps boot's import
+    surface off this turn-end hot path)."""
+    if not session_id or not isinstance(session_id, str):
+        return ""
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)[:200]
+
+
+def _record_path(session_id):
+    """The OS-temp path for a session's findings record, or None when there is no usable session id."""
+    slug = _sanitize(session_id)
+    return os.path.join(tempfile.gettempdir(), f"{_RECORD_PREFIX}{slug}") if slug else None
+
+
+def read_findings(session_id):
+    """The session's findings checklist — a list of {id, message, disposition, location}. Absent /
+    unreadable / malformed -> [] (degrade SAFE: an unreadable record means nothing pending, so the gate
+    never HOLDS the turn on a record it cannot read — the fail-open direction)."""
+    path = _record_path(session_id)
+    if not path:
+        return []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001 — absent / unreadable / malformed -> empty, never a crash or a hold
+        return []
+    findings = data.get("findings") if isinstance(data, dict) else None
+    return findings if isinstance(findings, list) else []
+
+
+def _write_findings(session_id, findings):
+    path = _record_path(session_id)
+    if not path:
+        return False
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"findings": findings}, fh)
+        return True
+    except Exception:  # noqa: BLE001 — a failed write degrades to "no record" -> nothing held, never a crash
+        return False
+
+
+def record_finding(session_id, message, location=None):
+    """Record a concern the session raised, UNDISPOSITIONED. The AI calls this under its standing pushback
+    habit — the habit is POSTURE; the gate is mechanical on what was recorded. Idempotent on an identical
+    still-open message (returns the existing id, never a duplicate). Returns the finding id, or None when
+    there is no usable session id / the write failed."""
+    message = (message or "").strip()
+    if not message:
+        return None
+    findings = read_findings(session_id)
+    for f in findings:
+        if f.get("message") == message and f.get("disposition") is None:
+            return f.get("id")           # idempotent: don't double-record the same open concern
+    fid = f"f{len(findings) + 1}"
+    findings.append({"id": fid, "message": message, "disposition": None, "location": location})
+    return fid if _write_findings(session_id, findings) else None
+
+
+def dispose(session_id, finding_id, kind):
+    """Mark a recorded finding's durable disposition (fixed / logged / escalated). Returns True iff a
+    matching still-open finding was marked."""
+    if kind not in DISPOSITIONS:
+        raise ValueError(f"unknown disposition {kind!r}; expected one of {sorted(DISPOSITIONS)}")
+    findings = read_findings(session_id)
+    changed = False
+    for f in findings:
+        if f.get("id") == finding_id and f.get("disposition") is None:
+            f["disposition"] = kind
+            changed = True
+    return _write_findings(session_id, findings) if changed else False
+
+
+def pending(session_id):
+    """The undispositioned findings — exactly what the gate holds the turn on."""
+    return [f for f in read_findings(session_id) if f.get("disposition") is None]
+
+
+def clear(session_id):
+    """Wipe the session's findings record (a fresh turn, or after a force-end logs the leftovers).
+    Idempotent (a missing record is success); never raises."""
+    path = _record_path(session_id)
+    if not path:
+        return False
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except Exception:  # noqa: BLE001 — a failed delete is not fatal; an unreadable record holds nothing
+        return False
+    return True
+
+
+def summary(session_id):
+    """The plain-language disposition summary the operator reads instead of the transcript (close/README).
+    Computed here, ASSISTANT-NARRATED (a clean Stop has no guaranteed in-transcript channel — see the
+    module docstring). Quiet ("" ) when nothing this turn needed action; names what is still open while a
+    turn is mid-disposition."""
+    findings = read_findings(session_id)
+    if not findings:
+        return ""                                    # quiet — nothing was flagged
+    still = [f for f in findings if f.get("disposition") is None]
+    if still:
+        n = len(still)
+        return (f"{n} thing{'' if n == 1 else 's'} you raised this turn still "
+                f"need{'s' if n == 1 else ''} a disposition before we finish.")
+    counts = []
+    fixed = sum(1 for f in findings if f.get("disposition") == "fixed")
+    logged = sum(1 for f in findings if f.get("disposition") == "logged")
+    escalated = sum(1 for f in findings if f.get("disposition") == "escalated")
+    if fixed:
+        counts.append(f"{fixed} fixed")
+    if logged:
+        counts.append(f"{logged} saved as a follow-up item{'' if logged == 1 else 's'}")
+    if escalated:
+        counts.append(f"{escalated} raised for your decision")
+    return "everything I flagged this turn is handled — " + ", ".join(counts) + "."
+
+
+# ---- operator-legible notices (close/README §"Bounded, legible, and leak-proof at the edges") ----
+# The RELIABLE surface is the pushback (the block reason, exit-2 stderr, fed to Claude). The cap-stop and
+# fail-open notices ride exit-0 paths whose in-transcript surfacing is NOT guaranteed (a Stop hook does not
+# inject; its exit-0 stdout is debug-log only), so their DURABLE record is the logged Issue — never dressed
+# as a guaranteed operator line. No backstage vocabulary leaks (§12): no "Stop hook", "block budget", etc.
+_LOOP_LINE = "sorting out where the open findings should go — one moment."
+_CAP_STOP = "I've saved the open follow-up(s) as tracked items so they're not lost, and finished up."
+_FAIL_OPEN_NOTICE = ("I couldn't run the check that confirms nothing was dropped — review this turn's work "
+                     "with extra care.")
+
+
+def _pushback(open_findings):
+    """The plain-language pushback — the reliable surface (the block reason fed back to Claude). Names the
+    way forward (fix / save as a follow-up / flag), never a silent refusal, and lists what is still open so
+    the model knows what to settle."""
+    head = ("Before we finish: something you raised this turn still needs a decision — fix it now, save it "
+            "as a follow-up item, or flag it for me. I won't end the turn until it's settled.")
+    items = "; ".join((f.get("message") or "") for f in open_findings)
+    return f"{head} Still open: {items}" if items else head
+
+
+# ---- the ambient-capture trigger (DORMANT relay seam; memory's mechanism) -------------------
+
+def _trigger_ambient_capture(payload):
+    """Relay the turn's delta to MEMORY's ambient capture (close only triggers; memory owns the mechanism
+    and gates nothing — close/README §"Ambient capture"). Memory-substrate is L2 (post-core / ~M1): until
+    it ships there is nothing to relay to, so this is a DORMANT seam — best-effort, a no-op today (the
+    import fails), never gating close and never raising into the handler. When memory lands it plugs its
+    capture in here (owes -> memory-substrate)."""
+    try:
+        import memory  # noqa: F401,E402 — absent until memory-substrate ships; ImportError -> silent no-op
+        memory.capture_turn_delta(payload)
+    except Exception:  # noqa: BLE001 — capture is ambient and NEVER gates close; any failure is a no-op
+        return
+
+
+# ---- the telemetry relay: the "log it" disposition, applied at the cap on the AI's behalf ----
+
+def _source_id(finding):
+    """A content-derived, stable dedup key so the SAME concern, if it escapes the gate across turns,
+    collapses onto ONE tracked Issue (telemetry dedups by source_id — content, never per-occurrence
+    material)."""
+    digest = hashlib.sha1((finding.get("message") or "").encode("utf-8")).hexdigest()[:12]
+    return f"close/disposition/{digest}"
+
+
+def _to_finding_record(finding, now):
+    """A complete finding-record.v1 for telemetry's promotion path. severity=trust-critical so it promotes
+    immediately (a dropped disposition is trust-relevant); `location` set EXPLICITLY (the schema requires
+    the key — null when none); first_seen == last_seen == now (close is cache-free; the Issue carries its
+    own history). The message self-frames: the engine's disposition gate is reporting that it logged an
+    unsettled concern so it isn't lost."""
+    concern = (finding.get("message") or "").strip()
+    message = ("A concern raised while working wasn't given a disposition before the turn ended, so the "
+               f"engine logged it here so it isn't lost. The concern: {concern}")
+    return {"source_id": _source_id(finding), "severity": telemetry.TRUST_CRITICAL,
+            "message": message, "location": finding.get("location"),
+            "first_seen": now, "last_seen": now}
+
+
+def _github():
+    """The engine-Issue boundary for the RARE promote path. repo/token are reused from boot's single source
+    via a LAZY import reached ONLY here (cap-exhaustion / fail-open) — so the common turn-end path imports
+    neither boot's heavy stack nor the network (the hooks/README hot-path latency law). Returns None when
+    repo/token are unavailable (offline) -> promotion degrades to surfaced-not-tracked, the merge wall the
+    backstop. (The shared GitHub-context home is a later tidy when build-orch/24 becomes a second consumer.)"""
+    try:
+        from boot import repo_slug, gh_token  # lazy: keep boot off the hot path; reached only when promoting
+        repo, token = repo_slug(), gh_token()
+    except Exception:  # noqa: BLE001 — any failure obtaining GitHub context -> no durable tracking, wall holds
+        return None
+    if not repo or not token:
+        return None
+    return telemetry.GitHubIssues(repo, token)
+
+
+_UNSET = object()   # sentinel: distinguishes "no boundary passed (resolve _github)" from "offline (None)"
+
+
+def _promote(finding, now, github=_UNSET):
+    """Log ONE undispositioned finding down telemetry's out-of-band promotion path — the policies "log it"
+    disposition, applied by the gate on the AI's behalf when the cap is hit. Best-effort: returns the Issue
+    number on success, or False when GitHub is unavailable/unreachable (the concern was already surfaced
+    in-session; the protected-branch merge is the durable backstop). `github` is injectable for the demo
+    and tests (only the network is faked; the relay logic is real) — passing None means OFFLINE (so a test
+    can never reach live GitHub), while omitting it resolves the real boundary via _github()."""
+    gh = _github() if github is _UNSET else github
+    if gh is None:
+        return False
+    return telemetry.promote_finding(gh, _to_finding_record(finding, now), now)
+
+
+# ---- the turn-close Stop gate ---------------------------------------------------------------
+
+def handler(payload):
+    """The turn-close `Stop` gate. FIRST trigger ambient memory capture (dormant until memory ships; never
+    gates). Then read the undispositioned findings:
+      - none            -> proceed (the turn ends; the summary, if any, is assistant-narrated);
+      - pending, normal -> BLOCK with the plain pushback (exit-2 stderr, fed to Claude — the reliable
+                           surface), looping the model back to disposition;
+      - pending, FORCED -> (stop_hook_active: the platform is force-ending the turn at the block cap) LOG
+                           each leftover down telemetry's promotion path (degrade recorded->logged, never
+                           lost), clear the record, proceed — never re-block, so the cap can never deadlock.
+    The whole handler rides hooks.run_hook's fail-open: a crash lets the turn END and is flagged."""
+    payload = payload if isinstance(payload, dict) else {}
+    _trigger_ambient_capture(payload)
+    session_id = payload.get("session_id")
+    open_findings = pending(session_id)
+    if not open_findings:
+        return hooks.proceed()                            # nothing undispositioned -> the turn ends
+    if payload.get("stop_hook_active") is not True:
+        return hooks.block(_pushback(open_findings))      # push back until each is dispositioned
+    # Forced continuation: degrade recorded -> logged so nothing is lost, then proceed (run_hook would
+    # downgrade a block here anyway; we never re-enter the gate THIS turn, so the loop can't deadlock).
+    now = telemetry.utc_now()
+    github = _github()
+    # Log each leftover; KEEP any that could NOT be durably tracked (GitHub offline/unreachable) so it
+    # re-surfaces next turn rather than being silently dropped — close/README "no consent is lost, the
+    # finding survives regardless". A tracked leftover is removed; an untracked one stays in the record.
+    kept = [f for f in open_findings if not _promote(f, now, github)]
+    if kept:
+        _write_findings(session_id, kept)
+    else:
+        clear(session_id)
+    # Best-effort same-turn notice; the durable record is the logged Issue (or, for a kept leftover, its
+    # re-appearance next turn). Honest: cap-stop only when EVERY leftover was tracked.
+    sys.stderr.write((_FAIL_OPEN_NOTICE if kept else _CAP_STOP) + "\n")
+    return hooks.proceed()
+
+
+# ---- the CLI (the operator-runnable demo; the live gate is the wired Stop hook) -------------
+
+def _arg(argv, flag):
+    """The value following `flag` in argv, or None."""
+    if flag in argv:
+        i = argv.index(flag)
+        if i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
+def _verdict(decision):
+    """Render a handler decision as a one-line operator-facing verdict for the demo."""
+    if isinstance(decision, dict) and decision.get("action") == "block":
+        return f"HELD — {decision.get('reason')}"
+    return "ENDS (proceed)"
+
+
+def _demo(_argv):
+    """A scripted held-then-ends demonstration over the REAL handler (only the session id, and the GitHub
+    network for the cap step, are fixtures)."""
+    sid = "engine-demo-close-session"
+    clear(sid)
+    print("The turn-close disposition gate — what the Stop hook decides (the real handler):\n")
+
+    print(f"(1) A turn that raised nothing: pending={len(pending(sid))} "
+          f"-> {_verdict(handler({'session_id': sid}))}   (quiet; the turn ends)")
+
+    fid = record_finding(sid, "The new endpoint has no rate limit.")
+    print(f"\n(2) The session raises a concern (record -> {fid}); a turn-end is now HELD until it's settled:")
+    print(f"    pending={len(pending(sid))} -> {_verdict(handler({'session_id': sid}))}")
+
+    dispose(sid, fid, "logged")
+    print(f"\n(3) Disposition it (saved as a follow-up); the turn now ENDS:")
+    print(f"    pending={len(pending(sid))} -> {_verdict(handler({'session_id': sid}))}")
+    print(f"    summary -> {summary(sid)!r}")
+
+    clear(sid)
+    record_finding(sid, "A config value looks wrong but I'm out of room to confirm it.")
+    fake = telemetry._FakeGitHub()
+    gh = telemetry.GitHubIssues("you/your-project", "demo-token", transport=fake.transport)
+    orig = globals()["_github"]
+    globals()["_github"] = lambda: gh                     # inject the faked boundary for the cap step
+    try:
+        verdict = _verdict(handler({"session_id": sid, "stop_hook_active": True}))
+    finally:
+        globals()["_github"] = orig
+    open_issues = sum(1 for i in fake.issues.values() if i["state"] == "open")
+    print(f"\n(4) Cap-exhaustion (a forced continuation) — the leftover is LOGGED, not lost; never deadlocks:")
+    print(f"    pending-before=1 -> {verdict};  tracked items now: {open_issues};  "
+          f"pending-after={len(pending(sid))}")
+    print("    (this step used an in-memory stand-in for GitHub — NO real issue was created. The relay")
+    print("     logic ran for real; that a logged item durably persists and re-appears at the next start,")
+    print("     and that the engine only ever touches items it created itself, are confirmed live, not here.)")
+
+    print("\nThe gate is posture + a strong local block over what was recorded — the merge wall is the only "
+          "guarantee; the pushback is the reliable surface, the clean-turn summary is narrated.")
+    return 0
+
+
+def main(argv):
+    cmd = argv[0] if argv else "hook"
+    if cmd == "hook":
+        # Hook mode: what the wired Stop hook invokes. run_hook reads the event JSON from stdin, runs the
+        # gate, translates block() -> exit 2 + stderr, downgrades a forced-continuation block, fail-open.
+        return hooks.run_hook("Stop", handler)
+    if cmd == "record":
+        fid = record_finding(_arg(argv, "--session"), _arg(argv, "--message"))
+        print(f"recorded: {fid}")
+        return 0 if fid else 1
+    if cmd == "dispose":
+        try:
+            ok = dispose(_arg(argv, "--session"), _arg(argv, "--id"), _arg(argv, "--kind") or "")
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(f"disposed: {ok}")
+        return 0 if ok else 1
+    if cmd == "pending":
+        for f in pending(_arg(argv, "--session")):
+            print(f"  {f.get('id')}: {f.get('message')}")
+        return 0
+    if cmd == "summary":
+        print(summary(_arg(argv, "--session")))
+        return 0
+    if cmd == "clear":
+        print(f"cleared: {clear(_arg(argv, '--session'))}")
+        return 0
+    if cmd == "demo":
+        return _demo(argv[1:])
+    print("usage: close.py [hook | record --session S --message M | dispose --session S --id F --kind K | "
+          "pending --session S | summary --session S | clear --session S | demo]", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

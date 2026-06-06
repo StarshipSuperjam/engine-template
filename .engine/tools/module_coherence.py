@@ -33,9 +33,9 @@ present", a directory listing, never a hand-authored registry — and the engine
   - BLOCK-BUDGET (validate.block_budget_findings over the declared block registry): every block an
     owning system declares sits on a block-eligible event — only PreToolUse and Stop may hard-block
     (hooks/README §the block-budget law). The registry is ASSEMBLED from each owner's declaration
-    (hooks names none): modes' explore write-gate (PreToolUse, slice 21) is the first real member;
-    close's findings-disposition Stop block appends at slice 22. PreToolUse is eligible, so the leg is
-    green with a real member (and would fire the moment any owner declared a block on a non-eligible event).
+    (hooks names none): modes' explore write-gate (PreToolUse, slice 21) and close's findings-disposition
+    gate (Stop, slice 22). Both events are eligible, so the leg is green over the two real members (and
+    would fire the moment any owner declared a block on a non-eligible event).
 
 Deferred (named): the WIRING REVERSE / orphan-wire direction needs a per-seam enumerator, slice 25;
 the uncatalogued-surface leg belongs to catalog coverage (validators-core).
@@ -55,6 +55,7 @@ import validate  # noqa: E402
 import wiring     # noqa: E402  (the wiring library: is_applied per directive for the forward wiring leg)
 import hooks      # noqa: E402  (the block-eligible invariant registry the block-budget leg checks)
 import modes      # noqa: E402  (modes declares its explore write-gate block; the consumer assembles it)
+import close      # noqa: E402  (close declares its findings-disposition Stop block; assembled here too)
 
 # The named foundation infrastructure artifacts that live under .engine/ and are owned by no
 # module's `provides` — exactly the engine manifest plus the tool-runtime lockfiles
@@ -149,15 +150,17 @@ def wiring_status(manifests: list) -> list:
 def block_eligible_registrations() -> list:
     """The block declarations the block-budget leg governs, ASSEMBLED from each owning system's own
     declaration — hooks names no invariant itself (hooks/README §the block-budget law), so the registry
-    is the hooks-owned set (none) PLUS each owning lifecycle system's block: modes' explore write-gate
-    (modes.BLOCK_INVARIANT, slice 21); close's findings-disposition Stop block appends here at slice 22.
-    Each entry is {event, name, owner}; the validator reads only `event`. These — NOT bare
-    .claude/settings.json hook registrations — are the authoritative "this blocks" source: a wired hook
-    command is opaque, so registration alone never implies a block (boot's SessionStart hook is wired yet
-    declares none; modes' PreToolUse hook is the one that declares a block). So the leg now validates a
-    REAL member — the explore write-gate on PreToolUse, which is block-eligible → green with a real
-    member; it would fire the moment any owner declared a block on a non-eligible event."""
-    return [dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS] + [dict(modes.BLOCK_INVARIANT)]
+    is the hooks-owned set (none) PLUS each owning lifecycle system's block: modes' explore write-gate on
+    PreToolUse (modes.BLOCK_INVARIANT, slice 21) and close's findings-disposition gate on Stop
+    (close.BLOCK_INVARIANT, slice 22). Each entry is {event, name, owner}; the validator reads only
+    `event`. These — NOT bare .claude/settings.json hook registrations — are the authoritative "this
+    blocks" source: a wired hook command is opaque, so registration alone never implies a block (boot's
+    SessionStart hook is wired yet declares none). So the leg validates two REAL members on block-eligible
+    events (PreToolUse, Stop) → green; it would fire the moment any owner declared a block on a
+    non-eligible event. (owes → 25: if the block-owner set grows past 2–3 the module manager may refactor
+    this consumer-side assembly to a registry-discovery pattern.)"""
+    return ([dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS]
+            + [dict(modes.BLOCK_INVARIANT), dict(close.BLOCK_INVARIANT)])
 
 
 def check_coherence(tier: str = "hard") -> list:

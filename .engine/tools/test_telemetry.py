@@ -327,6 +327,63 @@ class TestSentinelRecovery(unittest.TestCase):
         self.assertEqual(f.open_count(), 2)
 
 
+class TestPromoteFinding(unittest.TestCase):
+    """The single-finding 'log it' relay (close's out-of-band promotion, slice 22): open-or-update ONE
+    Issue deduped by source_id, with NO auto-resolve of other open Issues, degrading on a GitHub
+    failure. The harness under test is the REAL GitHubIssues + promote_finding; only the network is fake."""
+
+    def frec(self, sid, message="The disposition gate gave up on an open follow-up.", location=None):
+        # a complete finding-record.v1 (exactly the shape close's _to_finding_record builds)
+        return {"source_id": sid, "severity": "trust-critical", "message": message,
+                "location": location, "first_seen": T[0], "last_seen": T[0]}
+
+    def test_opens_one_labelled_issue_when_absent(self):
+        f = FakeGH(labels={"engine"})
+        num = telemetry.promote_finding(gh(f), self.frec("close/turn-finding-1"), T[0])
+        self.assertTrue(num)
+        self.assertEqual(f.open_count(), 1)
+        created = next(iter(f.issues.values()))
+        self.assertIn("engine", created["labels"])               # labelled at creation
+
+    def test_updates_not_duplicates_on_same_source_id(self):
+        f = FakeGH(labels={"engine"})
+        telemetry.promote_finding(gh(f), self.frec("close/same"), T[0])
+        telemetry.promote_finding(gh(f), self.frec("close/same", message="seen again"), T[1])
+        self.assertEqual(f.open_count(), 1)                       # one issue — dedup by source_id
+        self.assertEqual(len([c for c in f.writes() if c[0] == "POST"]), 1)   # one open...
+        self.assertTrue(any(c[0] == "PATCH" for c in f.writes()))             # ...then an update
+
+    def test_does_not_touch_or_resolve_other_open_issues(self):
+        # THE GUARD: promoting one finding must NEVER close (or even touch) OTHER open engine Issues —
+        # the exact run([one_finding]) hazard. promote opens only its own; nothing else is patched.
+        f = FakeGH(labels={"engine"})
+        for sid in ("close/a", "close/b", "close/c"):
+            telemetry.promote_finding(gh(f), self.frec(sid), T[0])
+        self.assertEqual(f.open_count(), 3)                       # all three stay open
+        self.assertEqual(len([c for c in f.writes() if c[0] == "POST"]), 3)   # exactly the three opens
+        self.assertEqual([c for c in f.writes() if c[0] == "PATCH"], [])      # nothing updated/closed
+
+    def test_explicit_location_record_promotes(self):
+        f = FakeGH(labels={"engine"})
+        num = telemetry.promote_finding(
+            gh(f), self.frec("close/loc", location={"file": ".engine/tools/x.py", "line": None}), T[0])
+        self.assertTrue(num)
+        self.assertEqual(f.open_count(), 1)
+
+    def test_degrades_to_false_on_read_failure_no_writes(self):
+        for status in (403, 500):
+            f = FakeGH(labels={"engine"}, fail_read=status)
+            result = telemetry.promote_finding(gh(f), self.frec("close/x"), T[0])
+            self.assertFalse(result)                             # falsey, never raises
+            self.assertEqual(f.open_count(), 0)                  # nothing opened on the degraded path
+
+    def test_degrades_to_false_when_the_write_fails(self):
+        f = FakeGH(labels={"engine"}, fail_write=422)
+        result = telemetry.promote_finding(gh(f), self.frec("close/x"), T[0])
+        self.assertFalse(result)
+        self.assertEqual(f.open_count(), 0)
+
+
 class TestFailOpen(unittest.TestCase):
     def test_own_crash_exits_zero_with_a_soft_finding(self):
         orig = telemetry._demo

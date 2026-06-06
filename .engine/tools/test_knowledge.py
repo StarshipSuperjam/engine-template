@@ -141,10 +141,10 @@ class TestLiveDerivation(unittest.TestCase):
         self.assertEqual(doc_home["predicates"].get("provided_by"), ["module:core"])
         self.assertEqual(doc_home["predicates"].get("governed_by"), ["schema:doc.v1"])
         # the operation surface (slice 20 landed the first instance, boot's SessionStart pack; slice 21
-        # adds the modes operation): the placeholder operation:.gitkeep is gone, and BOTH core-provided
-        # lifecycle operations are governed by operation.v1.
+        # added the modes operation; slice 22 adds close's turn-close operation): the placeholder
+        # operation:.gitkeep is gone, and every core-provided lifecycle operation is governed by operation.v1.
         self.assertNotIn("operation:.gitkeep", self.by_id)
-        for op_id in ("operation:boot-session-start", "operation:operating-modes"):
+        for op_id in ("operation:boot-session-start", "operation:operating-modes", "operation:close-turn"):
             op_home = self.by_id.get(op_id)
             self.assertIsNotNone(op_home, f"expected an {op_id} entity")
             self.assertEqual(op_home["predicates"].get("provided_by"), ["module:core"], op_id)
@@ -186,7 +186,7 @@ class TestLiveDerivation(unittest.TestCase):
     def test_expected_entities_are_present(self):
         """Concrete spot-checks, independent of the _surface_for oracle the total-coverage test
         reuses — so a classification bug cannot pass both tests."""
-        for eid in ("tool:validate", "tool:knowledge_gen", "tool:modes", "schema:check.v1",
+        for eid in ("tool:validate", "tool:knowledge_gen", "tool:modes", "tool:close", "schema:check.v1",
                     "schema:knowledge.v1",
                     "check:knowledge-coverage", "check:catalog-coverage", "module:core"):
             self.assertIn(eid, self.by_id, eid)
