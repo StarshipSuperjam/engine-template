@@ -15,6 +15,8 @@ the live sources (so a forgotten regen fails this suite, not only CI); and the c
 stale/missing graph, fails closed on a broken generator, and the unknown-mode tail is intact.
 """
 from __future__ import annotations
+import contextlib
+import io
 import json
 import os
 import sys
@@ -25,6 +27,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import knowledge_gen     # noqa: E402
+import hooks             # noqa: E402  (slice 23: the run_hook harness the commit-boundary regen rides)
 
 KNOWLEDGE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "knowledge.v1.json"))
 RULE_PATH = os.path.join(validate.CHECK_DIR, "knowledge-coverage.json")
@@ -296,6 +299,111 @@ class TestCoverageFingerprintMode(unittest.TestCase):
             {"id": "x", "tier": "hard", "params": {"mode": "bogus"}}, {})
         self.assertFalse(passed)
         self.assertTrue(any(f["severity"] == "hard" for f in found))
+
+
+class TestCommitBoundaryRegen(unittest.TestCase):
+    """Slice 23: the PreToolUse commit-boundary regen hook (knowledge/README §Regeneration). On a
+    `git commit` it refreshes the graph best-effort and ALWAYS proceeds — it never blocks, never injects,
+    fails open, and is reached via the `hook` verb (whose absence/mistyping would BLOCK the commit: the
+    no-arg default is `show`, an stdout dump, and an unknown verb returns exit 2)."""
+
+    _COMMIT = {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'x'"}}
+    _STATUS = {"tool_name": "Bash", "tool_input": {"command": "git status"}}
+
+    def test_is_git_commit_true_on_commit_amend_and_compound(self):
+        for cmd in ("git commit -m 'x'", "git commit --amend", "git add -A && git commit -m y"):
+            p = {"tool_name": "Bash", "tool_input": {"command": cmd}}
+            self.assertTrue(knowledge_gen._is_git_commit(p), cmd)
+
+    def test_is_git_commit_false_on_non_commit_non_bash_and_malformed(self):
+        self.assertFalse(knowledge_gen._is_git_commit(self._STATUS))
+        self.assertFalse(knowledge_gen._is_git_commit(
+            {"tool_name": "Bash", "tool_input": {"command": "git log --oneline"}}))
+        # a non-Bash tool never fires, even if its input text contains the words
+        self.assertFalse(knowledge_gen._is_git_commit(
+            {"tool_name": "Read", "tool_input": {"file_path": "git commit"}}))
+        self.assertFalse(knowledge_gen._is_git_commit({"tool_name": "Bash"}))   # no tool_input
+        self.assertFalse(knowledge_gen._is_git_commit(None))                    # malformed
+        self.assertFalse(knowledge_gen._is_git_commit({}))
+        # a non-string command degrades safe (no TypeError, no spurious finding)
+        for bad in (["git", "commit"], 123, {"x": 1}, None):
+            self.assertFalse(knowledge_gen._is_git_commit(
+                {"tool_name": "Bash", "tool_input": {"command": bad}}), repr(bad))
+
+    def test_handler_regenerates_on_commit_and_proceeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            scratch = os.path.join(d, "graph.json")
+            with mock.patch.object(knowledge_gen, "GRAPH_PATH", scratch), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                decision = knowledge_gen._regen_handler(self._COMMIT)
+            self.assertEqual(decision, hooks.proceed())             # ALWAYS proceed
+            self.assertTrue(os.path.exists(scratch))                # the graph was refreshed...
+            with open(scratch, encoding="utf-8") as fh:
+                json.loads(fh.read())                               # ...and it is valid JSON
+
+    def test_handler_does_not_regenerate_on_non_commit(self):
+        with tempfile.TemporaryDirectory() as d:
+            scratch = os.path.join(d, "graph.json")                 # never created
+            with mock.patch.object(knowledge_gen, "GRAPH_PATH", scratch):
+                decision = knowledge_gen._regen_handler(self._STATUS)
+            self.assertEqual(decision, hooks.proceed())
+            self.assertFalse(os.path.exists(scratch))               # no regen on a non-commit
+
+    def test_handler_fails_open_on_generate_error(self):
+        err = io.StringIO()
+        with mock.patch.object(knowledge_gen, "generate", side_effect=OSError("boom")), \
+                contextlib.redirect_stderr(err):
+            decision = knowledge_gen._regen_handler(self._COMMIT)
+        self.assertEqual(decision, hooks.proceed())                 # fail-open: proceed, never block
+        self.assertIn("could not run", err.getvalue())              # not silent
+        self.assertIn("commit was not affected", err.getvalue())
+
+    def test_handler_returns_proceed_on_every_path(self):
+        # PreToolUse is block-eligible and is NOT downgraded the way a forced Stop is, so a block/deny
+        # return here would BLOCK the commit. The handler must return proceed on every path.
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(knowledge_gen, "GRAPH_PATH", os.path.join(d, "g.json")), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(knowledge_gen._regen_handler(self._COMMIT), hooks.proceed())
+            self.assertEqual(knowledge_gen._regen_handler(self._STATUS), hooks.proceed())
+        with mock.patch.object(knowledge_gen, "generate", side_effect=ValueError("x")), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(knowledge_gen._regen_handler(self._COMMIT), hooks.proceed())
+
+    def test_end_to_end_via_run_hook_proceeds_exit_zero_no_stdout(self):
+        with tempfile.TemporaryDirectory() as d:
+            scratch = os.path.join(d, "graph.json")
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(knowledge_gen, "GRAPH_PATH", scratch):
+                code = hooks.run_hook("PreToolUse", knowledge_gen._regen_handler,
+                                      stdin=io.StringIO(json.dumps(self._COMMIT)), stdout=out, stderr=err)
+            self.assertEqual(code, hooks.EXIT_PROCEED)              # exit 0 — the commit proceeds
+            self.assertEqual(out.getvalue(), "")                   # no structured-output corruption
+            self.assertTrue(os.path.exists(scratch))               # the graph was refreshed
+
+    def test_main_hook_verb_routes_to_run_hook(self):
+        # The `hook` verb MUST route to run_hook; its absence would fall through to the usage error
+        # (exit 2 = a PreToolUse BLOCK) and the no-arg default `show` would dump the graph to stdout.
+        with mock.patch.object(hooks, "run_hook", return_value=0) as run:
+            self.assertEqual(knowledge_gen.main(["hook"]), 0)
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0], "PreToolUse")
+        self.assertIs(run.call_args.args[1], knowledge_gen._regen_handler)
+
+    def test_wired_command_passes_the_hook_arg(self):
+        # The footgun guard: the wired command MUST end in ` hook`. Dropping the arg re-enables the
+        # no-arg `show` -> stdout dump on every PreToolUse. Assert it in both the manifest and settings.
+        manifest = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
+        kg_wires = [w for w in manifest["wires"] if w.get("type") == "hook"
+                    and "knowledge_gen.py" in w.get("hook", {}).get("command", "")]
+        self.assertEqual(len(kg_wires), 1, "exactly one knowledge_gen hook wire")
+        self.assertEqual(kg_wires[0]["event"], "PreToolUse")
+        self.assertTrue(kg_wires[0]["hook"]["command"].rstrip().endswith(" hook"))
+        settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
+        kg_cmds = [h["command"] for grp in settings["hooks"].get("PreToolUse", [])
+                   for h in grp.get("hooks", []) if "knowledge_gen.py" in h.get("command", "")]
+        self.assertEqual(len(kg_cmds), 1)
+        self.assertTrue(kg_cmds[0].rstrip().endswith(" hook"))
 
 
 if __name__ == "__main__":

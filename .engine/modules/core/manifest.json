@@ -57,6 +57,15 @@
     },
     {
       "type": "hook",
+      "event": "PreToolUse",
+      "matcher": "",
+      "hook": {
+        "type": "command",
+        "command": "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python ${CLAUDE_PROJECT_DIR}/.engine/tools/knowledge_gen.py hook"
+      }
+    },
+    {
+      "type": "hook",
       "event": "Stop",
       "matcher": "",
       "hook": {
