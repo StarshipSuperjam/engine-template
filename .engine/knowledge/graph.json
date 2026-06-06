@@ -293,6 +293,7 @@
         ],
         "targets": [
           "operation:boot-session-start",
+          "operation:build-orchestration",
           "operation:close-turn",
           "operation:operating-modes"
         ]
@@ -317,6 +318,7 @@
         ],
         "targets": [
           "operation:boot-session-start",
+          "operation:build-orchestration",
           "operation:close-turn",
           "operation:operating-modes"
         ]
@@ -614,6 +616,25 @@
       "source": {
         "fingerprint": "sha256:02651436ef1d68a096a936b90f34c7fb142b3fbfffff42fb15066656b2161702",
         "path": ".engine/operations/boot-session-start.md"
+      },
+      "type": "operation"
+    },
+    {
+      "id": "operation:build-orchestration",
+      "name": ".engine/operations/build-orchestration.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-orchestration",
+      "source": {
+        "fingerprint": "sha256:44a2a7a0d4ff6433da54eef1982f15525b737932a423b520340f0a904096eca7",
+        "path": ".engine/operations/build-orchestration.md"
       },
       "type": "operation"
     },
