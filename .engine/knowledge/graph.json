@@ -296,6 +296,7 @@
           "operation:build-orchestration",
           "operation:close-turn",
           "operation:control-plane-bootstrap",
+          "operation:module-remove",
           "operation:operating-modes"
         ]
       },
@@ -322,6 +323,7 @@
           "operation:build-orchestration",
           "operation:close-turn",
           "operation:control-plane-bootstrap",
+          "operation:module-remove",
           "operation:operating-modes"
         ]
       },
@@ -675,6 +677,25 @@
       "source": {
         "fingerprint": "sha256:3483da1db477397e2523acef620a8412896959371dff67164e30014fb2f4ff27",
         "path": ".engine/operations/control-plane-bootstrap.md"
+      },
+      "type": "operation"
+    },
+    {
+      "id": "operation:module-remove",
+      "name": ".engine/operations/module-remove.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module-remove",
+      "source": {
+        "fingerprint": "sha256:9c92cc75c99cd361a820f3b032f767b15da3399566b9bfb96acc7b7c9f168d03",
+        "path": ".engine/operations/module-remove.md"
       },
       "type": "operation"
     },
@@ -1299,8 +1320,24 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:31eca7ae6f943d3217bd38192163066979c5e5c09d8a5d6fed3f6cae09fa5005",
+        "fingerprint": "sha256:15e4667b28431a831a8e9d07105e4b516f16be77ccdced1db9ed03099d023595",
         "path": ".engine/tools/module_coherence.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:module_manager",
+      "name": ".engine/tools/module_manager.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module_manager",
+      "source": {
+        "fingerprint": "sha256:b6c3d3b8522beeca1d6398c91f7ef840c2445b4e8c8712b4d7e29e41b3c63e90",
+        "path": ".engine/tools/module_manager.py"
       },
       "type": "tool"
     },
@@ -1561,6 +1598,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_module_manager",
+      "name": ".engine/tools/test_module_manager.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_module_manager",
+      "source": {
+        "fingerprint": "sha256:ac91f63403e53aafac9a7da98db351e011bb31e154a74e20c568d78854414e53",
+        "path": ".engine/tools/test_module_manager.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_modules",
       "name": ".engine/tools/test_modules.py",
       "owner": "core",
@@ -1571,7 +1624,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:bcf5bc0b2fdb5c4dfc60e4bddc95e6d9a53cd9384dcf9eac5f2b6826aabf3fee",
+        "fingerprint": "sha256:28afc77727dc7c15affd57f64e912fa1c589dc78461064dd609596af0f00559c",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
@@ -1715,7 +1768,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:24aded18e4fababcec0efd0bb23cb29bbb75fc4ad5bdb9fdb2c34d61fa7505ae",
+        "fingerprint": "sha256:e9985b8d0d6d8987688bee9efa1d3f780bddfab4fa280ec30eab2bafa116d79c",
         "path": ".engine/tools/validate.py"
       },
       "type": "tool"
@@ -1747,7 +1800,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:0169311f7c5756666a81c54462370382231455bd09a01a5f9fb6d0637433eb90",
+        "fingerprint": "sha256:362f526f5ff368b7c0aeae0d1d03ce2c3c830dfd08030332be74769ed324aecd",
         "path": ".engine/tools/wiring.py"
       },
       "type": "tool"

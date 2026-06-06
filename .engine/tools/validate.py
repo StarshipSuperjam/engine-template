@@ -668,14 +668,60 @@ def wiring_findings(declared: list, tier: str, message: str) -> list:
     approval (operator state, surfaced loudly at boot and in the control-plane PR-Validation section,
     not here) — so a defined-but-unapproved server is simply is_applied=True and never flags
     (module-system/README.md §"MCP registration", §Coherence). FORWARD direction only; the orphan-wire
-    REVERSE direction (nothing engine-identified applied that no manifest declares) needs a per-seam
-    enumerator and remains the module manager's, slice 25."""
+    REVERSE direction (nothing engine-identified applied that no manifest declares) is the companion
+    `orphan_wire_findings` below, over the module-coherence consumer's per-seam applied-wire enumerator."""
     findings = []
     for module_id, seam_type, target_label, applied in declared:
         if not applied:
             findings.append(finding(tier, f"Module '{module_id}' declares a {seam_type} wire that is "
                             f"not applied in {target_label}; re-run the install / wiring step to apply "
                             f"it, then re-check. {message}"))
+    return findings
+
+
+def orphan_wire_findings(applied: list, declared_ids, tier: str, message: str) -> list:
+    """Pure REVERSE wiring coherence (applied -> declared) — the orphan-wire leg, the inverse of the
+    forward wiring_findings (declared -> applied). Together they are the full bidirectional
+    "Declared wiring <-> applied wiring" leg the module system mandates
+    (systems/grammar/module-system/README.md §Coherence): "everything a present manifest's `wires`
+    declares is applied in the shared files, AND nothing engine-identified is applied that no manifest
+    declares."
+
+    Given `applied`, a list of (seam_type, identity_key, target_label) for every ENGINE-IDENTIFIED entry
+    currently applied in the platform-shared files (built live by the module-coherence consumer, so this
+    leg stays pure and filesystem-free exactly like ownership_findings / wiring_findings), and
+    `declared_ids`, the set of (seam_type, identity_key) every present manifest's `wires` declares, return
+    a hard `tier` finding for any applied engine entry whose identity NO manifest declares — a stale
+    leftover after an incomplete uninstall (Risk R5).
+
+    Two carve-outs make the live seam set the three PLATFORM-SHARED-file seams (hook, mcp, gitignore) —
+    the only place an orphan has no other governance:
+      - PERMISSION is absent from `applied` by construction: a bare permission string is not
+        engine-identifiable, so reversal "errs toward leaving it" and coherence cannot reach that honest
+        residue (module-system §"The wiring library"). The consumer's enumerator never emits one.
+      - ONTOLOGY-ENTRY is out of scope HERE: its target is the engine-OWNED catalog, already covered by
+        the ownership leg (every .engine/ file must be claimed) and the SEPARATE locked catalog-coverage
+        gate ("ontology catalog coverage is an already-separate locked gate, so [it is] not part of module
+        coherence", module-system §Coherence). The forward leg still checks a declared ontology-entry wire
+        is applied; only the reverse (orphan) direction defers to those gates. The asymmetry is sound: the
+        reverse leg exists to catch orphans in the platform-shared files that NOTHING ELSE watches; an
+        engine-owned-file orphan is already watched twice.
+
+    Drift is reported ONCE, by the forward leg, for the NAME/KEY-identity seams (mcp, gitignore): their
+    identity is the server name / fence id, so a content-drifted entry keeps the same identity, still
+    matches a declared directive here, and is therefore not an orphan. A HOOK is different by the spec's
+    own identity model — a hook's identity is the full {event, matcher, type, command} tuple
+    (module-system §"The wiring library") — so editing an engine hook's command is, by that definition,
+    the declared hook gone (forward leg: not applied) AND a new undeclared engine hook present (reverse
+    leg: orphan). Those are two accurate findings about two real facts, not a double-count of one."""
+    declared = set(declared_ids)
+    findings = []
+    for seam_type, key, target_label in applied:
+        if (seam_type, key) not in declared:
+            findings.append(finding(tier, f"An engine-identified {seam_type} setting is present in "
+                            f"{target_label} that no installed module declares — a leftover from an "
+                            f"incomplete removal. Remove it, or re-install the module it belonged to, "
+                            f"then re-check. {message}"))
     return findings
 
 
