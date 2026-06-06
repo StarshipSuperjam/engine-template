@@ -368,7 +368,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                         "a drifted mcp definition must flag a hard wiring finding")
 
     def test_main_exit_zero_on_clean_tree(self):
-        self.assertEqual(module_coherence.main([]), 0)
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):  # main() prints its operator report; keep tests quiet
+            self.assertEqual(module_coherence.main([]), 0)
 
     def test_malformed_manifest_is_a_plain_config_error_not_a_traceback(self):
         # A non-JSON manifest must surface as a plain CONFIG ERROR (exit 2), never a raw
