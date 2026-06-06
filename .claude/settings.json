@@ -54,6 +54,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python ${CLAUDE_PROJECT_DIR}/.engine/tools/modes.py accept-hook"
+          }
+        ]
+      }
     ]
   }
 }

@@ -6,8 +6,9 @@ block-budget coherence leg (validate.block_budget_findings).
 Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
 
 These lock the laws hooks owns (systems/infrastructure/hooks/README.md):
-  - the event inventory is the engine's chosen subset, with PostToolUse two-owner, SessionEnd hooks-owned
-    and non-blocking, UserPromptSubmit boot-owned injection; only PreToolUse and Stop are block-eligible;
+  - the event inventory is the engine's chosen subset, with PostToolUse three-owner (validation·telemetry·
+    modes), SessionEnd hooks-owned and non-blocking, UserPromptSubmit boot-owned injection; only PreToolUse
+    and Stop are block-eligible;
     the block-eligible invariant set ships EMPTY.
   - the block cap is 8, overridable via CLAUDE_CODE_STOP_HOOK_BLOCK_CAP (verified on the live platform).
   - the interpreter path is ${CLAUDE_PROJECT_DIR}-rooted, per-OS (POSIX bin/python, Windows Scripts/
@@ -57,8 +58,11 @@ class TestEventInventory(unittest.TestCase):
             self.assertEqual(meta["blocks"], ev in {"PreToolUse", "Stop"},
                              f"{ev} block-eligibility")
 
-    def test_posttooluse_has_two_owners(self):
-        self.assertEqual(hooks.EVENT_INVENTORY["PostToolUse"]["owners"], ("validation", "telemetry"))
+    def test_posttooluse_enumerates_its_three_owners(self):
+        # validation's touched-file run + telemetry's ambient capture + modes' plan-acceptance
+        # Build-entry trigger coexist on one event (D-180 owner inventory).
+        self.assertEqual(hooks.EVENT_INVENTORY["PostToolUse"]["owners"],
+                         ("validation", "telemetry", "modes"))
 
     def test_sessionend_is_hooks_owned_and_cannot_block(self):
         self.assertEqual(hooks.EVENT_INVENTORY["SessionEnd"]["owners"], ("hooks",))

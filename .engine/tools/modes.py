@@ -4,10 +4,11 @@
 The session's operating STANCE is what it may do, and whether a human is present to answer for it
 (systems/lifecycle/modes/README.md). Three stances on two axes:
   - explore (default, interactive, writes gated OFF) — every session boots here;
-  - build   (interactive, writes on) — entered by a deliberate operator-typed verb (slice 26);
+  - build   (interactive, writes on) — entered by a typed verb (slice 26) OR by accepting a plan;
   - routine (unattended, scope-locked, writes on) — entered by an operator-authored scheduled fire.
 
-This module ships TWO things (the Build-entry verb and Routine entry are later — slice 26 / post-core):
+This module ships THREE things (the operator-typed Build verb and Routine entry are later — slice 26 /
+post-core):
 
   1. THE STANCE SIGNAL — an ephemeral, session-keyed marker in OS-temp storage, never committed and
      never carried across sessions. It is set only by a deliberate in-session entry, and CLEARED at
@@ -18,8 +19,15 @@ This module ships TWO things (the Build-entry verb and Routine entry are later �
   2. THE EXPLORE WRITE-GATE — a PreToolUse hook, active only while the stance is explore, that DENIES the
      small enumerated set that BEGINS building — edits to engine or product files, branch creation,
      commits, and the opening of a pull request (via gh or a GitHub MCP tool) — and ALLOWS everything
-     else: reads, read-only command/test execution, greps, subagent spawning, and `gh issue` calls.
-     There is NO default-deny: an action it cannot classify resolves to ALLOW (modes/README §"Explore").
+     else: reads, read-only command/test execution, greps, subagent spawning, `gh issue` calls, AND
+     Claude Code's own plan-mode artifact (the plan file is planning, not building — D-177/D-178; see
+     is_plan_artifact, recognized by the platform's own marker, never a path). There is NO default-deny:
+     an action it cannot classify resolves to ALLOW (modes/README §"Explore").
+
+  3. THE PLAN-ACCEPTANCE BUILD-ENTRY TRIGGER — a PostToolUse hook (accept_handler) that flips the stance
+     to Build when the operator accepts a plan (the plan-exit `ExitPlanMode` completion). The second
+     interactive entry path alongside the slice-26 verb; it sets the signal and nothing else, never
+     blocks, and fails safe to explore (D-179/D-180; modes/README §"Entering Build").
 
 THE GATE IS A §6 NUDGE, NOT A WALL — stated honestly, never overstated (modes/README §"the gate is a
 strong default, and its enforcement is fallible"; D-171). The gate emits its deny in the form the platform
@@ -37,9 +45,10 @@ DECLARES it (BLOCK_INVARIANT); hooks names no invariant itself, so the consumer 
 the registry from each owning system's declaration. PreToolUse is block-eligible, so the block-budget
 coherence leg stays green over it.
 
-CLI (the operator-runnable demo; the live gate is what the wired PreToolUse hook invokes):
+CLI (the operator-runnable demo; the live gates are what the wired hooks invoke):
   python tools/modes.py                              # hook mode: run the PreToolUse gate over stdin
-  python tools/modes.py classify <Tool> [cmd] [--session S]   # what the gate decides for one action
+  python tools/modes.py accept-hook                  # PostToolUse mode: set Build on plan-acceptance
+  python tools/modes.py classify <Tool> [cmd] [--session S] [--pm MODE] [--plan-file]  # gate decision
   python tools/modes.py stance --session S           # the session's current stance
   python tools/modes.py set-build --session S         # enter Build for a session (demo of slice 26's verb)
   python tools/modes.py clear --session S             # clear the signal -> Explore (what boot does)
@@ -106,9 +115,10 @@ def current_stance(session_id: str | None) -> str:
 
 
 def set_stance(session_id: str | None, stance: str) -> bool:
-    """Set the session's stance signal (used by the operator-typed Build verb at slice 26, and by the
-    demo/tests now). Setting EXPLORE clears the marker (explore is the absence of a signal). Returns
-    True on success, False when there is no usable session id or the write fails; never raises."""
+    """Set the session's stance signal. Callers: the plan-acceptance trigger (accept_handler, this slice),
+    the operator-typed Build verb (slice 26), and the demo/tests. Setting EXPLORE clears the marker
+    (explore is the absence of a signal). Returns True on success, False when there is no usable session
+    id or the write fails; never raises."""
     if stance == EXPLORE:
         return clear_stance(session_id)
     if stance not in STANCES:
@@ -196,6 +206,33 @@ def is_building_action(tool_name: str, tool_input) -> bool:
     return False
 
 
+# ---- the plan-mode artifact carve-out (D-177/D-178) -----------------------------------------
+# Claude Code's NATIVE plan file (the file the platform writes when a plan is accepted) is *planning,
+# not building*, so the gate allows it even though it is a Write/Edit — denying it would regress a
+# Claude Code basic the Explore stance exists to support, leaving the non-engineer worse off than plain
+# Claude Code (modes/README §"Explore"). It is recognized by the platform's OWN plan-mode MARKER, NOT a
+# path: the plan file's location is operator-configurable (`plansDirectory`) and can resolve INSIDE the
+# repo, exactly where a path match would wrongly re-trip the gate. The marker is the session's
+# `permission_mode == "plan"` — the signal Claude Code's built-in plan-mode permission itself uses to
+# write the file (and `tool_input.is_plan_file`, honored too if a platform sets it). The carve-out is
+# the plan artifact SPECIFICALLY: it never exempts a commit/branch/PR, and every other `~/.claude/`
+# write (settings, hooks) carries no marker → stays denied (it has no protected-branch merge to back it
+# up). The exact field is a build-spec leaf verified against current Claude Code (D-178).
+_PLAN_MODE = "plan"
+
+
+def is_plan_artifact(tool_name: str, tool_input, permission_mode) -> bool:
+    """True iff this call is Claude Code's plan-mode artifact write: a file-mutating tool while the
+    platform reports plan mode (`permission_mode == "plan"`), or a tool_input the platform flags as the
+    plan file (`is_plan_file`). Keyed on the marker, never a path. Anything outside plan mode carries no
+    marker → not the artifact → stays subject to the gate."""
+    if tool_name not in _MUTATING_TOOLS:
+        return False
+    if isinstance(tool_input, dict) and tool_input.get("is_plan_file") is True:
+        return True
+    return permission_mode == _PLAN_MODE
+
+
 # The plain-language denial — names what was blocked AND the concrete way forward, never a silent
 # refusal (modes/README §"The stance is always operator-legible").
 _DENIAL = ("I didn't make that change — we're exploring, so I won't edit files, commit, create a branch, "
@@ -216,9 +253,37 @@ def handler(payload: dict) -> dict:
         return hooks.proceed()                       # Build / Routine permit the write
     tool_name = payload.get("tool_name", "") if isinstance(payload, dict) else ""
     tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
-    if is_building_action(tool_name, tool_input):
+    permission_mode = payload.get("permission_mode") if isinstance(payload, dict) else None
+    if is_building_action(tool_name, tool_input) and not is_plan_artifact(tool_name, tool_input, permission_mode):
         return hooks.decide("deny", _DENIAL)
-    return hooks.proceed()                           # reads, tests, greps, gh issue, subagents — allowed
+    return hooks.proceed()                # reads, tests, greps, gh issue, subagents, the plan file — allowed
+
+
+# ---- the plan-acceptance Build-entry trigger (D-179/D-180) ----------------------------------
+# The SECOND interactive way into Build (the first is the operator-typed verb, slice 26): when the
+# operator ACCEPTS a plan, Claude Code's plan-exit completion — the `ExitPlanMode` tool call — fires a
+# PostToolUse hook, and the engine flips the stance signal to Build. "Approving a plan is 'build it'",
+# with no verb to type (modes/README §"Entering Build"). Keyed on the completion EVENT itself
+# (tool_name == "ExitPlanMode"), NOT a permission_mode value — acceptance offers several target modes,
+# so the durable discriminator is that the completion fired. A REJECTED plan fires no PostToolUse, so it
+# never enters Build; the model cannot accept its own plan, so this is not self-electable.
+#
+# It SETS THE SIGNAL AND NOTHING ELSE: a PostToolUse hook cannot inject conversational text, so the
+# entry is announced by build-orchestration's kickoff ("opening a draft pull request and planning the
+# work"), not here. It ALWAYS proceeds — PostToolUse is non-block-eligible (the harness fails open on a
+# block/decide there), so it declares no BLOCK_INVARIANT and the block budget is untouched. FAIL-SAFE:
+# if the hook errors or never fires, the signal stays absent → Explore, never Build (the safe floor).
+_PLAN_EXIT_TOOL = "ExitPlanMode"
+
+
+def accept_handler(payload: dict) -> dict:
+    """The plan-acceptance Build-entry trigger, run on PostToolUse. On the plan-exit completion
+    (`ExitPlanMode`), set the session's stance to Build; on anything else, no-op. ALWAYS proceeds —
+    never blocks, never emits text. A non-ExitPlanMode completion (or a missing tool name) leaves the
+    stance untouched, and a rejected plan fires no PostToolUse at all → the stance stays Explore."""
+    if isinstance(payload, dict) and payload.get("tool_name") == _PLAN_EXIT_TOOL:
+        set_stance(payload.get("session_id"), BUILD)
+    return hooks.proceed()
 
 
 # ---- the CLI (the operator-runnable demo; the live gate is the wired hook) -------------------
@@ -240,45 +305,82 @@ def _decision_line(decision: dict) -> str:
 
 
 def _classify(argv: list) -> int:
-    """`classify <Tool> [command...] [--session S]` — run the REAL handler over a synthetic payload and
-    print what the gate decides, so the operator can vary the tool/command and confirm the behavior."""
+    """`classify <Tool> [command...] [--session S] [--pm MODE] [--plan-file]` — run the REAL handler over
+    a synthetic payload and print what the gate decides, so the operator can vary the tool/command/mode
+    and confirm the behavior (e.g. a Write under `--pm plan` is the plan artifact → ALLOW; the same write
+    without it → DENY in Explore)."""
     session = _arg(argv, "--session")
-    rest = [a for a in argv if a != "--session" and a != session]
+    pm = _arg(argv, "--pm")
+    plan_file = "--plan-file" in argv
+    skip = {"--session", session, "--pm", pm, "--plan-file"}
+    rest = [a for a in argv if a not in skip]
     if not rest:
-        print("usage: modes.py classify <Tool> [command] [--session S]", file=sys.stderr)
+        print("usage: modes.py classify <Tool> [command] [--session S] [--pm MODE] [--plan-file]",
+              file=sys.stderr)
         return 2
     tool_name = rest[0]
     command = " ".join(rest[1:])
+    tool_input = {}
+    if command:
+        tool_input["command"] = command
+    if plan_file:
+        tool_input["is_plan_file"] = True
     payload = {"session_id": session, "tool_name": tool_name,
-               "tool_input": {"command": command} if command else {}}
+               "tool_input": tool_input, "permission_mode": pm}
     decision = handler(payload)
     stance = current_stance(session)
-    print(f"stance={stance}  tool={tool_name!r}  command={command!r}")
+    print(f"stance={stance}  tool={tool_name!r}  command={command!r}  permission_mode={pm!r}"
+          f"{'  is_plan_file=True' if plan_file else ''}")
     print(f"  -> {_decision_line(decision)}")
     return 0
 
 
 def _demo(_argv: list) -> int:
-    """A scripted fail-then-pass demonstration over the REAL handler (only the session id is a fixture)."""
+    """A scripted fail-then-pass demonstration over the REAL handlers (only the session id is a fixture):
+    the Explore write-gate, the plan-mode carve-out (#64), and the plan-acceptance Build-entry (#67)."""
     sid = "engine-demo-session"
     clear_stance(sid)
-    print("The Explore write-gate — what the PreToolUse hook decides (the real handler):\n")
-    print(f"In EXPLORE (stance={current_stance(sid)}):")
-    for tool, cmd in [("Edit", ""), ("Write", ""), ("Bash", "git commit -m wip"),
-                      ("Bash", "gh pr create"), ("Bash", "pytest -q"), ("Bash", "gh issue create -t x"),
-                      ("Read", ""), ("Bash", "some_unknown_tool --flag")]:
-        d = handler({"session_id": sid, "tool_name": tool, "tool_input": {"command": cmd}})
-        print(f"  {tool:5} {cmd!r:28} -> {_decision_line(d)}")
-    print(f"\nEnter Build (the slice-26 verb does this): set_stance -> {set_stance(sid, BUILD)}")
-    print(f"In BUILD (stance={current_stance(sid)}): the same building actions are permitted:")
-    for tool, cmd in [("Edit", ""), ("Bash", "git commit -m wip")]:
-        d = handler({"session_id": sid, "tool_name": tool, "tool_input": {"command": cmd}})
-        print(f"  {tool:5} {cmd!r:28} -> {_decision_line(d)}")
+
+    def gate(tool, cmd="", pm=None, tool_input=None):
+        ti = dict(tool_input or {})
+        if cmd:
+            ti["command"] = cmd
+        return handler({"session_id": sid, "tool_name": tool, "tool_input": ti, "permission_mode": pm})
+
+    print("The Explore write-gate — what it decides for each action (this runs the real gate, not a "
+          "mock-up):\n")
+    print(f"In EXPLORE (stance={current_stance(sid)}): building actions denied, everything else allowed:")
+    for label, tool, cmd in [("edit a file", "Edit", ""), ("write a file", "Write", ""),
+                             ("commit", "Bash", "git commit -m wip"), ("open a PR", "Bash", "gh pr create"),
+                             ("run a test", "Bash", "pytest -q"), ("log an issue", "Bash", "gh issue create -t x"),
+                             ("read a file", "Read", "")]:
+        print(f"  {label:42} {tool:5} -> {_decision_line(gate(tool, cmd))}")
+
+    print("\nThe plan-file carve-out (#64) — Claude Code's own plan file is planning, not building, so it "
+          "is allowed (recognized by the platform's own plan-mode signal, never the folder location):")
+    for label, pm, ti in [
+            ("the plan file, saved while in plan mode",       "plan",    None),
+            ("the plan file, with its folder moved INTO repo", "plan",   {"file_path": ".engine/plans/x.md"}),
+            ("the plan file, flagged as such by the platform", None,     {"is_plan_file": True}),
+            ("a NON-plan write to ~/.claude/settings.json",   "default", {"file_path": "~/.claude/settings.json"})]:
+        print(f"  {label:49} Write -> {_decision_line(gate('Write', pm=pm, tool_input=ti))}")
+
+    print("\nAccepting a plan enters Build (#67) — this runs the real trigger:")
+    print(f"  before:                                  stance={current_stance(sid)}")
+    accept_handler({"session_id": sid, "tool_name": "SomeOtherTool"})
+    print(f"  some other action finishes ->            stance={current_stance(sid)} (unchanged — only "
+          f"accepting a plan enters Build)")
+    accept_handler({"session_id": sid, "tool_name": _PLAN_EXIT_TOOL})
+    print(f"  accepting a plan ->                      stance={current_stance(sid)}")
+    print(f"  the SAME edit denied above is now ->     {_decision_line(gate('Edit'))} "
+          f"(the real capability, not just the label)")
+
     print(f"\nClear the signal (what boot does at SessionStart): clear_stance -> {clear_stance(sid)}")
     print(f"Back in EXPLORE (stance={current_stance(sid)}): an Edit is denied again -> "
-          f"{_decision_line(handler({'session_id': sid, 'tool_name': 'Edit', 'tool_input': {}}))}")
-    print("\nThe gate is a §6 nudge, not a wall — a disguised verb slips it, a crash fails it open; "
-          "the merge wall is the guarantee.")
+          f"{_decision_line(gate('Edit'))}")
+    print("\nThe gate is a §6 nudge, not a wall — a disguised verb slips it, a crash fails it open; the "
+          "merge wall is the guarantee. Accepting a plan enters Build (human-gated, not a stronger gate); "
+          "the entry is announced as the build begins, not by the (silent) hook.")
     return 0
 
 
@@ -288,6 +390,10 @@ def main(argv: list) -> int:
         # Hook mode: what the wired PreToolUse hook invokes. run_hook reads the event JSON from stdin,
         # runs the gate, and translates decide(deny) -> structured stdout, fail-open on any error.
         return hooks.run_hook("PreToolUse", handler)
+    if cmd == "accept-hook":
+        # Hook mode: what the wired PostToolUse hook invokes. On a plan-exit completion it sets Build;
+        # otherwise a no-op. Always proceeds (PostToolUse never blocks); fail-open on any error.
+        return hooks.run_hook("PostToolUse", accept_handler)
     if cmd == "classify":
         return _classify(argv[1:])
     if cmd == "stance":
@@ -303,8 +409,9 @@ def main(argv: list) -> int:
         return 0 if ok else 1
     if cmd == "demo":
         return _demo(argv[1:])
-    print("usage: modes.py [hook | classify <Tool> [cmd] [--session S] | stance --session S | "
-          "set-build --session S | clear --session S | demo]", file=sys.stderr)
+    print("usage: modes.py [hook | accept-hook | classify <Tool> [cmd] [--session S] [--pm MODE] "
+          "[--plan-file] | stance --session S | set-build --session S | clear --session S | demo]",
+          file=sys.stderr)
     return 2
 
 

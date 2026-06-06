@@ -218,5 +218,117 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
         self.assertEqual(modes.describe_stance("nonsense"), modes.describe_stance(modes.EXPLORE))
 
 
+class TestPlanArtifactCarveOut(unittest.TestCase):
+    """#64 (D-177/D-178): in Explore the gate EXEMPTS Claude Code's native plan file — recognized by the
+    platform's own marker (`permission_mode == "plan"` / `is_plan_file`), NEVER a path — while every other
+    write stays denied. (On the current platform `is_plan_file` appears only in conversation text, so the
+    live marker is `permission_mode == "plan"`; the exact field is a build-spec leaf, D-178.)"""
+
+    def _payload(self, tool_name, permission_mode=None, tool_input=None):
+        # session_id=None -> current_stance is Explore (the gated default); no signal file needed.
+        return {"session_id": None, "tool_name": tool_name,
+                "tool_input": dict(tool_input or {}), "permission_mode": permission_mode}
+
+    def test_plan_file_write_in_plan_mode_is_allowed(self):
+        self.assertTrue(_allow(modes.handler(self._payload("Write", permission_mode="plan"))))
+        self.assertTrue(_allow(modes.handler(self._payload("Edit", permission_mode="plan"))))
+
+    def test_plan_file_allowed_even_when_plansdir_is_inside_the_repo(self):
+        # marker-not-path: a plan folder relocated INTO the repo must not re-trip the gate.
+        d = modes.handler(self._payload("Write", permission_mode="plan",
+                                        tool_input={"file_path": ".engine/plans/p.md"}))
+        self.assertTrue(_allow(d))
+
+    def test_is_plan_file_flag_is_allowed(self):
+        # the belt-and-suspenders marker: a platform that flags the write as the plan file is honored too.
+        self.assertTrue(_allow(modes.handler(self._payload("Write", tool_input={"is_plan_file": True}))))
+
+    def test_non_plan_engine_source_write_stays_denied(self):
+        d = modes.handler(self._payload("Write", permission_mode="default",
+                                        tool_input={"file_path": ".engine/tools/x.py"}))
+        self.assertTrue(_deny(d))
+
+    def test_non_plan_home_claude_settings_write_stays_denied(self):
+        # a ~/.claude/settings.json write carries no plan marker -> denied (it has no merge backstop).
+        d = modes.handler(self._payload("Write", permission_mode="default",
+                                        tool_input={"file_path": "~/.claude/settings.json"}))
+        self.assertTrue(_deny(d))
+
+    def test_write_without_permission_mode_stays_denied(self):
+        # pm absent (older platform / a plain edit) -> not the artifact -> denied (old behavior preserved).
+        self.assertTrue(_deny(modes.handler(self._payload("Write"))))
+
+    def test_build_verbs_not_exempted_even_in_plan_mode(self):
+        # the carve-out is the file-mutating tools specifically; a commit/branch/PR is never the artifact.
+        for cmd in ("git commit -m x", "gh pr create", "git checkout -b f"):
+            d = modes.handler(self._payload("Bash", permission_mode="plan", tool_input={"command": cmd}))
+            self.assertTrue(_deny(d), f"{cmd!r} must stay denied even under permission_mode=plan")
+
+    def test_is_plan_artifact_predicate(self):
+        self.assertTrue(modes.is_plan_artifact("Write", {}, "plan"))
+        self.assertTrue(modes.is_plan_artifact("Edit", {"is_plan_file": True}, None))
+        self.assertFalse(modes.is_plan_artifact("Write", {}, "default"))
+        self.assertFalse(modes.is_plan_artifact("Write", {}, None))
+        self.assertFalse(modes.is_plan_artifact("Bash", {"command": "x"}, "plan"))  # not a file-mutating tool
+
+
+class TestPlanAcceptanceBuildEntry(unittest.TestCase):
+    """#67 (D-179/D-180): a PostToolUse on the plan-exit completion (`ExitPlanMode`) flips the stance to
+    Build; every other completion leaves it untouched; the handler ALWAYS proceeds and emits no text; and
+    a rejected plan fires no PostToolUse so the stance stays Explore (fail-safe to the floor)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._patch = mock.patch.object(modes.tempfile, "gettempdir", return_value=self._tmp.name)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def test_accepting_a_plan_enters_build(self):
+        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
+        d = modes.accept_handler({"session_id": "s", "tool_name": "ExitPlanMode"})
+        self.assertEqual(d.get("action"), "proceed")               # never blocks, never decides
+        self.assertEqual(modes.current_stance("s"), modes.BUILD)
+
+    def test_non_plan_exit_completion_does_not_enter_build(self):
+        # The false-fire guard: ONLY ExitPlanMode enters Build. A subagent's inner tool calls do not fire
+        # the parent PostToolUse, and a leave-without-approving fires no ExitPlanMode (platform behavior,
+        # live-confirmed); this locks that the handler keys solely on the ExitPlanMode completion event.
+        for tool in ("Edit", "Task", "Bash", "Read", "SomeFutureTool"):
+            modes.accept_handler({"session_id": "s", "tool_name": tool})
+            self.assertEqual(modes.current_stance("s"), modes.EXPLORE, f"{tool} must not enter Build")
+
+    def test_handler_always_proceeds_and_tolerates_a_bad_payload(self):
+        self.assertEqual(modes.accept_handler({"tool_name": "ExitPlanMode"}).get("action"), "proceed")
+        self.assertEqual(modes.accept_handler({}).get("action"), "proceed")
+        self.assertEqual(modes.accept_handler({"session_id": "s"}).get("action"), "proceed")  # no tool_name
+        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)        # none of those entered Build
+
+    def test_end_to_end_via_run_hook_sets_build_and_proceeds(self):
+        out, err = io.StringIO(), io.StringIO()
+        payload = json.dumps({"session_id": "s", "tool_name": "ExitPlanMode"})
+        code = hooks.run_hook("PostToolUse", modes.accept_handler,
+                              stdin=io.StringIO(payload), stdout=out, stderr=err)
+        self.assertEqual(code, hooks.EXIT_PROCEED)        # PostToolUse always proceeds (exit 0)
+        self.assertEqual(out.getvalue(), "")              # sets a signal; emits no text
+        self.assertEqual(modes.current_stance("s"), modes.BUILD)
+
+    def test_main_accept_hook_routes_to_posttooluse(self):
+        with mock.patch.object(modes.hooks, "run_hook", return_value=0) as rh:
+            self.assertEqual(modes.main(["accept-hook"]), 0)
+        rh.assert_called_once_with("PostToolUse", modes.accept_handler)
+
+    def test_wired_command_ends_in_accept_hook(self):
+        manifest_path = os.path.join(validate.ROOT, ".engine", "modules", "core", "manifest.json")
+        with open(manifest_path, encoding="utf-8") as fh:
+            wires = json.load(fh)["wires"]
+        post = [w for w in wires if w.get("type") == "hook" and w.get("event") == "PostToolUse"]
+        self.assertTrue(post, "core manifest must wire a PostToolUse hook (the modes plan-acceptance trigger)")
+        self.assertTrue(any(w["hook"]["command"].rstrip().endswith(" accept-hook") for w in post),
+                        "the PostToolUse modes wire must invoke `modes.py accept-hook`")
+
+
 if __name__ == "__main__":
     unittest.main()

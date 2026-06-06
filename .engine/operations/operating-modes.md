@@ -12,8 +12,9 @@ building action was refused while exploring, or what changes when a session star
 
 ## Steps
 
-The mechanism is `.engine/tools/modes.py` — the ephemeral, session-keyed stance signal plus the
-`PreToolUse` write-gate, wired as a `PreToolUse` hook in `.claude/settings.json`. The stance lifecycle:
+The mechanism is `.engine/tools/modes.py` — the ephemeral, session-keyed stance signal, the `PreToolUse`
+write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as hooks in
+`.claude/settings.json`. The stance lifecycle:
 
 1. **Every session boots in explore.** At session start, boot clears the stance signal first
    (`modes.clear_stance`), so even a resumed session never inherits a prior build stance. When the
@@ -24,16 +25,22 @@ The mechanism is `.engine/tools/modes.py` — the ephemeral, session-keyed stanc
    creating a branch, committing, and opening a pull request (via `gh pr create` or the GitHub MCP
    create-pull-request tool) — with a plain sentence that names what was blocked and the way forward. It
    allows reading, running read-only commands and tests, greps, spawning subagents, and logging issues.
-   An action it cannot classify is allowed: there is no default-deny, because exploring must stay the
-   comfortable place to work.
-3. **To start building, the operator types the Build-entry verb** — an operator-only command the model
-   cannot invoke itself (authored in a later slice). Only then does the stance flip to build and the
-   gate permit the writes, and entering build is announced. There is no automatic or self-elected entry.
+   It also allows Claude Code's own plan file — that is planning, not building — recognized by the
+   platform's plan-mode marker, not a path, so it holds even if the plan folder is moved into the repo; a
+   write to the operator's own `~/.claude/` config carries no such marker and stays denied. An action it
+   cannot classify is allowed: there is no default-deny, because exploring must stay the comfortable place
+   to work.
+3. **To start building, the operator either types the Build-entry verb or accepts a plan.** The verb is
+   an operator-only command the model cannot invoke itself (authored in a later slice); accepting a plan
+   the model proposed also enters build (the model cannot accept its own plan). Either way the stance
+   flips to build, the gate permits the writes, and entering build is announced as the work begins.
+   Neither path is silent or self-elected — the model never flips its own stance.
 4. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire; it
    never merges the protected branch (authored later). It is the same workflow, constrained.
 
 To see what the gate decides for any action without Claude Desktop (the operator demo): `python
-tools/modes.py demo`, or `python tools/modes.py classify <Tool> [command] [--session S]`.
+tools/modes.py demo` (which also shows the plan-file carve-out and plan-acceptance entering build), or
+`python tools/modes.py classify <Tool> [command] [--session S] [--pm MODE]`.
 
 ## Done when
 
