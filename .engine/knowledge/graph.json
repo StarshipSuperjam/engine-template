@@ -295,6 +295,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:control-plane-bootstrap",
           "operation:operating-modes"
         ]
       },
@@ -320,6 +321,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:control-plane-bootstrap",
           "operation:operating-modes"
         ]
       },
@@ -654,6 +656,25 @@
       "source": {
         "fingerprint": "sha256:b476d509d3c4d625bb4ae061c802cfc26847077badb26ec4b1b2ee15e6e1ae8a",
         "path": ".engine/operations/close-turn.md"
+      },
+      "type": "operation"
+    },
+    {
+      "id": "operation:control-plane-bootstrap",
+      "name": ".engine/operations/control-plane-bootstrap.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "control-plane-bootstrap",
+      "source": {
+        "fingerprint": "sha256:3483da1db477397e2523acef620a8412896959371dff67164e30014fb2f4ff27",
+        "path": ".engine/operations/control-plane-bootstrap.md"
       },
       "type": "operation"
     },
@@ -1140,6 +1161,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:bootstrap",
+      "name": ".engine/tools/bootstrap.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "bootstrap",
+      "source": {
+        "fingerprint": "sha256:b86f8a584b5ad16fde8ecfaa06cb1f7200b8f7af01c8b722df32f2206114fe62",
+        "path": ".engine/tools/bootstrap.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:close",
       "name": ".engine/tools/close.py",
       "owner": "core",
@@ -1376,6 +1413,22 @@
       "source": {
         "fingerprint": "sha256:d153e60aaa3676fbbef55e7ed349b63273ff6469564a0e4fb84b204e66b997a2",
         "path": ".engine/tools/test_boot.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_bootstrap",
+      "name": ".engine/tools/test_bootstrap.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_bootstrap",
+      "source": {
+        "fingerprint": "sha256:c6bdb46015930d95ae71811a2a3a9dda096c457d1e2ca6f80fafceb0adfe1f4e",
+        "path": ".engine/tools/test_bootstrap.py"
       },
       "type": "tool"
     },
