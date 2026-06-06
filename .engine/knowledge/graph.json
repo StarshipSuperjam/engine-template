@@ -583,7 +583,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:3ebc1cc7ad134951ad201fbde006ed07d665474d102d776493c08f2d819d318a",
+        "fingerprint": "sha256:30e469e1eefd449b3bc2f0e37051daa298d20f98d16cd48a66cc2b9656f9e940",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -713,7 +713,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:a5a776690464e3fbf637545d14d0d5c3d087695ffd59aa9bbe38929c4021bad1",
+        "fingerprint": "sha256:b5684b8da277cdcd1521ab75fe41268cdb921750aacdc064d1b067f3d040d08a",
         "path": ".engine/operations/operating-modes.md"
       },
       "type": "operation"
@@ -1224,7 +1224,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:2ca19d308bb76a358980d88afa148e67640ad615bb1ab5de821d2f62f895d8d4",
+        "fingerprint": "sha256:344b246f7ba15bc0744a78930b1039da32a2096d738c75f2de3b1442d9aab302",
         "path": ".engine/tools/hooks.py"
       },
       "type": "tool"
@@ -1304,7 +1304,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:15d5cb6966d8b735f95c97492bd9f3de00aa6e3b7c04d062ba5a37ad0f364856",
+        "fingerprint": "sha256:59b64fde3121f06862ff4097b4945fcb149b9300bb836583de1ffa790e1b735e",
         "path": ".engine/tools/modes.py"
       },
       "type": "tool"
@@ -1528,7 +1528,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:bd87dd0632296ad1e74802d2c41d59b33690801ec72f64f1db1fb5fe91925cd2",
+        "fingerprint": "sha256:e909b305be5ffbf40813479d3fd880679ee86511ad29933083e1b7420b254e03",
         "path": ".engine/tools/test_hooks.py"
       },
       "type": "tool"
@@ -1592,7 +1592,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:ee75fd32700d9ff4ede7565cf7aafeb9fab22515a78a4766569038890910f2a0",
+        "fingerprint": "sha256:820b719d50393483b121878d11ba832be4fc7f8d2202e3f911fe444da5d207ca",
         "path": ".engine/tools/test_modes.py"
       },
       "type": "tool"

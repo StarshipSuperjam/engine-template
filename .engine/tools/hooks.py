@@ -49,14 +49,14 @@ import validate  # noqa: E402
 # like the surface catalog. This is NOT a claim that only seven events exist.
 #   blocks  — may this event HARD-BLOCK? Only PreToolUse and Stop (the block-budget law).
 #   injects — may this event inject `additionalContext`?
-#   owners  — the system(s) that own the behavior on this event. PostToolUse has TWO owners
-#             (validation's local nudge + telemetry's ambient capture coexist on one event);
-#             SessionEnd is hooks-owned (cleanup/flush, cannot block); UserPromptSubmit is
-#             boot/orientation's per-prompt scent injection.
+#   owners  — the system(s) that own the behavior on this event. PostToolUse has THREE owners
+#             (validation's local nudge + telemetry's ambient capture + modes' plan-acceptance
+#             Build-entry trigger coexist on one event — D-180); SessionEnd is hooks-owned
+#             (cleanup/flush, cannot block); UserPromptSubmit is boot/orientation's per-prompt scent.
 EVENT_INVENTORY = {
     "SessionStart":     {"owners": ("boot",),                    "blocks": False, "injects": True},
     "PreToolUse":       {"owners": ("invariant-owner",),         "blocks": True,  "injects": True},
-    "PostToolUse":      {"owners": ("validation", "telemetry"),  "blocks": False, "injects": False},
+    "PostToolUse":      {"owners": ("validation", "telemetry", "modes"), "blocks": False, "injects": False},
     "PreCompact":       {"owners": ("memory",),                  "blocks": False, "injects": False},
     "Stop":             {"owners": ("close",),                   "blocks": True,  "injects": False},
     "SessionEnd":       {"owners": ("hooks",),                   "blocks": False, "injects": False},
