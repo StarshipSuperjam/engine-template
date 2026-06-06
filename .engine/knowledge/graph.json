@@ -577,7 +577,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2c60ba73797fba82908eec816d54ee0833d7c472529ee012ab47028745a39b66",
+        "fingerprint": "sha256:3ebc1cc7ad134951ad201fbde006ed07d665474d102d776493c08f2d819d318a",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -1161,7 +1161,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:f687b4cf3c97edfc14b46c9f8eac884ca15e13c2d0097f211299c92d77f4c8d9",
+        "fingerprint": "sha256:748573dbd6e0e54e14bfa76a1ed43fee2a219883dd7e46cd9f0d2a287e624dfd",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "type": "tool"
@@ -1449,7 +1449,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:754c0a33b4da0e4f089f97df15b472d65fd3799ef386f9fa2e8dba6704b15c87",
+        "fingerprint": "sha256:3815e89fa8dc8e96a93b19a4300488d8a60734230de96092d18b92bf7620d9bb",
         "path": ".engine/tools/test_knowledge.py"
       },
       "type": "tool"

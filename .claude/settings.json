@@ -36,6 +36,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python ${CLAUDE_PROJECT_DIR}/.engine/tools/modes.py"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python ${CLAUDE_PROJECT_DIR}/.engine/tools/knowledge_gen.py hook"
           }
         ]
       }
