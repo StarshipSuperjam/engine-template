@@ -8,6 +8,8 @@ silently regress them. The deliverable-gate cold review attests that each test's
 assertion matches its name; CI runs them as a step in `engine-ci`.
 """
 from __future__ import annotations
+import contextlib
+import io
 import json
 import os
 import sys
@@ -18,6 +20,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import weakening_guard   # noqa: E402
 import protection_guard  # noqa: E402
+
+
+def _run_quiet(suite, ctx):
+    """validate.run() prints its operator report to stdout; these tests assert on its exit CODE, not the
+    text, so capture the report to keep the unittest run quiet — the leaked 'FAIL ... boom' / 'kaboom'
+    fixture lines otherwise read like a real failure."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        return validate.run(suite, ctx)
+
+
+def _check_quiet(rule_id, ctx):
+    """validate.run_check() (the --check single-rule path) prints its report too; capture it so the
+    unittest run stays quiet (these tests assert on the exit code, not the text)."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        return validate.run_check(rule_id, ctx)
+
 
 SECTIONS = ["Purpose", "Scope", "Out of scope", "Risk", "Validation", "Review",
             "Files of interest", "Claude involvement"]
@@ -86,22 +104,22 @@ class TestDispatcherGate(unittest.TestCase):
 
     def test_hard_finding_fails_even_when_verdict_true(self):
         self._install(lambda rule, ctx: (True, [validate.finding("hard", "boom")]))
-        self.assertEqual(validate.run("CI", {"pr_body": None}), 1)
+        self.assertEqual(_run_quiet("CI", {"pr_body": None}), 1)
 
     def test_soft_finding_passes_even_when_verdict_false(self):
         self._install(lambda rule, ctx: (False, [validate.finding("soft", "note")]))
-        self.assertEqual(validate.run("CI", {"pr_body": None}), 0)
+        self.assertEqual(_run_quiet("CI", {"pr_body": None}), 0)
 
     def test_unregistered_hard_kind_fails_closed(self):
         validate.load_rules = lambda: [{"id": "d", "kind": "nope", "tier": "hard",
                                         "suites": ["CI"], "params": {}}]
-        self.assertEqual(validate.run("CI", {"pr_body": None}), 1)
+        self.assertEqual(_run_quiet("CI", {"pr_body": None}), 1)
 
     def test_erroring_kind_fails_closed(self):
         def boom(rule, ctx):
             raise RuntimeError("kaboom")
         self._install(boom)
-        self.assertEqual(validate.run("CI", {"pr_body": None}), 1)
+        self.assertEqual(_run_quiet("CI", {"pr_body": None}), 1)
 
 
 class TestWeakeningClassifier(unittest.TestCase):
@@ -456,19 +474,19 @@ class TestSuiteContextGating(unittest.TestCase):
 
     def test_ci_blocking_gate_fails_on_hard(self):
         self._install_hard()
-        self.assertEqual(validate.run("CI", {}), 1)
+        self.assertEqual(_run_quiet("CI", {}), 1)
 
     def test_local_nudge_suite_does_not_gate_the_same_hard_finding(self):
         self._install_hard()
-        self.assertEqual(validate.run("pre-close", {}), 0)
+        self.assertEqual(_run_quiet("pre-close", {}), 0)
 
     def test_undeclared_suite_is_a_config_error(self):
-        self.assertEqual(validate.run("nope", {}), 2)
+        self.assertEqual(_run_quiet("nope", {}), 2)
 
     def test_malformed_suites_file_fails_closed(self):
         with tempfile.TemporaryDirectory() as d:
             validate.SUITES_PATH = _write(d, "suites.json", "{ not json")
-            self.assertEqual(validate.run("CI", {}), 2)
+            self.assertEqual(_run_quiet("CI", {}), 2)
 
     def test_malformed_rule_file_fails_closed_in_plain_language(self):
         # A broken check rule file is a CONFIG ERROR (exit 2), not an uncaught traceback,
@@ -476,7 +494,7 @@ class TestSuiteContextGating(unittest.TestCase):
         def boom():
             raise ValueError("check rule is not valid JSON")
         validate.load_rules = boom
-        self.assertEqual(validate.run("CI", {}), 2)
+        self.assertEqual(_run_quiet("CI", {}), 2)
 
 
 # ---- slice 5a: coverage / coherence / custom-script + protection re-home ----
@@ -868,30 +886,30 @@ class TestRunCheckById(unittest.TestCase):
 
     def test_hard_finding_exits_one(self):
         self._install(lambda rule, ctx: (False, [validate.finding("hard", "boom")]))
-        self.assertEqual(validate.run_check("engine/check/synthetic", {}), 1)
+        self.assertEqual(_check_quiet("engine/check/synthetic", {}), 1)
 
     def test_clean_exits_zero(self):
         self._install(lambda rule, ctx: (True, []))
-        self.assertEqual(validate.run_check("engine/check/synthetic", {}), 0)
+        self.assertEqual(_check_quiet("engine/check/synthetic", {}), 0)
 
     def test_soft_only_exits_zero(self):
         self._install(lambda rule, ctx: (False, [validate.finding("soft", "note")]))
-        self.assertEqual(validate.run_check("engine/check/synthetic", {}), 0)
+        self.assertEqual(_check_quiet("engine/check/synthetic", {}), 0)
 
     def test_unknown_id_exits_two(self):
         self._install(lambda rule, ctx: (True, []))
-        self.assertEqual(validate.run_check("engine/check/nope", {}), 2)
+        self.assertEqual(_check_quiet("engine/check/nope", {}), 2)
 
     def test_dangling_kind_fails_closed(self):
         validate.load_rules = lambda: [{"id": "engine/check/x", "kind": "ghost",
                                         "tier": "hard", "suites": [], "params": {}}]
-        self.assertEqual(validate.run_check("engine/check/x", {}), 1)
+        self.assertEqual(_check_quiet("engine/check/x", {}), 1)
 
     def test_erroring_kind_fails_closed(self):
         def boom(rule, ctx):
             raise RuntimeError("kaboom")
         self._install(boom)
-        self.assertEqual(validate.run_check("engine/check/synthetic", {}), 1)
+        self.assertEqual(_check_quiet("engine/check/synthetic", {}), 1)
 
     def test_does_not_load_suites_json(self):
         # Point SUITES_PATH at garbage; a by-id run must still work — it never reads the
@@ -899,7 +917,7 @@ class TestRunCheckById(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             validate.SUITES_PATH = _write(d, "suites.json", "{ not json")
             self._install(lambda rule, ctx: (True, []))
-            self.assertEqual(validate.run_check("engine/check/synthetic", {}), 0)
+            self.assertEqual(_check_quiet("engine/check/synthetic", {}), 0)
 
 
 class TestGuardRuleIsolation(unittest.TestCase):
