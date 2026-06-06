@@ -42,11 +42,11 @@
 
 ## Review
 
-**<one-line summary of what review ran — depth, lenses, dispositions>**
+**<one line, plain language: how careful the review was and what it found — or "no extra review ran" when no review packs are installed; never name a review pass>**
 
-- <the specifics, as bullets>
+- <plain bullets: the depth that ran; the review passes that ran, written as plain checks (never their internal names); that each step completed; each finding's outcome (fixed / tracked as an Issue / escalated); and — if anything was fixed after the review — that those fixes were validated but not re-reviewed, so the reviewed version and the merged version differ. A trivial change fills this with one honest line, e.g. "I made this small, reversible change myself; no extra review.">
 
-*<Impact: the engine's own account; the approver's merge is the binding gate>*
+*<Impact: the engine's own account of the review — the approver's merge is the binding gate>*
 
 ## Files of interest
 
