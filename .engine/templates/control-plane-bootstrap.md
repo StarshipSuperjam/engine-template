@@ -23,6 +23,11 @@ comments before anything merges — and it can't be force-pushed or deleted.
 Your safety gate is already on — nothing to change. (Safe to run any time; it never weakens protection
 that's already in place.)
 
+## When it couldn't be confirmed
+
+I set up branch protection but couldn't read back to confirm it actually took (GitHub didn't answer just
+now). Don't assume it's on — check your repository's branch settings, or run this again in a moment.
+
 ## If it couldn't turn on — you don't administer this repository
 
 I couldn't turn on branch protection — this account doesn't administer the repository. Protection is not

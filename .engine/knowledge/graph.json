@@ -1171,7 +1171,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:b86f8a584b5ad16fde8ecfaa06cb1f7200b8f7af01c8b722df32f2206114fe62",
+        "fingerprint": "sha256:4b4f8a6727f3bd63a70e81c2daf674ad53717686bb0e1a65ba6a17f63691d69f",
         "path": ".engine/tools/bootstrap.py"
       },
       "type": "tool"
@@ -1427,7 +1427,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:c6bdb46015930d95ae71811a2a3a9dda096c457d1e2ca6f80fafceb0adfe1f4e",
+        "fingerprint": "sha256:7917c9e217a9b4a55d51e9e730fefa4aa692483441812b1b145b897196bc772b",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "type": "tool"

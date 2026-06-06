@@ -38,12 +38,18 @@ class FakeGitHub:
     (or None for a fine-grained token); `floor_met` drives the evaluated per-branch rules; `rulesets`
     is the admin ruleset list. Records every call so writes can be asserted."""
 
-    def __init__(self, scopes="repo", floor_met=False, rulesets=None):
+    def __init__(self, scopes="repo", floor_met=False, rulesets=None,
+                 deny_writes=0, deny_body=None, verify_raises=False, rulesets_read_raises=False):
         self.scopes = scopes
         self.floor_met = floor_met
         self.rulesets = [dict(r) for r in (rulesets or [])]
         self.calls = []
         self._next_id = 900
+        self.deny_writes = deny_writes        # number of initial writes to reject with 403
+        self.deny_body = deny_body            # the 403 body (e.g. an org-policy message)
+        self.verify_raises = verify_raises    # make the post-write verify re-read unreachable
+        self.rulesets_read_raises = rulesets_read_raises
+        self._eval_reads = 0
 
     def _evaluated_rules(self):
         # A floor-meeting branch returns exactly the rules the engine writes; an unprotected one returns [].
@@ -55,9 +61,18 @@ class FakeGitHub:
         if method == "GET" and path == f"/repos/{REPO}":
             return 200, {"full_name": REPO}, headers
         if method == "GET" and path == f"/repos/{REPO}/rules/branches/main":
+            self._eval_reads += 1
+            # The verify read is the SECOND evaluated read (the first is the idempotence check).
+            if self.verify_raises and self._eval_reads >= 2:
+                raise bootstrap.BootstrapError("evaluated rules unreachable")
             return 200, self._evaluated_rules(), headers
         if method == "GET" and path == f"/repos/{REPO}/rulesets":
+            if self.rulesets_read_raises:
+                raise bootstrap.BootstrapError("rulesets unreachable")
             return 200, self.rulesets, headers
+        if method in ("POST", "PUT") and self.deny_writes > 0:
+            self.deny_writes -= 1
+            return 403, (self.deny_body or {"message": "Resource not accessible"}), headers
         if method == "POST" and path == f"/repos/{REPO}/rulesets":
             rid = self._next_id
             self._next_id += 1
@@ -149,6 +164,50 @@ class TestApplyCreatesAndIsIdempotent(unittest.TestCase):
         self.assertEqual(result.cause, "verify-failed")
 
 
+class TestVerifyAndDegrade(unittest.TestCase):
+    def test_unreadable_verify_does_not_claim_applied(self):
+        # The write succeeds, but the verify re-read is unreachable -> NOT 'applied' (never assume the
+        # write took); a distinct 'unverified' outcome that does not read as protected.
+        fake = FakeGitHub(floor_met=False, rulesets=[], verify_raises=True)
+        result = cp(fake).apply(announce=quiet)
+        self.assertEqual(result.status, "unverified")
+        self.assertFalse(result.is_protected())
+        self.assertIn("couldn't", bootstrap.render(result).lower())
+
+    def test_org_policy_403_routes_to_team_identity_banner(self):
+        # A 403 whose body names an organization policy -> the org-policy cause, whose banner offers the
+        # team-identity structural escape (not the "you don't administer this repo" banner).
+        fake = FakeGitHub(scopes="repo", floor_met=False, rulesets=[],
+                          deny_writes=2,  # both the first write and the post-refresh retry are blocked
+                          deny_body={"message": "Organization ruleset policy prevents this change."})
+        result = cp(fake).apply(announce=quiet)
+        self.assertEqual(result.status, "degraded")
+        self.assertEqual(result.cause, "org-policy")
+        self.assertIn("team mode", bootstrap.render(result))
+
+    def test_plain_403_routes_to_not_admin_banner(self):
+        fake = FakeGitHub(scopes="repo", floor_met=False, rulesets=[],
+                          deny_writes=2, deny_body={"message": "Resource not accessible by integration"})
+        result = cp(fake).apply(announce=quiet)
+        self.assertEqual(result.cause, "not-admin")
+        self.assertIn("administer", bootstrap.render(result))
+
+    def test_fine_grained_403_then_refresh_retries_and_applies(self):
+        # A fine-grained token (no scope header): the first write 403s, the refresh "grants" admin, the
+        # retry succeeds -> applied, with exactly one engine ruleset created (no duplicate).
+        fake = FakeGitHub(scopes=None, floor_met=False, rulesets=[], deny_writes=1)
+        result = cp(fake, refresh_fn=lambda s: True).apply(announce=quiet)
+        self.assertEqual(result.status, "applied")
+        self.assertEqual(fake.names().count(bootstrap.ENGINE_RULESET_NAME), 1)  # no duplicate
+
+    def test_rulesets_read_failure_still_proceeds_to_create(self):
+        # Listing rulesets is unreachable -> treat as "no existing engine ruleset" and POST, never crash.
+        fake = FakeGitHub(floor_met=False, rulesets=[], rulesets_read_raises=True)
+        result = cp(fake).apply(announce=quiet)
+        self.assertEqual(result.status, "applied")
+        self.assertEqual([c[0] for c in fake.writes()], ["POST"])
+
+
 class TestNeverWeakensProduct(unittest.TestCase):
     def test_product_ruleset_is_left_untouched(self):
         # A pre-existing product ruleset that doesn't meet the floor -> the engine adds its OWN, never
@@ -158,7 +217,8 @@ class TestNeverWeakensProduct(unittest.TestCase):
         cp(fake).apply(announce=quiet)
         self.assertIn("team protections", fake.names())            # product still present
         self.assertIn(bootstrap.ENGINE_RULESET_NAME, fake.names())  # engine added its own
-        self.assertNotIn("PUT", [c[0] for c in fake.calls])        # never edited a product ruleset
+        put_targets = {c[1].rsplit("/", 1)[1] for c in fake.calls if c[0] == "PUT"}
+        self.assertNotIn("7", put_targets)                         # the product ruleset id is never PUT
 
 
 class TestCapabilityAndConsent(unittest.TestCase):

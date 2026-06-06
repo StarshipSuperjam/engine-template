@@ -144,6 +144,11 @@ FALLBACK_COPY = {
         "Your safety gate is already on — nothing to change. (Safe to run any time; it never weakens "
         "protection that's already in place.)"
     ),
+    "unverified": (
+        "I set up branch protection but couldn't read back to confirm it actually took (GitHub didn't "
+        "answer just now). Don't assume it's on — check your repository's branch settings, or run this "
+        "again in a moment."
+    ),
 }
 
 # Maps each copy key to its `##` heading in the template surface.
@@ -154,6 +159,7 @@ COPY_HEADINGS = {
     "degraded-didnt-save": "If it couldn't turn on — the approval didn't save",
     "applied": "When it's on",
     "already": "When it was already on",
+    "unverified": "When it couldn't be confirmed",
 }
 
 
@@ -315,9 +321,23 @@ class ControlPlane:
         """Create the engine ruleset (POST) or repair it in place (PUT). Returns (status, body)."""
         payload = floor_ruleset()
         if existing:
-            return self._transport(
-                "PUT", f"/repos/{self.repo}/rulesets/{existing['id']}", payload)[:2]
-        return self._transport("POST", f"/repos/{self.repo}/rulesets", payload)[:2]
+            status, body, _ = self._transport(
+                "PUT", f"/repos/{self.repo}/rulesets/{existing['id']}", payload)
+        else:
+            status, body, _ = self._transport("POST", f"/repos/{self.repo}/rulesets", payload)
+        return status, body
+
+    @staticmethod
+    def _forbidden_cause(body) -> str:
+        """Best-effort classification of a 401/403 on the write: an organization-policy block (whose
+        structural escape is the team identity) vs the operator simply not administering the repo. GitHub
+        returns an informative message on a policy block; default to not-admin when it can't be told."""
+        msg = ""
+        if isinstance(body, dict):
+            msg = (body.get("message") or "").lower()
+        if "organization" in msg or "policy" in msg or "ruleset bypass" in msg:
+            return "org-policy"
+        return "not-admin"
 
     def ensure_labels(self) -> bool:
         """Idempotently ensure the engine-domain label exists, INHERITING the slice-18 minimal ensure
@@ -365,23 +385,30 @@ class ControlPlane:
             existing = self.engine_ruleset()
         except BootstrapError:
             existing = None
-        status, _body = self._write_floor(existing)
+        status, body = self._write_floor(existing)
         if status in (401, 403):
             # A fine-grained token without admin shows no classic scope; the write is the real probe.
             say(copy["before-you-approve"])
             self._refresh(RULESET_SCOPE)
-            status, _body = self._write_floor(existing)
+            try:
+                existing = self.engine_ruleset()   # re-resolve: if the first attempt landed, repair it
+            except BootstrapError:
+                pass
+            status, body = self._write_floor(existing)
         if status >= 400:
             labels_ok = self.ensure_labels()
-            cause = "not-admin" if status in (401, 403) else "verify-failed"
+            cause = self._forbidden_cause(body) if status in (401, 403) else "verify-failed"
             return Result("degraded", branch, missing or [], cause, labels_ok)
 
-        # 4. Verify the floor is now actually in force (never assume the write took).
+        # 4. Verify the floor is now actually in force (never assume the write took). An UNREADABLE
+        #    verify is NOT success — it degrades to 'unverified', never a false 'applied'.
         try:
             still_missing = self.floor_missing(branch)
         except BootstrapError:
             still_missing = None
         labels_ok = self.ensure_labels()
+        if still_missing is None:
+            return Result("unverified", branch, [], "verify-unreadable", labels_ok)
         if still_missing:
             return Result("degraded", branch, still_missing, "verify-failed", labels_ok)
         return Result("applied", branch, [], None, labels_ok)
@@ -396,6 +423,14 @@ def render(result: Result, copy: dict | None = None) -> str:
         msg = copy["applied"]
     elif result.status == "already":
         msg = copy["already"]
+    elif result.status == "unverified":
+        msg = copy["unverified"]
+    elif result.cause == "verify-failed":
+        # The write reported success but the gate still isn't fully in force — honest, not "not-admin".
+        detail = (": " + "; ".join(result.missing)) if result.missing else ""
+        msg = ("I tried to turn on branch protection, but it still isn't fully in force" + detail +
+               ". Work can merge unreviewed until it's on — please check your repository's branch "
+               "settings, or run this again.")
     else:  # degraded — pick the cause-matched banner
         key = {
             "not-admin": "degraded-not-admin",
@@ -403,8 +438,6 @@ def render(result: Result, copy: dict | None = None) -> str:
             "didnt-save": "degraded-didnt-save",
         }.get(result.cause or "", "degraded-not-admin")
         msg = copy[key]
-        if result.cause == "verify-failed" and result.missing:
-            msg += "\nStill not in force: " + "; ".join(result.missing) + "."
     if not result.labels_ok:
         msg += ("\n(Note: I couldn't confirm the engine's issue label exists — I'll retry that next "
                 "time I can reach GitHub.)")
