@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 25b — the module manager: `remove` (refusals + manifest-derived reversal),
-the group-scoped uv-sync derivation, and the reverse-dependency / required-foundation guards.
+"""Self-tests for the module manager — slice 25b `remove` + the group-scoped uv-sync derivation, slice 25c
+PR-1 `add` (fetch/overlay), and slice 25c PR-2 the engine `upgrade`/updater + the migrations machinery
+(select/run, the no-backup guard, the version-stamp check, and the frozen-check-name invariant).
 
 Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
 
-The pure refusal policy and the derivation are tested directly (fixture manifest lists / a temp
-pyproject — no disk mutation); the live `remove` mutation glue is exercised end-to-end by run_demo()
-against a throwaway fixture engine (real reversal, real coherence, real re-derivation). The
-deliverable-gate cold review attests each test's assertion matches its name.
+Pure policy (refusals, the derivation, migration select/order, version-stamp detection, the tightened
+migrations schema) is tested directly on fixture data — no disk mutation; the live mutation glue (`remove`,
+`add`, `upgrade`) is exercised end-to-end by the shipped fail-then-pass demos against throwaway fixture
+engines, with ONLY the side-effect boundaries faked (release fetch, git/PR open, data backup) and the real
+overlay / migration / coherence logic run. The deliverable-gate cold review attests each test's assertion
+matches its name.
 """
 from __future__ import annotations
 import contextlib
@@ -259,6 +262,245 @@ class TestCli(unittest.TestCase):
         # `core` is already installed, so add refuses BEFORE any release fetch (no network in this test).
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(module_manager.main(["add", "core"]), 1)
+
+
+def _man(mid, version="0.0.0", migrations=None, depends=None):
+    """A manifest DICT (the shape select_migrations / topological_order consume)."""
+    return {"id": mid, "version": version, "status": "required",
+            "provides": {}, "depends": depends or {}, "migrations": migrations or {}}
+
+
+class TestSelectMigrations(unittest.TestCase):
+    """PURE migration selection + ordering — no disk, no network."""
+
+    def test_only_in_range_migrations_are_selected(self):
+        m = _man("a", migrations={
+            "0.1.0": {"description": "x", "run": "migrations/a1.py", "kind": "config"},
+            "0.2.0": {"description": "y", "run": "migrations/a2.py", "kind": "data"},
+            "0.3.0": {"description": "z", "run": "migrations/a3.py", "kind": "config"}})
+        sel = module_manager.select_migrations({"a": "0.1.0"}, {"a": "0.2.0"}, [m])
+        self.assertEqual([s["version"] for s in sel], ["0.2.0"])   # > from(0.1.0), <= target(0.2.0)
+
+    def test_within_a_module_versions_order_numerically_not_lexically(self):
+        # the "0.10.0" < "0.9.0" string-sort bug guard: 0.9.0 must precede 0.10.0
+        m = _man("a", migrations={
+            "0.10.0": {"description": "ten", "run": "migrations/x.py", "kind": "config"},
+            "0.9.0": {"description": "nine", "run": "migrations/y.py", "kind": "config"}})
+        sel = module_manager.select_migrations({"a": "0.0.0"}, {"a": "0.10.0"}, [m])
+        self.assertEqual([s["version"] for s in sel], ["0.9.0", "0.10.0"])
+
+    def test_modules_run_in_dependency_order(self):
+        base = _man("base", migrations={"1.0.0": {"description": "b", "run": "migrations/b.py",
+                                                  "kind": "config"}})
+        ext = _man("ext", depends={"base": ""},
+                   migrations={"1.0.0": {"description": "e", "run": "migrations/e.py", "kind": "config"}})
+        # input order puts ext BEFORE base; topological order must still emit base first (ext needs base)
+        sel = module_manager.select_migrations({"base": "0.0.0", "ext": "0.0.0"},
+                                               {"base": "1.0.0", "ext": "1.0.0"}, [ext, base])
+        self.assertEqual([s["module_id"] for s in sel], ["base", "ext"])
+
+    def test_empty_migrations_select_nothing(self):
+        self.assertEqual(
+            module_manager.select_migrations({"a": "0.0.0"}, {"a": "1.0.0"}, [_man("a")]), [])
+
+
+class TestRunMigrations(unittest.TestCase):
+    """The runner's execution + the no-backup guard. A migration .py is loaded by path and run; only the
+    backup seam (a side-effect boundary) is faked."""
+
+    def _module_dir(self, d, fname, body):
+        md = os.path.join(d, ".engine", "modules", "m")
+        os.makedirs(os.path.join(md, "migrations"))
+        with open(os.path.join(md, "migrations", fname), "w", encoding="utf-8") as fh:
+            fh.write(body)
+        return lambda mid: os.path.join(d, ".engine", "modules", mid)
+
+    def test_config_migration_runs_directly(self):
+        with tempfile.TemporaryDirectory() as d:
+            marker = os.path.join(d, "out.txt")
+            mdir = self._module_dir(d, "c.py",
+                                    "def migrate(context):\n"
+                                    f"    with open({marker!r}, 'w') as fh:\n"
+                                    "        fh.write(context['kind'])\n")
+            sel = [{"module_id": "m", "version": "0.1.0", "run": "migrations/c.py", "kind": "config"}]
+            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v1", module_dir=mdir)
+            self.assertEqual(res["ran"], ["m -> 0.1.0 (config)"])
+            with open(marker) as fh:
+                self.assertEqual(fh.read(), "config")
+
+    def test_data_migration_refused_without_a_backup_seam_and_never_runs(self):
+        with tempfile.TemporaryDirectory() as d:
+            marker = os.path.join(d, "out.txt")
+            mdir = self._module_dir(d, "dd.py",
+                                    "def migrate(context):\n"
+                                    f"    with open({marker!r}, 'w') as fh:\n"
+                                    "        fh.write('RAN')\n")
+            sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
+            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v1", module_dir=mdir, backup=None)
+            self.assertEqual(res["ran"], [])
+            self.assertEqual(len(res["refused"]), 1)
+            self.assertIn("no data backup", res["refused"][0])
+            self.assertFalse(os.path.exists(marker))          # the migration body never ran
+
+    def test_data_migration_runs_after_backup_and_is_stamped(self):
+        with tempfile.TemporaryDirectory() as d:
+            marker = os.path.join(d, "out.txt")
+            mdir = self._module_dir(d, "dd.py",
+                                    "def migrate(context):\n"
+                                    "    handle = context['backup']('store', context['engine_version'])\n"
+                                    "    assert handle\n"
+                                    f"    with open({marker!r}, 'w') as fh:\n"
+                                    "        fh.write(context['engine_version'])\n")
+            calls = []
+            seam = lambda store, ver: (calls.append((store, ver)) or {"ok": True})
+            sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
+            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=seam)
+            self.assertEqual(res["ran"], ["m -> 0.2.0 (data)"])
+            self.assertEqual(calls, [("store", "v2")])         # the backup was taken (before the body ran)
+            with open(marker) as fh:
+                self.assertEqual(fh.read(), "v2")              # the migration stamped the engine version
+
+
+class TestVersionStamp(unittest.TestCase):
+    """The post-revert version-stamp check: pure detection + the read-only promote_finding surfacing."""
+
+    def test_mismatch_detected_when_running_code_is_older_than_the_data(self):
+        f = module_manager.stamp_mismatch_finding("ledger", "0.2.0", "0.1.0", "engine restore ledger")
+        self.assertIsNotNone(f)
+        self.assertEqual(f["severity"], "hard")
+        self.assertIn("restore", f["message"].lower())
+
+    def test_no_mismatch_when_code_is_at_or_ahead_of_the_data(self):
+        self.assertIsNone(module_manager.stamp_mismatch_finding("ledger", "0.2.0", "0.2.0", "cmd"))
+        self.assertIsNone(module_manager.stamp_mismatch_finding("ledger", "0.2.0", "0.3.0", "cmd"))
+
+    def test_surface_promotes_exactly_one_finding_via_a_faked_github(self):
+        import telemetry
+        gh = telemetry.GitHubIssues("you/proj", "tok", transport=telemetry._FakeGitHub().transport)
+        num = module_manager.surface_stamp_mismatch(
+            "ledger", "0.2.0", "0.1.0", "engine restore ledger",
+            now="2026-01-01T00:00:00Z", github=gh)
+        self.assertTrue(num)                                   # an Issue number was opened
+        # no mismatch -> nothing surfaced
+        self.assertIsNone(module_manager.surface_stamp_mismatch(
+            "ledger", "0.2.0", "0.2.0", "cmd", now="2026-01-01T00:00:00Z", github=gh))
+
+
+class TestMigrationsSchema(unittest.TestCase):
+    """The tightened module.v1.json `migrations` shape: a well-formed entry passes, a malformed one fails
+    the same schema the hard/CI module-manifest check enforces."""
+
+    def _validator(self):
+        from jsonschema import Draft202012Validator
+        schema = module_manager.validate.load_json(
+            os.path.join(module_manager.validate.ROOT, ".engine", "schemas", "module.v1.json"))
+        return Draft202012Validator(schema)
+
+    def test_wellformed_migrations_entry_validates(self):
+        man = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
+               "migrations": {"1.0.0": {"description": "reshape", "run": "migrations/x.py", "kind": "data"}}}
+        self.assertEqual(list(self._validator().iter_errors(man)), [])
+
+    def test_migrations_entry_missing_kind_is_rejected(self):
+        man = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
+               "migrations": {"1.0.0": {"description": "reshape", "run": "migrations/x.py"}}}
+        self.assertTrue(list(self._validator().iter_errors(man)))    # `kind` is required
+
+    def test_migrations_entry_with_bad_kind_is_rejected(self):
+        man = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
+               "migrations": {"1.0.0": {"description": "x", "run": "migrations/x.py", "kind": "sideways"}}}
+        self.assertTrue(list(self._validator().iter_errors(man)))    # kind must be data|config
+
+    def test_present_manifests_carry_no_migrations_field_so_stay_valid(self):
+        # the tightening is zero-breakage today: neither shipped manifest declares migrations
+        v = self._validator()
+        for rel, m in module_manager.module_coherence.discover_manifests():
+            self.assertEqual(list(v.iter_errors(m)), [], f"{rel} must validate against module.v1.json")
+
+
+class TestUpgradeEndToEnd(unittest.TestCase):
+    """The live upgrade glue — faked fetch, overlay off the present set, wiring deltas, the migration runner
+    (config + backup-first data), the engine-manifest bump with identity preserved, coherence, and the
+    faked PR open — plus the degrade and no-backup paths — exercised by the shipped upgrade demo."""
+
+    def test_upgrade_demo_passes(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(module_manager.upgrade_demo())
+
+
+class TestUpgradeSafety(unittest.TestCase):
+    """Upgrade's defense-in-depth: degrade on an unreachable release, the data-migration pre-flight refusal
+    (before any overlay), and the overlay containment guard — each changes nothing."""
+
+    def test_unreachable_release_degrades_to_the_current_version(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                saved = module_manager._fetch_release_tree
+                module_manager._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
+                    RuntimeError("HTTP Error 404: Not Found"))
+                try:
+                    res = module_manager.upgrade(ref="v9.9.9")
+                finally:
+                    module_manager._fetch_release_tree = saved
+                engine = module_manager.module_coherence.load_engine_manifest()
+            self.assertTrue(res["refused"])
+            self.assertIn("Couldn't reach", res["reason"])
+            self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.0.0")   # unchanged
+
+    def test_data_migration_without_backup_refuses_the_whole_upgrade_before_overlay(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: {"number": 1}, backup=None)
+                engine = module_manager.module_coherence.load_engine_manifest()
+                tool = module_manager.validate.read(os.path.join(live, ".engine/tools/base_tool.py"))
+            self.assertTrue(res["refused"])
+            self.assertIn("data", res["reason"])
+            self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.0.0")   # NOT bumped
+            self.assertIn("v0", tool)        # base tool NOT overlaid: the pre-flight refuses before any write
+
+    def test_escaping_provides_in_a_release_is_refused_before_any_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = os.path.join(d, "release")
+            os.makedirs(os.path.join(release, ".engine", "modules", "base"))
+            module_manager._write_json(
+                os.path.join(release, ".engine", "modules", "base", "manifest.json"),
+                {"id": "base", "version": "0.2.0", "status": "required",
+                 "provides": {"tool": ["../sneak.py"]}, "depends": {}, "migrations": {}})
+            with open(os.path.join(d, "sneak.py"), "w", encoding="utf-8") as fh:
+                fh.write("# outside ROOT\n")
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: {"number": 1}, backup=lambda *a: {"ok": 1})
+            self.assertTrue(res["refused"])
+            self.assertIn("outside the engine", res["reason"])
+
+
+class TestFrozenCheckNames(unittest.TestCase):
+    """The engine CI check names are a FROZEN contract across versions — an upgrade/migration may never
+    rename them (a renamed required check 'waits forever' and deadlocks every pull request; provisioning
+    §"The engine CI check's status name is a frozen contract"). Changing this is a guardrail-weakening
+    change, caught here and at the guard."""
+
+    def test_required_check_names_are_frozen(self):
+        import protection_guard
+        self.assertEqual(protection_guard.REQUIRED_CHECKS, ["engine-ci", "engine-guard"])
+
+    def test_the_overlay_replaces_the_engine_owned_workflow_files(self):
+        # the overlay replaces the engine-owned CI workflows wholesale (a new version ships its own), so the
+        # frozen names live in those files; the invariant is the release must keep the names unchanged
+        self.assertIn(".github/workflows/engine-ci.yml", module_manager.FOUNDATION_CODE)
+        self.assertIn(".github/workflows/engine-guard.yml", module_manager.FOUNDATION_CODE)
 
 
 if __name__ == "__main__":

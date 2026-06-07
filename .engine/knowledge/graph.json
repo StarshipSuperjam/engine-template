@@ -296,6 +296,7 @@
           "operation:build-orchestration",
           "operation:close-turn",
           "operation:control-plane-bootstrap",
+          "operation:engine-upgrade",
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes"
@@ -324,6 +325,7 @@
           "operation:build-orchestration",
           "operation:close-turn",
           "operation:control-plane-bootstrap",
+          "operation:engine-upgrade",
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes"
@@ -702,6 +704,25 @@
       "type": "operation"
     },
     {
+      "id": "operation:engine-upgrade",
+      "name": ".engine/operations/engine-upgrade.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-upgrade",
+      "source": {
+        "fingerprint": "sha256:831ceada592cccd3eea3bfd961a8377af2255db678ba473c4a828f03a3263bd7",
+        "path": ".engine/operations/engine-upgrade.md"
+      },
+      "type": "operation"
+    },
+    {
       "id": "operation:module-add",
       "name": ".engine/operations/module-add.md",
       "owner": "core",
@@ -1040,7 +1061,7 @@
       },
       "slug": "module.v1",
       "source": {
-        "fingerprint": "sha256:ecdf990715a78429e6a6732169bc5acdf8294378204b0923a0db5b96a9eea7cf",
+        "fingerprint": "sha256:5a77effa113bd721979cf70021e66cab3978e017bac5b58e9111e11791471596",
         "path": ".engine/schemas/module.v1.json"
       },
       "type": "schema"
@@ -1376,7 +1397,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:8ac8873a0b7e04932d0b548ab75891eec71268f5cbb2496455ffbe1d18c09c10",
+        "fingerprint": "sha256:dced0ef403cbf94090093247bd5aca33923c472320f1a97feba7ba9826a8ce56",
         "path": ".engine/tools/module_manager.py"
       },
       "type": "tool"
@@ -1648,7 +1669,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:a5b927b060364d93a6760f8279ed73324308db890da226ad5831943785cd7ff5",
+        "fingerprint": "sha256:d7f14bbeb062a5d7b2ebe6f8369f31aadf9655da77228ece9081d1e1746613b5",
         "path": ".engine/tools/test_module_manager.py"
       },
       "type": "tool"

@@ -111,8 +111,29 @@
       }
     },
     "migrations": {
-      "description": "Version-keyed data or schema transforms, run in dependency order when the module is upgraded. Empty or absent for a module that needs none; the detailed transform format is defined when the upgrade machinery lands.",
-      "type": "object"
+      "description": "Version-keyed data or schema transforms, run in dependency order when the engine is upgraded. Each key is the module version the transform brings the module TO (for example 1.4.0); its value names the transform to run at that version. Empty or absent for a module that needs none. A 'data' transform reshapes a gitignored store and is backed up before it runs, so the change is reversible; a 'config' transform reshapes a committed file, which a reverted upgrade restores on its own.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description", "run", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "One plain-language line describing what this transform reshapes and why. It is shown to the operator in the upgrade's pull-request description, so it must read in plain language without engine jargon.",
+            "type": "string",
+            "minLength": 1
+          },
+          "run": {
+            "description": "The transform code to run, as a path relative to the module's own directory (.engine/modules/<id>/) pointing at a Python file that exposes a migrate(context) function. The file must be one of the module's provided files, so it is installed and owned like the rest of the module.",
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "description": "Which kind of state the transform reshapes: 'data' for a gitignored store (snapshotted before it runs so the change is reversible), or 'config' for a committed file (restored on its own when an upgrade is reverted).",
+            "enum": ["data", "config"]
+          }
+        }
+      }
     }
   }
 }
