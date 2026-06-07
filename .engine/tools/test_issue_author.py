@@ -63,6 +63,14 @@ class TestBodyShape(unittest.TestCase):
         self.assertIn("- [The failing run](https://example.com/run/1)", body)
         self.assertIn("- [The policy](https://example.com/policy)", body)
 
+    def test_part_renders_structured_markdown_verbatim(self):
+        # Readability guidance is realizable: a producer may shape a part as a one-line summary plus
+        # markdown bullets, and the helper renders it verbatim (it never forces structure, but it
+        # supports the readable summary->bullets shape rather than only flat prose).
+        what = "Summary line.\n\n- first detail\n- second detail"
+        body = issue_author.render_engine_issue_body(what_this_is=what, whats_next="b")
+        self.assertIn("**What this is.** Summary line.\n\n- first detail\n- second detail", body)
+
 
 class TestNoBareIdDump(unittest.TestCase):
     def test_reference_without_label_or_url_is_refused(self):
