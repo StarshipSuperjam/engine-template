@@ -660,7 +660,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:44a2a7a0d4ff6433da54eef1982f15525b737932a423b520340f0a904096eca7",
+        "fingerprint": "sha256:08b5953dd849abb3c2d359bc55cab135a06a5a3f703f5256cb89d8f805b60185",
         "path": ".engine/operations/build-orchestration.md"
       },
       "type": "operation"
@@ -1291,6 +1291,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:issue_author",
+      "name": ".engine/tools/issue_author.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_author",
+      "source": {
+        "fingerprint": "sha256:7353683c76774cf0f0fc35cf2f634e4f999ce5e7fe66b5fc9c87322a8a326a10",
+        "path": ".engine/tools/issue_author.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:knowledge_gen",
       "name": ".engine/tools/knowledge_gen.py",
       "owner": "core",
@@ -1461,7 +1477,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:d155363fc90be9ecb856f62df9faec772a76795f0a39a3baa2f15f10f926cb0d",
+        "fingerprint": "sha256:fe276b4befcd90fae5540743fb39b64e2a94264c8a52bae62e9a941de1cdbe60",
         "path": ".engine/tools/telemetry.py"
       },
       "type": "tool"
@@ -1607,6 +1623,22 @@
       "source": {
         "fingerprint": "sha256:2c6c746cba0a505a6d4afd04f6d16bcc8d6a8b9a00ad9ff2b38ef3828ecccc64",
         "path": ".engine/tools/test_interface.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_issue_author",
+      "name": ".engine/tools/test_issue_author.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_issue_author",
+      "source": {
+        "fingerprint": "sha256:deeb065ef918ace14a7eb8099dad5e66e7533b544e3ae2766d541ebb8d056ee1",
+        "path": ".engine/tools/test_issue_author.py"
       },
       "type": "tool"
     },
