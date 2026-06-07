@@ -1301,7 +1301,7 @@
       },
       "slug": "issue_author",
       "source": {
-        "fingerprint": "sha256:7353683c76774cf0f0fc35cf2f634e4f999ce5e7fe66b5fc9c87322a8a326a10",
+        "fingerprint": "sha256:98225252d2ade8f8046c42d52b253755a7cc8023f460d9081ac196e70918a239",
         "path": ".engine/tools/issue_author.py"
       },
       "type": "tool"
@@ -1637,7 +1637,7 @@
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:deeb065ef918ace14a7eb8099dad5e66e7533b544e3ae2766d541ebb8d056ee1",
+        "fingerprint": "sha256:12771e53e5e8abaa369c574ed5b85761438eb5a48a2b34a452ae4bdbb07984be",
         "path": ".engine/tools/test_issue_author.py"
       },
       "type": "tool"

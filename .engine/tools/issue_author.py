@@ -22,6 +22,14 @@ framing every engine-authored Issue carries, so a producer not yet written inher
 rather than only the example of the contracts it fills. The shape's presence is the floor; its
 truthfulness is posture (the PR-contract tiering, carried over).
 
+READABLE FORMATTING (guidance, not a mandate). The contract is a loose skeleton that must accommodate
+plain prose, so this helper never *forces* structure — but a non-trivial part reads as a wall of text
+unless the producer shapes it. For anything beyond a sentence or two: lead the part with a one-line
+summary, then break the detail into markdown bullets — the structured-artifacts convention, mirroring
+the [PR template](../../.github/pull_request_template.md)'s summary->bullets shape. A short finding may
+stay plain prose (audits' pinned exemplar). The helper renders whatever markdown a part contains
+verbatim, so bulleted detail renders as bullets; `_demo` below models the readable shape.
+
 PASSIVE FORMATTER, NOT A REGISTRY (principles §14/§16). This is shared code each producer *calls*; it
 makes no network calls, applies no label, and holds no roster of producers. The engine-domain label is
 applied by each producer's own GitHub boundary (an explicit `labels` value at creation, or a label
@@ -93,28 +101,35 @@ def render_engine_issue_body(*, what_this_is: str, whats_next: str, references=N
 def _demo() -> None:
     print("ISSUE-AUTHORING HELPER DEMO — one body assembled from the contract's parts.\n")
     body = render_engine_issue_body(
-        what_this_is=("The engine noticed one of its own checks has been unable to run for the last "
-                      "few sessions. This is about the engine's machinery, not your project."),
-        whats_next=("Usually nothing right now — the engine will propose a fix in a later session "
-                    "under the same review-and-merge step you already use."),
+        what_this_is=(
+            "The engine noticed one of its own checks has been unable to run for the last few sessions.\n\n"
+            "- **What it is:** an item about the engine's own machinery, not your project.\n"
+            "- **Why it's here:** so the problem stays visible until it is fixed."
+        ),
+        whats_next=(
+            "Usually nothing right now.\n\n"
+            "- The engine will propose a fix in a later session, under the review-and-merge step you already use.\n"
+            "- Once the cause is gone, this item closes itself.\n"
+            "- If it lingers and you want it resolved sooner, you can ask for the fix to be prioritised."
+        ),
         references=[("The check's last run", "https://github.com/owner/repo/actions/runs/123")],
     )
     print(body)
-    print("--- a call omitting a required part cannot run ---")
+    print("--- leaving out a required part stops the call ---")
     try:
         render_engine_issue_body(what_this_is="only one part supplied")  # type: ignore[call-arg]
     except TypeError as exc:
-        print(f"TypeError (by construction): {exc}")
-    print("\n--- a present-but-blank part cannot run ---")
+        print(f"Refused — a required part was missing: {exc}")
+    print("\n--- a present-but-blank part stops the call ---")
     try:
         render_engine_issue_body(what_this_is="   ", whats_next="x")
     except ValueError as exc:
-        print(f"ValueError (by construction): {exc}")
-    print("\n--- a bare id (no label/url) is refused as a reference ---")
+        print(f"Refused — a required part was blank: {exc}")
+    print("\n--- a reference without a label and a link is refused (never a bare id) ---")
     try:
         render_engine_issue_body(what_this_is="x", whats_next="y", references=[("", "rule:abc")])
     except ValueError as exc:
-        print(f"ValueError (no bare id dump): {exc}")
+        print(f"Refused — a reference needs a label and a link: {exc}")
 
 
 if __name__ == "__main__":
