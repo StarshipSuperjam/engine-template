@@ -2,11 +2,22 @@
 """Module manager — the permanent provisioning primitive that adds and removes engine modules
 over a repo's life (systems/infrastructure/provisioning/README.md §"The module manager").
 
-Slice 25b shipped **remove** + the **group-scoped uv-sync derivation**. Slice 25c (this change) adds
-**add** (install a module at the current release) and its shared **fetch/overlay** primitive, plus the
-standalone **sync-groups** fixer (the one-command fix the uv-group-drift check points at). The engine
-updater/upgrade, migrations, and de-bootstrap-on-clean-removal — the rest of the fetch-and-overlay
-machinery — land in the following 25c pull requests.
+Slice 25b shipped **remove** + the **group-scoped uv-sync derivation**. Slice 25c PR-1 added **add**
+(install a module at the current release) + its shared **fetch/overlay** primitive + the **sync-groups**
+fixer. Slice 25c PR-2 (this change) adds the **engine updater** — `upgrade` (the whole-engine vX -> vY
+version move) and the **migrations** machinery it runs. CODEOWNERS rendering + de-bootstrap +
+clean whole-engine removal land in 25c PR-3.
+
+`upgrade` is the engine updater (provisioning §"Upgrading the engine"): fetch the tagged release (reusing
+`_fetch_release_tree`), overlay the engine CODE of the present packages (driven off the present set, so a
+deselected module is never resurrected; operator config + gitignored data preserved; `_within_root` fails a
+containment escape closed BEFORE any write), apply/reverse wiring deltas, re-sync the tool-runtime, run the
+packages' `migrations` in dependency order, run coherence, and land the change as a reviewed pull request.
+A `data` migration is **backup-first**: it is refused (pre-flight, before any overlay) unless a backup seam
+is available (memory owns the mechanism — INERT until memory-substrate ships, owes -> memory-substrate), so
+the engine never changes un-backed-up data. It DEGRADES to the current version on an unreachable release
+(§5 / R7). FIXTURE-DEMOED: the real release fetch, the `uv sync` re-sync, the git/PR open, and a real data
+migration never run in the construction repo (no releases; memory is post-core) — the named inductive gaps.
 
 `add` is the mirror of `remove` (provisioning §"The module manager: add"): fetch the module's files from
 the tagged release, copy its `provides` into their surface homes, copy in its manifest, apply its `wires`,
@@ -46,7 +57,8 @@ CLI:
   python tools/module_manager.py add <id> [--json]   # fetch + install a module at the current release
   python tools/module_manager.py plan-remove <id>    # read-only: refusal reasons / what remove would do
   python tools/module_manager.py remove <id> [--json]
-  python tools/module_manager.py demo                # mutation-free fail-then-pass (remove + add; fixtures)
+  python tools/module_manager.py upgrade [ref] [--json]  # the engine updater: whole-engine vX -> vY
+  python tools/module_manager.py demo                # mutation-free fail-then-pass (remove + add + upgrade; fixtures)
 """
 from __future__ import annotations
 import contextlib
@@ -463,6 +475,411 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ---- engine upgrade + migrations (the engine updater: provisioning §"Upgrading the engine" +
+#      §"Migration and reversibility"). FIXTURE-DEMOED — four boundaries never run in the construction
+#      repo: (1) the real release FETCH (no releases), (2) the `uv sync` RE-SYNC from the overlaid lock,
+#      (3) the git/PR OPEN, (4) a real DATA migration + its backup (memory's seam is post-core). Each is
+#      injectable/skipped so tests + the demo run the REAL overlay / runner / coherence logic; "works on
+#      the fixture ⇒ works for a real adopter" is the inductive step the fixture cannot discharge. ------
+
+_UNSET = object()   # sentinel: "no GitHub boundary passed (resolve close._github)" vs "offline (None)"
+
+# Engine CODE owned by no module's `provides` but replaced wholesale on upgrade (provisioning L289/L356).
+# The engine manifest (engine.json) is NOT here — it is operator config whose package versions upgrade
+# bumps in place while preserving identity. Gitignored data and the deployment's per-instance eADR stream
+# are in no `provides`/FOUNDATION_CODE, so the overlay leaves them untouched (config + data preserved).
+FOUNDATION_CODE = (
+    ".engine/pyproject.toml",
+    ".engine/uv.lock",
+    "CLAUDE.md",
+    ".github/workflows/engine-ci.yml",
+    ".github/workflows/engine-guard.yml",
+    ".github/pull_request_template.md",
+)
+
+
+class _UpgradeRefused(Exception):
+    """A clean upgrade refusal carrying a plain-language reason — caught by upgrade() so a refusal returns
+    a structured result (no traceback), with nothing applied."""
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+# ---- migrations: the backup seam (INERT), the loader, the runner, the version-stamp check -----
+
+def _resolve_backup_seam(backup):
+    """The pre-migration backup seam a `data` migration uses. An injected callable (tests/demo) wins;
+    otherwise MEMORY's snapshot mechanism if memory-substrate is installed, else None. The seam is a
+    callable `seam(store, engine_version) -> a truthy snapshot handle`; **None means NO backup is
+    available**, so the no-backup guard refuses every data migration (degrade loud, never silently mutate
+    un-backed-up data). DORMANT until memory ships (post-core / ~M1): memory owns the mechanism AND the
+    restore contract and may not be widened here (owes -> memory-substrate). This reads ONLY present/absent
+    — the handle's concrete shape is memory's leaf (the close._trigger_ambient_capture precedent)."""
+    if backup is not None:
+        return backup
+    try:
+        import memory  # noqa: F401 — absent until memory-substrate ships; ImportError -> no seam
+        fn = getattr(memory, "snapshot_for_migration", None)
+        return fn if callable(fn) else None
+    except Exception:  # noqa: BLE001 — any failure obtaining the seam -> treat as "no backup available"
+        return None
+
+
+def _load_migration(module_dir: str, run_rel: str):
+    """Load the migration at <module_dir>/<run_rel> and return its migrate(context) callable. Loaded under
+    a UNIQUE synthetic module name (so two modules' migration files never collide in sys.modules) via the
+    importlib spec loader — no sys.path mutation."""
+    import importlib.util   # local: only the migration path needs it
+    path = os.path.join(module_dir, run_rel)
+    if not os.path.isfile(path):
+        raise RuntimeError(f"migration file '{run_rel}' is missing")
+    uniq = re.sub(r"[^a-z0-9]+", "_", os.path.relpath(path, validate.ROOT).lower())
+    spec = importlib.util.spec_from_file_location(f"engine_migration_{uniq}", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    fn = getattr(mod, "migrate", None)
+    if not callable(fn):
+        raise RuntimeError(f"migration '{run_rel}' does not define a migrate(context) function")
+    return fn
+
+
+def select_migrations(from_versions: dict, target_versions: dict, manifests: list) -> list:
+    """PURE: the migration entries an upgrade must run, in execution order. For each present module pick
+    the `migrations` keys strictly ABOVE its from-version and AT-OR-BELOW its target-version; order modules
+    by dependency (validate.topological_order) and, within a module, by ASCENDING version using
+    validate._ver_tuple (NEVER string order — '0.10.0' must sort AFTER '0.9.0'). `manifests` is a list of
+    manifest dicts; `from_versions`/`target_versions` are {module_id: version}. Returns a list of
+    {module_id, version, description, run, kind} — fixture-testable with no disk/network."""
+    out = []
+    for m in validate.topological_order(list(manifests)):
+        mid = m.get("id")
+        frm = validate._ver_tuple(from_versions.get(mid, "0"))
+        tgt = validate._ver_tuple(target_versions.get(mid, from_versions.get(mid, "0")))
+        for ver in sorted((m.get("migrations") or {}), key=validate._ver_tuple):
+            if frm < validate._ver_tuple(ver) <= tgt:
+                e = (m.get("migrations") or {})[ver] or {}
+                out.append({"module_id": mid, "version": ver, "description": e.get("description"),
+                            "run": e.get("run"), "kind": e.get("kind")})
+    return out
+
+
+def run_migrations(selected: list, from_versions: dict, engine_version: str,
+                   module_dir=None, backup=None) -> dict:
+    """Run the SELECTED migrations (from select_migrations) in order. `module_dir(module_id)` returns that
+    module's directory so `run` resolves (defaults to the live layout). `engine_version` is handed to each
+    migration (a data migration stamps its snapshot with it). `backup` injects the seam (tests/demo); None
+    resolves the real one. Returns {ran:[...], refused:[...]}.
+
+    `config` migration -> runs directly (a reverted upgrade restores a committed file on its own).
+    `data` migration  -> the NO-BACKUP GUARD: with no backup seam available it is REFUSED (degrade loud,
+    nothing run); else the seam is handed to the migration in `context` so it snapshots its OWN store
+    BEFORE mutating + stamps it with `engine_version` (backup-first reversibility). The guard is
+    belt-and-suspenders with upgrade()'s pre-flight (which refuses the whole upgrade before overlaying if a
+    data migration has no seam), so run_migrations is also safe to call on its own."""
+    if module_dir is None:
+        module_dir = _modules_dir
+    seam = _resolve_backup_seam(backup)
+    result = {"ran": [], "refused": []}
+    for item in selected:
+        mid, ver, kind = item["module_id"], item["version"], item.get("kind")
+        if kind == "data" and seam is None:
+            result["refused"].append(
+                f"Did not update stored data for '{mid}' to {ver}: no data backup is set up yet, and the "
+                f"engine never changes stored data it can't first back up. Nothing was changed.")
+            continue
+        ctx = {"module_id": mid, "from_version": from_versions.get(mid), "to_version": ver,
+               "engine_version": engine_version, "kind": kind,
+               "backup": seam if kind == "data" else None}
+        _load_migration(module_dir(mid), item["run"])(ctx)
+        result["ran"].append(f"{mid} -> {ver} ({kind})")
+    return result
+
+
+def stamp_mismatch_finding(store_label: str, stamped_version: str, running_version: str,
+                           restore_command: str):
+    """PURE: the post-revert data-integrity check a data migration owns. After an upgrade pull request is
+    reverted, the engine CODE returns to the older version, but a data migration that already reshaped a
+    gitignored store is NOT reverted with it (the store is gitignored, outside the pull request). Each data
+    migration stamps its snapshot with the engine-code version it ran at; if the running engine code is now
+    OLDER than that stamp, the store is ahead of the code. Returns a hard finding.v1 naming the exact
+    restore command, or None when there is no mismatch (running >= stamped). DETECTION is the migration's
+    own logic; SURFACING is boot's existing read-only open-findings path (boot needs no change). The first
+    real use is owed to memory-substrate (no real store exists in core)."""
+    if validate._ver_tuple(running_version) >= validate._ver_tuple(stamped_version):
+        return None
+    return validate.finding(
+        "hard",
+        f"The stored data for '{store_label}' was last updated by a newer engine version "
+        f"({stamped_version}) than the one now running ({running_version}) — most likely an engine update "
+        f"was undone after it had already updated your data. Restore the backup so the two match: "
+        f"{restore_command}")
+
+
+def surface_stamp_mismatch(store_label: str, stamped_version: str, running_version: str,
+                           restore_command: str, now: str, github=_UNSET):
+    """Surface a detected version-stamp mismatch as ONE tracked engine finding via
+    telemetry.promote_finding (NO auto-resolve — never closes other open Issues), which boot then renders
+    through its read-only open-findings path. Reuses close's GitHub boundary + finding-record shape.
+    Returns the Issue number, or None when there is no mismatch / GitHub is unreachable (the in-session
+    surfacing + the merge wall remain). This is a READ-ONLY check — it calls promote_finding, NEVER runs
+    migrate(), and is never wired into boot ('Migration is never triggered at boot')."""
+    f = stamp_mismatch_finding(store_label, stamped_version, running_version, restore_command)
+    if f is None:
+        return None
+    import hashlib            # lazy: this rare path keeps module_manager's common imports lean
+    import close              # close owns the GitHub boundary + the finding-record shape (reuse, no copy)
+    import telemetry
+    gh = close._github() if github is _UNSET else github
+    if gh is None:            # offline -> surfaced-in-session-not-tracked; the merge wall is the backstop
+        return None
+    digest = hashlib.sha1((f.get("message") or "").encode("utf-8")).hexdigest()[:12]
+    record = {"source_id": f"migration/version-stamp/{digest}", "severity": telemetry.TRUST_CRITICAL,
+              "message": f.get("message"), "location": f.get("location"),
+              "first_seen": now, "last_seen": now}
+    return telemetry.promote_finding(gh, record, now)
+
+
+# ---- upgrade: overlay (off the PRESENT set) + wiring deltas + re-sync + migrations + coherence + PR ----
+
+def _overlay_engine_code(release_tree: str, present_ids: list) -> tuple:
+    """Overlay the engine CODE of the PRESENT packages from `release_tree`: each present module's
+    `provides` files + its manifest, plus the FOUNDATION_CODE infra the release ships. Driven off the
+    PRESENT set (never the release tree's modules/*), so a deselected module is NEVER resurrected
+    (provisioning L352-356). Operator config (engine.json identity, the policy-override) and gitignored
+    data + the per-instance eADR stream are in no `provides`/FOUNDATION_CODE, so they are untouched.
+    CONTAINMENT GUARD (the topology wall): every destination must resolve INSIDE ROOT — fail closed BEFORE
+    any write (the PR-1 pattern). Returns (copied_relpaths, {module_id: release_manifest})."""
+    to_copy: dict = {}   # rel -> src (dedup; a manifest also matched by a glob resolves to one entry)
+    candidates: dict = {}
+    for mid in present_ids:
+        man_src = os.path.join(release_tree, ".engine", "modules", mid, "manifest.json")
+        if not os.path.isfile(man_src):
+            raise _UpgradeRefused(f"the engine release does not contain the installed module '{mid}', so "
+                                  f"the update was stopped and nothing was changed.")
+        cand = validate.load_json(man_src)
+        candidates[mid] = cand
+        for _group, patterns in (cand.get("provides") or {}).items():
+            for pattern in patterns:
+                for src in glob.glob(os.path.join(release_tree, pattern), recursive=True):
+                    if os.path.isfile(src):
+                        to_copy[os.path.relpath(src, release_tree).replace(os.sep, "/")] = src
+        to_copy[f".engine/modules/{mid}/manifest.json"] = man_src
+    for rel in FOUNDATION_CODE:
+        src = os.path.join(release_tree, rel)
+        if os.path.isfile(src):
+            to_copy[rel] = src
+    escapes = sorted(rel for rel in to_copy if not _within_root(rel))
+    if escapes:
+        shown = ", ".join(escapes[:3]) + ("…" if len(escapes) > 3 else "")
+        raise _UpgradeRefused(f"the update was stopped because it tried to place files outside the engine "
+                              f"({shown}); nothing was changed.")
+    copied = []
+    for rel, src in sorted(to_copy.items()):
+        dst = os.path.join(validate.ROOT, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(src, dst)
+        copied.append(rel)
+    return copied, candidates
+
+
+def _apply_wiring_deltas(old_by_id: dict, new_by_id: dict) -> list:
+    """Reverse the wires a module no longer declares and (re)apply the wires it declares now (the
+    scenario's 'apply/reverse wiring deltas'). For an unchanged version the delta is empty (apply_all is
+    idempotent). A removed engine-identifiable wire is reversed so it does not linger; a same-identity
+    content change is re-applied, and if a seam cannot update in place the forward coherence leg (step 5)
+    catches the drift. Returns plain-language lines."""
+    lines = []
+    for mid, new_m in new_by_id.items():
+        new_list = new_m.get("wires") or []
+        new_ids = {wiring.declared_wire_identity(w) for w in new_list} - {None}
+        for w in (old_by_id.get(mid) or {}).get("wires") or []:
+            k = wiring.declared_wire_identity(w)
+            if k is not None and k not in new_ids:     # wire removed in the new version -> reverse it
+                lines.append(validate.fmt(wiring.reverse(w)))
+        for f in wiring.apply_all(new_list):           # apply the new version's wires (idempotent)
+            lines.append(validate.fmt(f))
+    return lines
+
+
+def _bump_engine_manifest(target_versions: dict, engine_release: str) -> dict:
+    """Update the engine manifest in place: set engine_release + each present package's version to the
+    release's, PRESERVING identity and any other operator-owned keys (engine.json is operator config, not
+    overlaid). Returns the new manifest."""
+    engine = module_coherence.load_engine_manifest() or {"packages": {}}
+    engine["engine_release"] = engine_release
+    pkgs = engine.setdefault("packages", {})
+    for mid, ver in target_versions.items():
+        if mid in pkgs:
+            pkgs[mid] = ver
+    _write_json(_engine_manifest_path(), engine)
+    return engine
+
+
+def _resync_tool_runtime() -> bool:
+    """Group-scoped `uv sync` rebuilds the tool-runtime from the overlaid lockfile BEFORE migrations run
+    in it (provisioning step 3) — shelled via subprocess (the bootstrap.py pattern). It materializes the
+    runtime only and never mutates a gitignored data store. Returns True on success. NEVER runs in tests /
+    the demo (the injected-release path skips it) — one of the four named inductive gaps."""
+    import subprocess   # local: only the real re-sync needs it
+    try:
+        subprocess.run(["uv", "sync"], cwd=os.path.join(validate.ROOT, ".engine"),
+                       check=True, capture_output=True, timeout=300)
+        return True
+    except Exception:   # noqa: BLE001 — degrade: the caller surfaces a re-sync failure, never crashes
+        return False
+
+
+def _upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -> str:
+    """A plain-language body for the upgrade's own pull request (operator-facing). Lists the version move
+    and the data/config changes that ran, so the reviewer sees what an approval lands. (The deployed PR
+    template fill is a later refinement; this is a readable, structured summary.)"""
+    lines = ["This pull request updates the engine to a new released version.", "",
+             "What changed:"]
+    for mid in sorted(target_versions):
+        frm, to = from_versions.get(mid, "—"), target_versions.get(mid)
+        lines.append(f"- {mid}: {frm} -> {to}")
+    ran = result.get("migrations", {}).get("ran") or []
+    if ran:
+        lines += ["", "Data/settings updates that ran:"] + [f"- {r}" for r in ran]
+    lines += ["", "The engine's own consistency check passed. Merging this is your review and consent; "
+              "reverting this pull request undoes the update."]
+    return "\n".join(lines)
+
+
+def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) -> dict:
+    """THE GIT+PR BOUNDARY (provisioning step 6): stage the overlaid change on a new branch, commit, push,
+    and open a pull request so an upgrade is reviewed + reversible like any change. NET-NEW (no
+    git-automation helper existed) — branch/commit/push via subprocess (the bootstrap.py pattern), the PR
+    via POST /repos/{slug}/pulls (the telemetry.open_issue pattern). INJECTED for tests + the demo
+    (upgrade(opener=...)), so this real path NEVER runs in the construction repo — one of the four named
+    inductive gaps (no release to upgrade to, no PR to open)."""
+    import subprocess, urllib.request, json as _json, boot   # local: only the real open needs these
+    slug = repo or boot.repo_slug()
+    tok = token if token is not None else boot.gh_token()
+    if not slug or not tok:
+        raise RuntimeError("could not determine the engine repository / credentials to open the update "
+                           "pull request.")
+    base = getattr(boot, "PROTECTED_BRANCH", "main")
+    for args in (["git", "checkout", "-b", branch], ["git", "add", "-A"],
+                 ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
+        subprocess.run(args, cwd=validate.ROOT, check=True, capture_output=True)
+    url = f"https://api.github.com/repos/{slug}/pulls"
+    payload = _json.dumps({"title": title, "head": branch, "base": base, "body": body}).encode("utf-8")
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": "engine-module-manager", "Authorization": f"Bearer {tok}",
+               "Content-Type": "application/json"}
+    with urllib.request.urlopen(urllib.request.Request(url, data=payload, headers=headers),
+                                timeout=60) as resp:
+        return _json.loads(resp.read())
+
+
+def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None, backup=None) -> dict:
+    """Upgrade the whole engine vX -> vY (provisioning §"Upgrading the engine"). Six steps: fetch the
+    tagged release, overlay engine code (operator config + gitignored data preserved), re-sync the
+    tool-runtime, run migrations in dependency order, run coherence, and land the change as a reviewed
+    pull request.
+
+    Injectable boundaries (so tests + the demo run the REAL overlay/runner/coherence and never touch the
+    network or open a real PR): `release_tree` injects a local extracted release AND marks a practice run
+    (the real `uv sync` is skipped); `opener` injects the git+PR boundary; `backup` injects the migration
+    backup seam (None = memory if installed, else none -> data migrations refuse). Returns a structured
+    result the CLI renders in plain language. Refuses cleanly (nothing applied) on an unreachable release,
+    a containment escape, or a data migration with no backup seam (the pre-flight). Degrades to the
+    current version on an unreachable release (§5 / R7). The change lands ONLY as a reviewed pull request,
+    so an abort at any step leaves it un-merged — there is no in-place half-state and no in-place
+    rollback."""
+    injected = release_tree is not None
+    result = {"refused": False, "applied": False, "reason": None, "from": None, "to": None,
+              "copied": [], "wiring": [], "synced": None, "migrations": {"ran": [], "refused": []},
+              "findings": [], "pr": None, "notes": []}
+    tmp = None
+    try:
+        engine = module_coherence.load_engine_manifest() or {"packages": {}}
+        from_versions = dict(engine.get("packages") or {})
+        present_ids = sorted(from_versions)
+        result["from"] = from_versions
+        target_ref = ref or "latest"
+        # (1) FETCH the tagged release (reuse the PR-1 boundary + its plain-failure handler; degrade §5)
+        if release_tree is None:
+            if not present_ids:
+                return {**result, "refused": True, "reason": "There are no installed modules to update."}
+            tmp = tempfile.mkdtemp(prefix="engine-upgrade-")
+            try:
+                release_tree = _fetch_release_tree(target_ref, tmp)
+            except Exception as exc:   # offline / missing release / transport — degrade loud + plain
+                return {**result, "refused": True,
+                        "reason": f"Couldn't reach the engine release '{target_ref}' to update — the "
+                                  f"release may not exist yet, or the network is unavailable. The engine "
+                                  f"is unchanged and still working. ({exc})"}
+        # read target versions + capture the CURRENTLY-installed manifests (for wiring deltas) BEFORE the
+        # overlay overwrites them
+        target_versions, old_by_id = {}, {}
+        for mid in present_ids:
+            man_src = os.path.join(release_tree, ".engine", "modules", mid, "manifest.json")
+            if not os.path.isfile(man_src):
+                return {**result, "refused": True,
+                        "reason": f"The engine release does not contain the installed module '{mid}', so "
+                                  f"the update was stopped and nothing was changed."}
+            target_versions[mid] = validate.load_json(man_src).get("version")
+            cur = os.path.join(_modules_dir(mid), "manifest.json")
+            old_by_id[mid] = validate.load_json(cur) if os.path.isfile(cur) else {}
+        result["to"] = target_versions
+        # PRE-FLIGHT the data-migration backup guard BEFORE any overlay (the half-state law): refuse the
+        # WHOLE upgrade if a data migration in range has no backup seam — nothing is applied.
+        selected = select_migrations(
+            from_versions, target_versions,
+            [validate.load_json(os.path.join(release_tree, ".engine", "modules", mid, "manifest.json"))
+             for mid in present_ids])
+        seam = _resolve_backup_seam(backup)
+        data_no_seam = sorted({s["module_id"] for s in selected
+                               if s.get("kind") == "data" and seam is None})
+        if data_no_seam:
+            return {**result, "refused": True,
+                    "reason": f"This update needs to change stored data for {', '.join(data_no_seam)}, but "
+                              f"no data backup is set up yet — and the engine never changes stored data it "
+                              f"can't first back up. The engine is unchanged. Set up a backup, then update "
+                              f"again."}
+        # (2) OVERLAY engine code (driven off the present set; containment fail-closed)
+        try:
+            result["copied"], candidates = _overlay_engine_code(release_tree, present_ids)
+        except _UpgradeRefused as ur:
+            return {**result, "refused": True, "reason": ur.reason}
+        # (2b) wiring deltas, (2c) bump the engine manifest (preserve identity)
+        result["wiring"] = _apply_wiring_deltas(old_by_id, candidates)
+        _bump_engine_manifest(target_versions, target_ref)
+        # (3) RE-SYNC the tool-runtime (real path only; the injected/practice run skips it — no real venv)
+        if injected:
+            result["synced"] = None
+            result["notes"].append("(skipped re-building the tool-runtime — this is a practice run)")
+        else:
+            result["synced"] = _resync_tool_runtime()
+            if not result["synced"]:
+                result["notes"].append("(could not re-build the tool-runtime from the new version)")
+        # (4) RUN migrations (selected, dependency-ordered; the no-backup guard already pre-flighted)
+        result["migrations"] = run_migrations(selected, from_versions, target_ref, backup=seam)
+        # (5) COHERENCE — a hard finding pauses (the change is staged in the working copy, not landed)
+        result["applied"] = True
+        result["findings"] = module_coherence.check_coherence()
+        if any(f.get("severity") == "hard" for f in result["findings"]):
+            result["reason"] = ("The update was applied to the working copy but a consistency problem "
+                                "remains, so it was NOT opened for review. Fix the problem and update "
+                                "again, or discard the change.")
+            return result
+        # (6) LAND as a reviewed pull request (injected opener in tests/demo; real opener otherwise)
+        title = f"Update the engine to {target_ref}"
+        body = _upgrade_pr_body(from_versions, target_versions, result)
+        branch = "engine-update-" + re.sub(r"[^a-zA-Z0-9._-]+", "-", target_ref)
+        try:
+            result["pr"] = (opener or _open_upgrade_pr)(branch=branch, title=title, body=body)
+        except Exception as exc:   # noqa: BLE001 — staged but not opened; surfaced, never a traceback
+            result["notes"].append(f"(the update is staged but the pull request could not be opened: {exc})")
+        return result
+    finally:
+        if tmp and os.path.isdir(tmp):
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ---- CLI rendering ----------------------------------------------------------------------------
 
 def _render_remove(result: dict) -> None:
@@ -511,6 +928,38 @@ def _render_add(result: dict) -> None:
             print("  - " + validate.fmt(f))
     else:
         print("\nThe installed modules are consistent.")
+
+
+def _render_upgrade(result: dict) -> None:
+    if result.get("refused"):
+        print(f"Did not update the engine: {result['reason']}")
+        return
+    frm, to = result.get("from") or {}, result.get("to") or {}
+    moved = [f"{mid} {frm.get(mid, '—')} -> {to.get(mid)}" for mid in sorted(to)]
+    print("Updated the engine" + (f": {'; '.join(moved)}." if moved else "."))
+    copied = result.get("copied", [])
+    for rel in copied[:8]:
+        print(f"  - replaced {rel}")
+    if len(copied) > 8:
+        print(f"  - … and {len(copied) - 8} more engine file(s)")
+    for r in result.get("migrations", {}).get("ran", []):
+        print(f"  - ran update: {r}")
+    for r in result.get("migrations", {}).get("refused", []):
+        print(f"  - {r}")
+    for line in result.get("notes", []):
+        print("  - " + line)
+    pr = result.get("pr")
+    if pr:
+        num = pr.get("number") if isinstance(pr, dict) else None
+        print(f"\nOpened a pull request{f' #{num}' if num else ''} for review — merging it is your consent; "
+              f"reverting it undoes the update.")
+    hard = [f for f in result.get("findings", []) if f.get("severity") == "hard"]
+    if hard:
+        print(f"\n{result.get('reason') or 'A problem remains:'}")
+        for f in hard:
+            print("  - " + validate.fmt(f))
+    elif not pr:
+        print("\nThe update is staged and consistent.")
 
 
 def _status() -> int:
@@ -761,10 +1210,176 @@ def add_demo() -> bool:
     return ok
 
 
+# ---- upgrade demo (mutation-free, real logic, ALL FOUR boundaries faked) ----------------------
+
+def _build_upgrade_fixture(root: str) -> None:
+    """A minimal COHERENT live fixture engine at version 0.0.0: a required `base` module (one tool, no
+    migrations yet), the engine manifest recording base 0.0.0 + a `solo` identity (operator config the
+    upgrade must preserve), and the foundation code files an overlay replaces."""
+    eng = os.path.join(root, ".engine")
+    os.makedirs(os.path.join(eng, "modules", "base"))
+    os.makedirs(os.path.join(eng, "tools"))
+    os.makedirs(os.path.join(root, ".claude"))
+    _write_json(os.path.join(eng, "modules", "base", "manifest.json"),
+                {"id": "base", "version": "0.0.0", "status": "required",
+                 "provides": {"tool": [".engine/tools/base_tool.py"]}, "depends": {}, "migrations": {}})
+    _write_json(os.path.join(eng, "engine.json"),
+                {"engine_release": "0.0.0", "packages": {"base": "0.0.0"}, "identity": "solo"})
+    with open(os.path.join(eng, "tools", "base_tool.py"), "w") as fh:
+        fh.write("# base v0\n")
+    with open(os.path.join(eng, "uv.lock"), "w") as fh:
+        fh.write("# lock v0\n")
+    with open(os.path.join(eng, "pyproject.toml"), "w") as fh:
+        fh.write('[project]\nname = "x"\nversion = "0"\n\n[dependency-groups]\nbase = ["pkg-a"]\n\n'
+                 '[tool.uv]\ndefault-groups = ["base"]\n')
+    for name in (".mcp.json", os.path.join(".claude", "settings.json")):
+        with open(os.path.join(root, name), "w") as fh:
+            fh.write("{}\n")
+    with open(os.path.join(root, ".gitignore"), "w") as fh:
+        fh.write("# foundation\n.engine/.venv/\n")
+
+
+def _build_upgrade_release(root: str) -> str:
+    """A throwaway extracted release tree (what _fetch_release_tree would return) at version 0.2.0: `base`
+    bumped, its tool updated, and TWO migrations declared — a `config` transform (0.1.0, runs directly) and
+    a `data` transform (0.2.0, backup-first). The migration `.py` files are in `base`'s `provides` (so the
+    overlay copies them and the ownership leg claims them); each migrate(context) leaves an observable
+    marker under .engine/state/ (claimed by base's state glob). Returns the tree root."""
+    eng = os.path.join(root, ".engine")
+    os.makedirs(os.path.join(eng, "modules", "base", "migrations"))
+    os.makedirs(os.path.join(eng, "tools"))
+    _write_json(os.path.join(eng, "modules", "base", "manifest.json"),
+                {"id": "base", "version": "0.2.0", "status": "required",
+                 "provides": {"tool": [".engine/tools/base_tool.py"],
+                              "migration": [".engine/modules/base/migrations/*.py"],
+                              "state": [".engine/state/*.json"]},
+                 "depends": {},
+                 "migrations": {
+                     "0.1.0": {"description": "Tidy a committed settings file for the new layout.",
+                               "run": "migrations/config_010.py", "kind": "config"},
+                     "0.2.0": {"description": "Reshape the stored data for the new format.",
+                               "run": "migrations/data_020.py", "kind": "data"}}})
+    with open(os.path.join(eng, "tools", "base_tool.py"), "w") as fh:
+        fh.write("# base v2 (updated)\n")
+    # the migration code runs IN the tool-runtime; it imports validate (module_manager already put the
+    # tools dir on sys.path) to find the redirected ROOT — exactly how a real migration locates its store.
+    cfg = ("import os, json, validate\n"
+           "def migrate(context):\n"
+           "    assert context['kind'] == 'config'\n"
+           "    p = os.path.join(validate.ROOT, '.engine', 'state', 'config_marker.json')\n"
+           "    os.makedirs(os.path.dirname(p), exist_ok=True)\n"
+           "    with open(p, 'w') as fh:\n"
+           "        json.dump({'ran': 'config', 'to': context['to_version']}, fh)\n")
+    data = ("import os, json, validate\n"
+            "def migrate(context):\n"
+            "    assert context['kind'] == 'data'\n"
+            "    handle = context['backup']('recall-ledger', context['engine_version'])\n"
+            "    assert handle, 'backup-first: a data migration must snapshot before mutating'\n"
+            "    p = os.path.join(validate.ROOT, '.engine', 'state', 'data_marker.json')\n"
+            "    os.makedirs(os.path.dirname(p), exist_ok=True)\n"
+            "    with open(p, 'w') as fh:\n"
+            "        json.dump({'ran': 'data', 'stamp': context['engine_version']}, fh)\n")
+    with open(os.path.join(eng, "modules", "base", "migrations", "config_010.py"), "w") as fh:
+        fh.write(cfg)
+    with open(os.path.join(eng, "modules", "base", "migrations", "data_020.py"), "w") as fh:
+        fh.write(data)
+    with open(os.path.join(eng, "uv.lock"), "w") as fh:           # foundation code the overlay replaces
+        fh.write("# lock v2\n")
+    with open(os.path.join(eng, "pyproject.toml"), "w") as fh:
+        fh.write('[project]\nname = "x"\nversion = "0"\n\n[dependency-groups]\nbase = ["pkg-a"]\n\n'
+                 '[tool.uv]\ndefault-groups = ["base"]\n')
+    return root
+
+
+def upgrade_demo() -> bool:
+    """Fail-then-pass demonstration of `upgrade`, returning True iff every step behaved. Real overlay /
+    migration runner / coherence logic runs against a throwaway fixture; ALL FOUR side-effect boundaries
+    are faked — the release fetch (injected release tree), the tool-runtime rebuild (skipped on a practice
+    run), the git/PR open (injected fake opener), and the data backup (injected fake seam). Honest limit:
+    none of those four ever runs for real in the construction repo (no releases; memory is post-core), so
+    "works on the fixture ⇒ works for a real adopter" is the inductive step the fixture cannot discharge."""
+    ok = True
+    print("Part G — updating the whole engine on a throwaway fixture. FAKED: the release fetch, the "
+          "tool-runtime rebuild, the pull-request open, and the data backup. REAL: the overlay, the "
+          "migration runner, and the consistency check. (None of those four ever runs for real here.)")
+    pulls = []
+    def fake_opener(branch, title, body):
+        pulls.append({"branch": branch, "title": title})
+        return {"number": 0, "title": title}
+    snapshots = []
+    def fake_backup(store, engine_version):
+        snapshots.append((store, engine_version))
+        return {"store": store, "engine_version": engine_version}
+
+    with tempfile.TemporaryDirectory() as d:
+        live = os.path.join(d, "live")
+        os.makedirs(live)
+        release = _build_upgrade_release(os.path.join(d, "release"))
+        with _redirect_root(live):
+            _build_upgrade_fixture(live)
+            before = [f for f in module_coherence.check_coherence() if f["severity"] == "hard"]
+            print("  fixture coherent before update: " + ("yes" if not before else f"NO: {before}"))
+            ok = ok and not before
+
+            print("\nPart H — an unreachable release leaves the engine on its current version (it degrades):")
+            saved_fetch = globals().get("_fetch_release_tree")
+            globals()["_fetch_release_tree"] = lambda *a, **k: (_ for _ in ()).throw(
+                RuntimeError("no such release"))
+            try:
+                degraded = upgrade(ref="v9.9.9")
+            finally:
+                globals()["_fetch_release_tree"] = saved_fetch
+            still0 = (module_coherence.load_engine_manifest() or {}).get("packages", {}).get("base")
+            print("    -> " + (degraded["reason"] if degraded.get("refused") else "NOT refused?!"))
+            ok = ok and degraded.get("refused") and still0 == "0.0.0"
+
+            print("\nPart I — an update that changes stored data is REFUSED with no backup set up "
+                  "(nothing changes):")
+            no_seam = upgrade(ref="v0.2.0", release_tree=release, opener=fake_opener, backup=None)
+            still1 = (module_coherence.load_engine_manifest() or {}).get("packages", {}).get("base")
+            print("    -> " + (no_seam["reason"] if no_seam.get("refused") else "NOT refused?!"))
+            ok = ok and no_seam.get("refused") and still1 == "0.0.0" and not pulls and not snapshots
+
+            print("\nPart J — the same update with a backup available runs end-to-end:")
+            res = upgrade(ref="v0.2.0", release_tree=release, opener=fake_opener, backup=fake_backup)
+            for line in [f"base {res['from'].get('base')} -> {res['to'].get('base')}"] + \
+                    [f"replaced {x}" for x in res.get("copied", [])] + \
+                    [f"ran {r}" for r in res.get("migrations", {}).get("ran", [])]:
+                print("    - " + line)
+            engine = module_coherence.load_engine_manifest()
+            cfg_marker = os.path.join(live, ".engine", "state", "config_marker.json")
+            data_marker = os.path.join(live, ".engine", "state", "data_marker.json")
+            stamp = None
+            if os.path.isfile(data_marker):
+                with open(data_marker) as fh:
+                    stamp = json.load(fh).get("stamp")
+            checks = {
+                "engine.json records base 0.2.0": (engine or {}).get("packages", {}).get("base") == "0.2.0",
+                "operator identity preserved": (engine or {}).get("identity") == "solo",
+                "base tool replaced with v2":
+                    "v2" in validate.read(os.path.join(live, ".engine/tools/base_tool.py")),
+                "config migration ran": os.path.isfile(cfg_marker),
+                "data migration ran (after a backup)": os.path.isfile(data_marker),
+                "backup taken before the data migration": snapshots == [("recall-ledger", "v0.2.0")],
+                "data snapshot stamped with the engine version": stamp == "v0.2.0",
+                "coherent after the update":
+                    not [f for f in res.get("findings", []) if f["severity"] == "hard"],
+                "opened a pull request for review": bool(res.get("pr")) and len(pulls) == 1,
+            }
+            for label, good in checks.items():
+                print(f"    [{'ok' if good else 'FAIL'}] {label}")
+                ok = ok and good
+
+    print("\n" + ("UPGRADE DEMO PASSED: an unreachable release degraded, a data update with no backup was "
+                  "refused, and a backed-up update overlaid + migrated + opened a pull request cleanly."
+                  if ok else "UPGRADE DEMO DID NOT BEHAVE AS EXPECTED — see above."))
+    return ok
+
+
 def main(argv: list) -> int:
     if not argv:
         print("usage: module_manager.py {status | sync-groups | add <id> [--json] | "
-              "plan-remove <id> | remove <id> [--json] | demo}", file=sys.stderr)
+              "plan-remove <id> | remove <id> [--json] | upgrade [ref] [--json] | demo}", file=sys.stderr)
         return 2
     cmd = argv[0]
     try:
@@ -781,7 +1396,9 @@ def main(argv: list) -> int:
             ok_remove = run_demo()
             print("\n" + ("-" * 70) + "\n")
             ok_add = add_demo()
-            return 0 if (ok_remove and ok_add) else 1
+            print("\n" + ("-" * 70) + "\n")
+            ok_upgrade = upgrade_demo()
+            return 0 if (ok_remove and ok_add and ok_upgrade) else 1
         if cmd == "plan-remove":
             if len(argv) < 2:
                 print("CONFIG ERROR: plan-remove needs a module id.", file=sys.stderr)
@@ -814,6 +1431,16 @@ def main(argv: list) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 _render_add(result)
+            if result.get("refused"):
+                return 1
+            return 1 if any(f.get("severity") == "hard" for f in result.get("findings", [])) else 0
+        if cmd == "upgrade":
+            ref = next((a for a in argv[1:] if not a.startswith("-")), None)
+            result = upgrade(ref)
+            if "--json" in argv:
+                print(json.dumps(result, indent=2))
+            else:
+                _render_upgrade(result)
             if result.get("refused"):
                 return 1
             return 1 if any(f.get("severity") == "hard" for f in result.get("findings", [])) else 0
