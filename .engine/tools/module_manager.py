@@ -333,6 +333,32 @@ def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
     return os.path.join(dest_dir, tops.pop())
 
 
+def _resolve_release_ref(ref: str | None, repo: str | None = None, token: str | None = None) -> str:
+    """Resolve a target release ref to a CONCRETE tag. A pinned tag/sha passes through unchanged; None or
+    "latest" is resolved to the repository's latest published release tag via the GitHub releases API — so
+    the engine never fetches, runs, or RECORDS a moving ref (the tag-pin is the supply-chain control, R7;
+    provisioning §"Upgrading the engine" step 1). THE NETWORK BOUNDARY for ref resolution — only the real
+    upgrade path reaches it (the injected release_tree path passes a concrete ref), so it is part of the
+    same named inductive gap as the release fetch (never run in the construction repo)."""
+    if ref and ref != "latest":
+        return ref
+    import urllib.request, json as _json, boot   # local: only the real resolve needs these
+    slug = repo or boot.repo_slug()
+    if not slug:
+        raise RuntimeError("could not determine the engine repository to resolve the latest release.")
+    tok = token if token is not None else boot.gh_token()
+    url = f"https://api.github.com/repos/{slug}/releases/latest"
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": "engine-module-manager"}
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as resp:
+        tag = (_json.loads(resp.read()) or {}).get("tag_name")
+    if not tag:
+        raise RuntimeError("the engine repository has no published release to update to.")
+    return tag
+
+
 def _within_root(rel: str) -> bool:
     """True iff repo-relative `rel` resolves INSIDE validate.ROOT — the overlay containment guard (the
     topology wall: an overlay places only engine-namespaced paths). A `provides` pattern that is absolute or
@@ -787,8 +813,9 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
     result the CLI renders in plain language. Refuses cleanly (nothing applied) on an unreachable release,
     a containment escape, or a data migration with no backup seam (the pre-flight). Degrades to the
     current version on an unreachable release (§5 / R7). The change lands ONLY as a reviewed pull request,
-    so an abort at any step leaves it un-merged — there is no in-place half-state and no in-place
-    rollback."""
+    so an abort at any step leaves it UN-MERGED — no half-state is ever the operating baseline. A mid-step
+    abort (a paused coherence finding, a failed re-sync) can leave the working copy changed-but-unmerged,
+    which the operator discards or fixes; the engine does not attempt in-place rollback."""
     injected = release_tree is not None
     result = {"refused": False, "applied": False, "reason": None, "from": None, "to": None,
               "copied": [], "wiring": [], "synced": None, "migrations": {"ran": [], "refused": []},
@@ -800,16 +827,19 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         present_ids = sorted(from_versions)
         result["from"] = from_versions
         target_ref = ref or "latest"
-        # (1) FETCH the tagged release (reuse the PR-1 boundary + its plain-failure handler; degrade §5)
+        # (1) FETCH the tagged release (reuse the PR-1 boundary + its plain-failure handler; degrade §5).
+        # On the real path, resolve None/"latest" to a CONCRETE tag FIRST, so the engine fetches, runs, and
+        # records a pinned ref — never a moving one (R7). The injected path passes a concrete ref already.
         if release_tree is None:
             if not present_ids:
                 return {**result, "refused": True, "reason": "There are no installed modules to update."}
             tmp = tempfile.mkdtemp(prefix="engine-upgrade-")
             try:
+                target_ref = _resolve_release_ref(ref)        # None/"latest" -> the concrete latest tag
                 release_tree = _fetch_release_tree(target_ref, tmp)
             except Exception as exc:   # offline / missing release / transport — degrade loud + plain
                 return {**result, "refused": True,
-                        "reason": f"Couldn't reach the engine release '{target_ref}' to update — the "
+                        "reason": f"Couldn't reach the engine release '{ref or 'latest'}' to update — the "
                                   f"release may not exist yet, or the network is unavailable. The engine "
                                   f"is unchanged and still working. ({exc})"}
         # read target versions + capture the CURRENTLY-installed manifests (for wiring deltas) BEFORE the
@@ -848,14 +878,21 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # (2b) wiring deltas, (2c) bump the engine manifest (preserve identity)
         result["wiring"] = _apply_wiring_deltas(old_by_id, candidates)
         _bump_engine_manifest(target_versions, target_ref)
-        # (3) RE-SYNC the tool-runtime (real path only; the injected/practice run skips it — no real venv)
+        # (3) RE-SYNC the tool-runtime (real path only; the injected/practice run skips it — no real venv).
+        # Migrations are Python that runs IN the runtime, so a FAILED re-sync ABORTS before step 4 rather
+        # than run migrations against a stale runtime — staged but not opened, no saved data touched.
         if injected:
             result["synced"] = None
             result["notes"].append("(skipped re-building the tool-runtime — this is a practice run)")
         else:
             result["synced"] = _resync_tool_runtime()
             if not result["synced"]:
-                result["notes"].append("(could not re-build the tool-runtime from the new version)")
+                result["applied"] = True
+                result["reason"] = ("The update was applied to the working copy but the engine's tools "
+                                    "could not be rebuilt from the new version, so it was NOT opened for "
+                                    "review and no saved data was changed. Fix the problem and update "
+                                    "again, or discard the change.")
+                return result
         # (4) RUN migrations (selected, dependency-ordered; the no-backup guard already pre-flighted)
         result["migrations"] = run_migrations(selected, from_versions, target_ref, backup=seam)
         # (5) COHERENCE — a hard finding pauses (the change is staged in the working copy, not landed)
@@ -866,12 +903,17 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                                 "remains, so it was NOT opened for review. Fix the problem and update "
                                 "again, or discard the change.")
             return result
-        # (6) LAND as a reviewed pull request (injected opener in tests/demo; real opener otherwise)
+        # (6) LAND as a reviewed pull request (injected opener in tests/demo; real opener otherwise). An
+        # injected practice run with no opener never reaches the real git/PR boundary (the footgun guard).
         title = f"Update the engine to {target_ref}"
         body = _upgrade_pr_body(from_versions, target_versions, result)
         branch = "engine-update-" + re.sub(r"[^a-zA-Z0-9._-]+", "-", target_ref)
+        open_fn = opener or (None if injected else _open_upgrade_pr)
+        if open_fn is None:
+            result["notes"].append("(practice run — the pull request was not opened)")
+            return result
         try:
-            result["pr"] = (opener or _open_upgrade_pr)(branch=branch, title=title, body=body)
+            result["pr"] = open_fn(branch=branch, title=title, body=body)
         except Exception as exc:   # noqa: BLE001 — staged but not opened; surfaced, never a traceback
             result["notes"].append(f"(the update is staged but the pull request could not be opened: {exc})")
         return result
@@ -1222,7 +1264,9 @@ def _build_upgrade_fixture(root: str) -> None:
     os.makedirs(os.path.join(root, ".claude"))
     _write_json(os.path.join(eng, "modules", "base", "manifest.json"),
                 {"id": "base", "version": "0.0.0", "status": "required",
-                 "provides": {"tool": [".engine/tools/base_tool.py"]}, "depends": {}, "migrations": {}})
+                 "provides": {"tool": [".engine/tools/base_tool.py"]}, "depends": {}, "migrations": {},
+                 "wires": [{"type": "gitignore", "key": "oldcache",
+                            "lines": [".engine/base/.oldcache/"]}]})
     _write_json(os.path.join(eng, "engine.json"),
                 {"engine_release": "0.0.0", "packages": {"base": "0.0.0"}, "identity": "solo"})
     with open(os.path.join(eng, "tools", "base_tool.py"), "w") as fh:
@@ -1237,6 +1281,8 @@ def _build_upgrade_fixture(root: str) -> None:
             fh.write("{}\n")
     with open(os.path.join(root, ".gitignore"), "w") as fh:
         fh.write("# foundation\n.engine/.venv/\n")
+    # apply vX's declared wire so the upgrade has an OLD wire to REVERSE (the delta's reverse leg)
+    wiring.apply_all([{"type": "gitignore", "key": "oldcache", "lines": [".engine/base/.oldcache/"]}])
 
 
 def _build_upgrade_release(root: str) -> str:
@@ -1254,6 +1300,8 @@ def _build_upgrade_release(root: str) -> str:
                               "migration": [".engine/modules/base/migrations/*.py"],
                               "state": [".engine/state/*.json"]},
                  "depends": {},
+                 "wires": [{"type": "gitignore", "key": "newcache",
+                            "lines": [".engine/base/.newcache/"]}],
                  "migrations": {
                      "0.1.0": {"description": "Tidy a committed settings file for the new layout.",
                                "run": "migrations/config_010.py", "kind": "config"},
@@ -1318,7 +1366,7 @@ def upgrade_demo() -> bool:
         with _redirect_root(live):
             _build_upgrade_fixture(live)
             before = [f for f in module_coherence.check_coherence() if f["severity"] == "hard"]
-            print("  fixture coherent before update: " + ("yes" if not before else f"NO: {before}"))
+            print("  fixture consistent before update: " + ("yes" if not before else f"NO: {before}"))
             ok = ok and not before
 
             print("\nPart H — an unreachable release leaves the engine on its current version (it degrades):")
@@ -1362,7 +1410,11 @@ def upgrade_demo() -> bool:
                 "data migration ran (after a backup)": os.path.isfile(data_marker),
                 "backup taken before the data migration": snapshots == [("recall-ledger", "v0.2.0")],
                 "data snapshot stamped with the engine version": stamp == "v0.2.0",
-                "coherent after the update":
+                "old wire reversed (oldcache gone from .gitignore)":
+                    "oldcache" not in validate.read(os.path.join(live, ".gitignore")),
+                "new wire applied (newcache present in .gitignore)":
+                    "newcache" in validate.read(os.path.join(live, ".gitignore")),
+                "consistent after the update":
                     not [f for f in res.get("findings", []) if f["severity"] == "hard"],
                 "opened a pull request for review": bool(res.get("pr")) and len(pulls) == 1,
             }
@@ -1441,9 +1493,11 @@ def main(argv: list) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 _render_upgrade(result)
+            # 0 only when the update actually landed a pull request; a refusal, a paused coherence
+            # finding, a failed re-sync, or a PR that could not be opened all leave it un-landed -> 1.
             if result.get("refused"):
                 return 1
-            return 1 if any(f.get("severity") == "hard" for f in result.get("findings", [])) else 0
+            return 0 if result.get("pr") else 1
         print(f"unknown command {cmd!r}", file=sys.stderr)
         return 2
     except Exception as exc:  # a malformed manifest / engine.json halts loudly, never a traceback
