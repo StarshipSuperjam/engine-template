@@ -296,6 +296,7 @@
           "operation:build-orchestration",
           "operation:close-turn",
           "operation:control-plane-bootstrap",
+          "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes"
         ]
@@ -323,6 +324,7 @@
           "operation:build-orchestration",
           "operation:close-turn",
           "operation:control-plane-bootstrap",
+          "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes"
         ]
@@ -501,6 +503,25 @@
       "type": "check"
     },
     {
+      "id": "check:uv-group-drift",
+      "name": ".engine/check/uv-group-drift.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "uv-group-drift",
+      "source": {
+        "fingerprint": "sha256:c1682a8b0d656d9ea6648dfae84ade97344fee7e4b5120b69517277009ab559b",
+        "path": ".engine/check/uv-group-drift.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "contract:.gitkeep",
       "name": ".engine/contracts/.gitkeep",
       "owner": "core",
@@ -599,7 +620,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:07424ca52e112b75c676fd0adcb6d15f0c5ea15c2100fdd62e193546180f160c",
+        "fingerprint": "sha256:b1ef8d95eed3dcfeefc2a60a5c40931c86959459474d5162738d884248b07c15",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
@@ -677,6 +698,25 @@
       "source": {
         "fingerprint": "sha256:3483da1db477397e2523acef620a8412896959371dff67164e30014fb2f4ff27",
         "path": ".engine/operations/control-plane-bootstrap.md"
+      },
+      "type": "operation"
+    },
+    {
+      "id": "operation:module-add",
+      "name": ".engine/operations/module-add.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module-add",
+      "source": {
+        "fingerprint": "sha256:883cf2e9f2089043382a97dde631c81b552b23576f5e70caa5ae9539adbd45f0",
+        "path": ".engine/operations/module-add.md"
       },
       "type": "operation"
     },
@@ -1336,7 +1376,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:b6c3d3b8522beeca1d6398c91f7ef840c2445b4e8c8712b4d7e29e41b3c63e90",
+        "fingerprint": "sha256:8ac8873a0b7e04932d0b548ab75891eec71268f5cbb2496455ffbe1d18c09c10",
         "path": ".engine/tools/module_manager.py"
       },
       "type": "tool"
@@ -1608,7 +1648,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:ac91f63403e53aafac9a7da98db351e011bb31e154a74e20c568d78854414e53",
+        "fingerprint": "sha256:a5b927b060364d93a6760f8279ed73324308db890da226ad5831943785cd7ff5",
         "path": ".engine/tools/test_module_manager.py"
       },
       "type": "tool"
@@ -1624,7 +1664,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:28afc77727dc7c15affd57f64e912fa1c589dc78461064dd609596af0f00559c",
+        "fingerprint": "sha256:d3f0ca14465738be5719e472d17ab5554ba173cd44e234191b05766372ba18ed",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
@@ -1742,6 +1782,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_uv_group_drift",
+      "name": ".engine/tools/test_uv_group_drift.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_uv_group_drift",
+      "source": {
+        "fingerprint": "sha256:d2d6987c41256d8727fce2472f152f38b8cf4df3c480bd6c6ad741e8c9d29963",
+        "path": ".engine/tools/test_uv_group_drift.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_wiring",
       "name": ".engine/tools/test_wiring.py",
       "owner": "core",
@@ -1754,6 +1810,22 @@
       "source": {
         "fingerprint": "sha256:9216b239bd25323f81c26c37d075c0a719b6906a5fcf517ce77ed25f933d7dcb",
         "path": ".engine/tools/test_wiring.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:uv_group_drift_check",
+      "name": ".engine/tools/uv_group_drift_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "uv_group_drift_check",
+      "source": {
+        "fingerprint": "sha256:a93c95219e94b5e943788f0703d018294c5cd6925265f02f150e4fc58e018b47",
+        "path": ".engine/tools/uv_group_drift_check.py"
       },
       "type": "tool"
     },

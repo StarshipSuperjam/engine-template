@@ -21,10 +21,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import module_manager  # noqa: E402
 
 
-def _m(mid, status="optional", depends=None):
+def _m(mid, status="optional", depends=None, version="0.0.0"):
     return (f".engine/modules/{mid}/manifest.json",
-            {"id": mid, "version": "0.0.0", "status": status, "provides": {},
+            {"id": mid, "version": version, "status": status, "provides": {},
              "depends": depends or {}})
+
+
+def _cand(mid, version="0.1.0", status="optional", depends=None, provides=None, wires=None):
+    """A fetched-module candidate manifest (the shape plan_add receives from the release tree)."""
+    return {"id": mid, "version": version, "status": status,
+            "provides": provides or {}, "depends": depends or {}, "wires": wires or []}
 
 
 class TestRemoveRefusals(unittest.TestCase):
@@ -137,6 +143,100 @@ class TestRemoveEndToEnd(unittest.TestCase):
             self.assertTrue(module_manager.run_demo())
 
 
+class TestAddRefusals(unittest.TestCase):
+    """Pure plan_add refusal policy over an injected present set + a fetched candidate — no disk, no fetch."""
+
+    def test_already_installed_is_refused(self):
+        plan = module_manager.plan_add("a", _cand("a"), [_m("a")])
+        self.assertTrue(plan["refused"])
+        self.assertIn("already installed", plan["reason"])
+
+    def test_manifest_id_mismatch_is_refused(self):
+        # the fetched files carry a different id than requested (a wrong/corrupt fetch)
+        plan = module_manager.plan_add("a", _cand("b"), [_m("base", "required")])
+        self.assertTrue(plan["refused"])
+        self.assertIn("'a'", plan["reason"])
+        self.assertIn("'b'", plan["reason"])          # names what was actually found
+
+    def test_missing_dependency_is_refused_naming_it(self):
+        plan = module_manager.plan_add("a", _cand("a", depends={"ghost": ""}), [_m("base", "required")])
+        self.assertTrue(plan["refused"])
+        self.assertIn("ghost", plan["reason"])         # the absent dependency is named
+
+    def test_out_of_range_dependency_is_refused(self):
+        present = [_m("base", "required", version="1.0.0")]
+        plan = module_manager.plan_add("a", _cand("a", depends={"base": ">=2.0.0"}), present)
+        self.assertTrue(plan["refused"])
+        self.assertIn("base", plan["reason"])          # the range rule (reused from coherence) fires
+
+    def test_satisfiable_add_is_allowed(self):
+        present = [_m("base", "required", version="1.0.0")]
+        plan = module_manager.plan_add("a", _cand("a", version="0.1.0", depends={"base": ">=1.0.0"}), present)
+        self.assertFalse(plan["refused"])
+        self.assertIsNone(plan["reason"])
+        self.assertEqual(plan["version"], "0.1.0")
+
+
+class TestAddEndToEnd(unittest.TestCase):
+    """The live `add` overlay glue — fetch (faked, injected release tree), copy, wire, engine.json record,
+    group re-derivation, coherence, and the missing-dependency / already-installed refusals — exercised by
+    the shipped add demo against a throwaway fixture (real logic, faked fetch boundary)."""
+
+    def test_add_demo_passes(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(module_manager.add_demo())
+
+
+class TestAddSafety(unittest.TestCase):
+    """The add path's defense-in-depth: a malformed id, a release that places files outside the engine
+    (the topology-wall containment guard), and an unreachable release all refuse cleanly, changing nothing."""
+
+    def test_invalid_module_id_is_refused_without_touching_disk(self):
+        # refused at the id check, before any discover/fetch — safe on the real repo, no network
+        res = module_manager.add("../evil")
+        self.assertTrue(res["refused"])
+        self.assertIn("not a valid module id", res["reason"])
+
+    def test_escaping_provides_pattern_is_refused_before_any_copy(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = os.path.join(d, "release")
+            os.makedirs(os.path.join(release, ".engine", "modules", "evil"))
+            module_manager._write_json(
+                os.path.join(release, ".engine", "modules", "evil", "manifest.json"),
+                {"id": "evil", "version": "0.1.0", "status": "optional",
+                 "provides": {"tool": ["../sneak.py"]}, "depends": {}})   # climbs out of the engine tree
+            with open(os.path.join(d, "sneak.py"), "w", encoding="utf-8") as fh:
+                fh.write("# a file the escaping glob would match, OUTSIDE ROOT\n")
+            with module_manager._redirect_root(live):
+                module_manager._build_add_fixture(live)
+                res = module_manager.add("evil", release_tree=release)
+            self.assertTrue(res["refused"])
+            self.assertIn("outside the engine", res["reason"])
+            # nothing was written: the module folder was never created in the live tree
+            self.assertFalse(os.path.isdir(os.path.join(live, ".engine", "modules", "evil")))
+
+    def test_unreachable_release_is_a_plain_refusal_changing_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_add_fixture(live)                  # engine_release "0.0.0"
+                saved = module_manager._fetch_release_tree
+                module_manager._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
+                    RuntimeError("HTTP Error 404: Not Found"))
+                try:
+                    res = module_manager.add("feat")                    # real-fetch path -> raises
+                finally:
+                    module_manager._fetch_release_tree = saved
+                engine = module_manager.module_coherence.load_engine_manifest()
+            self.assertTrue(res["refused"])
+            self.assertIn("Couldn't reach", res["reason"])              # plain, not a raw urllib error
+            self.assertIn("Nothing was changed", res["reason"])
+            self.assertNotIn("feat", (engine or {}).get("packages", {}))
+
+
 class TestCli(unittest.TestCase):
 
     def test_status_exits_zero(self):
@@ -150,6 +250,15 @@ class TestCli(unittest.TestCase):
     def test_demo_exits_zero(self):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(module_manager.main(["demo"]), 0)
+
+    def test_sync_groups_exits_zero(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(module_manager.main(["sync-groups"]), 0)
+
+    def test_add_already_installed_exits_one_without_fetching(self):
+        # `core` is already installed, so add refuses BEFORE any release fetch (no network in this test).
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(module_manager.main(["add", "core"]), 1)
 
 
 if __name__ == "__main__":
