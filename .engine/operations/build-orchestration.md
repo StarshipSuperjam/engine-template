@@ -66,10 +66,16 @@ says so plainly — "no extra review ran" — never a green pass; and it carries
 the engine's own account and the operator's merge is the real gate. A trivial fast-path build fills it with
 a truthful minimal line.
 
-**The build-Issue checklist + scope-lock format**: the ordered commit sequence is a machine-readable
-checklist ("N of M done"; the next unchecked item is the next chunk); the permitted write-scope is recorded
-alongside it as the union of the planned chunks' declared paths. Both live in the build Issue, authored at
-Plan, GitHub-native and cold-readable, carrying the engine-domain label.
+**The build-Issue body + checklist + scope-lock format**: the build Issue is engine-authored, so — like
+every engine-authored Issue — its body realizes the control-plane engine-authored-issue body contract,
+assembled through the shared issue-authoring helper (`.engine/tools/issue_author.py`), never a human web
+issue template (those populate only the "New issue" form, which the engine's programmatic creation path
+bypasses). The contract's parts are filled from the build: *what this is* (the build this Issue tracks and
+why) and *what happens next* (the checklist + scope-lock below), with any backstage references rendered as
+plain links. The ordered commit sequence is a machine-readable checklist ("N of M done"; the next unchecked
+item is the next chunk); the permitted write-scope is recorded alongside it as the union of the planned
+chunks' declared paths. Both live in the build Issue, authored at Plan, GitHub-native and cold-readable,
+carrying the engine-domain label.
 
 ## Done when
 
@@ -102,6 +108,9 @@ continuous assembly and acceptable only for decomposable work.
 command and its routine-entry procedure (the scope-lock read at boot and per commit, the first-fire echo,
 the misfire-as-Issue) — is the routine-mode package's, which preserves the unattended drift-firewall. The
 **non-interactive permission posture** that makes an unattended run genuinely unable to ask is settled where
-routine is actually exercised, not authored in this runbook. The **build-Issue template file** and the step
-that ensures the engine-domain label exists are the control-plane/provisioning layer's. This runbook fixes
-only the distributed-implement *workflow shape* and the build-Issue checklist/scope-lock *format*.
+routine is actually exercised, not authored in this runbook. The **engine-authored-issue body contract**
+the build Issue fills and the **issue-authoring helper** that assembles it are core/control-plane's (not
+invented here); the step that ensures the engine-domain label exists is provisioning's; and the *human* web
+issue templates are a separate control-plane artifact a person files through, never the path the engine's
+own build Issue takes. This runbook fixes only the distributed-implement *workflow shape* and the
+build-Issue checklist/scope-lock *format*.

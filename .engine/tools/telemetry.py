@@ -44,6 +44,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402  (sibling tool; reused for finding/frontmatter/effective_policy_values/ROOT)
+import issue_author  # noqa: E402  (the shared issue-authoring helper — assembles the body to the control-plane contract)
 
 # ---- constants -------------------------------------------------------------
 
@@ -149,24 +150,28 @@ def issue_title(record: dict) -> str:
 
 
 def issue_body(record: dict, first_seen: str, last_seen: str) -> str:
-    """The tracked Issue's body — the plain-language operator contract every engine-opened Issue
-    carries (telemetry/README): it names the engine noticing something about its OWN health (not your
-    product), says what it means and what (if anything) you must decide, and self-explains because the
-    genesis repo has no first-run orientation to lean on. No backstage vocabulary
-    (stream / severity class / persistence / triage / source). The signal marker is an invisible HTML
-    comment appended last, so it never renders as prose."""
+    """The tracked Issue's body — telemetry's plain-language operator contract, assembled through the
+    shared issue-authoring helper so every engine-authored Issue carries the one control-plane body
+    shape (control-plane §"Engine Issues"; the single issue-authoring path). Telemetry fills the
+    contract's parts with its OWN language — what it noticed about the engine's own health (not your
+    product) and what, if anything, you must do — and appends two telemetry-specific trailers the
+    helper does not own: the first-/last-seen line and the invisible signal marker (an HTML comment
+    appended last, recovered by parse_source_id even after a cache wipe). No backstage vocabulary
+    (stream / severity class / persistence / triage / source) reaches the operator."""
+    what_this_is = (
+        "The engine watches the health of *its own* machinery — the tools and checks that help run "
+        "your project, and it noticed something it is tracking here so it stays visible. This is not "
+        "a problem with your product, and the engine will never open or close an item you created — "
+        f"only its own.\n\n**What it noticed.** {record['message']}"
+    )
+    whats_next = (
+        "Usually nothing right now. The engine will propose a fix in a later session under the same "
+        "review-and-merge step you already use, and once the cause is gone this item closes itself. "
+        "If it lingers and you want it resolved sooner, you can ask for the fix to be prioritised."
+    )
+    body = issue_author.render_engine_issue_body(what_this_is=what_this_is, whats_next=whats_next)
     return (
-        "*This item was opened automatically by the engine's own self-monitoring — you did not "
-        "create it.*\n\n"
-        "**What this is.** The engine watches the health of *its own* machinery — the tools and "
-        "checks that help run your project. It noticed something about that machinery and is tracking "
-        "it here so it stays visible. **This is not a problem with your product**, and the engine will "
-        "never open or close an item you created — only its own.\n\n"
-        f"**What it noticed.** {record['message']}\n\n"
-        "**What you need to do.** Usually nothing right now. The engine will propose a fix in a later "
-        "session under the same review-and-merge step you already use, and once the cause is gone this "
-        "item closes itself. If it lingers and you want it resolved sooner, you can ask for the fix to "
-        "be prioritised.\n\n"
+        f"{body}\n"
         f"*First noticed {first_seen}; last reconfirmed {last_seen}.*\n\n"
         f"{_SENTINEL_TEMPLATE.format(sid=record['source_id'])}\n"
     )
