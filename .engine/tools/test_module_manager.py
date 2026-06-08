@@ -22,6 +22,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import module_manager  # noqa: E402
+import module_coherence  # noqa: E402
+import wiring  # noqa: E402
 
 
 def _m(mid, status="optional", depends=None, version="0.0.0"):
@@ -501,6 +503,165 @@ class TestFrozenCheckNames(unittest.TestCase):
         # frozen names live in those files; the invariant is the release must keep the names unchanged
         self.assertIn(".github/workflows/engine-ci.yml", module_manager.FOUNDATION_CODE)
         self.assertIn(".github/workflows/engine-guard.yml", module_manager.FOUNDATION_CODE)
+
+
+class TestFoundationInfra(unittest.TestCase):
+    """FOUNDATION_INFRA is the single source; NAMED_INFRA + FOUNDATION_CODE derive from it (core 25c PR-3)."""
+
+    def test_named_infra_is_the_engine_subset_a_pure_refactor(self):
+        self.assertEqual(module_coherence.NAMED_INFRA,
+                         {p for p in module_coherence.FOUNDATION_INFRA if p.startswith(".engine/")})
+        # identical to the historical literal — no membership change to the ownership-walk carve-out
+        self.assertEqual(module_coherence.NAMED_INFRA,
+                         {".engine/engine.json", ".engine/pyproject.toml", ".engine/uv.lock"})
+
+    def test_foundation_code_is_foundation_infra_minus_manifest_and_codeowners(self):
+        expected = tuple(p for p in module_coherence.FOUNDATION_INFRA
+                         if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS"))
+        self.assertEqual(module_manager.FOUNDATION_CODE, expected)
+        # the issue templates are now in the overlay set; the manifest + CODEOWNERS are excluded
+        self.assertIn(".github/ISSUE_TEMPLATE/*.md", module_manager.FOUNDATION_CODE)
+        self.assertNotIn(".engine/engine.json", module_manager.FOUNDATION_CODE)
+        self.assertNotIn(".github/CODEOWNERS", module_manager.FOUNDATION_CODE)
+
+    def test_engine_owned_paths_unions_provides_and_foundation_concretely(self):
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                module_manager._build_fixture(d)             # base + optx, provides two tool files
+                os.makedirs(os.path.join(d, ".github"))
+                with open(os.path.join(d, "CLAUDE.md"), "w") as fh:
+                    fh.write("# floor\n")
+                paths = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
+                self.assertIn(".engine/tools/base_tool.py", paths)        # a provides-claimed file
+                self.assertIn(".engine/engine.json", paths)               # a foundation member
+                self.assertIn("CLAUDE.md", paths)                         # a non-.engine foundation member
+                # no glob literal leaks in — paths are concrete
+                self.assertFalse(any("*" in p for p in paths))
+
+
+class TestIssueTemplateOverlay(unittest.TestCase):
+    """tech plan-gate SERIOUS: the overlay must COPY the issue templates, not merely list a glob string
+    (the foundation loop globs the release tree; a literal isfile on '*.md' would silently drop them)."""
+
+    def test_overlay_copies_issue_templates_from_a_release(self):
+        with tempfile.TemporaryDirectory() as d:
+            release, live = os.path.join(d, "release"), os.path.join(d, "live")
+            os.makedirs(os.path.join(release, ".engine", "modules", "base"))
+            os.makedirs(os.path.join(release, ".github", "ISSUE_TEMPLATE"))
+            module_manager._write_json(
+                os.path.join(release, ".engine", "modules", "base", "manifest.json"),
+                {"id": "base", "version": "0.0.0", "status": "required", "provides": {}, "depends": {}})
+            for name in ("bug.md", "feature.md"):
+                with open(os.path.join(release, ".github", "ISSUE_TEMPLATE", name), "w") as fh:
+                    fh.write("template\n")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                copied, _ = module_manager._overlay_engine_code(release, ["base"])
+            self.assertIn(".github/ISSUE_TEMPLATE/bug.md", copied)
+            self.assertIn(".github/ISSUE_TEMPLATE/feature.md", copied)
+            self.assertTrue(os.path.isfile(os.path.join(live, ".github", "ISSUE_TEMPLATE", "bug.md")))
+
+
+class TestRemoveEngine(unittest.TestCase):
+    """Clean whole-engine removal (core 25c PR-3): de-bootstrap first, reverse all wires, delete every engine
+    file (including the .github/ ones, unlike per-module remove), open a reviewed pull request. All four
+    boundaries injected; the REAL reversal / delete-set / de-bootstrap-decision logic runs."""
+
+    def _fakes(self, ruleset_present=True):
+        import bootstrap
+        prs, methods = [], []
+
+        def opener(branch, title, body):
+            prs.append((branch, title, body))
+            return {"number": 5, "html_url": "http://x/5"}
+
+        def transport(method, path, body=None):
+            methods.append(method)
+            if method == "GET" and path.endswith("/rulesets"):
+                return (200, ([{"id": 3, "name": bootstrap.ENGINE_RULESET_NAME}]
+                              if ruleset_present else []), {})
+            if method == "PUT":
+                return (200, {"id": 3}, {})
+            if method == "DELETE":
+                return (204, None, {})
+            return (200, None, {})
+        return opener, transport, prs, methods
+
+    def _fixture_with_github(self, d):
+        module_manager._build_fixture(d)                  # base + optx (+ optx wires applied)
+        os.makedirs(os.path.join(d, ".github", "workflows"))
+        with open(os.path.join(d, ".github", "workflows", "engine-ci.yml"), "w") as fh:
+            fh.write("ci\n")
+        with open(os.path.join(d, "CLAUDE.md"), "w") as fh:
+            fh.write("# floor\n")
+
+    def test_reverses_wires_deletes_all_engine_files_and_opens_a_pr(self):
+        opener, transport, prs, _ = self._fakes(True)
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                self._fixture_with_github(d)
+                r = module_manager.remove_engine(opener=opener, transport=transport,
+                                                 choice="keep", announce=lambda m: None)
+                engine_gone = not os.path.isdir(os.path.join(d, ".engine"))
+                ci_gone = not os.path.isfile(os.path.join(d, ".github", "workflows", "engine-ci.yml"))
+                claude_gone = not os.path.isfile(os.path.join(d, "CLAUDE.md"))
+        self.assertEqual(r["de_bootstrap"]["status"], "kept")
+        self.assertTrue(r["reversed"], "optx's wires should be reversed")
+        self.assertTrue(engine_gone and ci_gone and claude_gone)
+        self.assertEqual(len(prs), 1)
+        self.assertIsNotNone(r["pr"])
+
+    def test_github_member_is_in_the_delete_set_unlike_per_module_remove(self):
+        # per-module remove() deletes only under .engine/; whole-engine removal deletes the .github/ files too
+        opener, transport, _, _ = self._fakes(True)
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                self._fixture_with_github(d)
+                r = module_manager.remove_engine(opener=opener, transport=transport,
+                                                 choice="keep", announce=lambda m: None)
+        self.assertIn(".github/workflows/engine-ci.yml", r["deleted"])
+        self.assertIn("CLAUDE.md", r["deleted"])
+        self.assertIn(".engine/", r["deleted"])
+
+    def test_codeowners_engine_block_removed_operator_rules_kept(self):
+        opener, transport, _, _ = self._fakes(True)
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                self._fixture_with_github(d)
+                co = wiring.render_codeowners("# mine\n/src/ @me\n", [".engine/engine.json"], "@me")
+                with open(os.path.join(d, ".github", "CODEOWNERS"), "w") as fh:
+                    fh.write(co)
+                module_manager.remove_engine(opener=opener, transport=transport,
+                                             choice="keep", announce=lambda m: None)
+                with open(os.path.join(d, ".github", "CODEOWNERS")) as fh:
+                    text = fh.read()
+        self.assertIn("/src/ @me", text)             # operator rule kept
+        self.assertNotIn("engine.json", text)        # engine block removed
+
+    def test_drop_choice_deletes_the_safety_rule(self):
+        opener, transport, _, methods = self._fakes(True)
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                self._fixture_with_github(d)
+                r = module_manager.remove_engine(opener=opener, transport=transport,
+                                                 choice="drop", announce=lambda m: None)
+        self.assertEqual(r["de_bootstrap"]["status"], "dropped")
+        self.assertIn("DELETE", methods)
+
+    def test_frozen_check_names_untouched_by_removal(self):
+        import protection_guard
+        before = list(protection_guard.REQUIRED_CHECKS)
+        opener, transport, _, _ = self._fakes(True)
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                self._fixture_with_github(d)
+                module_manager.remove_engine(opener=opener, transport=transport,
+                                             choice="keep", announce=lambda m: None)
+        self.assertEqual(protection_guard.REQUIRED_CHECKS, before)
+
+    def test_remove_engine_demo_passes(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(module_manager.remove_engine_demo())
 
 
 if __name__ == "__main__":

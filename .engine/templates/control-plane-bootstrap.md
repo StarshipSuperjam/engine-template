@@ -46,3 +46,24 @@ it's on.
 The authorization screen completed but the permission didn't save (some sign-in methods do this).
 Protection is still off, so work can merge unreviewed. Let's try once more, or sign in again first. I'll
 keep reminding you until it's on.
+
+## Removing the engine — keep or remove your safety rule
+
+I set up a safety rule on your main branch that requires checks to pass and a pull request before anything
+merges. Removing the engine takes my checks out of that rule. I can keep the rule — your main branch stays
+protected, just without my checks — or remove it entirely. Keep it unless you're sure you want it gone; I'll
+never remove protection without you choosing.
+
+## When the safety rule is kept
+
+I took my checks out of your main-branch safety rule and kept the rule itself, so your main branch still
+requires a pull request and can't be force-pushed or deleted.
+
+## When the safety rule is removed
+
+I removed the main-branch safety rule entirely — the one I had set up. Your main branch is no longer
+protected. To turn protection back on later, run the engine setup again.
+
+## When there was no engine safety rule
+
+There was no engine safety rule on your main branch to remove — nothing to change here.

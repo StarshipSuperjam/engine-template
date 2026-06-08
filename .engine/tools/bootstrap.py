@@ -21,10 +21,15 @@ write" permission. control-plane explicitly defers token handling to a provision
 tool implements the correct mechanism; the locked prose's scope name is flagged for amendment (a filed doc
 note). The locked CONTRACT is unchanged.
 
+Extended in core slice 25c (clean-removal control-plane leg): `de_bootstrap` + `remainder_ruleset` — the
+inverse of apply, removing the engine's required checks from its own safety rule (keep the floor remainder, or
+drop the rule) so a clean removal can delete the engine workflows without deadlocking on checks that no longer
+run. Operator-privileged; called by module_manager.remove_engine (the whole-engine removal entry).
+
 Scope OUT of this slice (named, deferred):
   - module manager add/remove + group-scoped uv-sync derivation + the orphan-wire reverse coherence leg -> 25b
-  - engine updater/upgrade + migrations + CODEOWNERS injection (deployed-repo only) -> 25c
-  - de-bootstrap (drop the engine binding on clean removal) -> with its consumer, 25b/25c
+  - engine updater/upgrade + migrations -> 25c (module_manager); CODEOWNERS renderer -> 25c (wiring), with its
+    live first-run/upgrade wire owed to the instantiator (slice 27, which captures the operator handle)
   - in-place augment of a pre-existing PRODUCT ruleset (brownfield coexistence) -> a brownfield slice
   - the operator verb + boot's one-click-fix copy update -> 26
   - the second engine-scheme (spec-marker) label -> post-core product-design (core ensures only the
@@ -107,6 +112,19 @@ def floor_ruleset(name: str = ENGINE_RULESET_NAME) -> dict:
     }
 
 
+def remainder_ruleset(name: str = ENGINE_RULESET_NAME) -> dict:
+    """The protection floor MINUS the engine's required-status-checks rule — what de-bootstrap PUTs back
+    when the operator keeps protection. Dropping that one rule removes the engine checks (engine-ci /
+    engine-guard) that would otherwise 'wait forever' once their workflows are deleted, while keeping the
+    rest of the floor in force: a pull request before merging, no force-push, no deletion. Derived from
+    floor_ruleset() (the single source) so it can never drift from the floor it strips one rule from. The
+    pull_request rule keeps require_code_owner_review False, so the kept remainder never references the
+    (separately removed) CODEOWNERS file."""
+    rs = floor_ruleset(name)
+    rs["rules"] = [r for r in rs["rules"] if r.get("type") != "required_status_checks"]
+    return rs
+
+
 # ---- operator-facing copy (the template SURFACE is primary; built-in fallbacks keep the #1 trust
 #      tool working even if the template is absent/damaged — degrade-loud, never crash) -----------
 
@@ -149,6 +167,24 @@ FALLBACK_COPY = {
         "answer just now). Don't assume it's on — check your repository's branch settings, or run this "
         "again in a moment."
     ),
+    # -- de-bootstrap (removing the engine's protection from the main branch) --
+    "debootstrap-choose": (
+        "I set up a safety rule on your main branch that requires checks to pass and a pull request before "
+        "anything merges. Removing the engine takes my checks out of that rule. I can keep the rule — your "
+        "main branch stays protected, just without my checks — or remove it entirely. Keep it unless you're "
+        "sure you want it gone; I'll never remove protection without you choosing."
+    ),
+    "debootstrap-kept": (
+        "I took my checks out of your main-branch safety rule and kept the rule itself, so your main branch "
+        "still requires a pull request and can't be force-pushed or deleted."
+    ),
+    "debootstrap-dropped": (
+        "I removed the main-branch safety rule entirely — the one I had set up. Your main branch is no "
+        "longer protected. To turn protection back on later, run the engine setup again."
+    ),
+    "debootstrap-none": (
+        "There was no engine safety rule on your main branch to remove — nothing to change here."
+    ),
 }
 
 # Maps each copy key to its `##` heading in the template surface.
@@ -160,6 +196,10 @@ COPY_HEADINGS = {
     "applied": "When it's on",
     "already": "When it was already on",
     "unverified": "When it couldn't be confirmed",
+    "debootstrap-choose": "Removing the engine — keep or remove your safety rule",
+    "debootstrap-kept": "When the safety rule is kept",
+    "debootstrap-dropped": "When the safety rule is removed",
+    "debootstrap-none": "When there was no engine safety rule",
 }
 
 
@@ -412,6 +452,44 @@ class ControlPlane:
         if still_missing:
             return Result("degraded", branch, still_missing, "verify-failed", labels_ok)
         return Result("applied", branch, [], None, labels_ok)
+
+    # -- de-bootstrap (the inverse of apply — operator-privileged, for clean removal) -------------
+
+    def de_bootstrap(self, choice: str | None = None, announce=None) -> dict:
+        """Remove the engine's required checks from its OWN protected-branch safety rule — the inverse of
+        apply(), an operator-privileged step on clean removal. ALWAYS drops the engine checks first: a
+        required check whose workflow is being deleted would otherwise 'wait forever' and deadlock every
+        pull request (provisioning L332-335), so this must run BEFORE the removal pull request that deletes
+        the engine workflows. Then, because the engine CREATED this rule, it discloses and lets the
+        operator choose — `keep` (default) PUTs the checkless protection-floor remainder so the main branch
+        STAYS protected (never auto-deleting it); `drop` DELETEs the engine rule entirely. `choice` is
+        injected (the removal runbook captures the operator's keep/drop decision); `announce(text)` surfaces
+        the outcome copy. Returns a structured result.
+
+        As-built model: the engine maintains its OWN named ruleset (ENGINE_RULESET_NAME), which holds only
+        the engine's checks — so the spec's 'remove only the engine-namespaced names, write the remainder'
+        (provisioning L297-298) reduces to dropping the required-checks rule and keeping the floor
+        remainder. The merge-into-a-pre-existing-PRODUCT-rule arm is a brownfield slice, not this model."""
+        copy = load_copy()
+        say = announce if announce is not None else (lambda text: print(text))
+        existing = self.engine_ruleset()
+        if existing is None:
+            say(copy["debootstrap-none"])
+            return {"status": "no-rule", "ruleset_existed": False, "choice": None, "deleted": False}
+        rid = existing.get("id")
+        # Default / None / anything other than an explicit "drop" => keep. Protection is NEVER auto-deleted.
+        if choice == "drop":
+            status, _body, _ = self._transport("DELETE", f"/repos/{self.repo}/rulesets/{rid}", None)
+            if status >= 400:
+                raise BootstrapError(f"could not remove the engine safety rule (status {status})")
+            say(copy["debootstrap-dropped"])
+            return {"status": "dropped", "ruleset_existed": True, "choice": "drop", "deleted": True}
+        status, _body, _ = self._transport(
+            "PUT", f"/repos/{self.repo}/rulesets/{rid}", remainder_ruleset())
+        if status >= 400:
+            raise BootstrapError(f"could not update the engine safety rule (status {status})")
+        say(copy["debootstrap-kept"])
+        return {"status": "kept", "ruleset_existed": True, "choice": "keep", "deleted": False}
 
 
 # ---- rendering an outcome for the operator ------------------------------------------------------

@@ -575,5 +575,42 @@ class TestCLI(_Redirected):
         self.assertIn("CONFIG ERROR", err)
 
 
+class TestRenderCodeowners(unittest.TestCase):
+    """The CODEOWNERS ownership-block renderer (core 25c PR-3) — the pure primitive; the live first-run /
+    upgrade wire with the stored operator handle is owed to the instantiator (slice 27)."""
+
+    PATHS = [".engine/engine.json", ".github/workflows/engine-ci.yml", "CLAUDE.md"]
+
+    def test_greenfield_seeds_a_block_only_file(self):
+        out = wiring.render_codeowners("", self.PATHS, "octocat")
+        self.assertIn("BEGIN engine-managed block: codeowners", out)
+        # file-precise, root-anchored, owner normalized with a leading @
+        self.assertIn("/.engine/engine.json @octocat", out)
+        self.assertIn("/CLAUDE.md @octocat", out)
+
+    def test_brownfield_appends_after_operator_content_last_match_wins(self):
+        out = wiring.render_codeowners("# mine\n/src/ @team\n", self.PATHS, "@octocat")
+        self.assertTrue(out.startswith("# mine\n/src/ @team"))
+        self.assertGreater(out.index("engine-managed block"), out.index("/src/ @team"))
+
+    def test_re_render_replaces_the_block_and_keeps_operator_lines(self):
+        first = wiring.render_codeowners("/src/ @team\n", self.PATHS, "@me")
+        second = wiring.render_codeowners(first, [".engine/uv.lock"], "@me")
+        self.assertEqual(second.count("BEGIN engine-managed block: codeowners"), 1)
+        self.assertIn("/.engine/uv.lock @me", second)
+        self.assertNotIn("engine.json", second)
+        self.assertIn("/src/ @team", second)
+
+    def test_handle_is_normalized_and_empty_is_refused(self):
+        self.assertIn("@me", wiring.render_codeowners("", [".engine/engine.json"], "me"))
+        with self.assertRaises(wiring.WiringError):
+            wiring.render_codeowners("", self.PATHS, "   ")
+
+    def test_fence_id_is_codeowners(self):
+        self.assertEqual(wiring.CODEOWNERS_FENCE, "codeowners")
+        out = wiring.render_codeowners("", [".engine/engine.json"], "@me")
+        self.assertEqual(wiring.fence_reverse(out, "codeowners").strip(), "")
+
+
 if __name__ == "__main__":
     unittest.main()

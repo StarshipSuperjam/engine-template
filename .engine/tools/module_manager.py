@@ -80,6 +80,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402  (finding.v1 + ROOT + read)
 import wiring            # noqa: E402  (the wiring library: reverse_all, apply, the shared-file constants)
 import module_coherence  # noqa: E402  (the present-set reader + the coherence legs)
+import bootstrap         # noqa: E402  (ControlPlane.de_bootstrap — the clean-removal control-plane leg; one-way)
 
 
 # ---- paths (computed from validate.ROOT at CALL time so a test/demo can redirect ROOT) --------
@@ -511,16 +512,17 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
 _UNSET = object()   # sentinel: "no GitHub boundary passed (resolve close._github)" vs "offline (None)"
 
 # Engine CODE owned by no module's `provides` but replaced wholesale on upgrade (provisioning L289/L356).
-# The engine manifest (engine.json) is NOT here — it is operator config whose package versions upgrade
-# bumps in place while preserving identity. Gitignored data and the deployment's per-instance eADR stream
-# are in no `provides`/FOUNDATION_CODE, so the overlay leaves them untouched (config + data preserved).
-FOUNDATION_CODE = (
-    ".engine/pyproject.toml",
-    ".engine/uv.lock",
-    "CLAUDE.md",
-    ".github/workflows/engine-ci.yml",
-    ".github/workflows/engine-guard.yml",
-    ".github/pull_request_template.md",
+# DERIVED from module_coherence.FOUNDATION_INFRA (the single source of the foundation-artifact set) minus
+# the two members the overlay must NOT fetch-and-replace: the engine manifest (engine.json — operator
+# config whose package versions upgrade bumps in place, identity preserved) and CODEOWNERS (rendered
+# locally from the engine path set, never fetched from a release). Gitignored data and the deployment's
+# per-instance eADR stream are in no `provides`/FOUNDATION_CODE, so the overlay leaves them untouched
+# (config + data preserved). A member may be a glob (the issue templates); the overlay loop below expands
+# it against the release tree, so the issue templates are now refreshed on update (they were silently
+# omitted before — single-homing closed that gap; forward-only).
+FOUNDATION_CODE = tuple(
+    p for p in module_coherence.FOUNDATION_INFRA
+    if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS")
 )
 
 
@@ -691,10 +693,13 @@ def _overlay_engine_code(release_tree: str, present_ids: list) -> tuple:
                     if os.path.isfile(src):
                         to_copy[os.path.relpath(src, release_tree).replace(os.sep, "/")] = src
         to_copy[f".engine/modules/{mid}/manifest.json"] = man_src
-    for rel in FOUNDATION_CODE:
-        src = os.path.join(release_tree, rel)
-        if os.path.isfile(src):
-            to_copy[rel] = src
+    for member in FOUNDATION_CODE:
+        # Glob-expand each foundation member against the release tree (a member may be a glob, e.g.
+        # .github/ISSUE_TEMPLATE/*.md; glob.glob on a literal path returns it iff it exists). A literal
+        # os.path.isfile on a glob string would silently drop the issue templates.
+        for src in glob.glob(os.path.join(release_tree, member), recursive=True):
+            if os.path.isfile(src):
+                to_copy[os.path.relpath(src, release_tree).replace(os.sep, "/")] = src
     escapes = sorted(rel for rel in to_copy if not _within_root(rel))
     if escapes:
         shown = ", ".join(escapes[:3]) + ("…" if len(escapes) > 3 else "")
@@ -922,6 +927,145 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ---- clean whole-engine removal (provisioning §clean removal / Design commitments L446-449) ----
+
+def _remove_engine_pr_body(result: dict) -> str:
+    """A plain-language body for the whole-engine removal pull request (operator-facing). States what the
+    removal does, the safety-rule outcome, and that it is reviewed + reversible."""
+    lines = ["This pull request removes the engine from this repository, leaving an operable, "
+             "engine-free product.", "", "What this does:",
+             "- Deletes the engine's own files (its tools, checks, schemas, and configuration).",
+             "- Removes the engine's entries from shared setup files. Anything there that might also be "
+             "yours is left in place for you to review and remove if you don't need it."]
+    db = result.get("de_bootstrap") or {}
+    if db.get("status") == "kept":
+        lines.append("- Keeps the safety rule on your main branch, with the engine's own checks removed "
+                     "from it.")
+    elif db.get("status") == "dropped":
+        lines.append("- Removes the safety rule on your main branch entirely (you chose to remove it).")
+    lines += ["", "Reviewed and reversible: reverting this pull request restores the engine's files. The "
+              "main-branch safety rule is turned back on by running the engine setup again.", "",
+              "Merging this is your review and consent."]
+    return "\n".join(lines)
+
+
+def remove_engine(opener=None, transport=None, choice: str | None = None, announce=None,
+                  repo=None, token=None) -> dict:
+    """Remove the WHOLE engine cleanly (provisioning §clean removal / Design commitments L446-449) — the
+    'separate step' that per-module remove() points a required module toward, leaving an operable,
+    engine-free product. The order is what safety demands:
+      (1) DE-BOOTSTRAP FIRST (operator-privileged): remove the engine's required checks from its own
+          safety rule (keep the floor remainder, or drop the rule per the operator's `choice`). This runs
+          BEFORE the deletion pull request, because that PR deletes the engine workflows and a required
+          check whose workflow is gone would 'wait forever' and deadlock the PR (provisioning L332-335).
+      (2) REVERSE ALL WIRES across every installed module (the engine's entries in shared files), leaving
+          honest residue for anything it can't key to the engine alone (a permission the operator may
+          also hold — the reversal firewall).
+      (3) DELETE every engine file — UNLIKE per-module remove() (which deletes only under .engine/), the
+          whole-engine removal also deletes the engine-owned files OUTSIDE .engine/: the foundation
+          infrastructure artifacts (the .github/ control-plane files) and the root CLAUDE.md. CODEOWNERS
+          loses only the engine block (the operator's own rules are kept; the file is removed iff nothing
+          else remains). The .engine/ tree goes wholesale.
+      (4) LAND the deletions as a reviewed pull request via the injectable opener (reuse _open_upgrade_pr).
+
+    Reviewed + reversible: reverting the pull request restores the files; the safety rule is re-created by
+    re-running the engine setup (de_bootstrap and bootstrap.apply are the reversal pair, both idempotent).
+    FIXTURE-DEMOED — never run on the construction repo (it would delete the engine being built). The four
+    boundaries (the de-bootstrap GitHub API, the git/PR open, the real working tree, the operator's real
+    keep/drop choice) are injected/faked so tests + the demo run the REAL reversal / delete-set / de-
+    bootstrap-decision logic; 'works on the fixture ⇒ works for a real adopter' is the inductive gap."""
+    injected = opener is not None or transport is not None
+    say = announce if announce is not None else (lambda text: print(text))
+    result = {"de_bootstrap": None, "reversed": [], "left_in_place": [], "deleted": [],
+              "pr": None, "reversal_note": None, "refused": False, "reason": None, "notes": []}
+    manifests = module_coherence.discover_manifests()
+
+    # (1) DE-BOOTSTRAP FIRST — drop the engine required checks so the deletion PR can't deadlock.
+    import boot  # lazy: the shared GitHub-context helpers (matches _fetch_release_tree / _open_upgrade_pr)
+    slug = repo or boot.repo_slug()
+    tok = token if token is not None else boot.gh_token()
+    cp = bootstrap.ControlPlane(slug or "", tok or "", transport=transport)
+    try:
+        result["de_bootstrap"] = cp.de_bootstrap(choice=choice, announce=say)
+    except bootstrap.BootstrapError as exc:
+        return {**result, "refused": True,
+                "reason": f"Couldn't reach GitHub to remove the engine's branch protection ({exc}); "
+                          f"nothing was changed. Try again when you're back online."}
+
+    # (2) REVERSE ALL WIRES across every module + disclose honest permission residue.
+    for _path, m in manifests:
+        for f in wiring.reverse_all(m.get("wires") or []):
+            result["reversed"].append(validate.fmt(f))
+        result["left_in_place"].extend(_permission_residue(m))
+
+    # (3) DELETE the engine file set. Compute it BEFORE any deletion (the live globs need the files).
+    co_rel = ".github/CODEOWNERS"
+    foundation = module_coherence.foundation_infra_paths()
+    provides = set(module_coherence.provides_claims(manifests).keys())
+    # engine-owned files OUTSIDE .engine/: provides-claimed (e.g. .claude/*/.gitkeep) + the non-.engine
+    # foundation members (CLAUDE.md, the .github/ artifacts), minus CODEOWNERS (handled specially below).
+    outside = sorted({r for r in (provides | set(foundation))
+                      if not r.startswith(".engine/") and r != co_rel})
+    deleted = []
+    for rel in outside:
+        p = os.path.join(validate.ROOT, rel)
+        if os.path.isfile(p):
+            try:
+                os.remove(p)
+                deleted.append(rel)
+            except OSError as exc:
+                result["left_in_place"].append(f"Could not delete {rel} ({exc}); remove it by hand.")
+    # CODEOWNERS: remove ONLY the engine block; delete the file iff nothing but whitespace remains, else
+    # keep the operator's own rules (the engine never clobbers operator content in a shared file).
+    co_path = os.path.join(validate.ROOT, co_rel)
+    if os.path.isfile(co_path):
+        text = validate.read(co_path)
+        remainder = wiring.fence_reverse(text, wiring.CODEOWNERS_FENCE)
+        if remainder.strip() == "":
+            os.remove(co_path)
+            deleted.append(co_rel)
+        elif remainder != text:
+            with open(co_path, "w", encoding="utf-8") as fh:
+                fh.write(remainder)
+            deleted.append(f"{co_rel} (engine block removed; your own rules kept)")
+    # the whole .engine/ tree (tools, checks, schemas, manifests, generated maps — everything). The
+    # running tool keeps executing from memory, so the source being gone on disk before the opener stages
+    # it (git add -A) is safe; any process needing .engine again would be a fresh process.
+    if os.path.isdir(validate.ENGINE_DIR):
+        shutil.rmtree(validate.ENGINE_DIR)
+        deleted.append(".engine/")
+    result["deleted"] = sorted(deleted)
+
+    # (4) LAND the deletions as a reviewed pull request (reuse the upgrade opener; the opener's `git add
+    #     -A` stages the deletions + the wire reversals). INJECTED in tests + the demo; the real path runs
+    #     only on a deployed repo, never the construction repo. The opener should run on an otherwise-clean
+    #     tree so the removal PR carries only the removal.
+    body = _remove_engine_pr_body(result)
+    open_fn = opener or (None if injected else _open_upgrade_pr)
+    if open_fn is None:
+        result["notes"].append("(practice run — the removal pull request was not opened)")
+    else:
+        try:
+            result["pr"] = open_fn(branch="engine-remove", title="Remove the engine", body=body)
+        except Exception as exc:  # noqa: BLE001 — staged but not opened; surfaced, never a traceback
+            result["notes"].append(f"(removal is staged but the pull request could not be opened: {exc})")
+
+    # The sharpened reversal disclosure (names the unprotected window + the drop case explicitly).
+    db = result["de_bootstrap"] or {}
+    if db.get("status") == "dropped":
+        protection_state = ("off — you removed the safety rule, so re-running the engine setup re-creates "
+                            "it from scratch")
+    elif db.get("status") == "kept":
+        protection_state = ("still in place but without the engine's checks; re-running the engine setup "
+                            "restores them")
+    else:
+        protection_state = "unchanged"
+    result["reversal_note"] = (
+        "To undo this removal: revert the pull request to bring the engine's files back. Until you then "
+        f"run the engine setup again, your main branch's safety rule is {protection_state}.")
+    return result
+
+
 # ---- CLI rendering ----------------------------------------------------------------------------
 
 def _render_remove(result: dict) -> None:
@@ -1002,6 +1146,32 @@ def _render_upgrade(result: dict) -> None:
             print("  - " + validate.fmt(f))
     elif not pr:
         print("\nThe update is staged and consistent.")
+
+
+def _render_remove_engine(result: dict) -> None:
+    if result.get("refused"):
+        print(f"Did not remove the engine: {result['reason']}")
+        return
+    db = result.get("de_bootstrap") or {}
+    state = {"kept": "kept your main-branch safety rule (the engine's checks removed from it)",
+             "dropped": "removed your main-branch safety rule entirely",
+             "no-rule": "found no engine safety rule to remove"}.get(db.get("status"), "")
+    print("Removed the engine." + (f" Safety rule: {state}." if state else ""))
+    for rel in result.get("deleted", []):
+        print(f"  - deleted {rel}")
+    for line in result.get("reversed", []):
+        print("  - " + line)
+    for line in result.get("left_in_place", []):
+        print("  - left in place: " + line)
+    for line in result.get("notes", []):
+        print("  - " + line)
+    pr = result.get("pr")
+    if pr:
+        num = pr.get("number") if isinstance(pr, dict) else None
+        print(f"\nOpened a pull request{f' #{num}' if num else ''} with the deletions — merging it is your "
+              f"consent; reverting it brings the engine's files back.")
+    if result.get("reversal_note"):
+        print(f"\n{result['reversal_note']}")
 
 
 def _status() -> int:
@@ -1428,10 +1598,112 @@ def upgrade_demo() -> bool:
     return ok
 
 
+# ---- removal demo (CODEOWNERS render + clean whole-engine removal; ALL boundaries faked) -------
+
+def _build_remove_fixture(root: str) -> None:
+    """A coherent live fixture engine with engine-owned files BOTH under .engine/ and in .github/, plus a
+    CODEOWNERS carrying an engine block after an operator rule — so the removal demo exercises every leg."""
+    _build_fixture(root)                                  # base + optx (+ optx's shared-file edits applied)
+    os.makedirs(os.path.join(root, ".github", "workflows"))
+    with open(os.path.join(root, ".github", "workflows", "engine-ci.yml"), "w") as fh:
+        fh.write("name: engine-ci\n")
+    with open(os.path.join(root, "CLAUDE.md"), "w") as fh:
+        fh.write("# engine floor\n")
+    co = wiring.render_codeowners("# product rules\n/src/ @team\n",
+                                  [".engine/engine.json", ".github/workflows/engine-ci.yml"], "@operator")
+    with open(os.path.join(root, ".github", "CODEOWNERS"), "w") as fh:
+        fh.write(co)
+
+
+def remove_engine_demo() -> bool:
+    """Fail-then-pass demonstration of the CODEOWNERS renderer and clean whole-engine removal, returning
+    True iff every leg behaved. The REAL render / shared-file reversal / delete-set / safety-rule-decision
+    logic runs; FOUR boundaries are faked because none can run in the construction repo: (1) the GitHub
+    branch-protection API, (2) the git/pull-request open, (3) a real deployed working tree, (4) the
+    operator's real keep/remove choice. 'Works on the fixture ⇒ works for a real adopter' is the inductive
+    gap the fixture cannot discharge."""
+    ok = True
+    prs = []
+
+    def fake_opener(branch, title, body):
+        prs.append((branch, title))
+        return {"number": 0, "html_url": "(fixture)"}
+
+    def fake_transport(method, path, body=None):
+        if method == "GET" and path.endswith("/rulesets"):
+            return (200, [{"id": 1, "name": bootstrap.ENGINE_RULESET_NAME}], {})
+        return (200 if method == "PUT" else 204 if method == "DELETE" else 200, None, {})
+
+    print("=" * 70)
+    print("REMOVAL DEMO — CODEOWNERS ownership block + clean whole-engine removal, on a FIXTURE engine.\n"
+          "The branch-protection setting, the pull-request open, and the operator's keep/remove choice are\n"
+          "all faked; the real render / reversal / delete logic runs. None of this runs on the real engine.")
+
+    print("\nPart K — the CODEOWNERS ownership block renders one file-precise line per engine file:")
+    green = wiring.render_codeowners("", [".engine/engine.json", "CLAUDE.md"], "@operator")
+    brown = wiring.render_codeowners("# product rules\n/src/ @team\n", [".engine/engine.json"], "@operator")
+    k_ok = ("/.engine/engine.json @operator" in green and brown.startswith("# product rules")
+            and brown.index("engine.json") > brown.index("/src/ @team"))
+    print("    [{}] greenfield seeds a block; brownfield appends AFTER the product's rules (last wins)"
+          .format("ok" if k_ok else "FAIL"))
+    ok = ok and k_ok
+
+    print("\nPart L — clean removal, KEEPING the main-branch safety rule (the engine's checks removed):")
+    with tempfile.TemporaryDirectory() as d:
+        with _redirect_root(d):
+            _build_remove_fixture(d)
+            r = remove_engine(opener=fake_opener, transport=fake_transport, choice="keep",
+                              announce=lambda m: None)
+            co_text = validate.read(os.path.join(d, ".github", "CODEOWNERS"))
+            checks = {
+                "the main-branch safety rule was kept, the engine's checks removed":
+                    (r["de_bootstrap"] or {}).get("status") == "kept",
+                "the module's shared-file edits were undone": bool(r["reversed"]),
+                "a permission the operator also holds was left in place and disclosed":
+                    bool(r["left_in_place"]),
+                "the whole .engine/ tree was deleted": not os.path.isdir(os.path.join(d, ".engine")),
+                "the engine's .github/ file was deleted (per-module remove never touches .github/)":
+                    not os.path.isfile(os.path.join(d, ".github", "workflows", "engine-ci.yml")),
+                "CODEOWNERS kept the product rule and dropped the engine block":
+                    "/src/ @team" in co_text and "engine.json" not in co_text,
+                "the deletions were opened as a (fixture) pull request for review": r["pr"] is not None,
+            }
+        for label, good in checks.items():
+            print(f"    [{'ok' if good else 'FAIL'}] {label}")
+            ok = ok and good
+    print("    reversal note -> " + (r.get("reversal_note") or ""))
+
+    print("\nPart M — clean removal, REMOVING the safety rule entirely (the operator's other choice):")
+    deletes = []
+
+    def drop_transport(method, path, body=None):
+        if method == "DELETE":
+            deletes.append(path)
+        return fake_transport(method, path, body)
+    with tempfile.TemporaryDirectory() as d:
+        with _redirect_root(d):
+            _build_remove_fixture(d)
+            r2 = remove_engine(opener=fake_opener, transport=drop_transport, choice="drop",
+                               announce=lambda m: None)
+        m_ok = (r2["de_bootstrap"] or {}).get("status") == "dropped" and bool(deletes)
+        print(f"    [{'ok' if m_ok else 'FAIL'}] the safety rule was removed entirely (a delete was issued)")
+        ok = ok and m_ok
+
+    print("\n" + ("REMOVAL DEMO PASSED: the ownership block rendered file-precisely, and the engine removed\n"
+                  "itself cleanly on the fixture — it took its checks off the safety rule first, undid its\n"
+                  "shared-file edits, deleted its files, and opened a reviewed pull request — for BOTH the\n"
+                  "keep and remove choices. The four real boundaries named above are the inductive gap a\n"
+                  "fixture cannot discharge."
+                  if ok else "REMOVAL DEMO DID NOT BEHAVE AS EXPECTED — see above."))
+    return ok
+
+
 def main(argv: list) -> int:
     if not argv:
         print("usage: module_manager.py {status | sync-groups | add <id> [--json] | "
-              "plan-remove <id> | remove <id> [--json] | upgrade [ref] [--json] | demo}", file=sys.stderr)
+              "plan-remove <id> | remove <id> [--json] | upgrade [ref] [--json] | "
+              "remove-engine [--confirm] [--keep-protection|--remove-protection] [--json] | demo}",
+              file=sys.stderr)
         return 2
     cmd = argv[0]
     try:
@@ -1450,7 +1722,9 @@ def main(argv: list) -> int:
             ok_add = add_demo()
             print("\n" + ("-" * 70) + "\n")
             ok_upgrade = upgrade_demo()
-            return 0 if (ok_remove and ok_add and ok_upgrade) else 1
+            print("\n" + ("-" * 70) + "\n")
+            ok_remove_engine = remove_engine_demo()
+            return 0 if (ok_remove and ok_add and ok_upgrade and ok_remove_engine) else 1
         if cmd == "plan-remove":
             if len(argv) < 2:
                 print("CONFIG ERROR: plan-remove needs a module id.", file=sys.stderr)
@@ -1495,6 +1769,30 @@ def main(argv: list) -> int:
                 _render_upgrade(result)
             # 0 only when the update actually landed a pull request; a refusal, a paused coherence
             # finding, a failed re-sync, or a PR that could not be opened all leave it un-landed -> 1.
+            if result.get("refused"):
+                return 1
+            return 0 if result.get("pr") else 1
+        if cmd == "remove-engine":
+            # Destructive + operator-privileged: without --confirm this only PREVIEWS (changes nothing).
+            if "--confirm" not in argv:
+                print("Removing the WHOLE engine is a deliberate step. It takes the engine's checks off "
+                      "your main branch's safety rule, removes the engine's entries from your shared setup "
+                      "files, deletes all the engine's files, and opens a pull request with the deletions "
+                      "for your review. Nothing has changed.\n\nTo proceed, re-run with --confirm and ONE "
+                      "of:\n  --keep-protection    keep your main-branch safety rule (engine's checks "
+                      "removed)\n  --remove-protection  remove your main-branch safety rule entirely")
+                return 1
+            keep_f, drop_f = "--keep-protection" in argv, "--remove-protection" in argv
+            if keep_f == drop_f:   # neither, or BOTH (ambiguous) — never silently pick the destructive one
+                print("CONFIG ERROR: remove-engine --confirm needs EXACTLY ONE of --keep-protection or "
+                      "--remove-protection (your choice for the main-branch safety rule).", file=sys.stderr)
+                return 2
+            choice = "drop" if drop_f else "keep"
+            result = remove_engine(choice=choice)
+            if "--json" in argv:
+                print(json.dumps(result, indent=2))
+            else:
+                _render_remove_engine(result)
             if result.get("refused"):
                 return 1
             return 0 if result.get("pr") else 1
