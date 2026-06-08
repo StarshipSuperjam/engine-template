@@ -9,6 +9,7 @@ later phase); the catalog the demo plants conforms to the catalog schema; and th
 """
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -214,6 +215,67 @@ class TestCLI(unittest.TestCase):
                 rc, out = self._run([])
             self.assertEqual(rc, 0)
             self.assertIn("who reviews changes here", out, "an unset project shows the gather walkthrough")
+
+
+# The first-run setup tool is the ONE engine tool that must run BEFORE the tool-runtime it installs exists
+# (D-156): it bootstraps uv, so it cannot presuppose the packages the runtime provides (yaml, jsonschema).
+# This block runs in a subprocess with those two packages forced absent via a sys.meta_path finder — proving
+# `import instantiator` and the show/demo CLI start on the Python standard library alone, deterministically
+# (independent of whether THIS machine's Python happens to carry the packages — it does, so the block is
+# mandatory, and the block-bites guard fails loudly if it ever stops working).
+_STARTABILITY_SNIPPET = r"""
+import sys
+_BLOCK = {"yaml", "jsonschema"}
+class _Blocker:
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in _BLOCK:
+            raise ImportError("startability test: '%s' is blocked" % name)
+        return None
+for _m in [n for n in list(sys.modules) if n.split(".")[0] in _BLOCK]:
+    del sys.modules[_m]
+sys.meta_path.insert(0, _Blocker())
+try:                                  # the block must actually bite, or the test is vacuous
+    import yaml
+    print("BLOCKER-INEFFECTIVE"); sys.exit(3)
+except ImportError:
+    pass
+import io, contextlib
+import instantiator                   # the import that used to transitively require the runtime
+for _argv in (["show"], ["demo"]):
+    _buf = io.StringIO()
+    with contextlib.redirect_stdout(_buf):
+        _rc = instantiator.main(_argv)
+    assert _rc == 0, (_argv, _rc)
+print("STARTABLE-OK")
+"""
+
+
+class TestStartabilityWithoutRuntime(unittest.TestCase):
+    def _run_blocked(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}  # don't lean on a venv site path
+        return subprocess.run([sys.executable, "-c", _STARTABILITY_SNIPPET],
+                              cwd=here, env=env, capture_output=True, text=True)
+
+    def test_import_and_cli_start_without_yaml_or_jsonschema(self):
+        proc = self._run_blocked()
+        self.assertNotIn("BLOCKER-INEFFECTIVE", proc.stdout,
+                         "the deps blocker stopped biting — the startability test would be vacuous")
+        self.assertIn("STARTABLE-OK", proc.stdout,
+                      "the setup tool must import and run `show`/`demo` with yaml+jsonschema absent "
+                      "(it bootstraps the runtime that provides them).\n"
+                      f"stdout={proc.stdout!r}\nstderr={proc.stderr!r}")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_runbook_launch_command_string_runs(self):
+        # The verbatim command the runbook/skill tell the operator to type must actually run (from repo root,
+        # the skill's cwd) — not just the underlying main() call.
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        proc = subprocess.run([sys.executable, ".engine/tools/instantiator.py", "show"],
+                              cwd=root, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # In this construction repo the manifest is present, so the verb short-circuits "already set up".
+        self.assertIn(inst._ALREADY_SET_UP.split("\n")[0], proc.stdout, proc.stdout)
 
 
 if __name__ == "__main__":
