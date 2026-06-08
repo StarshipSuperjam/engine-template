@@ -52,6 +52,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
+import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
 import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
@@ -204,7 +205,9 @@ def needs_attention(state: dict | None) -> tuple[list[str], list[str]]:
     is non-empty every run (telemetry-as-register + the git work-record reader do not exist yet) — the
     normal path, surfaced as a routine degraded notice, not an alarm."""
     try:
-        result = attention.rank_live()
+        # Load the operator policy-override (operator config, absent until first tuned) and pass attention's
+        # slice as DATA — boot is the LOADING layer; attention merges it per-key (D-167), never reads the file.
+        result = attention.rank_live(override=operator_overrides.slice_for("attention") or None)
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
         return [], ["attention"]
     lines: list[str] = []

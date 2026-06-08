@@ -112,8 +112,8 @@ def _now_z() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def rank_live(*, policy_path: str = POLICY_PATH, focus: str | None = None, depth: int = 1,
-              budget_total: int | None = None, as_of: str | None = None,
+def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None, focus: str | None = None,
+              depth: int = 1, budget_total: int | None = None, as_of: str | None = None,
               apply_precedence: bool = True) -> dict:
     """The live ranking path over the substrates present today, returning the attention-result.v1 dict
     (whose own `degraded_inputs` records the absent substrates). This is the ONE assembler the CLI (`rank`)
@@ -121,8 +121,11 @@ def rank_live(*, policy_path: str = POLICY_PATH, focus: str | None = None, depth
     precedence order — and never re-ranks (boot/README relay-not-detect; the result contract is attention's,
     not boot's to re-derive). `as_of` defaults to the cursor's integration-debt as-of, falling back to the
     wall clock (the run then marked `as_of_is_wallclock`) — the only clock read; the pure core stays
-    clock-free. `budget_total` (boot owns it) sizes the per-category split when supplied."""
-    policy_values = load_policy_values(policy_path)
+    clock-free. `budget_total` (boot owns it) sizes the per-category split when supplied. `override` is the
+    attention slice of the operator policy-override (D-167) the LOADING layer (boot) reads and passes as DATA;
+    it is merged per-key into the effective values via the core merge (`load_policy_values`), keeping the
+    static-input determinism — attention never reads the override FILE itself."""
+    policy_values = load_policy_values(policy_path, override)
     candidates, available, cursor_as_of = assemble_candidates(policy_values, focus=focus, depth=depth)
     resolved_as_of = as_of or cursor_as_of
     as_of_is_wallclock = False

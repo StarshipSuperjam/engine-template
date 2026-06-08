@@ -98,6 +98,16 @@ FOUNDATION_INFRA = (
 # FOUNDATION_INFRA; identical membership to the historical literal {engine.json, pyproject, uv.lock}.
 NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 
+# OPERATOR_CONFIG — committed operator-authored config the ownership leg must NOT read as orphans: the
+# per-deployment operator policy-override of tunable policy values (.engine/operator-overrides.json, written
+# by /engine-tune, slice 26c). It is operator-owned config preserved across an engine update — in NO module's
+# `provides` and NOT a FOUNDATION_INFRA artifact (that set is overlay-REPLACED on upgrade, which would clobber
+# the operator's tuning). This is the LOCKED carve-out of module-system/README §Coherence: "Operator- and
+# deployment-authored committed content is outside this leg ... coherence does not read them as orphans, the
+# same shape of carve-out by which CODEOWNERS and the foundation .gitignore block sit [outside it]" (D-167,
+# D-169). Absent until the first tune, so it never appears in this construction repo; fixture-tested.
+OPERATOR_CONFIG = {".engine/operator-overrides.json"}
+
 # Directories under .engine/ that are regenerable derivatives or caches — never owned files. The
 # inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts
 # (the uv venv, Python bytecode, and knowledge's derived `.cache/` query index, slice 11). Pruning
@@ -245,7 +255,7 @@ def check_coherence(tier: str = "hard") -> list:
         [m for _path, m in manifests], tier,
         "Install the missing module, adjust the version range, or break the dependency "
         "cycle, then re-check.")
-    exempt = set(NAMED_INFRA) | {path for path, _m in manifests}
+    exempt = set(NAMED_INFRA) | {path for path, _m in manifests} | OPERATOR_CONFIG
     own = validate.ownership_findings(
         engine_file_inventory(), provides_claims(manifests), exempt, tier,
         "Every engine file must be owned by exactly one module.")

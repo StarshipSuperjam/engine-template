@@ -128,8 +128,12 @@ def triage_pressure_line(open_low_severity_count: int, threshold: int) -> str | 
     low-impact engine items crosses the threshold, else nothing. Crossing it promotes NOTHING — the
     meter never becomes an item itself, so it cannot feed the volume it measures."""
     if open_low_severity_count > threshold:
+        # The trailing sentence is the reactive retune offer (D-167): the threshold that decides when this
+        # reminder fires is itself tunable, so the command is offered at the moment it surfaces. Dormant until
+        # the triage-pressure stream renders live (a later slice wires the run); the offer rides the template.
         return ("The engine's self-monitoring backlog is growing — there are several low-priority "
-                "engine items open. Nothing here is urgent; you can review them when convenient.")
+                "engine items open. Nothing here is urgent; you can review them when convenient. "
+                "You can also change when this reminder appears — type /engine-tune.")
     return None
 
 

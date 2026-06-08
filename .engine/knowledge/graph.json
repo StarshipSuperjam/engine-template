@@ -300,7 +300,8 @@
           "operation:engine-upgrade",
           "operation:module-add",
           "operation:module-remove",
-          "operation:operating-modes"
+          "operation:operating-modes",
+          "operation:tune-policy"
         ]
       },
       "slug": "operation-frontmatter",
@@ -330,7 +331,8 @@
           "operation:engine-upgrade",
           "operation:module-add",
           "operation:module-remove",
-          "operation:operating-modes"
+          "operation:operating-modes",
+          "operation:tune-policy"
         ]
       },
       "slug": "operation-shape",
@@ -363,6 +365,25 @@
       "source": {
         "fingerprint": "sha256:b279d23260f61f6eb37f6ae134bc472b9636a2d6030eedeee26784b5229479f0",
         "path": ".engine/check/policy-frontmatter.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:policy-override-stale",
+      "name": ".engine/check/policy-override-stale.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "policy-override-stale",
+      "source": {
+        "fingerprint": "sha256:5ce5ced1e42a235ef4457ad97c35fa7296b6328255db49233f19490937f48848",
+        "path": ".engine/check/policy-override-stale.json"
       },
       "type": "check"
     },
@@ -643,7 +664,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:c6488d26e89f5bfef8650e44ee9365e4ba1b515ff831f3ecb46e1195e9b0197d",
+        "fingerprint": "sha256:e2fe16d7cd0d4a2d49739b23239589440daca700f41eb56e52218e063e82cc79",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
@@ -820,6 +841,25 @@
       "type": "operation"
     },
     {
+      "id": "operation:tune-policy",
+      "name": ".engine/operations/tune-policy.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "tune-policy",
+      "source": {
+        "fingerprint": "sha256:3c875924ae5d48affaecd0c9869de7d377cf5735258ea9f4e64ae5573e032f86",
+        "path": ".engine/operations/tune-policy.md"
+      },
+      "type": "operation"
+    },
+    {
       "id": "policy:attention",
       "name": ".engine/policies/attention.md",
       "owner": "core",
@@ -852,7 +892,7 @@
       },
       "slug": "contract-threshold",
       "source": {
-        "fingerprint": "sha256:a64ad6150b6b159874dd6ab55850590b9987a6bfb91e73add30646df290a90fe",
+        "fingerprint": "sha256:060a4cf310d3658444ad5f9099921acfed7cfa0fb923fd28d3bcac847a068748",
         "path": ".engine/policies/contract-threshold.md"
       },
       "type": "policy"
@@ -909,7 +949,7 @@
       },
       "slug": "triage-threshold",
       "source": {
-        "fingerprint": "sha256:d47d923a7d9cf1e6f6ead0b57865d380b60a544a887b4c2765940118d79e90e4",
+        "fingerprint": "sha256:7ed42813428ee17fa3406a214e74feebfbac1c22cf3e609c68ff36bf80f187e5",
         "path": ".engine/policies/triage-threshold.md"
       },
       "type": "policy"
@@ -1245,7 +1285,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:20c93c37516eebfa9cac4a5ddf98a0384967e30434a9a3b333b867c2e11d47ed",
+        "fingerprint": "sha256:72321b97a5ac439c7c05e59bd7217a5b6b8a9993e328ca28ae2191dc49dd5120",
         "path": ".engine/tools/attention.py"
       },
       "type": "tool"
@@ -1277,7 +1317,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:ac770dadc125d5f89eff67e363090cdee27439b3632c7a7dac35dbb5f76d96aa",
+        "fingerprint": "sha256:5e49cc187c7a6588ebeea621a0251bcdfdc7d19a486a8ca8b905a74c04b669a6",
         "path": ".engine/tools/boot.py"
       },
       "type": "tool"
@@ -1453,7 +1493,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:8e386d424dfe9eeeab09f7612c5eecd2b7d780b834f4ef4a52ed815e9e823709",
+        "fingerprint": "sha256:b5a9ed5de58584631fd34b00afd9b09a7187070e267aa6e7fb96f0b624a82a1b",
         "path": ".engine/tools/module_coherence.py"
       },
       "type": "tool"
@@ -1471,6 +1511,38 @@
       "source": {
         "fingerprint": "sha256:414f48e78a2a444666a1602759ae2b7ec94c5d3062aecca34aaad00f6f1185fc",
         "path": ".engine/tools/module_manager.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:operator_overrides",
+      "name": ".engine/tools/operator_overrides.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "operator_overrides",
+      "source": {
+        "fingerprint": "sha256:35aec0dc9d4bff00a18a398417196ba4877d5a121381855482a22282f3f7d165",
+        "path": ".engine/tools/operator_overrides.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:policy_override_check",
+      "name": ".engine/tools/policy_override_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "policy_override_check",
+      "source": {
+        "fingerprint": "sha256:36c86dcae6cb9a00ae45d8fc0fcd1211c2037e6d2bbab4faffe8d6ebd1c67b82",
+        "path": ".engine/tools/policy_override_check.py"
       },
       "type": "tool"
     },
@@ -1549,7 +1621,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:fe276b4befcd90fae5540743fb39b64e2a94264c8a52bae62e9a941de1cdbe60",
+        "fingerprint": "sha256:69bced9c46339a2d0b492833739b8330fa2359fe3af8e7f8398068dd4716a420",
         "path": ".engine/tools/telemetry.py"
       },
       "type": "tool"
@@ -1581,7 +1653,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:eab9619e7de79a2d2beff6ae892434ff49e35463472c482484f3833c6a229b18",
+        "fingerprint": "sha256:f43de4cd86ce357102b7d039b1f9ff625b5a5237fdb39fd86c65b9322270b06d",
         "path": ".engine/tools/test_attention.py"
       },
       "type": "tool"
@@ -1805,7 +1877,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:a4fe2e704ddda6b35521ca63458b855a6339abdf0b0f0212f50daabc6871a1c4",
+        "fingerprint": "sha256:67d6ac7af5665e23c4552d144676145f9b4775132454e2612e0140daa91dc4bf",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
@@ -1827,6 +1899,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_operator_overrides",
+      "name": ".engine/tools/test_operator_overrides.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_operator_overrides",
+      "source": {
+        "fingerprint": "sha256:014877759311a7d4ef50c46400ac04e44aaa3eac8103af1d6d7e2abedc6c5bf1",
+        "path": ".engine/tools/test_operator_overrides.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_policy",
       "name": ".engine/tools/test_policy.py",
       "owner": "core",
@@ -1839,6 +1927,22 @@
       "source": {
         "fingerprint": "sha256:c00c16a934e453673f5007e55f608879811140c35f9d09c8dc181935db9cd5df",
         "path": ".engine/tools/test_policy.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_policy_override_check",
+      "name": ".engine/tools/test_policy_override_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_policy_override_check",
+      "source": {
+        "fingerprint": "sha256:7687ea13bcba06214c33f472d49e76ac04670e0cd8caa16a147e31d11a23bb2e",
+        "path": ".engine/tools/test_policy_override_check.py"
       },
       "type": "tool"
     },
@@ -1939,6 +2043,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_tune",
+      "name": ".engine/tools/test_tune.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_tune",
+      "source": {
+        "fingerprint": "sha256:a19acd40e3c7b0eefc90537a268677d5013bda2b7c9b21ed343d0ad937706f18",
+        "path": ".engine/tools/test_tune.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_uv_group_drift",
       "name": ".engine/tools/test_uv_group_drift.py",
       "owner": "core",
@@ -1967,6 +2087,22 @@
       "source": {
         "fingerprint": "sha256:7acfc634bd070099e9c1d7f5ea6470374b21f297f188515def8e1b9f52b35f4b",
         "path": ".engine/tools/test_wiring.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:tune",
+      "name": ".engine/tools/tune.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "tune",
+      "source": {
+        "fingerprint": "sha256:b69f1ebcf6ed609487f3d75cd02ae1e0fe634d68d4ce8ea76073f69d9cc12c25",
+        "path": ".engine/tools/tune.py"
       },
       "type": "tool"
     },

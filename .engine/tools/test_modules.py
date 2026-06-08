@@ -295,14 +295,15 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
-    def test_check_corpus_split_core_two_guards_validators_core_twenty_four(self):
+    def test_check_corpus_split_core_two_guards_validators_core_twenty_five(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
-        # the self-validation corpus is validators-core's (24 rules: the 23 prior — the 20 after the
+        # the self-validation corpus is validators-core's (25 rules: the 24 prior — the 20 after the
         # operation grammar (slice OG) and the skill grammar (slice SG) plus the doc-frontmatter and
-        # doc-shape grammar rules (slice 19) and the uv-group-drift gate (slice 25c) — plus the
-        # skill-coherence self-election guard (slice 26a), the live consumer of the skill coherence leg
-        # that holds an operator-typed verb's operator-only flag in place).
+        # doc-shape grammar rules (slice 19) and the uv-group-drift gate (slice 25c) and the
+        # skill-coherence self-election guard (slice 26a) — plus the policy-override-stale rule
+        # (slice 26c), the live consumer of the policy-override merge that surfaces a saved operator
+        # tuning value gone stale after an upgrade).
         # The files stay under .engine/check/ — ownership is a `provides` claim, not a location. This
         # test pins that exact split so a future wildcard re-introduction (which would double-claim the
         # corpus) cannot pass silently.
@@ -340,6 +341,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/operation-frontmatter.json",
             ".engine/check/operation-shape.json",
             ".engine/check/policy-frontmatter.json",
+            ".engine/check/policy-override-stale.json",
             ".engine/check/policy-shape.json",
             ".engine/check/pr-body-completeness.json",
             ".engine/check/self-map-drift.json",
@@ -348,7 +350,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/skill-shape.json",
             ".engine/check/state-cursor.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 24 corpus rules")
+        ], "validators-core owns exactly the 25 corpus rules")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))

@@ -20,6 +20,7 @@
       ".engine/check/operation-frontmatter.json",
       ".engine/check/operation-shape.json",
       ".engine/check/policy-frontmatter.json",
+      ".engine/check/policy-override-stale.json",
       ".engine/check/policy-shape.json",
       ".engine/check/pr-body-completeness.json",
       ".engine/check/self-map-drift.json",
