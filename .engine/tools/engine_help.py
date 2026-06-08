@@ -12,9 +12,10 @@ axis; degrade-to-git-native). Two parts:
   engine/operator wall, the same scope the self-election guard governs); the operator's own un-prefixed
   product commands, and the full command set, are the platform's bare `/` menu to show, not this one's.
 - Available-if-installed commands — optional commands the operator could add, RELAYED from the committed
-  module catalog the install step maintains (a §16 relay: the catalog's owner is provisioning; this tool
-  only reads it). No catalog exists yet (it is owed to the first-run instantiator slice), so this part is
-  an empty relay today — present but with nothing to list.
+  module catalog the first-run setup maintains (a §16 relay: the catalog's owner is provisioning; this tool
+  only reads it, through the shared `module_catalog` reader so this index and the setup walkthrough cannot
+  drift in how they parse it). The catalog ships empty and grows as optional modules are built, so this part
+  is an empty relay today — present but with nothing to list yet.
 
 Design fidelity notes (for a maintainer reading the source, not the operator):
 - The verb shown is the TYPED name — the skill DIRECTORY (or the legacy command FILENAME), i.e. the
@@ -35,12 +36,12 @@ Design fidelity notes (for a maintainer reading the source, not the operator):
 """
 from __future__ import annotations
 import glob
-import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import module_catalog  # noqa: E402  (the shared optional-module catalog reader — one parse path, no drift)
 
 # The engine's own commands carry the engine- prefix (the engine/operator wall); this is the same scope
 # the self-election guard governs. The legacy commands directory lives under .claude/commands/.
@@ -83,27 +84,15 @@ def installed_verbs(root: str | None = None) -> list:
 
 
 def available_verbs(catalog_path: str | None = None) -> list:
-    """The optional, not-yet-installed commands, RELAYED from the committed catalog the install step
-    maintains — or an empty list when there is no catalog yet (a missing or absent catalog narrows the
-    listing, never breaks it). Returns each entry as {name, description}, sorted by name. This tool only
-    relays the catalog; it never decides the optional set itself.
-
-    The default is no catalog (empty relay): the catalog and its exact home are owned by the first-run
-    instantiator slice. The read-path below is a non-binding suggestion that slice is free to overrule;
-    `.engine/provisioning/module-catalog.json` is one candidate. The shape relayed here (a JSON array of
-    {name, description}) is likewise provisional and finalized with the catalog's owner."""
-    if not catalog_path or not os.path.isfile(catalog_path):
-        return []
-    try:
-        with open(catalog_path, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except Exception:
-        return []
-    if not isinstance(data, list):
-        return []
-    out = [{"name": str(e.get("name", "")), "description": str(e.get("description", ""))}
-           for e in data if isinstance(e, dict) and e.get("name")]
-    return sorted(out, key=lambda v: v["name"])
+    """The optional, not-yet-installed commands, RELAYED from the committed module catalog the first-run
+    setup maintains — or an empty list when the catalog is absent, empty, or damaged (it narrows the
+    listing, never breaks it). Returns each as {name, description}: the command the operator would type
+    once the module is installed, plus its one-line gloss, sorted by the command. This tool only relays;
+    provisioning owns the catalog and the shared `module_catalog` reader parses it, so this index and the
+    first-run walkthrough cannot drift in how they read it. `catalog_path` is injectable for tests; the
+    committed catalog is read by default."""
+    return [{"name": e["verb"], "description": e["description"]}
+            for e in module_catalog.entries(catalog_path)]
 
 
 def _verb_line(verb: dict) -> str:

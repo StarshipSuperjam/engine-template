@@ -16,7 +16,8 @@
     "contract": [".engine/contracts/*.md", ".engine/contracts/.gitkeep"],
     "policy": [".engine/policies/*.md"],
     "template": [".engine/templates/*.md"],
-    "foundation": [".engine/suites.json", ".engine/self-map.md"]
+    "foundation": [".engine/suites.json", ".engine/self-map.md"],
+    "provisioning": [".engine/provisioning/module-catalog.json"]
   },
   "wires": [
     {
