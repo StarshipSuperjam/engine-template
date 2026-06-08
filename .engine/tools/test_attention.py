@@ -416,6 +416,24 @@ class TestEffectiveValues(unittest.TestCase):
         effective2 = attention.load_policy_values(POLICY_PATH, {"trim_blocking_debt": 1})
         self.assertEqual(effective2["trim_blocking_debt"], shipped["trim_blocking_debt"])
 
+    def test_rank_live_threads_override_to_the_merge(self):
+        # The live seam (slice 26c): boot reads the operator override and hands attention's slice to
+        # rank_live, which must forward it to the per-key merge — so a tuned value reaches the live ranking.
+        captured = {}
+        original = attention.load_policy_values
+
+        def spy(policy_path=POLICY_PATH, override=None):
+            captured["override"] = override
+            return original(policy_path, override)
+
+        attention.load_policy_values = spy
+        try:
+            attention.rank_live(override={"budget_orientation": 0.40})
+        finally:
+            attention.load_policy_values = original
+        self.assertEqual(captured["override"], {"budget_orientation": 0.40},
+                         "rank_live forwards the operator override to the per-key merge")
+
 
 if __name__ == "__main__":
     unittest.main()
