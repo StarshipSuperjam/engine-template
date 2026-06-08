@@ -289,5 +289,105 @@ class TestCopySurface(unittest.TestCase):
             self.assertNotIn(banned, blob, f"maintainer term {banned!r} leaked into operator copy")
 
 
+class _RulesetFake:
+    """An in-memory engine ruleset for the de-bootstrap seam — tracks the ruleset's CURRENT rules so
+    floor_missing reflects what de_bootstrap / apply write, and supports DELETE. Records every call."""
+
+    def __init__(self, present=True):
+        self.rulesets = [{"id": 7, "name": bootstrap.ENGINE_RULESET_NAME}] if present else []
+        self.rules = bootstrap.floor_ruleset()["rules"] if present else []
+        self.calls = []
+
+    def transport(self, method, path, body=None):
+        self.calls.append((method, path, body))
+        if method == "GET" and path == f"/repos/{REPO}":
+            return 200, {"full_name": REPO}, {"X-OAuth-Scopes": "repo"}
+        if method == "GET" and path == f"/repos/{REPO}/rules/branches/main":
+            return 200, (self.rules if self.rulesets else []), {}
+        if method == "GET" and path == f"/repos/{REPO}/rulesets":
+            return 200, self.rulesets, {}
+        if method == "PUT" and path.startswith(f"/repos/{REPO}/rulesets/"):
+            self.rules = body["rules"]
+            return 200, {"id": 7}, {}
+        if method == "POST" and path == f"/repos/{REPO}/rulesets":
+            self.rulesets = [{"id": 7, "name": body["name"]}]
+            self.rules = body["rules"]
+            return 201, {"id": 7}, {}
+        if method == "DELETE" and path.startswith(f"/repos/{REPO}/rulesets/"):
+            self.rulesets, self.rules = [], []
+            return 204, None, {}
+        return 404, None, {}
+
+    def methods(self):
+        return [c[0] for c in self.calls]
+
+
+class TestRemainderRuleset(unittest.TestCase):
+    def test_remainder_is_the_floor_minus_the_required_checks_rule(self):
+        types = [r["type"] for r in bootstrap.remainder_ruleset()["rules"]]
+        self.assertNotIn("required_status_checks", types)
+        self.assertEqual(set(types), {"pull_request", "non_fast_forward", "deletion"})
+
+    def test_remainder_keeps_code_owner_review_off(self):
+        # The kept remainder must not reference a CODEOWNERS the removal deletes (adversarial NIT).
+        pr = next(r for r in bootstrap.remainder_ruleset()["rules"] if r["type"] == "pull_request")
+        self.assertFalse(pr["parameters"]["require_code_owner_review"])
+
+
+class TestDeBootstrap(unittest.TestCase):
+    def _cp(self, fake):
+        return bootstrap.ControlPlane(REPO, "tok", transport=fake.transport)
+
+    def test_keep_puts_the_checkless_remainder_never_deletes(self):
+        fake = _RulesetFake(present=True)
+        r = self._cp(fake).de_bootstrap(choice="keep", announce=quiet)
+        self.assertEqual(r["status"], "kept")
+        self.assertFalse(r["deleted"])
+        self.assertIn("PUT", fake.methods())
+        self.assertNotIn("DELETE", fake.methods())
+        self.assertNotIn("required_status_checks", [x["type"] for x in fake.rules])
+
+    def test_default_choice_is_keep_never_auto_deletes(self):
+        fake = _RulesetFake(present=True)
+        r = self._cp(fake).de_bootstrap(choice=None, announce=quiet)
+        self.assertEqual(r["status"], "kept")
+        self.assertNotIn("DELETE", fake.methods())
+
+    def test_drop_deletes_the_engine_rule(self):
+        fake = _RulesetFake(present=True)
+        r = self._cp(fake).de_bootstrap(choice="drop", announce=quiet)
+        self.assertEqual(r["status"], "dropped")
+        self.assertTrue(r["deleted"])
+        self.assertIn("DELETE", fake.methods())
+        self.assertEqual(fake.rulesets, [])
+
+    def test_no_engine_rule_is_a_no_op_disclosure(self):
+        fake = _RulesetFake(present=False)
+        r = self._cp(fake).de_bootstrap(choice="drop", announce=quiet)
+        self.assertEqual(r["status"], "no-rule")
+        self.assertFalse(r["ruleset_existed"])
+        self.assertNotIn("DELETE", fake.methods())
+        self.assertNotIn("PUT", fake.methods())
+
+    def test_de_bootstrap_keep_then_apply_restores_the_floor(self):
+        # The reversal pair: de_bootstrap removes the engine checks; re-running setup restores the floor.
+        fake = _RulesetFake(present=True)
+        cp = self._cp(fake)
+        cp.de_bootstrap(choice="keep", announce=quiet)
+        self.assertNotEqual(
+            protection_guard.missing_floor(fake.rules, protection_guard.REQUIRED_CHECKS), [],
+            "after de-bootstrap the engine checks should be gone from the rule")
+        result = cp.apply(announce=quiet)
+        self.assertTrue(result.is_protected())
+        self.assertEqual(
+            protection_guard.missing_floor(fake.rules, protection_guard.REQUIRED_CHECKS), [],
+            "re-running setup should restore the full floor")
+
+    def test_de_bootstrap_never_renames_the_frozen_check_names(self):
+        before = list(protection_guard.REQUIRED_CHECKS)
+        self._cp(_RulesetFake(present=True)).de_bootstrap(choice="keep", announce=quiet)
+        self.assertEqual(protection_guard.REQUIRED_CHECKS, before)
+
+
 if __name__ == "__main__":
     unittest.main()

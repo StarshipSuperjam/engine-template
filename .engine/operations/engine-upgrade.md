@@ -44,6 +44,12 @@ that step rather than risk data it can't restore — set up a backup, then updat
 undone *after* it already changed saved data, the engine notices on its next start and tells you, in plain
 language, the exact command to restore the backup so your data and the engine match again.
 
+**What an update replaces, and what it keeps.** An update refreshes the engine's **own** files to the new
+version — its tools, its checks, and the templates that guide your pull request and issue descriptions — while
+keeping **your** settings and your saved data untouched. So if you have edited one of the engine's own
+templates, an update replaces it with the new version's wording; you can see and undo that in the update's
+pull request, like any other change.
+
 **Reviewed and reversible.** The update is never applied in place — it always arrives as a pull request behind
 the same review gate as any other change, so you approve it and can undo it.
 

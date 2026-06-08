@@ -178,6 +178,32 @@ def fence_reverse(text: str, fence_id: str) -> str:
     return "\n".join(lines[:b] + lines[e + 1:])
 
 
+CODEOWNERS_FENCE = "codeowners"
+
+
+def render_codeowners(existing_text: str, path_set: list, handle: str) -> str:
+    """Render the engine's comment-fenced CODEOWNERS ownership block into `existing_text`, returning the
+    new text. Each engine-owned path becomes one file-precise, root-anchored line `/<path> @<owner>`, so
+    the engine owns exactly its own files (the engine/product wall — repository-topology §the wall;
+    module-system §Coherence; principles §3). Reuses the SAME comment-fenced-block helper the gitignore
+    seam uses, so the block is insert-iff-absent / replaced-only-as-a-block and the operator's own
+    CODEOWNERS lines are never touched. The block is APPENDED after any existing content: CODEOWNERS is
+    last-match-wins, so the engine block placed last defeats shadowing by earlier product rules over
+    engine paths. Greenfield (existing_text == "") yields a block-only file; a re-render replaces the
+    block in place (the upgrade re-render with the release's paths). The owner `handle` is the operator's,
+    captured at first run as preserved config (provisioning §Identity and tokens) — passed IN here, never
+    read from the network; this renderer is pure. NOTE (core slice 25c PR-3, L3=DEFER): this is the pure
+    primitive; wiring it into the live first-run + upgrade render with the stored handle is owed to the
+    instantiator (slice 27), which owns the handle capture + its config home."""
+    owner = handle.strip()
+    if not owner:
+        raise WiringError("refused: rendering CODEOWNERS needs a non-empty owner handle.")
+    if not owner.startswith("@"):
+        owner = "@" + owner
+    body = [f"/{p.lstrip('/')} {owner}" for p in path_set]
+    return fence_apply(existing_text, CODEOWNERS_FENCE, body)
+
+
 # ---- tolerant IO (the mutator posture: fail open, never clobber, never crash) -----------------
 
 def _read_json_tolerant(path: str, create: bool):

@@ -64,14 +64,39 @@ import hooks      # noqa: E402  (the block-eligible invariant registry the block
 import modes      # noqa: E402  (modes declares its explore write-gate block; the consumer assembles it)
 import close      # noqa: E402  (close declares its findings-disposition Stop block; assembled here too)
 
-# The named foundation infrastructure artifacts that live under .engine/ and are owned by no
-# module's `provides` — exactly the engine manifest plus the tool-runtime lockfiles
-# (repository-topology/README.md; module-system/README.md §Coherence). The root CLAUDE.md
-# and the engine-owned .github/ control-plane files are also named foundation artifacts, but
-# they live OUTSIDE .engine/ in containers the product co-occupies, so they are not part of
-# the .engine/ ownership walk (the only corner where "is this file owned?" is well-defined).
 ENGINE_MANIFEST_REL = ".engine/engine.json"
-NAMED_INFRA = {ENGINE_MANIFEST_REL, ".engine/pyproject.toml", ".engine/uv.lock"}
+
+# FOUNDATION_INFRA — the wholly-engine-owned files that belong to no module's `provides`: the engine
+# manifest, the root CLAUDE.md, the tool-runtime lockfiles, and the engine-owned .github/ control-plane
+# artifacts (the two required-check workflows, the PR template, the issue templates, and CODEOWNERS
+# itself). This is the foundation infrastructure-artifact set of repository-topology/README.md +
+# module-system/README.md §Coherence — the high-trust files a bare `provides`-union would leave
+# unowned. It is the SINGLE SOURCE for three derived consumers, so they cannot drift apart:
+#   - NAMED_INFRA (below) — the .engine/-only subset, the ownership-walk carve-out.
+#   - engine_owned_paths()/foundation_infra_paths() — the CODEOWNERS engine-owned path set.
+#   - module_manager.FOUNDATION_CODE — the upgrade overlay-replace set (minus the manifest, which is
+#     version-bumped in place, and CODEOWNERS, which is rendered locally, not fetched from a release).
+# A member may be a glob (.github/ISSUE_TEMPLATE/*.md); consumers that need concrete paths expand it
+# against the live tree (foundation_infra_paths) or the release tree (the overlay loop).
+FOUNDATION_INFRA = (
+    ENGINE_MANIFEST_REL,
+    ".engine/pyproject.toml",
+    ".engine/uv.lock",
+    "CLAUDE.md",
+    ".github/workflows/engine-ci.yml",
+    ".github/workflows/engine-guard.yml",
+    ".github/pull_request_template.md",
+    ".github/ISSUE_TEMPLATE/*.md",
+    ".github/CODEOWNERS",
+)
+
+# NAMED_INFRA — the .engine/ subset of FOUNDATION_INFRA: the foundation artifacts that live under
+# .engine/ and so take part in the .engine/ ownership walk (the only corner where "is this file
+# owned?" is well-defined). The root CLAUDE.md and the engine-owned .github/ control-plane files are
+# also foundation artifacts, but they live OUTSIDE .engine/ in containers the product co-occupies, so
+# the ownership leg never reads them. DERIVED (not hand-listed) so it cannot drift from
+# FOUNDATION_INFRA; identical membership to the historical literal {engine.json, pyproject, uv.lock}.
+NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 
 # Directories under .engine/ that are regenerable derivatives or caches — never owned files. The
 # inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts
@@ -125,6 +150,31 @@ def provides_claims(manifests: list) -> dict:
                     if os.path.isfile(abs_path):
                         claims.setdefault(_rel(abs_path), []).append(mid)
     return claims
+
+
+def foundation_infra_paths() -> list:
+    """FOUNDATION_INFRA expanded to the concrete committed relpaths that exist in the live tree —
+    each literal member that is present, plus every file a glob member (the issue templates) selects.
+    `glob.glob` on a literal path returns it iff it exists, so one uniform pass handles both. This is
+    the concrete-path form the CODEOWNERS path set needs (file-precise ownership, never a bare glob)."""
+    out: set = set()
+    for member in FOUNDATION_INFRA:
+        for abs_path in _glob.glob(os.path.join(validate.ROOT, member), recursive=True):
+            if os.path.isfile(abs_path):
+                out.add(_rel(abs_path))
+    return sorted(out)
+
+
+def engine_owned_paths(manifests: list) -> list:
+    """The engine-owned file set for the CODEOWNERS ownership block: every file a present module's
+    `provides` claims, UNIONED with the foundation infrastructure artifacts (FOUNDATION_INFRA). The
+    `∪` is load-bearing — the highest-trust engine files (the manifest, root CLAUDE.md, the
+    tool-runtime lockfiles, the engine-owned .github/ files) are in no module's `provides`, so a bare
+    provides-union would leave exactly those product-merge-able (repository-topology §the wall;
+    principles §3). Returns concrete relpaths (globs expanded), sorted and de-duplicated."""
+    paths = set(provides_claims(manifests).keys())
+    paths.update(foundation_infra_paths())
+    return sorted(paths)
 
 
 # The shared target file each seam's wire lands in — a plain-language LABEL for the wiring leg's
