@@ -8,7 +8,7 @@
     "tool": [".engine/tools/*.py"],
     "interface": [".engine/interfaces/*.json"],
     "operation": [".engine/operations/*.md"],
-    "skill": [".claude/skills/.gitkeep"],
+    "skill": [".claude/skills/*/SKILL.md", ".claude/skills/.gitkeep"],
     "agent": [".claude/agents/.gitkeep"],
     "doc": [".engine/docs/*.md"],
     "state": [".engine/state/*.json"],

@@ -450,6 +450,25 @@
       "type": "check"
     },
     {
+      "id": "check:skill-coherence",
+      "name": ".engine/check/skill-coherence.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "skill-coherence",
+      "source": {
+        "fingerprint": "sha256:6068ca3030743c1a52ed62529575fd860a74497efd8369038f071fbaee9e894f",
+        "path": ".engine/check/skill-coherence.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:skill-frontmatter",
       "name": ".engine/check/skill-frontmatter.json",
       "owner": "validators-core",
@@ -608,7 +627,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:30e469e1eefd449b3bc2f0e37051daa298d20f98d16cd48a66cc2b9656f9e940",
+        "fingerprint": "sha256:0f8028917ef8664ec23a7548786795bc335fe616d2739c8542c4d07e8e89960b",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -624,7 +643,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:b1ef8d95eed3dcfeefc2a60a5c40931c86959459474d5162738d884248b07c15",
+        "fingerprint": "sha256:c6488d26e89f5bfef8650e44ee9365e4ba1b515ff831f3ecb46e1195e9b0197d",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
@@ -795,7 +814,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:b5684b8da277cdcd1521ab75fe41268cdb921750aacdc064d1b067f3d040d08a",
+        "fingerprint": "sha256:1a12cf73e68324ade7665df263e5b91d80b7d4b82acd373016cad731ac2075e0",
         "path": ".engine/operations/operating-modes.md"
       },
       "type": "operation"
@@ -1402,7 +1421,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:59b64fde3121f06862ff4097b4945fcb149b9300bb836583de1ffa790e1b735e",
+        "fingerprint": "sha256:c82d8c500b29c269b919a336763939411ad32445c888788482b0c4c1f7931334",
         "path": ".engine/tools/modes.py"
       },
       "type": "tool"
@@ -1484,6 +1503,22 @@
       "source": {
         "fingerprint": "sha256:bb8f84ce91cdee031f4a89ddb166804d341764acf9fd385e147bb8959ff676bb",
         "path": ".engine/tools/self_map_check.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:skill_coherence_check",
+      "name": ".engine/tools/skill_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "skill_coherence_check",
+      "source": {
+        "fingerprint": "sha256:fbcfffa382e0f0e152063d4ef3302548bcb3cc38920060576497963d238c04f1",
+        "path": ".engine/tools/skill_coherence_check.py"
       },
       "type": "tool"
     },
@@ -1706,7 +1741,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:820b719d50393483b121878d11ba832be4fc7f8d2202e3f911fe444da5d207ca",
+        "fingerprint": "sha256:2a5c5fac0548c685c040371b612a71b6cb47f5ac05a8aed3ecce4383449b294a",
         "path": ".engine/tools/test_modes.py"
       },
       "type": "tool"
@@ -1738,7 +1773,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:d3f0ca14465738be5719e472d17ab5554ba173cd44e234191b05766372ba18ed",
+        "fingerprint": "sha256:a4fe2e704ddda6b35521ca63458b855a6339abdf0b0f0212f50daabc6871a1c4",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"
@@ -1820,6 +1855,22 @@
       "source": {
         "fingerprint": "sha256:fd3abb1ef1d2110d8f3ee66cabf191f525e92617d6aa74b8d3f12eafb23d89b4",
         "path": ".engine/tools/test_skill.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_skill_coherence_check",
+      "name": ".engine/tools/test_skill_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_skill_coherence_check",
+      "source": {
+        "fingerprint": "sha256:9ec1ac11d4732d3f81c8ae89fe232bd233a6ed3a51f1ae46f4487d7fee1598fe",
+        "path": ".engine/tools/test_skill_coherence_check.py"
       },
       "type": "tool"
     },

@@ -30,11 +30,12 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
    write to the operator's own `~/.claude/` config carries no such marker and stays denied. An action it
    cannot classify is allowed: there is no default-deny, because exploring must stay the comfortable place
    to work.
-3. **To start building, the operator either types the Build-entry verb or accepts a plan.** The verb is
-   an operator-only command the model cannot invoke itself (authored in a later slice); accepting a plan
-   the model proposed also enters build (the model cannot accept its own plan). Either way the stance
-   flips to build, the gate permits the writes, and entering build is announced as the work begins.
-   Neither path is silent or self-elected — the model never flips its own stance.
+3. **To start building, the operator either types `/engine-start` or accepts a plan.** `/engine-start` is
+   an operator-only command the model cannot invoke itself (it carries the platform's operator-only flag,
+   and the skill-coherence check holds that flag in place); accepting a plan the model proposed also enters
+   build (the model cannot accept its own plan). Either way the stance flips to build, the gate permits the
+   writes, and entering build is announced as the work begins. Neither path is silent or self-elected — the
+   model never flips its own stance.
 4. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire; it
    never merges the protected branch (authored later). It is the same workflow, constrained.
 

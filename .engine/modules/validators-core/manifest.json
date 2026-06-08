@@ -23,6 +23,7 @@
       ".engine/check/policy-shape.json",
       ".engine/check/pr-body-completeness.json",
       ".engine/check/self-map-drift.json",
+      ".engine/check/skill-coherence.json",
       ".engine/check/skill-frontmatter.json",
       ".engine/check/skill-shape.json",
       ".engine/check/state-cursor.json",
