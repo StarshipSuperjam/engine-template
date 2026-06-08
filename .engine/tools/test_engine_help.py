@@ -107,18 +107,25 @@ class TestMalformedDegrades(unittest.TestCase):
 
 class TestAvailableVerbsRelay(unittest.TestCase):
     def test_absent_catalog_returns_empty(self):
-        self.assertEqual(eh.available_verbs(None), [])
+        # An explicit missing path narrows to nothing.
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(eh.available_verbs(os.path.join(d, "nope.json")), [])
+        # No path = the committed catalog (the shared reader's default), which ships empty in this repo.
+        self.assertEqual(eh.available_verbs(None), [])
 
     def test_present_catalog_relayed_sorted(self):
+        # The catalog's per-entry command is `verb` (the reconciled cross-slice shape the shared
+        # `module_catalog` reader parses); /engine-help shows it as the typed command (its `name`).
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "catalog.json")
             with open(p, "w", encoding="utf-8") as fh:
-                json.dump([{"name": "engine-zeta", "description": "Z."},
-                           {"name": "engine-alpha", "description": "A."}], fh)
+                json.dump([{"id": "z-mod", "verb": "engine-zeta", "description": "Z.",
+                            "category": "Product Management"},
+                           {"id": "a-mod", "verb": "engine-alpha", "description": "A.",
+                            "category": "Verification & Validation"}], fh)
             got = eh.available_verbs(p)
             self.assertEqual([v["name"] for v in got], ["engine-alpha", "engine-zeta"], "relayed, sorted")
+            self.assertEqual(got[0]["description"], "A.", "the gloss rides the command")
 
     def test_malformed_catalog_returns_empty(self):
         with tempfile.TemporaryDirectory() as d:

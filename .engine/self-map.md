@@ -45,6 +45,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - knowledge: `.engine/knowledge/*.json`
   - operation: `.engine/operations/*.md`
   - policy: `.engine/policies/*.md`
+  - provisioning: `.engine/provisioning/module-catalog.json`
   - schema: `.engine/schemas/*.json`
   - skill: `.claude/skills/*/SKILL.md`, `.claude/skills/.gitkeep`
   - state: `.engine/state/*.json`

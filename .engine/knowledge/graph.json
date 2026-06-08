@@ -52,7 +52,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:4af685f9ed4504a14b57e104773a6eebf7201dab219b6731d62ce75b81a8c607",
+        "fingerprint": "sha256:2be27a78666ba5263aedd91132bfc7f43307055e82666b75125d0edc83689b6f",
         "path": ".engine/check/catalog-coverage.json"
       },
       "type": "check"
@@ -298,6 +298,7 @@
           "operation:control-plane-bootstrap",
           "operation:engine-remove",
           "operation:engine-upgrade",
+          "operation:first-run",
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
@@ -329,6 +330,7 @@
           "operation:control-plane-bootstrap",
           "operation:engine-remove",
           "operation:engine-upgrade",
+          "operation:first-run",
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
@@ -648,7 +650,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:0f8028917ef8664ec23a7548786795bc335fe616d2739c8542c4d07e8e89960b",
+        "fingerprint": "sha256:b1505947b47bbb38cd51974442b3c064d5a79096f41d76e1f7349f7989e62c7a",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -780,6 +782,25 @@
       "source": {
         "fingerprint": "sha256:e794e33ab33d278cb3c1fa5c6a583fc011dfa39a9ef01d647d6d05e8ea912726",
         "path": ".engine/operations/engine-upgrade.md"
+      },
+      "type": "operation"
+    },
+    {
+      "id": "operation:first-run",
+      "name": ".engine/operations/first-run.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "first-run",
+      "source": {
+        "fingerprint": "sha256:25f501619d3dc17c59c071fe6189f0dc24d6a9b3b82430c0ca518190bd676bd2",
+        "path": ".engine/operations/first-run.md"
       },
       "type": "operation"
     },
@@ -1179,6 +1200,22 @@
       "type": "schema"
     },
     {
+      "id": "schema:provisioning-catalog.v1",
+      "name": ".engine/schemas/provisioning-catalog.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "provisioning-catalog.v1",
+      "source": {
+        "fingerprint": "sha256:10351c9b64fa2155c455c44dc9d72e662829f04b591968c06c005eca50a61b5f",
+        "path": ".engine/schemas/provisioning-catalog.v1.json"
+      },
+      "type": "schema"
+    },
+    {
       "id": "schema:skill.v1",
       "name": ".engine/schemas/skill.v1.json",
       "owner": "core",
@@ -1365,7 +1402,7 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:0679d4579cd695c4e58b5a7c0645a2bda2238356b40e85e311e710f83f21aca1",
+        "fingerprint": "sha256:670ef1def98923409cf7a971009162d2c878ba038d1f3208378bcf09ae5eb2c3",
         "path": ".engine/tools/engine_help.py"
       },
       "type": "tool"
@@ -1383,6 +1420,22 @@
       "source": {
         "fingerprint": "sha256:344b246f7ba15bc0744a78930b1039da32a2096d738c75f2de3b1442d9aab302",
         "path": ".engine/tools/hooks.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:instantiator",
+      "name": ".engine/tools/instantiator.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "instantiator",
+      "source": {
+        "fingerprint": "sha256:b6ff63725d726c083a574d039b06e6357a5e24dbbf4027cdbf0eb4c83682d656",
+        "path": ".engine/tools/instantiator.py"
       },
       "type": "tool"
     },
@@ -1479,6 +1532,22 @@
       "source": {
         "fingerprint": "sha256:c82d8c500b29c269b919a336763939411ad32445c888788482b0c4c1f7931334",
         "path": ".engine/tools/modes.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:module_catalog",
+      "name": ".engine/tools/module_catalog.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "module_catalog",
+      "source": {
+        "fingerprint": "sha256:3a50aaf9fd17fc9a0a114002fb52445bc0edef5f91a71222a295cd68d3841f8e",
+        "path": ".engine/tools/module_catalog.py"
       },
       "type": "tool"
     },
@@ -1749,7 +1818,7 @@
       },
       "slug": "test_engine_help",
       "source": {
-        "fingerprint": "sha256:af83e2b093adbf18c4935cc9004601542dd09c40cfaa10bdb8acf29795ffbd25",
+        "fingerprint": "sha256:7a7b39ef49bbcde5ddfefb5c0162e5da11ec5e07c758253bff955fae9d0f6ee7",
         "path": ".engine/tools/test_engine_help.py"
       },
       "type": "tool"
@@ -1767,6 +1836,22 @@
       "source": {
         "fingerprint": "sha256:e909b305be5ffbf40813479d3fd880679ee86511ad29933083e1b7420b254e03",
         "path": ".engine/tools/test_hooks.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_instantiator",
+      "name": ".engine/tools/test_instantiator.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_instantiator",
+      "source": {
+        "fingerprint": "sha256:26168c72f64a3dc2593e5f49cee6dfd4dc9cb3a231780935fff3ff17be18eca0",
+        "path": ".engine/tools/test_instantiator.py"
       },
       "type": "tool"
     },
@@ -1847,6 +1932,22 @@
       "source": {
         "fingerprint": "sha256:2a5c5fac0548c685c040371b612a71b6cb47f5ac05a8aed3ecce4383449b294a",
         "path": ".engine/tools/test_modes.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_module_catalog",
+      "name": ".engine/tools/test_module_catalog.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_module_catalog",
+      "source": {
+        "fingerprint": "sha256:21da24140780b77dec209364861790fc2873c3955418e1c28b8f37cef18f8e47",
+        "path": ".engine/tools/test_module_catalog.py"
       },
       "type": "tool"
     },
