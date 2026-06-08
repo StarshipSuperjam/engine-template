@@ -1315,6 +1315,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:engine_help",
+      "name": ".engine/tools/engine_help.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine_help",
+      "source": {
+        "fingerprint": "sha256:0679d4579cd695c4e58b5a7c0645a2bda2238356b40e85e311e710f83f21aca1",
+        "path": ".engine/tools/engine_help.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:hooks",
       "name": ".engine/tools/hooks.py",
       "owner": "core",
@@ -1647,6 +1663,22 @@
       "source": {
         "fingerprint": "sha256:72db548894988b8affebf3d773757a70789d0d5e50bbb578a9d5e9ec08be09d8",
         "path": ".engine/tools/test_doc.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_engine_help",
+      "name": ".engine/tools/test_engine_help.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_engine_help",
+      "source": {
+        "fingerprint": "sha256:af83e2b093adbf18c4935cc9004601542dd09c40cfaa10bdb8acf29795ffbd25",
+        "path": ".engine/tools/test_engine_help.py"
       },
       "type": "tool"
     },

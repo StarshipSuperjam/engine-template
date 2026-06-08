@@ -1,0 +1,184 @@
+"""Tests for `/engine-help`'s listing tool (core slice 26b) — the degradation-proof command index.
+
+Verifies: engine-only scoping (un-prefixed product skills ignored); the operator-typed filter
+(model-auto and model-only verbs excluded); the typed-name source (directory for a skill, filename for
+a legacy command — NOT the display `name`); the load-bearing degradation guarantee (a malformed command
+file is skipped, the listing never raises — contrasted with the merged `validate.frontmatter`, which
+DOES raise on the same input); the available-commands relay (empty when absent, relayed-sorted when
+present, empty on a malformed catalog); and that `render` is plain (no governance jargon), shows one
+plain line — not a bare heading — when nothing is available, carries the getting-started pointer, and is
+deterministically ordered. CLI `main([])`/`main(["demo"])` run.
+"""
+import contextlib
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import engine_help as eh  # noqa: E402
+import validate  # noqa: E402
+
+
+def _write(path: str, text: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+_OP_TYPED = ("---\nname: engine-start\ndescription: Start building.\ninvocation: operator-typed\n"
+             "disable-model-invocation: true\n---\n\n## Steps\n\n1. Go.\n")
+_OP_TYPED_HELP = ("---\ndescription: List the commands.\ninvocation: operator-typed\n"
+                  "disable-model-invocation: true\n---\n\n## Steps\n\n1. Go.\n")
+_MODEL_AUTO = ("---\nname: engine-auto\ndescription: An auto one.\n---\n\n## Steps\n\n1. Go.\n")
+_MODEL_ONLY = ("---\ndescription: A model-driven one.\ninvocation: model-only\nuser-invocable: false\n"
+               "---\n\n## Steps\n\n1. Go.\n")
+_MALFORMED = "---\ndescription: [unclosed\ninvocation: operator-typed\n---\n\n## Steps\n\n1. Go.\n"
+
+
+class TestInstalledVerbsDiscovery(unittest.TestCase):
+    def test_lists_engine_operator_typed_only_sorted(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".claude/skills/engine-start/SKILL.md"), _OP_TYPED)
+            _write(os.path.join(d, ".claude/skills/engine-help/SKILL.md"), _OP_TYPED_HELP)
+            _write(os.path.join(d, ".claude/skills/engine-auto/SKILL.md"), _MODEL_AUTO)    # model-auto → excluded
+            _write(os.path.join(d, ".claude/skills/engine-watch/SKILL.md"), _MODEL_ONLY)   # model-only → excluded
+            _write(os.path.join(d, ".claude/skills/my-product/SKILL.md"), _OP_TYPED)       # un-prefixed → ignored
+            names = [v["name"] for v in eh.installed_verbs(root=d)]
+            self.assertEqual(names, ["engine-help", "engine-start"],
+                             "only the engine's own operator-typed verbs, alphabetical")
+
+    def test_typed_name_is_the_directory_not_the_display_label(self):
+        with tempfile.TemporaryDirectory() as d:
+            # frontmatter `name` differs from the directory → the verb shown is the DIRECTORY (what the
+            # operator actually types), not the display label.
+            _write(os.path.join(d, ".claude/skills/engine-start/SKILL.md"),
+                   "---\nname: a-display-label\ndescription: Start.\ninvocation: operator-typed\n"
+                   "disable-model-invocation: true\n---\n\n## Steps\n\n1. Go.\n")
+            self.assertEqual(eh.installed_verbs(root=d)[0]["name"], "engine-start")
+
+    def test_legacy_command_filename_is_the_typed_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".claude/commands/engine-legacy.md"),
+                   "---\ndescription: A legacy command.\ninvocation: operator-typed\n"
+                   "disable-model-invocation: true\n---\n\nbody\n")
+            verbs = eh.installed_verbs(root=d)
+            self.assertEqual(verbs[0]["name"], "engine-legacy")
+
+    def test_description_carried_from_frontmatter(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".claude/skills/engine-start/SKILL.md"), _OP_TYPED)
+            self.assertEqual(eh.installed_verbs(root=d)[0]["description"], "Start building.")
+
+    def test_skills_and_legacy_commands_sorted_together(self):
+        # The final sort must interleave skills and legacy commands by typed name — not merely sort
+        # within each glob. A skill sorting AFTER a legacy command pins that the cross-source sort runs.
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".claude/skills/engine-zebra/SKILL.md"), _OP_TYPED_HELP)
+            _write(os.path.join(d, ".claude/commands/engine-alpha.md"),
+                   "---\ndescription: Alpha.\ninvocation: operator-typed\n"
+                   "disable-model-invocation: true\n---\n\nbody\n")
+            names = [v["name"] for v in eh.installed_verbs(root=d)]
+            self.assertEqual(names, ["engine-alpha", "engine-zebra"],
+                             "skills and legacy commands are sorted together, not per source")
+
+
+class TestMalformedDegrades(unittest.TestCase):
+    def test_frontmatter_itself_raises_so_the_catch_is_load_bearing(self):
+        # Pins WHY installed_verbs must guard: the shared parser RAISES on this input.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "bad.md")
+            _write(p, _MALFORMED)
+            with self.assertRaises(Exception):
+                validate.frontmatter(p)
+
+    def test_malformed_command_is_skipped_never_raises(self):
+        # The always-answers guarantee: a broken command file must not blank the whole listing.
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".claude/skills/engine-start/SKILL.md"), _OP_TYPED)
+            _write(os.path.join(d, ".claude/skills/engine-broken/SKILL.md"), _MALFORMED)
+            verbs = eh.installed_verbs(root=d)  # must NOT raise
+            names = [v["name"] for v in verbs]
+            self.assertIn("engine-start", names, "the readable command still lists")
+            self.assertNotIn("engine-broken", names, "the malformed command is skipped, not crashing the list")
+
+
+class TestAvailableVerbsRelay(unittest.TestCase):
+    def test_absent_catalog_returns_empty(self):
+        self.assertEqual(eh.available_verbs(None), [])
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(eh.available_verbs(os.path.join(d, "nope.json")), [])
+
+    def test_present_catalog_relayed_sorted(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "catalog.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump([{"name": "engine-zeta", "description": "Z."},
+                           {"name": "engine-alpha", "description": "A."}], fh)
+            got = eh.available_verbs(p)
+            self.assertEqual([v["name"] for v in got], ["engine-alpha", "engine-zeta"], "relayed, sorted")
+
+    def test_malformed_catalog_returns_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "catalog.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write("{not valid json")
+            self.assertEqual(eh.available_verbs(p), [], "a broken catalog narrows, never breaks")
+
+
+class TestRender(unittest.TestCase):
+    # The governing plain-language law's forbidden vocabulary — none may surface in operator-facing text.
+    _FORBIDDEN = ("orchestrat", "coherence", "wiring", "wires", "manifest", "idempotent", "venv", "sync",
+                  "lockfile", "pyproject", "ruleset", "override", "policy-override", "custom/script",
+                  "provides", "invocation", "model-auto", "operator-typed", "model-only", "foundation")
+
+    def test_render_is_plain_and_carries_the_pointer(self):
+        out = eh.render([{"name": "engine-start", "description": "Start building."}], [])
+        low = out.lower()
+        for term in self._FORBIDDEN:
+            self.assertNotIn(term, low, f"plain-language law: '{term}' must not surface")
+        self.assertIn("/engine-start", out)
+        self.assertIn("getting-started", out, "the closing pointer to the orientation guide")
+
+    def test_empty_available_renders_one_plain_line(self):
+        out = eh.render([{"name": "engine-start", "description": "Start."}], [])
+        self.assertIn(eh._EMPTY_AVAILABLE_LINE, out, "one plain line, never a bare empty heading")
+        self.assertNotIn(eh._AVAILABLE_HEADER, out)
+
+    def test_available_rendered_when_present(self):
+        out = eh.render([{"name": "engine-start", "description": "Start."}],
+                        [{"name": "engine-extra", "description": "Extra."}])
+        self.assertIn("/engine-extra", out)
+        self.assertNotIn(eh._EMPTY_AVAILABLE_LINE, out)
+
+    def test_verb_without_description_renders_alone_no_dangling_dash(self):
+        out = eh.render([{"name": "engine-x", "description": ""}], [])
+        self.assertIn("/engine-x", out)
+        self.assertNotIn("/engine-x —", out, "no dangling em-dash when there is no description")
+
+
+class TestCLI(unittest.TestCase):
+    def test_main_prints_the_real_listing(self):
+        # On the real repo this very command (/engine-help) and /engine-start are listed.
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = eh.main([])
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertIn("/engine-help", out)
+        self.assertIn("/engine-start", out)
+
+    def test_demo_runs_and_narrates_degradation(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = eh.main(["demo"])
+        self.assertEqual(rc, 0)
+        text = buf.getvalue()
+        self.assertIn("/engine-start", text)
+        self.assertIn("broken", text.lower(), "the demo narrates the broken-file degradation")
+
+
+if __name__ == "__main__":
+    unittest.main()
