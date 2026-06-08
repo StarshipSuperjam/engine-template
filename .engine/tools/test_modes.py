@@ -330,5 +330,49 @@ class TestPlanAcceptanceBuildEntry(unittest.TestCase):
                         "the PostToolUse modes wire must invoke `modes.py accept-hook`")
 
 
+class TestResolveSession(unittest.TestCase):
+    """The /engine-start (slice 26a) session-id resolution: the skill body passes the documented
+    ${CLAUDE_SESSION_ID} content token, with a fallback to the CLAUDE_CODE_SESSION_ID env var so the
+    Build verb still resolves the real session when a platform leaves the token empty or unexpanded."""
+
+    def test_explicit_session_wins(self):
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "from-env"}):
+            self.assertEqual(modes._resolve_session(["--session", "explicit"]), "explicit")
+
+    def test_falls_back_to_env_when_absent(self):
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "from-env"}):
+            self.assertEqual(modes._resolve_session([]), "from-env")
+
+    def test_falls_back_to_env_on_unexpanded_token(self):
+        # a platform that did not expand the content token passes the literal ${CLAUDE_SESSION_ID}
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "from-env"}):
+            self.assertEqual(modes._resolve_session(["--session", "${CLAUDE_SESSION_ID}"]), "from-env")
+
+    def test_none_when_neither_present(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(modes._resolve_session([]))
+
+    def test_set_build_cli_uses_env_fallback(self):
+        # `modes.py set-build` with no --session resolves the env session and enters Build for it
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
+                mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "cli-env-session"}):
+            self.assertEqual(modes.main(["set-build"]), 0)
+            self.assertEqual(modes.current_stance("cli-env-session"), modes.BUILD)
+
+    def test_set_build_makes_the_gate_allow_writes_for_that_session(self):
+        # The end-to-end modes contract the Build verb relies on: set-build for a session id makes the
+        # PreToolUse gate PERMIT a write for THAT SAME id (one it denies in explore), and ONLY that id.
+        # Pins that the marker set-build writes is the one the gate reads — the binding the verb depends
+        # on, independent of how the platform sources the id into --session.
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp):
+            self.assertEqual(modes.main(["set-build", "--session", "sX"]), 0)
+            allow = modes.handler({"session_id": "sX", "tool_name": "Edit", "tool_input": {}})
+            self.assertTrue(_allow(allow), "the gate allows a write for the session that entered Build")
+            other = modes.handler({"session_id": "sOther", "tool_name": "Edit", "tool_input": {}})
+            self.assertTrue(_deny(other), "a different session stays in explore — the marker is session-keyed")
+
+
 if __name__ == "__main__":
     unittest.main()

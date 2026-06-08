@@ -50,7 +50,7 @@ CLI (the operator-runnable demo; the live gates are what the wired hooks invoke)
   python tools/modes.py accept-hook                  # PostToolUse mode: set Build on plan-acceptance
   python tools/modes.py classify <Tool> [cmd] [--session S] [--pm MODE] [--plan-file]  # gate decision
   python tools/modes.py stance --session S           # the session's current stance
-  python tools/modes.py set-build --session S         # enter Build for a session (demo of slice 26's verb)
+  python tools/modes.py set-build [--session S]       # enter Build (what the /engine-start verb runs; --session falls back to the session env var)
   python tools/modes.py clear --session S             # clear the signal -> Explore (what boot does)
   python tools/modes.py demo                          # a scripted fail-then-pass demonstration
 """
@@ -297,6 +297,18 @@ def _arg(argv: list, flag: str) -> str | None:
     return None
 
 
+def _resolve_session(argv: list) -> str | None:
+    """The session id for a CLI stance change: the explicit `--session` value, else the platform's
+    `CLAUDE_CODE_SESSION_ID` environment variable. The operator-typed Build verb's skill body passes the
+    documented `${CLAUDE_SESSION_ID}` content token; if a platform leaves it empty or unexpanded (a
+    literal `${...}`), fall back to the env var so the verb still resolves the real session. A session
+    that supplies neither degrades SAFE — set_stance returns False and the stance stays explore."""
+    session = _arg(argv, "--session")
+    if not session or "${" in session:
+        session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    return session
+
+
 def _decision_line(decision: dict) -> str:
     """Render a handler decision as a one-line operator-facing verdict for the demo."""
     if decision.get("action") == "decide" and decision.get("permissionDecision") == "deny":
@@ -400,7 +412,7 @@ def main(argv: list) -> int:
         print(current_stance(_arg(argv, "--session")))
         return 0
     if cmd == "set-build":
-        ok = set_stance(_arg(argv, "--session"), BUILD)
+        ok = set_stance(_resolve_session(argv), BUILD)
         print(f"set Build: {ok}")
         return 0 if ok else 1
     if cmd == "clear":
