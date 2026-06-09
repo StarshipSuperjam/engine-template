@@ -19,6 +19,11 @@
     "identity": {
       "description": "The identity tier governing how the engine's own guardrails may change. solo: a single gate-holder — a guardrail can never weaken silently, but a weakening can still happen with the operator's explicit consent (the engine acts with the operator's credentials). team: a distinct engine identity holds enforcement-admin, so a guardrail cannot weaken at all. This is per-repository and re-chosen at first-run setup; it is not inherited from a template.",
       "enum": ["solo", "team"]
+    },
+    "handle": {
+      "description": "The operator's own account handle, captured at first-run setup and preserved as operator config. It is the owner the engine writes into the code-ownership block for its own files, so an engine update re-renders that block for the new release's files while keeping this owner. Optional: it is absent until first-run setup derives and records it (and absent in the construction repository, which runs no first-run setup), so a manifest without it stays valid.",
+      "type": "string",
+      "minLength": 1
     }
   }
 }

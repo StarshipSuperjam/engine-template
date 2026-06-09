@@ -3,6 +3,12 @@
 # (repository-topology Law 5; decision-log D-156).
 .engine/.venv/
 
+# Engine tool-runtime installer: the pinned uv binary the first-run setup places here,
+# PATH-independently, when it bootstraps the tool-runtime (D-156). A fetched binary, never
+# committed. Travels with the template so a generated repo ignores it before setup installs it.
+# (This construction repository runs no first-run setup, so the directory never appears here.)
+.engine/.uv/
+
 # Python bytecode cache (regenerable; never committed)
 __pycache__/
 *.pyc

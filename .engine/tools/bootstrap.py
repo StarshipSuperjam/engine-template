@@ -35,6 +35,15 @@ Scope OUT of this slice (named, deferred):
   - the second engine-scheme (spec-marker) label -> post-core product-design (core ensures only the
     engine-domain label here)
 """
+# `from __future__ import annotations` (PEP 563) is LOAD-BEARING, not cosmetic: the first-run
+# instantiator (slice 27) imports this module and runs it on the operator's SYSTEM python during the
+# apply phase — BEFORE it bootstraps the engine's own 3.11+ tool-runtime (D-156). macOS ships python
+# 3.9, where an *evaluated* `X | None` annotation (e.g. the Result/ControlPlane signatures below)
+# raises `TypeError: unsupported operand type(s) for |`. Deferring annotations to strings makes this
+# module import + run on 3.9, which is the precondition for `instantiator apply` to start on a bare
+# adopter machine and reach the `uv sync` that materializes the 3.11+ venv. (The other engine tools
+# already carry this; bootstrap was the lone gap — a `test_instantiator` regression guard now holds it.)
+from __future__ import annotations
 
 import argparse
 import json

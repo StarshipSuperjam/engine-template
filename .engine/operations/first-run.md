@@ -21,12 +21,22 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
 4. **State plainly what confirming does, then confirm.** Before saving, tell the operator: any optional add-on
    they did not keep will be removed from the project — its files are deleted, not just switched off — and
    adding one back later is a fresh request, not a checkbox they flip back. On their go-ahead, save their
-   choices. Before this point nothing is changed; saving is the step the rest of setup builds on.
-5. **Install the choices and turn on the review gate.** With the choices saved, the engine carries them out:
-   it removes the add-ons that were not kept, sets up its own private tool area, turns on the branch review
-   gate that makes every change go through approval, checks everything is consistent, and then removes its own
-   setup files so it does not run again. If turning on the review gate needs a one-time approval from the
-   operator, it asks for that in plain words and explains why.
+   choices: run `python3 .engine/tools/instantiator.py confirm` with their reviewer choice, the add-ons they
+   kept, and their account name (for example `confirm --tier solo --keep "" --handle their-account`). Before
+   this point nothing is changed; saving is the step the rest of setup builds on.
+5. **Install the choices and turn on the review gate.** With the choices saved, run
+   `python3 .engine/tools/instantiator.py apply`. In order, the engine: removes the add-ons that were not
+   kept (their files are deleted); sets who reviews changes to the engine's own files; turns on the safer
+   planning default for this project (or, if the operator already has their own editing default, offers to —
+   and leaves theirs alone if they decline); **sets up the engine's own programs in a private project folder —
+   asking the operator's one-time go-ahead first, because this downloads software onto their machine**; switches
+   the engine on; and turns on the branch review gate that makes every change go through approval (which may ask
+   for a one-time GitHub approval, explained in plain words first). Show the operator the plain-language result
+   of each step. If the engine's programs can't be set up (for example, no internet), setup **stops safely at
+   that point and never falls back to a different setup** — say so, and run `apply` again later to resume from
+   where it left off. When the steps are done, show a plain summary of what was set up and anything still left
+   for the operator (for example, finishing the review gate later). The closing checks and tidy-up that end
+   setup are the final part of the flow.
 
 ## Done when
 
