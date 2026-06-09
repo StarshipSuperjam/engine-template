@@ -12,9 +12,8 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
 
 ## Steps
 
-1. **Check it's a new project.** Run `uv run --directory .engine -- python tools/instantiator.py show`. If it
-   reports the project is already set up, stop and tell the operator — first-time setup only runs once, on a
-   brand-new project.
+1. **Check it's a new project.** Run `python3 .engine/tools/instantiator.py show`. If it reports the project is
+   already set up, stop and tell the operator — first-time setup only runs once, on a brand-new project.
 2. **Present the choices.** That same command prints the project's details and the two choices to make: who
    reviews changes here (on their own — the usual choice; or with a team), and which optional add-ons to
    include or leave out (grouped by what they help with). Show these to the operator in plain words.
@@ -41,3 +40,7 @@ Setup runs only in a brand-new project, never in the workshop where the engine i
 choices are saved as the record the engine reads as it sets things up, so if setup is interrupted after the
 choices are saved, the next session picks up from there rather than asking again. Who reviews changes can be
 changed later, and optional add-ons can be added or removed later too — each is a separate, deliberate request.
+
+Setup is launched with plain `python3`, not the engine's own tool runner, because it is the one step that runs
+*before* it installs that runner — so it cannot depend on it. Every other engine command runs through the
+installed runner; this one alone runs on the system's Python, and only until setup has installed the runner.

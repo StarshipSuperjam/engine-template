@@ -68,9 +68,37 @@ import re
 import subprocess
 import sys
 
-import yaml
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError
+# yaml + jsonschema are the engine's ONLY third-party dependencies; they live in the
+# uv-managed tool-runtime (.engine/.venv/). They are bound LAZILY (PEP 562 module
+# __getattr__) rather than imported at module top, so `import validate` succeeds on the
+# Python standard library alone — before that runtime exists. This is load-bearing for
+# the first-run instantiator: it is the one engine tool that must run to BOOTSTRAP the
+# runtime (it installs uv, then `uv sync`), so it cannot presuppose the packages the
+# runtime provides (provisioning README §"Tool-runtime bootstrap"; D-156). When the
+# runtime IS present the symbols resolve on first use exactly as a top-level import
+# would — every `validate.<symbol>` consumer (e.g. wiring's ontology-entry check, the
+# schema-validation tests) and validate's own frontmatter/schema paths are unchanged.
+# A genuinely-absent package still raises ImportError at first use (fail-loud), never
+# silently. Internal uses below additionally take a local import for the same reason
+# (a bare module-global lookup does not trigger this module __getattr__).
+_LAZY_THIRD_PARTY = {
+    "yaml": ("yaml", None),
+    "Draft202012Validator": ("jsonschema", "Draft202012Validator"),
+    "SchemaError": ("jsonschema.exceptions", "SchemaError"),
+}
+
+
+def __getattr__(name):                                 # PEP 562: called only for names absent from globals()
+    spec = _LAZY_THIRD_PARTY.get(name)
+    if spec is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+    module_name, attr = spec
+    mod = importlib.import_module(module_name)          # raises ImportError loudly if the runtime is absent
+    value = mod if attr is None else getattr(mod, attr)
+    globals()[name] = value                            # cache: later access binds directly, skipping __getattr__
+    return value
+
 
 THIS = os.path.abspath(__file__)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(THIS)))  # .engine/tools/validate.py -> repo root
@@ -144,6 +172,7 @@ def frontmatter(path: str) -> dict:
     schema's `required` then catches a frontmatter-less file. Malformed YAML RAISES (loud),
     caught by the caller as a fail-closed finding (the halt-on-malformed posture).
     `safe_load` only, never `load`: no arbitrary object construction from frontmatter."""
+    import yaml                                         # lazy: see the module __getattr__ note (tool-runtime dep)
     text = read(path)
     if not text.startswith("---"):
         return {}
@@ -283,6 +312,7 @@ def _governing_schema(rule: dict, rel_path: str):
       Draft202012Validator.META_SCHEMA -> the 2020-12 dialect (well-formedness).
       <loaded schema object>     -> validate the file against it.
     Schema-path references resolve on disk, never over the network."""
+    from jsonschema import Draft202012Validator        # lazy: see the module __getattr__ note (tool-runtime dep)
     params = rule.get("params") or {}
     if params.get("schema"):                       # explicit override (repo-root-relative or the dialect URI)
         ref, base = params["schema"], ROOT
@@ -307,6 +337,8 @@ def kind_schema(rule, ctx):
     malformed file, an unresolvable or offline schema reference, or a malformed governing
     schema is a loud finding (the halt-on-malformed posture), never an uncaught error and
     never a network fetch."""
+    from jsonschema import Draft202012Validator        # lazy: see the module __getattr__ note (tool-runtime dep)
+    from jsonschema.exceptions import SchemaError
     tier = rule["tier"]
     findings = []
     for path in target_files(rule):
@@ -1076,6 +1108,7 @@ def load_suites() -> dict:
     """The suite declarations {name: {trigger, context}}, validated against
     suites.v1.json. Raises (loud) if the file is missing, malformed, or does not
     conform — the dispatcher's own config follows the halt-on-malformed posture."""
+    from jsonschema import Draft202012Validator        # lazy: see the module __getattr__ note (tool-runtime dep)
     data = load_json(SUITES_PATH)
     schema = load_json(SUITES_SCHEMA_PATH)
     errs = sorted(Draft202012Validator(schema).iter_errors(data), key=lambda e: list(e.path))

@@ -799,7 +799,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:25f501619d3dc17c59c071fe6189f0dc24d6a9b3b82430c0ca518190bd676bd2",
+        "fingerprint": "sha256:c25e3b52cf9add99f1a16f2afabb9e9990cf23a32dc7ea2e0064433bc46f861a",
         "path": ".engine/operations/first-run.md"
       },
       "type": "operation"
@@ -1850,7 +1850,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:26168c72f64a3dc2593e5f49cee6dfd4dc9cb3a231780935fff3ff17be18eca0",
+        "fingerprint": "sha256:f1ae87d2755eb8f18f21b4d0cdcf03f53fd53b885b445260d7c84b725809133a",
         "path": ".engine/tools/test_instantiator.py"
       },
       "type": "tool"
@@ -2176,6 +2176,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_validate",
+      "name": ".engine/tools/test_validate.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_validate",
+      "source": {
+        "fingerprint": "sha256:ea1a2d5b6c0d30d3aaeb257b8a8ec51239daace61354c01a4f6a9626e406f58c",
+        "path": ".engine/tools/test_validate.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_wiring",
       "name": ".engine/tools/test_wiring.py",
       "owner": "core",
@@ -2234,7 +2250,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:e9985b8d0d6d8987688bee9efa1d3f780bddfab4fa280ec30eab2bafa116d79c",
+        "fingerprint": "sha256:37c6d28a0e776676538db8763ef30a64737e72c9b678496a036aabcade0fd3e0",
         "path": ".engine/tools/validate.py"
       },
       "type": "tool"
