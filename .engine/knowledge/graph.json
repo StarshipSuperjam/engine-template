@@ -799,7 +799,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:c25e3b52cf9add99f1a16f2afabb9e9990cf23a32dc7ea2e0064433bc46f861a",
+        "fingerprint": "sha256:d2a394976a669595880cf468e49362484eafa475fa213d765b5db3835592c24c",
         "path": ".engine/operations/first-run.md"
       },
       "type": "operation"
@@ -1082,7 +1082,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:8e27b7554f84556f140223754c69d8e237835a9898870c3dc42e61ac9d325ec1",
+        "fingerprint": "sha256:1ed6d63ccd4408553c68be8ffbc1dc54a253f11e72fdc51e22969e675ad9dbc7",
         "path": ".engine/schemas/engine.v1.json"
       },
       "type": "schema"
@@ -1370,7 +1370,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:dc2dbcaa60b85a2a7deae4e72c647e44fb723bd71e0f79f2b1492c51ba4e23a3",
+        "fingerprint": "sha256:95dca5afd2a0d9b9f31c5e23c9a985667b524ef3e851bc848c26239978209622",
         "path": ".engine/tools/bootstrap.py"
       },
       "type": "tool"
@@ -1434,7 +1434,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:b6ff63725d726c083a574d039b06e6357a5e24dbbf4027cdbf0eb4c83682d656",
+        "fingerprint": "sha256:e199a48fb8fd1039ff88f82606fe225b6b8fce28dd15ce903e82d642f19c4002",
         "path": ".engine/tools/instantiator.py"
       },
       "type": "tool"
@@ -1850,7 +1850,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:f1ae87d2755eb8f18f21b4d0cdcf03f53fd53b885b445260d7c84b725809133a",
+        "fingerprint": "sha256:df8171b60855a6199d236dbcf15b52b8ca4ed92c4e1e045dd91ce5ef651b56ae",
         "path": ".engine/tools/test_instantiator.py"
       },
       "type": "tool"

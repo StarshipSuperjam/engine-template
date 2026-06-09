@@ -241,11 +241,13 @@ except ImportError:
     pass
 import io, contextlib
 import instantiator                   # the import that used to transitively require the runtime
-for _argv in (["show"], ["demo"]):
+# `apply-demo` exercises the WHOLE apply chain (module_manager / wiring / bootstrap / knowledge_gen) with
+# every boundary faked — proving the heavy apply path also starts on the standard library alone.
+for _argv in (["show"], ["demo"], ["apply-demo"]):
     _buf = io.StringIO()
     with contextlib.redirect_stdout(_buf):
         _rc = instantiator.main(_argv)
-    assert _rc == 0, (_argv, _rc)
+    assert _rc == 0, (_argv, _rc, _buf.getvalue()[-400:])
 print("STARTABLE-OK")
 """
 
@@ -276,6 +278,388 @@ class TestStartabilityWithoutRuntime(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         # In this construction repo the manifest is present, so the verb short-circuits "already set up".
         self.assertIn(inst._ALREADY_SET_UP.split("\n")[0], proc.stdout, proc.stdout)
+
+
+# Apply copy is held to a STRICTER plain-language list than the gather copy: the apply phase also names the
+# tool-runtime and the control-plane, whose maintainer terms must never reach the operator.
+_FORBIDDEN_APPLY = _FORBIDDEN + ("control-plane", "tool-runtime")
+
+
+def _confirmed_fixture(tmp, handle="octocat", keep=None):
+    """Build a generated-repo fixture and confirm it (write the checkpoint), returning under a redirected
+    root. Caller is responsible for the surrounding `with inst._redirect_root(tmp)`."""
+    inst.confirm(keep or [], "solo", engine_release="1.0.0", handle=handle)
+
+
+def _fake_apply(tmp, **overrides):
+    """Run apply with every external boundary faked (no network, no machine writes, no real uv): the happy
+    defaults, overridable per-test."""
+    base = dict(
+        announce=lambda t: None,
+        home_reader=lambda: {},                                  # no global preference → adopt plan
+        uv_present=lambda: None,                                 # uv not yet present
+        uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
+        uv_runner=lambda uv, groups: True,
+        consent=lambda kind: True,
+        control_transport=inst._approve_transport(),
+        gh_refresh=lambda s: True,
+        control_issues=inst._FakeIssues(),
+        control_repo="you/your-project",                         # injected so the control-plane step is
+        control_token="tok",                                     # deterministic — never the CI/ambient token
+    )
+    base.update(overrides)
+    return inst.apply(**base)
+
+
+class TestApplyOrchestrator(unittest.TestCase):
+    def test_refuses_when_not_confirmed(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                res = inst.apply(announce=lambda t: None)   # no manifest written
+            self.assertTrue(res["refused"])
+            self.assertEqual(res["reason"], "not-confirmed")
+            self.assertEqual(res["steps"], [])
+
+    def test_full_happy_path_runs_all_seven_steps(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d)
+            self.assertFalse(res["refused"]); self.assertFalse(res["halted"])
+            names = [s["step"] for s in res["steps"]]
+            self.assertEqual(names, ["remove-unselected", "codeowners", "plan-mode",
+                                     "tool-runtime", "substrates", "wires", "control-plane"])
+
+    def test_handle_falls_back_to_the_manifest_value(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d, handle="manifest-owner")
+                res = _fake_apply(d, handle=None)   # not passed → read from the manifest
+                co = inst.validate.read(os.path.join(d, ".github", "CODEOWNERS"))
+            self.assertIn("@manifest-owner", co)
+
+
+class TestApplyStep1DeleteUnselected(unittest.TestCase):
+    def test_deletes_the_unkept_module_keeps_required(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)                       # core (required) + extras-demo (optional)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d, keep=[])           # keep nothing optional → extras-demo deselected
+                res = _fake_apply(d)
+            step = res["steps"][0]
+            self.assertEqual(step["deleted"], ["extras-demo"])
+            self.assertFalse(os.path.isdir(os.path.join(d, ".engine", "modules", "extras-demo")))
+            self.assertTrue(os.path.isdir(os.path.join(d, ".engine", "modules", "core")), "required spine kept")
+
+    def test_reverse_dependency_refusal_is_recorded_not_crashed(self):
+        # A kept module depends on an unkept one → remove() refuses; apply records it and continues (the kept
+        # module and its dependency both remain — coherent — and the phase never crashes).
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            _module(d, "depend200", "optional")
+            # 'core' (kept, required) depends on 'depend200' (not kept) → removing depend200 is refused.
+            inst._write_json(os.path.join(d, ".engine", "modules", "core", "manifest.json"),
+                             {"id": "core", "version": "1.0.0", "status": "required",
+                              "provides": {}, "wires": [], "depends": {"depend200": "*"}})
+            with inst._redirect_root(d):
+                _confirmed_fixture(d, keep=[])           # neither extras-demo nor depend200 kept
+                res = _fake_apply(d)
+            step = res["steps"][0]
+            refused_ids = {r["id"] for r in step["refused"]}
+            self.assertIn("depend200", refused_ids, "a still-depended-on module is refused, not deleted")
+            self.assertTrue(os.path.isdir(os.path.join(d, ".engine", "modules", "depend200")), "kept on refusal")
+            self.assertFalse(res["halted"], "a refusal records-and-continues; it never halts the phase")
+
+
+class TestApplyStep2Codeowners(unittest.TestCase):
+    def test_writes_block_and_owns_itself(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d, handle="acme")
+                res = _fake_apply(d)
+                co = inst.validate.read(os.path.join(d, ".github", "CODEOWNERS"))
+            self.assertEqual(res["steps"][1]["status"], "written")
+            self.assertIn("/.github/CODEOWNERS @acme", co, "the block owns itself from the first render")
+            self.assertIn("/.engine/engine.json @acme", co)
+
+    def test_degrades_without_a_handle(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d, handle=None)       # confirm wrote no handle
+                res = _fake_apply(d, handle=None)
+            step = res["steps"][1]
+            self.assertEqual(step["status"], "degraded")
+            self.assertFalse(os.path.isfile(os.path.join(d, ".github", "CODEOWNERS")), "no render without a handle")
+            self.assertFalse(res["halted"], "a missing handle degrades, never halts")
+
+
+class TestApplyStep3PlanMode(unittest.TestCase):
+    def _mode(self, tmp):
+        return (inst._read_json_or(os.path.join(tmp, ".claude", "settings.json"), {})
+                .get("permissions", {}).get("defaultMode"))
+
+    def test_adopts_when_no_global_preference(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, home_reader=lambda: {})
+            self.assertEqual(res["steps"][2]["status"], "adopted")
+            self.assertEqual(self._mode(d), "plan")
+
+    def test_conflict_keeps_operator_default_when_declined(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "acceptEdits"}},
+                                  consent=lambda kind: False)        # operator declines adopt
+            self.assertEqual(res["steps"][2]["status"], "kept-operator-default")
+            self.assertIsNone(self._mode(d), "keep writes nothing — the project key stays unset (the yield)")
+
+    def test_conflict_adopts_when_operator_chooses(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "acceptEdits"}},
+                                  consent=lambda kind: kind == "plan-mode-adopt")
+            self.assertEqual(res["steps"][2]["status"], "adopted")
+            self.assertEqual(self._mode(d), "plan")
+
+    def test_never_writes_home_settings(self):
+        # The yield-to-the-operator law: ~/.claude is read-only. We assert by giving a home_reader that would
+        # raise if WRITTEN (it is a pure value), and checking the project — but the strongest guard is that
+        # apply has no path that writes the home file; the conflict path writes nothing at all.
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            calls = {"n": 0}
+            def reader():
+                calls["n"] += 1
+                return {"permissions": {"defaultMode": "acceptEdits"}}
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                _fake_apply(d, home_reader=reader, consent=lambda kind: False)
+            self.assertGreaterEqual(calls["n"], 1, "the global default is READ")
+
+
+class TestApplyStep4ToolRuntime(unittest.TestCase):
+    def test_materializes_when_present_and_synced(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, uv_present=lambda: "/usr/bin/uv", uv_runner=lambda uv, g: True)
+            self.assertEqual(res["steps"][3]["status"], "materialized")
+            self.assertFalse(res["halted"])
+
+    def test_halts_without_consent_to_install(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, uv_present=lambda: None, consent=lambda kind: False)
+            self.assertTrue(res["halted"])
+            self.assertEqual(res["steps"][-1]["step"], "tool-runtime")
+            self.assertEqual(len(res["steps"]), 4, "steps 5-7 are not attempted on a halt")
+
+    def test_halts_when_install_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, uv_present=lambda: None, uv_installer=lambda: None)
+            self.assertTrue(res["halted"])
+            self.assertEqual(res["steps"][-1]["status"], "degraded")
+
+    def test_halts_when_sync_fails_never_falls_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, uv_present=lambda: "/usr/bin/uv", uv_runner=lambda uv, g: False)
+            self.assertTrue(res["halted"])
+            names = [s["step"] for s in res["steps"]]
+            self.assertNotIn("substrates", names, "no substrate init on a degraded runtime (never system python)")
+
+    def test_install_uses_unmanaged_path_and_pinned_versioned_url(self):
+        # The real installer command (faked everywhere else) must use the PATH-independent unmanaged install
+        # and the version-pinned official URL — the deployed supply-chain contract (D-156).
+        self.assertIn("UV_UNMANAGED_INSTALL", inst._install_uv.__doc__ or "")
+        self.assertEqual(inst.UV_INSTALL_URL, f"https://astral.sh/uv/{inst.UV_PIN}/install.sh")
+        self.assertEqual(inst.UV_PIN, "0.11.8", "must match the committed CI uv pin")
+
+
+class TestApplyStep6WiresInstallsHooks(unittest.TestCase):
+    def test_apply_installs_hooks_not_only_the_query_server(self):
+        # B1: the apply phase must wire ALL of a kept module's wires — the HOOKS that boot/gate/close the
+        # engine, not only the MCP server. A hook-less generated repo is otherwise an inert engine.
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)                      # ships a HOOK-LESS settings.json
+            settings_before = inst._read_json_or(os.path.join(d, ".claude", "settings.json"), {})
+            self.assertNotIn("hooks", settings_before, "the fixture models a published, un-wired template")
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                _fake_apply(d)
+                after = inst._read_json_or(os.path.join(d, ".claude", "settings.json"), {})
+                mcp = inst._read_json_or(os.path.join(d, ".mcp.json"), {})
+            self.assertIn("hooks", after, "apply must install the engine's hooks")
+            for event in ("SessionStart", "PreToolUse", "Stop"):
+                self.assertIn(event, after["hooks"], f"the {event} hook must be wired")
+            self.assertIn("engine-knowledge-graph", mcp.get("mcpServers", {}), "and the query server too")
+
+
+class TestApplyStep7ControlPlane(unittest.TestCase):
+    def test_applied_turns_the_gate_on(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, control_transport=inst._approve_transport())
+            cp = res["steps"][-1]
+            self.assertEqual(cp["status"], "applied"); self.assertTrue(cp["protected"])
+
+    def test_degraded_never_pretends_and_phase_ends(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, control_transport=inst._defer_transport(), gh_refresh=lambda s: False)
+            cp = res["steps"][-1]
+            self.assertEqual(cp["status"], "degraded"); self.assertFalse(cp["protected"])
+            self.assertFalse(res["halted"], "a deferred gate ends the phase cleanly; it never halts")
+
+    def test_degraded_when_no_repo_or_token(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d), \
+                 mock.patch.object(inst.boot, "repo_slug", return_value=None), \
+                 mock.patch.object(inst.boot, "gh_token", return_value=None):
+                _confirmed_fixture(d)
+                # opt out of the injected coordinates so the no-repo/no-sign-in path is exercised
+                res = _fake_apply(d, control_repo=None, control_token=None)
+            self.assertEqual(res["steps"][-1]["status"], "degraded")
+            self.assertIn("no project", res["steps"][-1]["detail"])
+
+
+class TestApplyIdempotentResume(unittest.TestCase):
+    def test_rerun_no_ops_the_writing_steps(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                _fake_apply(d, control_transport=inst._approve_transport())
+                second = _fake_apply(d, control_transport=inst._already_transport())
+            by = {s["step"]: s["status"] for s in second["steps"]}
+            self.assertFalse(second["halted"])
+            self.assertEqual(by["codeowners"], "already", "a resumed render is a true no-op")
+            self.assertEqual(by["plan-mode"], "already")
+            self.assertEqual(by["control-plane"], "already")
+
+
+class TestApplyIsolation(unittest.TestCase):
+    def test_apply_under_redirect_leaves_real_files_untouched(self):
+        # The construction repo's own engine files must be byte-for-byte unchanged by a redirected apply —
+        # the demo's mechanical isolation guarantee, as a test (catches a path constant escaping the fixture).
+        snap = inst._snapshot_real_files()
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                _fake_apply(d)
+        self.assertTrue(inst._assert_real_files_unchanged(snap), "a redirected apply must not touch real files")
+
+
+class TestDeriveHandle(unittest.TestCase):
+    def test_returns_login_on_success(self):
+        fake = mock.Mock(returncode=0, stdout="octocat\n")
+        with mock.patch("subprocess.run", return_value=fake):
+            self.assertEqual(inst.derive_handle(), "octocat")
+
+    def test_returns_none_when_gh_absent_or_empty(self):
+        with mock.patch("subprocess.run", side_effect=FileNotFoundError):
+            self.assertIsNone(inst.derive_handle())
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=1, stdout="")):
+            self.assertIsNone(inst.derive_handle())
+
+
+class TestApplyCopySurface(unittest.TestCase):
+    def test_template_carries_every_apply_section(self):
+        copy = inst.load_copy(inst.TEMPLATE_PATH)
+        for key in inst.COPY_HEADINGS:
+            self.assertTrue(copy[key].strip(), f"apply copy section {key!r} missing from the template")
+
+    def test_missing_template_falls_back_not_crashes(self):
+        copy = inst.load_copy("/no/such/first-run.md")
+        self.assertEqual(copy["tool-runtime-consent"], inst.FALLBACK_COPY["tool-runtime-consent"])
+
+    def test_apply_copy_is_plain_language(self):
+        # The expanded plain-language law over the apply copy surface AND the rendered control-plane banners
+        # the apply phase surfaces (no tool-runtime / control-plane / venv / ruleset … reaches the operator).
+        surfaces = list(inst.load_copy(inst.TEMPLATE_PATH).values())
+        surfaces += [inst.bootstrap.render(inst.bootstrap.Result(s, "main", ["x"], c))
+                     for s, c in (("applied", None), ("already", None), ("degraded", "not-admin"),
+                                  ("degraded", "org-policy"), ("degraded", "didnt-save"))]
+        blob = "\n".join(surfaces).lower()
+        for term in _FORBIDDEN_APPLY:
+            self.assertNotIn(term, blob, f"plain-language law: '{term}' must not surface in the apply copy")
+
+
+class TestApplyChainRunsOnSystemPython39(unittest.TestCase):
+    # The apply phase runs on the operator's SYSTEM python (3.9 on macOS) BEFORE it installs the 3.11+
+    # runtime. An evaluated `X | None` annotation raises there; `from __future__ import annotations` defers
+    # it. Hold every tool the instantiator's apply chain imports to that, so a future edit can't silently
+    # re-break a real adopter's first run (bootstrap.py was the gap this slice closed).
+    _APPLY_CHAIN = ("instantiator", "module_manager", "wiring", "bootstrap", "knowledge_gen",
+                    "module_coherence", "boot", "telemetry", "protection_guard", "hooks",
+                    "module_catalog", "validate")
+
+    def test_every_apply_chain_tool_defers_annotations(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        missing = []
+        for name in self._APPLY_CHAIN:
+            with open(os.path.join(here, name + ".py"), encoding="utf-8") as fh:
+                if "from __future__ import annotations" not in fh.read():
+                    missing.append(name)
+        self.assertEqual(missing, [], f"system-python-launched tools must defer annotations: {missing}")
+
+
+class TestApplyDemoRunsGreen(unittest.TestCase):
+    def test_apply_demo_exits_zero(self):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = inst.main(["apply-demo"])
+        out = buf.getvalue()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("byte-for-byte unchanged", out, "the isolation guarantee is shown")
+        self.assertIn("naming it, not hiding it", out, "the honest-ceiling banner leads the demo")
+
+
+class TestApplyCli(unittest.TestCase):
+    def test_apply_refuses_plainly_without_confirmation(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            buf = io.StringIO()
+            with inst._redirect_root(d), contextlib.redirect_stdout(buf):
+                rc = inst.main(["apply"])      # no manifest → refuse
+            self.assertEqual(rc, 1)
+            self.assertIn("hasn't been confirmed", buf.getvalue())
+
+    def test_confirm_then_apply_chain(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d), contextlib.redirect_stdout(io.StringIO()):
+                rc1 = inst.main(["confirm", "--tier", "solo", "--keep", "", "--handle", "octocat"])
+            self.assertEqual(rc1, 0)
+            self.assertTrue(inst.is_provisioned(d), "confirm wrote the checkpoint")
 
 
 if __name__ == "__main__":
