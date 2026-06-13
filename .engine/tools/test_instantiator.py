@@ -242,8 +242,10 @@ except ImportError:
 import io, contextlib
 import instantiator                   # the import that used to transitively require the runtime
 # `apply-demo` exercises the WHOLE apply chain (module_manager / wiring / bootstrap / knowledge_gen) with
-# every boundary faked — proving the heavy apply path also starts on the standard library alone.
-for _argv in (["show"], ["demo"], ["apply-demo"]):
+# every boundary faked, and `finish-demo` exercises the verify + retire close (check_coherence +
+# knowledge_gen.generate, both JSON/walk-only) — proving the heavy apply path AND the lifecycle close also
+# start on the standard library alone (the whole instantiator runs on the operator's system python).
+for _argv in (["show"], ["demo"], ["apply-demo"], ["finish-demo"]):
     _buf = io.StringIO()
     with contextlib.redirect_stdout(_buf):
         _rc = instantiator.main(_argv)
@@ -660,6 +662,209 @@ class TestApplyCli(unittest.TestCase):
                 rc1 = inst.main(["confirm", "--tier", "solo", "--keep", "", "--handle", "octocat"])
             self.assertEqual(rc1, 0)
             self.assertTrue(inst.is_provisioned(d), "confirm wrote the checkpoint")
+
+
+# ==== VERIFY + RETIRE (core slice 27c) ===============================================================
+
+# The finish (verify + retire) copy adds the saved-information terms to the apply forbidden list.
+_FORBIDDEN_FINISH = _FORBIDDEN_APPLY + ("graph", "fingerprint")
+_FINISH_KEYS = ("verify-paused", "verify-next-actions", "verify-ok", "verify-gate-on",
+                "verify-gate-pending", "retire-success")
+
+
+def _finished_fixture(tmp, handle="octocat"):
+    """Build + confirm + apply a fixture with the first-run assets planted, leaving a fully-installed,
+    consistent practice engine ready for verify/retire. Caller holds the surrounding _redirect_root(tmp)."""
+    inst._build_fixture(tmp)
+    inst._plant_first_run_assets(tmp)
+    inst.confirm([], "solo", engine_release="1.0.0", handle=handle)
+    return inst._finish_apply(tmp)
+
+
+class TestVerify(unittest.TestCase):
+    def test_clean_setup_passes(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                res = inst.verify(announce=lambda t: None)
+            self.assertFalse(res["paused"])
+            self.assertEqual(res["findings"], [])
+            self.assertEqual(res["steps"][0]["status"], "ok")
+
+    def test_pauses_on_a_hard_finding_with_both_next_actions(self):
+        with tempfile.TemporaryDirectory() as d:
+            said = []
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                inst.wiring.apply(inst._ORPHAN_WIRE)         # a setting belonging to no installed module
+                res = inst.verify(announce=said.append)
+            self.assertTrue(res["paused"])
+            self.assertEqual(len(res["findings"]), 1)
+            self.assertEqual(res["steps"][0]["status"], "paused")
+            blob = "\n".join(said).lower()
+            self.assertIn("run setup again", blob, "the fix-and-retry next action is offered")
+            self.assertIn("report it", blob, "the stop-and-report next action is offered (never a dead-end)")
+
+    def test_resumable_after_repair(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                inst.wiring.apply(inst._ORPHAN_WIRE)
+                bad = inst.verify(announce=lambda t: None)
+                inst.wiring.reverse(inst._ORPHAN_WIRE)       # the operator fixes it
+                good = inst.verify(announce=lambda t: None)
+            self.assertTrue(bad["paused"])
+            self.assertFalse(good["paused"], "re-running after the repair re-checks clean (resumable)")
+
+    def test_surfaces_gate_on_when_protected(self):
+        with tempfile.TemporaryDirectory() as d:
+            said = []
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                inst.verify(announce=said.append, control_status={"protected": True})
+            self.assertIn("review gate is on", "\n".join(said).lower())
+
+    def test_surfaces_gate_pending_when_not_protected(self):
+        with tempfile.TemporaryDirectory() as d:
+            said = []
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                inst.verify(announce=said.append, control_status={"protected": False})
+            self.assertIn("isn't on yet", "\n".join(said).lower())
+
+    def test_standalone_defers_the_gate_surface_to_boot(self):
+        # With no review-gate status passed, verify says nothing about the gate — boot owns the standing surface.
+        with tempfile.TemporaryDirectory() as d:
+            said = []
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                inst.verify(announce=said.append)            # control_status=None
+            self.assertNotIn("review gate", "\n".join(said).lower())
+
+
+class TestRetire(unittest.TestCase):
+    def test_refuses_on_a_hard_finding_and_deletes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                inst.wiring.apply(inst._ORPHAN_WIRE)
+                res = inst.retire(announce=lambda t: None)
+                present = all(os.path.exists(os.path.join(d, rel)) for rel in inst._FIRST_RUN_ASSET_FILES)
+            self.assertTrue(res["refused"])
+            self.assertEqual(res["reason"], "inconsistent")
+            self.assertEqual(res["deleted"], [])
+            self.assertTrue(present, "the irreversible tidy-up never runs on an inconsistent setup")
+
+    def test_tidies_assets_and_preserves_the_permanent_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                res = inst.retire(announce=lambda t: None)
+                files_gone = all(not os.path.exists(os.path.join(d, rel))
+                                 for rel in inst._FIRST_RUN_ASSET_FILES)
+                dir_gone = not os.path.isdir(os.path.join(d, ".claude", "skills", "engine-setup"))
+                catalog_kept = os.path.isfile(os.path.join(d, ".engine", "provisioning", "module-catalog.json"))
+                still_clean = not inst._hard_findings()
+            self.assertFalse(res["refused"])
+            self.assertTrue(files_gone, "the one-time setup files are removed")
+            self.assertTrue(dir_gone, "the setup skill is removed")
+            self.assertTrue(catalog_kept, "the catalog the engine keeps is preserved")
+            self.assertTrue(still_clean, "the result stays consistent after retire (the deployed repo stays green)")
+            self.assertEqual(res["graph"], "regenerated")
+
+    def test_regen_drops_a_stale_tool_entity(self):
+        # The load-bearing deployed-repo guarantee: after the tools are gone, the saved information no longer
+        # lists them, so the merge-time check stays green. Seed a STALE entry for the to-be-deleted tool and
+        # assert retire's re-derive drops it.
+        with tempfile.TemporaryDirectory() as d:
+            graph_path = os.path.join(d, ".engine", "knowledge", "graph.json")
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                inst._write_json(graph_path, {"schema_version": 1, "entities": [
+                    {"id": "tool:instantiator", "type": "tool", "name": ".engine/tools/instantiator.py"}]})
+                inst.retire(announce=lambda t: None)
+                with open(graph_path, encoding="utf-8") as fh:
+                    regenerated = fh.read()
+            self.assertNotIn("tool:instantiator", regenerated,
+                             "the re-derive drops the deleted tool from the saved information")
+
+    def test_idempotent_resume(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                inst.retire(announce=lambda t: None)
+                second = inst.retire(announce=lambda t: None)
+            self.assertFalse(second["refused"], "a resumed retire is safe")
+            self.assertEqual(second["deleted"], [], "the second pass finds everything already gone")
+            self.assertTrue(set(inst._FIRST_RUN_ASSET_FILES).issubset(set(second["already_absent"])))
+
+
+class TestRetireIsolation(unittest.TestCase):
+    def test_retire_under_redirect_leaves_real_files_untouched(self):
+        # The most dangerous demo: retire deletes its own source. A redirect leak would delete the REAL tool.
+        snap = inst._snapshot_real_files()
+        real_self = os.path.join(inst.validate.ROOT, ".engine", "tools", "instantiator.py")
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                inst.retire(announce=lambda t: None)
+        self.assertTrue(inst._assert_real_files_unchanged(snap), "a redirected retire must not touch real files")
+        self.assertTrue(os.path.isfile(real_self), "the real setup tool must survive a redirected retire")
+
+
+class TestFinishCopy(unittest.TestCase):
+    def test_template_carries_every_finish_section(self):
+        copy = inst.load_copy(inst.TEMPLATE_PATH)
+        for key in _FINISH_KEYS:
+            self.assertTrue(copy[key].strip(), f"finish copy section {key!r} missing from the template")
+
+    def test_finish_copy_is_plain_language(self):
+        copy = inst.load_copy(inst.TEMPLATE_PATH)
+        blob = "\n".join(copy[k] for k in _FINISH_KEYS).lower()
+        for term in _FORBIDDEN_FINISH:
+            self.assertNotIn(term, blob, f"plain-language law: '{term}' must not surface in the finish copy")
+
+
+class TestFinishDemoRunsGreen(unittest.TestCase):
+    def test_finish_demo_exits_zero(self):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = inst.main(["finish-demo"])
+        out = buf.getvalue()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("byte-for-byte unchanged", out, "the isolation guarantee is shown")
+        self.assertIn("still exists: True", out, "the demo proves the real setup tool survives its own tidy-up")
+        self.assertIn("naming it, not hiding it", out, "the honest-ceiling banner leads the demo")
+
+
+class TestFinishCli(unittest.TestCase):
+    def _silent(self):
+        import contextlib, io
+        return contextlib.redirect_stdout(io.StringIO())
+
+    def test_verify_verb_exits_zero_on_clean(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d), self._silent():
+                _finished_fixture(d)
+                rc = inst.main(["verify"])
+            self.assertEqual(rc, 0)
+
+    def test_verify_verb_exits_one_on_a_hard_finding(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d), self._silent():
+                _finished_fixture(d)
+                inst.wiring.apply(inst._ORPHAN_WIRE)
+                rc = inst.main(["verify"])
+            self.assertEqual(rc, 1, "a hard finding makes the verify verb exit non-zero")
+
+    def test_retire_verb_completes_on_clean(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d), self._silent():
+                _finished_fixture(d)
+                rc = inst.main(["retire"])
+            self.assertEqual(rc, 0)
+            self.assertFalse(os.path.exists(os.path.join(d, ".engine", "tools", "instantiator.py")))
 
 
 if __name__ == "__main__":

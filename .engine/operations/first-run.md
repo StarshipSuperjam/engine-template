@@ -35,14 +35,25 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    of each step. If the engine's programs can't be set up (for example, no internet), setup **stops safely at
    that point and never falls back to a different setup** — say so, and run `apply` again later to resume from
    where it left off. When the steps are done, show a plain summary of what was set up and anything still left
-   for the operator (for example, finishing the review gate later). The closing checks and tidy-up that end
-   setup are the final part of the flow.
+   for the operator (for example, finishing the review gate later).
+6. **Check it all fits together — and pause if not.** With the steps done, run
+   `python3 .engine/tools/instantiator.py verify`. This confirms the installed engine is consistent. If
+   something doesn't line up, setup **pauses** and tells the operator, in plain words, what's wrong and the
+   two ways forward — fix it and run setup again (it resumes from here, losing none of their choices), or stop
+   and report it. The engine never carries on with a setup that isn't consistent. The check also states
+   whether the review gate is on. On a clean check, go on to the last step.
+7. **Tidy up the one-time setup files.** Run `python3 .engine/tools/instantiator.py retire`. Once the check is
+   clean, this removes the files that exist only for first-time setup — the walkthrough, its notes, and the
+   setup tool itself — now that they've done their job, and confirms setup is complete. Everything the project
+   needs to keep running stays in place, and the operator's choices are saved. (If the check still finds a
+   problem, this step refuses and changes nothing — the tidy-up never runs on a setup that isn't consistent.)
 
 ## Done when
 
-The operator's choices are saved and the engine has gone on to install them and turn on the review gate — or
-has clearly told the operator, in plain words, what one step is left (for example, a one-time approval to turn
-on the review gate). On a project that was already set up, the command reported so and nothing changed.
+The operator's choices are saved, the engine has installed them and turned on the review gate, the consistency
+check passed, and the one-time setup files have been tidied away — or setup has clearly told the operator, in
+plain words, what one step is left (for example, a one-time approval to turn on the review gate, or a problem to
+fix before it can finish). On a project that was already set up, the command reported so and nothing changed.
 
 ## Notes
 
