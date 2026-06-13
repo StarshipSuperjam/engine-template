@@ -18,8 +18,8 @@ Boot's laws, all load-bearing here (systems/lifecycle/boot/README.md):
   - DEGRADE LOUD. A figure from a degraded source is rendered so it cannot be mistaken for current;
     an unreachable live source is named, never silently dropped, and a couldn't-verify safety gate
     NEVER reads as a green all-clear.
-  - ALARMS PINNED + LEGIBLE. Governance-critical alarms render first, as loud quoted lines at the top
-    of the Project status card, above the ranked work.
+  - ALARMS PINNED + LEGIBLE. Governance-critical alarms head the must-push set the briefing tells the AI
+    to relay first, and pin first (as loud quoted lines) in the operator-toned dashboard, above the work.
   - NO CHANGELOG ("recently shipped" reads merged PRs), NO compact re-render (the hook fires on the
     session-START sources startup/resume/clear, never compact — the post-compaction floor is the
     re-injected CLAUDE.md + the next scent), and the memory consolidation sweep is memory's, not
@@ -31,13 +31,21 @@ Boot's laws, all load-bearing here (systems/lifecycle/boot/README.md):
     read-only (it regenerates no derived state — the read-only law is about derived state, not an
     ephemeral OS-temp session signal).
 
-The present-marker is the card title `Project status` (PRESENT_MARKER), byte-identical to the floor's
-verify-presence instruction in CLAUDE.deployed.md — a healthy boot renders this card, so its ABSENCE
-is how the floor tells the operator boot did not ground (the double-fault check). The modes stance line
-renders now that modes exists (slice 21); memory's reversible-forgetting readout is rendered only once
-that substrate exists, so on the genesis repo it is simply absent (no genesis-only scaffolding).
+The boot pack is the AI's BRIEFING, not a message to the operator: it reaches the model, never the
+operator's screen (constraints — `additionalContext` is model-only), so the operator meets it only through
+the AI relaying it (the operator-presentation relay, D-187/D-188). `assemble_pack` builds the briefing — an
+AI-facing preamble, the present-marker line the AI is told to render FIRST (a short titled `Project status`
+block; PRESENT_MARKER, byte-identical to the floor's verify-presence copy in CLAUDE.deployed.md), the
+INFORM-marked must-push items (governance alarms + a grounding-failure tell) the AI relays in plain words,
+then the full operator-toned dashboard for grounding. The present-marker line + must-push partition are a
+fixed RELAY over signals the substrates already detected — boot computes no new state. `render_dashboard` is
+the operator-toned dashboard alone (PURE — no I/O; it renders gathered signals as DATA), reused by the status
+verb (the "two renderings of the same data"). The present-marker's ABSENCE from the AI's opening is how the
+floor tells the operator boot did not ground (the double-fault check). The modes stance line renders now that
+modes exists (slice 21); memory's reversible-forgetting readout renders only once that substrate exists, so
+on the genesis repo it is simply absent (no genesis-only scaffolding).
 
-CLI:  python tools/boot.py pack     # print the assembled pack (the operator demo / no Claude Desktop)
+CLI:  python tools/boot.py pack     # print the assembled briefing (what the hook injects — a debug view)
       python tools/boot.py          # hook mode: run the SessionStart handler over stdin (what the
                                      #   wired hook invokes; injects additionalContext, fail-open)
 """
@@ -245,78 +253,93 @@ def recently_shipped(count: int = RECENTLY_SHIPPED_COUNT) -> list[str]:
     return items
 
 
-# ---- assembly (the Project status card, alarm pinned inside) --------------------------------
+# ---- assembly: gather signals -> render the operator dashboard -> wrap the AI briefing ------
 
-def assemble_pack(session_id: str | None = None) -> str:
-    """Assemble the full orientation pack as plain-language markdown. The `Project status` card is
-    always first (the present-marker), any governance-critical alarm pins as a loud quoted line at its
-    top, then the status facts + any degraded notice, then the ranked work and the recently-shipped
-    digest. Every section is guarded so one failure degrades that line only — the card title always
-    renders, which is exactly what the floor's double-fault check looks for."""
+# The imperative relay marker (glossary): the directive embedded in the AI-facing briefing that compels the
+# AI to surface a high-impact item to the operator in plain words. RESERVED for the must-push set so the
+# relay never becomes a firehose — routine status carries no marker and is pulled via the status verb.
+RELAY_MARKER = "INFORM THE USER THAT"
+
+
+def gather_signals(session_id: str | None = None) -> dict:
+    """Read + DETECT every signal the dashboard renders — the substrates' own detection, which boot only
+    relays (it computes no new state). Each read is best-effort upstream and degrades that signal only.
+    Returns a flat dict consumed by render_dashboard / present_marker_line / must_push — the single place
+    boot reaches the substrates, so the status verb (slice 3) re-gathers and renders the same way."""
     state, refused = read_state()
     repo, token = repo_slug(), gh_token()
+    gate, reason = protected_branch_signal(repo, token)
+    finding_count, register = open_findings(repo, token)
+    debt_count, debt_as_of = telemetry.read_state_debt(STATE_PATH)
+    att_lines, att_degraded = needs_attention(state)
+    return {
+        "state": state, "refused": refused,
+        "gate": gate, "reason": reason,
+        "finding_count": finding_count, "register": register,
+        # an online-looking session that couldn't reach the live register -> a degraded notice, not silence
+        "findings_unavailable": finding_count is None and bool(repo) and token is None,
+        "debt_count": debt_count, "debt_as_of": debt_as_of,
+        "att_lines": att_lines, "att_degraded": att_degraded,
+        "shipped": recently_shipped(),
+        "stance": modes.describe_stance(modes.current_stance(session_id)),
+    }
 
+
+def render_dashboard(s: dict) -> str:
+    """The operator-toned `Project status` dashboard, rendered from gathered signals (gather_signals) as
+    DATA — PURE: no I/O, computes no new state. Governance alarms pin warm at the top, then the status
+    facts, the stance, the consolidated degraded notice, the ranked work, and the recently-shipped digest.
+    NO AI-facing markers — this is the operator's own view, which the status verb (slice 3) renders directly
+    (the 'two renderings of the same data'). The card title is always the first line."""
     pinned: list[str] = []        # governance-critical alarms, loudest first
     degraded: list[str] = []      # the consolidated "what I couldn't refresh / verify" notice
 
-    # Governance-critical: the protected branch.
-    gate, reason = protected_branch_signal(repo, token)
-    if gate == "off":
+    if s["gate"] == "off":
         pinned.append(
             f"⛔ **Your safety gate is off** — `{PROTECTED_BRANCH}` isn't protected, so unreviewed work "
-            f"could reach your main branch ({reason}). It needs re-enabling; an automated one-click fix "
-            f"is coming, but for now turn branch protection back on in your repository settings.")
-    elif gate == "unknown":
+            f"could reach your main branch ({s['reason']}). It needs re-enabling; an automated one-click "
+            f"fix is coming, but for now turn branch protection back on in your repository settings.")
+    elif s["gate"] == "unknown":
         degraded.append(
             f"I couldn't verify your safety gate from here (no GitHub access), so **don't assume "
             f"`{PROTECTED_BRANCH}` is protected** — confirm it before merging anything important.")
 
-    # The engine's own open findings (incl. any guardrail-weakening telemetry has tracked).
-    finding_count, register = open_findings(repo, token)
-    if finding_count:
+    if s["finding_count"]:
         pinned.append(
-            f"⚠️ **{finding_count} open engine finding(s)** about the engine's own health need review: "
-            f"{register}")
-    elif finding_count is None and (repo and token is None):
+            f"⚠️ **{s['finding_count']} open engine finding(s)** about the engine's own health need "
+            f"review: {s['register']}")
+    elif s["findings_unavailable"]:
         degraded.append("I couldn't check the engine's open findings (no GitHub access from here).")
 
-    # The card.
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
     if pinned:
         out.append("")
 
-    if refused:
+    if s["refused"]:
         out.append(
             "**I couldn't read where the project stands**, so I'm treating project status as unknown. "
             "Don't trust a status summary until the engine re-grounds.")
     else:
-        situation = (state or {}).get("standing_situation") or {}
-        debt = (state or {}).get("integration_debt") or {}
+        situation = (s["state"] or {}).get("standing_situation") or {}
         milestone = situation.get("milestone") or "none set yet"
         phase = situation.get("phase") or "—"
         out.append(f"**Milestone:** {milestone} · **Phase:** {phase}")
         # The open-problem count: the live register first, else the committed offline shadow rendered
         # loud-if-stale (degrade-loud) so a number can never be mistaken for freshly refreshed.
-        count, as_of = telemetry.read_state_debt(STATE_PATH)
-        if finding_count is not None:
-            out.append(f"**Open problems:** {finding_count}")
-        elif count:
-            out.append(f"**Open problems:** {telemetry.degraded_readout(count, as_of)}")
+        if s["finding_count"] is not None:
+            out.append(f"**Open problems:** {s['finding_count']}")
+        elif s["debt_count"]:
+            out.append(f"**Open problems:** {telemetry.degraded_readout(s['debt_count'], s['debt_as_of'])}")
         else:
             out.append("**Open problems:** none recorded yet.")
 
-    # The current stance in plain language (modes owns the vocabulary; boot only places it — boot/README
-    # §Seams). At a real SessionStart the handler has just cleared the signal, so this resolves to
-    # Explore: every session boots Explore. The live signal is the gate's concern mid-session, not boot's.
-    out.append(f"**Stance:** {modes.describe_stance(modes.current_stance(session_id))}")
+    out.append(f"**Stance:** {s['stance']}")
 
-    # Attention-ranked work + its degraded inputs (folded into the consolidated notice).
-    att_lines, att_degraded = needs_attention(state)
-    if att_degraded:
+    if s["att_degraded"]:
         # Phrased about ranking DEPTH, not raw substrate names: those names ("telemetry"...) would
-        # collide with the live, authoritative figures rendered above (e.g. an "Open problems" count
-        # boot DID read live) and make the operator doubt a number that is in fact current.
+        # collide with the live, authoritative figures rendered above and make the operator doubt a
+        # number that is in fact current.
         degraded.append(
             "I couldn't rank your work by priority this session — some of the ranking inputs aren't "
             "wired up yet, so the list below may be thin. (Expected on a new engine; it doesn't mean "
@@ -328,15 +351,90 @@ def assemble_pack(session_id: str | None = None) -> str:
 
     out.append("")
     out.append("### Needs your attention")
-    out.extend(f"- {line}" for line in att_lines) if att_lines else out.append(
+    out.extend(f"- {line}" for line in s["att_lines"]) if s["att_lines"] else out.append(
         "- Nothing is blocking right now.")
 
-    shipped = recently_shipped()
     out.append("")
     out.append("### Recently shipped")
-    out.extend(f"- {line}" for line in shipped) if shipped else out.append(
+    out.extend(f"- {line}" for line in s["shipped"]) if s["shipped"] else out.append(
         "- (no recent merges found)")
 
+    return "\n".join(out)
+
+
+def present_marker_line(s: dict) -> str:
+    """The short titled status block the AI is told to render FIRST — `Project status: all clear`, or a
+    `⚠ ...` line when something governance-critical or a grounding failure fired. A fixed relay over
+    already-detected signals (boot computes no new state); a couldn't-verify gate NEVER reads as a green
+    all-clear (degrade-loud)."""
+    if s["gate"] == "off":
+        return "⚠ Protected branch is off"
+    if s["gate"] == "unknown":
+        return f"⚠ {PRESENT_MARKER}: couldn't verify the safety gate"
+    if s["refused"]:
+        return f"⚠ {PRESENT_MARKER}: couldn't read where the project stands"
+    if s["finding_count"]:
+        return f"⚠ {PRESENT_MARKER}: {s['finding_count']} open engine finding(s) to review"
+    return f"{PRESENT_MARKER}: all clear"
+
+
+def must_push(s: dict) -> list:
+    """The INFORM-marked items the AI MUST relay to the operator in plain words — the governance-critical
+    alarms and the grounding-failure tell (D-187 must-push set). A fixed relay over detected signals;
+    routine status carries no marker (it is pulled via the status verb)."""
+    items: list[str] = []
+    if s["gate"] == "off":
+        items.append(
+            f"{RELAY_MARKER} their safety gate is off — `{PROTECTED_BRANCH}` isn't protected, so "
+            f"unreviewed work could reach the main branch ({s['reason']}); it needs re-enabling.")
+    elif s["gate"] == "unknown":
+        items.append(
+            f"{RELAY_MARKER} the safety gate couldn't be verified (no GitHub access), so they shouldn't "
+            f"assume `{PROTECTED_BRANCH}` is protected — confirm before merging anything important.")
+    if s["refused"]:
+        items.append(
+            f"{RELAY_MARKER} the engine couldn't read where the project stands, so project status is "
+            f"unknown until it re-grounds.")
+    if s["finding_count"]:
+        items.append(
+            f"{RELAY_MARKER} there are {s['finding_count']} open engine finding(s) about the engine's "
+            f"own health to review: {s['register']}")
+    return items
+
+
+def assemble_pack(session_id: str | None = None) -> str:
+    """The AI-FACING briefing injected at SessionStart (the operator-presentation relay, D-187/D-188). It
+    reaches the MODEL, never the operator's screen — so it tells the AI to (1) render the present-marker
+    block first, (2) relay each INFORM line in plain words, (3) surface a brief needs-attention headline;
+    the full operator dashboard follows for grounding. The present-marker instruction always names the
+    `Project status` token (so the marker is present on every branch), and is emitted BEFORE the dashboard
+    so a dashboard failure can't suppress it. Posture — the protected-branch merge is the real guarantee."""
+    s = gather_signals(session_id)
+    marker = present_marker_line(s)
+    push = must_push(s)
+    try:
+        dashboard = render_dashboard(s)
+    except Exception:
+        dashboard = f"## {PRESENT_MARKER}\n(the full status couldn't be assembled this session)"
+
+    out: list[str] = []
+    out.append("=== ENGINE BOOT BRIEFING — for you, the assistant; the operator CANNOT see this ===")
+    out.append("This reached you, not the operator: they see only what you type. Before you address the "
+               "request, do these in order:")
+    out.append(f"1. Open your reply with this `{PRESENT_MARKER}` block, exactly: **{marker}** — its "
+               f"presence at the top is how the operator knows you grounded.")
+    if push:
+        out.append("2. Relay each of these to the operator in plain language (they are governance-critical "
+                   "— do not skip any):")
+        out.extend(f"   - {line}" for line in push)
+    else:
+        out.append("2. No governance alarm to relay this session.")
+    out.append("3. Then surface a brief plain-language headline of anything in the status below that needs "
+               "their attention, and offer the full status on request. The protected-branch merge is the "
+               "real governance guarantee — this relay is your discipline, not a wall.")
+    out.append("")
+    out.append("--- the full status (your grounding; offer it if the operator asks where things stand) ---")
+    out.append(dashboard)
     return "\n".join(out)
 
 
