@@ -116,11 +116,31 @@ def interpreter_path(os_name: str | None = None) -> str:
     return f"{PROJECT_DIR_VAR}/.engine/.venv/{sub}"
 
 
+# The bounded wait that lets a hook survive the fresh-worktree race (issue #83): the gitignored
+# `.engine/.venv` is provisioned a beat AFTER a checkout, so a hook that fires in that window finds no
+# interpreter and exits 127 — a SessionStart hook cannot block, so the failure is silent and boot never
+# runs. The wait polls for the interpreter, then execs it; the ceiling is POLLS x INTERVAL seconds (the
+# observed provisioning gap is well under 1 s). It is NOT extended to cover a cold multi-second runtime
+# build — that degrades to the committed floor's present-marker, never to the operator's system Python.
+WAIT_FOR_RUNTIME_POLLS = 50          # bounded: 50 polls -> a ~5 s ceiling on a never-appearing interpreter
+WAIT_FOR_RUNTIME_INTERVAL = "0.1"    # seconds between polls (fractional; macOS BSD + GNU `sleep`)
+
+
 def hook_command(script_relpath: str, os_name: str | None = None) -> str:
-    """The full hook `command` string a settings.json registration carries: the explicit venv
-    interpreter followed by the ${CLAUDE_PROJECT_DIR}-rooted script path. The settings.json registration
-    itself is wiring's (slice 20); this renders the invocation FORM hooks owns (D-156)."""
-    return f"{interpreter_path(os_name)} {PROJECT_DIR_VAR}/{script_relpath}"
+    """The full hook `command` string a settings.json registration carries: a bounded wait for the engine
+    tool-runtime interpreter, then `exec` of that explicit ${CLAUDE_PROJECT_DIR}-rooted interpreter on the
+    script. The wait closes the fresh-worktree race (issue #83) where the gitignored `.engine/.venv` is
+    provisioned a beat after the hook fires; without it the command exits 127 and the hook silently never
+    runs. When the interpreter is already present (the common case) the first `[ -x ]` test passes and it
+    execs immediately — zero added latency. If the interpreter never appears within the bound the command
+    runs NOTHING; it NEVER falls back to the operator's system Python (constraints §"cannot manage a
+    language runtime"). Shell-form (no `args`), so Claude Code runs it under `sh -c` (macOS/Linux) / Git
+    Bash (Windows); `${CLAUDE_PROJECT_DIR}` is substituted before the shell sees it. The settings.json
+    registration itself is wiring's (slice 20); this renders the invocation FORM hooks owns (D-156)."""
+    interp = interpreter_path(os_name)
+    return (f'n=0; while [ ! -x "{interp}" ] && [ "$n" -lt {WAIT_FOR_RUNTIME_POLLS} ]; '
+            f'do sleep {WAIT_FOR_RUNTIME_INTERVAL}; n=$((n+1)); done; '
+            f'[ -x "{interp}" ] && exec "{interp}" {PROJECT_DIR_VAR}/{script_relpath}')
 
 
 # ---- the decision vocabulary a handler returns (the hook-script contract, normalized) ----------
