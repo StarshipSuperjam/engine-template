@@ -685,7 +685,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:02651436ef1d68a096a936b90f34c7fb142b3fbfffff42fb15066656b2161702",
+        "fingerprint": "sha256:5fa5683cc15a99e8797b96c0ba218da60549476a0a5fc0d025c20aad849781a9",
         "path": ".engine/operations/boot-session-start.md"
       },
       "type": "operation"
@@ -1354,7 +1354,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:5e49cc187c7a6588ebeea621a0251bcdfdc7d19a486a8ca8b905a74c04b669a6",
+        "fingerprint": "sha256:2ffb7d8eccb5bdbd6f5f0f350cb81154b1d65a209e6ca376d12c452a972a4c37",
         "path": ".engine/tools/boot.py"
       },
       "type": "tool"
@@ -1738,7 +1738,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:d153e60aaa3676fbbef55e7ed349b63273ff6469564a0e4fb84b204e66b997a2",
+        "fingerprint": "sha256:abdf55fd6823e689f899aaedff1b95f08bac791e46097c49f619f67d9c9fc43f",
         "path": ".engine/tools/test_boot.py"
       },
       "type": "tool"

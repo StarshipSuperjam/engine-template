@@ -14,8 +14,16 @@ this project's record and must never be cited as fact about the project.
 files under `.github/`; everything else at the root belongs to the project. Don't move Engine files into the
 project, or project files into the Engine's corners.
 
-**How to tell the Engine actually started.** When the Engine starts up healthy, the first thing you see is a
-card titled **Project status** — those exact words, at the top. If you do **not** see a **Project status** card
-above this message, the Engine did not fully start, so it does not actually know where your project stands.
-Don't trust anything it says about where the project stands; ask it to re-ground, or quit and reopen Claude
-Desktop.
+**Everything the Engine shows reaches me, the assistant — not your screen.** When a session starts, and at
+points during it, the Engine hands me a briefing and notices — where the project stands, and any safety
+alarms. Those go to me, not to you; you see only what I actually type. So when something is safety- or
+consent-critical — a safety gate is off, a guardrail was weakened, or I could not ground — I must tell you in
+plain words, and I must never act as though you already saw something the Engine only handed me ("as the card
+above shows"). The real guarantee on any change is still your approval when you merge it — not my relaying. If
+I ever fail to pass something on, that is a lapse on my part, not a safe default.
+
+**How to tell I actually grounded.** When the Engine is grounded, the first thing I show you each session is a
+short titled status block — like **Project status: all clear**, or **⚠ Protected branch is off** if something
+needs your attention — so you can see at a glance that I grounded before I answer. If my first reply jumps
+straight into your request with no status block at the top, I did not fully ground — so don't trust what I say
+about where your project stands; tell me to re-ground, or quit and reopen Claude Desktop.

@@ -41,6 +41,28 @@ def _offline():
     return patchers
 
 
+def _assert_ai_briefing(t, pack):
+    """The pack is the AI-FACING briefing (not an operator card): it opens with the briefing header, says
+    the operator cannot see it, and carries the `Project status` present-marker token on EVERY branch."""
+    t.assertTrue(pack.splitlines()[0].startswith("=== ENGINE BOOT BRIEFING"),
+                 "the pack is the AI-facing briefing, not a rendered card")
+    t.assertIn("the operator CANNOT see this", pack)
+    t.assertIn(boot.PRESENT_MARKER, pack)  # the present-marker token survives every branch
+
+
+# A complete, valid signals dict for the pure renderers (render_dashboard / present_marker_line / must_push).
+_SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integration_debt": {}},
+            "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
+            "findings_unavailable": False, "debt_count": 0, "debt_as_of": None, "att_lines": [],
+            "att_degraded": False, "shipped": [], "stance": "Exploring"}
+
+
+def _signals(**over):
+    s = dict(_SIGNALS)
+    s.update(over)
+    return s
+
+
 class TestPresentMarker(unittest.TestCase):
     def test_marker_is_project_status_byte_identical_to_the_floor(self):
         # The locked present marker, and its byte-identical presence in the deployed floor (slice 19).
@@ -50,16 +72,22 @@ class TestPresentMarker(unittest.TestCase):
         self.assertIn(boot.PRESENT_MARKER, floor,
                       "the floor's verify-presence instruction must name the exact card title boot renders")
 
-    def test_card_title_is_the_marker(self):
+    def test_dashboard_card_title_is_the_marker(self):
+        # The operator-toned dashboard (the view the status verb ships) always leads with the card title.
+        self.assertEqual(boot.render_dashboard(_signals()).splitlines()[0], f"## {boot.PRESENT_MARKER}")
+
+    def test_pack_is_the_ai_facing_briefing(self):
         patchers = _offline()
         try:
             pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
-        # The card title is always the first line — its presence is exactly what the floor's
-        # double-fault check looks for, so it must render even on the degraded/offline path.
-        self.assertEqual(pack.splitlines()[0], f"## {boot.PRESENT_MARKER}")
+        # The pack is no longer a rendered card — it is the AI-facing briefing that INSTRUCTS the assistant
+        # to render the present-marker block first. Its first line is the briefing header, not the card.
+        _assert_ai_briefing(self, pack)
+        self.assertIn("Open your reply", pack)
+        self.assertIn(f"`{boot.PRESENT_MARKER}` block", pack)
 
 
 class TestRefusedState(unittest.TestCase):
@@ -93,7 +121,7 @@ class TestRefusedState(unittest.TestCase):
         finally:
             for p in patchers:
                 p.stop()
-        self.assertEqual(pack.splitlines()[0], f"## {boot.PRESENT_MARKER}")
+        _assert_ai_briefing(self, pack)
         self.assertIn("couldn't read where the project stands", pack)
         # healthy-empty ("none set yet") must NOT be confused with the refused line
         self.assertNotIn("none set yet", pack)
@@ -214,7 +242,7 @@ class TestFailOpen(unittest.TestCase):
                 p.stop()
         self.assertEqual(lines, [])
         self.assertEqual(degraded, ["attention"])
-        self.assertEqual(pack.splitlines()[0], f"## {boot.PRESENT_MARKER}")  # the card still renders
+        _assert_ai_briefing(self, pack)  # the briefing still assembles + carries the present-marker token
 
     def test_a_bad_protection_body_never_blanks_the_whole_pack(self):
         # A governance reader returning a surprise (a 200 with a non-list body) must degrade THAT line
@@ -229,7 +257,7 @@ class TestFailOpen(unittest.TestCase):
         finally:
             for p in patchers:
                 p.stop()
-        self.assertEqual(pack.splitlines()[0], f"## {boot.PRESENT_MARKER}")
+        _assert_ai_briefing(self, pack)
         self.assertIn("don't assume", pack.lower())  # the unknown-gate line, not a green all-clear
 
     def test_handler_never_raises_and_injects(self):
@@ -257,6 +285,66 @@ class TestFailOpen(unittest.TestCase):
         payload = json.loads(out.getvalue())
         self.assertEqual(payload["hookSpecificOutput"]["hookEventName"], "SessionStart")
         self.assertIn(boot.PRESENT_MARKER, payload["hookSpecificOutput"]["additionalContext"])
+
+
+class TestBriefingRelay(unittest.TestCase):
+    """The operator-presentation relay (D-187/D-188): the AI-facing briefing, the present-marker line the
+    AI renders first, the INFORM-marked must-push partition, and the clean pure dashboard (the Slice-3 seam)."""
+
+    def test_present_marker_line_all_clear_when_healthy(self):
+        self.assertEqual(boot.present_marker_line(_signals(gate="on")), f"{boot.PRESENT_MARKER}: all clear")
+
+    def test_present_marker_line_is_the_alarm_when_gate_off(self):
+        self.assertEqual(boot.present_marker_line(_signals(gate="off")), "⚠ Protected branch is off")
+
+    def test_present_marker_line_never_green_when_gate_unknown(self):
+        # degrade-loud: a couldn't-verify gate is NEVER a green all-clear.
+        line = boot.present_marker_line(_signals(gate="unknown"))
+        self.assertTrue(line.startswith("⚠"))
+        self.assertNotIn("all clear", line)
+
+    def test_marker_token_in_briefing_on_the_alarm_branch(self):
+        # On a governance-alarm branch the rendered marker line drops the literal "Project status" title,
+        # but the briefing's instruction still names it — so the present-marker token is present on EVERY
+        # branch, not only all-clear (the byte-identity contract holds where it most matters).
+        with mock.patch.object(boot, "gather_signals",
+                               return_value=_signals(gate="off", reason="no pull request")):
+            pack = boot.assemble_pack()
+        self.assertIn("⚠ Protected branch is off", pack)   # the rendered marker line (drops the title)
+        self.assertIn(boot.PRESENT_MARKER, pack)            # ...but the instruction still names it
+        self.assertIn(boot.RELAY_MARKER, pack)              # ...and the governance alarm is INFORM-marked
+
+    def test_must_push_carries_the_inform_marker_for_governance(self):
+        items = boot.must_push(_signals(gate="off", reason="no pull request"))
+        self.assertTrue(items)
+        self.assertTrue(all(i.startswith(boot.RELAY_MARKER) for i in items),
+                        "every must-push item carries the imperative relay marker")
+
+    def test_routine_status_carries_no_inform_marker(self):
+        # a healthy session pushes nothing; and the routine dashboard NEVER carries the imperative marker
+        self.assertEqual(boot.must_push(_signals(gate="on")), [])
+        dash = boot.render_dashboard(_signals(gate="off", reason="x", finding_count=2, register="u"))
+        self.assertNotIn(boot.RELAY_MARKER, dash)
+
+    def test_render_dashboard_is_clean_and_pure(self):
+        # no AI-facing markers, carries the operator-toned facts, computes nothing (pure over the dict).
+        dash = boot.render_dashboard(_signals(att_lines=["do X"], shipped=["#1 — a change"]))
+        self.assertNotIn(boot.RELAY_MARKER, dash)
+        self.assertNotIn("ENGINE BOOT BRIEFING", dash)
+        self.assertIn("**Milestone:**", dash)
+        self.assertIn("**Stance:**", dash)
+        self.assertIn("- do X", dash)
+
+    def test_present_marker_survives_a_dashboard_exception(self):
+        # the marker line is emitted BEFORE the dashboard, so a dashboard failure can't suppress it.
+        with mock.patch.object(boot, "gather_signals", return_value=_signals(gate="off", reason="x")), \
+             mock.patch.object(boot, "render_dashboard", side_effect=Exception("boom")):
+            pack = boot.assemble_pack()
+        self.assertIn("⚠ Protected branch is off", pack)   # the present-marker line still rendered
+        self.assertIn(boot.PRESENT_MARKER, pack)
+        self.assertIn("couldn't be assembled", pack)        # the degraded dashboard fallback
+        self.assertLess(pack.index("⚠ Protected branch is off"), pack.index("couldn't be assembled"),
+                        "the marker is emitted BEFORE the dashboard, so a dashboard failure can't suppress it")
 
 
 class TestHookRegistration(unittest.TestCase):
