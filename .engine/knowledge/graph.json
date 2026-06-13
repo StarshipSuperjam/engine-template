@@ -650,7 +650,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:b1505947b47bbb38cd51974442b3c064d5a79096f41d76e1f7349f7989e62c7a",
+        "fingerprint": "sha256:d21eb747ec60d0c2433fdd49399bc95c930fd9c03d44f113aeb2a5305a72b91c",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -1418,7 +1418,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:344b246f7ba15bc0744a78930b1039da32a2096d738c75f2de3b1442d9aab302",
+        "fingerprint": "sha256:dcc6b6d6add3eb85d1a76f530031753b73fa4b34c58ab42b5b444d182182b45c",
         "path": ".engine/tools/hooks.py"
       },
       "type": "tool"
@@ -1834,7 +1834,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:e909b305be5ffbf40813479d3fd880679ee86511ad29933083e1b7420b254e03",
+        "fingerprint": "sha256:1dbe8a2219fe4c15c3e5e5562027f4d21c48baf7eced4beea7c86ecaa19d34f4",
         "path": ".engine/tools/test_hooks.py"
       },
       "type": "tool"

@@ -29,7 +29,11 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
+import tempfile
+import threading
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -98,10 +102,116 @@ class TestInterpreterPath(unittest.TestCase):
             self.assertNotIn("uv ", p)
             self.assertNotEqual(p, "python")
 
-    def test_hook_command_joins_interpreter_and_rooted_script(self):
-        cmd = hooks.hook_command("tools/some_hook.py", "posix")
+    def test_hook_command_waits_for_the_venv_then_execs_the_rooted_script(self):
+        # The form is now a bounded wait-for-interpreter, then `exec` of the explicit venv interpreter on
+        # the ${CLAUDE_PROJECT_DIR}-rooted script (issue #83). Byte-exact so a drift is caught.
         self.assertEqual(
-            cmd, "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python ${CLAUDE_PROJECT_DIR}/tools/some_hook.py")
+            hooks.hook_command("tools/some_hook.py", "posix"),
+            'n=0; while [ ! -x "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ] && [ "$n" -lt 50 ]; '
+            'do sleep 0.1; n=$((n+1)); done; '
+            '[ -x "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ] && '
+            'exec "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ${CLAUDE_PROJECT_DIR}/tools/some_hook.py')
+
+
+class TestHookCommandWaitWrapper(unittest.TestCase):
+    """The bounded wait-for-venv the fresh-worktree race needs (issue #83): bounded, exec-only-the-venv,
+    never a system-Python fallback, args preserved, and the live wait/degrade behaviour under `sh -c`."""
+
+    def _rendered(self, relpath, project_dir):
+        # what Claude Code runs: the form with ${CLAUDE_PROJECT_DIR} textually substituted, under `sh -c`.
+        return hooks.hook_command(relpath, "posix").replace(hooks.PROJECT_DIR_VAR, project_dir)
+
+    def test_the_wait_is_bounded_not_infinite(self):
+        cmd = hooks.hook_command(".engine/tools/boot.py", "posix")
+        self.assertIn("while", cmd)
+        self.assertIn(f'-lt {hooks.WAIT_FOR_RUNTIME_POLLS}', cmd)   # a numeric cap, never an unbounded loop
+        self.assertIn("exec", cmd)
+
+    def test_execs_only_the_venv_interpreter_never_system_python(self):
+        cmd = hooks.hook_command(".engine/tools/boot.py", "posix")
+        # the ONLY interpreter the command names/execs is the explicit venv path...
+        self.assertIn(f'exec "{hooks.interpreter_path("posix")}"', cmd)
+        self.assertEqual(cmd.count("exec "), 1)     # a single exec, of that interpreter
+        # ...never a bare/system interpreter or `uv run` (the venv path's own `/bin/python` is the only
+        # `bin/python` present, so guard the system locations explicitly).
+        self.assertNotIn("exec python", cmd)
+        self.assertNotIn("uv ", cmd)
+        self.assertNotIn("/usr/bin/", cmd)
+        self.assertNotIn("/usr/local/bin/", cmd)
+
+    def test_per_os_form_carries_its_own_venv_interpreter(self):
+        self.assertIn(".engine/.venv/bin/python",
+                      hooks.hook_command(".engine/tools/boot.py", "posix"))
+        self.assertIn(".engine/.venv/Scripts/python.exe",
+                      hooks.hook_command(".engine/tools/boot.py", "nt"))
+
+    def test_trailing_args_survive_the_unquoted_tail(self):
+        # the footgun guard: the arg word (` hook` / ` accept-hook`) stays the final, word-splittable token.
+        self.assertTrue(hooks.hook_command(".engine/tools/knowledge_gen.py hook", "posix")
+                        .rstrip().endswith(" hook"))
+        self.assertTrue(hooks.hook_command(".engine/tools/modes.py accept-hook", "posix")
+                        .rstrip().endswith(" accept-hook"))
+
+    def test_waits_then_execs_when_the_interpreter_appears_late(self):
+        # the race, simulated deterministically: the interpreter is created AFTER the command starts.
+        with tempfile.TemporaryDirectory() as pd:
+            interp = os.path.join(pd, ".engine", ".venv", "bin", "python")
+            os.makedirs(os.path.dirname(interp))
+
+            def _provision_late():
+                time.sleep(0.3)
+                with open(interp, "w") as fh:               # write fully, THEN chmod +x — mirrors uv's
+                    fh.write('#!/bin/sh\necho "STUB-RAN $@"\n')   # executable-on-create order
+                os.chmod(interp, 0o755)
+
+            t = threading.Thread(target=_provision_late)
+            t.start()
+            r = subprocess.run(["sh", "-c", self._rendered(".engine/tools/boot.py", pd)],
+                               capture_output=True, text=True, timeout=10)
+            t.join()
+            self.assertIn("STUB-RAN", r.stdout)                 # the venv interpreter ran after the wait
+            self.assertIn(".engine/tools/boot.py", r.stdout)    # the script path passed through
+
+    def test_runs_nothing_and_never_falls_back_when_interpreter_never_appears(self):
+        orig = hooks.WAIT_FOR_RUNTIME_POLLS
+        hooks.WAIT_FOR_RUNTIME_POLLS = 3                        # ~0.3 s bound so the test is fast
+        try:
+            with tempfile.TemporaryDirectory() as pd:
+                os.makedirs(os.path.join(pd, ".engine", ".venv", "bin"))   # dir exists, interpreter does NOT
+                r = subprocess.run(["sh", "-c", self._rendered(".engine/tools/boot.py", pd)],
+                                   capture_output=True, text=True, timeout=10)
+                self.assertEqual(r.stdout, "")                 # nothing ran — no system-Python fallback
+                self.assertNotEqual(r.returncode, 0)           # the falsy `[ -x ]` short-circuits the exec
+        finally:
+            hooks.WAIT_FOR_RUNTIME_POLLS = orig
+
+
+class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
+    """The wired hook commands ARE `hook_command`'s output, so the form and the literals can never drift:
+    a command-form change must update `hooks.py`, the core manifest, AND `.claude/settings.json` in
+    lockstep, or this reds (the architect-A1 / adversarial-S1 drift guard for issue #83)."""
+
+    # every engine hook wire's script-relpath-with-args (boot is wired on three SessionStart matchers).
+    RELPATHS = (".engine/tools/boot.py", ".engine/tools/modes.py", ".engine/tools/knowledge_gen.py hook",
+                ".engine/tools/modes.py accept-hook", ".engine/tools/close.py")
+
+    def _venv_hook_commands(self, commands):
+        return [c for c in commands if ".venv/bin/python" in c]
+
+    def test_manifest_and_settings_hook_commands_are_hook_command_output(self):
+        expected = {hooks.hook_command(r, "posix") for r in self.RELPATHS}
+        manifest = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
+        m_cmds = self._venv_hook_commands(
+            w.get("hook", {}).get("command", "") for w in manifest["wires"] if w.get("type") == "hook")
+        self.assertEqual(len(m_cmds), 7, "the seven venv-rooted hook wires")
+        self.assertEqual(set(m_cmds), expected, "every manifest hook command is hook_command's output")
+
+        settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
+        s_cmds = self._venv_hook_commands(
+            h.get("command", "") for groups in settings["hooks"].values()
+            for grp in groups for h in grp.get("hooks", []))
+        self.assertEqual(len(s_cmds), 7, "the seven venv-rooted hook commands in settings")
+        self.assertEqual(set(s_cmds), expected, "settings matches the form (and so the manifest) exactly")
 
 
 class TestHarnessBlock(unittest.TestCase):
