@@ -242,10 +242,12 @@ except ImportError:
 import io, contextlib
 import instantiator                   # the import that used to transitively require the runtime
 # `apply-demo` exercises the WHOLE apply chain (module_manager / wiring / bootstrap / knowledge_gen) with
-# every boundary faked, and `finish-demo` exercises the verify + retire close (check_coherence +
-# knowledge_gen.generate, both JSON/walk-only) — proving the heavy apply path AND the lifecycle close also
-# start on the standard library alone (the whole instantiator runs on the operator's system python).
-for _argv in (["show"], ["demo"], ["apply-demo"], ["finish-demo"]):
+# every boundary faked, `finish-demo` exercises the verify + retire close (check_coherence +
+# knowledge_gen.generate, both JSON/walk-only), and `collision-demo` exercises the brownfield overlap check
+# (engine_owned_paths + glob/fnmatch + the tolerant readers, all stdlib) — proving the heavy apply path, the
+# lifecycle close, AND the overlap check all start on the standard library alone (the whole instantiator runs
+# on the operator's system python).
+for _argv in (["show"], ["demo"], ["apply-demo"], ["finish-demo"], ["collision-demo"]):
     _buf = io.StringIO()
     with contextlib.redirect_stdout(_buf):
         _rc = instantiator.main(_argv)
@@ -619,7 +621,7 @@ class TestApplyChainRunsOnSystemPython39(unittest.TestCase):
     # re-break a real adopter's first run (bootstrap.py was the gap this slice closed).
     _APPLY_CHAIN = ("instantiator", "module_manager", "wiring", "bootstrap", "knowledge_gen",
                     "module_coherence", "boot", "telemetry", "protection_guard", "hooks",
-                    "module_catalog", "validate")
+                    "module_catalog", "validate", "modes", "close")
 
     def test_every_apply_chain_tool_defers_annotations(self):
         here = os.path.dirname(os.path.abspath(__file__))
@@ -865,6 +867,216 @@ class TestFinishCli(unittest.TestCase):
                 rc = inst.main(["retire"])
             self.assertEqual(rc, 0)
             self.assertFalse(os.path.exists(os.path.join(d, ".engine", "tools", "instantiator.py")))
+
+
+# ==== BROWNFIELD COLLISION CHECK (core slice 27d) ====================================================
+
+# The overlap copy is held to a STRICTER plain-language list: the engine's own corner is never a "namespace",
+# placing files is never an "overlay", its marked section is never a "fence", a review rule is never a
+# "CODEOWNERS"/"glob".
+_FORBIDDEN_COLLISION = _FORBIDDEN + ("namespace", "overlay", "fence", "glob", "codeowners")
+_COLLISION_KEYS = ("collision-intro", "collision-exclusive", "collision-shared", "collision-codeowners",
+                   "collision-none", "collision-unreadable")
+# A representative engine-owned path set the deferred live caller would pass (from the release tree). Tests
+# inject this for determinism rather than leaning on the construction repo's own owned set.
+_COLLISION_ENGINE_PATHS = [".engine/engine.json", ".engine/tools/boot.py", ".github/CODEOWNERS",
+                           "CLAUDE.md", ".github/workflows/engine-ci.yml"]
+
+
+class TestCollisionCheck(unittest.TestCase):
+    def _check(self, tmp, engine_paths=None):
+        return inst.collision_check(root=tmp, engine_paths=engine_paths or _COLLISION_ENGINE_PATHS)
+
+    def test_clean_project_has_no_overlaps(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=False)
+            res = self._check(d)
+            self.assertTrue(res["clean"])
+            self.assertEqual(res["collisions"], [])
+
+    def test_populated_project_surfaces_all_three_kinds_each_actionable(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=True)
+            res = self._check(d)
+            self.assertEqual({c["klass"] for c in res["collisions"]}, {1, 2, 3})
+            for c in res["collisions"]:
+                self.assertTrue(c["consequence"], "each overlap states a plain consequence, not a raw report")
+                self.assertEqual(c["choices"], ["accept", "leave-as-is", "abort"])
+                self.assertTrue(c["paths"], "each overlap names concrete project paths, never a bare pattern")
+
+    def test_class1_names_the_product_file_at_an_engine_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=True)
+            c1 = [c for c in self._check(d)["collisions"] if c["klass"] == 1][0]
+            self.assertIn(".engine/legacy/notes.txt", c1["paths"])
+
+    def test_class1_catches_a_symlink_at_an_engine_path(self):
+        # A product symlink standing in for the engine's corner — os.path.isfile would miss it; exists/islink
+        # catches it.
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=False)
+            target = os.path.join(d, "real.txt")
+            open(target, "w").close()
+            os.symlink(target, os.path.join(d, ".engine"))
+            c1 = [c for c in self._check(d)["collisions"] if c["klass"] == 1]
+            self.assertTrue(c1, "a symlink at an engine-exclusive path is a class-1 overlap")
+            self.assertIn(".engine", c1[0]["paths"])
+
+    def test_class2_is_per_file_kind_and_additive(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=True)
+            c2 = {p for c in self._check(d)["collisions"] if c["klass"] == 2 for p in c["paths"]}
+            self.assertIn(".gitignore", c2, "a fenced-text file with product content is an additive overlap")
+            self.assertIn(".mcp.json", c2, "a keyed-JSON file with product content is an additive overlap")
+            self.assertIn("CLAUDE.md", c2, "the project guide is surfaced by presence (additive)")
+
+    def test_codeowners_and_claude_md_are_never_class1(self):
+        # Decision 1/2: a pre-existing CODEOWNERS or project guide must co-exist (additive/shadow), NEVER be
+        # reported as "the engine would replace it".
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=True)
+            c1 = {p for c in self._check(d)["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            self.assertNotIn(".github/CODEOWNERS", c1)
+            self.assertNotIn("CLAUDE.md", c1)
+
+    def test_shared_resume_does_not_reflag(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=True)
+            inst._plant_engine_entries(d)                 # the engine's entries are now in place
+            c2 = {p for c in self._check(d)["collisions"] if c["klass"] == 2 for p in c["paths"]}
+            self.assertNotIn(".gitignore", c2, "an already-marked file is a resume, not re-flagged")
+            self.assertNotIn(".mcp.json", c2, "an already-wired query-server file is not re-flagged")
+
+    def test_empty_or_absent_shared_files_are_clean(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=False)
+            open(os.path.join(d, ".gitignore"), "w").close()       # present but empty
+            inst._write_json(os.path.join(d, ".mcp.json"), {})      # present but empty
+            self.assertTrue(self._check(d)["clean"], "absent/empty shared files are a clean seed")
+
+    def test_malformed_shared_file_is_surfaced_not_crashed(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=False)
+            with open(os.path.join(d, ".mcp.json"), "w", encoding="utf-8") as fh:
+                fh.write("{not json")
+            hit = [c for c in self._check(d)["collisions"] if ".mcp.json" in c["paths"]]
+            self.assertTrue(hit, "a malformed shared file is surfaced (leave-untouched), never crashed on")
+            self.assertEqual(hit[0]["detail"].get("reason"), "unreadable")
+
+    def test_non_utf8_shared_text_file_is_surfaced_not_crashed(self):
+        # A mis-encoded TEXT shared file must fail-soft to the unreadable finding, never crash the check
+        # (UnicodeDecodeError is a ValueError, not OSError — the original _read_text helper missed it).
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=False)
+            with open(os.path.join(d, ".gitignore"), "wb") as fh:
+                fh.write(b"\xff\xfe not valid utf-8\n")
+            hit = [c for c in self._check(d)["collisions"] if ".gitignore" in c["paths"]]
+            self.assertTrue(hit, "a non-UTF-8 shared file is surfaced (leave-untouched), never crashed on")
+            self.assertEqual(hit[0]["detail"].get("reason"), "unreadable")
+
+    def test_class1_finds_hidden_files_in_the_engine_corner(self):
+        # The engine corner is WALKED, not `**`-globbed: a product .engine/ whose contents are only under
+        # dot-prefixed names must NOT escape class 1 (a `**` glob skips hidden entries on Python 3.9).
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=False)
+            os.makedirs(os.path.join(d, ".engine", ".hidden"))
+            with open(os.path.join(d, ".engine", ".hidden", "f.txt"), "w", encoding="utf-8") as fh:
+                fh.write("a hidden product file in the engine corner\n")
+            c1 = {p for c in self._check(d)["collisions"] if c["klass"] == 1 for p in c["paths"]}
+            self.assertIn(".engine/.hidden/f.txt", c1, "a hidden product file in the engine corner is caught")
+
+    def test_class2_settings_json_additive_then_resume(self):
+        # The most consequential shared file (products commonly ship their own): a product .claude/settings.json
+        # is an additive overlap; once an engine hook is present it is a resume (no re-flag).
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=True)
+            c2 = {p for c in self._check(d)["collisions"] if c["klass"] == 2 for p in c["paths"]}
+            self.assertIn(".claude/settings.json", c2, "a product settings file is an additive overlap")
+            inst._plant_engine_entries(d)
+            c2b = {p for c in self._check(d)["collisions"] if c["klass"] == 2 for p in c["paths"]}
+            self.assertNotIn(".claude/settings.json", c2b, "an engine-hook-present settings file is a resume")
+
+    def test_malformed_codeowners_block_is_surfaced_not_crashed(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".github"))
+            with open(os.path.join(d, ".github", "CODEOWNERS"), "w", encoding="utf-8") as fh:
+                fh.write(inst.wiring.FENCE_BEGIN.format(id="codeowners") + "\n* @x\n")   # begin, no end
+            hit = [c for c in self._check(d)["collisions"] if ".github/CODEOWNERS" in c["paths"]]
+            self.assertTrue(hit, "a malformed engine block in CODEOWNERS is surfaced, never crashed on")
+            self.assertEqual(hit[0]["detail"].get("reason"), "unreadable")
+
+    def test_class3_expansive_rule_flags_disjoint_rule_does_not(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".github"))
+            with open(os.path.join(d, ".github", "CODEOWNERS"), "w", encoding="utf-8") as fh:
+                fh.write("/src/ @team\n* @everyone\n")
+            rules = [c["detail"]["rule"] for c in self._check(d)["collisions"] if c["klass"] == 3]
+            self.assertTrue(any("@everyone" in r for r in rules), "the expansive rule shadows engine paths")
+            self.assertFalse(any("/src/" in r for r in rules), "a disjoint product rule is not flagged")
+
+    def test_class3_excludes_the_engines_own_block(self):
+        # The engine's own review rules (inside its marked block) must never read as a product shadow.
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".github"))
+            block = inst.wiring.render_codeowners("", [".engine/engine.json"], "@owner")
+            with open(os.path.join(d, ".github", "CODEOWNERS"), "w", encoding="utf-8") as fh:
+                fh.write(block)
+            self.assertEqual([c for c in self._check(d)["collisions"] if c["klass"] == 3], [])
+
+    def test_checked_counts_prove_non_vacuous(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=True)
+            res = self._check(d)
+            self.assertGreater(res["checked"]["exclusive_globs"], 0)
+            self.assertGreater(res["checked"]["shared_files"], 0)
+            self.assertEqual(res["checked"]["engine_paths"], len(_COLLISION_ENGINE_PATHS))
+
+    def test_default_engine_paths_use_the_owned_set(self):
+        # No engine_paths injected → the check uses the engine's own owned set (the live caller passes the
+        # release set). Non-empty here (the construction repo owns many files); the detection still reads `root`.
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=False)
+            res = inst.collision_check(root=d)
+            self.assertGreater(res["checked"]["engine_paths"], 0)
+            self.assertTrue(res["clean"], "a clean product fixture is clean even against the real owned set")
+
+
+class TestCollisionCopy(unittest.TestCase):
+    def test_template_carries_every_collision_section(self):
+        copy = inst.load_copy(inst.TEMPLATE_PATH)
+        for key in _COLLISION_KEYS:
+            self.assertTrue(copy[key].strip(), f"overlap copy section {key!r} missing from the template")
+
+    def test_collision_copy_is_plain_language(self):
+        copy = inst.load_copy(inst.TEMPLATE_PATH)
+        blob = "\n".join(copy[k] for k in _COLLISION_KEYS).lower()
+        for term in _FORBIDDEN_COLLISION:
+            self.assertNotIn(term, blob, f"plain-language law: '{term}' must not surface in the overlap copy")
+
+
+class TestCollisionDemoRunsGreen(unittest.TestCase):
+    def test_collision_demo_exits_zero(self):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = inst.main(["collision-demo"])
+        out = buf.getvalue()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("no live trigger", out.lower(),
+                      "the no-live-caller disclosure is printed (docstrings are code the operator can't read)")
+        self.assertIn("byte-for-byte unchanged", out, "the isolation guarantee is shown")
+        self.assertIn("naming it, not hiding it", out, "the honest-ceiling banner leads the demo")
+
+
+class TestCollisionCli(unittest.TestCase):
+    def test_collision_check_verb_short_circuits_in_the_workshop(self):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = inst.main(["collision-check"])
+        self.assertEqual(rc, 0)
+        self.assertIn("workshop", buf.getvalue().lower(),
+                      "the bare verb short-circuits read-only here, never self-flagging the engine's own files")
 
 
 if __name__ == "__main__":
