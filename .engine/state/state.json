@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "standing_situation": {
-    "milestone": null,
-    "phase": null
+    "milestone": "M1 — the Engine starts maintaining itself",
+    "phase": "Making the Engine's status and alarms reach you (issue #83)"
   },
   "integration_debt": {
     "open_count": 0,
