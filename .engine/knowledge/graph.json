@@ -799,7 +799,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:d2a394976a669595880cf468e49362484eafa475fa213d765b5db3835592c24c",
+        "fingerprint": "sha256:3b0bf6e9e5ae04e76d9032c0a935f4b5d24fa2b6386a3281f307ac6656cbbf59",
         "path": ".engine/operations/first-run.md"
       },
       "type": "operation"
@@ -1434,7 +1434,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:e199a48fb8fd1039ff88f82606fe225b6b8fce28dd15ce903e82d642f19c4002",
+        "fingerprint": "sha256:f353a6f7f42625a760f5e805669b1096e9c3eb3242682f2bf7b48aa65ec7c4e4",
         "path": ".engine/tools/instantiator.py"
       },
       "type": "tool"
@@ -1850,7 +1850,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:df8171b60855a6199d236dbcf15b52b8ca4ed92c4e1e045dd91ce5ef651b56ae",
+        "fingerprint": "sha256:705d79e9c4ab523c994312a36ba269b40cf9e2c0ba5ba386168757afa6038c72",
         "path": ".engine/tools/test_instantiator.py"
       },
       "type": "tool"

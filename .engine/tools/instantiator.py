@@ -97,6 +97,13 @@ COPY_HEADINGS = {
     "security-tier": "About automatic secret scanning",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
+    # The finish (verify + tidy-up) phase — slice 27c.
+    "verify-paused": "If something needs fixing before finishing",
+    "verify-next-actions": "Your two ways forward",
+    "verify-ok": "Setup checks out",
+    "verify-gate-on": "Your review gate is on",
+    "verify-gate-pending": "Your review gate isn't on yet",
+    "retire-success": "Setup is complete",
 }
 
 FALLBACK_COPY = {
@@ -142,6 +149,31 @@ FALLBACK_COPY = {
         "I couldn't find this project on GitHub or sign in just now, so I couldn't turn on the review gate that "
         "protects your main branch. The rest of setup is unaffected. Once you're signed in to GitHub from the "
         "command line and the project is connected, I can turn it on — just ask me to finish setup."
+    ),
+    "verify-paused": (
+        "Before finishing, I check that everything fits together — and something doesn't line up yet, so I've "
+        "paused rather than carry on with a setup that isn't right. Here's what I found:"
+    ),
+    "verify-next-actions": (
+        "Neither choice loses anything you've already decided. You can fix what's listed above and run setup "
+        "again — it picks up right here. Or, if this looks like something you can't sort out yourself, stop here "
+        "and report it (copy the lines above so someone can help). I won't carry on with a setup that isn't "
+        "consistent."
+    ),
+    "verify-ok": (
+        "Everything fits together — your setup is consistent and ready to use."
+    ),
+    "verify-gate-on": (
+        "Your branch review gate is on: every change to your main branch now goes through approval."
+    ),
+    "verify-gate-pending": (
+        "Your branch review gate isn't on yet — but nothing else is held up by it. I'll remind you each time I "
+        "start, and you can turn it on any time by asking me to finish setup."
+    ),
+    "retire-success": (
+        "Setup is complete. I've cleaned up the one-time setup files — the walkthrough, its notes, and the setup "
+        "helper itself — now that they've done their job. Everything your project needs to keep running stays in "
+        "place, and all your choices are saved. You're ready to start."
     ),
 }
 
@@ -559,6 +591,131 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     return {"refused": False, "halted": False, "steps": steps}
 
 
+# ==== VERIFY + RETIRE (core slice 27c) — the first-run lifecycle close =================================
+#
+# After apply installs the selection and turns the guardrails on, VERIFY confirms the result is consistent
+# and RETIRE tidies the one-time setup assets away. Both run in the SAME system-python instantiator process
+# as apply (they reuse only stdlib + sibling tools — check_coherence and knowledge_gen.generate read JSON +
+# walk the tree, never yaml/jsonschema), so they start on a bare adopter machine like the rest of the phase.
+#
+# The locked ordering (provisioning README §verify/§retire, ground-truthed): a HARD consistency finding at
+# verify PAUSES — the engine never proceeds on something inconsistent — and surfaces, in plain language, what
+# is wrong and the two next actions (fix and re-run — resumable from the checkpoint, nothing lost — or stop
+# and report). Retire then self-deletes the orchestrator + first-run assets, but ONLY on a consistent setup:
+# a hard finding blocks the (irreversible) retire, while a merely deferred review gate does NOT (deferred is
+# the common path — boot keeps surfacing it, the bootstrap primitive survives retirement). DEGENERACY
+# (unchanged): none of this runs in the construction repo; the finish-demo runs the REAL logic against a
+# throwaway fixture and asserts this repo's files are byte-for-byte unchanged.
+
+# The first-run-only assets retire removes once setup is sound — repo-relative, joined to validate.ROOT at
+# call time so a redirected demo/test deletes only the fixture, never the real tree. PRESERVED (not listed):
+# the shared catalog reader `module_catalog.py` (used by /engine-help) + its test, the catalog data + schema,
+# and every permanent provisioning primitive.
+_FIRST_RUN_ASSET_FILES = (
+    ".engine/tools/instantiator.py",
+    ".engine/tools/test_instantiator.py",
+    ".engine/operations/first-run.md",
+    ".engine/templates/first-run.md",
+)
+_FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),)
+
+
+def _hard_findings() -> list:
+    """The hard consistency findings over the present engine (the verify check). Pure read."""
+    return [f for f in module_coherence.check_coherence("hard") if f.get("severity") == "hard"]
+
+
+def _say_consistency_pause(say, copy, hard: list) -> None:
+    """The plain-language pause: provisioning's frame around validation's per-finding message (the locked
+    ownership split — validation owns the message, provisioning the first-run pause UX)."""
+    say(copy["verify-paused"])
+    for f in hard:
+        say("  • " + validate.fmt(f))
+    say(copy["verify-next-actions"])
+
+
+def verify(*, root=None, announce=None, control_status=None) -> dict:
+    """VERIFY — the consistency pause. Run the hard check over the installed engine; a hard finding PAUSES
+    setup and surfaces what is inconsistent + the two next actions (fix and re-run, or stop and report). A
+    clean check confirms setup is sound, and (when the review-gate outcome is known — passed in from apply's
+    last step) states it plainly; standalone, it leaves the standing gate surfacing to boot rather than
+    re-checking GitHub here. Pure read — re-running after a repair re-checks (resumable from the checkpoint).
+    Returns {paused, findings, control, steps}."""
+    say = announce if announce is not None else (lambda text: print(text))
+    copy = load_copy()
+    hard = _hard_findings()
+    if hard:
+        _say_consistency_pause(say, copy, hard)
+        return {"paused": True, "findings": hard, "control": control_status,
+                "steps": [{"step": "verify", "status": "paused", "issues": len(hard)}]}
+    say(copy["verify-ok"])
+    if control_status is not None:
+        say(copy["verify-gate-on"] if control_status.get("protected") else copy["verify-gate-pending"])
+    return {"paused": False, "findings": [], "control": control_status,
+            "steps": [{"step": "verify", "status": "ok"}]}
+
+
+def _drop_bytecode(base: str, stems) -> None:
+    """Remove the stale .pyc companions of the deleted tools (hygiene — coherence already prunes
+    __pycache__, so a leftover is harmless; we clean it so nothing stale lingers)."""
+    import glob as _glob
+    cache = os.path.join(base, ".engine", "tools", "__pycache__")
+    for stem in stems:
+        for p in _glob.glob(os.path.join(cache, stem + ".*")):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
+def retire(*, root=None, announce=None) -> dict:
+    """RETIRE — the lifecycle close: once setup is consistent, tidy the one-time setup assets away and
+    confirm completion. PRECONDITION (the locked 'never proceed on something inconsistent'): re-run the hard
+    check and REFUSE if anything is inconsistent — an irreversible self-delete must not run on a broken setup
+    (a merely deferred review gate does NOT block; that is the common path). Then delete the first-run assets
+    (delete-if-present, so a resumed retire is safe), drop their stale bytecode, and re-derive the engine's
+    saved information so the repo stays consistent after the tools are gone. PRESERVES the shared catalog
+    reader, the catalog + schema, and every permanent primitive. Self-deletes its own source last; the
+    running process keeps executing from memory (POSIX). Returns {refused, deleted, already_absent,
+    preserved, graph, steps}."""
+    say = announce if announce is not None else (lambda text: print(text))
+    copy = load_copy()
+    base = root or validate.ROOT
+    hard = _hard_findings()
+    if hard:
+        _say_consistency_pause(say, copy, hard)
+        return {"refused": True, "reason": "inconsistent", "deleted": [], "already_absent": [],
+                "preserved": [], "graph": "unchanged",
+                "steps": [{"step": "retire", "status": "refused", "issues": len(hard)}]}
+    deleted, already = [], []
+    for rel in _FIRST_RUN_ASSET_FILES:
+        p = os.path.join(base, rel)
+        if os.path.isfile(p):
+            os.remove(p)
+            deleted.append(rel)
+        else:
+            already.append(rel)
+    for rel in _FIRST_RUN_ASSET_DIRS:
+        p = os.path.join(base, rel)
+        if os.path.isdir(p):
+            import shutil
+            shutil.rmtree(p)
+            deleted.append(rel)
+        else:
+            already.append(rel)
+    _drop_bytecode(base, ("instantiator", "test_instantiator"))
+    graph_status = "regenerated"
+    try:
+        knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)  # so the saved information no longer lists the
+    except Exception as exc:  # noqa: BLE001 — degrade-and-disclose; never crash the close   # removed tools
+        graph_status = f"skipped ({type(exc).__name__})"
+    preserved = [".engine/tools/module_catalog.py", ".engine/tools/test_module_catalog.py",
+                 ".engine/schemas/provisioning-catalog.v1.json", ".engine/provisioning/module-catalog.json"]
+    say(copy["retire-success"])
+    return {"refused": False, "deleted": deleted, "already_absent": already, "preserved": preserved,
+            "graph": graph_status, "steps": [{"step": "retire", "status": "done", "deleted": deleted}]}
+
+
 # ---- demo (mutation-free, real logic, fixture boundary) ---------------------------------------
 
 @contextlib.contextmanager
@@ -621,7 +778,13 @@ def _build_fixture(root: str) -> None:
                 {"id": "core", "version": "1.0.0", "status": "required",
                  "provides": {"provisioning": [".engine/provisioning/module-catalog.json"],
                               "schema": [".engine/schemas/*.json"],
-                              "knowledge": [".engine/knowledge/*.json"]},
+                              "knowledge": [".engine/knowledge/*.json"],
+                              # the globs that own the first-run assets the finish-demo plants + retires; the
+                              # base fixture has no files under these dirs, so they claim nothing here (apply
+                              # is unaffected) and own the planted assets once the finish fixture plants them.
+                              "tool": [".engine/tools/*.py"],
+                              "operation": [".engine/operations/*.md"],
+                              "template": [".engine/templates/*.md"]},
                  "wires": _FIXTURE_CORE_WIRES, "depends": {}})
     _write_json(os.path.join(eng, "modules", "extras-demo", "manifest.json"),
                 {"id": "extras-demo", "version": "1.0.0", "status": "optional", "provides": {}, "depends": {}})
@@ -930,6 +1093,131 @@ def _apply_demo() -> int:
     return 0 if ok else 1
 
 
+# ---- finish demo (verify + retire: the lifecycle close, real logic, fixture boundary) ----------
+
+_FINISH_DEMO_NOTE = (
+    "What's real here, and what's a stand-in: the consistency check and the tidy-up below run their REAL "
+    "logic against the throwaway practice project — really checking the installed engine fits together, "
+    "really deleting the one-time setup files there, and really re-deriving the saved information. The only "
+    "stand-ins are the same outside-the-project boundaries as before (your computer's settings, the engine's "
+    "tools, and GitHub), faked so the practice run is self-contained. Nothing here touches your real machine, "
+    "your accounts, or this project — which the isolation check at the end proves, naming each file."
+)
+
+_ORPHAN_WIRE = {"type": "hook", "event": "PostToolUse", "matcher": "",
+                "hook": {"type": "command", "command": ".engine/.venv/bin/python .engine/tools/boot.py --x"}}
+
+
+def _plant_first_run_assets(root: str) -> None:
+    """Plant stand-in first-run assets in the fixture so the tidy-up step has something to remove — the REAL
+    assets live in this construction repo and the demo/test must never touch them (the isolation check proves
+    they survive). Owned by the fixture core's tool/operation/template globs, so they keep it consistent."""
+    for rel in _FIRST_RUN_ASSET_FILES:
+        p = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("# stand-in first-run asset for the practice project\n")
+    for rel in _FIRST_RUN_ASSET_DIRS:
+        p = os.path.join(root, rel)
+        os.makedirs(p, exist_ok=True)
+        with open(os.path.join(p, "SKILL.md"), "w", encoding="utf-8") as fh:
+            fh.write("---\nname: engine-setup\n---\n# stand-in walkthrough\n")
+
+
+def _finish_demo() -> int:
+    """Operator-runnable demonstration of the FINISH phase (the consistency check + the tidy-up). Runs the
+    REAL verify/retire logic against a throwaway generated-repo fixture: a clean setup checks out and is
+    tidied (the one-time files removed, the permanent engine + your choices kept); an inconsistent setup is
+    PAUSED with a plain explanation and refuses to tidy up (the irreversible step never runs on a broken
+    setup), then a repair lets it finish (fail-then-pass). Proves THIS real project's files — this very tool
+    included — are byte-for-byte unchanged. Leads with the honest-ceiling banner."""
+    import tempfile
+    print(_BANNER + "\n")
+    print(_FINISH_DEMO_NOTE + "\n")
+    real_before = _snapshot_real_files()
+    real_self = os.path.join(validate.ROOT, ".engine", "tools", "instantiator.py")
+    real_reader = os.path.join(validate.ROOT, ".engine", "tools", "module_catalog.py")
+    ok = True
+
+    # Scenario 1 — clean setup: the check passes (review gate on), then the one-time files are tidied away.
+    print("— CLEAN SETUP: the consistency check passes and the one-time setup files are tidied away.")
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)
+        _plant_first_run_assets(tmp)
+        with _redirect_root(tmp):
+            confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
+            applied = _finish_apply(tmp)
+            gate = applied["steps"][-1]
+            v = verify(announce=lambda t: print("    " + t), control_status=gate)
+            r = retire(announce=lambda t: print("    " + t))
+            assets_gone = all(not os.path.exists(os.path.join(tmp, rel))
+                              for rel in _FIRST_RUN_ASSET_FILES + _FIRST_RUN_ASSET_DIRS)
+            catalog_kept = os.path.isfile(os.path.join(tmp, ".engine", "provisioning", "module-catalog.json"))
+            still_clean = not _hard_findings()
+        print(f"    → the check passed ({not v['paused']}); the one-time files are gone ({assets_gone}); the "
+              f"catalog the engine keeps is still here ({catalog_kept}); the result is still consistent "
+              f"({still_clean}); saved information re-derived ({r['graph']}).")
+        ok &= (not v["paused"] and not r["refused"] and assets_gone and catalog_kept and still_clean)
+
+    # Scenario 2 — inconsistent setup: the check PAUSES, tidy-up REFUSES; a repair then lets it finish.
+    print("\n— SOMETHING INCONSISTENT: the check pauses and tidy-up refuses — then a repair lets it finish.")
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)
+        _plant_first_run_assets(tmp)
+        with _redirect_root(tmp):
+            confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
+            _finish_apply(tmp)
+            wiring.apply(_ORPHAN_WIRE)                         # leave a setting that belongs to no add-on
+            v_bad = verify(announce=lambda t: print("    " + t))
+            r_bad = retire(announce=lambda t: None)            # must refuse, delete nothing
+            assets_still_there = all(os.path.exists(os.path.join(tmp, rel)) for rel in _FIRST_RUN_ASSET_FILES)
+            wiring.reverse(_ORPHAN_WIRE)                       # the operator fixes it
+            v_fixed = verify(announce=lambda t: None)
+            r_fixed = retire(announce=lambda t: None)
+            finished = all(not os.path.exists(os.path.join(tmp, rel)) for rel in _FIRST_RUN_ASSET_FILES)
+        print(f"    → it paused on the problem ({v_bad['paused']}) and refused to tidy up ({r_bad['refused']}), "
+              f"so nothing was deleted ({assets_still_there}).")
+        print(f"    → after the fix, the check passes ({not v_fixed['paused']}) and tidy-up completes "
+              f"({not r_fixed['refused']}, files gone: {finished}).")
+        ok &= (v_bad["paused"] and r_bad["refused"] and assets_still_there
+               and not v_fixed["paused"] and not r_fixed["refused"] and finished)
+
+    # The isolation guarantee, shown by name (each file named, not just a silent pass).
+    print("\n— ISOLATION CHECK: did any of that touch THIS real project's files?")
+    unchanged = True
+    for rel in _REAL_ISOLATION_FILES:
+        before = real_before.get(rel)
+        try:
+            with open(os.path.join(validate.ROOT, rel), "rb") as fh:
+                after = fh.read()
+        except OSError:
+            after = None
+        same = (before == after)
+        unchanged &= same
+        print(f"    {'✓' if same else 'ISOLATION BREACH —'} {rel} — {'unchanged' if same else 'CHANGED!'}")
+    self_alive = os.path.isfile(real_self)
+    reader_alive = os.path.isfile(real_reader)
+    print(f"    {'✓' if self_alive else '✗'} this setup tool itself (.engine/tools/instantiator.py) still "
+          f"exists: {self_alive}")
+    print(f"    {'✓' if reader_alive else '✗'} the kept catalog reader (.engine/tools/module_catalog.py) "
+          f"still exists: {reader_alive}")
+    print(f"    → this project's own files are byte-for-byte unchanged: {unchanged}.")
+    ok &= (unchanged and self_alive and reader_alive)
+
+    print("\n" + ("All finish steps behaved." if ok else "A FINISH STEP DID NOT BEHAVE — see above."))
+    return 0 if ok else 1
+
+
+def _finish_apply(tmp: str) -> dict:
+    """Run apply with every external boundary faked (the finish-demo's shared apply setup), returning the
+    ledger — so the consistency check + tidy-up run against a real, fully-installed practice engine."""
+    return apply(announce=lambda t: None, home_reader=lambda: {}, uv_present=lambda: None,
+                 uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
+                 uv_runner=lambda uv, g: True, consent=lambda kind: True,
+                 control_transport=_approve_transport(), gh_refresh=lambda s: True,
+                 control_issues=_FakeIssues(), control_repo="you/your-project", control_token="demo-token")
+
+
 def _parse_apply_flags(argv: list) -> dict:
     """Translate the apply CLI flags into the per-kind operator decisions the apply phase consents on:
     `--install-uv` approves installing the engine's tools; `--plan-mode adopt|keep` answers the planning
@@ -969,6 +1257,8 @@ def main(argv: list) -> int:
         return _demo()
     if argv and argv[0] == "apply-demo":
         return _apply_demo()
+    if argv and argv[0] == "finish-demo":
+        return _finish_demo()
     if argv and argv[0] == "confirm":
         keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
         tier = _flag_value(argv, "--tier") or "solo"
@@ -981,6 +1271,18 @@ def main(argv: list) -> int:
         decisions = _parse_apply_flags(argv)
         res = apply(consent=lambda kind: decisions.get(kind, False))
         _print_ledger_plain(res)
+        return 1 if res.get("refused") else 0
+    if argv and argv[0] == "verify":
+        # The consistency check. A hard finding pauses (exit 1) with a plain explanation + the two next
+        # actions; clean is exit 0. The standing review-gate surfacing is boot's, so verify run on its own
+        # leaves the gate status to the start-of-session check rather than re-checking GitHub here.
+        res = verify()
+        return 1 if res.get("paused") else 0
+    if argv and argv[0] == "retire":
+        # The tidy-up: refuses (exit 1) on an inconsistent setup — the irreversible self-delete never runs on
+        # a broken setup; otherwise removes the one-time setup files, re-derives the saved information, and
+        # confirms completion (exit 0).
+        res = retire()
         return 1 if res.get("refused") else 0
     # `show` (or no argument): the read-only gather walkthrough. In an already-set-up repo (this one), it
     # short-circuits rather than re-offering setup.

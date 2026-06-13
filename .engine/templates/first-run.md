@@ -1,12 +1,15 @@
-<!-- The operator-facing copy for the first-run setup APPLY phase (the tool `tools/instantiator.py` reads
-these sections by heading and renders them; built-in fallbacks keep it working if this file is ever missing,
-and a parity test holds the two in step). This is the single review surface for what the operator is told as
-the engine installs their choices and turns on its guardrails. Plain language only — no engine/maintainer
-vocabulary reaches these words (so the private tool folder is never called a "tool-runtime", "uv", a "venv",
-or a "sync"; the review gate is never called a "control-plane" or a "ruleset"; nothing is an "override" or a
-"manifest"). The copy for the GitHub authorization screen, and for a review gate that couldn't be turned on,
-lives with the review-gate tool itself, so it is not repeated here. Edit the wording here; the section
-HEADINGS are stable keys the tool matches, so don't rename them. -->
+<!-- The operator-facing copy for the first-run setup APPLY phase and the FINISH phase (the consistency check
+and the tidy-up that end setup). The tool `tools/instantiator.py` reads these sections by heading and renders
+them; built-in fallbacks keep it working if this file is ever missing, and a parity test holds the two in
+step. This is the single review surface for what the operator is told as the engine installs their choices,
+turns on its guardrails, checks the result fits together, and cleans up the one-time setup files. Plain
+language only — no engine/maintainer vocabulary reaches these words (so the private tool folder is never
+called a "tool-runtime", "uv", a "venv", or a "sync"; the review gate is never called a "control-plane" or a
+"ruleset"; nothing is an "override" or a "manifest"; the consistency check is never "coherence"; the saved
+information is never a "graph" or a "fingerprint"; the tidy-up is never "retire"). The copy for the GitHub
+authorization screen, and for a review gate that couldn't be turned on, lives with the review-gate tool
+itself, so it is not repeated here. Edit the wording here; the section HEADINGS are stable keys the tool
+matches, so don't rename them. -->
 
 ## Before I set up the engine's own tools
 
@@ -56,3 +59,33 @@ I'll set it; or just tell me your account name and I'll set it now.
 I couldn't find this project on GitHub or sign in just now, so I couldn't turn on the review gate that
 protects your main branch. The rest of setup is unaffected. Once you're signed in to GitHub from the command
 line and the project is connected, I can turn it on — just ask me to finish setup.
+
+## If something needs fixing before finishing
+
+Before finishing, I check that everything fits together — and something doesn't line up yet, so I've paused
+rather than carry on with a setup that isn't right. Here's what I found:
+
+## Your two ways forward
+
+Neither choice loses anything you've already decided. You can fix what's listed above and run setup again — it
+picks up right here. Or, if this looks like something you can't sort out yourself, stop here and report it
+(copy the lines above so someone can help). I won't carry on with a setup that isn't consistent.
+
+## Setup checks out
+
+Everything fits together — your setup is consistent and ready to use.
+
+## Your review gate is on
+
+Your branch review gate is on: every change to your main branch now goes through approval.
+
+## Your review gate isn't on yet
+
+Your branch review gate isn't on yet — but nothing else is held up by it. I'll remind you each time I start,
+and you can turn it on any time by asking me to finish setup.
+
+## Setup is complete
+
+Setup is complete. I've cleaned up the one-time setup files — the walkthrough, its notes, and the setup helper
+itself — now that they've done their job. Everything your project needs to keep running stays in place, and all
+your choices are saved. You're ready to start.
