@@ -23,7 +23,11 @@ only, never the whole pack, and the session never halts.
    project status as unknown — never halt.
 2. Detect the governance-critical alarms to pin at the top of the status dashboard: the protected-branch signal
    (relayed from `protection_guard`; off → a nag, unverifiable → an honest "don't assume it's on", on
-   → silent) and the engine's open self-monitoring findings (read-only, from telemetry's register).
+   → silent) and the engine's open self-monitoring findings (read-only, from telemetry's register). Also relay
+   a **stranded operator checkout** — the boot-invoked `checkout_health` detector finding the top-level project
+   folder stuck off its branch or missing the engine's files — read-only at the open-findings tier, BELOW the
+   governance alarms (a stranded local checkout cannot reach the protected branch), and **offer to repair it**.
+   Boot only surfaces and offers; it never repairs.
 3. Consume the attention ranking (`attention.rank_live`) in its given precedence order — never re-rank —
    and resolve each ranked item to a plain-language line under "Needs your attention".
 4. Read the integration-debt readout (offline count from state, rendered loud-if-stale) and the
@@ -50,3 +54,12 @@ plain language rather than silently dropped, and nothing was regenerated — boo
 that must never be depended on, so the reliable post-compaction floor stays the re-injected `CLAUDE.md`
 plus the next per-prompt scent. The memory reversible-forgetting readout and the modes stance line
 render only once those substrates exist, so on a fresh engine they are simply absent.
+
+**The un-stranding repair is operator-consented and lossless.** The assistant **waits for the operator to
+say yes** — it never runs the repair un-asked. Only then does it run the un-stranding fix
+(`checkout_health.unstrand`), the deployed-floor never-strand-main rule's one sanctioned write to the operator
+checkout. It is **lossless-or-it-does-not-run**: it saves anything at risk — work that has drifted off the
+branch, or unsaved changes — to a safe point first, then re-attaches the folder to its branch and restores the
+missing engine files; if it cannot safely tell where to put the folder, it refuses rather than guess, and the
+assistant says so. The assistant relays the plain-language result. (Bringing a merely *behind* folder up to
+date is a separate, deferred step — the repair handles the broken states, not ordinary behind-ness.)
