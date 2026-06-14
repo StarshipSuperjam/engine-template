@@ -64,6 +64,7 @@ import operator_overrides  # noqa: E402  (the operator policy-override file read
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
 import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
+import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 
 # The card title a healthy boot always renders — byte-identical to the present-marker the floor names
 # in CLAUDE.deployed.md (slice 19 `owes ←`). The byte-identity is locked by test_boot.py; renaming it
@@ -272,6 +273,13 @@ def gather_signals(session_id: str | None = None) -> dict:
     finding_count, register = open_findings(repo, token)
     debt_count, debt_as_of = telemetry.read_state_debt(STATE_PATH)
     att_lines, att_degraded = needs_attention(state)
+    try:
+        # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
+        # low-stakes (a stranded local checkout cannot reach the protected branch), so it degrades QUIETLY
+        # to None — never a "couldn't check your folder" nag; the double-fault is the present-marker floor's.
+        strand = checkout_health.detect_strand()
+    except Exception:  # noqa: BLE001 — any detector failure degrades that one signal, never the pack
+        strand = None
     return {
         "state": state, "refused": refused,
         "gate": gate, "reason": reason,
@@ -282,12 +290,15 @@ def gather_signals(session_id: str | None = None) -> dict:
         "att_lines": att_lines, "att_degraded": att_degraded,
         "shipped": recently_shipped(),
         "stance": modes.describe_stance(modes.current_stance(session_id)),
+        "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
     }
 
 
 def render_dashboard(s: dict) -> str:
     """The operator-toned `Project status` dashboard, rendered from gathered signals (gather_signals) as
-    DATA — PURE: no I/O, computes no new state. Governance alarms pin warm at the top, then the status
+    DATA — PURE: no I/O, computes no new state. Governance alarms pin warm at the top, then a stranded-
+    checkout heads-up (open-findings tier — provisioning's detector, relayed read-only, ranked BELOW the
+    governance alarms because a stranded local checkout cannot reach the protected branch), then the status
     facts, the stance, the consolidated degraded notice, the ranked work, and the recently-shipped digest.
     NO AI-facing markers — this is the operator's own view, which the status verb (slice 3) renders directly
     (the 'two renderings of the same data'). The card title is always the first line."""
@@ -310,6 +321,16 @@ def render_dashboard(s: dict) -> str:
             f"review: {s['register']}")
     elif s["findings_unavailable"]:
         degraded.append("I couldn't check the engine's open findings (no GitHub access from here).")
+
+    # A stranded operator checkout — surfaced read-only, pinned AFTER the governance alarms (open-findings
+    # tier; a stranded local checkout cannot reach the protected branch). DETECTION ONLY here: the
+    # operator-consented un-stranding fix is the next slice, so — like the gate-off line's "a fix is
+    # coming, but for now…" — this names that it cannot yet be repaired rather than implying an action.
+    if s["strand"]:
+        pinned.append(
+            "⚠️ **Your project folder has drifted into a broken state** — I work in a separate copy, so "
+            "this doesn't affect what we build, but your project folder needs attention. (An automatic "
+            "fix is on the way; for now this is a heads-up — I can't repair it for you yet.)")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
@@ -375,6 +396,8 @@ def present_marker_line(s: dict) -> str:
         return f"⚠ {PRESENT_MARKER}: couldn't read where the project stands"
     if s["finding_count"]:
         return f"⚠ {PRESENT_MARKER}: {s['finding_count']} open engine finding(s) to review"
+    if s["strand"]:   # ranked after the governance alarms + findings; a governance alarm still wins the marker
+        return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
     return f"{PRESENT_MARKER}: all clear"
 
 
