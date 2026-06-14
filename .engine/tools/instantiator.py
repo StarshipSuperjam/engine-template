@@ -104,6 +104,13 @@ COPY_HEADINGS = {
     "verify-gate-on": "Your review gate is on",
     "verify-gate-pending": "Your review gate isn't on yet",
     "retire-success": "Setup is complete",
+    # The brownfield overlap check — slice 27d (no live caller yet; see the collision-check section).
+    "collision-intro": "Before I add the engine, here's what I found in your project",
+    "collision-exclusive": "A file of yours sits where the engine keeps its own",
+    "collision-shared": "The engine and your project both use the same file",
+    "collision-codeowners": "One of your review rules also covers the engine's files",
+    "collision-none": "Nothing of yours is in the way",
+    "collision-unreadable": "I couldn't safely read one of your files",
 }
 
 FALLBACK_COPY = {
@@ -174,6 +181,37 @@ FALLBACK_COPY = {
         "Setup is complete. I've cleaned up the one-time setup files — the walkthrough, its notes, and the setup "
         "helper itself — now that they've done their job. Everything your project needs to keep running stays in "
         "place, and all your choices are saved. You're ready to start."
+    ),
+    "collision-intro": (
+        "Your project already has files and settings of its own. I'm adding the engine alongside them, so first "
+        "I'll show you anywhere the two would overlap — what I'd do, and what you'd keep or lose — and let you "
+        "decide. I never change anything without showing you first."
+    ),
+    "collision-exclusive": (
+        "You already have a file here: {paths}. This is a spot the engine normally keeps to itself. If you let "
+        "it, the engine would put its own file here in place of yours — so you'd only lose your version if you "
+        "choose that. Your choices: let the engine use this spot (your file here is replaced) · keep your file "
+        "and have the engine skip it · stop, and decide later. Nothing is replaced until you choose."
+    ),
+    "collision-shared": (
+        "You already have your own entries in {paths}. The engine adds its own clearly-marked section here and "
+        "leaves everything else of yours exactly as it is. Your choices: add the engine's section and keep all "
+        "of yours · leave this file untouched for now · stop, and decide later."
+    ),
+    "collision-codeowners": (
+        "You have a rule that decides which teammate is asked to review changes to particular files — "
+        "`{rule}` — and it also covers the engine's own files. The engine adds its own such rule so changes to "
+        "its files are always sent to you; yours keeps covering everything else. I'm pointing this out so the "
+        "overlap is no surprise. Your choices: add the engine's rule (it takes priority for the engine's "
+        "files) · leave your rules as they are · stop, and decide later."
+    ),
+    "collision-none": (
+        "Good news — none of your files or settings overlap with what the engine adds. I can set it up "
+        "alongside your project cleanly."
+    ),
+    "collision-unreadable": (
+        "I couldn't make sense of {paths} just now, so I've left it completely untouched rather than risk "
+        "changing it wrongly. Take a look at it, then run setup again — I'll pick up from here."
     ),
 }
 
@@ -870,7 +908,7 @@ _APPLY_DEMO_NOTE = (
 # The construction repo's own files the apply steps would write if redirection ever leaked — the demo asserts
 # they are byte-for-byte unchanged afterward (the isolation guarantee, shown mechanically, not just claimed).
 _REAL_ISOLATION_FILES = (".engine/knowledge/graph.json", ".claude/settings.json", ".mcp.json",
-                         ".gitignore", ".github/CODEOWNERS")
+                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md")
 
 
 class _FakeIssues:
@@ -1218,6 +1256,358 @@ def _finish_apply(tmp: str) -> dict:
                  control_issues=_FakeIssues(), control_repo="you/your-project", control_token="demo-token")
 
 
+# ==== BROWNFIELD COLLISION CHECK (core slice 27d) — surface, never overwrite ===========================
+#
+# When the engine joins an ALREADY-POPULATED project (brownfield), it inspects the project for any overlap
+# between what it would add and what is already there, and SURFACES each overlap in plain language with a
+# concrete consequence + a three-way choice (accept / leave-as-is / abort) — never a raw path-versus-pattern
+# report, and it NEVER silently overwrites (provisioning README §greenfield-and-brownfield; topology §the
+# wall). Three kinds of overlap:
+#   1. a product file sitting where the engine keeps its own files (the engine would replace it),
+#   2. product content in a file the engine and the project both use (the engine adds its own marked section
+#      and keeps the rest), and
+#   3. a product review rule that also covers the engine's files (the engine adds its own, placed to win).
+#
+# DOUBLED DEGENERACY (the loudest line, doubled): this check has NO live caller yet. It never runs in the
+# construction repo (engine == product), AND — because a project made from the template starts empty — it is
+# a no-op even on a real GREENFIELD adopter. It fires only when the deferred brownfield-ARRIVAL path (overlay
+# a fetched release onto a live tree, then run this) is built; until then its only exercise is the fixture
+# demo below. "Works on the fixture ⇒ works when the deferred caller runs it on a real populated repo" is an
+# inductive step the fixture cannot discharge — named, not hidden. The pure detection takes the engine path
+# set INJECTED (the deferred caller passes the release-derived set, BEFORE the overlay writes), defaulting to
+# the engine's own owned set so a test/demo can pass a real one.
+
+# The platform-shared root files the engine co-occupies: it adds only its OWN marked/keyed entries and leaves
+# the project's content alone (topology §the wall L40-49). An EXPLICIT set — there is no path constant for the
+# root project guide, and it must CO-EXIST (never be seized, topology L49) — so a pre-existing one is surfaced
+# as additive, never as "the engine would replace it". (CODEOWNERS is a shared file too, but its meaningful
+# overlap is the review-rule shadow — class 3 — so it is handled there, not double-reported here.)
+_COLLISION_SHARED = (".gitignore", ".mcp.json", ".claude/settings.json", "CLAUDE.md")
+# The engine-EXCLUSIVE path patterns — where the engine expects sole ownership; a pre-existing product file
+# here would be replaced by the incoming engine file. The DECLARATIVE patterns (checked against the project
+# tree), NOT the live-filtered owned set: the engine has not written here yet at arrival, so any occupant is
+# the project's own.
+_COLLISION_EXCLUSIVE_GLOBS = (".engine/**", ".github/workflows/engine-*.yml",
+                              ".github/pull_request_template.md", ".github/ISSUE_TEMPLATE/*.md")
+_COLLISION_CHOICES = ("accept", "leave-as-is", "abort")
+
+
+def _read_text_opt(path: str):
+    """The file's text, or None when it cannot be read or decoded — so the caller surfaces an honest
+    'unreadable' overlap rather than crashing on a mis-encoded file or silently treating it as empty.
+    (UnicodeDecodeError is a ValueError; validate.read decodes as UTF-8.)"""
+    try:
+        return validate.read(path)
+    except (OSError, ValueError):
+        return None
+
+
+def _collision(klass: int, key: str, paths: list, copy: dict, **detail) -> dict:
+    """One surfaced overlap: its class, the concrete project path(s) (never a bare pattern), the plain
+    consequence (paths/rule interpolated) and the three stable choice keys the operator picks from."""
+    consequence = copy[key]
+    if "{paths}" in consequence:
+        consequence = consequence.replace("{paths}", ", ".join(paths))
+    if "{rule}" in consequence and detail.get("rule"):
+        consequence = consequence.replace("{rule}", detail["rule"])
+    return {"klass": klass, "paths": list(paths), "consequence": consequence,
+            "choices": list(_COLLISION_CHOICES), "detail": detail}
+
+
+def _class1_exclusive(root: str, copy: dict) -> list:
+    """Class 1 — product files/dirs/symlinks sitting at an engine-exclusive path (the engine would replace
+    them); lists the concrete occupants. The engine's own corner (.engine/) is WALKED with os.walk, NOT a
+    `**` glob: on Python 3.9 a `**` glob silently skips dot-prefixed entries (a hidden-only product .engine/
+    would escape) and would follow symlink loops — os.walk does neither (followlinks=False). The named
+    .github artifacts (no hidden names) use a plain glob."""
+    import glob as _glob
+    found = set()
+    eng = os.path.join(root, ".engine")
+    if os.path.islink(eng):                             # a symlink standing in for the whole engine corner
+        found.add(".engine")
+    elif os.path.isdir(eng):
+        for dirpath, dirs, files in os.walk(eng):       # followlinks=False → no symlink-loop recursion/escape
+            for name in list(dirs) + files:
+                p = os.path.join(dirpath, name)
+                if os.path.isfile(p) or os.path.islink(p):   # files + symlinked dirs; real subdirs skipped
+                    found.add(os.path.relpath(p, root).replace(os.sep, "/"))
+    for pattern in (".github/workflows/engine-*.yml", ".github/pull_request_template.md",
+                    ".github/ISSUE_TEMPLATE/*.md"):
+        for p in _glob.glob(os.path.join(root, pattern)):
+            if os.path.isfile(p) or os.path.islink(p):
+                found.add(os.path.relpath(p, root).replace(os.sep, "/"))
+    found = sorted(found)
+    return [_collision(1, "collision-exclusive", found, copy)] if found else []
+
+
+def _json_has_engine_entry(rel: str, data: dict) -> bool:
+    """Whether the engine's OWN entries are already present in a keyed-JSON shared file (a resume) — an
+    engine-prefixed query server in .mcp.json, or an engine hook (its command resolves under .engine/) in
+    the project settings. Mirrors wiring's engine-namespaced-identity keying."""
+    if rel.endswith(".mcp.json"):
+        return any(isinstance(n, str) and n.startswith(wiring.MCP_NAME_PREFIX)
+                   for n in (data.get("mcpServers") or {}))
+    for groups in (data.get("hooks") or {}).values():
+        for group in (groups or []):
+            if not isinstance(group, dict):
+                continue
+            for h in (group.get("hooks") or []):
+                if isinstance(h, dict) and wiring.ENGINE_DIR_MARKER in (h.get("command") or ""):
+                    return True
+    return False
+
+
+def _shared_state(rel: str, path: str) -> str:
+    """The overlap state of one shared file: 'additive' (product content present, engine entries absent — the
+    engine will add its own and keep the rest), 'resume' (the engine's entries are already there — no flag),
+    'empty' (absent/empty — a clean seed), or 'unreadable' (malformed — leave untouched and say so)."""
+    if rel.endswith(".json"):
+        data, err = wiring._read_json_tolerant(path, create=False)
+        if err is not None:
+            return "unreadable"
+        if not data:
+            return "empty"
+        return "resume" if _json_has_engine_entry(rel, data) else "additive"
+    if rel == "CLAUDE.md":
+        # Presence-only: the engine has no CLAUDE.md section shape yet (it currently ships a whole file), so
+        # we do not invent a marker — a pre-existing project guide is an additive overlap to surface. The
+        # concrete coexistence mechanism (so a resume stops re-flagging) is a deferred brownfield-arrival owe.
+        text = _read_text_opt(path)
+        if text is None:
+            return "unreadable"
+        return "additive" if text.strip() else "empty"
+    text = _read_text_opt(path)                         # fenced text (.gitignore)
+    if text is None:
+        return "unreadable"
+    if not text.strip():
+        return "empty"
+    return "resume" if wiring._FENCE_BEGIN_TOKEN in text else "additive"
+
+
+def _class2_shared(root: str, copy: dict) -> list:
+    """Class 2 — product content in a file the engine and the project both use (the engine adds its own marked
+    section additively). Per-file-kind detection (fenced text / keyed JSON / presence-only)."""
+    out = []
+    for rel in _COLLISION_SHARED:
+        path = os.path.join(root, rel)
+        if not os.path.exists(path):
+            continue
+        state = _shared_state(rel, path)
+        if state == "additive":
+            out.append(_collision(2, "collision-shared", [rel], copy))
+        elif state == "unreadable":
+            out.append(_collision(2, "collision-unreadable", [rel], copy, reason="unreadable"))
+    return out
+
+
+def _codeowners_matches(pattern: str, path: str) -> bool:
+    """Does a CODEOWNERS rule's pattern shadow an engine path? Deliberately OVER-matches — CODEOWNERS glob
+    semantics are broader than fnmatch, and surfacing one extra overlap is safe while missing one is not
+    (the whole posture is 'surface, never silently overwrite'). Handles the load-bearing cases: '*'/'**'
+    (everything), a trailing-'/' directory rule, a leading-'/' anchor, and a plain pattern."""
+    import fnmatch
+    pat = pattern.strip().lstrip("/")
+    p = path.lstrip("/")
+    if pat in ("", "*", "**"):
+        return True
+    if pat.endswith("/"):
+        return p == pat[:-1] or p.startswith(pat)
+    return (fnmatch.fnmatch(p, pat) or fnmatch.fnmatch(p, pat + "/*") or p.startswith(pat + "/"))
+
+
+def _class3_codeowners(root: str, engine_paths: list, copy: dict) -> list:
+    """Class 3 — a product review rule that also covers the engine's files. Parse the project's CODEOWNERS
+    rules OUTSIDE the engine's own marked block (so the engine's rules are never flagged); a rule whose
+    pattern matches any engine path is surfaced (the engine appends its block last to win — last-match-wins —
+    but the overlap is disclosed so it is no surprise). A malformed engine block → the unreadable finding."""
+    path = os.path.join(root, ".github", "CODEOWNERS")
+    if not os.path.exists(path):
+        return []
+    text = _read_text_opt(path)
+    if text is None:
+        return [_collision(2, "collision-unreadable", [".github/CODEOWNERS"], copy, reason="unreadable")]
+    lines = text.split("\n")
+    try:
+        span = wiring._find_fence(lines, wiring.CODEOWNERS_FENCE)
+    except wiring.WiringError:
+        return [_collision(2, "collision-unreadable", [".github/CODEOWNERS"], copy, reason="unreadable")]
+    excluded = set(range(span[0], span[1] + 1)) if span else set()
+    out, seen = [], set()
+    for i, ln in enumerate(lines):
+        if i in excluded:
+            continue
+        stripped = ln.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        pattern = stripped.split()[0]
+        if pattern in seen:
+            continue
+        if any(_codeowners_matches(pattern, ep) for ep in engine_paths):
+            seen.add(pattern)
+            out.append(_collision(3, "collision-codeowners", [".github/CODEOWNERS"], copy, rule=stripped))
+    return out
+
+
+def collision_check(*, root=None, engine_paths=None, copy=None) -> dict:
+    """The brownfield overlap check (pure read, no writes): inspect the project at `root` for the three kinds
+    of overlap and return them, each framed as a plain consequence + the three choices. `engine_paths` (the
+    set the engine would own — the live caller passes the release-derived set, computed BEFORE the overlay
+    writes) defaults to the engine's own owned set. Returns {collisions, clean, checked}."""
+    base = root or validate.ROOT
+    copy = copy if copy is not None else load_copy()
+    if engine_paths is None:
+        engine_paths = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
+    collisions = (_class1_exclusive(base, copy) + _class2_shared(base, copy)
+                  + _class3_codeowners(base, engine_paths, copy))
+    return {"collisions": collisions, "clean": not collisions,
+            "checked": {"exclusive_globs": len(_COLLISION_EXCLUSIVE_GLOBS),
+                        "shared_files": len(_COLLISION_SHARED), "engine_paths": len(engine_paths)}}
+
+
+# ---- collision demo (the consent instrument: REAL detection, throwaway PRODUCT fixtures) -------------
+
+_COLLISION_DEMO_NOTE = (
+    "Important — what this does and doesn't do yet: this overlap check has NO live trigger at the moment. A "
+    "project made from this template starts empty, so there is nothing to overlap; the check only matters when "
+    "the engine is added to a project that ALREADY has its own files — and that 'add to an existing project' "
+    "path is not built yet. So this does not protect a real project today. What follows runs the REAL overlap "
+    "logic against throwaway practice projects, to show it behaves; nothing here touches your real project."
+)
+
+
+def _build_collision_fixture(root: str, *, populated: bool) -> None:
+    """A throwaway PRODUCT repo (NOT a generated engine repo): some product source + config. With
+    populated=True, plant one overlap of each kind for the demo/tests to surface. NEVER touches the real
+    tree (its own tempdir)."""
+    os.makedirs(os.path.join(root, "src"))
+    with open(os.path.join(root, "src", "app.py"), "w", encoding="utf-8") as fh:
+        fh.write("print('the product')\n")
+    os.makedirs(os.path.join(root, ".github"))
+    if not populated:                       # a clean coexistence: nothing where the engine keeps its own,
+        with open(os.path.join(root, ".github", "CODEOWNERS"), "w", encoding="utf-8") as fh:
+            fh.write("/src/ @product-team\n")          # and a disjoint product rule (no engine path covered)
+        return
+    # class 1 — a product file where the engine keeps its own
+    os.makedirs(os.path.join(root, ".engine", "legacy"))
+    with open(os.path.join(root, ".engine", "legacy", "notes.txt"), "w", encoding="utf-8") as fh:
+        fh.write("an old file of the product's that happens to live here\n")
+    # class 2 — product content in files the engine also uses (engine entries ABSENT), one per file kind
+    with open(os.path.join(root, ".gitignore"), "w", encoding="utf-8") as fh:    # fenced text
+        fh.write("node_modules/\n*.log\n")
+    _write_json(os.path.join(root, ".mcp.json"), {"mcpServers": {"product-tool": {"command": "x"}}})  # JSON
+    os.makedirs(os.path.join(root, ".claude"))                                   # JSON (the consequential one)
+    _write_json(os.path.join(root, ".claude", "settings.json"),
+                {"hooks": {"PreToolUse": [{"matcher": "", "hooks": [
+                    {"type": "command", "command": "scripts/product-hook.sh"}]}]}})
+    with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:     # presence-only
+        fh.write("# The product's own project guide\nBuild with make.\n")
+    # class 3 — a product review rule that also covers the engine's files (the expansive rule)
+    with open(os.path.join(root, ".github", "CODEOWNERS"), "w", encoding="utf-8") as fh:
+        fh.write("* @product-team\n/src/ @product-team\n")
+
+
+def _plant_engine_entries(root: str) -> None:
+    """Model the engine already wired into the shared files (a resume): an engine-managed block in .gitignore
+    and an engine query server in .mcp.json — so those overlaps no longer flag on a re-run."""
+    with open(os.path.join(root, ".gitignore"), "a", encoding="utf-8") as fh:
+        fh.write(wiring.FENCE_BEGIN.format(id="core-knowledge-cache") + "\n.engine/knowledge/.cache/\n"
+                 + wiring.FENCE_END.format(id="core-knowledge-cache") + "\n")
+    data, _err = wiring._read_json_tolerant(os.path.join(root, ".mcp.json"), create=True)
+    data.setdefault("mcpServers", {})["engine-knowledge-graph"] = {"command": "uv"}
+    _write_json(os.path.join(root, ".mcp.json"), data)
+    sp = os.path.join(root, ".claude", "settings.json")
+    sdata, _e = wiring._read_json_tolerant(sp, create=True)
+    sdata.setdefault("hooks", {}).setdefault("SessionStart", []).append(
+        {"matcher": "startup", "hooks": [{"type": "command",
+         "command": "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python .engine/tools/boot.py"}]})
+    _write_json(sp, sdata)
+
+
+_COLLISION_LABELS = {1: "A file where the engine keeps its own", 2: "A file you both use",
+                     3: "A review rule that also covers the engine's files"}
+# Plain renderings of the stable choice keys, so the demo SHOWS the operator the three real choices for each
+# overlap (not just a count) — the maintainer can't read the code that asserts there are three.
+_CHOICE_LABELS = {"accept": "accept", "leave-as-is": "leave yours as is", "abort": "stop and decide later"}
+
+
+def _print_collision_ledger(res: dict, copy: dict) -> None:
+    if res["clean"]:
+        print("    " + copy["collision-none"])
+        return
+    for c in res["collisions"]:
+        print(f"    • [{_COLLISION_LABELS.get(c['klass'], c['klass'])}] {', '.join(c['paths'])}")
+        print(f"        {c['consequence']}")
+        print(f"        your choices: " + " · ".join(_CHOICE_LABELS.get(ch, ch) for ch in c["choices"]))
+
+
+def _classes(res: dict) -> set:
+    return {c["klass"] for c in res["collisions"]}
+
+
+def _shared_paths_flagged(res: dict) -> set:
+    return {p for c in res["collisions"] if c["klass"] == 2 for p in c["paths"]}
+
+
+def _demo_collisions() -> int:
+    """Operator-runnable demonstration of the brownfield overlap check. Leads with the honest-ceiling banner
+    and the NO-LIVE-TRIGGER disclosure, then runs the REAL detection against throwaway PRODUCT fixtures: a
+    clean project shows no overlaps; a populated project surfaces one of each kind with its plain consequence
+    and choices; and a project where the engine's entries are already in place shows the shared-file overlaps
+    no longer flag (a safe re-run). Proves THIS real project's files — this tool included — are unchanged."""
+    import tempfile
+    print(_BANNER + "\n")
+    print(_COLLISION_DEMO_NOTE + "\n")
+    real_before = _snapshot_real_files()
+    copy = load_copy()
+    engine_paths = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
+    ok = True
+
+    # Scenario A — a clean project: nothing of the project's overlaps with what the engine adds.
+    print("— CLEAN PROJECT: nothing of the project's is in the way.")
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_collision_fixture(tmp, populated=False)
+        res = collision_check(root=tmp, engine_paths=engine_paths, copy=copy)
+        _print_collision_ledger(res, copy)
+        print(f"    → nothing to surface ({res['clean']}); the engine can set up alongside the project cleanly.")
+        ok &= (res["clean"] and res["checked"]["engine_paths"] > 0)
+
+    # Scenario B — a populated project: one overlap of each kind, each with a plain consequence + choices.
+    print("\n— POPULATED PROJECT: each overlap is surfaced — what I'd do, and your three choices.")
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_collision_fixture(tmp, populated=True)
+        res = collision_check(root=tmp, engine_paths=engine_paths, copy=copy)
+        _print_collision_ledger(res, copy)
+        classes = _classes(res)
+        every_actionable = all(c["consequence"] and len(c["choices"]) == 3 for c in res["collisions"])
+        print(f"    → all three kinds surfaced ({classes == {1, 2, 3}}); each states a consequence and the "
+              f"three choices ({every_actionable}); nothing was changed (the check only reads).")
+        ok &= (classes == {1, 2, 3} and every_actionable and not res["clean"])
+
+    # Scenario C — the engine's entries are already in place (a re-run): the shared-file overlaps don't re-flag.
+    print("\n— ALREADY PARTLY SET UP: a re-run doesn't re-raise overlaps the engine has already settled.")
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_collision_fixture(tmp, populated=True)
+        before = _shared_paths_flagged(collision_check(root=tmp, engine_paths=engine_paths, copy=copy))
+        _plant_engine_entries(tmp)
+        after = _shared_paths_flagged(collision_check(root=tmp, engine_paths=engine_paths, copy=copy))
+        settled = {".gitignore", ".mcp.json", ".claude/settings.json"}
+        print(f"    → shared-file overlaps first time: {sorted(before)}")
+        print(f"    → after the engine has settled its part: {sorted(after)} — the settled files no longer "
+              f"re-flag ({settled.isdisjoint(after)}).")
+        ok &= (settled <= before and settled.isdisjoint(after))
+
+    # The isolation guarantee, shown by name (the check only reads, so this is belt-and-suspenders).
+    print("\n— ISOLATION CHECK: did any of that touch THIS real project's files?")
+    unchanged = _assert_real_files_unchanged(real_before)
+    real_self = os.path.isfile(os.path.join(validate.ROOT, ".engine", "tools", "instantiator.py"))
+    print(f"    → this project's own files are byte-for-byte unchanged: {unchanged}; this tool still exists: "
+          f"{real_self}.")
+    ok &= (unchanged and real_self)
+
+    print("\n" + ("All overlap checks behaved." if ok else "AN OVERLAP CHECK DID NOT BEHAVE — see above."))
+    return 0 if ok else 1
+
+
 def _parse_apply_flags(argv: list) -> dict:
     """Translate the apply CLI flags into the per-kind operator decisions the apply phase consents on:
     `--install-uv` approves installing the engine's tools; `--plan-mode adopt|keep` answers the planning
@@ -1259,6 +1649,8 @@ def main(argv: list) -> int:
         return _apply_demo()
     if argv and argv[0] == "finish-demo":
         return _finish_demo()
+    if argv and argv[0] == "collision-demo":
+        return _demo_collisions()
     if argv and argv[0] == "confirm":
         keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
         tier = _flag_value(argv, "--tier") or "solo"
@@ -1284,6 +1676,15 @@ def main(argv: list) -> int:
         # confirms completion (exit 0).
         res = retire()
         return 1 if res.get("refused") else 0
+    if argv and argv[0] == "collision-check":
+        # The overlap check runs when the engine is ADDED to a project that already has its own files. In this
+        # construction repo (engine == product) there is nothing to detect — running it here would read every
+        # engine file as a project file colliding with itself — so the verb short-circuits, read-only. The
+        # detection logic (collision_check) is exercised by `collision-demo` and the tests; its live caller is
+        # the deferred brownfield-arrival path.
+        print("This is the workshop where the engine is built — the overlap check runs when the engine is "
+              "added to a project that already has its own files. Nothing to detect here.")
+        return 0
     # `show` (or no argument): the read-only gather walkthrough. In an already-set-up repo (this one), it
     # short-circuits rather than re-offering setup.
     if is_provisioned():
