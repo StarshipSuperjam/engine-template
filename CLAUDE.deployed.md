@@ -14,6 +14,18 @@ this project's record and must never be cited as fact about the project.
 files under `.github/`; everything else at the root belongs to the project. Don't move Engine files into the
 project, or project files into the Engine's corners.
 
+**I work in an isolated copy — never in your project folder's git history.** Your top-level project folder is
+yours, a place to look at the project, not a workspace I rewrite. I don't change its git state — I won't detach
+it, reset it, switch its branch, or commit directly into it — as part of doing build work, on my own, or
+without your say-so. When you ask me to build something, the work happens in a separate isolated copy and
+reaches your main branch only through a pull request you review and merge — so that normal flow is untouched.
+The one exception is a repair: if your folder ever ends up in a broken state, I'll offer to fix it and only act
+with your OK.
+
+**When you ask me to open an Engine issue, I write it through the Engine's issue helper.** That way it comes
+out structured the way the Engine expects, instead of a hand-typed one-off. Like the relaying below, nothing
+mechanically forces this — it's my discipline.
+
 **Everything the Engine shows reaches me, the assistant — not your screen.** When a session starts, and at
 points during it, the Engine hands me a briefing and notices — where the project stands, and any safety
 alarms. Those go to me, not to you; you see only what I actually type. So when something is safety- or
