@@ -1402,8 +1402,24 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:670ef1def98923409cf7a971009162d2c878ba038d1f3208378bcf09ae5eb2c3",
+        "fingerprint": "sha256:3cf991bfdcdcf0eda8a245c3a172ab1de3e2e566f041b2d791cd8dc69a719684",
         "path": ".engine/tools/engine_help.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:engine_status",
+      "name": ".engine/tools/engine_status.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine_status",
+      "source": {
+        "fingerprint": "sha256:3dea975217ea7ace9246c9779d3a23ded529073a6005f6732a8804c0dbe1f98a",
+        "path": ".engine/tools/engine_status.py"
       },
       "type": "tool"
     },
@@ -1818,8 +1834,24 @@
       },
       "slug": "test_engine_help",
       "source": {
-        "fingerprint": "sha256:7a7b39ef49bbcde5ddfefb5c0162e5da11ec5e07c758253bff955fae9d0f6ee7",
+        "fingerprint": "sha256:a4b23cbdece073f009279b25bd838fdc34e7819561804f2cce253ebec30f3e9c",
         "path": ".engine/tools/test_engine_help.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_engine_status",
+      "name": ".engine/tools/test_engine_status.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_engine_status",
+      "source": {
+        "fingerprint": "sha256:46869c5eac48c9faef2ef52ee6462bf02f27a977aa9e9d0cc109ba209f8bbaaf",
+        "path": ".engine/tools/test_engine_status.py"
       },
       "type": "tool"
     },
