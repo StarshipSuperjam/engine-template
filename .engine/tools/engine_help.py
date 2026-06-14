@@ -6,9 +6,11 @@ commands so a non-engineer asking "what can I do here?" always gets an answer. I
 from committed files only — never an MCP substrate — so an outage cannot blank it (the §14 discovery
 axis; degrade-to-git-native). Two parts:
 
-- Installed commands — the engine's OWN, engine-prefixed, operator-typed verbs present on disk
+- Installed commands — the engine's OWN, engine-prefixed, operator-invocable verbs present on disk
   (`.claude/skills/engine-*/SKILL.md` and the legacy `.claude/commands/engine-*.md`), each shown as the
-  command the operator types plus its one-line description. Scoped to the engine's commands (the
+  command the operator types plus its one-line description. Operator-invocable = the invocation axis the
+  operator can reach: `operator-typed` and `model-auto` (an omitted invocation defaulting to model-auto);
+  `model-only` verbs are hidden from the operator's menu. Scoped to the engine's commands (the
   engine/operator wall, the same scope the self-election guard governs); the operator's own un-prefixed
   product commands, and the full command set, are the platform's bare `/` menu to show, not this one's.
 - Available-if-installed commands — optional commands the operator could add, RELAYED from the committed
@@ -63,11 +65,12 @@ def _typed_name(path: str) -> str:
 
 
 def installed_verbs(root: str | None = None) -> list:
-    """The engine's installed operator-typed commands as a list of {name, description}, sorted by the
-    typed name. Globs only the engine-prefixed command files and keeps only the commands the operator
-    actually types (the operator-typed invocation axis). Each file's frontmatter parse is guarded: a
-    malformed command file is skipped rather than allowed to crash the whole listing (degrade, never
-    blank — the always-answers guarantee)."""
+    """The engine's installed operator-invocable commands as a list of {name, description}, sorted by the
+    typed name. Globs only the engine-prefixed command files and keeps only the commands the operator can
+    invoke — the operator-invocable axis: `operator-typed` and `model-auto` (an omitted invocation defaults
+    to model-auto), but not `model-only`, which is hidden from the operator's menu. Each file's frontmatter
+    parse is guarded: a malformed command file is skipped rather than allowed to crash the whole listing
+    (degrade, never blank — the always-answers guarantee)."""
     base = root or validate.ROOT
     verbs = []
     for pattern in _ENGINE_VERB_GLOBS:
@@ -77,8 +80,9 @@ def installed_verbs(root: str | None = None) -> list:
             except Exception:
                 # A broken command file must not blank the list — skip it, keep answering.
                 continue
-            if fm.get("invocation") != "operator-typed":
-                continue
+            inv = fm.get("invocation") or "model-auto"   # an omitted invocation is model-auto (platform default)
+            if inv not in ("operator-typed", "model-auto"):
+                continue   # model-only is hidden from the operator's menu; an unknown value too
             verbs.append({"name": _typed_name(path), "description": str(fm.get("description") or "")})
     return sorted(verbs, key=lambda v: v["name"])
 

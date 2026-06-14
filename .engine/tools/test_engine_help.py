@@ -1,7 +1,8 @@
 """Tests for `/engine-help`'s listing tool (core slice 26b) — the degradation-proof command index.
 
-Verifies: engine-only scoping (un-prefixed product skills ignored); the operator-typed filter
-(model-auto and model-only verbs excluded); the typed-name source (directory for a skill, filename for
+Verifies: engine-only scoping (un-prefixed product skills ignored); the operator-invocable filter
+(operator-typed AND model-auto listed — including a skill with NO invocation, which defaults to model-auto —
+while model-only verbs are excluded); the typed-name source (directory for a skill, filename for
 a legacy command — NOT the display `name`); the load-bearing degradation guarantee (a malformed command
 file is skipped, the listing never raises — contrasted with the merged `validate.frontmatter`, which
 DOES raise on the same input); the available-commands relay (empty when absent, relayed-sorted when
@@ -32,23 +33,27 @@ _OP_TYPED = ("---\nname: engine-start\ndescription: Start building.\ninvocation:
              "disable-model-invocation: true\n---\n\n## Steps\n\n1. Go.\n")
 _OP_TYPED_HELP = ("---\ndescription: List the commands.\ninvocation: operator-typed\n"
                   "disable-model-invocation: true\n---\n\n## Steps\n\n1. Go.\n")
-_MODEL_AUTO = ("---\nname: engine-auto\ndescription: An auto one.\n---\n\n## Steps\n\n1. Go.\n")
+_MODEL_AUTO = ("---\nname: engine-auto\ndescription: An auto one.\n---\n\n## Steps\n\n1. Go.\n")  # OMITTED invocation = model-auto
+_MODEL_AUTO_EXPLICIT = ("---\nname: engine-pull\ndescription: An explicit auto one.\ninvocation: model-auto\n"
+                        "---\n\n## Steps\n\n1. Go.\n")
 _MODEL_ONLY = ("---\ndescription: A model-driven one.\ninvocation: model-only\nuser-invocable: false\n"
                "---\n\n## Steps\n\n1. Go.\n")
 _MALFORMED = "---\ndescription: [unclosed\ninvocation: operator-typed\n---\n\n## Steps\n\n1. Go.\n"
 
 
 class TestInstalledVerbsDiscovery(unittest.TestCase):
-    def test_lists_engine_operator_typed_only_sorted(self):
+    def test_lists_engine_operator_invocable_sorted(self):
         with tempfile.TemporaryDirectory() as d:
             _write(os.path.join(d, ".claude/skills/engine-start/SKILL.md"), _OP_TYPED)
             _write(os.path.join(d, ".claude/skills/engine-help/SKILL.md"), _OP_TYPED_HELP)
-            _write(os.path.join(d, ".claude/skills/engine-auto/SKILL.md"), _MODEL_AUTO)    # model-auto → excluded
-            _write(os.path.join(d, ".claude/skills/engine-watch/SKILL.md"), _MODEL_ONLY)   # model-only → excluded
-            _write(os.path.join(d, ".claude/skills/my-product/SKILL.md"), _OP_TYPED)       # un-prefixed → ignored
+            _write(os.path.join(d, ".claude/skills/engine-auto/SKILL.md"), _MODEL_AUTO)            # omitted → model-auto → listed
+            _write(os.path.join(d, ".claude/skills/engine-pull/SKILL.md"), _MODEL_AUTO_EXPLICIT)   # explicit model-auto → listed
+            _write(os.path.join(d, ".claude/skills/engine-watch/SKILL.md"), _MODEL_ONLY)           # model-only → excluded
+            _write(os.path.join(d, ".claude/skills/my-product/SKILL.md"), _OP_TYPED)               # un-prefixed → ignored
             names = [v["name"] for v in eh.installed_verbs(root=d)]
-            self.assertEqual(names, ["engine-help", "engine-start"],
-                             "only the engine's own operator-typed verbs, alphabetical")
+            self.assertEqual(names, ["engine-auto", "engine-help", "engine-pull", "engine-start"],
+                             "the engine's own operator-invocable verbs (operator-typed + model-auto), alphabetical; "
+                             "model-only and un-prefixed excluded")
 
     def test_typed_name_is_the_directory_not_the_display_label(self):
         with tempfile.TemporaryDirectory() as d:
@@ -168,7 +173,9 @@ class TestRender(unittest.TestCase):
 
 class TestCLI(unittest.TestCase):
     def test_main_prints_the_real_listing(self):
-        # On the real repo this very command (/engine-help) and /engine-start are listed.
+        # On the real repo this very command (/engine-help) and /engine-start are listed — and /engine-status,
+        # the model-auto status verb, which appears ONLY because the filter is operator-invocable (not
+        # operator-typed-only): an end-to-end check that the widened filter + the skill's invocation axis agree.
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = eh.main([])
@@ -176,6 +183,7 @@ class TestCLI(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("/engine-help", out)
         self.assertIn("/engine-start", out)
+        self.assertIn("/engine-status", out)
 
     def test_demo_runs_and_narrates_degradation(self):
         buf = io.StringIO()
