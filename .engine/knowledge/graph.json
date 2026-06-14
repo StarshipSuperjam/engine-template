@@ -1354,7 +1354,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:67c1566c64586684b3993a77dc1360d56e5492d4b06f789a62ef5238d41ab955",
+        "fingerprint": "sha256:4bd7a4e1546524fa0bbc9f78cc932635252359925a14cdbe9d685b4564369cd4",
         "path": ".engine/tools/boot.py"
       },
       "type": "tool"
@@ -1372,6 +1372,22 @@
       "source": {
         "fingerprint": "sha256:95dca5afd2a0d9b9f31c5e23c9a985667b524ef3e851bc848c26239978209622",
         "path": ".engine/tools/bootstrap.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:checkout_health",
+      "name": ".engine/tools/checkout_health.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "checkout_health",
+      "source": {
+        "fingerprint": "sha256:603127aac9bebf9756019f2e3bc190ad67bf01bc6279949b2e7e29e27db9707b",
+        "path": ".engine/tools/checkout_health.py"
       },
       "type": "tool"
     },
@@ -1418,7 +1434,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:3dea975217ea7ace9246c9779d3a23ded529073a6005f6732a8804c0dbe1f98a",
+        "fingerprint": "sha256:2c60a715c3cfed833e9ffef74c22056234242a51ae3ab9c959589ddf0f617aa3",
         "path": ".engine/tools/engine_status.py"
       },
       "type": "tool"
@@ -1754,7 +1770,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:2eabb242e43cbf8b82be7b097a57899bd3917517bc92f979b1c4ab2099ac7876",
+        "fingerprint": "sha256:d906818c3d2629eaa7dd49a7607c37e69dcf833a486a725f41b9ed73ded35103",
         "path": ".engine/tools/test_boot.py"
       },
       "type": "tool"
@@ -1772,6 +1788,22 @@
       "source": {
         "fingerprint": "sha256:78683bfd8ac245e327c1365cf36ed358190e097de41b4dc6ef26b42b06b02cdd",
         "path": ".engine/tools/test_bootstrap.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_checkout_health",
+      "name": ".engine/tools/test_checkout_health.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_checkout_health",
+      "source": {
+        "fingerprint": "sha256:2e2bce12ce49d00954dd4bd1efe0a8976b117a953c3db2cae677757a3dffd1a8",
+        "path": ".engine/tools/test_checkout_health.py"
       },
       "type": "tool"
     },

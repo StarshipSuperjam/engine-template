@@ -54,7 +54,7 @@ def _assert_ai_briefing(t, pack):
 _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integration_debt": {}},
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "findings_unavailable": False, "debt_count": 0, "debt_as_of": None, "att_lines": [],
-            "att_degraded": False, "shipped": [], "stance": "Exploring"}
+            "att_degraded": False, "shipped": [], "stance": "Exploring", "strand": None}
 
 
 def _signals(**over):
@@ -228,6 +228,55 @@ class TestGovernanceAlarms(unittest.TestCase):
             with mock.patch.object(boot.protection_guard, "api_get", return_value=body):
                 self.assertEqual(boot.protected_branch_signal("o/r", "t"), ("unknown", None),
                                  f"a non-list body ({body!r}) must read unknown, never on")
+
+
+class TestStrandSurfacing(unittest.TestCase):
+    """Slice B: a stranded operator checkout is surfaced read-only at the OPEN-FINDINGS tier — pinned BELOW
+    the governance alarms (a stranded local checkout cannot reach the protected branch) and NOT in the
+    must-push/INFORM set. Detection only — the line names that it cannot yet be repaired (the fix is slice C)."""
+    _STRAND = {"states": ["detached"], "main": "/p"}
+
+    def test_render_surfaces_the_strand_line_only_when_stranded(self):
+        stranded = boot.render_dashboard(_signals(strand=self._STRAND))
+        self.assertIn("drifted into a broken state", stranded)
+        self.assertIn("can't repair it for you yet", stranded)   # honest: detection only, no fix this slice
+        self.assertNotIn("drifted into a broken state", boot.render_dashboard(_signals(strand=None)))
+
+    def test_strand_pins_below_the_governance_alarm(self):
+        # gate off AND stranded: the safety-gate alarm pins ABOVE the strand heads-up (the tier order).
+        pack = boot.render_dashboard(_signals(gate="off", reason="x", strand=self._STRAND))
+        lines = pack.splitlines()
+        gate = next(i for i, ln in enumerate(lines) if "safety gate is off" in ln.lower())
+        strand = next(i for i, ln in enumerate(lines) if "drifted into a broken state" in ln.lower())
+        self.assertLess(gate, strand, "the governance alarm must pin above the strand heads-up")
+
+    def test_present_marker_reflects_a_strand_but_governance_outranks(self):
+        self.assertEqual(boot.present_marker_line(_signals(strand=self._STRAND)),
+                         f"⚠ {boot.PRESENT_MARKER}: your project folder needs attention")
+        self.assertEqual(boot.present_marker_line(_signals(strand=None)),
+                         f"{boot.PRESENT_MARKER}: all clear")
+        # a governance alarm still wins the marker even when the folder is ALSO stranded
+        self.assertEqual(boot.present_marker_line(_signals(gate="off", strand=self._STRAND)),
+                         "⚠ Protected branch is off")
+
+    def test_strand_is_not_in_the_must_push_set(self):
+        # a strand is NOT governance-critical -> no INFORM marker (relayed via the needs-attention headline).
+        self.assertEqual(boot.must_push(_signals(strand=self._STRAND)), [])
+        self.assertFalse(any("folder" in it.lower() for it in
+                             boot.must_push(_signals(gate="off", reason="x", strand=self._STRAND))))
+
+    def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.checkout_health, "detect_strand", return_value=self._STRAND):
+                relayed = boot.gather_signals()
+            with mock.patch.object(boot.checkout_health, "detect_strand", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["strand"], self._STRAND)   # the detector's signal is relayed verbatim
+        self.assertIsNone(failed["strand"])                 # a detector failure degrades quietly to None
 
 
 class TestFailOpen(unittest.TestCase):

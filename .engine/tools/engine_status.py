@@ -58,6 +58,7 @@ _EXAMPLE_SIGNALS = {
     "att_degraded": [],
     "shipped": ["#42 Add the sign-in page", "#41 Set up the database"],
     "stance": "Looking around — reading and planning, not changing anything yet.",
+    "strand": None,   # the operator-checkout strand signal (boot slice B); None = the folder is healthy
 }
 
 
