@@ -164,10 +164,36 @@ def describe_stance(stance: str) -> str:
     return _STANCE_LINES.get(stance, _STANCE_LINES[EXPLORE])
 
 
+def describe_explore_scope() -> str:
+    """The ASSISTANT-FACING scope of the Explore write-gate — what it ALLOWS and DENIES, in plain words, so
+    a session knows its own structure and does not over-restrict itself (e.g. switch to Build merely to log
+    a GitHub issue, which Explore already allows). This is for the MODEL's grounding, NOT the operator: boot
+    places it in the AI-facing briefing, never the operator dashboard, and it is self-labelled "don't relay
+    this" so it cannot leak into the operator-presentation relay.
+
+    Explore-ONLY by design: boot clears the stance to Explore at every SessionStart (boot.handler), so the
+    briefing that carries this note is always an Explore session — Build/Routine never receive a fresh boot
+    pack, so a per-stance variant would be copy that is never surfaced. The allow/deny wording here MUST
+    track is_building_action / _MUTATING_TOOLS / _BASH_BUILD_PATTERNS; a fidelity test (test_modes) pins the
+    prose to that set so the two cannot drift."""
+    return (
+        "How your Explore stance actually works (for you — don't relay this; it's about how your own "
+        "session is wired, not a status update for the operator). Right now, WITHOUT entering Build, you "
+        "may: read files; run tests and other read-only commands; search the codebase; spawn subagents; "
+        "write Claude Code's plan file; and log GitHub issues (`gh issue create`). You may NOT, until the "
+        "operator tells you to build: edit or write any files, create a branch, commit, or open a pull "
+        "request. So don't switch to Build just to log an issue or read around — those are allowed in "
+        "Explore. (The gate is a strong default, not a wall; the real guarantee is that nothing reaches the "
+        "main branch without a pull-request review.)"
+    )
+
+
 # ---- the denied-action match list (a build-spec leaf, settled here) -------------------------
 # The small enumerated set that BEGINS building (modes/README §"Explore"): file edits, branch creation,
 # commits, and opening a pull request. `git push` is deliberately NOT here — the source enumerates these
 # four, and Explore must stay the comfortable place to work (no default-deny, nothing else taxed).
+# The plain-language, assistant-facing rendering of THIS allow/deny split lives in describe_explore_scope();
+# a fidelity test (test_modes) pins that prose to this set — change the two together, never one alone.
 _MUTATING_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 
 # Best-effort shell building-verb patterns over the Bash command string. Best-effort by construction:
@@ -236,8 +262,9 @@ def is_plan_artifact(tool_name: str, tool_input, permission_mode) -> bool:
 # The plain-language denial — names what was blocked AND the concrete way forward, never a silent
 # refusal (modes/README §"The stance is always operator-legible").
 _DENIAL = ("I didn't make that change — we're exploring, so I won't edit files, commit, create a branch, "
-           "or open a pull request yet. Tell me to build it and I'll open a pull request — the change I "
-           "submit for your approval.")
+           "or open a pull request yet. (I can still read, run tests, search, and log GitHub issues while "
+           "we explore — those don't need build.) Tell me to build it and I'll open a pull request — the "
+           "change I submit for your approval.")
 
 
 # ---- the PreToolUse write-gate handler ------------------------------------------------------
