@@ -415,6 +415,22 @@ class TestStanceLine(unittest.TestCase):
         self.assertIn(boot.modes.describe_stance("explore"), pack)
         self.assertIn("Exploring", pack)
 
+    def test_pack_carries_the_assistant_facing_explore_scope_note(self):
+        # The AI-facing briefing grounds the model on what Explore actually permits/denies, so a session
+        # does not over-restrict itself (the bug: switching to Build merely to log a GitHub issue, which
+        # Explore allows). modes owns the copy; boot places it. It must stay AI-facing only.
+        patchers = _offline()
+        try:
+            pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        note = boot.modes.describe_explore_scope()
+        self.assertIn(note, pack)                       # the briefing carries the gate-scope grounding
+        self.assertIn("don't relay", pack.lower())      # self-labelled so the AI does not relay it
+        # the note stays OUT of the operator's own dashboard view — the operator surface is unchanged.
+        self.assertNotIn(note, boot.render_dashboard(_signals()))
+
     def test_handler_clears_the_stance_for_this_session(self):
         # the handler's FIRST job is to clear the stance signal for the session id the payload carries,
         # so every session — including a resume — boots Explore and never inherits a prior Build signal.

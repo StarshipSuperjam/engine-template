@@ -433,6 +433,11 @@ def assemble_pack(session_id: str | None = None) -> str:
                "their attention, and offer the full status on request. The protected-branch merge is the "
                "real governance guarantee — this relay is your discipline, not a wall.")
     out.append("")
+    # The Explore write-gate's scope, in plain words, for the MODEL's grounding (modes owns the vocabulary;
+    # boot places it). Self-labelled "don't relay" so it stays AI-facing and never enters the operator
+    # relay. Always the Explore note: the handler clears the stance to Explore before this pack is built.
+    out.append(modes.describe_explore_scope())
+    out.append("")
     out.append("--- the full status (your grounding; offer it if the operator asks where things stand) ---")
     out.append(dashboard)
     return "\n".join(out)

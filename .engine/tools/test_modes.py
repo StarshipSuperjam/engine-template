@@ -217,6 +217,28 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
         self.assertIn("Building", modes.describe_stance(modes.BUILD))
         self.assertEqual(modes.describe_stance("nonsense"), modes.describe_stance(modes.EXPLORE))
 
+    def test_describe_explore_scope_is_self_labelled_and_faithful_to_the_gate(self):
+        """The assistant-facing Explore-scope copy must name every allowed carve-out and every denied
+        building action, be self-labelled "don't relay", and stay TRUE to the gate it describes — so an AI
+        session does not over-restrict (the bug: switching to Build merely to log a GitHub issue). This is
+        the fidelity pin between the prose and is_building_action / _MUTATING_TOOLS / _BASH_BUILD_PATTERNS:
+        if the gate's allow/deny set changes, this test forces the copy to change with it."""
+        scope = modes.describe_explore_scope().lower()
+        # self-labelled assistant-facing: it must NOT be relayed into the operator-presentation channel
+        self.assertIn("don't relay", scope)
+        # every allowed carve-out the gate actually permits in Explore is named (no thin list)
+        for allowed in ("read", "test", "search", "subagent", "plan file", "gh issue"):
+            self.assertIn(allowed, scope, f"Explore-scope copy must name the ALLOWED action {allowed!r}")
+        # the denied building set is named — and NOT path-scoped (the gate denies edits by tool, any file)
+        for denied in ("edit or write any files", "branch", "commit", "pull request"):
+            self.assertIn(denied, scope, f"Explore-scope copy must name the DENIED action {denied!r}")
+        # fidelity to the live gate: what the copy calls "allowed" the gate allows; "denied" it denies
+        self.assertTrue(_allow(modes.handler(_explore_payload("Bash", "gh issue create -t x -b y"))))
+        self.assertTrue(_allow(modes.handler(_explore_payload("Read"))))
+        self.assertTrue(_deny(modes.handler(_explore_payload("Bash", "git commit -m x"))))
+        self.assertTrue(_deny(modes.handler(_explore_payload("Bash", "gh pr create"))))
+        self.assertTrue(_deny(modes.handler(_explore_payload("Write"))))
+
 
 class TestPlanArtifactCarveOut(unittest.TestCase):
     """#64 (D-177/D-178): in Explore the gate EXEMPTS Claude Code's native plan file — recognized by the
