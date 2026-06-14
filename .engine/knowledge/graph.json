@@ -58,6 +58,66 @@
       "type": "check"
     },
     {
+      "id": "check:conduct-frontmatter",
+      "name": ".engine/check/conduct-frontmatter.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "conduct:defaults"
+        ]
+      },
+      "slug": "conduct-frontmatter",
+      "source": {
+        "fingerprint": "sha256:146d5adedf43e8df410c0aae6c737ae6048431b4932aedee9c9bf603168faac7",
+        "path": ".engine/check/conduct-frontmatter.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:conduct-shape",
+      "name": ".engine/check/conduct-shape.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "conduct-shape",
+      "source": {
+        "fingerprint": "sha256:6d0aba1ac2cc07786ec37f9f820f0ec79f77c9669013556ac729d0f13457d1ac",
+        "path": ".engine/check/conduct-shape.json"
+      },
+      "type": "check"
+    },
+    {
+      "id": "check:conduct-weakening-guard",
+      "name": ".engine/check/conduct-weakening-guard.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "conduct-weakening-guard",
+      "source": {
+        "fingerprint": "sha256:c6c557f2f9e6efcd045ef144f3e0db038af06bc35d8506d7620e26d42d5ec900",
+        "path": ".engine/check/conduct-weakening-guard.json"
+      },
+      "type": "check"
+    },
+    {
       "id": "check:contract-frontmatter",
       "name": ".engine/check/contract-frontmatter.json",
       "owner": "validators-core",
@@ -295,6 +355,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:conduct-author",
           "operation:control-plane-bootstrap",
           "operation:engine-remove",
           "operation:engine-upgrade",
@@ -327,6 +388,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:conduct-author",
           "operation:control-plane-bootstrap",
           "operation:engine-remove",
           "operation:engine-upgrade",
@@ -568,6 +630,25 @@
       "type": "check"
     },
     {
+      "id": "conduct:defaults",
+      "name": ".engine/conduct/defaults.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:conduct.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "defaults",
+      "source": {
+        "fingerprint": "sha256:8f1d5581afb17341f2119ce5a4b83243d4fdd93c14ccb221e5b99944a50153ef",
+        "path": ".engine/conduct/defaults.md"
+      },
+      "type": "conduct"
+    },
+    {
       "id": "contract:.gitkeep",
       "name": ".engine/contracts/.gitkeep",
       "owner": "core",
@@ -650,7 +731,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:d21eb747ec60d0c2433fdd49399bc95c930fd9c03d44f113aeb2a5305a72b91c",
+        "fingerprint": "sha256:a40cd5fe4b33e0f7489dc201ecf0d0d0eb5a0ca8b270d03241f2cb2503181127",
         "path": ".engine/modules/core/manifest.json"
       },
       "type": "module"
@@ -666,7 +747,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:e2fe16d7cd0d4a2d49739b23239589440daca700f41eb56e52218e063e82cc79",
+        "fingerprint": "sha256:4e87ecb0756282d7e2d8d4705c89d79be4dbf623f56907c796318c6835e84263",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "type": "module"
@@ -725,6 +806,25 @@
       "source": {
         "fingerprint": "sha256:deaa1557ef0c94fc67bf3748d56bb01ff0ae686f3af753c53846c7c20f71d558",
         "path": ".engine/operations/close-turn.md"
+      },
+      "type": "operation"
+    },
+    {
+      "id": "operation:conduct-author",
+      "name": ".engine/operations/conduct-author.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "conduct-author",
+      "source": {
+        "fingerprint": "sha256:f161e0fd9a0fc690d544e4d488c65a956bd1eb2a5133ca1517e60b0974bd9899",
+        "path": ".engine/operations/conduct-author.md"
       },
       "type": "operation"
     },
@@ -799,7 +899,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:3b0bf6e9e5ae04e76d9032c0a935f4b5d24fa2b6386a3281f307ac6656cbbf59",
+        "fingerprint": "sha256:269750e1791a743f64dbe1ee077d25708d8ae368edcf443af969245009c59df1",
         "path": ".engine/operations/first-run.md"
       },
       "type": "operation"
@@ -1040,6 +1140,22 @@
       "type": "schema"
     },
     {
+      "id": "schema:conduct.v1",
+      "name": ".engine/schemas/conduct.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "conduct.v1",
+      "source": {
+        "fingerprint": "sha256:8d1f110dea50195885648ce27f6351e9983fa11876dd5bfd351403e92db5df8a",
+        "path": ".engine/schemas/conduct.v1.json"
+      },
+      "type": "schema"
+    },
+    {
       "id": "schema:contract.v1",
       "name": ".engine/schemas/contract.v1.json",
       "owner": "core",
@@ -1146,7 +1262,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:0a8c26e6eea86fc5ac042b603c99ee26b3a89a97245870aa40f8d2b9f458a873",
+        "fingerprint": "sha256:96e84b69c3bee9367e07bf8b8c45d801adac244fe30977d6783d1f244bb15fc5",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "type": "schema"
@@ -1274,7 +1390,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:5e359ee5e25f332619f9c7a345eb5c30d12ec9052e41555f1a656d912cf36964",
+        "fingerprint": "sha256:4aff2f38cac9e45e16ea0d1ffb24b9a6ead1687076d0280d146eb993a6f54dc5",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "type": "schema"
@@ -1408,6 +1524,38 @@
       "type": "tool"
     },
     {
+      "id": "tool:conduct_shape_check",
+      "name": ".engine/tools/conduct_shape_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "conduct_shape_check",
+      "source": {
+        "fingerprint": "sha256:7f4eb3f22751b333f7211d2d9afbbb21483c861c1cc6f34b86334099789a2037",
+        "path": ".engine/tools/conduct_shape_check.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:conduct_weakening_check",
+      "name": ".engine/tools/conduct_weakening_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "conduct_weakening_check",
+      "source": {
+        "fingerprint": "sha256:38b34d22af87483d0e397950a0e18fdfc7f512e4fc224f800920774bf286fc82",
+        "path": ".engine/tools/conduct_weakening_check.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:engine_help",
       "name": ".engine/tools/engine_help.py",
       "owner": "core",
@@ -1466,7 +1614,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:5fa7fc8f9219900409b69cce7bf5ca7451713c73f9dadb97fcc6574ae12e8eb6",
+        "fingerprint": "sha256:83174cab2ea92013e89c64c9849df7ada90210218e48e108a30adca7fcc2924d",
         "path": ".engine/tools/instantiator.py"
       },
       "type": "tool"
@@ -1594,7 +1742,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:b5a9ed5de58584631fd34b00afd9b09a7187070e267aa6e7fb96f0b624a82a1b",
+        "fingerprint": "sha256:b0dca9f6e51951662d2f08f8a43689136b433d42b0e8fc12587eae74a2b9331c",
         "path": ".engine/tools/module_coherence.py"
       },
       "type": "tool"
@@ -1824,6 +1972,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_conduct",
+      "name": ".engine/tools/test_conduct.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_conduct",
+      "source": {
+        "fingerprint": "sha256:11f4de7c26218845022692d6437ae1a2f7f09ff079d19248d9ecaf2cd5b953f8",
+        "path": ".engine/tools/test_conduct.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_contract",
       "name": ".engine/tools/test_contract.py",
       "owner": "core",
@@ -2042,7 +2206,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:67d6ac7af5665e23c4552d144676145f9b4775132454e2612e0140daa91dc4bf",
+        "fingerprint": "sha256:75339c88ab51c8aeaffc2bd6726969be7453855f0c434c87152fc0dfa976f8fd",
         "path": ".engine/tools/test_modules.py"
       },
       "type": "tool"

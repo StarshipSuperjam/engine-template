@@ -42,6 +42,13 @@ planning mode instead — I'd lay out my plan and wait for your go-ahead before 
 little safer. Use planning mode for this project, or keep your own default? Keeping yours changes nothing.
 Either way, nothing about your setup elsewhere changes and no safety check is removed.
 
+## Your stance came with this project
+
+This project came set up with a starting set of codes of conduct — short notes on how you like me to work with
+you (for example, speaking plainly, and explaining choices before you make them). They're here from the first
+session, and they're yours: change, add, or remove any of them any time with /engine-conduct. I didn't put
+them in place silently — this note is me telling you they're here.
+
 ## About automatic secret scanning
 
 A quick note on automatic secret scanning — the check that warns you if a password or key is committed by

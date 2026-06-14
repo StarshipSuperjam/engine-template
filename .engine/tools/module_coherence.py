@@ -105,8 +105,12 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # the operator's tuning). This is the LOCKED carve-out of module-system/README §Coherence: "Operator- and
 # deployment-authored committed content is outside this leg ... coherence does not read them as orphans, the
 # same shape of carve-out by which CODEOWNERS and the foundation .gitignore block sit [outside it]" (D-167,
-# D-169). Absent until the first tune, so it never appears in this construction repo; fixture-tested.
-OPERATOR_CONFIG = {".engine/operator-overrides.json"}
+# D-169). Absent until the first tune, so it never appears in this construction repo; fixture-tested. The
+# conduct operator-override (.engine/conduct/operator.md) and the maintainer's conduct seed
+# (.engine/provisioning/conduct-seed.md) are the same kind of carve-out (slice CD): operator-authored stance,
+# preserved across overlay, in no `provides`, so the ownership leg must not read them as orphans either.
+OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/conduct/operator.md",
+                   ".engine/provisioning/conduct-seed.md"}
 
 # Directories under .engine/ that are regenerable derivatives or caches — never owned files. The
 # inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts

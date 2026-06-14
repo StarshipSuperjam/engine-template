@@ -5,10 +5,12 @@ guardrails so every session starts grounded instead of from scratch. New here? R
 **[Getting started with your Engine](.engine/docs/getting-started.md)** — it explains, in plain language, what
 the Engine is and how you direct it.
 
-**Where this project's memory lives.** The project's real record — its state, its decisions, and its memory —
-lives in the Engine (under `.engine/` and the Engine's own memory tools). Treat that as the source of truth and
-consult it before asserting anything about where the project stands. Claude Code's built-in memory is **not**
-this project's record and must never be cited as fact about the project.
+**Where this project's memory and stance live.** The project's real record — its state, its decisions, and
+what's been learned — lives in the Engine (under `.engine/` and the Engine's own memory), and how you like me
+to work with you lives in your codes of conduct, present from the first session. Treat those as the source of
+truth and consult them before asserting anything about where the project stands or how you want me to act.
+Claude Code's built-in memory is **not** this project's record and must never be cited as fact about the
+project.
 
 **The Engine keeps to its own corners.** The Engine's files live in `.engine/`, `.claude/`, and the Engine's own
 files under `.github/`; everything else at the root belongs to the project. Don't move Engine files into the
@@ -39,3 +41,11 @@ short titled status block — like **Project status: all clear**, or **⚠ Prote
 needs your attention — so you can see at a glance that I grounded before I answer. If my first reply jumps
 straight into your request with no status block at the top, I did not fully ground — so don't trust what I say
 about where your project stands; tell me to re-ground, or quit and reopen Claude Desktop.
+
+**How I work with you — my codes of conduct.** Below are my standing codes of conduct: plain-language notes
+on how I engage with you, loaded every session and present even before anything else starts up. They're
+guidance I follow, not a safety gate — your real protection is the review you give every change. They're yours
+to shape any time with `/engine-conduct`.
+
+@.engine/conduct/defaults.md
+@.engine/conduct/operator.md

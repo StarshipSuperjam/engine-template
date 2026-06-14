@@ -19,6 +19,15 @@
       "governing_schema": "policy.v1.json",
       "template": "../templates/policy.md"
     },
+    "conduct": {
+      "class": "prose",
+      "location": ".engine/conduct/",
+      "purpose": "Codes of conduct — the operator's standing behavioral stance for how the AI engages (plain language, provenance, push-back, and the like); tier-3 guidance, pure posture, never an enforcement gate. Two committed layers (engine defaults plus operator override) composed by rule id, loaded at the grounding floor.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": "conduct.v1.json",
+      "template": "../templates/conduct.md"
+    },
     "schema": {
       "class": "structured",
       "location": ".engine/schemas/",
