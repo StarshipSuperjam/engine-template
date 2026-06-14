@@ -704,7 +704,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:08b5953dd849abb3c2d359bc55cab135a06a5a3f703f5256cb89d8f805b60185",
+        "fingerprint": "sha256:d087d6925b1ab51f222d87d578564b62f093b1632c1567bb7c0ed63a1656045b",
         "path": ".engine/operations/build-orchestration.md"
       },
       "type": "operation"
@@ -723,7 +723,7 @@
       },
       "slug": "close-turn",
       "source": {
-        "fingerprint": "sha256:b476d509d3c4d625bb4ae061c802cfc26847077badb26ec4b1b2ee15e6e1ae8a",
+        "fingerprint": "sha256:deaa1557ef0c94fc67bf3748d56bb01ff0ae686f3af753c53846c7c20f71d558",
         "path": ".engine/operations/close-turn.md"
       },
       "type": "operation"
@@ -856,7 +856,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:1a12cf73e68324ade7665df263e5b91d80b7d4b82acd373016cad731ac2075e0",
+        "fingerprint": "sha256:fb3a504f4877e801e2926e5f6eb45fc9ab59a5abc8b8ce750266e0a905a46d16",
         "path": ".engine/operations/operating-modes.md"
       },
       "type": "operation"

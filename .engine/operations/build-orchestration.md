@@ -22,8 +22,9 @@ whose only wall is the protected-branch merge.
 
 1. **Plan — open the claim and propose coverage.** Open a **draft pull request**. Plan the change as an
    ordered commit sequence; when the work will be distributed across unattended sessions, record that
-   sequence as the build Issue's checklist (the format below). Then present the **risk assessment** — the
-   plan-gate consent surface, filled from the `risk-assessment` template (`.engine/templates/risk-assessment.md`):
+   sequence as the build Issue's checklist (the format below). Then **relay the risk assessment to the
+   operator in chat** (it reaches them only as what the assistant types — no hook channel renders to their
+   screen) — the plan-gate consent surface, filled from the `risk-assessment` template (`.engine/templates/risk-assessment.md`):
    the plain-language headline, what the change touches, **what will run** (the review passes this depth
    will run, and what is missing — never a time or a cost figure, which the engine has no method to know),
    the how-careful depth choice, and — only when the change weakens one of the engine's own guardrails — the

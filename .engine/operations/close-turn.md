@@ -49,9 +49,11 @@ turn-end gate did. If the gate itself cannot run, it lets the turn **end** (it n
 says so, with the work flagged for a closer look.
 
 Two honesty notes on what you see. The **hold** (the pushback that keeps a turn open until a concern is
-decided) is the reliable signal — it is delivered straight to the assistant, which acts on it. The **clean
-end-of-turn summary** ("everything I flagged this turn is handled…") is narrated by the assistant, not printed
-by the gate, and is quiet when nothing needed action; a saved follow-up's durable record is the tracked item
+decided) is the reliable signal — it is delivered straight to the assistant, which acts on it and, because no
+hook channel reaches your screen, relays it to you in plain words: a concern that needs your decision is
+passed on **emphatically** so it is never silently dropped. The **clean end-of-turn summary** ("everything I
+flagged this turn is handled…") is narrated by the assistant, not printed by the gate, and is **quiet when
+nothing needed action** — no per-turn banner; a saved follow-up's durable record is the tracked item
 itself, which the engine brings back to you in plain language the next time it starts up. When the engine
 saves a leftover as a tracked item, it only ever creates and touches items **it opened and labelled itself** —
 it never changes or closes the issues you created. And by default a turn is held **only** when the session

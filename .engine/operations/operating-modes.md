@@ -23,7 +23,9 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
 2. **While exploring, the gate denies the building actions and allows everything else.** It denies the
    small enumerated set that begins building — editing files (Edit / Write / MultiEdit / NotebookEdit),
    creating a branch, committing, and opening a pull request (via `gh pr create` or the GitHub MCP
-   create-pull-request tool) — with a plain sentence that names what was blocked and the way forward. It
+   create-pull-request tool) — with a plain sentence that names what was blocked and the way forward. That
+   denial rides the platform's `PreToolUse` reason channel, which does not reliably reach the operator's
+   screen, so the assistant relays it to the operator in plain words — never a silent refusal. It
    allows reading, running read-only commands and tests, greps, spawning subagents, and logging issues.
    It also allows Claude Code's own plan file — that is planning, not building — recognized by the
    platform's plan-mode marker, not a path, so it holds even if the plan folder is moved into the repo; a
@@ -47,8 +49,9 @@ tools/modes.py demo` (which also shows the plan-file carve-out and plan-acceptan
 
 The session's stance is legible and enforced as a nudge: in explore, a building action is refused with a
 plain sentence while a read or a test runs unimpeded; setting the build stance permits the same action;
-clearing the signal returns the session to explore. The current stance is named in the boot orientation
-card ("Exploring — I won't change files…").
+clearing the signal returns the session to explore. The current stance is named in the status block the
+assistant renders first each session ("Exploring — I won't change files…"), and a denied action is relayed
+to the operator in plain words rather than refused in silence.
 
 ## Notes
 
