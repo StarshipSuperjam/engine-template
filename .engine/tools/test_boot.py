@@ -239,7 +239,8 @@ class TestStrandSurfacing(unittest.TestCase):
     def test_render_surfaces_the_strand_line_only_when_stranded(self):
         stranded = boot.render_dashboard(_signals(strand=self._STRAND))
         self.assertIn("drifted into a broken state", stranded)
-        self.assertIn("can't repair it for you yet", stranded)   # honest: detection only, no fix this slice
+        self.assertIn("say the word", stranded.lower())          # slice C: boot now OFFERS the fix
+        self.assertIn("nothing is lost", stranded.lower())       # ...and names it lossless
         self.assertNotIn("drifted into a broken state", boot.render_dashboard(_signals(strand=None)))
 
     def test_strand_pins_below_the_governance_alarm(self):

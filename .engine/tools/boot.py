@@ -323,14 +323,15 @@ def render_dashboard(s: dict) -> str:
         degraded.append("I couldn't check the engine's open findings (no GitHub access from here).")
 
     # A stranded operator checkout — surfaced read-only, pinned AFTER the governance alarms (open-findings
-    # tier; a stranded local checkout cannot reach the protected branch). DETECTION ONLY here: the
-    # operator-consented un-stranding fix is the next slice, so — like the gate-off line's "a fix is
-    # coming, but for now…" — this names that it cannot yet be repaired rather than implying an action.
+    # tier; a stranded local checkout cannot reach the protected branch). boot OFFERS the fix here; the
+    # assistant runs the un-stranding fix (checkout_health.unstrand) only on the operator's consent — boot
+    # itself stays read-only. The fix is lossless-or-rescue-then-update (checkout_health / boot-session-start).
     if s["strand"]:
         pinned.append(
             "⚠️ **Your project folder has drifted into a broken state** — I work in a separate copy, so "
-            "this doesn't affect what we build, but your project folder needs attention. (An automatic "
-            "fix is on the way; for now this is a heads-up — I can't repair it for you yet.)")
+            "this doesn't affect what we build, but your project folder needs attention. Just say the word "
+            "and I'll get it healthy again — I'll save anything at risk first (including any work that's "
+            "drifted off your branch) to a safe point, so nothing is lost.")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
