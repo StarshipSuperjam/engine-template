@@ -9,6 +9,12 @@
 # (This construction repository runs no first-run setup, so the directory never appears here.)
 .engine/.uv/
 
+# Claude Desktop auto-isolates each session into its own worktree under here; ignored so these
+# sibling worktrees never pollute the top-level checkout's git status. Committed to the foundation
+# block so it travels with the template — a generated repo has no local .git/info/exclude equivalent
+# (engine-planning provisioning; D-189).
+.claude/worktrees/
+
 # Python bytecode cache (regenerable; never committed)
 __pycache__/
 *.pyc
