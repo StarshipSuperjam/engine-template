@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "knowledge.v1 — the engine's derived structural knowledge graph (committed entities)",
-  "description": "The committed knowledge graph: one entity per engine surface-instance file (each schema, each check, each tool, the state cursor, and — as they appear — each contract, policy, operation, skill, agent, interface, and doc) plus one entity per installed module, with the mechanical edges between them. It is PURELY STRUCTURAL and PURELY DERIVED — it records how the engine is wired (which module owns a file, which schema governs it, what a check targets, which modules depend on which), never WHY a choice was made (belief lives in memory, not here). It is generated, never hand-authored, and a fingerprint coverage check keeps it matching the surfaces it is derived from. This schema governs the single committed file .engine/knowledge/graph.json: a version stamp plus the array of entities, each carrying its id, type, source file + content fingerprint, owning module, and a closed-vocabulary map of outgoing edges. The derived query index and graph-query server are separate, regenerable, gitignored layers shipped by a later slice; this committed file is the source of truth and the offline cold-start readout.",
+  "description": "The committed knowledge graph: one entity per engine surface-instance file (each schema, each check, each tool, the state cursor, and — as they appear — each contract, policy, conduct, operation, skill, agent, interface, and doc) plus one entity per installed module, with the mechanical edges between them. It is PURELY STRUCTURAL and PURELY DERIVED — it records how the engine is wired (which module owns a file, which schema governs it, what a check targets, which modules depend on which), never WHY a choice was made (belief lives in memory, not here). It is generated, never hand-authored, and a fingerprint coverage check keeps it matching the surfaces it is derived from. This schema governs the single committed file .engine/knowledge/graph.json: a version stamp plus the array of entities, each carrying its id, type, source file + content fingerprint, owning module, and a closed-vocabulary map of outgoing edges. The derived query index and graph-query server are separate, regenerable, gitignored layers shipped by a later slice; this committed file is the source of truth and the offline cold-start readout.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "entities"],
@@ -20,7 +20,7 @@
     "entityId": {
       "description": "An entity identifier: the surface name (or the literal 'module') followed by ':' and a slug. Stable and human-meaningful (e.g. 'check:state-cursor', 'schema:state.v1', 'module:core'); used as the join key a consumer hands to memory at read time.",
       "type": "string",
-      "pattern": "^(contract|policy|schema|check|tool|operation|skill|agent|interface|doc|state|module):[A-Za-z0-9._-]+$"
+      "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|interface|doc|state|module):[A-Za-z0-9._-]+$"
     },
     "entity": {
       "description": "One node: a surface-instance file or an installed module, with its mechanically-derived facts and outgoing edges. No field carries belief — every value is read from the catalog, a manifest, a check's target, or the file's own bytes.",
@@ -30,8 +30,8 @@
       "properties": {
         "id": { "$ref": "#/$defs/entityId" },
         "type": {
-          "description": "What this entity is: one of the eleven catalogued surface names, or 'module' for an installed module. Matches the prefix of the id.",
-          "enum": ["contract", "policy", "schema", "check", "tool", "operation", "skill", "agent", "interface", "doc", "state", "module"]
+          "description": "What this entity is: one of the twelve catalogued surface names, or 'module' for an installed module. Matches the prefix of the id.",
+          "enum": ["contract", "policy", "conduct", "schema", "check", "tool", "operation", "skill", "agent", "interface", "doc", "state", "module"]
         },
         "name": {
           "description": "A human-readable label for the entity — the repo-relative source path for a surface instance, the module id for a module.",

@@ -29,9 +29,10 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    kept (their files are deleted); sets who reviews changes to the engine's own files; turns on the safer
    planning default for this project (or, if the operator already has their own editing default, offers to —
    and leaves theirs alone if they decline); **sets up the engine's own programs in a private project folder —
-   asking the operator's one-time go-ahead first, because this downloads software onto their machine**; switches
-   the engine on; and turns on the branch review gate that makes every change go through approval (which may ask
-   for a one-time GitHub approval, explained in plain words first). Show the operator the plain-language result
+   asking the operator's one-time go-ahead first, because this downloads software onto their machine**; seeds the
+   operator's starting codes of conduct from the project's seed and tells them, plainly, that the stance is
+   present and theirs to tune; switches the engine on; and turns on the branch review gate that makes every
+   change go through approval (which may ask for a one-time GitHub approval, explained in plain words first). Show the operator the plain-language result
    of each step. If the engine's programs can't be set up (for example, no internet), setup **stops safely at
    that point and never falls back to a different setup** — say so, and run `apply` again later to resume from
    where it left off. When the steps are done, show a plain summary of what was set up and anything still left

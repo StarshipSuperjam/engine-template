@@ -94,6 +94,7 @@ COPY_HEADINGS = {
     "tool-runtime-degraded": "If the engine's tools couldn't be set up",
     "plan-mode-adopted": "Your safer default is on",
     "plan-mode-conflict": "Your editing default — keep yours, or use the safer one",
+    "conduct-seeded": "Your stance came with this project",
     "security-tier": "About automatic secret scanning",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
@@ -212,6 +213,12 @@ FALLBACK_COPY = {
     "collision-unreadable": (
         "I couldn't make sense of {paths} just now, so I've left it completely untouched rather than risk "
         "changing it wrongly. Take a look at it, then run setup again — I'll pick up from here."
+    ),
+    "conduct-seeded": (
+        "This project came set up with a starting set of codes of conduct — short notes on how you like me "
+        "to work with you (for example, speaking plainly, and explaining choices before you make them). "
+        "They're here from the first session, and they're yours: change, add, or remove any of them any time "
+        "with /engine-conduct. I didn't put them in place silently — this note is me telling you they're here."
     ),
 }
 
@@ -553,11 +560,45 @@ def _apply_tool_runtime(uv_present, uv_installer, uv_runner, consent, say, copy)
     return {"step": "tool-runtime", "status": "materialized", "groups": groups}
 
 
-def _apply_substrates(say) -> dict:
+_EMPTY_OPERATOR = (
+    "---\ncodes: []\n---\n\n"
+    "<!-- Your own codes of conduct go here — add, revise, or remove them with /engine-conduct. They sit "
+    "alongside the engine's defaults and take priority when they share an id. This file is yours: an engine "
+    "update never overwrites it. It starts empty — the engine's defaults are already in force. -->\n"
+)
+
+
+def _seed_conduct(say, copy=None) -> str:
+    """Seed the operator's codes-of-conduct override from the maintainer's template seed — the seed-then-own
+    pattern (like the permission-mode default). Copies .engine/provisioning/conduct-seed.md into the committed
+    .engine/conduct/operator.md; an absent or empty seed yields a valid empty override, never an error. Then
+    discloses, in plain language, that the stance is present and theirs to tune (never silent). Paths are
+    validate.ROOT-relative, so a redirected demo/test seeds only the fixture, never the real tree."""
+    seed_path = os.path.join(validate.ROOT, ".engine", "provisioning", "conduct-seed.md")
+    target = os.path.join(validate.ROOT, ".engine", "conduct", "operator.md")
+    try:
+        content = ""
+        if os.path.isfile(seed_path):
+            with open(seed_path, encoding="utf-8") as fh:
+                content = fh.read()
+        if not content.strip():
+            content = _EMPTY_OPERATOR
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w", encoding="utf-8") as fh:
+            fh.write(content)
+    except OSError:
+        return "skipped"
+    if copy is not None:
+        say(copy["conduct-seeded"])
+    return "seeded"
+
+
+def _apply_substrates(say, copy=None) -> dict:
     """STEP 5 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
-    re-derive the knowledge graph (idempotent) and confirm the state seed is present. The graph path is
-    bound at import (knowledge_gen), so the demo redirects it AND we pass it explicitly — a redirected run
-    never rewrites the real graph. Memory-backup setup is owed to the memory module (not yet built)."""
+    re-derive the knowledge graph (idempotent), confirm the state seed is present, and seed the operator's
+    codes-of-conduct override from the template seed (disclosed in plain language). The graph path is bound at
+    import (knowledge_gen), so the demo redirects it AND we pass it explicitly — a redirected run never
+    rewrites the real graph. Memory-backup setup is owed to the memory module (not yet built)."""
     result = {"step": "substrates", "status": "done"}
     try:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)
@@ -566,6 +607,7 @@ def _apply_substrates(say) -> dict:
         result["knowledge"] = f"skipped ({type(exc).__name__})"
         result["status"] = "degraded"
     result["state_present"] = os.path.isfile(os.path.join(validate.ROOT, ".engine", "state", "state.json"))
+    result["conduct"] = _seed_conduct(say, copy)
     return result
 
 
@@ -622,7 +664,7 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     steps.append(runtime)
     if runtime.get("halt"):
         return {"refused": False, "halted": True, "steps": steps}
-    steps.append(_apply_substrates(say))
+    steps.append(_apply_substrates(say, copy))
     steps.append(_apply_wires(say))
     steps.append(_apply_control_plane(control_transport, gh_refresh, control_issues, say, copy,
                                       repo=control_repo, token=control_token))
@@ -908,7 +950,8 @@ _APPLY_DEMO_NOTE = (
 # The construction repo's own files the apply steps would write if redirection ever leaked — the demo asserts
 # they are byte-for-byte unchanged afterward (the isolation guarantee, shown mechanically, not just claimed).
 _REAL_ISOLATION_FILES = (".engine/knowledge/graph.json", ".claude/settings.json", ".mcp.json",
-                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md")
+                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md",
+                         ".engine/conduct/operator.md", ".engine/conduct/defaults.md")
 
 
 class _FakeIssues:
@@ -1120,6 +1163,20 @@ def _apply_demo() -> int:
               f"protected={cp.get('protected')}).")
         print(f"    → setup still completed every other step and ended cleanly ({ended}).")
         ok &= (ended and cp["status"] == "degraded" and not cp.get("protected"))
+
+    # Scenario 5 — your starting codes of conduct are seeded, and you are TOLD (never installed silently).
+    print("\n— YOUR STARTING STANCE: setup seeds your codes of conduct and discloses them in plain words.")
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)
+        with _redirect_root(tmp):
+            confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
+            apply(announce=lambda t: None, uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
+                  control_transport=_approve_transport(), **common)
+            seeded = os.path.isfile(os.path.join(tmp, ".engine", "conduct", "operator.md"))
+        print(f"    → your own codes-of-conduct file is in place, ready to tune ({seeded}).")
+        print("    → and here, in plain words, is exactly what I'd tell you — never installed silently:")
+        print(f'      "{load_copy()["conduct-seeded"]}"')
+        ok &= seeded
 
     # The isolation guarantee, shown.
     print("\n— ISOLATION CHECK: did any of that touch THIS real project's files?")
