@@ -21,13 +21,16 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import telemetry  # noqa: E402
 import validate  # noqa: E402
+import standing_situation as ss  # noqa: E402  (the where-we-are derive telemetry co-refreshes)
 
 TH = {"persistence": 3, "auto_resolve": 2, "triage_pressure": 10}
 T = ["2026-06-05T0%d:00:00Z" % n for n in range(1, 10)]
@@ -286,6 +289,104 @@ class TestStateRefresh(unittest.TestCase):
         probe = {"schema_version": 1, "standing_situation": {"milestone": None, "phase": None},
                  "integration_debt": {"open_count": 0, "as_of": now, "register": None}}
         self.assertEqual(list(validate.Draft202012Validator(schema).iter_errors(probe)), [])
+
+
+def _standing_transport(*, milestones=(200, []), pulls=(200, []), issues=None):
+    """A transport answering ONLY the GETs the where-we-are derive makes — for the focused standing tests."""
+    issues = issues or {}
+
+    def t(method, path, body):
+        if "/milestones" in path:
+            return milestones
+        if "/pulls" in path:
+            return pulls
+        m = re.search(r"/issues/(\d+)", path)
+        if m:
+            return issues.get(int(m.group(1)), (404, None))
+        return (404, None)
+    return t
+
+
+class TestStandingCacheRefresh(unittest.TestCase):
+    """The standing-situation offline cache (D-198): telemetry is its sole writer, it is DISJOINT from the
+    debt count, it carries an `as_of` provenance, and it rides the same GitHub pass — but a derive failure
+    never clobbers a good cache nor breaks the debt write."""
+
+    SCHEMA = None
+
+    def _schema(self):
+        if TestStandingCacheRefresh.SCHEMA is None:
+            TestStandingCacheRefresh.SCHEMA = validate.load_json(
+                os.path.join(validate.SCHEMAS_DIR, "state.v1.json"))
+        return TestStandingCacheRefresh.SCHEMA
+
+    def test_refresh_state_writes_standing_disjointly_preserving_debt(self):
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, open_count=7, as_of=T[0], register="https://x/issues")
+            telemetry.refresh_state(sp, standing={"milestone": "Ship the beta",
+                                                  "phase": "Wire login (issue #9)", "as_of": T[1]})
+            data = validate.load_json(sp)
+        self.assertEqual(data["standing_situation"],
+                         {"milestone": "Ship the beta", "phase": "Wire login (issue #9)", "as_of": T[1]})
+        self.assertEqual(data["integration_debt"]["open_count"], 7)   # the disjoint debt is preserved
+        self.assertEqual(list(validate.Draft202012Validator(self._schema()).iter_errors(data)), [])
+
+    def test_refresh_state_can_write_both_fields(self):
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, milestone="OLD", phase="OLD")
+            telemetry.refresh_state(sp, {"open_count": 4, "as_of": T[0], "register": "https://x/issues"},
+                                    {"milestone": "M", "phase": "P (issue #1)", "as_of": T[0]})
+            data = validate.load_json(sp)
+        self.assertEqual(data["integration_debt"]["open_count"], 4)
+        self.assertEqual(data["standing_situation"], {"milestone": "M", "phase": "P (issue #1)", "as_of": T[0]})
+
+    def test_refresh_standing_derives_and_writes_only_standing(self):
+        transport = _standing_transport(
+            milestones=(200, [{"title": "Ship the beta"}]),
+            pulls=(200, [{"number": 99, "merged_at": "x", "body": "Closes #80"}]),
+            issues={80: (200, {"number": 80, "title": "The drift fix", "labels": [{"name": "engine"}]})})
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, open_count=3, as_of=T[0], register="https://x/issues")
+            written = telemetry.refresh_standing(sp, "o/r", "tok", now=T[2], transport=transport)
+            data = validate.load_json(sp)
+        self.assertEqual(written, {"milestone": "Ship the beta", "phase": "The drift fix (issue #80)", "as_of": T[2]})
+        self.assertEqual(data["standing_situation"], written)
+        self.assertEqual(data["integration_debt"]["open_count"], 3)   # debt left untouched
+        self.assertEqual(list(validate.Draft202012Validator(self._schema()).iter_errors(data)), [])
+
+    def test_refresh_standing_raises_on_read_failure_and_writes_nothing(self):
+        transport = _standing_transport(milestones=(403, None))
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, milestone="KEEP", phase="KEEP", open_count=2, as_of=T[0])
+            with open(sp, "rb") as fh:
+                before = fh.read()
+            with self.assertRaises(ss.DeriveUnavailable):
+                telemetry.refresh_standing(sp, "o/r", "tok", now=T[2], transport=transport)
+            with open(sp, "rb") as fh:
+                self.assertEqual(fh.read(), before, "a read failure must write nothing")
+
+    def test_run_co_refreshes_standing_on_a_clean_pass(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, open_count=0, as_of=None)
+            with mock.patch.object(telemetry.standing_situation, "derive_standing_situation",
+                                   return_value={"milestone": "M", "phase": "P (issue #1)"}):
+                telemetry.run(gh(f), [], cache, TH, T[0], state_path=sp)
+            data = validate.load_json(sp)
+        # both cache fields refreshed on the one pass; standing carries the pass's `as_of`
+        self.assertEqual(data["standing_situation"], {"milestone": "M", "phase": "P (issue #1)", "as_of": T[0]})
+        self.assertEqual(data["integration_debt"]["as_of"], T[0])
+
+    def test_run_standing_derive_failure_preserves_existing_standing_and_still_writes_debt(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, milestone="KEEP", phase="KEEP", open_count=0, as_of=None)
+            with mock.patch.object(telemetry.standing_situation, "derive_standing_situation",
+                                   side_effect=ss.DeriveUnavailable("github down")):
+                telemetry.run(gh(f), [], cache, TH, T[0], state_path=sp)
+            data = validate.load_json(sp)
+        self.assertEqual(data["standing_situation"], {"milestone": "KEEP", "phase": "KEEP"})  # not clobbered
+        self.assertEqual(data["integration_debt"]["as_of"], T[0])                              # debt still refreshed
 
 
 class TestCacheBestEffort(unittest.TestCase):
