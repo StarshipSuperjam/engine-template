@@ -643,7 +643,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:8f1d5581afb17341f2119ce5a4b83243d4fdd93c14ccb221e5b99944a50153ef",
+        "fingerprint": "sha256:5261e6bea3344f9bc0aaf15fbcbce3e5ec9137e18df86ba1a9755b9fd13e6704",
         "path": ".engine/conduct/defaults.md"
       },
       "type": "conduct"
@@ -1998,7 +1998,7 @@
       },
       "slug": "test_conduct",
       "source": {
-        "fingerprint": "sha256:11f4de7c26218845022692d6437ae1a2f7f09ff079d19248d9ecaf2cd5b953f8",
+        "fingerprint": "sha256:47258dbc28c33fd8bf5f8cca2336248b161b6b7c2b0c910069ccfbfca48db07b",
         "path": ".engine/tools/test_conduct.py"
       },
       "type": "tool"
