@@ -1,7 +1,8 @@
 ---
 name: engine-status
 description: Show where your project stands — what's next, what recently shipped, and anything that needs your attention.
-invocation: model-auto
+invocation: operator-typed
+disable-model-invocation: true
 allowed-tools: Bash(uv run *)
 ---
 
@@ -16,5 +17,5 @@ allowed-tools: Bash(uv run *)
 
 ## Notes
 
-This is a command you can type any time — and one I may run myself when you ask where things stand — to see
-your project's status. It only reads; it never changes anything.
+This is a command you type any time to see where your project stands. It only reads; it never changes
+anything.
