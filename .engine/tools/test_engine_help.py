@@ -173,9 +173,10 @@ class TestRender(unittest.TestCase):
 
 class TestCLI(unittest.TestCase):
     def test_main_prints_the_real_listing(self):
-        # On the real repo this very command (/engine-help) and /engine-start are listed — and /engine-status,
-        # the model-auto status verb, which appears ONLY because the filter is operator-invocable (not
-        # operator-typed-only): an end-to-end check that the widened filter + the skill's invocation axis agree.
+        # On the real repo this very command (/engine-help), /engine-start, and /engine-status are all listed
+        # — every engine verb is operator-typed (v1 ships zero model-auto skills), so this is an end-to-end
+        # check that the real installed skills render in the operator menu. (The model-auto filter branch is
+        # covered separately by the _MODEL_AUTO fixtures in test_lists_engine_operator_invocable_sorted.)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = eh.main([])

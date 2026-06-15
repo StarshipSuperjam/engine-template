@@ -4,8 +4,9 @@
 The PULL half of the operator-presentation relay (D-187/D-188). Boot PUSHES the safety-critical briefing
 every session (the alarms + the present-marker the AI must relay); this verb PULLS the routine status
 dashboard on demand — milestone, what's next, what recently shipped, what needs attention. It is
-`model-auto`, so the operator may type `/engine-status` AND the assistant may run it on a relevance match
-("what's next?"). Read-only: it changes nothing.
+`operator-typed`: the operator types `/engine-status` to see it. The assistant does not invoke the skill,
+but still surfaces this status when the operator asks where things stand — by running this tool directly,
+the cue for which lives in the boot pack (D-200/D-201). Read-only: it changes nothing.
 
 It is a thin reuse of boot's seam — `gather_signals` (boot's SOLE I/O boundary) then `render_dashboard`
 (boot's PURE, operator-toned renderer). This is the design's "two renderings of the same data": boot wraps

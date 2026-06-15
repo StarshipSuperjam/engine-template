@@ -541,6 +541,19 @@ class TestStanceLine(unittest.TestCase):
         # the note stays OUT of the operator's own dashboard view — the operator surface is unchanged.
         self.assertNotIn(note, boot.render_dashboard(_signals()))
 
+    def test_pack_carries_the_status_pull_cue(self):
+        # The status verb is operator-typed (non-resident), so the AI's standing cue to run engine_status.py
+        # verbatim when the operator asks where things stand must live in the boot pack (D-200/D-201). Pin the
+        # distinctive command string so the cue can't silently degrade to a vague paraphrase instruction.
+        patchers = _offline()
+        try:
+            pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("uv run --directory .engine -- python tools/engine_status.py", pack)
+        self.assertIn("show its output verbatim", pack)
+
     def test_handler_clears_the_stance_for_this_session(self):
         # the handler's FIRST job is to clear the stance signal for the session id the payload carries,
         # so every session — including a resume — boots Explore and never inherits a prior Build signal.
