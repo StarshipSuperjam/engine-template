@@ -1242,7 +1242,7 @@
       },
       "slug": "state.v1",
       "source": {
-        "fingerprint": "sha256:61148111ad2dc8f1613ec396e26c3977dddc610fdb4da76a54a19c5546797679",
+        "fingerprint": "sha256:b61bf41fcb259491a2a8a54983e13dd1448f198fd08d939eb19fde61f79f8ec4",
         "path": ".engine/schemas/state.v1.json"
       },
       "type": "schema"
@@ -1354,7 +1354,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:dc54de07846ae7a8512a0ef8aca1a937d71375bcc475379896202942ede8e9f5",
+        "fingerprint": "sha256:6f1e1c168102c1f1a9187d1d1cfe25eea7d5264fb5b3cfbcb446a75717fbc96f",
         "path": ".engine/tools/boot.py"
       },
       "type": "tool"
@@ -1434,7 +1434,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:2c60a715c3cfed833e9ffef74c22056234242a51ae3ab9c959589ddf0f617aa3",
+        "fingerprint": "sha256:f1d16664efd6fcb4b05aa852e0e7d5ceb33d48cd226ba6896fc1e2230ba8d735",
         "path": ".engine/tools/engine_status.py"
       },
       "type": "tool"
@@ -1712,6 +1712,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:standing_situation",
+      "name": ".engine/tools/standing_situation.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "standing_situation",
+      "source": {
+        "fingerprint": "sha256:7f2ab21f4ddc8682478d73c4294ceaa375cb89646e7710099e0b2c1a0ad345f8",
+        "path": ".engine/tools/standing_situation.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:telemetry",
       "name": ".engine/tools/telemetry.py",
       "owner": "core",
@@ -1722,7 +1738,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:69bced9c46339a2d0b492833739b8330fa2359fe3af8e7f8398068dd4716a420",
+        "fingerprint": "sha256:6b692dabc9a2158bd4255b00c35439a97b30e43b56304ebd9fb853f12230d68f",
         "path": ".engine/tools/telemetry.py"
       },
       "type": "tool"
@@ -1770,7 +1786,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:28ee0574fc0f3549e6cd6fd8878620061a5797ca7f2e80cfab91eca9ccc79403",
+        "fingerprint": "sha256:d5a7aac34d181be94dd2e44a5c285ed6efa4dbb6b91cdf073353838cec02f81d",
         "path": ".engine/tools/test_boot.py"
       },
       "type": "tool"
@@ -1882,7 +1898,7 @@
       },
       "slug": "test_engine_status",
       "source": {
-        "fingerprint": "sha256:46869c5eac48c9faef2ef52ee6462bf02f27a977aa9e9d0cc109ba209f8bbaaf",
+        "fingerprint": "sha256:feb05bf0db8ef03b71426a26b719de6976dde81895b99ccf0d91d06f6dcde009",
         "path": ".engine/tools/test_engine_status.py"
       },
       "type": "tool"
@@ -2176,6 +2192,22 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_standing_situation",
+      "name": ".engine/tools/test_standing_situation.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_standing_situation",
+      "source": {
+        "fingerprint": "sha256:52fb2108bb4dae80b0ae1fab7f94cb83ce1b8d6f36b1325a0d7d8e6ab52ab8bd",
+        "path": ".engine/tools/test_standing_situation.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:test_state",
       "name": ".engine/tools/test_state.py",
       "owner": "core",
@@ -2202,7 +2234,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:b00c82960ef186b25a2fb6d76733ccbc3ed4af68f23ac51fbe1444dc062af23e",
+        "fingerprint": "sha256:43989d918d0880d860b18e99ab432c4d5cd7582af3e498365302abf2349b4df0",
         "path": ".engine/tools/test_telemetry.py"
       },
       "type": "tool"

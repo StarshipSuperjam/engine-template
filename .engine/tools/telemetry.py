@@ -45,6 +45,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402  (sibling tool; reused for finding/frontmatter/effective_policy_values/ROOT)
 import issue_author  # noqa: E402  (the shared issue-authoring helper — assembles the body to the control-plane contract)
+import standing_situation  # noqa: E402  (the read-only "where we are" derive; telemetry refreshes its offline cache on this same GitHub pass — pure leaf, imports nothing back, so no cycle)
 
 # ---- constants -------------------------------------------------------------
 
@@ -395,17 +396,40 @@ def read_state_debt(state_path: str = DEFAULT_STATE_PATH):
         return None, None
 
 
-def refresh_state(state_path: str, debt: dict) -> None:
-    """Write the three integration_debt keys into the committed cursor, schema-valid, preserving the
-    rest. EXPLICIT refresh only — telemetry never auto-commits it; the committed cursor advances on
-    committed acts and the operator reviews the diff (state/README)."""
+def refresh_state(state_path: str, debt: dict | None = None, standing: dict | None = None) -> None:
+    """Refresh the committed cursor's offline-cache fields, schema-valid, preserving the rest. Telemetry is
+    the sole writer of state.json. The two cache fields are DISJOINT and each optional: `debt` writes the
+    three integration_debt keys; `standing` writes the standing_situation cache (milestone/phase/as_of).
+    Passing only one leaves the other untouched, so the standing-situation co-writer never clobbers the debt
+    count and vice-versa. EXPLICIT refresh only — telemetry never auto-commits it; the committed cursor
+    advances on committed acts and the operator reviews the diff (state/README)."""
     with open(state_path, encoding="utf-8") as fh:
         data = json.load(fh)
-    data["integration_debt"] = {"open_count": int(debt["open_count"]),
-                                "as_of": debt["as_of"], "register": debt["register"]}
+    if debt is not None:
+        data["integration_debt"] = {"open_count": int(debt["open_count"]),
+                                    "as_of": debt["as_of"], "register": debt["register"]}
+    if standing is not None:
+        data["standing_situation"] = {"milestone": standing.get("milestone"),
+                                      "phase": standing.get("phase"),
+                                      "as_of": standing.get("as_of")}
     with open(state_path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
         fh.write("\n")
+
+
+def refresh_standing(state_path: str, repo: str, token: str, *, now: str | None = None, transport=None) -> dict:
+    """Derive the standing-situation live from GitHub and write ONLY that offline-cache field (with its
+    `as_of` stamped) into the committed cursor — the focused offline-floor refresh, the standing-situation
+    sibling of refresh_state's debt write. Raises on any read failure (standing_situation.DeriveUnavailable
+    for an HTTP-status error, or telemetry's DegradedReadError if the host is unreachable) and writes nothing
+    on that failure — the caller decides whether to proceed. `transport` is injectable so tests/demo run
+    offline on the real derive + write."""
+    gh = GitHubIssues(repo, token, transport=transport)
+    derived = standing_situation.derive_standing_situation(gh)
+    standing = {"milestone": derived.get("milestone"), "phase": derived.get("phase"),
+                "as_of": now or utc_now()}
+    refresh_state(state_path, standing=standing)
+    return standing
 
 
 def degraded_readout(count, as_of) -> str:
@@ -479,7 +503,17 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
 
     debt = {"open_count": plan.open_count, "as_of": now, "register": github.issues_query_url()}
     if state_path:
-        refresh_state(state_path, debt)
+        # The standing-situation cache rides THIS same GitHub-derived pass as the debt count (D-198): derive
+        # it live and write both fields together. A standing-derive failure degrades only that one field —
+        # we pass standing=None so the debt write still lands and the prior cached standing is left intact
+        # (never clobbered with a failed read).
+        standing = None
+        try:
+            derived = standing_situation.derive_standing_situation(github)
+            standing = {"milestone": derived.get("milestone"), "phase": derived.get("phase"), "as_of": now}
+        except Exception:  # noqa: BLE001 — a where-we-are read failure must not break the debt refresh
+            standing = None
+        refresh_state(state_path, debt, standing)
     pressure = triage_pressure_line(plan.low_severity_open_count, int(thresholds.get("triage_pressure", 0)))
     return Report(degraded=False, debt=debt, pressure_line=pressure,
                   opened=opened, updated=updated, closed=closed)

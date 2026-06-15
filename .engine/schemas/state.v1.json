@@ -11,7 +11,7 @@
       "const": 1
     },
     "standing_situation": {
-      "description": "Where the work stands right now — the project's current place in its plan. Both pointers are empty (null) in a brand-new project, and are set once the project has a plan to point at.",
+      "description": "Where the work stands right now — the project's current place in its plan. This is an offline convenience copy: the live, authoritative answer is assembled fresh from the project's tracked issues and milestones each session, and this copy is read only when those can't be reached. Both pointers are empty (null) in a brand-new project, and are set once the project has a plan to point at.",
       "type": "object",
       "additionalProperties": false,
       "required": ["milestone", "phase"],
@@ -25,6 +25,12 @@
           "description": "A pointer to the active phase inside that milestone — a finer 'where in the plan' marker. Null until the project sets one.",
           "type": ["string", "null"],
           "minLength": 1
+        },
+        "as_of": {
+          "description": "When this offline copy was last refreshed from the live sources, written as a UTC moment ending in Z (for example 2026-06-15T12:00:00Z). It lets a degraded read say plainly when it was cached, so the operator never mistakes a stale 'where we are' for the current one. Absent or null means it has never been refreshed, so it is shown as from an earlier session. The trailing-Z UTC shape is what is actually enforced (the date-time format is only a hint).",
+          "type": ["string", "null"],
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
         }
       }
     },

@@ -59,6 +59,8 @@ _EXAMPLE_SIGNALS = {
     "shipped": ["#42 Add the sign-in page", "#41 Set up the database"],
     "stance": "Looking around — reading and planning, not changing anything yet.",
     "strand": None,   # the operator-checkout strand signal (boot slice B); None = the folder is healthy
+    # the live-derived "where we are" (boot #100); present here so the example shows the current live line
+    "live_standing": {"milestone": "Ship the beta", "phase": "Building the checkout page (issue #128)"},
 }
 
 

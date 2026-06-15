@@ -53,7 +53,7 @@ class TestRenderReusesBootSeam(unittest.TestCase):
     def test_render_carries_the_operator_dashboard_markers(self):
         with mock.patch.object(boot, "gather_signals", return_value=test_boot._signals()):
             out = es.render()
-        for marker in (f"## {boot.PRESENT_MARKER}", "Milestone", "Needs your attention", "Recently shipped"):
+        for marker in (f"## {boot.PRESENT_MARKER}", "Where we are", "Needs your attention", "Recently shipped"):
             self.assertIn(marker, out, f"the pulled dashboard must carry the '{marker}' section")
 
 

@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
   "standing_situation": {
-    "milestone": "M1 — the Engine starts maintaining itself",
-    "phase": "Making the Engine's status and alarms reach you (issue #83)"
+    "milestone": null,
+    "phase": "Operator checkout can silently drift (detached / behind origin/main) with no alarm; litigate in engine-planning (issue #80)",
+    "as_of": "2026-06-15T19:09:10Z"
   },
   "integration_debt": {
     "open_count": 0,

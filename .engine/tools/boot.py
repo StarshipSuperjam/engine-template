@@ -65,6 +65,7 @@ import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the
 import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
+import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
 
 # The card title a healthy boot always renders — byte-identical to the present-marker the floor names
 # in CLAUDE.deployed.md (slice 19 `owes ←`). The byte-identity is locked by test_boot.py; renaming it
@@ -192,10 +193,12 @@ def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str 
 def _resolve_member(member_id: str, state: dict | None) -> str:
     """Resolve one attention member id (a reference, not content) to a plain-language line. Boot
     resolves; it does not re-rank. Unknown ids fall back to the id itself so nothing is silently lost."""
-    situation = (state or {}).get("standing_situation") or {}
     if member_id == "state:standing-situation":
-        where = " / ".join(p for p in (situation.get("milestone"), situation.get("phase")) if p)
-        return f"Pick up where you left off: {where}." if where else "Continue the current work."
+        # A neutral re-ground nudge — NOT a quote of the committed cursor. "Where we are" is now shown live
+        # in the facts block above (derived fresh each session); the committed copy is only the offline cache,
+        # so quoting it here as "pick up where you left off" would present a possibly-stale value as the live
+        # to-do (the conflation the card-rendering law forbids). Point back to the live line instead.
+        return "Confirm where the project stands before building on it."
     if member_id == "state:integration-debt":
         # No count here: the card header already renders the authoritative open-problem figure (live
         # when reachable, else the offline shadow marked loud-if-stale). Restating a second, possibly-
@@ -280,6 +283,16 @@ def gather_signals(session_id: str | None = None) -> dict:
         strand = checkout_health.detect_strand()
     except Exception:  # noqa: BLE001 — any detector failure degrades that one signal, never the pack
         strand = None
+    # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
+    # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
+    # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
+    # writes the cache (that rides telemetry's GitHub pass). A failure here NEVER reads as a confident "none set".
+    live_standing = None
+    if repo and token:
+        try:
+            live_standing = standing_situation.derive_standing_situation(telemetry.GitHubIssues(repo, token))
+        except Exception:  # noqa: BLE001 — a read failure degrades to the cached line, never breaks the pack
+            live_standing = None
     return {
         "state": state, "refused": refused,
         "gate": gate, "reason": reason,
@@ -291,6 +304,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         "shipped": recently_shipped(),
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
+        # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
+        "live_standing": live_standing,
     }
 
 
@@ -343,10 +358,23 @@ def render_dashboard(s: dict) -> str:
             "**I couldn't read where the project stands**, so I'm treating project status as unknown. "
             "Don't trust a status summary until the engine re-grounds.")
     else:
-        situation = (s["state"] or {}).get("standing_situation") or {}
-        milestone = situation.get("milestone") or "none set yet"
-        phase = situation.get("phase") or "—"
-        out.append(f"**Milestone:** {milestone} · **Phase:** {phase}")
+        # "Where we are" — show ONE of live-or-cached, never both (boot/README rendering law). When the live
+        # GitHub derive succeeded, render it (always current); otherwise fall back to the committed offline
+        # cache, named with WHEN it was cached and that it may be stale (the debt-count staleness voice).
+        # `none set` is an honest normal state (a project that keeps no Milestone), never an error.
+        live = s["live_standing"]
+        if live is not None:
+            milestone = live.get("milestone") or "none set"
+            phase = live.get("phase") or "—"
+            out.append(f"**Where we are:** {milestone} · {phase}")
+        else:
+            cached = (s["state"] or {}).get("standing_situation") or {}
+            milestone = cached.get("milestone") or "none set"
+            phase = cached.get("phase") or "—"
+            when = cached.get("as_of") or "an earlier session"
+            out.append(f"**Where we are:** {milestone} · {phase}")
+            out.append(f"_(as of {when} — I couldn't refresh this from GitHub, so it may be out of date; "
+                       f"re-ground before you rely on it.)_")
         # The open-problem count: the live register first, else the committed offline shadow rendered
         # loud-if-stale (degrade-loud) so a number can never be mistaken for freshly refreshed.
         if s["finding_count"] is not None:
