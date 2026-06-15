@@ -52,7 +52,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:2be27a78666ba5263aedd91132bfc7f43307055e82666b75125d0edc83689b6f",
+        "fingerprint": "sha256:904b3b2befc96d4d3cafed061e30b17aeec4cf74f6fc64d583cf73cf58198f88",
         "path": ".engine/check/catalog-coverage.json"
       },
       "type": "check"
