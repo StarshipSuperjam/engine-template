@@ -358,21 +358,19 @@ def render_dashboard(s: dict) -> str:
             "**I couldn't read where the project stands**, so I'm treating project status as unknown. "
             "Don't trust a status summary until the engine re-grounds.")
     else:
-        # "Where we are" — show ONE of live-or-cached, never both (boot/README rendering law). When the live
-        # GitHub derive succeeded, render it (always current); otherwise fall back to the committed offline
-        # cache, named with WHEN it was cached and that it may be stale (the debt-count staleness voice).
-        # `none set` is an honest normal state (a project that keeps no Milestone), never an error.
+        # "Where we are" (the active work) and "Milestone" (the larger plan marker) are two self-explanatory
+        # lines, from ONE source — live-or-cached, never both (boot/README rendering law). When the live GitHub
+        # derive succeeded, render it (always current); otherwise fall back to the committed offline cache,
+        # named with WHEN it was cached and that it may be stale (the debt-count staleness voice). An absent
+        # milestone is an honest normal state on its own line ("No milestone is open"), never an error.
         live = s["live_standing"]
-        if live is not None:
-            milestone = live.get("milestone") or "none set"
-            phase = live.get("phase") or "—"
-            out.append(f"**Where we are:** {milestone} · {phase}")
-        else:
-            cached = (s["state"] or {}).get("standing_situation") or {}
-            milestone = cached.get("milestone") or "none set"
-            phase = cached.get("phase") or "—"
-            when = cached.get("as_of") or "an earlier session"
-            out.append(f"**Where we are:** {milestone} · {phase}")
+        source = live if live is not None else ((s["state"] or {}).get("standing_situation") or {})
+        phase = source.get("phase") or "nothing in progress yet"
+        milestone = source.get("milestone") or "No milestone is open"
+        out.append(f"**Where we are:** {phase}")
+        out.append(f"**Milestone:** {milestone}")
+        if live is None:
+            when = source.get("as_of") or "an earlier session"
             out.append(f"_(as of {when} — I couldn't refresh this from GitHub, so it may be out of date; "
                        f"re-ground before you rely on it.)_")
         # The open-problem count: the live register first, else the committed offline shadow rendered

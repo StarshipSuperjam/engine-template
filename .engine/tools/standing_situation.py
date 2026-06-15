@@ -146,20 +146,24 @@ def _fail_transport(method, path, body):
 
 
 def _where_lines(boot, *, live, state) -> list:
-    """Render the REAL boot card over a complete signals dict and return just its 'Where we are' line(s) —
-    so the operator sees the actual card text, not a Python structure."""
+    """Render the REAL boot card over a complete signals dict and return its standing block — the
+    'Where we are' line, the 'Milestone' line, and the cached-staleness sub-line when present — so the
+    operator sees the actual card text, not a Python structure."""
     signals = {"state": state, "refused": False, "gate": "on", "reason": None,
                "finding_count": 0, "register": "", "findings_unavailable": False,
                "debt_count": 0, "debt_as_of": None, "att_lines": [], "att_degraded": False,
                "shipped": [], "stance": "Exploring", "strand": None, "live_standing": live}
-    out, take = [], False
-    for ln in boot.render_dashboard(signals).splitlines():
+    lines = boot.render_dashboard(signals).splitlines()
+    out = []
+    for i, ln in enumerate(lines):
         if ln.startswith("**Where we are"):
-            out.append(ln); take = True
-        elif take and ln.startswith("_("):     # the cached-staleness sub-line, if present
-            out.append(ln); take = False
-        else:
-            take = False
+            out.append(ln)
+            for nxt in lines[i + 1:i + 3]:          # the Milestone line + an optional staleness sub-line
+                if nxt.startswith("**Milestone:**") or nxt.startswith("_("):
+                    out.append(nxt)
+                else:
+                    break
+            break
     return out
 
 
@@ -178,12 +182,12 @@ def _demo() -> int:
         print("   " + ln)
     print()
 
-    # (2) A project that keeps NO milestone (this repo's real state) — 'none set' is honest-normal.
+    # (2) A project that keeps NO milestone (this repo's real state) — "No milestone is open" is honest-normal.
     gh2 = _FakeGH(_canned(
         milestones=[],
         pulls=[{"number": 99, "merged_at": "2026-06-13T00:00:00Z", "body": "Closes #80\n\nthe un-stranding fix"}],
         issues={80: {"number": 80, "title": "Operator checkout can silently drift", "labels": [{"name": "engine"}]}}))
-    print("2) A project that keeps NO GitHub milestone — 'none set' is a normal state, never an error:")
+    print('2) A project that keeps NO GitHub milestone — "No milestone is open" is a normal state, not an error:')
     for ln in _where_lines(boot, live=derive_standing_situation(gh2), state=None):
         print("   " + ln)
     print()
@@ -203,16 +207,13 @@ def _demo() -> int:
         print("   " + ln)
     print()
 
-    # (4) Before/after — the stale committed marker vs the live-derived line (issue #100's fix, seen by eye).
-    stale = {"schema_version": 1,
-             "standing_situation": {"milestone": "M1 — the Engine starts maintaining itself",
-                                    "phase": "Making the Engine's status and alarms reach you (issue #83)"},
-             "integration_debt": {}}
-    print("4) Issue #100 in one view — the OLD stored marker (frozen) vs the NEW live line:")
-    print("   was (a stored marker nothing updated): " +
-          _where_lines(boot, live=None, state=stale)[0])
-    print("   now (derived live each session):       " +
-          _where_lines(boot, live=derive_standing_situation(gh2), state=None)[0])
+    # (4) Before/after — the stale committed marker (shown as if current) vs the live-derived lines.
+    stale_phase = "Making the Engine's status and alarms reach you (issue #83)"
+    print("4) Issue #100 in one view:")
+    print(f'   BEFORE — a stored marker nothing updated, shown as if current:  "{stale_phase}"')
+    print("   AFTER  — derived live from GitHub each session:")
+    for ln in _where_lines(boot, live=derive_standing_situation(gh2), state=None):
+        print("            " + ln)
     print()
     print("Note: in THIS construction repo the phase line shows a maintainer-framed issue title verbatim")
     print("(e.g. #80's '...silently drift'); in a generated project, build-issue titles are written to read")

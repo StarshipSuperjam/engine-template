@@ -124,10 +124,9 @@ class TestRefusedState(unittest.TestCase):
                 p.stop()
         _assert_ai_briefing(self, pack)
         self.assertIn("couldn't read where the project stands", pack)
-        # healthy-empty ("none set") must NOT be confused with the refused line (the refused branch shows
-        # no "Where we are" line at all)
-        self.assertNotIn("none set", pack)
+        # the refused branch shows NO standing lines at all — neither "Where we are" nor "Milestone"
         self.assertNotIn("Where we are", pack)
+        self.assertNotIn("**Milestone:**", pack)
 
     def test_healthy_empty_reads_differently_from_refused(self):
         patchers = _offline()
@@ -139,9 +138,9 @@ class TestRefusedState(unittest.TestCase):
         finally:
             for p in patchers:
                 p.stop()
-        # offline (no repo/token) the live derive is skipped, so the card shows the cached "Where we are"
-        # line — milestone absent renders as the honest normal "none set", and it is stale-labelled.
-        self.assertIn("none set", pack)
+        # offline (no repo/token) the live derive is skipped, so the card shows the cached standing lines —
+        # an absent milestone renders as the honest normal "No milestone is open", and it is stale-labelled.
+        self.assertIn("No milestone is open", pack)
         self.assertIn("Where we are", pack)
         self.assertIn("may be out of date", pack)   # the cached read names that it couldn't be refreshed
         self.assertNotIn("couldn't read where the project stands", pack)
@@ -152,21 +151,23 @@ class TestWhereWeAreLiveOrCached(unittest.TestCase):
     both; the live line when the GitHub derive succeeded; otherwise the committed offline cache, named with
     WHEN it was cached and that it may be stale; `none set` is an honest normal state, never an error."""
 
-    def test_live_line_shown_when_live_standing_present(self):
+    def test_live_lines_shown_when_live_standing_present(self):
         dash = boot.render_dashboard(_signals(
             live_standing={"milestone": "Ship the beta", "phase": "Wire the login (issue #7)"},
             state={"standing_situation": {"milestone": "STALE", "phase": "STALE (issue #1)",
                                           "as_of": "2020-01-01T00:00:00Z"}}))
-        self.assertIn("**Where we are:** Ship the beta · Wire the login (issue #7)", dash)
+        self.assertIn("**Where we are:** Wire the login (issue #7)", dash)   # the active work
+        self.assertIn("**Milestone:** Ship the beta", dash)                 # the plan marker, its own line
         self.assertNotIn("STALE", dash)                 # the live answer wins; the cache is not shown
         self.assertNotIn("may be out of date", dash)    # a live read carries no staleness caveat
 
-    def test_cached_line_is_stale_labelled_with_its_as_of_when_live_is_none(self):
+    def test_cached_lines_are_stale_labelled_with_their_as_of_when_live_is_none(self):
         dash = boot.render_dashboard(_signals(
             live_standing=None,
             state={"standing_situation": {"milestone": None, "phase": "Wire the login (issue #7)",
                                           "as_of": "2026-06-15T12:00:00Z"}}))
-        self.assertIn("**Where we are:** none set · Wire the login (issue #7)", dash)
+        self.assertIn("**Where we are:** Wire the login (issue #7)", dash)
+        self.assertIn("**Milestone:** No milestone is open", dash)          # absent milestone, plain language
         self.assertIn("as of 2026-06-15T12:00:00Z", dash)   # names WHEN it was cached (the provenance law)
         self.assertIn("may be out of date", dash)
 
@@ -175,22 +176,25 @@ class TestWhereWeAreLiveOrCached(unittest.TestCase):
             live_standing=None,
             state={"standing_situation": {"milestone": None, "phase": None}}))  # no as_of -> honest fallback
         self.assertIn("as of an earlier session", dash)
+        self.assertIn("**Where we are:** nothing in progress yet", dash)     # no tracked work -> plain phrase
 
     def test_exactly_one_where_we_are_line_is_rendered(self):
-        # never both a live and a cached line — the law's "show one"
+        # never both a live and a cached block — the law's "show one"
         for live in ({"milestone": "M", "phase": "P"}, None):
             dash = boot.render_dashboard(_signals(
                 live_standing=live, state={"standing_situation": {"milestone": "C", "phase": "C2",
                                                                    "as_of": "2026-06-15T00:00:00Z"}}))
             self.assertEqual(dash.count("**Where we are:**"), 1)
+            self.assertEqual(dash.count("**Milestone:**"), 1)
 
-    def test_milestone_none_set_renders_as_normal_not_an_error(self):
+    def test_absent_milestone_renders_as_normal_not_an_error(self):
         dash = boot.render_dashboard(_signals(live_standing={"milestone": None, "phase": "Do the thing (issue #9)"}))
-        self.assertIn("**Where we are:** none set · Do the thing (issue #9)", dash)
-        self.assertNotIn("none set yet", dash)          # not the old nagging wording
-        for jargon in ("error", "⚠", "⛔"):             # 'none set' is normal — no alarm framing on this line
-            where = next(ln for ln in dash.splitlines() if ln.startswith("**Where we are"))
-            self.assertNotIn(jargon, where)
+        self.assertIn("**Where we are:** Do the thing (issue #9)", dash)
+        self.assertIn("**Milestone:** No milestone is open", dash)
+        self.assertNotIn("none set", dash)              # the old confusing wording is gone
+        for jargon in ("error", "⚠", "⛔"):             # an absent milestone is normal — no alarm framing
+            mline = next(ln for ln in dash.splitlines() if ln.startswith("**Milestone"))
+            self.assertNotIn(jargon, mline)
 
 
 class TestConsumesAttentionNeverReRanks(unittest.TestCase):
