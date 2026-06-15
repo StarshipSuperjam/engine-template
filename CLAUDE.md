@@ -88,11 +88,11 @@ required sections); two CI workflows; and the protected-`main` ruleset (a settin
 Each hand-built seed piece is **superseded** by the engine module that prefigures it: the seed validator →
 `validators-core`; the PR-body completeness rule → the validation `presence` kind; this `CLAUDE.md` → the
 `core` grammar + boot floor; ad-hoc write-discipline → the modes Explore write-gate. The protected-branch
-human merge gate is the one rung that never retires. The `core`-decomposition scaffold now lives in the planning
-workspace (`../engine-planning/wbs/core-build-roadmap.md`) — **not** this repo, which must not carry its
-own build rules. It covers only `core`'s 27 slices, so it retires **earlier**, at the **end of the
-`core` build** — deleted from `engine-planning` when its final slice merges, before M1 (which also needs
-`validators-core` + `memory-substrate-sqlite-fts5`) — with its resume-order pointer removed here; it never ships in v1. The path
+human merge gate is the one rung that never retires. The `core`-decomposition scaffold lived in the
+`engine-planning` workspace (`core-build-roadmap.md`) — **not** this repo, which must not carry its own
+build rules — and covered `core`'s PR-slice sequence. It was **retired at core completion** (its final
+slice, Slice CD, merged) and **archived in `engine-planning`, not deleted**, with its resume-order pointer
+removed here; it never shipped in v1. The path
 to **M1**: `repository-topology` → `core` →
 `validators-core` + `memory-substrate-sqlite-fts5` + the control-plane bootstrap, after which Builder B
 builds the rest of v1 in-repo under the same merge gate.
@@ -102,10 +102,6 @@ builds the rest of v1 in-repo under the same merge gate.
 1. This file.
 2. `../engine-planning/CLAUDE.md`, then `principles.md` + `constraints.md` + `goals-and-quality.md`.
 3. `../engine-planning/wbs/stage-0-harness.md` and `module-order.md` for where the build is.
-4. `../engine-planning/wbs/core-build-roadmap.md` — the build-order map for `core`'s PR-slice sequence;
-   check which slice is next. It points to the locked source per slice and is **not** the spec — read the
-   source docs it names in full. *(A Builder-A genesis scaffold in the planning workspace, retired at the
-   end of the `core` build — before M1 — see its Retirement clause and the ratchet above.)*
-5. The `systems/**` / `modules/**` docs governing the current step, and `wbs/build-conformance.md` for the
+4. The `systems/**` / `modules/**` docs governing the current step, and `wbs/build-conformance.md` for the
    deliverable-gate protocol.
-6. Plan the one next step, run the plan gate, build, run the deliverable gate, assemble the evidence bundle.
+5. Plan the one next step, run the plan gate, build, run the deliverable gate, assemble the evidence bundle.
