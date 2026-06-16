@@ -232,21 +232,24 @@ class LedgerSerializationTests(unittest.TestCase):
 
 
 class CaptureSeamSafetyTests(unittest.TestCase):
-    """Ledger-before-hooks: the close turn-hook's ambient-capture relay stays a safe no-op while
-    capture is unbuilt. close.py does `import memory; memory.capture_turn_delta(payload)` inside a
-    `try/except Exception: return`, so the missing attribute degrades silently."""
+    """The close turn-hook's ambient-capture relay is now LIVE: capture lands the turn delta. The
+    relay does `import memory; memory.capture_turn_delta(payload)`, so capture must be exposed on the
+    package AND must be fail-soft — a bad/empty payload is a clean no-op return, never a raise, so
+    capture can never gate close (which additionally wraps the call in `try/except Exception`)."""
 
-    def test_memory_imports_but_capture_is_absent(self):
+    def test_memory_exposes_capture_turn_delta(self):
         import memory
-        self.assertFalse(
-            hasattr(memory, "capture_turn_delta"),
-            "capture_turn_delta lands in the capture slice; until then close must no-op",
+        self.assertTrue(
+            hasattr(memory, "capture_turn_delta") and callable(memory.capture_turn_delta),
+            "the capture slice exposes capture_turn_delta on the memory package; close's relay calls it",
         )
 
-    def test_capture_call_raises_attributeerror_which_close_swallows(self):
+    def test_capture_call_is_fail_soft_on_a_bad_or_empty_payload(self):
         import memory
-        with self.assertRaises(AttributeError):
-            memory.capture_turn_delta({"session_id": "x"})  # close wraps this in except Exception
+        # No transcript / not even a dict -> a clean no-op return (0 appended), NEVER a raise.
+        self.assertEqual(memory.capture_turn_delta({"session_id": "x"}), 0)
+        self.assertEqual(memory.capture_turn_delta({}), 0)
+        self.assertEqual(memory.capture_turn_delta(None), 0)
 
 
 class LedgerPathResolutionTests(unittest.TestCase):

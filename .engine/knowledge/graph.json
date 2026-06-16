@@ -1701,7 +1701,7 @@
       },
       "slug": "__init__",
       "source": {
-        "fingerprint": "sha256:1a1f5a11ee0f60cf47dc7dea3f8c7fdc1e2e3a10ff1452a1c590a2d19ab7b8a4",
+        "fingerprint": "sha256:7c20e9e777264d31e82cbb057f1dc211d59f40c4e71f925d3786831909141030",
         "path": ".engine/tools/memory/__init__.py"
       },
       "status": "active",
@@ -1771,6 +1771,23 @@
       "source": {
         "fingerprint": "sha256:95dca5afd2a0d9b9f31c5e23c9a985667b524ef3e851bc848c26239978209622",
         "path": ".engine/tools/bootstrap.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:capture",
+      "name": ".engine/tools/memory/capture.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "capture",
+      "source": {
+        "fingerprint": "sha256:3d748bb7564aa39c6aaaa030447e379d8cd578276a931c34669006b5661b8291",
+        "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
       "type": "tool"
@@ -1905,7 +1922,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:d3c0a816dd308d8a4191b03b7b4e5c7bfa049671b28f1b9df67868e40fa8a250",
+        "fingerprint": "sha256:83f92edcb151ad7bf12a57cbe7ee758a9c70f8835a70902d1afecd5ecb6eeb96",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -2303,6 +2320,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_capture",
+      "name": ".engine/tools/memory/test_capture.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_capture",
+      "source": {
+        "fingerprint": "sha256:67f02f09331c762a3f207a61f9a60198752c60adda677fe97eb3a725e2aa242f",
+        "path": ".engine/tools/memory/test_capture.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_checkout_health",
       "name": ".engine/tools/test_checkout_health.py",
       "owner": "core",
@@ -2449,7 +2483,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:268c6df3f7c2073506bfb702718b4277dafc03fc5971071c40164adf6e753b1b",
+        "fingerprint": "sha256:f216a58d6002668ef45fac78411ab791f85b34b9b3af4894cdeaf9b68f5c0287",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -2551,7 +2585,7 @@
       },
       "slug": "test_ledger",
       "source": {
-        "fingerprint": "sha256:2e2037771ee3dd2b927189e14ac1bf0d04731d227c86b31d6d9afe7a597a4ad5",
+        "fingerprint": "sha256:3265fa78960745dd0cdba26e7ae3070cc1c3bb8befad233691abccf2aca0124f",
         "path": ".engine/tools/memory/test_ledger.py"
       },
       "status": "active",

@@ -46,9 +46,15 @@ from memory import ledger  # noqa: E402
 
 INDEX_FILENAME = "index.sqlite3"
 _FTS_PROBE_TABLE = "engine_fts5_probe"
-# The one record field kept OUT of the searchable text: the locked typing law keeps tags out of the full-text
-# body so tag drift never poisons term statistics (tags become a secondary filter in a later slice).
+# Top-level record fields kept OUT of the searchable text. `tags` honors the locked typing law (tags are a
+# secondary filter, never in the FTS body, so tag drift never poisons term statistics). The capture-record
+# ENVELOPE metadata is excluded for the same reason: `session_id` (a per-session UUID — its hex fragments are
+# real words: dead/beef/cafe/face…), `kind` ("turn-delta"), and `speaker` ("user"/"assistant") are provenance,
+# not content, and indexing them makes `query("user")`/`query("delta")` match every record. Only the human
+# `text` (and any other non-metadata string leaf) is searchable. The closed role vocabulary the reflection
+# slice adds is a structured filter, so it joins this set too when it lands.
 _TAGS_KEY = "tags"
+_NON_BODY_KEYS = frozenset({"tags", "session_id", "kind", "speaker"})
 
 
 @dataclass
@@ -110,9 +116,10 @@ def _tokenize(text: str) -> list:
 def _record_text(record) -> str:
     """The searchable text for one record — the projection BOTH lookup paths use (so they agree).
 
-    Gathers the record's string leaf values and joins them, EXCLUDING a top-level `tags` field (the locked
-    tags-not-in-the-FTS-body law). The record shape is not yet fixed (slice 3); this is deliberately
-    shape-agnostic apart from that one law-honoring exclusion.
+    Gathers the record's string leaf values and joins them, EXCLUDING the top-level envelope-metadata keys
+    in `_NON_BODY_KEYS` (the locked tags-not-in-the-FTS-body law, plus the capture-record provenance fields
+    that are not content). Otherwise shape-agnostic; the reflection slice finalizes the projection against
+    the full record shape.
     """
     parts: list = []
 
@@ -128,7 +135,7 @@ def _record_text(record) -> str:
 
     if isinstance(record, dict):
         for key, value in record.items():
-            if key == _TAGS_KEY:
+            if key in _NON_BODY_KEYS:
                 continue
             walk(value)
     else:
