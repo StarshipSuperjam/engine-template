@@ -348,10 +348,11 @@ class SafetyTests(IndexTestCase):
             self.assertEqual(fast, scan, f"fast vs slow disagree on hostile input {hostile!r}")
 
     def test_module_import_is_side_effect_free_for_close_seam(self):
-        # close.py does `import memory`; that must not touch the filesystem or build anything.
+        # close.py does `import memory`; that must not touch the filesystem or build anything (capture
+        # is now exposed, but binding it does no filesystem work — all reads/writes are inside calls).
         self.assertTrue(hasattr(index, "query"))
         import memory
-        self.assertFalse(hasattr(memory, "capture_turn_delta"))  # capture is slice 3
+        self.assertTrue(hasattr(memory, "capture_turn_delta"))  # the capture slice lit this up
 
 
 if __name__ == "__main__":
