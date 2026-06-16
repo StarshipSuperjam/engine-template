@@ -52,7 +52,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:904b3b2befc96d4d3cafed061e30b17aeec4cf74f6fc64d583cf73cf58198f88",
+        "fingerprint": "sha256:cb8d9135ea6a628d0a6235d5ad8f70b3296588bcbed00b3888c45998842c53b6",
         "path": ".engine/check/catalog-coverage.json"
       },
       "type": "check"
@@ -330,6 +330,7 @@
         ],
         "targets": [
           "module:core",
+          "module:memory-substrate-sqlite-fts5",
           "module:validators-core"
         ]
       },
@@ -733,6 +734,22 @@
       "source": {
         "fingerprint": "sha256:a40cd5fe4b33e0f7489dc201ecf0d0d0eb5a0ca8b270d03241f2cb2503181127",
         "path": ".engine/modules/core/manifest.json"
+      },
+      "type": "module"
+    },
+    {
+      "id": "module:memory-substrate-sqlite-fts5",
+      "name": "memory-substrate-sqlite-fts5",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "memory-substrate-sqlite-fts5",
+      "source": {
+        "fingerprint": "sha256:b3ca10b4ffc9981c33cc17500b075d04a4d20377643e2c46bf5e9f0117431274",
+        "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "type": "module"
     },
@@ -1428,6 +1445,22 @@
       "type": "schema"
     },
     {
+      "id": "tool:__init__",
+      "name": ".engine/tools/memory/__init__.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "__init__",
+      "source": {
+        "fingerprint": "sha256:1a1f5a11ee0f60cf47dc7dea3f8c7fdc1e2e3a10ff1452a1c590a2d19ab7b8a4",
+        "path": ".engine/tools/memory/__init__.py"
+      },
+      "type": "tool"
+    },
+    {
       "id": "tool:attention",
       "name": ".engine/tools/attention.py",
       "owner": "core",
@@ -1696,6 +1729,22 @@
       "source": {
         "fingerprint": "sha256:cef26ef0c2a8f62d6e0e3eb205c496a85ed788fe03f55eb3417e613b36430317",
         "path": ".engine/tools/knowledge_query.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:ledger",
+      "name": ".engine/tools/memory/ledger.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "ledger",
+      "source": {
+        "fingerprint": "sha256:1d6072bd664fe167747ad492eac5c037c2bdc576d1658996e201ce163fd383a2",
+        "path": ".engine/tools/memory/ledger.py"
       },
       "type": "tool"
     },
@@ -2160,6 +2209,22 @@
       "source": {
         "fingerprint": "sha256:1ce0eac67b2a2dd7ce2bdc22ce2fccb09a5ffde6fcdac19daf39069ab6e12318",
         "path": ".engine/tools/test_knowledge_query.py"
+      },
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_ledger",
+      "name": ".engine/tools/memory/test_ledger.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_ledger",
+      "source": {
+        "fingerprint": "sha256:2e2037771ee3dd2b927189e14ac1bf0d04731d227c86b31d6d9afe7a597a4ad5",
+        "path": ".engine/tools/memory/test_ledger.py"
       },
       "type": "tool"
     },

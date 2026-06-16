@@ -26,11 +26,12 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (2 installed).
+The packages your engine is assembled from, and how they wire together (3 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
 - `core` (no dependencies)
+- `memory-substrate-sqlite-fts5` → `core`
 - `validators-core` → `core`
 
 ### `core` — version `0.0.0-dev` (required)
@@ -54,6 +55,13 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`
 - wires: gitignore, hook, mcp
+
+### `memory-substrate-sqlite-fts5` — version `0.0.0-dev` (required)
+
+- depends on: `core`
+- provides:
+  - tool: `.engine/tools/memory/*.py`
+- wires: gitignore
 
 ### `validators-core` — version `0.0.0-dev` (required)
 
