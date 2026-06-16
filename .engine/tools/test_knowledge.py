@@ -31,7 +31,7 @@ import hooks             # noqa: E402  (slice 23: the run_hook harness the commi
 
 KNOWLEDGE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "knowledge.v1.json"))
 RULE_PATH = os.path.join(validate.CHECK_DIR, "knowledge-coverage.json")
-ID_RE = r"^(contract|policy|schema|check|tool|operation|skill|agent|interface|doc|state|module):[A-Za-z0-9._-]+$"
+ID_RE = r"^(contract|policy|conduct|schema|check|tool|operation|skill|agent|interface|doc|state|module):[A-Za-z0-9._-]+$"
 
 
 def _errors(schema, instance):
@@ -193,6 +193,149 @@ class TestLiveDerivation(unittest.TestCase):
                     "schema:knowledge.v1",
                     "check:knowledge-coverage", "check:catalog-coverage", "module:core"):
             self.assertIn(eid, self.by_id, eid)
+
+
+class TestAttributeHarvesters(unittest.TestCase):
+    """The D-203 declared-attribute harvesters — pure (IO-free), tested directly on parsed dicts so the
+    'declared, not interpreted / structure, not belief' gates are locked independently of any source tree."""
+
+    def test_status_is_modules_and_contracts_only_else_active(self):
+        kg = knowledge_gen
+        self.assertEqual(kg._status_for("module", {}, {"status": "required"}), "required")
+        self.assertEqual(kg._status_for("module", {}, {"status": "experimental"}), "experimental")
+        self.assertEqual(kg._status_for("contract", {"status": "superseded"}, None), "superseded")
+        # every OTHER surface is 'active' (D-203 'else active'), even one that declares a status of its own
+        for st in ("policy", "operation", "doc", "conduct", "interface", "check", "schema", "tool"):
+            self.assertEqual(kg._status_for(st, {"status": "deprecated"}, None), "active", st)
+        # a missing status on the two declaring surfaces degrades to 'active' (never a crash)
+        self.assertEqual(kg._status_for("contract", {}, None), "active")   # the .gitkeep trap
+        self.assertEqual(kg._status_for("module", {}, {}), "active")
+
+    def test_tier_is_checks_only(self):
+        kg = knowledge_gen
+        self.assertEqual(kg._tier_for("check", {"tier": "hard"}), "hard")
+        self.assertEqual(kg._tier_for("check", {"tier": "soft"}), "soft")
+        self.assertIsNone(kg._tier_for("check", {}))                    # malformed check -> None
+        self.assertIsNone(kg._tier_for("check", {"tier": "posture"}))   # not a check bite tier
+        self.assertIsNone(kg._tier_for("policy", {"tier": "hard"}))     # never from a policy
+
+    def test_title_identity_only_no_slug_fallback(self):
+        kg = knowledge_gen
+        self.assertEqual(kg._title_for("policy", {"title": "Contract threshold"}), "Contract threshold")
+        self.assertEqual(kg._title_for("interface", {"title": "Memory recall"}), "Memory recall")
+        self.assertEqual(kg._title_for("skill", {"name": "engine-start"}), "engine-start")
+        # excluded surfaces never get a title even when they declare one (purpose/decision clauses)
+        self.assertIsNone(kg._title_for("operation", {"title": "Boot the session"}))
+        self.assertIsNone(kg._title_for("doc", {"title": "Getting started"}))
+        self.assertIsNone(kg._title_for("contract", {"title": "A decision"}))
+        # absent / empty -> omit (NO slug fallback)
+        self.assertIsNone(kg._title_for("policy", {}))
+        self.assertIsNone(kg._title_for("policy", {"title": "   "}))
+
+    def test_title_shape_guard_rejects_purpose_clauses_and_imperatives(self):
+        kg = knowledge_gen
+        for bad in ("Operating modes — the session stance", "Knowledge graph - retrieval",
+                    "Start building now", "Set up your project", "Do this. Then that",
+                    "Scope: the worker role", "Shape how I work with you"):
+            self.assertIsNone(kg._title_for("policy", {"title": bad}), bad)
+        for ok in ("Attention", "Contract threshold", "Knowledge graph retrieval", "Finding disposition"):
+            self.assertEqual(kg._title_for("policy", {"title": ok}), ok)
+
+    def test_discriminators_per_surface_with_sorted_lists(self):
+        kg = knowledge_gen
+        self.assertEqual(kg._discriminators_for("check", {}, {"kind": "shape", "suites": ["pr", "CI"]}, None),
+                         {"kind": "shape", "suites": ["CI", "pr"]})            # suites sorted
+        self.assertEqual(kg._discriminators_for("interface", {},
+                         {"operations": [{"name": "neighbors"}, {"name": "find"}],
+                          "fallback": {"handle": "engine-x"}}, None),
+                         {"operations": ["find", "neighbors"], "fallback": "engine-x"})  # op names sorted
+        self.assertEqual(kg._discriminators_for("agent", {"role": "worker", "model-tier": "judgment"}, {}, None),
+                         {"role": "worker", "model-tier": "judgment"})
+        self.assertEqual(kg._discriminators_for("skill", {"invocation": "operator-typed"}, {}, None),
+                         {"invocation": "operator-typed"})
+        self.assertEqual(kg._discriminators_for("module", {}, {}, {"version": "1.4.0"}), {"version": "1.4.0"})
+        self.assertEqual(kg._discriminators_for("policy", {"title": "x"}, {}, None), {})  # none for a policy
+
+
+class TestSupersedesEdges(unittest.TestCase):
+    """The supersedes edge guard (D-203 / the D-169 canon invariant): contract->contract, DEPLOYMENT-STREAM
+    only — no edge may EVER reach a canon eADR. Canon-ness is provides-membership (modelled as canon_ids)."""
+
+    @staticmethod
+    def _contract(eid):
+        return {"id": eid, "type": "contract", "name": eid, "slug": eid.split(":", 1)[1],
+                "source": {"path": f"x/{eid}.md", "fingerprint": "sha256:" + "0" * 64},
+                "owner": "core", "predicates": {}}
+
+    def _pair(self):
+        a, b = self._contract("contract:eADR-0002"), self._contract("contract:eADR-0001")
+        fm = {"contract:eADR-0002": {"id": "eADR-0002", "supersedes": "eADR-0001"},
+              "contract:eADR-0001": {"id": "eADR-0001"}}
+        return [a, b], fm
+
+    def test_deployment_to_deployment_emits_the_edge(self):
+        ents, fm = self._pair()
+        self.assertEqual(knowledge_gen._supersedes_edges(ents, fm, canon_ids=set()),
+                         {"contract:eADR-0002": ["contract:eADR-0001"]})
+
+    def test_a_canon_target_is_never_reached(self):
+        ents, fm = self._pair()
+        self.assertEqual(knowledge_gen._supersedes_edges(ents, fm, canon_ids={"contract:eADR-0001"}), {})
+
+    def test_a_canon_source_emits_nothing(self):
+        ents, fm = self._pair()
+        self.assertEqual(knowledge_gen._supersedes_edges(
+            ents, fm, canon_ids={"contract:eADR-0001", "contract:eADR-0002"}), {})
+
+    def test_dangling_or_self_target_emits_nothing(self):
+        a = self._contract("contract:eADR-0002")
+        self.assertEqual(knowledge_gen._supersedes_edges(
+            [a], {"contract:eADR-0002": {"id": "eADR-0002", "supersedes": "eADR-9999"}}, set()), {})
+        self.assertEqual(knowledge_gen._supersedes_edges(
+            [a], {"contract:eADR-0002": {"id": "eADR-0002", "supersedes": "eADR-0002"}}, set()), {})
+
+
+class TestLiveDerivationAttributes(unittest.TestCase):
+    """The D-203 attributes on the REAL derived graph — the non-fingerprint correlate that the harvest is
+    RIGHT (the gate proves the committed graph MATCHES the sources, never that the values are correct)."""
+
+    def setUp(self):
+        self.by_id = {e["id"]: e for e in _live_entities()}
+
+    def test_check_carries_tier_kind_suites_status_and_no_title(self):
+        c = self.by_id["check:catalog-coverage"]
+        self.assertEqual((c.get("tier"), c.get("kind"), c.get("suites"), c.get("status")),
+                         ("hard", "coverage", ["CI"], "active"))
+        self.assertNotIn("title", c)
+        self.assertEqual(self.by_id["check:conduct-weakening-guard"].get("tier"), "soft")
+
+    def test_policy_and_interface_carry_title_and_discriminators(self):
+        self.assertEqual(self.by_id["policy:attention"].get("title"), "Attention")
+        i = self.by_id["interface:knowledge-retrieval"]
+        self.assertEqual(i.get("title"), "Knowledge graph retrieval")
+        self.assertEqual(i.get("operations"), ["find", "get-entity", "neighbors", "relate"])
+        self.assertEqual(i.get("fallback"), "engine-knowledge-graph")
+
+    def test_module_carries_status_and_version(self):
+        m = self.by_id["module:core"]
+        self.assertEqual((m.get("status"), m.get("version")), ("required", "0.0.0-dev"))
+
+    def test_every_entity_has_status_and_tier_and_title_are_well_scoped(self):
+        for e in self.by_id.values():
+            self.assertIn("status", e, e["id"])
+            if "tier" in e:
+                self.assertEqual(e["type"], "check", e["id"])
+            if "title" in e:
+                self.assertIn(e["type"], ("policy", "interface"), e["id"])  # skills/agents not entitized here
+
+    def test_supersedes_is_dormant_and_gitkeep_trap_holds(self):
+        self.assertFalse(any("supersedes" in e["predicates"] for e in self.by_id.values()),
+                         "supersedes is provably dormant in v1 (every contract entity is owned == canon)")
+        self.assertEqual([e["id"] for e in self.by_id.values() if e["type"] in ("skill", "agent")], [])
+        gk = self.by_id["contract:.gitkeep"]
+        self.assertEqual(gk.get("status"), "active")
+        self.assertNotIn("title", gk)
+        self.assertNotIn("supersedes", gk["predicates"])
 
 
 class TestCommittedGraph(unittest.TestCase):

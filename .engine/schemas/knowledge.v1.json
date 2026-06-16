@@ -67,6 +67,66 @@
           "type": "string",
           "minLength": 1
         },
+        "status": {
+          "description": "The entity's declared lifecycle STATE TOKEN — never the why of a supersession. Harvested verbatim from a declared key for the two surfaces D-203 enumerates: a contract's frontmatter 'status' (proposed|accepted|superseded) and a module manifest's 'status' (required|default-on|optional|experimental|retired). Every other surface is 'active' (the 'else active' default; a surface's declared status is not echoed beyond those two). Optional only because a non-conforming source could omit it; the generator falls back to 'active'.",
+          "type": "string",
+          "enum": ["active", "proposed", "accepted", "superseded", "required", "default-on", "optional", "experimental", "retired"]
+        },
+        "tier": {
+          "description": "CHECKS ONLY: the bite level declared in a check rule's 'tier' key (hard = fails the build; soft = warns). Absent on every non-check entity. This is the check rule's own tier, never a policy's prose enforcement tier (that is a '##' section and is not parsed).",
+          "type": "string",
+          "enum": ["hard", "soft"]
+        },
+        "title": {
+          "description": "An IDENTITY label harvested verbatim from a declared single-line bare-name key: policy.title, interface.title, or skill.name. A noun-phrase identity field only — never a description, never a slug fallback; omitted entirely when the surface declares none or the declared value fails the noun-phrase shape-guard. Excluded for operation/doc/contract surfaces (their titles are purpose/decision clauses, not identities).",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "CHECK discriminator: the check-kind that evaluates this rule (e.g. schema|presence|shape|coverage|coherence|custom/script and module-provided kinds), from the check's 'kind' key. A free string mirroring check.v1; absent on non-check entities.",
+          "type": "string",
+          "minLength": 1
+        },
+        "suites": {
+          "description": "CHECK discriminator: the validation suites this rule joins, from the check's 'suites' key, sorted. May be empty (a directly-invoked rule); absent on non-check entities.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "role": {
+          "description": "AGENT discriminator: the persona's routing role, from the agent frontmatter 'role'. A free string (role membership is the coherence leg's, not enforced here); absent on non-agent entities.",
+          "type": "string",
+          "minLength": 1
+        },
+        "lens": {
+          "description": "AGENT discriminator: the review lens, from the agent frontmatter 'lens'. Present only on review-role agents that declare one.",
+          "type": "string",
+          "minLength": 1
+        },
+        "model-tier": {
+          "description": "AGENT discriminator: the execution-demand tier (e.g. judgment|mechanical), from the agent frontmatter 'model-tier'. A free string; absent on non-agent entities.",
+          "type": "string",
+          "minLength": 1
+        },
+        "invocation": {
+          "description": "SKILL discriminator: the invocation axis (e.g. model-auto|operator-typed|model-only), from the skill frontmatter 'invocation'. A free string (membership is the coherence leg's); absent on non-skill entities.",
+          "type": "string",
+          "minLength": 1
+        },
+        "operations": {
+          "description": "INTERFACE discriminator: the operation names the interface declares, from interface.operations[].name, sorted. Identity-only (the names, never the inline input/output schemas); absent on non-interface entities.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "fallback": {
+          "description": "INTERFACE discriminator: the named fallback implementation handle, from interface.fallback.handle (the engine-prefixed server name). Absent on non-interface entities.",
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "description": "MODULE discriminator: the module manifest's 'version' (a dotted number, optionally a pre-release suffix). Absent on non-module entities.",
+          "type": "string",
+          "minLength": 1
+        },
         "predicates": {
           "description": "The entity's OUTGOING edges, a closed mechanical vocabulary. Each value is an array of entity-ids that resolve to entities in this graph. Only non-empty edge kinds are present; an absent kind means no such edge. Reverse traversal (who governs/enforces/provides me) is computed by the derived index, not stored here.",
           "type": "object",
@@ -89,6 +149,11 @@
             },
             "depends_on": {
               "description": "For a module entity: the modules it declares a dependency on (derived from the manifest's 'depends').",
+              "type": "array",
+              "items": { "$ref": "#/$defs/entityId" }
+            },
+            "supersedes": {
+              "description": "For a contract entity: the earlier contract this decision replaces (forward, contract->contract), derived from the contract frontmatter's 'supersedes' eADR id resolved to its entity. Scoped to DEPLOYMENT-STREAM (non-canon) contracts only — a canon eADR (one a module's 'provides' claims) is NEVER a target, so no persisted reference reaches the canon (the why-of-a-supersession stays in the surface's own frontmatter, not here). Present only when this contract supersedes another in-graph deployment-stream contract.",
               "type": "array",
               "items": { "$ref": "#/$defs/entityId" }
             }

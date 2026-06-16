@@ -2,6 +2,7 @@
   "entities": [
     {
       "id": "check:agent-frontmatter",
+      "kind": "schema",
       "name": ".engine/check/agent-frontmatter.json",
       "owner": "validators-core",
       "predicates": {
@@ -17,10 +18,16 @@
         "fingerprint": "sha256:bb0e2e221699211c05d5d8bb9fd7ef367bb825c1ff81f39091dc51a4fd90ffe8",
         "path": ".engine/check/agent-frontmatter.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:agent-shape",
+      "kind": "shape",
       "name": ".engine/check/agent-shape.json",
       "owner": "validators-core",
       "predicates": {
@@ -36,10 +43,16 @@
         "fingerprint": "sha256:5a5c16c28664d3fd8260f4d386c6d9cdddde4ce741583578ba3d5006e17b6c73",
         "path": ".engine/check/agent-shape.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:catalog-coverage",
+      "kind": "coverage",
       "name": ".engine/check/catalog-coverage.json",
       "owner": "validators-core",
       "predicates": {
@@ -55,10 +68,16 @@
         "fingerprint": "sha256:cb8d9135ea6a628d0a6235d5ad8f70b3296588bcbed00b3888c45998842c53b6",
         "path": ".engine/check/catalog-coverage.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:conduct-frontmatter",
+      "kind": "schema",
       "name": ".engine/check/conduct-frontmatter.json",
       "owner": "validators-core",
       "predicates": {
@@ -77,10 +96,16 @@
         "fingerprint": "sha256:146d5adedf43e8df410c0aae6c737ae6048431b4932aedee9c9bf603168faac7",
         "path": ".engine/check/conduct-frontmatter.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:conduct-shape",
+      "kind": "custom/script",
       "name": ".engine/check/conduct-shape.json",
       "owner": "validators-core",
       "predicates": {
@@ -96,10 +121,16 @@
         "fingerprint": "sha256:6d0aba1ac2cc07786ec37f9f820f0ec79f77c9669013556ac729d0f13457d1ac",
         "path": ".engine/check/conduct-shape.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:conduct-weakening-guard",
+      "kind": "custom/script",
       "name": ".engine/check/conduct-weakening-guard.json",
       "owner": "validators-core",
       "predicates": {
@@ -115,10 +146,16 @@
         "fingerprint": "sha256:c6c557f2f9e6efcd045ef144f3e0db038af06bc35d8506d7620e26d42d5ec900",
         "path": ".engine/check/conduct-weakening-guard.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "soft",
       "type": "check"
     },
     {
       "id": "check:contract-frontmatter",
+      "kind": "schema",
       "name": ".engine/check/contract-frontmatter.json",
       "owner": "validators-core",
       "predicates": {
@@ -134,10 +171,16 @@
         "fingerprint": "sha256:9845436e6b9cc2178cd5512acc1f5ae5aa1bd798063fdd717eff4e5a7c20ed01",
         "path": ".engine/check/contract-frontmatter.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:contract-shape",
+      "kind": "shape",
       "name": ".engine/check/contract-shape.json",
       "owner": "validators-core",
       "predicates": {
@@ -153,10 +196,16 @@
         "fingerprint": "sha256:0f15d1bb80f20a1d9a1b7acccca57e51e3a18cc3c7b02773f0d778945e06d91b",
         "path": ".engine/check/contract-shape.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:contract-threshold",
+      "kind": "presence",
       "name": ".engine/check/contract-threshold.json",
       "owner": "validators-core",
       "predicates": {
@@ -172,10 +221,16 @@
         "fingerprint": "sha256:75537b4b4ea8f117d76c2c54a3a9ae1bf405ed29c501db99f07f777c2220f859",
         "path": ".engine/check/contract-threshold.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:doc-frontmatter",
+      "kind": "schema",
       "name": ".engine/check/doc-frontmatter.json",
       "owner": "validators-core",
       "predicates": {
@@ -194,10 +249,16 @@
         "fingerprint": "sha256:2805c9a748c2484778b76a1d3ecb49a740ad023982b6dcf6152f5fd769da9ba6",
         "path": ".engine/check/doc-frontmatter.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:doc-shape",
+      "kind": "shape",
       "name": ".engine/check/doc-shape.json",
       "owner": "validators-core",
       "predicates": {
@@ -216,10 +277,16 @@
         "fingerprint": "sha256:20da81d7decf69eed2067aa9d03515539189227793c92cb68f00663efbebc856",
         "path": ".engine/check/doc-shape.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:engine-manifest",
+      "kind": "schema",
       "name": ".engine/check/engine-manifest.json",
       "owner": "validators-core",
       "predicates": {
@@ -235,10 +302,16 @@
         "fingerprint": "sha256:b6672ec2188f0090acd5e845da82496d8103938fbfc05389418d3008997c21f1",
         "path": ".engine/check/engine-manifest.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:guardrail-weakening",
+      "kind": "custom/script",
       "name": ".engine/check/guardrail-weakening.json",
       "owner": "core",
       "predicates": {
@@ -254,10 +327,14 @@
         "fingerprint": "sha256:70f4779a1ebd19b159b5a41ab2f616343415942b89be3485e9c5c2e5e023be41",
         "path": ".engine/check/guardrail-weakening.json"
       },
+      "status": "active",
+      "suites": [],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:interface-declaration",
+      "kind": "schema",
       "name": ".engine/check/interface-declaration.json",
       "owner": "validators-core",
       "predicates": {
@@ -277,10 +354,16 @@
         "fingerprint": "sha256:a68a3f7e72758c8340e7cb4a5629218dc94a3e23e5b461d45be10b0415bbbeee",
         "path": ".engine/check/interface-declaration.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:knowledge-coverage",
+      "kind": "coverage",
       "name": ".engine/check/knowledge-coverage.json",
       "owner": "validators-core",
       "predicates": {
@@ -296,10 +379,16 @@
         "fingerprint": "sha256:da312323fff00884520f906a5d2bb7347cf4548c22be58b0d98fc6905e1381c4",
         "path": ".engine/check/knowledge-coverage.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:link-integrity",
+      "kind": "coverage",
       "name": ".engine/check/link-integrity.json",
       "owner": "validators-core",
       "predicates": {
@@ -315,10 +404,16 @@
         "fingerprint": "sha256:bb655a3925ae535f45bdbb6962d75f90bd527a543ff11388fed889dce8347d6b",
         "path": ".engine/check/link-integrity.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:module-manifest",
+      "kind": "schema",
       "name": ".engine/check/module-manifest.json",
       "owner": "validators-core",
       "predicates": {
@@ -339,10 +434,16 @@
         "fingerprint": "sha256:2ae0714e5c7c5527aa57d7ab79b402640b89cfc2e4161300dd44c713a7c3c642",
         "path": ".engine/check/module-manifest.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:operation-frontmatter",
+      "kind": "schema",
       "name": ".engine/check/operation-frontmatter.json",
       "owner": "validators-core",
       "predicates": {
@@ -372,10 +473,16 @@
         "fingerprint": "sha256:a139bd2c6ee8c75e91d66f2467a970ea497c55b5d6035c6d63c75b8e9ee0c6df",
         "path": ".engine/check/operation-frontmatter.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:operation-shape",
+      "kind": "shape",
       "name": ".engine/check/operation-shape.json",
       "owner": "validators-core",
       "predicates": {
@@ -405,10 +512,16 @@
         "fingerprint": "sha256:2912fa66fe45b6b1900aa8971f29deed3b8c482e24b2e28caf5e4ba41ea67599",
         "path": ".engine/check/operation-shape.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:policy-frontmatter",
+      "kind": "schema",
       "name": ".engine/check/policy-frontmatter.json",
       "owner": "validators-core",
       "predicates": {
@@ -431,10 +544,16 @@
         "fingerprint": "sha256:b279d23260f61f6eb37f6ae134bc472b9636a2d6030eedeee26784b5229479f0",
         "path": ".engine/check/policy-frontmatter.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:policy-override-stale",
+      "kind": "custom/script",
       "name": ".engine/check/policy-override-stale.json",
       "owner": "validators-core",
       "predicates": {
@@ -450,10 +569,16 @@
         "fingerprint": "sha256:5ce5ced1e42a235ef4457ad97c35fa7296b6328255db49233f19490937f48848",
         "path": ".engine/check/policy-override-stale.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:policy-shape",
+      "kind": "shape",
       "name": ".engine/check/policy-shape.json",
       "owner": "validators-core",
       "predicates": {
@@ -476,10 +601,16 @@
         "fingerprint": "sha256:673b23c493a3dc9f634d2f5447782f3643c809807b963ccf01c85e2e6aed1a3b",
         "path": ".engine/check/policy-shape.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:pr-body-completeness",
+      "kind": "presence",
       "name": ".engine/check/pr-body-completeness.json",
       "owner": "validators-core",
       "predicates": {
@@ -495,10 +626,16 @@
         "fingerprint": "sha256:d34b6f802400153b1fb6d37488a8716c63a31a89fcb6e575d85b9dd385f12c44",
         "path": ".engine/check/pr-body-completeness.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:protection",
+      "kind": "custom/script",
       "name": ".engine/check/protection.json",
       "owner": "core",
       "predicates": {
@@ -514,10 +651,16 @@
         "fingerprint": "sha256:80d7664cab7d91a4b95cf11fc7b175e956d61ac86140b1d7dd2f423833cd9e14",
         "path": ".engine/check/protection.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:self-map-drift",
+      "kind": "custom/script",
       "name": ".engine/check/self-map-drift.json",
       "owner": "validators-core",
       "predicates": {
@@ -533,10 +676,16 @@
         "fingerprint": "sha256:ef42ad2b6eacd40cb59c60db662f2870580be377b107ff92230ffa3230805a12",
         "path": ".engine/check/self-map-drift.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:skill-coherence",
+      "kind": "custom/script",
       "name": ".engine/check/skill-coherence.json",
       "owner": "validators-core",
       "predicates": {
@@ -552,10 +701,16 @@
         "fingerprint": "sha256:6068ca3030743c1a52ed62529575fd860a74497efd8369038f071fbaee9e894f",
         "path": ".engine/check/skill-coherence.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:skill-frontmatter",
+      "kind": "schema",
       "name": ".engine/check/skill-frontmatter.json",
       "owner": "validators-core",
       "predicates": {
@@ -571,10 +726,16 @@
         "fingerprint": "sha256:11d75ebadee985e048724db14f997c656e18ca9ff98536d6ac68a9a304955940",
         "path": ".engine/check/skill-frontmatter.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:skill-shape",
+      "kind": "shape",
       "name": ".engine/check/skill-shape.json",
       "owner": "validators-core",
       "predicates": {
@@ -590,10 +751,16 @@
         "fingerprint": "sha256:6d400181b8ebce2ec7ae7d886053b27e623dd8352353742d4ecb60853787b40e",
         "path": ".engine/check/skill-shape.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:state-cursor",
+      "kind": "schema",
       "name": ".engine/check/state-cursor.json",
       "owner": "validators-core",
       "predicates": {
@@ -609,10 +776,16 @@
         "fingerprint": "sha256:62391ff9c0693a97518d2c7ece97f86a910224a54c4e11fdea205213ca266679",
         "path": ".engine/check/state-cursor.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
       "id": "check:uv-group-drift",
+      "kind": "custom/script",
       "name": ".engine/check/uv-group-drift.json",
       "owner": "validators-core",
       "predicates": {
@@ -628,6 +801,11 @@
         "fingerprint": "sha256:c1682a8b0d656d9ea6648dfae84ade97344fee7e4b5120b69517277009ab559b",
         "path": ".engine/check/uv-group-drift.json"
       },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
       "type": "check"
     },
     {
@@ -647,6 +825,7 @@
         "fingerprint": "sha256:5261e6bea3344f9bc0aaf15fbcbce3e5ec9137e18df86ba1a9755b9fd13e6704",
         "path": ".engine/conduct/defaults.md"
       },
+      "status": "active",
       "type": "conduct"
     },
     {
@@ -666,6 +845,7 @@
         "fingerprint": "sha256:d442af95eb3bc1b9b41bb166039dd1d81fbe0aa31a98501e39e148e1df9f453c",
         "path": ".engine/contracts/.gitkeep"
       },
+      "status": "active",
       "type": "contract"
     },
     {
@@ -685,11 +865,19 @@
         "fingerprint": "sha256:6e8606ba42288b571efa4ec631fc93a41faf641f2d2cd3bbf1efdee61c7d004f",
         "path": ".engine/docs/getting-started.md"
       },
+      "status": "active",
       "type": "doc"
     },
     {
+      "fallback": "engine-knowledge-graph",
       "id": "interface:knowledge-retrieval",
       "name": ".engine/interfaces/knowledge-retrieval.json",
+      "operations": [
+        "find",
+        "get-entity",
+        "neighbors",
+        "relate"
+      ],
       "owner": "core",
       "predicates": {
         "governed_by": [
@@ -701,14 +889,20 @@
       },
       "slug": "knowledge-retrieval",
       "source": {
-        "fingerprint": "sha256:e5d7dfc15bfa8c85aca0ce7396d23c9d89edbaf5ffb1b857df64b20225b52858",
+        "fingerprint": "sha256:97ead380f2c0d0e9632c1f59112ff467787d40a6295133d44d2bfacea230fcda",
         "path": ".engine/interfaces/knowledge-retrieval.json"
       },
+      "status": "active",
+      "title": "Knowledge graph retrieval",
       "type": "interface"
     },
     {
+      "fallback": "engine-memory",
       "id": "interface:search",
       "name": ".engine/interfaces/search.json",
+      "operations": [
+        "search"
+      ],
       "owner": "core",
       "predicates": {
         "governed_by": [
@@ -723,6 +917,8 @@
         "fingerprint": "sha256:c6a2315b8068f2b851a71296647eb001442d4e4e5acd0ff8e5b0341da9a1995e",
         "path": ".engine/interfaces/search.json"
       },
+      "status": "active",
+      "title": "Memory recall",
       "type": "interface"
     },
     {
@@ -735,7 +931,9 @@
         "fingerprint": "sha256:a40cd5fe4b33e0f7489dc201ecf0d0d0eb5a0ca8b270d03241f2cb2503181127",
         "path": ".engine/modules/core/manifest.json"
       },
-      "type": "module"
+      "status": "required",
+      "type": "module",
+      "version": "0.0.0-dev"
     },
     {
       "id": "module:memory-substrate-sqlite-fts5",
@@ -751,7 +949,9 @@
         "fingerprint": "sha256:b3ca10b4ffc9981c33cc17500b075d04a4d20377643e2c46bf5e9f0117431274",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
-      "type": "module"
+      "status": "required",
+      "type": "module",
+      "version": "0.0.0-dev"
     },
     {
       "id": "module:validators-core",
@@ -767,7 +967,9 @@
         "fingerprint": "sha256:4e87ecb0756282d7e2d8d4705c89d79be4dbf623f56907c796318c6835e84263",
         "path": ".engine/modules/validators-core/manifest.json"
       },
-      "type": "module"
+      "status": "required",
+      "type": "module",
+      "version": "0.0.0-dev"
     },
     {
       "id": "operation:boot-session-start",
@@ -786,6 +988,7 @@
         "fingerprint": "sha256:789a657947f8b7bba0d3efbe412c24ea6d89d11bd39b749b1114274f43d96c13",
         "path": ".engine/operations/boot-session-start.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -805,6 +1008,7 @@
         "fingerprint": "sha256:d087d6925b1ab51f222d87d578564b62f093b1632c1567bb7c0ed63a1656045b",
         "path": ".engine/operations/build-orchestration.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -824,6 +1028,7 @@
         "fingerprint": "sha256:deaa1557ef0c94fc67bf3748d56bb01ff0ae686f3af753c53846c7c20f71d558",
         "path": ".engine/operations/close-turn.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -843,6 +1048,7 @@
         "fingerprint": "sha256:f161e0fd9a0fc690d544e4d488c65a956bd1eb2a5133ca1517e60b0974bd9899",
         "path": ".engine/operations/conduct-author.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -862,6 +1068,7 @@
         "fingerprint": "sha256:3483da1db477397e2523acef620a8412896959371dff67164e30014fb2f4ff27",
         "path": ".engine/operations/control-plane-bootstrap.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -881,6 +1088,7 @@
         "fingerprint": "sha256:6d0deb5f848ac200fc87f8e95d51414bb8d51259e9619547627ebdd1553f1409",
         "path": ".engine/operations/engine-remove.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -900,6 +1108,7 @@
         "fingerprint": "sha256:e794e33ab33d278cb3c1fa5c6a583fc011dfa39a9ef01d647d6d05e8ea912726",
         "path": ".engine/operations/engine-upgrade.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -919,6 +1128,7 @@
         "fingerprint": "sha256:269750e1791a743f64dbe1ee077d25708d8ae368edcf443af969245009c59df1",
         "path": ".engine/operations/first-run.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -938,6 +1148,7 @@
         "fingerprint": "sha256:883cf2e9f2089043382a97dde631c81b552b23576f5e70caa5ae9539adbd45f0",
         "path": ".engine/operations/module-add.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -957,6 +1168,7 @@
         "fingerprint": "sha256:9c92cc75c99cd361a820f3b032f767b15da3399566b9bfb96acc7b7c9f168d03",
         "path": ".engine/operations/module-remove.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -976,6 +1188,7 @@
         "fingerprint": "sha256:fb3a504f4877e801e2926e5f6eb45fc9ab59a5abc8b8ce750266e0a905a46d16",
         "path": ".engine/operations/operating-modes.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -995,6 +1208,7 @@
         "fingerprint": "sha256:3c875924ae5d48affaecd0c9869de7d377cf5735258ea9f4e64ae5573e032f86",
         "path": ".engine/operations/tune-policy.md"
       },
+      "status": "active",
       "type": "operation"
     },
     {
@@ -1011,9 +1225,11 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:efd2b241a105e04991ea8a6ae47e7087c822759f66fb9fd0c98a0b6a8c95bfbf",
+        "fingerprint": "sha256:4cfde6dbea07e1a06a2b2a7671576d96ff50c9f39fa530909cfc20ca96d213f2",
         "path": ".engine/policies/attention.md"
       },
+      "status": "active",
+      "title": "Attention",
       "type": "policy"
     },
     {
@@ -1033,6 +1249,8 @@
         "fingerprint": "sha256:060a4cf310d3658444ad5f9099921acfed7cfa0fb923fd28d3bcac847a068748",
         "path": ".engine/policies/contract-threshold.md"
       },
+      "status": "active",
+      "title": "Contract threshold",
       "type": "policy"
     },
     {
@@ -1052,6 +1270,8 @@
         "fingerprint": "sha256:1afa7a089840a32b3ece65f138e418dad06150e0f3863385c9e3f5ecf1becb22",
         "path": ".engine/policies/escalation.md"
       },
+      "status": "active",
+      "title": "Escalation",
       "type": "policy"
     },
     {
@@ -1071,6 +1291,8 @@
         "fingerprint": "sha256:d8d86b37bbb8d1ce88163000984ee6199f6a5d7efcf7a0072ab380ff4bd7df48",
         "path": ".engine/policies/finding-disposition.md"
       },
+      "status": "active",
+      "title": "Finding disposition",
       "type": "policy"
     },
     {
@@ -1090,6 +1312,8 @@
         "fingerprint": "sha256:7ed42813428ee17fa3406a214e74feebfbac1c22cf3e609c68ff36bf80f187e5",
         "path": ".engine/policies/triage-threshold.md"
       },
+      "status": "active",
+      "title": "Triage threshold",
       "type": "policy"
     },
     {
@@ -1106,6 +1330,7 @@
         "fingerprint": "sha256:23ce35423e8494fd0d1a4421e2784569ee22d0b3e4bdcadcba4605567d144acd",
         "path": ".engine/schemas/agent.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1122,6 +1347,7 @@
         "fingerprint": "sha256:fc8d108c6220d32f1d7ff16904a41a1c75df284c87741c6721e741dc9954d476",
         "path": ".engine/schemas/ambient-capture.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1138,6 +1364,7 @@
         "fingerprint": "sha256:abb061bc0dc53f39f2a19c04b3debafb9ddfdf1ed74b8ee203f57759c1229f1d",
         "path": ".engine/schemas/attention-result.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1154,6 +1381,7 @@
         "fingerprint": "sha256:28e323d7a95eef2edcae9c788bae7926d15e277c2bbf67a900aa53be219abe12",
         "path": ".engine/schemas/check.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1170,6 +1398,7 @@
         "fingerprint": "sha256:8d1f110dea50195885648ce27f6351e9983fa11876dd5bfd351403e92db5df8a",
         "path": ".engine/schemas/conduct.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1186,6 +1415,7 @@
         "fingerprint": "sha256:aeae0626c119b3d8a6f87627c9bc8594692719ca6e21c5b3778ed3b3385dafd3",
         "path": ".engine/schemas/contract.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1202,6 +1432,7 @@
         "fingerprint": "sha256:aa7ed900a61895e90f7c0eb292cf2837e7e950408eeef94c593b9d2b7a2a401b",
         "path": ".engine/schemas/doc.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1218,6 +1449,7 @@
         "fingerprint": "sha256:1ed6d63ccd4408553c68be8ffbc1dc54a253f11e72fdc51e22969e675ad9dbc7",
         "path": ".engine/schemas/engine.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1234,6 +1466,7 @@
         "fingerprint": "sha256:04d0738da9aeab17c306e8ddb7b3164f6788008e81fa68e6d947deca6cb18440",
         "path": ".engine/schemas/finding-record.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1250,6 +1483,7 @@
         "fingerprint": "sha256:4f45d0691dd42cacd1f324c216d843c3f7f95b8ddde1be837d712d31ec613f9e",
         "path": ".engine/schemas/finding.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1266,6 +1500,7 @@
         "fingerprint": "sha256:9aed92f1a9b34679098d9e89931e6a66431d8538c43970553a56d63a623cabe7",
         "path": ".engine/schemas/interface.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1279,9 +1514,10 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:96e84b69c3bee9367e07bf8b8c45d801adac244fe30977d6783d1f244bb15fc5",
+        "fingerprint": "sha256:0d6bff88b558a6e3c205da8b81784247e6582facaf3f12ddd08d761e9bdb7191",
         "path": ".engine/schemas/knowledge.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1298,6 +1534,7 @@
         "fingerprint": "sha256:5a77effa113bd721979cf70021e66cab3978e017bac5b58e9111e11791471596",
         "path": ".engine/schemas/module.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1314,6 +1551,7 @@
         "fingerprint": "sha256:7a2a7130a5e7ad3ffc9796f2ddca6cba7eb2bc501db2f81d4f712b2703671278",
         "path": ".engine/schemas/operation.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1330,6 +1568,7 @@
         "fingerprint": "sha256:c98f652b7414a370de0bac63e618f6f56a3de59252c2d48deeec31061592506a",
         "path": ".engine/schemas/policy.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1346,6 +1585,7 @@
         "fingerprint": "sha256:10351c9b64fa2155c455c44dc9d72e662829f04b591968c06c005eca50a61b5f",
         "path": ".engine/schemas/provisioning-catalog.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1362,6 +1602,7 @@
         "fingerprint": "sha256:806eb401dd3dd20d12734930b327bc7ab244cc6c3a80217d2be0a574b2171714",
         "path": ".engine/schemas/skill.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1378,6 +1619,7 @@
         "fingerprint": "sha256:b61bf41fcb259491a2a8a54983e13dd1448f198fd08d939eb19fde61f79f8ec4",
         "path": ".engine/schemas/state.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1394,6 +1636,7 @@
         "fingerprint": "sha256:6f4b17fd62d17c02b90c6e8dc555b1c609e71d0c678ccd84284f8d7af9d5d255",
         "path": ".engine/schemas/suites.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1410,6 +1653,7 @@
         "fingerprint": "sha256:4aff2f38cac9e45e16ea0d1ffb24b9a6ead1687076d0280d146eb993a6f54dc5",
         "path": ".engine/schemas/surface-catalog.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1426,6 +1670,7 @@
         "fingerprint": "sha256:8f85bd77986da5d07ce761b050169f405c4cbe383d1bae27bc35c8151a19beec",
         "path": ".engine/schemas/surface-catalog.schema.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1442,6 +1687,7 @@
         "fingerprint": "sha256:591cd0e6caaca59b6aea66689dd68b0efe64b73a27c47abd0698ae31916f5279",
         "path": ".engine/schemas/template.v1.json"
       },
+      "status": "active",
       "type": "schema"
     },
     {
@@ -1458,6 +1704,7 @@
         "fingerprint": "sha256:1a1f5a11ee0f60cf47dc7dea3f8c7fdc1e2e3a10ff1452a1c590a2d19ab7b8a4",
         "path": ".engine/tools/memory/__init__.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1471,9 +1718,10 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:72321b97a5ac439c7c05e59bd7217a5b6b8a9993e328ca28ae2191dc49dd5120",
+        "fingerprint": "sha256:7e0fc435efbb14c58036821b92a0ab48eab4be62936e75ec7a4fc033492117a3",
         "path": ".engine/tools/attention.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1490,6 +1738,7 @@
         "fingerprint": "sha256:59844c131a87985a3c578931fae39f6a899776210f099e94029d4587b0c46ea5",
         "path": ".engine/tools/attention_rank.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1506,6 +1755,7 @@
         "fingerprint": "sha256:88e96d1497c62929b8fa01b65ab42f05f2c83ab2e51485c35f98f573f3ce9cc0",
         "path": ".engine/tools/boot.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1522,6 +1772,7 @@
         "fingerprint": "sha256:95dca5afd2a0d9b9f31c5e23c9a985667b524ef3e851bc848c26239978209622",
         "path": ".engine/tools/bootstrap.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1538,6 +1789,7 @@
         "fingerprint": "sha256:ce56e979f4731beb5fa938de7707e576c35ba9b01f335b2105928e65a20e03a7",
         "path": ".engine/tools/checkout_health.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1554,6 +1806,7 @@
         "fingerprint": "sha256:17afe46566bd786bf3b2176e554fc6fc7d285e91a7897e26ca079714e3ead2ab",
         "path": ".engine/tools/close.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1570,6 +1823,7 @@
         "fingerprint": "sha256:7f4eb3f22751b333f7211d2d9afbbb21483c861c1cc6f34b86334099789a2037",
         "path": ".engine/tools/conduct_shape_check.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1586,6 +1840,7 @@
         "fingerprint": "sha256:38b34d22af87483d0e397950a0e18fdfc7f512e4fc224f800920774bf286fc82",
         "path": ".engine/tools/conduct_weakening_check.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1602,6 +1857,7 @@
         "fingerprint": "sha256:3cf991bfdcdcf0eda8a245c3a172ab1de3e2e566f041b2d791cd8dc69a719684",
         "path": ".engine/tools/engine_help.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1618,6 +1874,7 @@
         "fingerprint": "sha256:e0c8a45c4d17515694b1e3027aaa5c66e24a982374e2215eddffa6b38e7a97bb",
         "path": ".engine/tools/engine_status.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1634,6 +1891,7 @@
         "fingerprint": "sha256:dcc6b6d6add3eb85d1a76f530031753b73fa4b34c58ab42b5b444d182182b45c",
         "path": ".engine/tools/hooks.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1650,6 +1908,7 @@
         "fingerprint": "sha256:83174cab2ea92013e89c64c9849df7ada90210218e48e108a30adca7fcc2924d",
         "path": ".engine/tools/instantiator.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1666,6 +1925,7 @@
         "fingerprint": "sha256:98225252d2ade8f8046c42d52b253755a7cc8023f460d9081ac196e70918a239",
         "path": ".engine/tools/issue_author.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1679,9 +1939,10 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:748573dbd6e0e54e14bfa76a1ed43fee2a219883dd7e46cd9f0d2a287e624dfd",
+        "fingerprint": "sha256:78947772d33c223ff629b1bc2d01175ca13c97ba0541b22b59cfebf1dba7ebe6",
         "path": ".engine/tools/knowledge_gen.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1695,9 +1956,10 @@
       },
       "slug": "knowledge_index",
       "source": {
-        "fingerprint": "sha256:cdf6d22c3ec2dc5242c3ac03fd57a0851788e5e55a3c24c149db06a57a2ef6ca",
+        "fingerprint": "sha256:62ea2edee6a074688d15db3a1de5af61508dec03dd69d88548e7e042c6a0e101",
         "path": ".engine/tools/knowledge_index.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1711,9 +1973,10 @@
       },
       "slug": "knowledge_mcp_server",
       "source": {
-        "fingerprint": "sha256:2d712dbb96eba3ccb1a6d54c5e0b2cc3c2af5efdf9146bc2ecca280d9b3aa726",
+        "fingerprint": "sha256:c0a9fbe8fbcebf083686722436c102b83339d4afff42913462d0371fbda650ef",
         "path": ".engine/tools/knowledge_mcp_server.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1727,9 +1990,10 @@
       },
       "slug": "knowledge_query",
       "source": {
-        "fingerprint": "sha256:cef26ef0c2a8f62d6e0e3eb205c496a85ed788fe03f55eb3417e613b36430317",
+        "fingerprint": "sha256:8148b75ba0cdbcecd07d2e018d529173e384313f3ff51034e11dc80d745e9aa3",
         "path": ".engine/tools/knowledge_query.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1746,6 +2010,7 @@
         "fingerprint": "sha256:1d6072bd664fe167747ad492eac5c037c2bdc576d1658996e201ce163fd383a2",
         "path": ".engine/tools/memory/ledger.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1762,6 +2027,7 @@
         "fingerprint": "sha256:587083c58618aa24384ecce57c4fd113bc88fe721d988dc77a0f6c3b273d05b2",
         "path": ".engine/tools/modes.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1778,6 +2044,7 @@
         "fingerprint": "sha256:3a50aaf9fd17fc9a0a114002fb52445bc0edef5f91a71222a295cd68d3841f8e",
         "path": ".engine/tools/module_catalog.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1794,6 +2061,7 @@
         "fingerprint": "sha256:b0dca9f6e51951662d2f08f8a43689136b433d42b0e8fc12587eae74a2b9331c",
         "path": ".engine/tools/module_coherence.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1810,6 +2078,7 @@
         "fingerprint": "sha256:414f48e78a2a444666a1602759ae2b7ec94c5d3062aecca34aaad00f6f1185fc",
         "path": ".engine/tools/module_manager.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1826,6 +2095,7 @@
         "fingerprint": "sha256:35aec0dc9d4bff00a18a398417196ba4877d5a121381855482a22282f3f7d165",
         "path": ".engine/tools/operator_overrides.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1842,6 +2112,7 @@
         "fingerprint": "sha256:36c86dcae6cb9a00ae45d8fc0fcd1211c2037e6d2bbab4faffe8d6ebd1c67b82",
         "path": ".engine/tools/policy_override_check.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1858,6 +2129,7 @@
         "fingerprint": "sha256:607f45d2305bb5028d33d4b38a92fc5b78aa95f8ee6cfd1fe7b28a4c2050220b",
         "path": ".engine/tools/protection_guard.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1874,6 +2146,7 @@
         "fingerprint": "sha256:135f9f4cf0846b5ab72c4f62a02b0b735e28178622794adbf377fe4b579535f8",
         "path": ".engine/tools/self_map.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1890,6 +2163,7 @@
         "fingerprint": "sha256:bb8f84ce91cdee031f4a89ddb166804d341764acf9fd385e147bb8959ff676bb",
         "path": ".engine/tools/self_map_check.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1906,6 +2180,7 @@
         "fingerprint": "sha256:fbcfffa382e0f0e152063d4ef3302548bcb3cc38920060576497963d238c04f1",
         "path": ".engine/tools/skill_coherence_check.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1922,6 +2197,7 @@
         "fingerprint": "sha256:220fc59ef5ffce8c09956516a54301e2c1619b755d1765ab67b1d410cdf738dc",
         "path": ".engine/tools/standing_situation.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1938,6 +2214,7 @@
         "fingerprint": "sha256:6b692dabc9a2158bd4255b00c35439a97b30e43b56304ebd9fb853f12230d68f",
         "path": ".engine/tools/telemetry.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1954,6 +2231,7 @@
         "fingerprint": "sha256:288190876ab1ef9f9514a46c28f4a1407463535be01f5171f38eb08e54b1dbe0",
         "path": ".engine/tools/test_agent.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1970,6 +2248,7 @@
         "fingerprint": "sha256:f43de4cd86ce357102b7d039b1f9ff625b5a5237fdb39fd86c65b9322270b06d",
         "path": ".engine/tools/test_attention.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -1986,6 +2265,7 @@
         "fingerprint": "sha256:257b0e26f21f782ce69e0b84f527e15db010b70c70426f6e1804bbfefbfb709f",
         "path": ".engine/tools/test_boot.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2002,6 +2282,7 @@
         "fingerprint": "sha256:78683bfd8ac245e327c1365cf36ed358190e097de41b4dc6ef26b42b06b02cdd",
         "path": ".engine/tools/test_bootstrap.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2018,6 +2299,7 @@
         "fingerprint": "sha256:ac1b5c704644ae1ad00449641c60d4c862374b4f117c093e4298f37b72afd54c",
         "path": ".engine/tools/test_checkout_health.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2034,6 +2316,7 @@
         "fingerprint": "sha256:5d98753bfb062946738395ff64a3b7b92bfc9f2c11a4f2c70afc1eb0cdf62c82",
         "path": ".engine/tools/test_close.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2050,6 +2333,7 @@
         "fingerprint": "sha256:47258dbc28c33fd8bf5f8cca2336248b161b6b7c2b0c910069ccfbfca48db07b",
         "path": ".engine/tools/test_conduct.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2066,6 +2350,7 @@
         "fingerprint": "sha256:e85fb93f9fb4b39aedf4267012f53f7f772d5597e0b62e8cdefe30c5a4170583",
         "path": ".engine/tools/test_contract.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2082,6 +2367,7 @@
         "fingerprint": "sha256:72db548894988b8affebf3d773757a70789d0d5e50bbb578a9d5e9ec08be09d8",
         "path": ".engine/tools/test_doc.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2098,6 +2384,7 @@
         "fingerprint": "sha256:7b455ef9f0c5f9c5b3de284bc23cbce46e2c34e39b543155da608540c2d538e8",
         "path": ".engine/tools/test_engine_help.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2114,6 +2401,7 @@
         "fingerprint": "sha256:feb05bf0db8ef03b71426a26b719de6976dde81895b99ccf0d91d06f6dcde009",
         "path": ".engine/tools/test_engine_status.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2130,6 +2418,7 @@
         "fingerprint": "sha256:1dbe8a2219fe4c15c3e5e5562027f4d21c48baf7eced4beea7c86ecaa19d34f4",
         "path": ".engine/tools/test_hooks.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2146,6 +2435,7 @@
         "fingerprint": "sha256:24a69dd109a061127893c477d84fe6242ecef6219e52119403f436144575a7df",
         "path": ".engine/tools/test_instantiator.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2162,6 +2452,7 @@
         "fingerprint": "sha256:2c6c746cba0a505a6d4afd04f6d16bcc8d6a8b9a00ad9ff2b38ef3828ecccc64",
         "path": ".engine/tools/test_interface.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2178,6 +2469,7 @@
         "fingerprint": "sha256:12771e53e5e8abaa369c574ed5b85761438eb5a48a2b34a452ae4bdbb07984be",
         "path": ".engine/tools/test_issue_author.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2191,9 +2483,10 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:3815e89fa8dc8e96a93b19a4300488d8a60734230de96092d18b92bf7620d9bb",
+        "fingerprint": "sha256:4440e47657fd8c512b480da5e1fabb6700deaee448a3460b51b7d5c257ea4c60",
         "path": ".engine/tools/test_knowledge.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2207,9 +2500,10 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:1ce0eac67b2a2dd7ce2bdc22ce2fccb09a5ffde6fcdac19daf39069ab6e12318",
+        "fingerprint": "sha256:db6d09f9075f06dfbea5179e96a99fdadd40cabfe234660fe27872830a89734a",
         "path": ".engine/tools/test_knowledge_query.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2226,6 +2520,7 @@
         "fingerprint": "sha256:2e2037771ee3dd2b927189e14ac1bf0d04731d227c86b31d6d9afe7a597a4ad5",
         "path": ".engine/tools/memory/test_ledger.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2242,6 +2537,7 @@
         "fingerprint": "sha256:8f9c88dccf9909affafab9e1cd352aae2662d8323615e47ca541bac8d051948e",
         "path": ".engine/tools/test_modes.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2258,6 +2554,7 @@
         "fingerprint": "sha256:21da24140780b77dec209364861790fc2873c3955418e1c28b8f37cef18f8e47",
         "path": ".engine/tools/test_module_catalog.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2274,6 +2571,7 @@
         "fingerprint": "sha256:9d3e19b94b8734fbb2817c456bb37e5e0474b0d2ba7c5605bab177329679b8ec",
         "path": ".engine/tools/test_module_manager.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2290,6 +2588,7 @@
         "fingerprint": "sha256:75339c88ab51c8aeaffc2bd6726969be7453855f0c434c87152fc0dfa976f8fd",
         "path": ".engine/tools/test_modules.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2306,6 +2605,7 @@
         "fingerprint": "sha256:4f8fdfc96e7cf5067aa0745442f26a7973178f1a7f99b1d06de0f8cd1ba48f2a",
         "path": ".engine/tools/test_operation.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2322,6 +2622,7 @@
         "fingerprint": "sha256:014877759311a7d4ef50c46400ac04e44aaa3eac8103af1d6d7e2abedc6c5bf1",
         "path": ".engine/tools/test_operator_overrides.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2338,6 +2639,7 @@
         "fingerprint": "sha256:c00c16a934e453673f5007e55f608879811140c35f9d09c8dc181935db9cd5df",
         "path": ".engine/tools/test_policy.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2354,6 +2656,7 @@
         "fingerprint": "sha256:7687ea13bcba06214c33f472d49e76ac04670e0cd8caa16a147e31d11a23bb2e",
         "path": ".engine/tools/test_policy_override_check.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2370,6 +2673,7 @@
         "fingerprint": "sha256:8797d3ca517c5b5ee8ea3b97ffbae2176d151ea593fffc39b77638ab55fef3e4",
         "path": ".engine/tools/test_seed.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2386,6 +2690,7 @@
         "fingerprint": "sha256:bc25e8859d0a4b81d6f32eed280d7b832f6f52238d000adf4cf0a92b096b7940",
         "path": ".engine/tools/test_self_map.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2402,6 +2707,7 @@
         "fingerprint": "sha256:fd3abb1ef1d2110d8f3ee66cabf191f525e92617d6aa74b8d3f12eafb23d89b4",
         "path": ".engine/tools/test_skill.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2418,6 +2724,7 @@
         "fingerprint": "sha256:9ec1ac11d4732d3f81c8ae89fe232bd233a6ed3a51f1ae46f4487d7fee1598fe",
         "path": ".engine/tools/test_skill_coherence_check.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2434,6 +2741,7 @@
         "fingerprint": "sha256:52fb2108bb4dae80b0ae1fab7f94cb83ce1b8d6f36b1325a0d7d8e6ab52ab8bd",
         "path": ".engine/tools/test_standing_situation.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2450,6 +2758,7 @@
         "fingerprint": "sha256:58f2021bb45e0e35a13971dae3ac0c4dd234aff80011e4fb19f3da0fd1530a3e",
         "path": ".engine/tools/test_state.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2466,6 +2775,7 @@
         "fingerprint": "sha256:43989d918d0880d860b18e99ab432c4d5cd7582af3e498365302abf2349b4df0",
         "path": ".engine/tools/test_telemetry.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2482,6 +2792,7 @@
         "fingerprint": "sha256:a19acd40e3c7b0eefc90537a268677d5013bda2b7c9b21ed343d0ad937706f18",
         "path": ".engine/tools/test_tune.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2498,6 +2809,7 @@
         "fingerprint": "sha256:d2d6987c41256d8727fce2472f152f38b8cf4df3c480bd6c6ad741e8c9d29963",
         "path": ".engine/tools/test_uv_group_drift.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2514,6 +2826,7 @@
         "fingerprint": "sha256:ea1a2d5b6c0d30d3aaeb257b8a8ec51239daace61354c01a4f6a9626e406f58c",
         "path": ".engine/tools/test_validate.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2530,6 +2843,7 @@
         "fingerprint": "sha256:7acfc634bd070099e9c1d7f5ea6470374b21f297f188515def8e1b9f52b35f4b",
         "path": ".engine/tools/test_wiring.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2546,6 +2860,7 @@
         "fingerprint": "sha256:b69f1ebcf6ed609487f3d75cd02ae1e0fe634d68d4ce8ea76073f69d9cc12c25",
         "path": ".engine/tools/tune.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2562,6 +2877,7 @@
         "fingerprint": "sha256:a93c95219e94b5e943788f0703d018294c5cd6925265f02f150e4fc58e018b47",
         "path": ".engine/tools/uv_group_drift_check.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2578,6 +2894,7 @@
         "fingerprint": "sha256:37c6d28a0e776676538db8763ef30a64737e72c9b678496a036aabcade0fd3e0",
         "path": ".engine/tools/validate.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2594,6 +2911,7 @@
         "fingerprint": "sha256:bed17e42b7a4c5670452cc7ab5b95806e31f08544519167ba4567f16b92924c2",
         "path": ".engine/tools/weakening_guard.py"
       },
+      "status": "active",
       "type": "tool"
     },
     {
@@ -2610,6 +2928,7 @@
         "fingerprint": "sha256:5f84297378ec14ce86db66a5af4d70c25e1672cbf62af3d61d7e5cd032f08b04",
         "path": ".engine/tools/wiring.py"
       },
+      "status": "active",
       "type": "tool"
     }
   ],

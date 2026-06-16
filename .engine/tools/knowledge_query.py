@@ -30,32 +30,50 @@ import knowledge_gen       # noqa: E402
 import knowledge_index     # noqa: E402
 from knowledge_index import KnowledgeUnavailable  # noqa: E402
 
-EDGE_KINDS = knowledge_index.EDGE_KINDS
+EDGE_KINDS = knowledge_index.EDGE_KINDS            # the full valid edge vocabulary (incl. supersedes)
+WALK_EDGE_KINDS = knowledge_index.WALK_EDGE_KINDS  # the cold-start default: the four STRUCTURAL edges only
+
+
+def _decode_attributes(row) -> dict:
+    """The entity's declared attributes (status/tier/title/discriminators, D-203) from the JSON column,
+    or {} when absent. Tolerant of an OLD-shape index row that predates the column (defence-in-depth — the
+    INDEX_SCHEMA_VERSION freshness leg already forces such an index to rebuild before it is read)."""
+    if "attributes" not in row.keys():
+        return {}
+    raw = row["attributes"]
+    return json.loads(raw) if raw else {}
 
 
 # ---- pure query logic over an open connection (fixture-testable) ----------------------------
 
 def _entity_row_to_dict(conn, row) -> dict:
-    """Rebuild a knowledge.v1-shaped entity dict (with its outgoing predicates) from an entities row."""
+    """Rebuild a knowledge.v1-shaped entity dict (core fields + declared attributes + outgoing predicates)
+    from an entities row. The declared attributes ride back in from the `attributes` JSON column."""
     preds: dict = {}
     for er in conn.execute(
             "SELECT predicate, dst_id FROM edges WHERE src_id=? ORDER BY predicate, dst_id", (row["id"],)):
         preds.setdefault(er["predicate"], []).append(er["dst_id"])
-    return {
+    out = {
         "id": row["id"], "type": row["type"], "name": row["name"], "slug": row["slug"],
         "source": {"path": row["source_path"], "fingerprint": row["fingerprint"]},
-        "owner": row["owner"], "predicates": preds,
+        "owner": row["owner"],
     }
+    out.update(_decode_attributes(row))                # status/tier/title/discriminators, when present
+    out["predicates"] = preds
+    return out
 
 
 def _get_entity(conn, entity_id: str):
     row = conn.execute(
-        "SELECT id,type,name,slug,source_path,fingerprint,owner FROM entities WHERE id=?",
+        "SELECT id,type,name,slug,source_path,fingerprint,owner,attributes FROM entities WHERE id=?",
         (entity_id,)).fetchone()
     return _entity_row_to_dict(conn, row) if row else None
 
 
 def _find(conn, type=None, path_glob=None, owner=None) -> list:
+    # SELECTORS stay core-scalar (type / path_glob / owner) — there is NO attribute selector, so no
+    # find(attribute) canon back-door (D-203). The declared attributes are RETURNED (merged from the JSON
+    # column) for parity with get-entity, but are never a WHERE dimension.
     where, params = [], []
     if type is not None:
         where.append("type=?"); params.append(type)
@@ -63,13 +81,17 @@ def _find(conn, type=None, path_glob=None, owner=None) -> list:
         where.append("owner=?"); params.append(owner)
     if path_glob is not None:
         where.append("source_path GLOB ?"); params.append(path_glob)
-    sql = "SELECT id,type,name,slug,source_path,owner FROM entities"
+    sql = "SELECT id,type,name,slug,source_path,owner,attributes FROM entities"
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id"
-    return [{"id": r["id"], "type": r["type"], "name": r["name"], "slug": r["slug"],
-             "source_path": r["source_path"], "owner": r["owner"]}
-            for r in conn.execute(sql, params)]
+    out = []
+    for r in conn.execute(sql, params):
+        rec = {"id": r["id"], "type": r["type"], "name": r["name"], "slug": r["slug"],
+               "source_path": r["source_path"], "owner": r["owner"]}
+        rec.update(_decode_attributes(r))
+        out.append(rec)
+    return out
 
 
 def _neighbors(conn, entity_id: str, edge_filter=None, direction="out", depth=1) -> list:
@@ -77,7 +99,10 @@ def _neighbors(conn, entity_id: str, edge_filter=None, direction="out", depth=1)
         raise ValueError(f"direction must be out/in/both, got {direction!r}")
     if not isinstance(depth, int) or depth < 1:
         raise ValueError(f"depth must be an integer >= 1, got {depth!r}")
-    preds = tuple(edge_filter) if edge_filter else EDGE_KINDS
+    # No edge_filter == the COLD-START default: the four structural edges only (WALK_EDGE_KINDS), so a
+    # focus walk never traverses supersedes. An explicit edge_filter may name ANY valid edge (EDGE_KINDS),
+    # so supersedes is a deliberate PULL via neighbors(edge_filter=["supersedes"]).
+    preds = tuple(edge_filter) if edge_filter else WALK_EDGE_KINDS
     bad = [p for p in preds if p not in EDGE_KINDS]
     if bad:
         raise ValueError(f"unknown edge kind(s) {bad}; valid: {list(EDGE_KINDS)}")

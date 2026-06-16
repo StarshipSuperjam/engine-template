@@ -67,6 +67,13 @@ or stored, and not the product you are building — only the engine's own attent
 the start-of-session and per-prompt orientation events ship in later slices; until then they stand as a
 documented, working starting point that the ranking tool already reads.
 
+When the engine looks at the parts of the project next to what you are touching, it follows only the
+**structural wiring** between them — who owns a file, which rule governs it, what a check targets, and which
+parts depend on which. That neighbourhood walk deliberately ignores other kinds of links the project's map
+may record (for example, which decision replaced an earlier one): those are looked up only when you ask for
+them directly, never pulled in as bulk background, so getting your bearings stays fast and cheap no matter
+how rich the map grows. This is a fixed rule of how the engine orients, not one of the tunable numbers above.
+
 ## Rationale
 
 Left to itself, an assistant shows you whatever is easiest to reach, not what matters most. These dials make

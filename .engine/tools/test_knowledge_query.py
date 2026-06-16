@@ -243,5 +243,87 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(len(data["neighbors"]) >= 1)
 
 
+class TestEnrichedEntities(unittest.TestCase):
+    """D-203 pull-path enrichment: the declared attributes ride through get-entity/find via the JSON
+    attributes column; supersedes is a deliberate PULL (neighbors edge_filter) but stays OFF the
+    cold-start default walk; build_index allowlists edge kinds."""
+
+    def _build(self, graph):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        gpath = os.path.join(tmp.name, "graph.json")
+        ipath = os.path.join(tmp.name, "index.sqlite")
+        with open(gpath, "w", encoding="utf-8") as fh:
+            json.dump(graph, fh)
+        ki.build_index(ipath, gpath)
+        conn = __import__("sqlite3").connect(ipath)
+        conn.row_factory = __import__("sqlite3").Row
+        self.addCleanup(conn.close)
+        return conn
+
+    def _enriched_graph(self):
+        c = _entity("check:c1", "check", "core", ".engine/check/c1.json", {"provided_by": ["module:core"]})
+        c.update({"status": "active", "tier": "hard", "kind": "shape", "suites": ["CI"]})
+        p = _entity("policy:p1", "policy", "core", ".engine/policies/p1.md", {"provided_by": ["module:core"]})
+        p["title"] = "Attention"
+        a = _entity("contract:eADR-0002", "contract", "core", "x/a.md", {"supersedes": ["contract:eADR-0001"]})
+        b = _entity("contract:eADR-0001", "contract", "core", "x/b.md", {})
+        m = _entity("module:core", "module", "core", ".engine/modules/core/manifest.json", {})
+        return {"schema_version": 1, "entities": [c, p, a, b, m]}
+
+    def test_get_entity_carries_declared_attributes_and_keeps_edges(self):
+        conn = self._build(self._enriched_graph())
+        e = kq._get_entity(conn, "check:c1")
+        self.assertEqual((e.get("status"), e.get("tier"), e.get("kind"), e.get("suites")),
+                         ("active", "hard", "shape", ["CI"]))
+        self.assertEqual(e["predicates"]["provided_by"], ["module:core"])      # edges still present
+        self.assertEqual(kq._get_entity(conn, "policy:p1").get("title"), "Attention")
+
+    def test_find_carries_attributes_but_selects_core_scalar_only(self):
+        conn = self._build(self._enriched_graph())
+        rows = {r["id"]: r for r in kq._find(conn, type="check")}
+        self.assertEqual(rows["check:c1"].get("tier"), "hard")
+        # NO attribute selector -> no find(attribute) canon back-door (D-203)
+        import inspect
+        self.assertEqual(set(inspect.signature(kq._find).parameters) - {"conn"},
+                         {"type", "path_glob", "owner"})
+
+    def test_supersedes_is_pull_queryable_but_off_the_cold_start_default(self):
+        conn = self._build(self._enriched_graph())
+        pulled = {n["id"] for n in kq._neighbors(conn, "contract:eADR-0002", edge_filter=["supersedes"])}
+        self.assertEqual(pulled, {"contract:eADR-0001"})            # deliberate pull
+        default = {n["id"] for n in kq._neighbors(conn, "contract:eADR-0002")}
+        self.assertEqual(default, set())                            # cold-start default never follows it
+
+    def test_edge_sets_are_split(self):
+        self.assertNotIn("supersedes", kq.WALK_EDGE_KINDS)
+        self.assertIn("supersedes", kq.EDGE_KINDS)
+
+    def test_build_index_allowlists_edge_kinds(self):
+        c = _entity("check:c1", "check", "core", ".engine/check/c1.json",
+                    {"provided_by": ["module:core"], "bogus_edge": ["module:core"]})
+        conn = self._build({"schema_version": 1, "entities": [
+            c, _entity("module:core", "module", "core", "m.json", {})]})
+        preds = {row[0] for row in conn.execute("SELECT DISTINCT predicate FROM edges")}
+        self.assertNotIn("bogus_edge", preds)
+        self.assertIn("provided_by", preds)
+
+    def test_old_shape_index_is_rebuilt(self):
+        # an index built before the attributes column / version sentinel must be deemed stale and rebuilt
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        gpath = os.path.join(tmp.name, "graph.json")
+        ipath = os.path.join(tmp.name, "index.sqlite")
+        with open(gpath, "w", encoding="utf-8") as fh:
+            json.dump(self._enriched_graph(), fh)
+        ki.build_index(ipath, gpath)
+        # simulate an OLD index: wipe the version sentinel
+        conn = __import__("sqlite3").connect(ipath)
+        conn.execute("DELETE FROM meta WHERE key='index_schema_version'"); conn.commit(); conn.close()
+        self.assertFalse(ki.is_fresh(ipath, gpath))                 # version leg forces a rebuild
+        ki.ensure_index(ipath, gpath)
+        self.assertTrue(ki.is_fresh(ipath, gpath))
+
+
 if __name__ == "__main__":
     unittest.main()
