@@ -94,7 +94,12 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH, fo
 
     if focus and knowledge_query is not None:
         try:
-            for n in knowledge_query.neighbors(focus, edge_filter=edge_filter, depth=depth):
+            # The cold-start adjacency walk is PINNED to the four structural edges (the attention policy's
+            # `## Scope` budget-neutrality invariant, D-203): a new edge kind (e.g. supersedes) is pull-only
+            # and never bulks up orientation. Pass the walk set explicitly rather than leaning on the
+            # neighbors() default, so the pin lives at attention's own call site.
+            walk_edges = edge_filter if edge_filter is not None else list(knowledge_query.WALK_EDGE_KINDS)
+            for n in knowledge_query.neighbors(focus, edge_filter=walk_edges, depth=depth):
                 candidates.append({"id": n["id"], "category": "structural_neighbors",
                                    "proximity": 1.0, "recency": None, "source": "knowledge"})
             available.add("knowledge")

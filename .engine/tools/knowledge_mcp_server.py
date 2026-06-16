@@ -32,8 +32,11 @@ SERVER_NAME = "engine-knowledge-graph"
 server = FastMCP(SERVER_NAME)
 
 
-@server.tool(name="get-entity", description="Fetch one entity by id, with its declared outgoing "
-             "edges; returns {entity} or {entity: null} if no such entity exists.")
+@server.tool(name="get-entity", description="Fetch one entity by id, with its declared attributes "
+             "(status, and where applicable tier/title/discriminators) and outgoing edges; returns "
+             "{entity} or {entity: null}. Attributes are as-of the last graph regeneration: treat status "
+             "as last-known and verify a supersession against the live file before asserting it; relay "
+             "lifecycle/tier tokens to the operator in plain language, never the raw token.")
 def get_entity(id: str) -> dict:
     return {"entity": kq.get_entity(id)}
 

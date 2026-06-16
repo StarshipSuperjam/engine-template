@@ -37,13 +37,33 @@ import knowledge_gen     # noqa: E402
 CACHE_DIR = os.path.join(knowledge_gen.KNOWLEDGE_DIR, ".cache")
 INDEX_PATH = os.path.join(CACHE_DIR, "index.sqlite")
 
-EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on")
+# The FULL valid edge vocabulary — every predicate that may appear in the store and be requested via a
+# neighbors edge_filter / pulled by relate. `supersedes` (D-203) is a deliberate PULL edge: it is valid
+# here, but excluded from WALK_EDGE_KINDS below so the cold-start adjacency walk never traverses it.
+EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on", "supersedes")
+
+# The cold-start adjacency walk's traversal set — pinned to the four STRUCTURAL edges as a build-spec
+# INVARIANT (D-203: new edge kinds stay off the walk so orientation/scent budget stays flat). This is the
+# default neighbors() traverses when no edge_filter is given (the cold-start path), and attention's
+# cold-start caller also passes it explicitly. Its conceptual home is the attention policy's `## Scope`
+# (the surface that owns budget allocation/trim); it is a fixed invariant, not an operator-tunable dial,
+# so it is pinned in code rather than the policy's overridable `values:` block.
+WALK_EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on")
+
+# The index's own shape version. Bumped whenever the SQLite schema or the columns build_index writes
+# change, so an OLD-shape cached index on disk is deemed stale and rebuilt (is_fresh checks it alongside
+# the graph fingerprint) — a graph that did not move still cannot serve a row missing a new column.
+INDEX_SCHEMA_VERSION = "2"
 
 # The staleness key an index built from a LIVE WALK records in its `meta` (rung 3). It is never equal
 # to a real "sha256:" graph fingerprint, and never equal to the None that graph_fingerprint() returns
 # while the committed graph is absent — so a live-walk index is never deemed fresh: it re-walks on every
 # query while degraded, and self-heals to a committed rebuild the moment graph.json returns.
 LIVE_WALK_FINGERPRINT = "live-walk"
+
+# The entity keys stored as their own columns (or, for `source`, split into source_path/fingerprint) —
+# everything ELSE on an entity is a declared attribute that rides the `attributes` JSON column.
+_CORE_ENTITY_KEYS = frozenset({"id", "type", "name", "slug", "source", "owner", "predicates"})
 
 SCHEMA_SQL = """
 CREATE TABLE entities (
@@ -53,7 +73,8 @@ CREATE TABLE entities (
   slug        TEXT NOT NULL,
   source_path TEXT NOT NULL,
   fingerprint TEXT NOT NULL,
-  owner       TEXT NOT NULL
+  owner       TEXT NOT NULL,
+  attributes  TEXT
 );
 CREATE TABLE edges (
   src_id    TEXT NOT NULL,
@@ -126,16 +147,25 @@ def build_index(index_path: str | None = None, graph_path: str | None = None):
         conn.executescript(SCHEMA_SQL)
         for e in graph.get("entities", []):
             src = e.get("source") or {}
+            # The non-core declared attributes (status/tier/title/discriminators, D-203) ride one JSON
+            # column, so a new attribute needs no migration and `find` stays core-scalar (no attribute
+            # SELECTOR — no find(attribute) canon back-door); get-entity/find merge them back on read.
+            attrs = {k: v for k, v in e.items() if k not in _CORE_ENTITY_KEYS}
             conn.execute(
-                "INSERT INTO entities(id,type,name,slug,source_path,fingerprint,owner) "
-                "VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO entities(id,type,name,slug,source_path,fingerprint,owner,attributes) "
+                "VALUES (?,?,?,?,?,?,?,?)",
                 (e["id"], e["type"], e["name"], e["slug"],
-                 src.get("path", ""), src.get("fingerprint", ""), e["owner"]))
+                 src.get("path", ""), src.get("fingerprint", ""), e["owner"],
+                 json.dumps(attrs, sort_keys=True) if attrs else None))
             for pred, dsts in (e.get("predicates") or {}).items():
+                if pred not in EDGE_KINDS:             # allowlist: a stray predicate never enters the store
+                    continue
                 for dst in dsts:
                     conn.execute("INSERT INTO edges(src_id,predicate,dst_id) VALUES (?,?,?)",
                                  (e["id"], pred, dst))
         conn.execute("INSERT INTO meta(key,value) VALUES ('graph_fingerprint', ?)", (fp,))
+        conn.execute("INSERT INTO meta(key,value) VALUES ('index_schema_version', ?)",
+                     (INDEX_SCHEMA_VERSION,))
         conn.commit()
     finally:
         conn.close()
@@ -144,7 +174,9 @@ def build_index(index_path: str | None = None, graph_path: str | None = None):
 
 
 def is_fresh(index_path: str | None = None, graph_path: str | None = None) -> bool:
-    """True iff the index exists and was built from the current committed graph (fingerprints match)."""
+    """True iff the index exists, was built by THIS index shape (INDEX_SCHEMA_VERSION), and from the
+    current committed graph (fingerprints match). The version leg forces an OLD-shape index (missing a
+    newly-added column) to rebuild even when the committed graph did not move."""
     index_path = INDEX_PATH if index_path is None else index_path
     graph_path = knowledge_gen.GRAPH_PATH if graph_path is None else graph_path
     if not os.path.isfile(index_path):
@@ -152,12 +184,13 @@ def is_fresh(index_path: str | None = None, graph_path: str | None = None) -> bo
     try:
         conn = sqlite3.connect(index_path)
         try:
-            row = conn.execute("SELECT value FROM meta WHERE key='graph_fingerprint'").fetchone()
+            meta = dict(conn.execute("SELECT key, value FROM meta").fetchall())
         finally:
             conn.close()
     except sqlite3.DatabaseError:
         return False                                   # a corrupt/partial index is not fresh
-    return bool(row) and row[0] == graph_fingerprint(graph_path)
+    return (meta.get("index_schema_version") == INDEX_SCHEMA_VERSION
+            and meta.get("graph_fingerprint") == graph_fingerprint(graph_path))
 
 
 def ensure_index(index_path: str | None = None, graph_path: str | None = None):

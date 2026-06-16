@@ -118,6 +118,148 @@ def _surface_for(rel_path: str, surfaces: dict):
     return best_name
 
 
+# ---- pure attribute harvesters (operate on already-parsed dicts; NO file IO; fixture-testable) ----
+# Each takes parsed frontmatter / JSON / manifest dicts and returns a declared STATE/IDENTITY token or a
+# discriminator map — never prose meaning (D-203 four-gate rule: declared, structural, not belief). The
+# file IO stays in derive_entities' passes; these stay pure so they unit-test on dicts.
+
+def _status_for(surface_type: str, frontmatter: dict, manifest: dict | None) -> str:
+    """The declared lifecycle STATE TOKEN (D-203 'else active'): a module manifest's `status` and a
+    contract frontmatter's `status` are harvested verbatim; EVERY other surface is `active` (a declared
+    status elsewhere is not echoed). A missing value on the two declaring surfaces degrades to `active`
+    (a non-conforming instance, never a crash). Never the *why* of a supersession."""
+    if surface_type == "module":
+        val = (manifest or {}).get("status")
+        return val if isinstance(val, str) and val else "active"
+    if surface_type == "contract":
+        val = (frontmatter or {}).get("status")
+        return val if isinstance(val, str) and val else "active"
+    return "active"
+
+
+def _tier_for(surface_type: str, rule: dict | None):
+    """CHECKS ONLY: the check rule's own bite tier (`hard`|`soft`) from its `tier` key; None for every
+    other surface and for a check whose tier is absent/non-string (a malformed check, caught by its own
+    schema check). A policy's prose enforcement tier is NEVER parsed."""
+    if surface_type != "check":
+        return None
+    val = (rule or {}).get("tier")
+    return val if val in ("hard", "soft") else None
+
+
+# A small, closed lexicon of leading imperative verbs marking a command/description, not an identity. It is
+# a FORWARD-DRIFT tripwire with ZERO live effect: every live policy/interface title is a bare noun-phrase
+# that passes, and the live excluded titles (operations) are rejected by the structural em-dash rule, not
+# by this list.
+_IMPERATIVE_VERBS = frozenset({
+    "add", "set", "start", "stop", "show", "list", "run", "make", "create", "remove", "delete", "update",
+    "shape", "adjust", "switch", "enable", "disable", "configure", "open", "close", "build", "fix", "keep",
+    "use", "write", "author", "tune",
+})
+
+# The identity-title surfaces and the SINGLE declared key each harvests (D-203 ruling): never operation/
+# doc/contract (purpose/decision clauses), never a description, never a slug fallback.
+_TITLE_KEYS = {"policy": "title", "interface": "title", "skill": "name"}
+
+
+def _is_noun_phrase_title(s: str) -> bool:
+    """The noun-phrase shape-guard: accept a bare identity name; reject a purpose clause / sentence /
+    imperative. The two STRUCTURAL rejections do the live work (em-dash or spaced-hyphen purpose clause;
+    mid-string sentence punctuation); the imperative-verb lexicon is a forward tripwire (zero live effect)."""
+    if "—" in s or " - " in s:                    # em-dash / spaced hyphen -> a purpose clause
+        return False
+    if re.search(r"[.:]\s+\S", s):                     # mid-string sentence punctuation ('. ' or ': ')
+        return False
+    parts = s.split()
+    if parts and parts[0].rstrip(",").lower() in _IMPERATIVE_VERBS:   # leading imperative verb -> a command
+        return False
+    return True
+
+
+def _title_for(surface_type: str, data: dict):
+    """The verbatim IDENTITY title for policy/interface/skill ONLY (`policy.title` / `interface.title` /
+    `skill.name`), harvested from the already-parsed `data` (frontmatter for policy/skill, JSON for
+    interface). Returns None (OMIT the attribute — no slug fallback) when the key is absent/empty or the
+    value fails the noun-phrase shape-guard."""
+    key = _TITLE_KEYS.get(surface_type)
+    if key is None:
+        return None
+    val = (data or {}).get(key)
+    if not isinstance(val, str) or not val.strip():
+        return None
+    val = val.strip()
+    return val if _is_noun_phrase_title(val) else None
+
+
+def _discriminators_for(surface_type: str, frontmatter: dict, json_doc: dict, manifest: dict | None) -> dict:
+    """The per-surface discriminator attributes, each from its DECLARED key (check `kind`+`suites`; agent
+    `role`+`lens`+`model-tier`; skill `invocation`; interface `operations`+`fallback`; module `version`).
+    Returns the {attr: value} to merge onto the entity; only non-empty members are present; all lists are
+    sorted for byte-determinism."""
+    out: dict = {}
+    fm, jd = (frontmatter or {}), (json_doc or {})
+    if surface_type == "check":
+        kind = jd.get("kind")
+        if isinstance(kind, str) and kind:
+            out["kind"] = kind
+        suites = jd.get("suites")
+        if isinstance(suites, list):
+            out["suites"] = sorted(s for s in suites if isinstance(s, str))
+    elif surface_type == "agent":
+        for k in ("role", "lens", "model-tier"):
+            v = fm.get(k)
+            if isinstance(v, str) and v:
+                out[k] = v
+    elif surface_type == "skill":
+        v = fm.get("invocation")
+        if isinstance(v, str) and v:
+            out["invocation"] = v
+    elif surface_type == "interface":
+        ops = jd.get("operations")
+        if isinstance(ops, list):
+            names = sorted(o["name"] for o in ops
+                           if isinstance(o, dict) and isinstance(o.get("name"), str))
+            if names:
+                out["operations"] = names
+        fb = jd.get("fallback")
+        handle = fb.get("handle") if isinstance(fb, dict) else None
+        if isinstance(handle, str) and handle:
+            out["fallback"] = handle
+    elif surface_type == "module":
+        ver = (manifest or {}).get("version")
+        if isinstance(ver, str) and ver:
+            out["version"] = ver
+    return out
+
+
+def _supersedes_edges(contract_entities: list, fm_by_id: dict, canon_ids) -> dict:
+    """{contract_id: [superseded_contract_id]} — contract->contract, DEPLOYMENT-STREAM (non-canon) ONLY.
+    `fm_by_id` maps a contract entity id to its parsed frontmatter; `canon_ids` is the set of canon
+    contract entity ids (those a module's `provides` claims — per D-169, told apart by provides-membership,
+    NEVER a path or content marker). An edge is emitted only when BOTH ends are non-canon and the target
+    resolves in-graph by the target's declared frontmatter `id`. A canon end on either side, a dangling
+    target, or a self-reference emits NOTHING — so no persisted edge ever targets a canon eADR."""
+    by_eadr: dict = {}                                 # declared frontmatter `id` (eADR-NNNN) -> entity id
+    for e in contract_entities:
+        decl = (fm_by_id.get(e["id"]) or {}).get("id")
+        if isinstance(decl, str) and decl:
+            by_eadr[decl] = e["id"]
+    canon = set(canon_ids or ())
+    edges: dict = {}
+    for e in contract_entities:
+        src_id = e["id"]
+        if src_id in canon:                            # a canon contract never declares/emits supersedes
+            continue
+        target_eadr = (fm_by_id.get(src_id) or {}).get("supersedes")
+        if not isinstance(target_eadr, str):
+            continue
+        target_id = by_eadr.get(target_eadr)
+        if target_id is None or target_id == src_id or target_id in canon:
+            continue                                   # dangling / self / canon target -> emit nothing
+        edges.setdefault(src_id, []).append(target_id)
+    return {k: sorted(v) for k, v in edges.items()}
+
+
 # ---- pure derivation layer (no committed-file IO; fixture-testable) --------------------------
 
 def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dict) -> list:
@@ -127,6 +269,7 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
     surfaces = (catalog or {}).get("surfaces", {})
     entities: dict = {}
     path_to_id: dict = {}
+    contract_fm_by_id: dict = {}                        # contract entity id -> its parsed frontmatter (Pass 3b)
 
     # Pass 1 — one entity per owned engine file that lives under a catalogued surface.
     for rel in inventory:
@@ -137,15 +280,38 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
         if not owners:
             continue                                   # an unowned file is a coherence anomaly, caught elsewhere
         eid = f"{surface}:{_slug(rel)}"
+        rec = surfaces[surface] or {}
         preds = {"provided_by": [f"module:{owners[0]}"]}
-        governing = (surfaces[surface] or {}).get("governing_schema")
+        governing = rec.get("governing_schema")
         if governing and not governing.startswith("http"):   # an in-repo schema file, not the dialect URI
             preds["governed_by"] = [f"schema:{_slug(governing)}"]
-        entities[eid] = {
+        ent = {
             "id": eid, "type": surface, "name": rel, "slug": _slug(rel),
             "source": {"path": rel, "fingerprint": source_fingerprint(rel)},
             "owner": owners[0], "predicates": preds,
         }
+        # Harvest the surface's DECLARED attributes (D-203). Parse the file ONCE by its catalog class
+        # (prose -> frontmatter; structured -> JSON; code/other -> nothing). A malformed file harvests
+        # nothing (its own schema check is the gate); the harvesters are pure (operate on parsed dicts).
+        fm, jd = {}, {}
+        try:
+            if rec.get("class") == "prose":
+                fm = validate.frontmatter(os.path.join(validate.ROOT, rel)) or {}
+            elif rec.get("class") == "structured":
+                jd = validate.load_json(os.path.join(validate.ROOT, rel))
+        except Exception:
+            fm, jd = {}, {}
+        ent["status"] = _status_for(surface, fm, None)
+        tier = _tier_for(surface, jd)
+        if tier is not None:
+            ent["tier"] = tier
+        title = _title_for(surface, jd if rec.get("class") == "structured" else fm)
+        if title is not None:
+            ent["title"] = title
+        ent.update(_discriminators_for(surface, fm, jd, None))
+        if surface == "contract":
+            contract_fm_by_id[eid] = fm
+        entities[eid] = ent
         path_to_id[rel] = eid
 
     # Pass 2 — one entity per installed module.
@@ -156,11 +322,14 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
         deps = sorted((m.get("depends") or {}).keys())
         if deps:
             preds["depends_on"] = [f"module:{d}" for d in deps]
-        entities[eid] = {
+        ent = {
             "id": eid, "type": "module", "name": mid, "slug": mid,
             "source": {"path": path, "fingerprint": source_fingerprint(path)},
             "owner": mid, "predicates": preds,
         }
+        ent["status"] = _status_for("module", {}, m)
+        ent.update(_discriminators_for("module", {}, {}, m))   # version
+        entities[eid] = ent
         path_to_id[path] = eid
 
     # Pass 3 — `targets` edges for check entities (needs the full path->id map).
@@ -175,6 +344,16 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
         targets = sorted({path_to_id[mp] for mp in matched if mp in path_to_id})
         if targets:
             entities[eid]["predicates"]["targets"] = targets
+
+    # Pass 3b — `supersedes` edges (contract->contract, DEPLOYMENT-STREAM only). Canon contracts are those
+    # a module's `provides` claims (D-169: told apart by provides-membership, never a path/marker). Since
+    # derive_entities only entitizes OWNED files (Pass 1), every contract ENTITY is owned == canon, so this
+    # emits NOTHING in v1 (provably dormant); the guard is exercised by the unit fixtures.
+    contract_entities = [entities[k] for k in sorted(entities) if entities[k]["type"] == "contract"]
+    canon_ids = {e["id"] for e in contract_entities}   # all entitized contracts are owned -> canon
+    for src_id, targets in _supersedes_edges(contract_entities, contract_fm_by_id, canon_ids).items():
+        if targets:
+            entities[src_id]["predicates"]["supersedes"] = targets
 
     return [entities[k] for k in sorted(entities)]
 
