@@ -1895,6 +1895,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:index",
+      "name": ".engine/tools/memory/index.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "index",
+      "source": {
+        "fingerprint": "sha256:d3c0a816dd308d8a4191b03b7b4e5c7bfa049671b28f1b9df67868e40fa8a250",
+        "path": ".engine/tools/memory/index.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:instantiator",
       "name": ".engine/tools/instantiator.py",
       "owner": "core",
@@ -2417,6 +2434,23 @@
       "source": {
         "fingerprint": "sha256:1dbe8a2219fe4c15c3e5e5562027f4d21c48baf7eced4beea7c86ecaa19d34f4",
         "path": ".engine/tools/test_hooks.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_index",
+      "name": ".engine/tools/memory/test_index.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_index",
+      "source": {
+        "fingerprint": "sha256:268c6df3f7c2073506bfb702718b4277dafc03fc5971071c40164adf6e753b1b",
+        "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
       "type": "tool"
