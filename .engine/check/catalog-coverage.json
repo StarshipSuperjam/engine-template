@@ -12,6 +12,7 @@
       ".engine/templates/",
       ".engine/provisioning/",
       ".engine/.venv/",
+      ".engine/memory/",
       ".claude/worktrees/"
     ]
   },
