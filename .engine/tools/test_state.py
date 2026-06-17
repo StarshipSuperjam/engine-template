@@ -6,8 +6,8 @@ Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test
 
 These lock the load-bearing teeth: the schema bites on each malformed shape (a missing field,
 an out-of-grammar field, a wrong version stamp, a negative count, a non-UTC timestamp, an empty
-pointer); the committed genesis cursor itself conforms; the committed rule resolves its schema
-CATALOG-FIRST (via the 'state' surface, no params.schema override) and passes the real cursor;
+pointer); the committed genesis cursor itself conforms; the committed rule names its schema
+DIRECTLY via params.schema (state is a foundation, not a catalogued surface) and passes the real cursor;
 and a malformed or shape-invalid cursor is REFUSED AS A PLAIN FINDING — never an uncaught crash —
 which is the halt-on-malformed posture the design requires (state/README.md). The deliverable-gate
 cold review attests each test's assertion matches its name; CI runs them as a step in engine-ci.
