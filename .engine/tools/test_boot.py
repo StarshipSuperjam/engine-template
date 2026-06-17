@@ -469,13 +469,19 @@ class TestHookRegistration(unittest.TestCase):
         self.assertNotIn("compact", matchers,
                          "boot must NOT re-render on compaction (negative law: no compact re-render)")
 
-    def test_every_command_points_into_engine_and_names_boot(self):
+    def test_every_sessionstart_command_points_into_engine_and_uses_the_venv(self):
         for g in self.settings["hooks"]["SessionStart"]:
-            for h in g["hooks"]:
+            for h in g["hooks"]:                             # boot's AND memory's co-registered sweep (3b)
                 self.assertEqual(h["type"], "command")
                 self.assertIn(".engine/", h["command"])      # the wiring guard
-                self.assertIn("tools/boot.py", h["command"])
                 self.assertIn("/.venv/", h["command"])        # the runtime interpreter, never bare python
+
+    def test_boot_is_wired_exactly_once_on_every_start_source(self):
+        # memory-substrate co-registers its consolidation sweep on the same SessionStart sources (slice 3b),
+        # so not every command names boot — but boot must still be present exactly once per source.
+        for g in self.settings["hooks"]["SessionStart"]:
+            boot_cmds = [h for h in g["hooks"] if "tools/boot.py" in h["command"]]
+            self.assertEqual(len(boot_cmds), 1, f"boot wired once on the '{g['matcher']}' source")
 
     def test_start_sources_exclude_compact_and_are_valid_events(self):
         self.assertNotIn("compact", boot.SESSION_START_SOURCES)

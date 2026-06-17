@@ -7,6 +7,10 @@
           {
             "type": "command",
             "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/boot.py"
+          },
+          {
+            "type": "command",
+            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
           }
         ]
       },
@@ -16,6 +20,10 @@
           {
             "type": "command",
             "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/boot.py"
+          },
+          {
+            "type": "command",
+            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
           }
         ]
       },
@@ -25,6 +33,10 @@
           {
             "type": "command",
             "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/boot.py"
+          },
+          {
+            "type": "command",
+            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
           }
         ]
       }
@@ -62,6 +74,17 @@
           {
             "type": "command",
             "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/modes.py accept-hook"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py pre-compact"
           }
         ]
       }

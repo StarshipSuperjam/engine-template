@@ -191,27 +191,43 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     a command-form change must update `hooks.py`, the core manifest, AND `.claude/settings.json` in
     lockstep, or this reds (the architect-A1 / adversarial-S1 drift guard for issue #83)."""
 
-    # every engine hook wire's script-relpath-with-args (boot is wired on three SessionStart matchers).
-    RELPATHS = (".engine/tools/boot.py", ".engine/tools/modes.py", ".engine/tools/knowledge_gen.py hook",
-                ".engine/tools/modes.py accept-hook", ".engine/tools/close.py")
+    # every engine hook wire's script-relpath-with-args. Core wires boot on three SessionStart matchers;
+    # memory-substrate (slice 3b) wires its consolidation sweep on the same three + a PreCompact near-no-op.
+    CORE_RELPATHS = (".engine/tools/boot.py", ".engine/tools/modes.py", ".engine/tools/knowledge_gen.py hook",
+                     ".engine/tools/modes.py accept-hook", ".engine/tools/close.py")
+    MEMORY_RELPATHS = (".engine/tools/memory/consolidate.py session-start",
+                       ".engine/tools/memory/consolidate.py pre-compact")
 
     def _venv_hook_commands(self, commands):
         return [c for c in commands if ".venv/bin/python" in c]
 
-    def test_manifest_and_settings_hook_commands_are_hook_command_output(self):
-        expected = {hooks.hook_command(r, "posix") for r in self.RELPATHS}
-        manifest = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
-        m_cmds = self._venv_hook_commands(
+    def _hook_cmds(self, manifest):
+        return self._venv_hook_commands(
             w.get("hook", {}).get("command", "") for w in manifest["wires"] if w.get("type") == "hook")
-        self.assertEqual(len(m_cmds), 7, "the seven venv-rooted hook wires")
-        self.assertEqual(set(m_cmds), expected, "every manifest hook command is hook_command's output")
 
+    def test_manifest_and_settings_hook_commands_are_hook_command_output(self):
+        expected_core = {hooks.hook_command(r, "posix") for r in self.CORE_RELPATHS}
+        expected_memory = {hooks.hook_command(r, "posix") for r in self.MEMORY_RELPATHS}
+
+        core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
+        c_cmds = self._hook_cmds(core)
+        self.assertEqual(len(c_cmds), 7, "the seven venv-rooted core hook wires (boot ×3 + 4)")
+        self.assertEqual(set(c_cmds), expected_core, "every core manifest hook command is hook_command's output")
+
+        memory = validate.load_json(
+            os.path.join(validate.ROOT, ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"))
+        m_cmds = self._hook_cmds(memory)
+        self.assertEqual(len(m_cmds), 4, "memory's three SessionStart sweeps + one PreCompact near-no-op")
+        self.assertEqual(set(m_cmds), expected_memory, "every memory manifest hook command is hook_command's output")
+
+        # settings.json registers BOTH modules' hooks: 7 core + 4 memory venv-rooted commands.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 7, "the seven venv-rooted hook commands in settings")
-        self.assertEqual(set(s_cmds), expected, "settings matches the form (and so the manifest) exactly")
+        self.assertEqual(len(s_cmds), 11, "the eleven venv-rooted hook commands in settings (7 core + 4 memory)")
+        self.assertEqual(set(s_cmds), expected_core | expected_memory,
+                         "settings matches the form (and so both manifests) exactly")
 
 
 class TestHarnessBlock(unittest.TestCase):
