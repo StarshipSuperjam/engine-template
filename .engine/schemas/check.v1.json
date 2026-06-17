@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "check.v1 — the shape of a single validation rule",
-  "description": "A check is one validation rule, authored as data (never as validator code): it names what to inspect, which check-kind evaluates it, how hard it bites, and which suites run it. The validation engine loads every check file and dispatches each to its kind. This schema governs the rule's shape — its seven required fields and no others. It does not decide whether the named kind exists (an unknown kind is caught when the rule runs) or whether the rule's claim is true (only that the rule is well-formed).",
+  "description": "A check is one validation rule, authored as data (never as validator code): it names what to inspect, which check-kind evaluates it, how hard it bites, and which suites run it. The validation engine loads every check file and dispatches each to its kind. This schema governs the rule's shape — its seven required fields and one optional field (ci_author_exempt), and no others. It does not decide whether the named kind exists (an unknown kind is caught when the rule runs) or whether the rule's claim is true (only that the rule is well-formed).",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "target", "kind", "params", "tier", "suites", "message"],
@@ -58,6 +58,12 @@
       "description": "The plain-language explanation shown when the rule finds a problem: what is wrong, why it matters, and how to fix it, written so a non-engineer reviewer and a remediating AI can both act on it. The schema checks the message is present; whether it is clearly written is a matter for review, which the validator cannot grade.",
       "type": "string",
       "minLength": 1
+    },
+    "ci_author_exempt": {
+      "description": "Optional. PR-author logins (for example dependabot[bot]) for which this rule does not bind in the merge-gating (CI) suite. The validation engine honors it as a disclosed not-applicable pass — a stated pass that names why the rule did not apply — never a silent skip, and never a workflow-level skip that would leave the required check pending and block the merge. The closed check-kinds stay author-agnostic: the engine reads the author from the trusted event context and skips the rule before any kind runs. Reserved for a recognized external automation whose own pull-request body is its account of the change; widening this list is a guardrail change that must be re-confirmed for spoof-safety.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
     }
   }
 }
