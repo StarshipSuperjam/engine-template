@@ -98,17 +98,51 @@ class LedgerResilienceTests(unittest.TestCase):
         self.assertTrue(result.torn_trailing)
         self.assertEqual(result.malformed, 0)
 
-    def test_interior_torn_fragment_is_malformed_residual(self):
-        """Documented residual: a crash mid-write THEN a later append glues a torn fragment to the
-        next record, so that one line is malformed (and that one next record is lost). Prior records
-        survive and the read never crashes — the bound is one episodic record (capture-loss tolerant)."""
+    def test_append_heals_a_torn_fragment_so_the_next_record_survives(self):
+        """The write-side heal: a crash mid-write leaves a torn fragment (no newline); a LATER append
+        first repairs the missing terminator, isolating the fragment as its own malformed line so the
+        next record lands clean and SURVIVES. (Slice 1 documented the OLD behavior — fusing the fragment
+        onto the next record and silently losing it — as a tolerated residual; this upholds the read law
+        'one bad line never costs the records after it' on the write side.)"""
         ledger.append({"role": "decision", "body": "A survives"}, path=self.path)
         self._raw_append('{"role":"lesson","body":"torn fragment')  # no newline (crash mid-write)
-        ledger.append({"role": "lesson", "body": "B glued into the bad line"}, path=self.path)
+        ledger.append({"role": "lesson", "body": "B after the crash"}, path=self.path)
         result = ledger.read(path=self.path)
-        self.assertEqual([r["body"] for r in result.records], ["A survives"])
-        self.assertEqual(result.malformed, 1)  # the glued fragment+B line
+        self.assertEqual([r["body"] for r in result.records], ["A survives", "B after the crash"])
+        self.assertEqual(result.malformed, 1)  # the isolated torn fragment, on its own line
         self.assertFalse(result.torn_trailing)
+
+    def test_heal_recovers_a_complete_but_unterminated_prior_record(self):
+        """A prior record that was complete VALID JSON but lost only its terminating newline to a crash
+        is recovered by the next append's heal (favor-content): the terminator is added so it parses.
+        A truly half-written fragment is NOT resurrected — see the next test."""
+        self._raw_append('{"role":"decision","body":"COMPLETE no newline"}')  # valid JSON, no newline
+        ledger.append({"role": "lesson", "body": "next"}, path=self.path)
+        result = ledger.read(path=self.path)
+        self.assertEqual([r["body"] for r in result.records], ["COMPLETE no newline", "next"])
+        self.assertEqual(result.malformed, 0)
+
+    def test_heal_never_resurrects_a_truly_torn_fragment(self):
+        """The heal only adds a terminator; it never turns garbage into a record. A fragment torn
+        MID-JSON stays invalid and is read back as malformed, even after the heal isolates it."""
+        self._raw_append('{"role":"decision","body":"torn mid-jso')  # invalid JSON, no newline
+        ledger.append({"role": "lesson", "body": "next"}, path=self.path)
+        result = ledger.read(path=self.path)
+        self.assertEqual([r["body"] for r in result.records], ["next"])
+        self.assertEqual(result.malformed, 1)  # the torn fragment stays malformed, never a record
+
+    def test_heal_is_a_noop_on_a_clean_file(self):
+        """The heal fires ONLY on a missing terminator: normal appends never insert a stray newline,
+        and the first append on an empty file gets no leading newline."""
+        for i in range(3):
+            ledger.append({"n": i}, path=self.path)
+        with open(self.path, "rb") as fh:
+            raw = fh.read()
+        self.assertNotIn(b"\n\n", raw)                 # no stray blank line between clean records
+        self.assertFalse(raw.startswith(b"\n"))        # the first append got no leading newline
+        result = ledger.read(path=self.path)
+        self.assertEqual([r["n"] for r in result.records], [0, 1, 2])
+        self.assertEqual(result.malformed, 0)
 
     def test_blank_lines_are_not_malformed(self):
         ledger.append({"role": "intent", "body": "one"}, path=self.path)
@@ -229,6 +263,35 @@ class LedgerSerializationTests(unittest.TestCase):
             "the lockless variant did not tear, so this test no longer exercises the lock — "
             "fix the test (widen the window) before trusting the locked result",
         )
+
+    def test_heal_of_a_torn_tail_is_serialized_under_concurrency(self):
+        """The heal runs UNDER the exclusive lock, so when many writers hit a torn-trailing file at
+        once, exactly ONE healing newline lands (never a double-heal) and every record survives. If the
+        heal moved outside the lock, concurrent writers would each prepend a newline — producing
+        blank-line runs and/or a fused record."""
+        with open(self.path, "a", encoding="utf-8") as fh:   # pre-seed a torn fragment (crash, no newline)
+            fh.write('{"role":"decision","body":"torn tail from a crash')
+        writers, per_writer = 8, 6
+        big = "Q" * 4000
+
+        def work(writer_id: int) -> None:
+            for seq in range(per_writer):
+                ledger.append({"writer": writer_id, "seq": seq, "body": f"<{writer_id}.{seq}-{big}>"},
+                              path=self.path)
+
+        threads = [threading.Thread(target=work, args=(w,)) for w in range(writers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        with open(self.path, "rb") as fh:
+            raw = fh.read()
+        result = ledger.read(path=self.path)
+        self.assertEqual(len(result.records), writers * per_writer)   # every record survived
+        self.assertEqual(result.malformed, 1)                          # the torn fragment, isolated ONCE
+        self.assertNotIn(b"\n\n", raw)                                 # no double-heal blank-line run
+        self.assertFalse(result.torn_trailing)
 
 
 class CaptureSeamSafetyTests(unittest.TestCase):

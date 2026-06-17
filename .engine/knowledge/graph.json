@@ -2058,7 +2058,7 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:1d6072bd664fe167747ad492eac5c037c2bdc576d1658996e201ce163fd383a2",
+        "fingerprint": "sha256:bb5c663f8bd91738876f9ceb77a1d6ec3fab55bdcec5c69f601719c1d355e1cc",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -2619,7 +2619,7 @@
       },
       "slug": "test_ledger",
       "source": {
-        "fingerprint": "sha256:3265fa78960745dd0cdba26e7ae3070cc1c3bb8befad233691abccf2aca0124f",
+        "fingerprint": "sha256:53485a888d5f98089fb969f39647c7e96b6d8929ac77f6c6d97aa427543e3732",
         "path": ".engine/tools/memory/test_ledger.py"
       },
       "status": "active",
