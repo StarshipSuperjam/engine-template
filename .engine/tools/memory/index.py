@@ -52,9 +52,11 @@ _FTS_PROBE_TABLE = "engine_fts5_probe"
 # real words: dead/beef/cafe/face…), `kind` ("turn-delta"), and `speaker` ("user"/"assistant") are provenance,
 # not content, and indexing them makes `query("user")`/`query("delta")` match every record. Only the human
 # `text` (and any other non-metadata string leaf) is searchable. The closed role vocabulary the reflection
-# slice adds is a structured filter, so it joins this set too when it lands.
+# slice (3b) adds is a structured filter, so `role` joins this set: searching a label like "decision" must
+# never drag in every record that carries it (the same pollution the capture-record provenance fields would
+# cause). Episodic provenance (`consolidated_ts`, `source_seqs`) is non-string and stays out by type.
 _TAGS_KEY = "tags"
-_NON_BODY_KEYS = frozenset({"tags", "session_id", "kind", "speaker"})
+_NON_BODY_KEYS = frozenset({"tags", "session_id", "kind", "speaker", "role"})
 
 
 @dataclass

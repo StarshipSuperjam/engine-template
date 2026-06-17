@@ -946,7 +946,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:b3ca10b4ffc9981c33cc17500b075d04a4d20377643e2c46bf5e9f0117431274",
+        "fingerprint": "sha256:d855d7af3c9fedc97764db1622ff2e53d55850daf9c7c2b22e4a9695be23d65f",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -1701,7 +1701,7 @@
       },
       "slug": "__init__",
       "source": {
-        "fingerprint": "sha256:7c20e9e777264d31e82cbb057f1dc211d59f40c4e71f925d3786831909141030",
+        "fingerprint": "sha256:21ab9469b943aeb895b7e70775b724bd704e2ca8c7ba0400404735e52f1a104e",
         "path": ".engine/tools/memory/__init__.py"
       },
       "status": "active",
@@ -1861,6 +1861,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:consolidate",
+      "name": ".engine/tools/memory/consolidate.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "consolidate",
+      "source": {
+        "fingerprint": "sha256:062786a0786dbbea9f98767069d1c559bd69e427d10c331cfdea3cd2fc4f4550",
+        "path": ".engine/tools/memory/consolidate.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:engine_help",
       "name": ".engine/tools/engine_help.py",
       "owner": "core",
@@ -1905,7 +1922,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:dcc6b6d6add3eb85d1a76f530031753b73fa4b34c58ab42b5b444d182182b45c",
+        "fingerprint": "sha256:54ff466667363101bb7b1efc693abb90134f596e33fac0b9ca98a9e7318affbc",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -1922,7 +1939,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:83f92edcb151ad7bf12a57cbe7ee758a9c70f8835a70902d1afecd5ecb6eeb96",
+        "fingerprint": "sha256:f7b6e127f709e454b96a3c0a743f89b534f2d1b1e9c17c9222d6a9af76b8396f",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -2296,7 +2313,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:257b0e26f21f782ce69e0b84f527e15db010b70c70426f6e1804bbfefbfb709f",
+        "fingerprint": "sha256:214ba247acf103fb25af4a2d13c70add64033ee390b1c1fdfbfbb5d18df00a9c",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -2388,6 +2405,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_consolidate",
+      "name": ".engine/tools/memory/test_consolidate.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_consolidate",
+      "source": {
+        "fingerprint": "sha256:f67eaee9376bdde2d9b7905927068e32059555a380c4204cb064855d1bee5752",
+        "path": ".engine/tools/memory/test_consolidate.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_contract",
       "name": ".engine/tools/test_contract.py",
       "owner": "core",
@@ -2466,7 +2500,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:1dbe8a2219fe4c15c3e5e5562027f4d21c48baf7eced4beea7c86ecaa19d34f4",
+        "fingerprint": "sha256:d1ab257e6d907063c5b8a45c5704e7945c3a7a62d1f7893465ae4aea265ee6ac",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",

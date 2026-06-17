@@ -61,7 +61,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - depends on: `core`
 - provides:
   - tool: `.engine/tools/memory/*.py`
-- wires: gitignore
+- wires: gitignore, hook
 
 ### `validators-core` — version `0.0.0-dev` (required)
 

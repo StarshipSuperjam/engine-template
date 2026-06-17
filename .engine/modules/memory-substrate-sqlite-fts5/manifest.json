@@ -3,7 +3,9 @@
   "version": "0.0.0-dev",
   "status": "required",
   "provides": {
-    "tool": [".engine/tools/memory/*.py"]
+    "tool": [
+      ".engine/tools/memory/*.py"
+    ]
   },
   "depends": {
     "core": ""
@@ -12,7 +14,45 @@
     {
       "type": "gitignore",
       "key": "memory-substrate-ledger",
-      "lines": [".engine/memory/"]
+      "lines": [
+        ".engine/memory/"
+      ]
+    },
+    {
+      "type": "hook",
+      "event": "SessionStart",
+      "matcher": "startup",
+      "hook": {
+        "type": "command",
+        "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "SessionStart",
+      "matcher": "resume",
+      "hook": {
+        "type": "command",
+        "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "SessionStart",
+      "matcher": "clear",
+      "hook": {
+        "type": "command",
+        "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "PreCompact",
+      "matcher": "",
+      "hook": {
+        "type": "command",
+        "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py pre-compact"
+      }
     }
   ]
 }
