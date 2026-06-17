@@ -116,6 +116,15 @@ def append(record: dict, *, path: str | None = None) -> None:
     """Append one record to the ledger as a single newline-terminated JSON line, under an exclusive
     advisory lock so concurrent writers never tear a line. Creates the data directory on first write.
 
+    Before writing, HEALS a torn trailing line: if a prior append crashed mid-write the file ends
+    without its terminating newline, and a bare O_APPEND would weld the new record onto those torn
+    bytes — fusing them into one unparseable line and silently losing the new record. So when the file
+    does not end in a newline we first append one, isolating the torn fragment on its own (rejected,
+    counted-as-malformed) line, so the new record lands clean and is never lost. This upholds the read
+    law above — *one bad line never costs the records after it* — on the write side. (A prior record
+    that was complete JSON but lost only its terminating newline is thereby recovered; a truly
+    half-written fragment stays invalid JSON and is still read back as malformed, never resurrected.)
+
     `record` may be any JSON-serializable dict (record shape is a later slice's concern).
     """
     target = path or ledger_path()
@@ -124,10 +133,18 @@ def append(record: dict, *, path: str | None = None) -> None:
         os.makedirs(parent, exist_ok=True)
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
     data = line.encode("utf-8")
-    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    fd = os.open(target, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o644)
     try:
         if _HAVE_FCNTL:
             fcntl.flock(fd, fcntl.LOCK_EX)
+        # Heal a torn trailing line from a crashed prior append BEFORE writing (under the lock, so two
+        # writers can never both heal): if the file is non-empty and its last byte is not the record
+        # terminator, the previous write died mid-record — start ours on a clean line so O_APPEND cannot
+        # fuse them. os.pread reads the last byte without moving the write position; O_APPEND keeps the
+        # write at EOF regardless.
+        size = os.fstat(fd).st_size
+        if size > 0 and os.pread(fd, 1, size - 1) != b"\n":
+            os.write(fd, b"\n")
         # Write the whole framed record while holding the lock (O_APPEND keeps every write at EOF;
         # the lock keeps a second writer out until we have written all bytes and flushed them).
         view = memoryview(data)
@@ -310,10 +327,40 @@ def _demo() -> int:
         ok = [r["note"] for r in result.records] == ["entry before the corruption", "entry after the corruption"]
         print(f"  => {'Both good entries survived; only the corrupted one was skipped.' if ok else '!!! unexpected'}")
 
+    print("\n" + "=" * 78)
+    print("TEST 4 — a crash tears one entry; does the NEXT entry filed after it survive?")
+    print("         (the loss this fix closes — slice 1 let the entry filed after a tear vanish)")
+    print("=" * 78)
+    with tempfile.TemporaryDirectory() as tmp:
+        # BEFORE — the old behavior (a bare append with NO heal), on a real file, for contrast:
+        old = os.path.join(tmp, "old.ndjson")
+        append({"note": "KEEP-A"}, path=old)
+        with open(old, "a", encoding="utf-8") as fh:                 # a crash leaves a torn half-entry
+            fh.write('{"note":"half-written when the power went ou')
+        with open(old, "a", encoding="utf-8") as fh:                 # OLD behavior: a bare append, no heal
+            fh.write(json.dumps({"note": "KEEP-B-AFTER-CRASH"}) + "\n")
+        before = read(path=old)
+        print("\n  BEFORE this fix (a bare append with no heal):")
+        print(f"    entries read back: {[r['note'] for r in before.records]}")
+        print("    ^ KEEP-B-AFTER-CRASH was swallowed by the torn line and silently lost.")
+        # AFTER — the real engine code (the healed append):
+        new = os.path.join(tmp, "new.ndjson")
+        append({"note": "KEEP-A"}, path=new)
+        with open(new, "a", encoding="utf-8") as fh:                 # the same crash
+            fh.write('{"note":"half-written when the power went ou')
+        append({"note": "KEEP-B-AFTER-CRASH"}, path=new)             # the REAL healed append
+        after = read(path=new)
+        print("\n  AFTER this fix (the real engine code):")
+        print(f"    entries read back: {[r['note'] for r in after.records]}")
+        note = "   <- the torn half-entry, still rejected" if after.malformed else ""
+        print(f"    corrupted entries skipped (and counted): {after.malformed}{note}")
+        ok4 = "KEEP-B-AFTER-CRASH" in [r["note"] for r in after.records] and after.malformed == 1
+        print(f"  => {'The entry filed AFTER the crash survived; the torn half-entry is still rejected.' if ok4 else '!!! unexpected'}")
+
     print("\n" + "-" * 78)
-    print("Reminder: this is the empty filing cabinet. Nothing reads from it yet, and the engine won't")
-    print("remember across sessions until later steps. Today's proof is only that the cabinet keeps")
-    print("what's filed and never scrambles it.")
+    print("Reminder: this demo proves only the filing cabinet's INTEGRITY — that it keeps what's filed,")
+    print("whole, and never scrambles or silently loses it. Saving each turn's notes, tidying them into")
+    print("summaries, and searching them are the capture / consolidation / search steps built on top.")
     return 0
 
 
