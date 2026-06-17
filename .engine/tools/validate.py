@@ -1128,6 +1128,23 @@ def get_pr_body(body_file: str | None) -> str | None:
     return None
 
 
+def get_pr_author() -> str | None:
+    """The PR author's login from the trusted event context (.pull_request.user.login —
+    GitHub-stamped from the real author, not fork-forgeable), or None when unavailable: a
+    local run, a --pr-body-file invocation, or a malformed/partial event. NEVER github.actor
+    (a re-run attributes that to the re-runner — the documented spoof vector). Read only; the
+    sole consumer is run()'s ci_author_exempt honoring in the merge-gating suite. Degrades to
+    None — and therefore to ENFORCING the rule — on any doubt, never to a falsely-exempt author."""
+    event = os.environ.get("GITHUB_EVENT_PATH")
+    if event and os.path.exists(event):
+        try:
+            pr = (load_json(event).get("pull_request") or {})
+            return (pr.get("user") or {}).get("login")
+        except (OSError, ValueError, AttributeError, TypeError):
+            return None                    # unreadable / malformed / type-confused event → no author
+    return None
+
+
 def run(suite: str, ctx: dict) -> int:
     try:
         suites = load_suites()
@@ -1147,6 +1164,22 @@ def run(suite: str, ctx: dict) -> int:
         return 2
     findings = []
     for rule in [r for r in rules if suite in r.get("suites", [])]:
+        # Honor ci_author_exempt at the engine layer — before any check-kind runs, so the
+        # closed kinds stay author-agnostic. It binds ONLY in the merge-gating (blocking-gate)
+        # suite (`gates`, derived from the suite's context, not its name): the exemption waives
+        # exactly where a rule would otherwise block a merge. A matched author yields a DISCLOSED
+        # not-applicable pass (a soft note, never gating), never a silent green and never a
+        # workflow skip that would leave the required check pending. Exact-match only (no
+        # case-folding — silent widening is a spoof concern). The by-id run_check() path carries
+        # no suite and so never reaches here: the §15 guardrail-weakening guard is never exempt.
+        if gates and ctx.get("pr_author") in (rule.get("ci_author_exempt") or []):
+            findings.append(finding("soft",
+                f"NOT APPLICABLE — check '{rule.get('id')}' does not bind for pull requests "
+                f"authored by {ctx.get('pr_author')} in the merge gate, so it was not evaluated "
+                f"here (a disclosed not-applicable pass — not a verification). This narrative "
+                f"check is waived for this author only; any guardrail-touching change in the pull "
+                f"request is still gated by the guardrail-ack label the maintainer applies."))
+            continue
         kind, tier = rule.get("kind"), rule.get("tier", "hard")
         fn = REGISTRY.get(kind)
         if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
@@ -1247,7 +1280,8 @@ def main(argv: list) -> int:
         else:
             print(f"unknown argument: {argv[i]}", file=sys.stderr)
             return 2
-    ctx = {"pr_body": get_pr_body(body_file)}  # the same ctx both entry points build
+    ctx = {"pr_body": get_pr_body(body_file),     # the same ctx both entry points build
+           "pr_author": get_pr_author()}          # honored by run() for ci_author_exempt (CI gate only)
     if check_id is not None:
         return run_check(check_id, ctx)
     return run(suite, ctx)

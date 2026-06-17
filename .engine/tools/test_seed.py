@@ -86,6 +86,183 @@ class TestCompletenessTeeth(unittest.TestCase):
         self.assertEqual(found, [])
 
 
+class TestCiAuthorExempt(unittest.TestCase):
+    """The engine honors a rule's `ci_author_exempt` in the merge gate as a DISCLOSED
+    not-applicable pass — never a silent green; the closed kinds stay author-agnostic; the
+    by-id guard path is never exempt; exact-match only. (D-207/D-208, issue #116.)"""
+    DISCLOSURE = "NOT APPLICABLE"
+
+    def setUp(self):
+        self._rules, self._reg = validate.load_rules, dict(validate.REGISTRY)
+
+    def tearDown(self):
+        validate.load_rules = self._rules
+        validate.REGISTRY.clear()
+        validate.REGISTRY.update(self._reg)
+
+    def _install(self, *, suites=("CI",), exempt=("dependabot[bot]",)):
+        # A synthetic rule whose kind ALWAYS hard-fails — so a PASS proves the engine skipped
+        # it (exempt) and a FAIL proves the kind ran (enforced). The marker text "the kind ran"
+        # appears iff the kind was dispatched.
+        validate.load_rules = lambda: [{"id": "engine/check/synthetic-exempt",
+                                        "kind": "always-fail", "tier": "hard",
+                                        "suites": list(suites), "params": {},
+                                        "ci_author_exempt": list(exempt)}]
+        validate.REGISTRY["always-fail"] = lambda rule, ctx: (
+            False, [validate.finding("hard", "the kind ran")])
+
+    def _run(self, suite, ctx):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = validate.run(suite, ctx)
+        return rc, out.getvalue()
+
+    def test_exempt_author_passes_in_ci_with_disclosure(self):
+        self._install()
+        rc, text = self._run("CI", {"pr_body": "", "pr_author": "dependabot[bot]"})
+        self.assertEqual(rc, 0)                  # exempt → no hard finding → completed pass
+        self.assertIn(self.DISCLOSURE, text)     # disclosed, never a silent green (build-owe #3)
+        self.assertNotIn("the kind ran", text)   # the kind was skipped before dispatch
+
+    def test_nonexempt_author_still_enforced(self):
+        self._install()
+        rc, text = self._run("CI", {"pr_body": "", "pr_author": "a-human"})
+        self.assertEqual(rc, 1)
+        self.assertIn("the kind ran", text)
+        self.assertNotIn(self.DISCLOSURE, text)
+
+    def test_no_author_enforced(self):
+        # Local run / --pr-body-file / malformed event → None author → never matches → enforces.
+        self._install()
+        rc, _ = self._run("CI", {"pr_body": "", "pr_author": None})
+        self.assertEqual(rc, 1)
+
+    def test_wrong_case_author_enforced(self):
+        self._install()
+        rc, text = self._run("CI", {"pr_body": "", "pr_author": "Dependabot[Bot]"})
+        self.assertEqual(rc, 1)                  # exact match only; no silent case-fold widening
+        self.assertIn("the kind ran", text)
+
+    def test_exempt_only_in_blocking_gate_suite(self):
+        # The same rule + author in a non-blocking-gate suite is NOT exempted: the kind runs
+        # (advisory there, so the exit code can't distinguish — assert on the text). This locks
+        # the gate to the suite's blocking-gate CONTEXT, not the literal name "CI" (build-owe #2).
+        self._install(suites=("pre-commit",))
+        rc, text = self._run("pre-commit", {"pr_body": "", "pr_author": "dependabot[bot]"})
+        self.assertNotIn(self.DISCLOSURE, text)
+        self.assertIn("the kind ran", text)
+
+    def test_by_id_guard_path_never_exempt(self):
+        # run_check() (the by-id path engine-guard uses) carries no suite, so it never honors
+        # ci_author_exempt — the §15 guard judges Dependabot too (build-owe #7).
+        self._install()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = validate.run_check("engine/check/synthetic-exempt",
+                                    {"pr_body": "", "pr_author": "dependabot[bot]"})
+        self.assertEqual(rc, 1)
+        self.assertNotIn(self.DISCLOSURE, out.getvalue())
+
+    def test_kind_presence_is_author_agnostic(self):
+        # The closed kind never reads the author: an exempt author still fails an empty body.
+        passed, found = validate.kind_presence(
+            COMPLETENESS_RULE, {"pr_body": "", "pr_author": "dependabot[bot]"})
+        self.assertFalse(passed)
+        self.assertEqual(len(found), 8)
+
+    def test_exempt_in_any_blocking_gate_suite_not_just_ci(self):
+        # The positive of test_exempt_only_in_blocking_gate_suite: the gate keys on the
+        # blocking-gate CONTEXT, not the literal name "CI", so a differently-named blocking-gate
+        # suite ALSO exempts. Locks the plan-gate decision to gate on `gates`, future-proofing a
+        # second blocking-gate suite. (Today CI is the only one — so this needs a synthetic suite.)
+        self._install(suites=("release-gate",))
+        saved = validate.load_suites
+        validate.load_suites = lambda: {"release-gate": {"trigger": "x", "context": "blocking-gate"}}
+        try:
+            rc, text = self._run("release-gate", {"pr_body": "", "pr_author": "dependabot[bot]"})
+        finally:
+            validate.load_suites = saved
+        self.assertEqual(rc, 0)
+        self.assertIn(self.DISCLOSURE, text)
+        self.assertNotIn("the kind ran", text)
+
+
+class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
+    """The optional `ci_author_exempt` field is additive: the committed rule carries it,
+    the schema still requires exactly the seven, and no committed rule is invalidated."""
+    def _schema(self):
+        return validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))
+
+    def test_schema_still_requires_exactly_the_seven(self):
+        self.assertEqual(self._schema()["required"],
+                         ["id", "target", "kind", "params", "tier", "suites", "message"])
+
+    def test_committed_pr_body_rule_declares_and_validates(self):
+        rule = validate.load_json(os.path.join(validate.CHECK_DIR, "pr-body-completeness.json"))
+        self.assertEqual(rule.get("ci_author_exempt"), ["dependabot[bot]"])
+        errs = list(validate.Draft202012Validator(self._schema()).iter_errors(rule))
+        self.assertEqual(errs, [])
+
+    def test_every_committed_check_rule_validates(self):
+        v = validate.Draft202012Validator(self._schema())
+        for name in sorted(os.listdir(validate.CHECK_DIR)):
+            if not name.endswith(".json"):
+                continue
+            rule = validate.load_json(os.path.join(validate.CHECK_DIR, name))
+            errs = list(v.iter_errors(rule))
+            self.assertEqual(errs, [], f"{name} does not conform to check.v1.json: {errs}")
+
+
+class TestGetPrAuthor(unittest.TestCase):
+    """get_pr_author() reads the trusted event context (.pull_request.user.login) and degrades
+    to None — therefore to ENFORCING — on any doubt; it NEVER consults github.actor (the spoof
+    vector a re-run would attribute to the re-runner). The one security-load-bearing parser, so
+    it is tested directly against a real GITHUB_EVENT_PATH file, not via an injected ctx."""
+    def setUp(self):
+        self._env = {k: os.environ.get(k) for k in ("GITHUB_EVENT_PATH", "GITHUB_ACTOR")}
+        self._paths = []
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        for p in self._paths:
+            if os.path.exists(p):
+                os.unlink(p)
+
+    def _event(self, raw):
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as fh:
+            fh.write(raw if isinstance(raw, str) else json.dumps(raw))
+        self._paths.append(path)
+        os.environ["GITHUB_EVENT_PATH"] = path
+
+    def test_valid_event_returns_login(self):
+        self._event({"pull_request": {"user": {"login": "octocat"}}})
+        self.assertEqual(validate.get_pr_author(), "octocat")
+
+    def test_degrades_to_none_on_every_malformed_shape(self):
+        for raw in ({"pull_request": {"user": None}},        # null user
+                    {"pull_request": {"user": {}}},          # user present, no login
+                    {"pull_request": {"user": "a-string"}},  # type-confused user (was a crash)
+                    {"pull_request": []},                    # type-confused pull_request
+                    {"pull_request": None},                  # null pull_request
+                    {},                                      # no pull_request
+                    "this is not json"):                     # unparseable event
+            with self.subTest(raw=raw):
+                self._event(raw)
+                self.assertIsNone(validate.get_pr_author())
+
+    def test_missing_file_or_unset_env_returns_none(self):
+        os.environ["GITHUB_EVENT_PATH"] = "/no/such/event/file.json"
+        self.assertIsNone(validate.get_pr_author())
+        os.environ.pop("GITHUB_EVENT_PATH", None)
+        self.assertIsNone(validate.get_pr_author())
+
+    def test_never_consults_github_actor(self):
+        # Even with a planted actor, an event with no author resolves to None — never the actor.
+        os.environ["GITHUB_ACTOR"] = "dependabot[bot]"
+        self._event({"pull_request": {"user": {}}})
+        self.assertIsNone(validate.get_pr_author())
+
+
 class TestDispatcherGate(unittest.TestCase):
     """Lock in the fix: the CI exit code gates on a hard-severity finding, never on
     a callable's verdict flag, so report() and the exit code can never disagree."""

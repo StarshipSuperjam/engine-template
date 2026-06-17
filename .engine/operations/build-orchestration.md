@@ -115,3 +115,12 @@ invented here); the step that ensures the engine-domain label exists is provisio
 issue templates are a separate control-plane artifact a person files through, never the path the engine's
 own build Issue takes. This runbook fixes only the distributed-implement *workflow shape* and the
 build-Issue checklist/scope-lock *format*.
+
+**A recognized automation's pull request carries a disclosed not-applicable check — relay both
+decisions plainly.** Walking the operator to merge a dependency-update pull request from a recognized
+external automation (Dependabot), the `engine-ci` green includes a **disclosed not-applicable pass**
+for the PR-body completeness check: it does not bind for the automation's own pull requests, so it was
+**not verified** — green means *not applicable*, never *checked and passed*. Keep that distinct from
+the separate decision the operator actively makes — applying the **`guardrail-ack`** label, which still
+gates the locked-dependency change (flagged because changing pinned dependencies is exactly what a
+person should consciously approve). Every other check still runs; the merge stays the operator's.
