@@ -42,7 +42,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger  # noqa: E402
+from memory import forget, ledger, records  # noqa: E402
 
 INDEX_FILENAME = "index.sqlite3"
 _FTS_PROBE_TABLE = "engine_fts5_probe"
@@ -54,9 +54,11 @@ _FTS_PROBE_TABLE = "engine_fts5_probe"
 # `text` (and any other non-metadata string leaf) is searchable. The closed role vocabulary the reflection
 # slice (3b) adds is a structured filter, so `role` joins this set: searching a label like "decision" must
 # never drag in every record that carries it (the same pollution the capture-record provenance fields would
-# cause). Episodic provenance (`consolidated_ts`, `source_seqs`) is non-string and stays out by type.
+# cause). Episodic provenance (`consolidated_ts`, `source_seqs`) is non-string and stays out by type. The
+# per-pass `batch` id the forgetting slice (4a) adds is a uuid — its hex fragments are real words, exactly the
+# `session_id` problem — so it joins this set too.
 _TAGS_KEY = "tags"
-_NON_BODY_KEYS = frozenset({"tags", "session_id", "kind", "speaker", "role"})
+_NON_BODY_KEYS = frozenset({"tags", "session_id", "kind", "speaker", "role", records.BATCH_KEY})
 
 
 @dataclass
@@ -188,9 +190,10 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
 
     Throwaway-safe: builds a fresh index in a uniquely-named temp file IN THE TARGET DIRECTORY, closes it, then
     atomically `os.replace`s it into place — so a crash mid-rebuild leaves the previous index intact and a
-    reader never sees a half-built one. Streams the ledger via `iter_records` (it drops malformed/torn lines),
-    so one bad line never costs the rest. If this machine has no FTS5, there is no fast lookup to build and this
-    returns a no-op report (recall uses the slow scan).
+    reader never sees a half-built one. Streams the ledger via `forget.live_records` (logically-retired
+    duplicates excluded from recall; malformed/torn lines dropped), so one bad line never costs the rest and a
+    crash-duplicated summary is indexed once. If this machine has no FTS5, there is no fast lookup to build and
+    this returns a no-op report (recall uses the slow scan).
     """
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
@@ -208,7 +211,9 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
         try:
             _build_schema(conn)
             ordinal = 0
-            for record in ledger.iter_records(path=src):
+            # `live_records` excludes logically-retired duplicates (a crashed pass's orphans) — the SAME shared
+            # filter the slow `_scan` uses, so the fast and slow lookups retire identically (parity).
+            for record in forget.live_records(path=src):
                 tokens = _tokenize(_record_text(record))
                 conn.execute(
                     "INSERT INTO entries (ord, record_json) VALUES (?, ?)",
@@ -239,10 +244,11 @@ def _scan(query_tokens: list, src: str, limit: "int | None") -> list:
     """The slow backup lookup: read the ledger straight through, tokenize each record the same way, and keep
     the records whose text contains EVERY query token. Always available (no FTS5 needed). This is the single
     fallback path that both a genuine FTS5-absent machine and `force_scan=True` flow through, so exercising one
-    is real evidence for the other."""
+    is real evidence for the other. Reads through `live_records`, the same retirement filter the fast `rebuild`
+    bakes in, so the slow backup returns the deduped set the fast lookup does (parity)."""
     want = set(query_tokens)
     out = []
-    for record in ledger.iter_records(path=src):
+    for record in forget.live_records(path=src):
         have = set(_tokenize(_record_text(record)))
         if want <= have:
             out.append(record)
