@@ -1953,6 +1953,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_security_floor",
+      "name": ".engine/tools/demo_security_floor.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_security_floor",
+      "source": {
+        "fingerprint": "sha256:88ef28ae79d5a32ee99451a3ef305fee6f7622af5f47839303b6daa1874bd70f",
+        "path": ".engine/tools/demo_security_floor.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_security_seed",
       "name": ".engine/tools/demo_security_seed.py",
       "owner": "core",
@@ -2065,7 +2082,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:46359026483e3086587be39fe1b74641570c4883d8c572badf35e67950bb00be",
+        "fingerprint": "sha256:7df9a7b03d1816fb60b691ffb4ea25fa26ed7bbee3a3cb53de4984dd3eb37ccd",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -2305,6 +2322,23 @@
       "source": {
         "fingerprint": "sha256:3e7bec7911c61ca92c73317f7518f26f8c7de8d2b1e25fa81190f21cd86ab7bc",
         "path": ".engine/tools/memory/records.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:security_floor",
+      "name": ".engine/tools/security_floor.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "security_floor",
+      "source": {
+        "fingerprint": "sha256:88500d66ba749e5fe76f982e62d6a48746f78ce5aa9cc902ea214b1a1f02c680",
+        "path": ".engine/tools/security_floor.py"
       },
       "status": "active",
       "type": "tool"
@@ -2677,7 +2711,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:24a69dd109a061127893c477d84fe6242ecef6219e52119403f436144575a7df",
+        "fingerprint": "sha256:17976ac1c324df996e6becec72b1d9cc0ed0602c25f8b3687379e0d6aca5aafe",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -2934,6 +2968,23 @@
       "source": {
         "fingerprint": "sha256:1116267b61e4f43fdd7da22bdd413ba12f5cef5219d515c47a6a880a82211715",
         "path": ".engine/tools/test_secret_scan.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_security_floor",
+      "name": ".engine/tools/test_security_floor.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_security_floor",
+      "source": {
+        "fingerprint": "sha256:3d1a1a8ce868f249b9305a01882448d35c6a272207066c5ecb5ccbf1e2462f3b",
+        "path": ".engine/tools/test_security_floor.py"
       },
       "status": "active",
       "type": "tool"

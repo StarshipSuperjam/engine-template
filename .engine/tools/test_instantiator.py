@@ -325,7 +325,7 @@ class TestApplyOrchestrator(unittest.TestCase):
             self.assertEqual(res["reason"], "not-confirmed")
             self.assertEqual(res["steps"], [])
 
-    def test_full_happy_path_runs_all_seven_steps(self):
+    def test_full_happy_path_runs_all_eight_steps(self):
         with tempfile.TemporaryDirectory() as d:
             inst._build_fixture(d)
             with inst._redirect_root(d):
@@ -334,7 +334,8 @@ class TestApplyOrchestrator(unittest.TestCase):
             self.assertFalse(res["refused"]); self.assertFalse(res["halted"])
             names = [s["step"] for s in res["steps"]]
             self.assertEqual(names, ["remove-unselected", "codeowners", "plan-mode",
-                                     "tool-runtime", "substrates", "wires", "control-plane"])
+                                     "tool-runtime", "substrates", "wires", "control-plane",
+                                     "security-floor"])
 
     def test_handle_falls_back_to_the_manifest_value(self):
         with tempfile.TemporaryDirectory() as d:
@@ -525,7 +526,7 @@ class TestApplyStep7ControlPlane(unittest.TestCase):
             with inst._redirect_root(d):
                 _confirmed_fixture(d)
                 res = _fake_apply(d, control_transport=inst._approve_transport())
-            cp = res["steps"][-1]
+            cp = inst._step(res["steps"], "control-plane")   # the gate is no longer the LAST step
             self.assertEqual(cp["status"], "applied"); self.assertTrue(cp["protected"])
 
     def test_degraded_never_pretends_and_phase_ends(self):
@@ -534,7 +535,7 @@ class TestApplyStep7ControlPlane(unittest.TestCase):
             with inst._redirect_root(d):
                 _confirmed_fixture(d)
                 res = _fake_apply(d, control_transport=inst._defer_transport(), gh_refresh=lambda s: False)
-            cp = res["steps"][-1]
+            cp = inst._step(res["steps"], "control-plane")
             self.assertEqual(cp["status"], "degraded"); self.assertFalse(cp["protected"])
             self.assertFalse(res["halted"], "a deferred gate ends the phase cleanly; it never halts")
 
@@ -547,8 +548,9 @@ class TestApplyStep7ControlPlane(unittest.TestCase):
                 _confirmed_fixture(d)
                 # opt out of the injected coordinates so the no-repo/no-sign-in path is exercised
                 res = _fake_apply(d, control_repo=None, control_token=None)
-            self.assertEqual(res["steps"][-1]["status"], "degraded")
-            self.assertIn("no project", res["steps"][-1]["detail"])
+            cp = inst._step(res["steps"], "control-plane")
+            self.assertEqual(cp["status"], "degraded")
+            self.assertIn("no project", cp["detail"])
 
 
 class TestApplyIdempotentResume(unittest.TestCase):
@@ -619,9 +621,9 @@ class TestApplyChainRunsOnSystemPython39(unittest.TestCase):
     # runtime. An evaluated `X | None` annotation raises there; `from __future__ import annotations` defers
     # it. Hold every tool the instantiator's apply chain imports to that, so a future edit can't silently
     # re-break a real adopter's first run (bootstrap.py was the gap this slice closed).
-    _APPLY_CHAIN = ("instantiator", "module_manager", "wiring", "bootstrap", "knowledge_gen",
-                    "module_coherence", "boot", "telemetry", "protection_guard", "hooks",
-                    "module_catalog", "validate", "modes", "close")
+    _APPLY_CHAIN = ("instantiator", "module_manager", "wiring", "bootstrap", "security_floor",
+                    "knowledge_gen", "module_coherence", "boot", "telemetry", "protection_guard",
+                    "hooks", "module_catalog", "validate", "modes", "close")
 
     def test_every_apply_chain_tool_defers_annotations(self):
         here = os.path.dirname(os.path.abspath(__file__))
