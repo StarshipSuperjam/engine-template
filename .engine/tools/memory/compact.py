@@ -9,16 +9,21 @@ What one pass does, under the single-writer `.capture.lock`, as ONE critical sec
 
   1. Read the RAW ledger (every record — including archived/retired ones; compaction must not drop recall).
   2. **Fold** each record's reinforcement markers into carried current-state fields (records.py:
-     frecency_snapshot / snapshot_ts / last_access_ts / tier) via `score.mint_snapshot`, then **drop those
-     markers**. The 4b `id` is carried verbatim. A record with no markers is rewritten byte-identical.
+     frecency_snapshot / snapshot_ts / last_access_ts / tier) via `score.mint_snapshot`, AND fold each
+     CLOSED-batch gist supersession (slice 4d-ii) into the raw's carried `superseded_by` field, then **drop
+     those folded markers**. The 4b `id` is carried verbatim. A record with no markers is rewritten byte-identical.
   3. Write the folded, marker-pruned ledger to a temp IN THE LEDGER'S OWN DIRECTORY, fsynced.
   4. **Bump the generation BEFORE the swap**, then `ledger.replace_ledger` (fsync temp → atomic rename → fsync
      dir), then rebuild the index stamped with the new generation.
 
-**Layer-1 never erases recall content** — only the (non-recall) `reinforcement` markers are pruned; every
-turn-delta, episodic (including a 4a crash-duplicate orphan, which stays logically retired), and `consolidated`
-marker survives the rewrite (a build-conformance invariant: no Layer-1 routine reaches erasure — Layer-2
-physical erasure of recall content is slice 4e, audit-adjudicated and operator-merge-gated). Because frecency is
+**Layer-1 never erases recall content** — only the (non-recall) `reinforcement` markers and the (non-recall)
+CLOSED-batch `superseded` markers are pruned; every turn-delta, episodic (including a 4a crash-duplicate orphan,
+which stays logically retired, AND a gist-superseded raw, which stays superseded via its carried `superseded_by`),
+gist, and `consolidated` marker survives the rewrite (a build-conformance invariant: no Layer-1 routine reaches
+erasure — Layer-2 physical erasure of recall content is slice 4e, audit-adjudicated and operator-merge-gated). A
+supersession is folded ONLY when its roll-up batch is closed: an un-closed (crashed-pass) `superseded` marker is
+inert, so it is passed through verbatim, NEVER folded — else a crashed roll-up's hiding would be baked permanently
+into the rewrite. Because frecency is
 a **recurrence on the carried snapshot** (score.frecency), a compacted record scores IDENTICALLY to before — so
 demotion survives the fold. The crash-safe-swap law (README): a crash at any point leaves exactly one intact
 ledger (old or new); a stale index is always fully rebuilt — and the generation gate (index.py) routes a
@@ -98,17 +103,43 @@ def _fold_record(record, access_index: dict, t0: int):
     return folded
 
 
-def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: int) -> str:
+def _fold_supersession(record, superseded_by_map: dict):
+    """`record` with a CLOSED-batch gist supersession folded into its carried `superseded_by` field (slice
+    4d-ii), or unchanged when nothing supersedes it. `superseded_by_map` (forget._superseded_by_map) maps a raw
+    episode's id -> its gist id, built ONLY from closed-batch markers — so a raw enters it (and gets the carried
+    field) only when its gist's roll-up completed. After the marker is pruned, `forget.live_records` still
+    retires the raw via this field. The 4b id and every other field are preserved; layers cleanly with
+    `_fold_record` (a superseded-AND-archived raw carries both the snapshot and the supersession)."""
+    if not isinstance(record, dict):
+        return record
+    rid = record.get(records.RECORD_ID_KEY)
+    gist_id = superseded_by_map.get(rid) if isinstance(rid, str) and rid else None
+    if not gist_id:
+        return record
+    folded = dict(record)
+    folded[records.SUPERSEDED_BY_KEY] = gist_id
+    return folded
+
+
+def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: int,
+                          closed_rollup: set, superseded_by_map: dict) -> str:
     """Write the folded, marker-pruned ledger to a fresh temp in `data_dir`, fsynced. Drops ONLY `reinforcement`
-    markers (folded away); every recall-content record + every `consolidated` marker survives (Layer-1 never
-    erases recall content). Returns the temp path."""
+    markers AND CLOSED-batch `superseded` markers (both folded away into carried fields); every recall-content
+    record (turn-delta, episodic, gist) + every `consolidated` marker + every UN-closed (crashed-pass)
+    `superseded` marker survives (Layer-1 never erases recall content, and an inert supersession is never folded
+    — passed through verbatim so a crashed roll-up's hiding is never baked in). Returns the temp path."""
     tmp = os.path.join(data_dir, _TEMP_PREFIX + uuid.uuid4().hex + _TEMP_SUFFIX)
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
         for record in raw_records:
-            if isinstance(record, dict) and record.get("kind") == records.REINFORCEMENT_KIND:
-                continue  # folded into its target's snapshot; pruned (non-recall derivation fuel)
+            if isinstance(record, dict):
+                kind = record.get("kind")
+                if kind == records.REINFORCEMENT_KIND:
+                    continue  # folded into its target's snapshot; pruned (non-recall derivation fuel)
+                if kind == records.SUPERSEDED_KIND and record.get(records.BATCH_KEY) in closed_rollup:
+                    continue  # CLOSED-batch supersession: folded into its raw's superseded_by; pruned
             folded = _fold_record(record, access_index, t0)
+            folded = _fold_supersession(folded, superseded_by_map)
             line = json.dumps(folded, ensure_ascii=False, separators=(",", ":")) + "\n"
             os.write(fd, line.encode("utf-8"))
         ledger._durable_fsync(fd)
@@ -144,11 +175,16 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
         t0 = int(time.time()) if now is None else now
         raw = list(ledger.iter_records(path=target))
         access_index = forget._access_index(target)
-        pruned = sum(1 for r in raw if isinstance(r, dict) and r.get("kind") == records.REINFORCEMENT_KIND)
+        closed_rollup = forget._closed_rollup_batches(target)          # slice 4d-ii: roll-up batches a marker closed
+        superseded_by_map = forget._superseded_by_map(target, closed_rollup)   # raw id -> gist id (closed batches only)
+        pruned = sum(1 for r in raw if isinstance(r, dict) and (
+            r.get("kind") == records.REINFORCEMENT_KIND
+            or (r.get("kind") == records.SUPERSEDED_KIND and r.get(records.BATCH_KEY) in closed_rollup)))
         folded = sum(1 for r in raw if isinstance(r, dict)
                      and isinstance(r.get(records.RECORD_ID_KEY), str)
-                     and access_index.get(r.get(records.RECORD_ID_KEY)))
-        tmp = _write_compacted_temp(data_dir, raw, access_index, t0)
+                     and (access_index.get(r.get(records.RECORD_ID_KEY))
+                          or r.get(records.RECORD_ID_KEY) in superseded_by_map))
+        tmp = _write_compacted_temp(data_dir, raw, access_index, t0, closed_rollup, superseded_by_map)
         if _crash_after == "write":
             raise _InjectedCrash("write")              # power-cut: temp left, OLD ledger intact, gen unbumped
         ledger.bump_generation(for_path=target)        # bump BEFORE the swap (the crash-safe ordering)

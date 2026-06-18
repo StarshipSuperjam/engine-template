@@ -1,12 +1,13 @@
-"""records.py — the shared record vocabulary for the memory ledger (memory-substrate-sqlite-fts5, slice 4d).
+"""records.py — the shared record vocabulary for the memory ledger (memory-substrate-sqlite-fts5, slice 4d-ii).
 
 The `kind` strings and provenance keys that more than one memory tool must agree on, in ONE place so they
 never drift and no import cycle can form. `consolidate` writes the episodic + marker records; `index` keeps
 provenance keys out of the search body; `forget` derives logical retirement from the marker↔batch linkage and
-(slice 4c) appends the `reinforcement` access marker + scores demotion from it; `compact` (slice 4d) folds those
-markers into the carried current-state fields below and `score` reads them back. Because all of them need these
+(slice 4c) appends the `reinforcement` access marker + scores demotion from it; `compact` (slice 4d-i) folds those
+markers into the carried current-state fields below and `score` reads them back; `rollup` (slice 4d-ii) writes the
+gist + supersession markers and `forget` derives the raws' retirement from them. Because all of them need these
 names and `consolidate` already imports `index`, defining them here — a leaf that imports nothing from the
-`memory` package — lets `index`, `forget`, `score`, and `compact` import them without
+`memory` package — lets `index`, `forget`, `score`, `compact`, and `rollup` import them without
 `consolidate`→`index`→`forget`→`consolidate` becoming a cycle.
 
 stdlib-only; imports nothing from `memory`.
@@ -62,6 +63,34 @@ FRECENCY_SNAPSHOT_KEY = "frecency_snapshot"   # float: score.frecency value at c
 SNAPSHOT_TS_KEY = "snapshot_ts"               # int: t0, the compaction time the snapshot was stamped at
 LAST_ACCESS_TS_KEY = "last_access_ts"         # int: max(birth, *accesses) at t0, the recency floor
 TIER_KEY = "tier"                             # str: the snapshot-time tier (legibility; recomputed on read)
+
+# The gist roll-up vocabulary (slice 4d-ii). Active forgetting's first move (memory/README) is a SECOND-order
+# consolidation: an AI-judged maintenance pass rolls up OLD, low-frecency EPISODIC summaries of one session into a
+# compact GIST and LOGICALLY RETIRES the raw episodes (excluded from recall, still resident + fully recoverable —
+# Layer-1 never erases; physical erasure is Layer-2/4e, audit-gated). `rollup` writes, in strict order under the
+# single-writer lock, the gist → a per-raw `superseded` marker → the closing `rolled-up` marker; `forget` derives
+# the raws' retirement from a CLOSED-batch supersession; `compact` (slice 4d-i, extended) folds a closed-batch
+# supersession into the carried `SUPERSEDED_BY_KEY` field below and prunes the marker. The gist↔raw link is thus
+# carried in the ledger (the marker, then the folded field) and survives the rewrite.
+GIST_KIND = "gist"                  # an AI-written gist consolidating several old episodes of one session
+GIST_TAG = "gist"                   # surfaces alongside DEFAULT_EPISODIC_TAG so a gist rides episodic recall
+ROLLUP_KIND = "rolled-up"           # the closing marker of a roll-up pass — the ONLY kind that CLOSES its batch,
+                                    # DISTINCT from MARKER_KIND so a roll-up never spuriously marks a session
+                                    # 3b-consolidated (the two closure namespaces never mix — forget._closed_batches
+                                    # reads MARKER_KIND, forget._closed_rollup_batches reads ROLLUP_KIND)
+SUPERSEDED_KIND = "superseded"      # a per-raw marker: this raw episode's content now lives in a gist. It points at
+                                    # the raw by TARGET_KEY (reused — already non-body) and names the gist by
+                                    # SUPERSEDED_BY_KEY, and carries the pass's BATCH_KEY. INERT until its batch is
+                                    # closed (a `rolled-up` marker landed): only then does it hide its raw, so a
+                                    # crash before the closing marker never hides a raw whose gist's pass didn't finish.
+SOURCE_IDS_KEY = "source_ids"       # on the gist: the RECORD_ID_KEY values of the raw episodes it consolidates — the
+                                    # forward half of the gist↔raw link (a list of uuid hex; kept OUT of the search
+                                    # body, index._NON_BODY_KEYS, like every uuid-hex field)
+# The carried current-state field compaction folds a CLOSED-batch supersession into, before it prunes the marker:
+# the raw episode carries the gist id it was superseded by, so `forget.live_records` still retires it after the
+# marker is gone. Minted ONLY across a closed gate, so its mere presence proves the gist pass completed — trusted
+# unconditionally. A uuid hex, so `index` keeps it OUT of the search body (index._NON_BODY_KEYS).
+SUPERSEDED_BY_KEY = "superseded_by"
 
 
 def new_record_id() -> str:

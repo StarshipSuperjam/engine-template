@@ -63,11 +63,14 @@ _FTS_PROBE_TABLE = "engine_fts5_probe"
 # the body even if it were reached). The carried `tier` (slice 4d compaction) is a STRING
 # ("hot"/"cold"/"archived"), so it MUST join too, else those words would match every compacted record; its
 # sibling carried fields (frecency_snapshot/snapshot_ts/last_access_ts) are numeric and stay out of the body by
-# type already (the projection indexes only string leaves).
+# type already (the projection indexes only string leaves). The gist roll-up (slice 4d-ii) adds two more uuid-hex
+# fields: a raw episode's `superseded_by` (the gist id a compaction folded onto it) and a gist's `source_ids`
+# (the list of raw ids it consolidates) — both are uuid hex, exactly the `id`/`batch` problem, so both join too.
 _TAGS_KEY = "tags"
 _NON_BODY_KEYS = frozenset(
     {"tags", "session_id", "kind", "speaker", "role",
-     records.BATCH_KEY, records.RECORD_ID_KEY, records.TARGET_KEY, records.TIER_KEY}
+     records.BATCH_KEY, records.RECORD_ID_KEY, records.TARGET_KEY, records.TIER_KEY,
+     records.SUPERSEDED_BY_KEY, records.SOURCE_IDS_KEY}
 )
 
 

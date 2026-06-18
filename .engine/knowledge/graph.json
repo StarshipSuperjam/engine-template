@@ -1919,7 +1919,7 @@
       },
       "slug": "__init__",
       "source": {
-        "fingerprint": "sha256:21ab9469b943aeb895b7e70775b724bd704e2ca8c7ba0400404735e52f1a104e",
+        "fingerprint": "sha256:65681a71c3b350b879d5de12015fedce452f5873988f06c95365a66dae49ea24",
         "path": ".engine/tools/memory/__init__.py"
       },
       "status": "active",
@@ -2055,7 +2055,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:2c9bc47adb9c8c0290b121bcd8856c0fb0edbd20216e3a2878e1e5a7919bd9ca",
+        "fingerprint": "sha256:ace6e4478db95daf8d0e1768a29055e947309a604dedeeb41fccad17529d6afa",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -2225,7 +2225,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:ef99e2c312443a506065a443e49615b2ca7586fe5206b7436067c0f54d9a233c",
+        "fingerprint": "sha256:9f71f1f623f8d75178d5c18179451a8bf959321eaebca8d83db40cf6e3b0f22a",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -2276,7 +2276,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:1c940a1ad3710d106b72f4ce75f29748933e72cfee7af35a28f449a6c0a00fdc",
+        "fingerprint": "sha256:69ee277658257f8556d8d741551648cef1686b40fe80de42e1c099f24917f496",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -2548,8 +2548,25 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:6479e115ca5dc0bad1ada410a4b24d31eadb72f574589421e961efe236663d9d",
+        "fingerprint": "sha256:e302a2145fb2d608817a0149207abc0d3ac811e4a65a57370c621d87420d5ac8",
         "path": ".engine/tools/memory/records.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:rollup",
+      "name": ".engine/tools/memory/rollup.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "rollup",
+      "source": {
+        "fingerprint": "sha256:1bc87a98f1deab1b27dd77f58da0c228a0ab585aedacf228fb9c5ef0c01fc0d1",
+        "path": ".engine/tools/memory/rollup.py"
       },
       "status": "active",
       "type": "tool"
@@ -3230,6 +3247,23 @@
       "source": {
         "fingerprint": "sha256:2f278c4e2f652863a53a859765786f6bc4adadc4bff3a7dc87f91f0d9c94a623",
         "path": ".engine/tools/memory/test_records.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_rollup",
+      "name": ".engine/tools/memory/test_rollup.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_rollup",
+      "source": {
+        "fingerprint": "sha256:0b5aa419f997810c779d5df932ba305bbc17ea789c66e96877aef35413a05dea",
+        "path": ".engine/tools/memory/test_rollup.py"
       },
       "status": "active",
       "type": "tool"

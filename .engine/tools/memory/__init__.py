@@ -12,10 +12,12 @@ live session's turn. Callers reach the ledger/index primitives explicitly with `
 ledger`` / ``from memory import index``.
 
 Shipped so far: the ledger (``memory.ledger``), the derived index + plain-scan fallback
-(``memory.index``), turn-delta capture (``memory.capture`` / ``memory.capture_turn_delta``), and AI-judged
+(``memory.index``), turn-delta capture (``memory.capture`` / ``memory.capture_turn_delta``), AI-judged
 episodic consolidation — the closed role vocabulary + the abandoned-session ``SessionStart`` sweep
-(``memory.consolidate``). The public search interface + MCP server, active-forgetting, and backup/restore
-land in later slices.
+(``memory.consolidate``), and active forgetting (Layer 1): logical retirement + scored demotion
+(``memory.forget``), crash-safe ledger compaction (``memory.compact``), and gist roll-up
+(``memory.rollup``). The public search interface + MCP server (with the live recall/reinforcement caller and
+the live maintenance triggers), Layer-2 audit-gated erasure, and backup/restore land in later slices.
 """
 
 from memory.capture import capture_turn_delta  # noqa: F401 — the public capture entry close's relay calls
