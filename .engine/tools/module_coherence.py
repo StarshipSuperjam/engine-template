@@ -68,8 +68,9 @@ ENGINE_MANIFEST_REL = ".engine/engine.json"
 
 # FOUNDATION_INFRA — the wholly-engine-owned files that belong to no module's `provides`: the engine
 # manifest, the root CLAUDE.md, the tool-runtime lockfiles, and the engine-owned .github/ control-plane
-# artifacts (the two required-check workflows, the PR template, the issue templates, and CODEOWNERS
-# itself). This is the foundation infrastructure-artifact set of repository-topology/README.md +
+# artifacts (the two required-check workflows, the advisory secret-scan workflow + dependabot.yml that
+# form the git-native security floor [control-plane "The security floor"], the PR template, the issue
+# templates, and CODEOWNERS itself). This is the foundation infrastructure-artifact set of repository-topology/README.md +
 # module-system/README.md §Coherence — the high-trust files a bare `provides`-union would leave
 # unowned. It is the SINGLE SOURCE for three derived consumers, so they cannot drift apart:
 #   - NAMED_INFRA (below) — the .engine/-only subset, the ownership-walk carve-out.
@@ -85,6 +86,8 @@ FOUNDATION_INFRA = (
     "CLAUDE.md",
     ".github/workflows/engine-ci.yml",
     ".github/workflows/engine-guard.yml",
+    ".github/workflows/secret-scan.yml",
+    ".github/dependabot.yml",
     ".github/pull_request_template.md",
     ".github/ISSUE_TEMPLATE/*.md",
     ".github/CODEOWNERS",
