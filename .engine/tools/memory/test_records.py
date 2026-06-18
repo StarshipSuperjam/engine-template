@@ -14,6 +14,7 @@ import os
 import string
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -95,8 +96,10 @@ class NonSearchableTests(_Base):
 
 class BackCompatTests(_Base):
     def test_a_record_with_no_id_still_appends_indexes_and_queries(self):
-        # a pre-4b turn-delta — NO "id" field — must read/index/query fine (no reader requires an id)
-        ledger.append({"v": 1, "kind": capture.RECORD_KIND, "session_id": "S", "ts": 1, "seq": 0,
+        # a pre-4b turn-delta — NO "id" field — must read/index/query fine (no reader requires an id). `ts` is
+        # current (not a sentinel): scored demotion (slice 4c) sets an ancient record aside from recall, which
+        # would mask the id tolerance this test is about — keep the record fresh so it is recalled on its merit.
+        ledger.append({"v": 1, "kind": capture.RECORD_KIND, "session_id": "S", "ts": int(time.time()), "seq": 0,
                        "speaker": "user", "text": "an old note about pelicans", "tags": ["stop"]})
         index.rebuild()
         hits = index.query("pelicans").records

@@ -2031,7 +2031,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:3123f631f3638dc03b1c7365788f79a423ed4308806e039e1466a4bec71261af",
+        "fingerprint": "sha256:894216c51dd56725342bff99224b3a94e7d41a00366416b5b9b1aa6d6e5f6d29",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -2065,7 +2065,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:94d63417e3b95ecddf416ee607e30da720093c01ad241cfcfea3c541506f5545",
+        "fingerprint": "sha256:b119212e373a0de7e79540332fafca16c26c8ede3dd028e26ebdd0bc60246ab2",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -2320,8 +2320,25 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:3e7bec7911c61ca92c73317f7518f26f8c7de8d2b1e25fa81190f21cd86ab7bc",
+        "fingerprint": "sha256:5596872b66ea5be14df873b345b8490949e4c0c27ac92d7d91be0234c846561c",
         "path": ".engine/tools/memory/records.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:score",
+      "name": ".engine/tools/memory/score.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "score",
+      "source": {
+        "fingerprint": "sha256:704f0caac2bae54ebbdc066b91ca2ffb8d18aa98a7db68bc96f724ebba6634bd",
+        "path": ".engine/tools/memory/score.py"
       },
       "status": "active",
       "type": "tool"
@@ -2949,8 +2966,25 @@
       },
       "slug": "test_records",
       "source": {
-        "fingerprint": "sha256:aef893baf7621018597036fc5f0fe892ce9afe8fdf0bcfd41fb8f824068034d2",
+        "fingerprint": "sha256:2f278c4e2f652863a53a859765786f6bc4adadc4bff3a7dc87f91f0d9c94a623",
         "path": ".engine/tools/memory/test_records.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_score",
+      "name": ".engine/tools/memory/test_score.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_score",
+      "source": {
+        "fingerprint": "sha256:0e3864e069753946d0fc133121c5e982d46bcd6e91cdc5b05d3cd4bdc89b9d65",
+        "path": ".engine/tools/memory/test_score.py"
       },
       "status": "active",
       "type": "tool"
