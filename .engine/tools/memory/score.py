@@ -1,17 +1,23 @@
-"""score.py — the demotion scorer for active forgetting (memory-substrate-sqlite-fts5, slice 4c).
+"""score.py — the demotion scorer for active forgetting (memory-substrate-sqlite-fts5, slice 4d).
 
 Active forgetting (memory/README) demotes a record in tiers — **hot → warm → cold → archived** — by
 **frecency × role-weight × recency**, where `archived` is an index-exclusion *state* (excluded from recall, but
 the record stays resident + fully recoverable in the one ledger — demotion never deletes). This module is the
 pure scoring law; `forget` collects a record's access timestamps from the ledger and applies it in
-`live_records` (dropping only `archived`). Tier is **derived on read** in 4c (nothing is persisted); compaction
-(slice 4d) will later fold the access markers into a carried frecency snapshot — legal precisely because the
-frecency function here is a **recurrence on the carried snapshot** (see `frecency`).
+`live_records` (dropping only `archived`). Tier is **derived on read** (nothing recall-affecting is persisted).
+
+Slice 4c scored from a record's birth + its live reinforcement markers. Slice 4d adds **compaction**, which
+folds those markers into a carried **frecency snapshot** on the record (records.FRECENCY_SNAPSHOT_KEY etc.) and
+prunes them. So this module is now **snapshot-aware**: when a record carries a valid snapshot, `score` resumes
+the recurrence from it (decaying the snapshot forward + folding any post-snapshot accesses); otherwise it takes
+the original birth-seeded path. Both yield the IDENTICAL score for the same record-state — legal precisely
+because frecency is a **recurrence on the carried snapshot** (see `frecency`): `decay(now − t0) ·
+frecency_snapshot(t0) + Σ decay(now − a)`. `compact` mints the snapshot via `mint_snapshot` here.
 
 Design constraints (so 4d's fold stays legal and tests stay deterministic):
-  * **Pure functions.** Every entry takes its inputs explicitly — a record's `access_ts` list is passed in,
-    already collected; this module never reads the ledger and never looks at *other* records (no population /
-    percentile statistics, which could not survive compaction folding the history away).
+  * **Pure functions, no file I/O.** Every entry takes its inputs explicitly — a record's `access_ts` list is
+    passed in, already collected; this module never reads the ledger/index and never looks at *other* records
+    (no population / percentile statistics, which could not survive compaction folding the history away).
   * **No window.** Frecency is a decay sum over *all* of a record's reinforcements, never "the last K" — a
     windowed score is not a recurrence on a snapshot and is out of bounds (README).
   * **`now` injectable.** Defaults to wall-clock only when `None`, so a test passes an explicit `now` and
@@ -21,12 +27,16 @@ The concrete constants below (half-life, role weights, tier thresholds) are the 
 scores" the design defers to this pass (README "Build-spec leaves"); the *shape* — a birth-seeded product of
 recurrence-form decays, four tiers, archived-only-excludes — is fixed by the spec.
 
-stdlib-only; imports nothing from `memory` (a pure leaf — it cannot form an import cycle).
+stdlib-only except `records` (the field-name vocabulary leaf, which imports nothing from `memory`) — so this is
+still a leaf that cannot form an import cycle. No file I/O.
 """
 
 from __future__ import annotations
 
+import math
 import time
+
+from memory import records
 
 # --- Build-spec leaves (the "forgetting scores") ----------------------------------------------------------
 
@@ -75,10 +85,15 @@ def _decay(delta: float) -> float:
 def _coerce_ts(value, fallback: int) -> int:
     """A usable timestamp from a record field, or `fallback`. bool is excluded (it subclasses int); a
     missing/non-numeric value falls back — for a record's birth that means 'treat as now' (fail-safe toward
-    KEEPING: born-now -> hot -> stays in recall, never silently aged into archival)."""
+    KEEPING: born-now -> hot -> stays in recall, never silently aged into archival). A NON-FINITE float
+    (NaN/inf — only reachable on an out-of-band corrupted ledger line, since the engine never writes one) also
+    falls back rather than crashing `int(value)`, so one bad line never costs recall of the records around it
+    (the ledger's line-resilience law, upheld here for every timestamp field, incl. the carried 4d ones)."""
     if isinstance(value, bool):
         return fallback
-    if isinstance(value, (int, float)):
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
         return int(value)
     return fallback
 
@@ -118,12 +133,75 @@ def role_weight(record) -> float:
     return ROLE_WEIGHTS.get(role, DEFAULT_ROLE_WEIGHT)
 
 
+def _valid_snapshot(snap, snap_ts) -> bool:
+    """True iff a record carries a usable carried frecency snapshot (slice 4d): a FINITE, non-negative number
+    `snap` and a FINITE numeric `snap_ts`. A missing/malformed snapshot is NOT treated as `now` (that would
+    inflate a record to just-compacted freshness — a visibility resurrection); instead `_effective` falls back
+    to the deterministic birth-seeded path. The finiteness of `snap_ts` is load-bearing: `_effective` does
+    `int(snap_ts)`, which would raise on NaN/inf — a corrupt line must degrade, never crash recall. bool is
+    excluded (it subclasses int).
+
+    Note (a deliberate, bounded acceptance): a FINITE but absurdly large `snap` (only reachable via an
+    out-of-band corrupted ledger line — compaction mints a snapshot bounded by ~1 + a record's access count) is
+    accepted and scores the record HIGH, i.e. KEPT VISIBLE. That is the fail-safe direction for memory (a record
+    wrongly shown is recoverable; a record wrongly hidden is the dangerous one), and there is no principled
+    magnitude bound distinguishing corruption from a legitimately frequently-recalled record — so this guards
+    against the crash, not against high-but-finite values."""
+    if isinstance(snap, bool) or isinstance(snap_ts, bool):
+        return False
+    if not isinstance(snap, (int, float)) or not isinstance(snap_ts, (int, float)):
+        return False
+    return math.isfinite(snap) and snap >= 0.0 and math.isfinite(snap_ts)
+
+
+def _effective(record, access_ts, now: int):
+    """The (frecency, last_event_ts) pair for `record` at `now`, the single basis both `score` and the
+    compaction minter (`mint_snapshot`) use. If the record carries a valid snapshot (compacted), resume the
+    recurrence from it — `decay(now − snapshot_ts) · frecency_snapshot + Σ decay(now − a)` over the
+    post-snapshot accesses, with `last_access_ts` (floored to `snapshot_ts` if malformed, never `now`) carried
+    as the recency base. Otherwise the original 4c birth-seeded path. The two agree for the same record-state."""
+    is_dict = isinstance(record, dict)
+    snap = record.get(records.FRECENCY_SNAPSHOT_KEY) if is_dict else None
+    snap_ts = record.get(records.SNAPSHOT_TS_KEY) if is_dict else None
+    if _valid_snapshot(snap, snap_ts):
+        base_ts = int(snap_ts)
+        total = _decay(now - base_ts) * float(snap)
+        last = _coerce_ts(record.get(records.LAST_ACCESS_TS_KEY) if is_dict else None, base_ts)
+        for a in access_ts:
+            ac = _coerce_ts(a, now)
+            total += _decay(now - ac)
+            if ac > last:
+                last = ac
+        return total, last
+    birth = _coerce_ts(record.get("ts") if is_dict else None, now)
+    total = frecency(birth, access_ts, now)
+    last = birth
+    for a in access_ts:
+        ac = _coerce_ts(a, now)
+        if ac > last:
+            last = ac
+    return total, last
+
+
 def score(record, access_ts, now: "int | None" = None) -> float:
     """The demotion score frecency x role-weight x recency for `record`, given the timestamps of the accesses
-    that name it (already collected from the ledger by `forget._access_index`). `now` defaults to wall-clock."""
+    that name it (already collected from the ledger by `forget._access_index`). Snapshot-aware (slice 4d): a
+    compacted record resumes the recurrence from its carried snapshot, an un-compacted one scores from birth —
+    the same value either way. `now` defaults to wall-clock."""
     now = int(time.time()) if now is None else now
-    birth = _coerce_ts(record.get("ts") if isinstance(record, dict) else None, now)
-    return frecency(birth, access_ts, now) * role_weight(record) * recency(birth, access_ts, now)
+    total, last = _effective(record, access_ts, now)
+    return total * role_weight(record) * _decay(now - last)
+
+
+def mint_snapshot(record, access_ts, now: "int | None" = None):
+    """Mint the carried fields ledger compaction (slice 4d) stamps on `record` at compaction time `now` (= t0):
+    returns `(frecency_snapshot, last_access_ts)` from the record's CURRENT state (its birth or prior snapshot)
+    plus the accesses being folded away. By the recurrence property a later `score` over the compacted record
+    (carrying these, zero post-snapshot accesses) reproduces the pre-compaction score exactly; re-compacting a
+    record that already carries a snapshot folds the prior snapshot + new accesses into a fresh one. Pure — it
+    only reads `record` + the passed `access_ts`, never the ledger."""
+    now = int(time.time()) if now is None else now
+    return _effective(record, access_ts, now)
 
 
 def tier(record, access_ts, now: "int | None" = None) -> str:
