@@ -30,11 +30,14 @@ on recall is **slice 5** (the search server); 4c ships the marker kind, the `rec
 operator demo (the `demote` verb) — with no live caller, the engine's own young ledger demotes nothing yet.
 
 The stable, content-free record id (slice 4b) is minted in the record factories (records/capture/consolidate),
-not here; this module hosts its operator demo (the `identity` verb). The gist roll-up, ledger compaction (the
-rebuild-and-swap that folds the reinforcement markers into a carried frecency snapshot), and Layer-2
-audit-gated erasure are later sub-slices (4d/4e) of the memory build plan's step 4. Perf forward-owe: 4c adds a
-third O(ledger) pass to `live_records` (the access index over the reinforcement markers); 4d's compaction —
-folding those markers into a carried snapshot field — is the designed retirement of that cost.
+not here; this module hosts its operator demo (the `identity` verb). Ledger compaction — the rebuild-and-swap
+that folds the reinforcement markers into a carried frecency snapshot — is slice 4d and lives in `compact.py`
+(it needs the atomic file-replace primitive the Layer-1 erasure-free source-scan bans HERE); the gist roll-up and Layer-2
+audit-gated erasure are later sub-slices (4d-ii/4e) of the memory build plan's step 4. `record_access` (the
+reinforcement appender) is held under the shared single-writer lock so a compaction swap can never race it.
+Perf forward-owe: 4c adds a third O(ledger) pass to `live_records` (the access index over the reinforcement
+markers); 4d's compaction — folding those markers into a carried snapshot field — is the designed retirement of
+that cost.
 """
 
 from __future__ import annotations
@@ -123,19 +126,35 @@ def record_access(target_id: str, *, path: "str | None" = None, now: "int | None
     """Append a `reinforcement` (access) marker naming `target_id` — the move slice-5 recall makes on every
     hit, recorded so demotion can score usage by the stable record id (slice 4b). A no-op on a blank/non-str
     target. APPENDS ONLY; it never deletes or rewrites (the Layer-1 erasure-free invariant — a test source-
-    scans this module). Reuses the crash-safe `ledger.append` primitive; the marker is an ordinary record."""
+    scans this module). Reuses the crash-safe `ledger.append` primitive; the marker is an ordinary record.
+
+    Held under the shared single-writer `.capture.lock` (slice 4d): it is the one live writer that would
+    otherwise append lock-free, so a compaction swap (which holds that lock across its whole fold-and-swap) could
+    race it and lose the marker as the ledger is renamed away. On contention the call is a clean no-op — a
+    missed access marker is harmless bookkeeping (slice-5 recall reinforces again on the next hit); it NEVER
+    writes lock-free. The lock lives in the SAME directory the write resolves to (so the lock and the file never
+    diverge under a `path` override)."""
     if not isinstance(target_id, str) or not target_id:
         return
     from memory import capture  # lazy: keep capture off the module-load path (cycle discipline)
-    marker = {
-        "v": capture.RECORD_VERSION,
-        "kind": records.REINFORCEMENT_KIND,
-        records.RECORD_ID_KEY: records.new_record_id(),
-        records.TARGET_KEY: target_id,
-        "ts": int(time.time()) if now is None else now,
-        "tags": [records.REINFORCEMENT_TAG],
-    }
-    ledger.append(marker, path=path)
+    target = path if path is not None else ledger.ledger_path()
+    data_dir = os.path.dirname(target) or "."
+    os.makedirs(data_dir, exist_ok=True)
+    lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
+    if lock_fd is None:
+        return  # a compaction or a live capture holds the single-writer lock — skip this marker, never write lock-free
+    try:
+        marker = {
+            "v": capture.RECORD_VERSION,
+            "kind": records.REINFORCEMENT_KIND,
+            records.RECORD_ID_KEY: records.new_record_id(),
+            records.TARGET_KEY: target_id,
+            "ts": int(time.time()) if now is None else now,
+            "tags": [records.REINFORCEMENT_TAG],
+        }
+        ledger.append(marker, path=path)
+    finally:
+        capture._release_lock(lock_fd)
 
 
 def live_records(path: "str | None" = None, *, now: "int | None" = None):

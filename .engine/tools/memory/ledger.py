@@ -53,6 +53,11 @@ LEDGER_FORMAT_VERSION = 1
 ENV_DIR = "ENGINE_MEMORY_DIR"
 DATA_SUBDIR = os.path.join(".engine", "memory")
 LEDGER_FILENAME = "ledger.ndjson"
+META_FILENAME = "ledger-meta.json"   # the monotonic ledger-generation sidecar (slice 4d); gitignored sibling
+
+# The platform durability barrier. On Darwin a bare os.fsync does NOT guarantee bytes reached the platter;
+# fcntl.F_FULLFSYNC does (the locked crash-safe-swap law names it). Absent elsewhere — then os.fsync is the floor.
+_F_FULLFSYNC = getattr(fcntl, "F_FULLFSYNC", None) if _HAVE_FCNTL else None
 
 
 @dataclass
@@ -205,6 +210,109 @@ def iter_records(*, path: str | None = None):
             except ValueError:
                 continue
             yield record
+
+
+# --- Generation stamp + the crash-safe swap primitive (slice 4d compaction) -------------------
+# The ledger-generation is a monotonic integer bumped once per compaction. It lets a derived index that was
+# built against an OLDER ledger generation be DETECTED as stale (index.py gates its fast path on a match) and
+# fully rebuilt — never incrementally patched — so a compaction-erased record can never resurface from a stale
+# index (the locked law, README). It is carried in a tiny sidecar (NOT in the append-only ledger, so every
+# existing reader is untouched), resolved to the SAME directory as the ledger it describes.
+
+def meta_path(cwd: str | None = None, *, for_path: str | None = None) -> str:
+    """The generation-sidecar path, in the SAME directory as its ledger. When `for_path` is given (an explicit
+    ledger file — what index.rebuild/query pass), the sidecar is its sibling, so a query over a specific store
+    reads THAT store's generation, never the default dir's. Otherwise the resolved `ledger_dir(cwd)`."""
+    if for_path is not None:
+        return os.path.join(os.path.dirname(os.path.abspath(for_path)), META_FILENAME)
+    return os.path.join(ledger_dir(cwd), META_FILENAME)
+
+
+def generation(cwd: str | None = None, *, for_path: str | None = None) -> int:
+    """The ledger's monotonic generation: 0 for a never-compacted ledger, +1 per compaction. A missing /
+    unreadable / non-int / negative sidecar reads as 0 (a fresh store) — fail-safe: an unreadable stamp makes a
+    real index look in-generation rather than wrongly forcing a scan storm; correctness still holds because a
+    genuinely older index carries an older stamp."""
+    path = meta_path(cwd, for_path=for_path)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return 0
+    val = data.get("generation") if isinstance(data, dict) else None
+    if isinstance(val, bool) or not isinstance(val, int) or val < 0:
+        return 0
+    return val
+
+
+def bump_generation(cwd: str | None = None, *, for_path: str | None = None) -> int:
+    """Increment and durably persist the ledger generation (temp + fsync + atomic os.replace). Returns the new
+    value. The CALLER must hold the single-writer lock (compaction does); this is not itself serialized. Bumped
+    BEFORE the ledger swap so every crash window leaves the index's stamp != the sidecar (=> scan the current
+    ledger, always correct), never a stale index trusted against a swapped ledger."""
+    path = meta_path(cwd, for_path=for_path)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    new_val = generation(cwd, for_path=for_path) + 1
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        os.write(fd, json.dumps({"generation": new_val}, separators=(",", ":")).encode("utf-8"))
+        _durable_fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
+    return new_val
+
+
+def _durable_fsync(fd) -> None:
+    """Flush `fd` to stable storage as durably as the platform allows: F_FULLFSYNC on Darwin (a true barrier),
+    else os.fsync. A fsync fault must NEVER crash past the caller's lock-release, so every call is guarded —
+    degrade rather than abort a critical section that still leaves an intact ledger."""
+    if _F_FULLFSYNC is not None:
+        try:
+            fcntl.fcntl(fd, _F_FULLFSYNC)
+            return
+        except OSError:
+            pass
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+
+
+def _fsync_dir(path: str) -> None:
+    """fsync a directory so a rename within it survives a crash (rename atomicity is ordering, not durability).
+    Best-effort: some platforms/filesystems refuse to fsync a directory fd — degrade, never crash."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def replace_ledger(temp: str, *, path: str | None = None) -> None:
+    """Memory's own restore primitive: durably replace the canonical ledger with a COMPLETE `temp` written in
+    the SAME directory — fsync the temp, atomic os.replace over the canonical name, fsync the directory. A
+    cross-filesystem rename is not atomic, so `temp` MUST be a sibling of the ledger. The CALLER holds the
+    single-writer lock across this. (Backup/restore — slice 6 — reuses this exact mechanism; compaction is the
+    same restore primitive applied internally, README.) Recovery binds to the fixed canonical name: a temp left
+    by a crash before this rename is a complete same-schema file but is NEVER the canonical name, so it is
+    ignored-and-reaped, never promoted."""
+    target = path or ledger_path()
+    fd = os.open(temp, os.O_RDONLY)
+    try:
+        _durable_fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(temp, target)
+    _fsync_dir(os.path.dirname(os.path.abspath(target)) or ".")
 
 
 # --- Operator demonstration -------------------------------------------------------------------

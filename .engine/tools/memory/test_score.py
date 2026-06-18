@@ -223,5 +223,102 @@ class LedgerDemotionTests(_Base):
         self.assertEqual(len(self._recall("here")), 1)
 
 
+class SnapshotAwareScoringTests(unittest.TestCase):
+    """The slice-4d snapshot branch: a record carrying a frecency snapshot (minted by compaction) scores the
+    SAME as the un-compacted record (the recurrence), folds post-snapshot accesses onto it, and fails safe on a
+    malformed carried field (back to the deterministic birth path, never inflated to 'now'). Pure — no ledger."""
+
+    def test_a_carried_snapshot_reproduces_the_birth_path_score(self):
+        now = 2_000_000_000
+        rec = {"ts": now - 10 * _DAY, "role": "lesson"}
+        accesses = [now - 6 * _DAY, now - 2 * _DAY]
+        s_birth = score.score(rec, accesses, now=now)
+        snap, last = score.mint_snapshot(rec, accesses, now=now)        # compaction mints at t0 = now
+        compacted = dict(rec, **{records.FRECENCY_SNAPSHOT_KEY: snap, records.SNAPSHOT_TS_KEY: now,
+                                 records.LAST_ACCESS_TS_KEY: last})
+        self.assertAlmostEqual(score.score(compacted, [], now=now), s_birth, places=9)
+        # And the equality holds at a LATER time (the recurrence carries forward), with no post-snapshot accesses.
+        later = now + 5 * _DAY
+        self.assertAlmostEqual(score.score(compacted, [], now=later),
+                               score.score(rec, accesses, now=later), places=9)
+
+    def test_post_snapshot_accesses_fold_onto_the_carried_snapshot(self):
+        now = 2_000_000_000
+        rec = {"ts": now - 20 * _DAY, "role": "decision"}
+        early = [now - 15 * _DAY, now - 12 * _DAY]
+        t0 = now - 8 * _DAY
+        snap, last = score.mint_snapshot(rec, early, now=t0)            # compacted at t0, folding `early`
+        compacted = dict(rec, **{records.FRECENCY_SNAPSHOT_KEY: snap, records.SNAPSHOT_TS_KEY: t0,
+                                 records.LAST_ACCESS_TS_KEY: last})
+        late = [now - 4 * _DAY, now - 1 * _DAY]                         # accesses AFTER the snapshot
+        # The compacted record + post-snapshot accesses scores the same as the un-compacted record + ALL accesses.
+        self.assertAlmostEqual(score.score(compacted, late, now=now),
+                               score.score(rec, early + late, now=now), places=9)
+
+    def test_mint_snapshot_is_idempotent_on_recompaction(self):
+        now = 2_000_000_000
+        rec = {"ts": now - 10 * _DAY, "role": "intent"}
+        accesses = [now - 7 * _DAY, now - 3 * _DAY]
+        snap, last = score.mint_snapshot(rec, accesses, now=now)
+        compacted = dict(rec, **{records.FRECENCY_SNAPSHOT_KEY: snap, records.SNAPSHOT_TS_KEY: now,
+                                 records.LAST_ACCESS_TS_KEY: last})
+        snap2, last2 = score.mint_snapshot(compacted, [], now=now)     # re-compact, no new accesses
+        self.assertAlmostEqual(snap2, snap, places=12)
+        self.assertEqual(last2, last)
+
+    def test_a_malformed_snapshot_falls_back_to_the_birth_path_not_now(self):
+        now = 2_000_000_000
+        rec = {"ts": now - 20 * _DAY, "role": "lesson"}                # aged -> archived on the birth path
+        s_birth = score.score(rec, [], now=now)
+        for bad_snap, bad_ts in (("garbage", now - 10 * _DAY), (1.5, None), (float("inf"), now - 10 * _DAY),
+                                 (float("nan"), now - 10 * _DAY), (-1.0, now - 10 * _DAY), (True, now - 10 * _DAY)):
+            rec_bad = dict(rec, **{records.FRECENCY_SNAPSHOT_KEY: bad_snap, records.SNAPSHOT_TS_KEY: bad_ts})
+            self.assertAlmostEqual(score.score(rec_bad, [], now=now), s_birth, places=9,
+                                   msg=f"malformed ({bad_snap!r}, {bad_ts!r}) should fall back to birth, not now")
+        # A genuinely fresh record (born now) is NOT what a malformed snapshot collapses to — the failure is
+        # toward the record's real age, never toward 'just compacted'.
+        self.assertNotAlmostEqual(s_birth, score.score({"ts": now, "role": "lesson"}, [], now=now), places=3)
+
+    def test_a_malformed_last_access_ts_floors_to_the_snapshot_ts_not_now(self):
+        now = 2_000_000_000
+        snap_ts = now - 10 * _DAY
+        good = {"ts": now - 20 * _DAY, "role": "decision",
+                records.FRECENCY_SNAPSHOT_KEY: 1.5, records.SNAPSHOT_TS_KEY: snap_ts,
+                records.LAST_ACCESS_TS_KEY: snap_ts}
+        bad = dict(good, **{records.LAST_ACCESS_TS_KEY: "garbage"})
+        self.assertAlmostEqual(score.score(bad, [], now=now), score.score(good, [], now=now), places=9)
+
+    def test_valid_snapshot_rejects_nan_inf_negative_and_bool(self):
+        self.assertFalse(score._valid_snapshot(float("nan"), 1))
+        self.assertFalse(score._valid_snapshot(float("inf"), 1))
+        self.assertFalse(score._valid_snapshot(-0.1, 1))
+        self.assertFalse(score._valid_snapshot(True, 1))
+        self.assertFalse(score._valid_snapshot(1.0, True))
+        self.assertFalse(score._valid_snapshot("1.0", 1))
+        self.assertFalse(score._valid_snapshot(1.0, None))
+        self.assertFalse(score._valid_snapshot(1.0, float("nan")))   # a non-finite snapshot_ts is rejected...
+        self.assertFalse(score._valid_snapshot(1.0, float("inf")))   # ...so _effective never does int(nan/inf)
+        self.assertTrue(score._valid_snapshot(0.0, 1))
+        self.assertTrue(score._valid_snapshot(2.5, 1_000))
+
+    def test_non_finite_carried_timestamps_never_crash_recall(self):
+        # The line-resilience law for the new 4d fields: a corrupt (NaN/inf) carried timestamp on ONE record —
+        # only reachable via an out-of-band corrupted ledger line — must score (fall back to the birth path),
+        # never raise `int(NaN)`/`int(inf)` and take down recall over the whole store. Also covers a non-finite
+        # birth `ts` (a latent gap pre-4d) and a non-finite access timestamp.
+        now = 2_000_000_000
+        cases = [
+            {"ts": now - 5 * _DAY, "role": "lesson", records.FRECENCY_SNAPSHOT_KEY: 2.0,
+             records.SNAPSHOT_TS_KEY: float("nan"), records.LAST_ACCESS_TS_KEY: now - 5 * _DAY},
+            {"ts": now - 5 * _DAY, "role": "lesson", records.FRECENCY_SNAPSHOT_KEY: 2.0,
+             records.SNAPSHOT_TS_KEY: now - 3 * _DAY, records.LAST_ACCESS_TS_KEY: float("inf")},
+            {"ts": float("nan"), "role": "decision"},                # non-finite birth ts
+        ]
+        for rec in cases:
+            s = score.score(rec, [float("inf"), float("nan")], now=now)   # non-finite accesses too
+            self.assertTrue(isinstance(s, float) and s == s and s != float("inf"), rec)   # finite, no crash
+            self.assertIn(score.tier(rec, [], now=now), score.TIERS)
+
+
 if __name__ == "__main__":
     unittest.main()

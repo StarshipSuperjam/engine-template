@@ -60,11 +60,14 @@ _FTS_PROBE_TABLE = "engine_fts5_probe"
 # purpose is to NAME a record, never to be searched), so it joins for the same reason. The reinforcement
 # marker's `target` (slice 4c) is a uuid hex too — it points at the reinforced record's `id` — so it joins as
 # well (the marker is dropped from recall by `forget.live_records` before indexing, but this keeps it out of
-# the body even if it were reached).
+# the body even if it were reached). The carried `tier` (slice 4d compaction) is a STRING
+# ("hot"/"cold"/"archived"), so it MUST join too, else those words would match every compacted record; its
+# sibling carried fields (frecency_snapshot/snapshot_ts/last_access_ts) are numeric and stay out of the body by
+# type already (the projection indexes only string leaves).
 _TAGS_KEY = "tags"
 _NON_BODY_KEYS = frozenset(
     {"tags", "session_id", "kind", "speaker", "role",
-     records.BATCH_KEY, records.RECORD_ID_KEY, records.TARGET_KEY}
+     records.BATCH_KEY, records.RECORD_ID_KEY, records.TARGET_KEY, records.TIER_KEY}
 )
 
 
@@ -190,6 +193,25 @@ def _build_schema(conn: sqlite3.Connection) -> None:
     # against and the two paths agree across scripts. No porter stemming: it is a slice-5 ranking concern.
     conn.execute("CREATE TABLE entries (ord INTEGER PRIMARY KEY, record_json TEXT NOT NULL)")
     conn.execute("CREATE VIRTUAL TABLE entries_fts USING fts5(body, tokenize='unicode61 remove_diacritics 0')")
+    # `meta` carries the ledger GENERATION this index was built against (slice 4d). `query` trusts the fast
+    # lookup only when this matches the ledger's current generation — so a compaction that swapped the ledger
+    # out from under a stale index is detected and the query falls back to the always-correct scan, never a
+    # stale fast answer (the "full index rebuild gated on a monotonic ledger-generation stamp" law, README).
+    conn.execute("CREATE TABLE meta (rowid INTEGER PRIMARY KEY, generation INTEGER NOT NULL)")
+
+
+def _index_generation(conn: sqlite3.Connection) -> int:
+    """The ledger generation the fast index was built against (its `meta` row), or -1 if absent/unreadable — a
+    value that never equals a real ledger generation (>= 0), so an unstamped/old index is treated as stale and
+    the query falls back to the slow scan."""
+    try:
+        row = conn.execute("SELECT generation FROM meta WHERE rowid = 1").fetchone()
+    except sqlite3.Error:
+        return -1
+    if not row:
+        return -1
+    val = row[0]
+    return val if isinstance(val, int) and not isinstance(val, bool) and val >= 0 else -1
 
 
 def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None) -> RebuildReport:
@@ -200,7 +222,8 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
     reader never sees a half-built one. Streams the ledger via `forget.live_records` (logically-retired
     duplicates excluded from recall; malformed/torn lines dropped), so one bad line never costs the rest and a
     crash-duplicated summary is indexed once. If this machine has no FTS5, there is no fast lookup to build and
-    this returns a no-op report (recall uses the slow scan).
+    this returns a no-op report (recall uses the slow scan). Stamps the ledger generation it built against
+    (slice 4d) so `query` can detect a compaction-staled index and fall back to the scan.
     """
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
@@ -233,6 +256,12 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
                 if tokens:
                     report.with_text += 1
                 ordinal += 1
+            # Stamp the ledger generation this index was built against (slice 4d) — `query`'s fast path is
+            # trusted only while it matches `ledger.generation`. Resolved from the SAME ledger file being read
+            # (its sidecar sibling), never the default dir, so an explicit `ledger_file=` build stamps its own
+            # store's generation.
+            conn.execute("INSERT INTO meta (rowid, generation) VALUES (1, ?)",
+                         (ledger.generation(for_path=src),))
             conn.commit()
         finally:
             conn.close()
@@ -298,11 +327,17 @@ def query(
         try:
             conn = sqlite3.connect(dst)
             try:
-                rows = conn.execute(sql, params).fetchall()
-                records = [json.loads(row[0]) for row in rows]
+                # Trust the fast lookup only while its stamped generation matches the ledger's current one
+                # (slice 4d). A mismatch means a compaction swapped the ledger out from under this index — treat
+                # it like a missing index and fall through to the always-correct scan over the CURRENT ledger,
+                # never a stale fast answer. The stamp is read from the same `conn`; the ledger generation from
+                # the queried ledger file's own sidecar.
+                if _index_generation(conn) == ledger.generation(for_path=src):
+                    rows = conn.execute(sql, params).fetchall()
+                    records = [json.loads(row[0]) for row in rows]
+                    return QueryResult(records=records, degraded=False)
             finally:
                 conn.close()
-            return QueryResult(records=records, degraded=False)
         except sqlite3.Error:
             # The fast lookup file is present but unreadable/corrupt (a truncated copy, a disk error, a stale
             # pre-atomic file). Availability law: fall through to the slow backup rather than take recall down.

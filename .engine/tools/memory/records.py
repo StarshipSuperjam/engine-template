@@ -1,11 +1,12 @@
-"""records.py — the shared record vocabulary for the memory ledger (memory-substrate-sqlite-fts5, slice 4c).
+"""records.py — the shared record vocabulary for the memory ledger (memory-substrate-sqlite-fts5, slice 4d).
 
 The `kind` strings and provenance keys that more than one memory tool must agree on, in ONE place so they
 never drift and no import cycle can form. `consolidate` writes the episodic + marker records; `index` keeps
 provenance keys out of the search body; `forget` derives logical retirement from the marker↔batch linkage and
-(slice 4c) appends the `reinforcement` access marker + scores demotion from it. Because all three need these
+(slice 4c) appends the `reinforcement` access marker + scores demotion from it; `compact` (slice 4d) folds those
+markers into the carried current-state fields below and `score` reads them back. Because all of them need these
 names and `consolidate` already imports `index`, defining them here — a leaf that imports nothing from the
-`memory` package — lets `index`, `forget`, and `score` import them without
+`memory` package — lets `index`, `forget`, `score`, and `compact` import them without
 `consolidate`→`index`→`forget`→`consolidate` becoming a cycle.
 
 stdlib-only; imports nothing from `memory`.
@@ -47,6 +48,20 @@ RECORD_ID_KEY = "id"
 REINFORCEMENT_KIND = "reinforcement"   # the `kind` field of an access marker
 TARGET_KEY = "target"                  # the reinforced record's RECORD_ID_KEY value (whom the access points at)
 REINFORCEMENT_TAG = "reinforcement"    # the marker's tag (kept out of the search body like every tag)
+
+# The carried current-state fields ledger compaction (slice 4d) folds onto a recall record before it prunes that
+# record's reinforcement markers. They make a compacted record's demotion score durable WITHOUT keeping the
+# folded-away markers: `score` reproduces the pre-compaction score from `FRECENCY_SNAPSHOT_KEY` (the frecency
+# value at compaction time) decayed forward from `SNAPSHOT_TS_KEY`, with `LAST_ACCESS_TS_KEY` flooring recency.
+# This is legal precisely because frecency is a RECURRENCE on the carried snapshot (score.frecency). `TIER_KEY`
+# carries the snapshot-time tier as a legibility field ONLY — the authoritative tier is still RECOMPUTED on read
+# from the snapshot (it ages as time passes), so a future reader must never trust the carried `tier` as current.
+# `index` keeps `TIER_KEY` (a string: "hot"/"cold"/"archived") OUT of the search body (index._NON_BODY_KEYS); the
+# numeric snapshot fields are excluded from the body by type already.
+FRECENCY_SNAPSHOT_KEY = "frecency_snapshot"   # float: score.frecency value at compaction time t0
+SNAPSHOT_TS_KEY = "snapshot_ts"               # int: t0, the compaction time the snapshot was stamped at
+LAST_ACCESS_TS_KEY = "last_access_ts"         # int: max(birth, *accesses) at t0, the recency floor
+TIER_KEY = "tier"                             # str: the snapshot-time tier (legibility; recomputed on read)
 
 
 def new_record_id() -> str:
