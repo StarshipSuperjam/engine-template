@@ -1,9 +1,7 @@
 <!-- engine-template:landing-front -->
 
 <div align="center">
-  <img src="assets/engine_banner.jpg" width="700" alt="The Engine" />
-
-  <h1>The Engine</h1>
+  <img src="assets/engine_banner.jpg" width="700" alt="Engine" />
 
   <p><strong>Scaffolding that lets you direct AI on real engineering work — and stay the person who decides — without reading a line of code.</strong></p>
 </div>
