@@ -5,39 +5,45 @@
 
   <h1>The Engine</h1>
 
-  <p><strong>Direct cold-booting AI sessions on any project — and trust the work — without reading code.</strong></p>
+  <p><strong>Scaffolding that lets you direct AI on real engineering work — and stay the person who decides — without reading a line of code.</strong></p>
 </div>
 
-## Use this template
+The Engine is not a faster, more capable autonomous agent. It's the opposite bet: a way to keep a human who *can't* read code firmly in charge of AI that can. Its job is to make what the AI does **legible** and **consentable** to that person — so you can direct serious work on a real project, and approve it, on evidence you can actually judge.
 
-1. Click the green **Use this template** button above to create your own repository.
-2. Open the new repository in [Claude Code](https://claude.com/claude-code).
+## This is for the person who can't verify the work — and has to govern it anyway
+
+You direct the work, and you approve every change, from the very first commit. You are not expected to read code, debug a failure, or take the AI's word that it did the right thing. Most AI tooling quietly assumes a power user who can check the output. The Engine assumes you can't — and is built, end to end, so that you don't have to.
+
+## You approve the work without reading the code
+
+Every change the AI proposes arrives as a pull request, and nothing reaches your main branch until you say so. But your approval never rests on reading or trusting the code. It rests on evidence you *can* weigh:
+
+- a demonstration you run yourself, and vary, to see the behavior with your own eyes;
+- independent checks that have to pass before a change is even offered to you;
+- a plain-language account of what changed, why, and what it could put at risk — including an honest statement of how sure anyone can be.
+
+That bundle — not a code review — is the gate. It is the whole point of the Engine.
+
+## What you get to stand on
+
+Every AI session starts cold: it remembers nothing. Left there, you'd re-explain your project every time and hope for the best. Instead, the Engine gives the work a durable footing — committed to the repository itself, and open to you:
+
+- where things stand right now, and what's still unfinished;
+- the decisions made so far and *why* — written down where you can read them, not buried in a chat log only the AI ever saw;
+- a current map of how the project fits together;
+- a sense of what matters next, so a fresh session picks up instead of starting over.
+
+This isn't a catalog of the AI's abilities — it's the ground *you* direct from: committed, inspectable, and yours. The AI builds faithfully not because it's clever, but because the ground under it is solid and in plain sight.
+
+## Constrained autonomy is the feature
+
+Slow, gated, and verifiable beats fast and opaque. The Engine deliberately trades raw autonomy for trust: work is proposed before it lands, lands only behind your approval, and can always be undone; what governs the work is written down and citable; and if a supporting service goes down, it falls back to plain files in git rather than stranding you. You give up the thrill of an agent that simply runs — and you get work you can actually stand behind.
+
+## Get started
+
+1. Click **Use this template** above to create your own repository.
+2. Open it in [Claude Code](https://claude.com/claude-code).
 3. A guided first-run setup walks you through your choices and stands up the Engine for your project.
-
-## Why the Engine
-
-Every AI coding session starts cold. It remembers nothing about your project — not the decisions you've already made, not why you made them, not what to work on next. So you re-explain the same context every time, and you're left trusting work you can't easily check.
-
-The Engine fixes that. It gives a project a durable, external "mind," committed to the repository itself, so each new AI session can orient from the files alone and pick up exactly where the last one left off — and so a non-engineer can direct the work and trust the result.
-
-## What you get
-
-- **Memory** — decisions, course-corrections, and hard-won lessons persist across sessions, so you never re-explain your project from scratch.
-- **State** — a committed record of where things stand, read first by every session.
-- **Knowledge** — an always-current map of what your project contains and how the pieces relate.
-- **Attention** — a way to decide what matters now and what to do next, instead of starting from a blank page.
-- **Guardrails & a review gate** — every change arrives as a reviewable pull request, and nothing reaches your main branch without your approval.
-
-## How it works
-
-The Engine lives in your repository, alongside your project. When an AI session begins, it reads the Engine's committed files to understand the project's history, current state, and priorities — then proposes work as pull requests you approve. Because everything is committed to git, the Engine survives across sessions, machines, and people, and you can always see what governs the work and why.
-
-## Trust by design
-
-- **Reversible** — work is proposed before it lands and lands behind review, so it can always be undone.
-- **Auditable** — what governs the work, and why, is written down in the repository, not buried in a chat log.
-- **Resilient** — if a supporting service is unavailable, the Engine falls back to plain files in git rather than leaving you stuck.
-- **Low ceremony** — the safeguards concentrate where they matter most — changes to your main branch — so routine work stays light.
 
 ## Status
 
