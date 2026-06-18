@@ -635,6 +635,148 @@ class TestApplyChainRunsOnSystemPython39(unittest.TestCase):
         self.assertEqual(missing, [], f"system-python-launched tools must defer annotations: {missing}")
 
 
+# ==== the front-door root-README seed/replace (issue #133, D-213/D-214) ==============================
+
+def _seed_readme_root(tmp, *, readme=None, seed=None):
+    """Plant a fixture root for a _seed_readme test: optionally a root README (its exact text) and the
+    .engine/provisioning/readme-seed.md starter (its exact text). Either may be omitted to model the
+    absent-file cases. The caller holds the surrounding inst._redirect_root(tmp)."""
+    if readme is not None:
+        with open(os.path.join(tmp, "README.md"), "w", encoding="utf-8") as fh:
+            fh.write(readme)
+    if seed is not None:
+        os.makedirs(os.path.join(tmp, ".engine", "provisioning"), exist_ok=True)
+        with open(os.path.join(tmp, ".engine", "provisioning", "readme-seed.md"), "w", encoding="utf-8") as fh:
+            fh.write(seed)
+
+
+_MARKED_FRONT = inst._MARKETING_SEED_MARKER + "\n\n# engine-template\n"   # the traveled marketing landing front
+
+
+class TestReadmeRecognizer(unittest.TestCase):
+    def test_marker_constant_is_the_exact_committed_token(self):
+        # A typo here would silently break the replace on every generated repo — pin the exact string.
+        self.assertEqual(inst._MARKETING_SEED_MARKER, "<!-- engine-template:landing-front -->")
+
+    def test_recognizer_matches_only_the_marker_preserving_on_any_doubt(self):
+        self.assertTrue(inst._is_marketing_seed(_MARKED_FRONT))
+        self.assertTrue(inst._is_marketing_seed("\n\n" + _MARKED_FRONT))               # leading whitespace tolerated
+        self.assertFalse(inst._is_marketing_seed("# My Project\n\nMy own words.\n"))   # operator content
+        self.assertFalse(inst._is_marketing_seed(""))                                  # empty
+        self.assertFalse(inst._is_marketing_seed(None))                                # absent/unreadable -> ""/None
+
+    def test_a_readme_that_only_mentions_the_marker_mid_document_is_not_a_match(self):
+        # The marker must LEAD the file (the slot IS the engine's seed), not merely appear inside it — so an
+        # operator README that happens to quote the marker in its own content is preserved, never clobbered.
+        mentions = ("# My Project\n\nWe started from a template; it had a "
+                    + inst._MARKETING_SEED_MARKER + " comment we kept as a note.\n")
+        self.assertFalse(inst._is_marketing_seed(mentions))
+
+    def test_starter_and_default_carry_no_marker(self):
+        # The safety-critical idempotency invariant: the starter the engine WRITES carries no marker, so a
+        # re-run never re-replaces it (the engine never re-touches the root README after instantiation).
+        self.assertNotIn(inst._MARKETING_SEED_MARKER, inst._DEFAULT_README_MD)
+        with open(os.path.join(validate.ENGINE_DIR, "provisioning", "readme-seed.md"), encoding="utf-8") as fh:
+            shipped = fh.read()
+        self.assertNotIn(inst._MARKETING_SEED_MARKER, shipped)
+
+    def test_starter_discloses_the_required_spine_in_plain_words(self):
+        # D-067 / D-095: the starter names the always-on spine in operator language and the no-style-floor gap,
+        # never "the memory package is required" and never maintainer jargon.
+        with open(os.path.join(validate.ENGINE_DIR, "provisioning", "readme-seed.md"), encoding="utf-8") as fh:
+            shipped = fh.read()
+        for text in (shipped, inst._DEFAULT_README_MD):
+            low = text.lower()
+            self.assertIn("remembers across sessions", low)   # memory, built in
+            self.assertIn("keeps your work safe", low)
+            self.assertIn("clean-code", low)                  # the D-095 gap named
+            self.assertNotIn("required", low, "never 'the memory package is required'")
+            for jargon in _FORBIDDEN:
+                self.assertNotIn(jargon, low, f"starter must not leak maintainer jargon: {jargon!r}")
+
+
+class TestSeedReadme(unittest.TestCase):
+    def test_greenfield_replaces_the_marketing_front_and_discloses(self):
+        said = []
+        starter = "# Your project\n\nA starter for you.\n"
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_readme_root(d, readme=_MARKED_FRONT, seed=starter)
+                outcome = inst._seed_readme(said.append, inst.load_copy())
+                now = inst._read_text_or(os.path.join(d, "README.md"), "")
+        self.assertEqual(outcome, "replaced")
+        self.assertEqual(now, starter, "the marketing front is replaced with the product starter")
+        self.assertNotIn(inst._MARKETING_SEED_MARKER, now, "the seeded starter carries no marker")
+        blob = "\n".join(said).lower()
+        self.assertTrue(said, "the replace is disclosed, never silent")
+        self.assertIn("your project", blob)
+        self.assertIn("replaced", blob, "names what changed (D-214: what changed and why it is theirs)")
+
+    def test_brownfield_operator_readme_is_preserved_untouched(self):
+        said = []
+        mine = "# My Project\n\nMy own words — nothing to do with the Engine.\n"
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_readme_root(d, readme=mine, seed="# Your project\n")
+                outcome = inst._seed_readme(said.append, inst.load_copy())
+                now = inst._read_text_or(os.path.join(d, "README.md"), "")
+        self.assertEqual(outcome, "present")
+        self.assertEqual(now, mine, "an operator README (no marker) is left exactly as it is")
+        self.assertEqual(said, [], "no disclosure on a no-op")
+
+    def test_operator_readme_that_quotes_the_marker_is_preserved(self):
+        # End-to-end guard for the recognizer-leads-the-file rule: an operator README that merely mentions the
+        # marker (not at the start) must be left exactly as it is — _seed_readme never clobbers it.
+        said = []
+        mine = ("# My Project\n\nNote: this repo began from a template carrying a "
+                + inst._MARKETING_SEED_MARKER + " marker, which I left in.\n")
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_readme_root(d, readme=mine, seed="# Your project\n")
+                outcome = inst._seed_readme(said.append, inst.load_copy())
+                now = inst._read_text_or(os.path.join(d, "README.md"), "")
+        self.assertEqual(outcome, "present")
+        self.assertEqual(now, mine, "a README that only quotes the marker mid-document is never replaced")
+        self.assertEqual(said, [])
+
+    def test_rerun_after_a_replace_is_a_noop(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_readme_root(d, readme=_MARKED_FRONT, seed="# Your project\n")
+                inst._seed_readme(lambda t: None, inst.load_copy())     # first pass replaces
+                first = inst._read_text_or(os.path.join(d, "README.md"), "")
+                outcome = inst._seed_readme(said.append, inst.load_copy())   # second pass
+                second = inst._read_text_or(os.path.join(d, "README.md"), "")
+        self.assertEqual(outcome, "present", "the seeded starter has no marker → second pass is a no-op")
+        self.assertEqual(first, second, "a re-run never re-touches the root README")
+        self.assertEqual(said, [])
+
+    def test_absent_seed_falls_back_to_the_built_in_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_readme_root(d, readme=_MARKED_FRONT)              # marker present, NO seed file
+                outcome = inst._seed_readme(lambda t: None, inst.load_copy())
+                now = inst._read_text_or(os.path.join(d, "README.md"), "")
+        self.assertEqual(outcome, "replaced")
+        self.assertEqual(now, inst._DEFAULT_README_MD, "an absent seed yields the minimal default, never an error")
+
+    def test_absent_readme_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_readme_root(d, seed="# Your project\n")          # no root README at all
+                outcome = inst._seed_readme(lambda t: None, inst.load_copy())
+                exists = os.path.exists(os.path.join(d, "README.md"))
+        self.assertEqual(outcome, "present", "no README to recognize → preserve-on-doubt, write nothing")
+        self.assertFalse(exists, "the engine never creates a root README out of nothing")
+
+
 class TestApplyDemoRunsGreen(unittest.TestCase):
     def test_apply_demo_exits_zero(self):
         import contextlib, io
@@ -645,6 +787,7 @@ class TestApplyDemoRunsGreen(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("byte-for-byte unchanged", out, "the isolation guarantee is shown")
         self.assertIn("naming it, not hiding it", out, "the honest-ceiling banner leads the demo")
+        self.assertIn("front page", out, "the README seed/replace scenario runs in the demo")
 
 
 class TestApplyCli(unittest.TestCase):
