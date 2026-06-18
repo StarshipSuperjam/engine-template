@@ -1,0 +1,11 @@
+{
+  "id": "routine-mode",
+  "version": "0.0.0-dev",
+  "status": "required",
+  "provides": {
+    "operation": [".engine/operations/routine-entry.md"],
+    "skill": [".claude/skills/engine-routine/SKILL.md"]
+  },
+  "wires": [],
+  "depends": { "core": "" }
+}
