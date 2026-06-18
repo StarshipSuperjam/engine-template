@@ -47,16 +47,16 @@ Slow, gated, and verifiable beats fast and opaque. The Engine deliberately trade
 
 ## What's inside
 
-Concretely, the Engine gives your project:
+The Engine externalizes the cognition and controls it runs on — each one a committed, inspectable subsystem rather than a black box:
 
-- **Memory that persists across sessions** — decisions, course-corrections, and lessons are written into the repository and searchable, so the project's context survives even when a session's does not.
-- **A committed state cursor** — a short, always-current note of where things stand and what's unfinished, read first by every session.
-- **A knowledge map** — an automatically derived picture of what the project contains and how the pieces relate, kept in step with the files.
-- **Attention** — guidance on what to focus on next, so a session starts oriented instead of from a blank page.
-- **Guardrails and a review gate** — automatic checks plus a protected main branch, so every change lands as a pull request you approve.
-- **Explore and Build modes** — the AI investigates and plans in Explore, and only changes files once you start a build, so nothing moves without your say-so.
-- **Guided first-run setup** — "Use this template" runs a setup that installs the pieces you choose and stands the Engine up on your project.
-- **Built for Claude Code** — it wires into Claude Code's hooks and tools, and falls back to plain files in git if a supporting service is unavailable.
+- **Memory** — a git-committed, append-only memory ledger with a full-text search index: it captures decisions, pushback, and lessons per session and recalls them by relevance, with AI-judged consolidation and frecency-scored retention, so signal compounds and noise decays across sessions.
+- **State** — an externalized, committed state cursor: the standing-situation pointers and open-debt count a cold session reads first to orient deterministically, before it touches anything.
+- **Knowledge** — a knowledge graph derived from the repository's own surfaces and regenerated on change — entities, relationships, and neighbors, queryable over MCP — so a session maps how the project actually fits together from source, not from guesswork.
+- **Attention** — a committed prioritization policy plus a deterministic ranking function that budgets what surfaces at boot and orders the work queue: explicit and inspectable, not an opaque heuristic.
+- **Guardrails & the review gate** — a deterministic validation suite (presence, coverage, shape, and coherence checks) gating every pull request, a protected `main`, and a guardrail-weakening classifier that forces an explicit, logged acknowledgment for any change that relaxes a check.
+- **Explore / Build modes** — an enforced write-gate: read-only investigation and planning by default, file edits only after a deliberate build transition, every change landing as a reviewable pull request — autonomy bounded by construction, not by good behavior.
+- **One-shot provisioning** — an instantiator that runs gather → confirm → apply → verify → retire on first use: it installs only the modules you select, wires them in, verifies coherence, and self-deletes the setup scaffolding.
+- **Claude Code-native** — wired into Claude Code through its hooks and an MCP control plane, and built to degrade to plain git-tracked files when an out-of-repo substrate is unavailable, so a broken service never strands the work.
 
 ## Status
 
