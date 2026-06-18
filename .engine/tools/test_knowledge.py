@@ -31,7 +31,7 @@ import hooks             # noqa: E402  (slice 23: the run_hook harness the commi
 
 KNOWLEDGE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "knowledge.v1.json"))
 RULE_PATH = os.path.join(validate.CHECK_DIR, "knowledge-coverage.json")
-ID_RE = r"^(contract|policy|conduct|schema|check|tool|operation|skill|agent|interface|doc|state|module):[A-Za-z0-9._-]+$"
+ID_RE = r"^(contract|policy|conduct|schema|check|tool|operation|skill|agent|interface|doc|module):[A-Za-z0-9._-]+$"
 
 
 def _errors(schema, instance):
@@ -47,6 +47,15 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(knowledge_gen._slug(".engine/check/state-cursor.json"), "state-cursor")
         self.assertEqual(knowledge_gen._slug(".engine/schemas/check.v1.json"), "check.v1")
         self.assertEqual(knowledge_gen._slug(".engine/tools/validate.py"), "validate")
+
+    def test_instance_slug_uses_the_skill_directory_not_the_filename(self):
+        # a skill IS its directory (the file is always SKILL.md, so the stem would collide every skill
+        # onto 'SKILL'); every other surface keeps the filename stem.
+        self.assertEqual(knowledge_gen._instance_slug("skill", ".claude/skills/engine-help/SKILL.md"),
+                         "engine-help")
+        self.assertEqual(knowledge_gen._instance_slug("agent", ".claude/agents/reviewer.md"), "reviewer")
+        self.assertEqual(knowledge_gen._instance_slug("check", ".engine/check/state-cursor.json"),
+                         "state-cursor")
 
     def test_surface_for_longest_prefix(self):
         surfaces = {"check": {"location": ".engine/check/"}, "schema": {"location": ".engine/schemas/"}}
@@ -95,6 +104,18 @@ class TestLiveDerivation(unittest.TestCase):
                     if knowledge_gen._surface_for(rel, surfaces) and claims.get(rel)}
         got = {e["source"]["path"] for e in self.entities if e["type"] != "module"}
         self.assertEqual(got, expected)
+
+    def test_surface_instance_inventory_spans_claude_and_excludes_placeholders(self):
+        # issue #131: the graph's inventory is the catalog-location walk — owned files under a catalogued
+        # surface across .engine/ AND .claude/, with .gitkeep placeholders dropped.
+        catalog, _m, inventory, claims = knowledge_gen.load_sources()
+        surfaces = catalog.get("surfaces", {})
+        self.assertFalse(any(p.endswith("/.gitkeep") for p in inventory), "no placeholder in the inventory")
+        self.assertTrue(any(p.startswith(".claude/skills/") for p in inventory),
+                        "engine skills under .claude/ must be in the inventory")
+        for p in inventory:                                   # every entry is owned and under a surface
+            self.assertTrue(claims.get(p), p)
+            self.assertIsNotNone(knowledge_gen._surface_for(p, surfaces), p)
 
     def test_source_fingerprints_are_sha256(self):
         import re
@@ -326,16 +347,32 @@ class TestLiveDerivationAttributes(unittest.TestCase):
             if "tier" in e:
                 self.assertEqual(e["type"], "check", e["id"])
             if "title" in e:
-                self.assertIn(e["type"], ("policy", "interface"), e["id"])  # skills/agents not entitized here
+                self.assertIn(e["type"], ("policy", "interface", "skill"), e["id"])  # skill.name is a title
 
-    def test_supersedes_is_dormant_and_gitkeep_trap_holds(self):
+    def test_supersedes_is_dormant(self):
         self.assertFalse(any("supersedes" in e["predicates"] for e in self.by_id.values()),
                          "supersedes is provably dormant in v1 (every contract entity is owned == canon)")
-        self.assertEqual([e["id"] for e in self.by_id.values() if e["type"] in ("skill", "agent")], [])
-        gk = self.by_id["contract:.gitkeep"]
-        self.assertEqual(gk.get("status"), "active")
-        self.assertNotIn("title", gk)
-        self.assertNotIn("supersedes", gk["predicates"])
+
+    def test_no_placeholder_is_entitized(self):
+        # issue #131: a .gitkeep is a directory placeholder, not a ratified instance — it must never appear
+        # as an entity (the old graph wrongly carried contract:.gitkeep as the lone 'contract').
+        leaked = [e["id"] for e in self.by_id.values() if e["source"]["path"].endswith("/.gitkeep")
+                  or e["source"]["path"] == ".gitkeep"]
+        self.assertEqual(leaked, [], f"placeholder entities leaked into the graph: {leaked}")
+        self.assertNotIn("contract:.gitkeep", self.by_id)
+
+    def test_engine_owned_skills_are_entitized_with_distinct_ids(self):
+        # issue #131: the engine's own skills live under .claude/skills/ — a catalogued surface — and must
+        # appear in the graph, one entity per skill directory (not collapsed onto a single skill:SKILL).
+        # Derive the expected set from ownership so this does not rot when the next engine skill lands.
+        _catalog, manifests, _inv, claims = knowledge_gen.load_sources()
+        expected = {f"skill:{os.path.basename(os.path.dirname(rel))}"
+                    for rel in claims
+                    if rel.startswith(".claude/skills/") and rel.endswith("/SKILL.md")}
+        got = {e["id"] for e in self.by_id.values() if e["type"] == "skill"}
+        self.assertEqual(got, expected)
+        self.assertGreaterEqual(len(got), 6, "the engine ships several engine-* skills")
+        self.assertIn("skill:engine-help", got)
 
 
 class TestCommittedGraph(unittest.TestCase):

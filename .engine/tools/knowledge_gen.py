@@ -106,6 +106,17 @@ def _slug(rel_path: str) -> str:
     return os.path.splitext(os.path.basename(rel_path))[0]
 
 
+def _instance_slug(surface_type: str, rel_path: str) -> str:
+    """The id suffix for a surface INSTANCE. A skill IS its directory under .claude/skills/ — the file is
+    always SKILL.md, so the file stem would collide every skill onto 'SKILL'; its slug is that parent
+    directory's name (e.g. `.claude/skills/engine-help/SKILL.md` -> `engine-help`). Every other surface has a
+    distinct filename, so its slug is the file stem (`_slug`); an agent is `.claude/agents/<name>.md`, whose
+    stem is already its name."""
+    if surface_type == "skill":
+        return os.path.basename(os.path.dirname(rel_path))
+    return _slug(rel_path)
+
+
 def _surface_for(rel_path: str, surfaces: dict):
     """The catalogued surface NAME whose `location` is the longest directory-prefix of rel_path,
     or None when the file lives under no catalogued surface (foundation/infra/module-manifest, or
@@ -116,6 +127,28 @@ def _surface_for(rel_path: str, surfaces: dict):
         if location and rel_path.startswith(location) and len(location) > best_len:
             best_name, best_len = name, len(location)
     return best_name
+
+
+def surface_instance_inventory(catalog: dict, claims: dict) -> list:
+    """The surface-instance file relpaths the graph entitizes: every ENGINE-OWNED file (a key of `claims` —
+    i.e. claimed by some module's `provides`) that lives under a catalogued surface `location`, across BOTH
+    .engine/ and .claude/ (skills and agents are catalogued surfaces located under .claude/), with `.gitkeep`
+    directory-placeholders excluded (a placeholder is not a ratified instance). Sorted for byte-determinism.
+
+    This is the catalog-location-driven walk the graph needs. It deliberately does NOT reuse
+    module_coherence.engine_file_inventory(), which is hard-scoped to .engine/ ('the product never owns a file
+    under .engine/') for the ownership/orphan checks that depend on that scope — widening it would break that
+    invariant and never reach the .claude/ surfaces. Engine/product wall: only files a module's `provides`
+    claims appear in `claims`, so an operator's own un-prefixed product skill is never entitized."""
+    surfaces = (catalog or {}).get("surfaces", {})
+    out = []
+    for rel in claims:
+        if os.path.basename(rel) == ".gitkeep":
+            continue                                   # a directory-placeholder is not a real instance
+        if _surface_for(rel, surfaces) is None:
+            continue                                   # not under any catalogued surface location
+        out.append(rel)
+    return sorted(out)
 
 
 # ---- pure attribute harvesters (operate on already-parsed dicts; NO file IO; fixture-testable) ----
@@ -279,14 +312,15 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
         owners = claims.get(rel) or []
         if not owners:
             continue                                   # an unowned file is a coherence anomaly, caught elsewhere
-        eid = f"{surface}:{_slug(rel)}"
+        slug = _instance_slug(surface, rel)
+        eid = f"{surface}:{slug}"
         rec = surfaces[surface] or {}
         preds = {"provided_by": [f"module:{owners[0]}"]}
         governing = rec.get("governing_schema")
         if governing and not governing.startswith("http"):   # an in-repo schema file, not the dialect URI
             preds["governed_by"] = [f"schema:{_slug(governing)}"]
         ent = {
-            "id": eid, "type": surface, "name": rel, "slug": _slug(rel),
+            "id": eid, "type": surface, "name": rel, "slug": slug,
             "source": {"path": rel, "fingerprint": source_fingerprint(rel)},
             "owner": owners[0], "predicates": preds,
         }
@@ -394,13 +428,15 @@ def drift_finding(canonical: str, committed: str | None, path: str, tier: str = 
 # ---- IO / source layer ----------------------------------------------------------------------
 
 def load_sources():
-    """The live sources: (catalog dict, [(relpath, manifest)], [engine file relpaths],
-    {relpath: [module-id]}). Reuses module_coherence's present-set + ownership readers so the graph
-    and the module manager read the same installed set. Raises (loud) on a malformed source."""
+    """The live sources: (catalog dict, [(relpath, manifest)], [surface-instance file relpaths],
+    {relpath: [module-id]}). Reuses module_coherence's present-set + ownership readers so the graph and the
+    module manager read the same installed set; the inventory is the catalog-location-driven surface walk
+    (`surface_instance_inventory`), which spans .engine/ AND .claude/ and drops placeholders. Raises (loud)
+    on a malformed source."""
     catalog = validate.load_json(validate.CATALOG_PATH)
     manifests = module_coherence.discover_manifests()
-    inventory = module_coherence.engine_file_inventory()
     claims = module_coherence.provides_claims(manifests)
+    inventory = surface_instance_inventory(catalog, claims)
     return catalog, manifests, inventory, claims
 
 

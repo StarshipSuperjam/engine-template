@@ -18,6 +18,7 @@
       ".engine/check/engine-manifest.json",
       ".engine/check/interface-declaration.json",
       ".engine/check/knowledge-coverage.json",
+      ".engine/check/knowledge-vocabulary.json",
       ".engine/check/link-integrity.json",
       ".engine/check/module-manifest.json",
       ".engine/check/operation-frontmatter.json",

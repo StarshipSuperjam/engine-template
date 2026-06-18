@@ -387,6 +387,31 @@
       "type": "check"
     },
     {
+      "id": "check:knowledge-vocabulary",
+      "kind": "custom/script",
+      "name": ".engine/check/knowledge-vocabulary.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "knowledge-vocabulary",
+      "source": {
+        "fingerprint": "sha256:5373aab69241f7d1bf71e01766b2591d63954fcccead18116fcf2d2d67ebd976",
+        "path": ".engine/check/knowledge-vocabulary.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:link-integrity",
       "kind": "coverage",
       "name": ".engine/check/link-integrity.json",
@@ -722,6 +747,15 @@
         ],
         "provided_by": [
           "module:validators-core"
+        ],
+        "targets": [
+          "skill:engine-conduct",
+          "skill:engine-help",
+          "skill:engine-routine",
+          "skill:engine-setup",
+          "skill:engine-start",
+          "skill:engine-status",
+          "skill:engine-tune"
         ]
       },
       "slug": "skill-frontmatter",
@@ -747,6 +781,15 @@
         ],
         "provided_by": [
           "module:validators-core"
+        ],
+        "targets": [
+          "skill:engine-conduct",
+          "skill:engine-help",
+          "skill:engine-routine",
+          "skill:engine-setup",
+          "skill:engine-start",
+          "skill:engine-status",
+          "skill:engine-tune"
         ]
       },
       "slug": "skill-shape",
@@ -832,26 +875,6 @@
       "type": "conduct"
     },
     {
-      "id": "contract:.gitkeep",
-      "name": ".engine/contracts/.gitkeep",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": ".gitkeep",
-      "source": {
-        "fingerprint": "sha256:d442af95eb3bc1b9b41bb166039dd1d81fbe0aa31a98501e39e148e1df9f453c",
-        "path": ".engine/contracts/.gitkeep"
-      },
-      "status": "active",
-      "type": "contract"
-    },
-    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -892,7 +915,7 @@
       },
       "slug": "knowledge-retrieval",
       "source": {
-        "fingerprint": "sha256:97ead380f2c0d0e9632c1f59112ff467787d40a6295133d44d2bfacea230fcda",
+        "fingerprint": "sha256:8ce00e4864a5f40976feb329a5f62dc2c36061feb76f1da38b67f250ea8dc397",
         "path": ".engine/interfaces/knowledge-retrieval.json"
       },
       "status": "active",
@@ -985,7 +1008,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:4e87ecb0756282d7e2d8d4705c89d79be4dbf623f56907c796318c6835e84263",
+        "fingerprint": "sha256:c4a03248ac4638a2d78176186b4e605a0d9b1afb003a872c3738723921c3d93f",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -1555,7 +1578,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:0d6bff88b558a6e3c205da8b81784247e6582facaf3f12ddd08d761e9bdb7191",
+        "fingerprint": "sha256:e8e221dfd8c96f452237a0cfbb2f1057b9d4a414f79865a46227b9f6e00556c9",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "status": "active",
@@ -1730,6 +1753,160 @@
       },
       "status": "active",
       "type": "schema"
+    },
+    {
+      "id": "skill:engine-conduct",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-conduct/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-conduct",
+      "source": {
+        "fingerprint": "sha256:46a5301773818c7b74e5080b69ca8db2b2ba8d9243d0b9ad72de8d6002c8a935",
+        "path": ".claude/skills/engine-conduct/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-conduct",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-help",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-help/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-help",
+      "source": {
+        "fingerprint": "sha256:b92114fb8c0a208594e1cd68a8cd9695065b85bbbb1fdc41a363e7dcb5f0be18",
+        "path": ".claude/skills/engine-help/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-help",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-routine",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-routine/SKILL.md",
+      "owner": "routine-mode",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:routine-mode"
+        ]
+      },
+      "slug": "engine-routine",
+      "source": {
+        "fingerprint": "sha256:c345cc7aa223131b9532024cd7b31666c86a9f232bf8514df9d6634c1b469038",
+        "path": ".claude/skills/engine-routine/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-routine",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-setup",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-setup/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup",
+      "source": {
+        "fingerprint": "sha256:c853cb8abbe83ce4505b870e1157058efb774e3cf42d0fe499eaab40793b94a0",
+        "path": ".claude/skills/engine-setup/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-setup",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-start",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-start/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-start",
+      "source": {
+        "fingerprint": "sha256:b853c7cd489ce1c5b5983e9a5a05b5595b1a717498fb119ae297bb9513bb5242",
+        "path": ".claude/skills/engine-start/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-start",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-status",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-status/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-status",
+      "source": {
+        "fingerprint": "sha256:a74838709d668ea5af7a8aee1d1d52451086c5f818e152e3c23c97633d0da7c7",
+        "path": ".claude/skills/engine-status/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-status",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-tune",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-tune/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-tune",
+      "source": {
+        "fingerprint": "sha256:1fc97d591be69171ba82856c370e6945d8ec4e9579875af149a19e7dd718cfad",
+        "path": ".claude/skills/engine-tune/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-tune",
+      "type": "skill"
     },
     {
       "id": "tool:__init__",
@@ -2116,7 +2293,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:78947772d33c223ff629b1bc2d01175ca13c97ba0541b22b59cfebf1dba7ebe6",
+        "fingerprint": "sha256:ae36e6554bbde67b8cbd69828e50b237d75c6dc786034b96958c8bb34b3f0f2f",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -2169,6 +2346,23 @@
       "source": {
         "fingerprint": "sha256:8148b75ba0cdbcecd07d2e018d529173e384313f3ff51034e11dc80d745e9aa3",
         "path": ".engine/tools/knowledge_query.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:knowledge_vocabulary_check",
+      "name": ".engine/tools/knowledge_vocabulary_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "knowledge_vocabulary_check",
+      "source": {
+        "fingerprint": "sha256:02699d2dd2373986156cfa1ce10a57af297c3236c0e8bb6ae563c94ff124e0de",
+        "path": ".engine/tools/knowledge_vocabulary_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -2779,7 +2973,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:4440e47657fd8c512b480da5e1fabb6700deaee448a3460b51b7d5c257ea4c60",
+        "fingerprint": "sha256:49a6d941402353f181af59f3c8cf31abe6655a6cc06eae55fe2e6b138810acc3",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -2796,8 +2990,25 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:db6d09f9075f06dfbea5179e96a99fdadd40cabfe234660fe27872830a89734a",
+        "fingerprint": "sha256:0cca37df4a1f9521d9797154f7b09df6d628946a41ab73eb245180a3ef6f3e09",
         "path": ".engine/tools/test_knowledge_query.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_knowledge_vocabulary",
+      "name": ".engine/tools/test_knowledge_vocabulary.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_knowledge_vocabulary",
+      "source": {
+        "fingerprint": "sha256:735b4b86a418ab1973b91ebbcc5534748f1d7d802fefa12dd5506f8d9d45836a",
+        "path": ".engine/tools/test_knowledge_vocabulary.py"
       },
       "status": "active",
       "type": "tool"
@@ -2881,7 +3092,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:75339c88ab51c8aeaffc2bd6726969be7453855f0c434c87152fc0dfa976f8fd",
+        "fingerprint": "sha256:bc1c02861de5a52654fdba73adf581d040c15493d681a0d949ba79044e034cb8",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
