@@ -61,3 +61,7 @@ The Engine externalizes the cognition and controls it runs on — each one a com
 ## Status
 
 The Engine is pre-1.0 and under active construction toward its first milestone. Expect rapid change.
+
+## License
+
+Released under the [MIT License](LICENSE).
