@@ -111,6 +111,16 @@ class StoreTests(_Base):
         self.assertEqual(len(self._records(consolidate.EPISODIC_KIND)), 3)
         self.assertEqual(len(self._records(consolidate.MARKER_KIND)), 1)   # one marker for the whole batch
 
+    def test_one_batch_id_links_every_episodic_to_the_passs_marker(self):
+        # The id is minted ONCE per pass (before the append loop) and stamped on every episodic AND the marker,
+        # so a completed pass is identifiable as one batch — the linkage forget.py retires an orphan by.
+        consolidate.store_episodic("S", [{"role": "decision", "text": "a"}, {"role": "lesson", "text": "b"}])
+        eps = self._records(consolidate.EPISODIC_KIND)
+        marker = self._records(consolidate.MARKER_KIND)[0]
+        batches = {r["batch"] for r in eps}
+        self.assertEqual(len(batches), 1)                    # one id across the whole pass's episodics
+        self.assertEqual(marker["batch"], eps[0]["batch"])   # and the marker carries that same id
+
 
 class RejectionTests(_Base):
     def test_out_of_vocab_role_is_rejected_and_writes_nothing(self):
@@ -235,16 +245,33 @@ class LockTests(_Base):
 
 
 class CrashResidualTests(_Base):
-    def test_episodics_without_a_marker_are_reconsolidated_favoring_a_duplicate(self):
-        # Simulate a crash AFTER the summary appends but BEFORE the marker: a partial episodic, no marker.
+    def test_a_crashed_pass_is_re_filed_then_logically_retired_from_recall(self):
+        # Simulate a crash AFTER the summary appends but BEFORE the marker: an orphan episodic whose batch
+        # never gets a closing marker.
         self._delta("S", 0, "user", "a note")
-        ledger.append(consolidate._make_episodic("S", {"role": "decision", "text": "partial summary"}))
+        ledger.append(consolidate._make_episodic("S", {"role": "decision", "text": "partial summary"},
+                                                 "the-pass-that-crashed"))
         self.assertIn("S", consolidate.detect_unconsolidated())        # still pending — the marker never landed
+        # The next sweep re-files the session: a fresh pass (new batch) + a marker, and rebuilds recall.
         consolidate.store_episodic("S", [{"role": "decision", "text": "retry summary"}])
-        episodic = self._records(consolidate.EPISODIC_KIND)
-        self.assertEqual(len(episodic), 2)                              # at-least-once: a duplicate, never a loss
+
+        # Both copies stay RESIDENT in the ledger (recoverable) — the re-file favours a duplicate over a loss,
+        # and nothing is erased.
+        self.assertEqual(len(self._records(consolidate.EPISODIC_KIND)), 2)
         self.assertEqual(len(self._records(consolidate.MARKER_KIND)), 1)
         self.assertNotIn("S", consolidate.detect_unconsolidated())
+
+        # But RECALL surfaces the completed pass ONLY — the orphaned duplicate is logically retired (4a).
+        recalled = [r for r in index.query("summary").records if r.get("kind") == consolidate.EPISODIC_KIND]
+        self.assertEqual(len(recalled), 1)
+        self.assertEqual(recalled[0]["text"], "retry summary")
+
+        # The marker's batch links to its own completed pass, never to the crashed orphan.
+        marker = self._records(consolidate.MARKER_KIND)[0]
+        retry = next(r for r in self._records(consolidate.EPISODIC_KIND) if r["text"] == "retry summary")
+        orphan = next(r for r in self._records(consolidate.EPISODIC_KIND) if r["text"] == "partial summary")
+        self.assertEqual(marker["batch"], retry["batch"])
+        self.assertNotEqual(marker["batch"], orphan["batch"])
 
 
 class HookHandlerTests(_Base):

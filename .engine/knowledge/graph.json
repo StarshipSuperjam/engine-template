@@ -1871,7 +1871,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:062786a0786dbbea9f98767069d1c559bd69e427d10c331cfdea3cd2fc4f4550",
+        "fingerprint": "sha256:22db08b3c6b0bcc20bc247e1438e0acc4d5510066b8cce31142ebabd2674736a",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -1929,6 +1929,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:forget",
+      "name": ".engine/tools/memory/forget.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "forget",
+      "source": {
+        "fingerprint": "sha256:999127d3215c72c6f549f9189734839cc8c07fe077507c3d62212856bc80ef3d",
+        "path": ".engine/tools/memory/forget.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:hooks",
       "name": ".engine/tools/hooks.py",
       "owner": "core",
@@ -1956,7 +1973,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:f7b6e127f709e454b96a3c0a743f89b534f2d1b1e9c17c9222d6a9af76b8396f",
+        "fingerprint": "sha256:74759900280e3ee24398865c9857d8c40f563b9dcc13f7dc9d97e3a92e2370d1",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -2201,6 +2218,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:records",
+      "name": ".engine/tools/memory/records.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "records",
+      "source": {
+        "fingerprint": "sha256:6c06f74c19bc9152308a69c80a93d514cb46a04a97a469c1468821c87c094e66",
+        "path": ".engine/tools/memory/records.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:self_map",
       "name": ".engine/tools/self_map.py",
       "owner": "core",
@@ -2432,7 +2466,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:f67eaee9376bdde2d9b7905927068e32059555a380c4204cb064855d1bee5752",
+        "fingerprint": "sha256:9cb49c4c9b894b7a52b4948c697343ea655c3ec65d8ae7269d992bd5673a9aab",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
@@ -2502,6 +2536,23 @@
       "source": {
         "fingerprint": "sha256:feb05bf0db8ef03b71426a26b719de6976dde81895b99ccf0d91d06f6dcde009",
         "path": ".engine/tools/test_engine_status.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_forget",
+      "name": ".engine/tools/memory/test_forget.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_forget",
+      "source": {
+        "fingerprint": "sha256:2dde4622880d9fa3eb2d5a70e2a13d7323e0916a077e45148a7d65391e5926de",
+        "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
       "type": "tool"

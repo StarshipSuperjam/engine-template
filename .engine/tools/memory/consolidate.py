@@ -35,6 +35,7 @@ import json
 import os
 import sys
 import time
+import uuid
 
 # Make the `memory` package + the sibling `hooks` tool importable whether we are imported as
 # `memory.consolidate` or run as the wired hook script (the same _PARENT insert capture.py/index.py use).
@@ -44,6 +45,12 @@ if _PARENT not in sys.path:
 
 import hooks  # noqa: E402 — .engine/tools/hooks.py: memory's SessionStart/PreCompact ride its fail-open harness
 from memory import capture, index, ledger  # noqa: E402
+# The record kinds, tags, and the per-pass `batch` key live in `records` — the shared, cycle-free vocabulary
+# `forget` and `index` also use. Importing the NAMES (not the module) avoids shadowing the
+# `store_episodic(..., records=...)` parameter and keeps `consolidate.EPISODIC_KIND` resolving for tests/demo.
+from memory.records import (  # noqa: E402
+    BATCH_KEY, DEFAULT_EPISODIC_TAG, EPISODIC_KIND, MARKER_KIND, MARKER_TAG,
+)
 
 # The closed, Engine-shipped role vocabulary (D-030 / memory/README) — amendable via the grammar, never
 # invented per session. `rationale/pushback` is ONE role (the literal slash); `dead-end` is hyphenated.
@@ -51,11 +58,6 @@ ROLE_VOCABULARY = (
     "decision", "rationale/pushback", "lesson", "dead-end", "preference", "intent", "observation",
 )
 ROLES = frozenset(ROLE_VOCABULARY)
-
-EPISODIC_KIND = "episodic"          # the AI-written summary record
-MARKER_KIND = "consolidated"        # the in-ledger "this session has been tidied" marker (survives backup)
-DEFAULT_EPISODIC_TAG = "episodic"
-MARKER_TAG = "consolidated"
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"   # the live session id (the platform var; NOT capture's older name)
 _MAX_DIRECTIVE_IDS = 8                    # cap the directive enumeration; never list thousands of ids
@@ -125,10 +127,11 @@ def _validate(records) -> "str | None":
     return None
 
 
-def _make_episodic(session_id: str, rec: dict) -> dict:
+def _make_episodic(session_id: str, rec: dict, batch: str) -> dict:
     """The episodic-summary record envelope. Only `text` is human content; `role`/`tags` are secondary
-    filters and `ts`/`consolidated_ts`/`source_seqs`/`v` are non-string — so the derived index keeps them all
-    OUT of the search body (index._NON_BODY_KEYS + the string-leaf-only projection)."""
+    filters and `ts`/`consolidated_ts`/`source_seqs`/`v`/`batch` are non-content — so the derived index keeps
+    them all OUT of the search body (index._NON_BODY_KEYS + the string-leaf-only projection). `batch` is this
+    pass's id (shared with its marker), by which `forget` derives a crashed pass's orphans to logically retire."""
     now = int(time.time())
     tags = [DEFAULT_EPISODIC_TAG]
     for t in rec.get("tags") or []:
@@ -143,6 +146,7 @@ def _make_episodic(session_id: str, rec: dict) -> dict:
         "text": rec["text"].strip(),
         "tags": tags,
         "consolidated_ts": now,
+        BATCH_KEY: batch,
     }
     seqs = rec.get("source_seqs")
     if isinstance(seqs, (list, tuple)) and seqs:
@@ -152,12 +156,14 @@ def _make_episodic(session_id: str, rec: dict) -> dict:
     return out
 
 
-def _make_marker(session_id: str) -> dict:
+def _make_marker(session_id: str, batch: str) -> dict:
     """The consolidation marker — an in-ledger record (not a sidecar), so it travels with the backup law
-    ("copy the ledger") and the sweep can never re-tidy a session after a restore."""
+    ("copy the ledger") and the sweep can never re-tidy a session after a restore. It carries this pass's
+    `batch` id: a *completed* pass is exactly one whose episodics' batch has a marker, so `forget` can
+    logically retire the orphan episodics of a pass that crashed before its marker landed."""
     now = int(time.time())
     return {"v": capture.RECORD_VERSION, "kind": MARKER_KIND, "session_id": session_id, "ts": now,
-            "tags": [MARKER_TAG]}
+            "tags": [MARKER_TAG], BATCH_KEY: batch}
 
 
 def store_episodic(session_id: str, records, *, cwd=None) -> dict:
@@ -167,9 +173,9 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
     Safety: validate (reject-not-coerce, whole-batch) BEFORE any write; then, under the SHARED capture lock
     (so a concurrent capture or a second boot can never interleave), re-check the marker is absent (idempotent
     — an already-tidied session is a clean no-op) and append. The marker is written LAST: a crash between the
-    summary appends and the marker re-files next sweep (a duplicate, never a loss — slice-4 active-forgetting
-    dedups). Lock contention => a clean no-op this boot (the sweep retries next session); it NEVER writes
-    lock-free."""
+    summary appends and the marker re-files next sweep (a duplicate, never a loss — `forget` then logically
+    retires the orphaned pass from recall, leaving it recoverable in the ledger). Lock contention => a clean
+    no-op this boot (the sweep retries next session); it NEVER writes lock-free."""
     reason = _validate(records)
     if reason is not None:
         return {"status": "rejected", "reason": reason, "stored": 0}
@@ -187,11 +193,14 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
         if session_id in marked:
             return {"status": "already-consolidated", "stored": 0}
         ledger_file = ledger.ledger_path(cwd)
+        batch = uuid.uuid4().hex   # ONE id for this whole pass, stamped on every episodic AND the marker below
         stored = 0
         for rec in records:
-            ledger.append(_make_episodic(session_id, rec), path=ledger_file)
+            ledger.append(_make_episodic(session_id, rec, batch), path=ledger_file)
             stored += 1
-        ledger.append(_make_marker(session_id), path=ledger_file)   # marker LAST (favor duplicate over loss)
+        # Marker LAST, carrying the SAME batch: a crash before it orphans this pass's episodics (their batch
+        # unmarked) — the next sweep re-files and `forget` logically retires the orphans (favor duplicate over loss).
+        ledger.append(_make_marker(session_id, batch), path=ledger_file)
         index.rebuild(ledger_file=ledger_file, index_file=index.index_path(cwd))
         return {"status": "ok", "stored": stored}
     finally:
