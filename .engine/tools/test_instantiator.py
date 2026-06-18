@@ -695,6 +695,25 @@ class TestReadmeRecognizer(unittest.TestCase):
                 self.assertNotIn(jargon, low, f"starter must not leak maintainer jargon: {jargon!r}")
 
 
+class TestRepoReadmeLeadsWithMarker(unittest.TestCase):
+    """A durable guard on the TEMPLATE's OWN root README (issue #134): the committed README must keep
+    LEADING with the marketing marker, or provisioning's front-door replace (_seed_readme) silently stops
+    recognizing the front — and the engine's marketing README would then travel and land as a generated
+    repo's product README (R26). Unlike the recognizer tests above, this reads the REAL committed README,
+    not a fixture: it pins the live template artifact #134 fills with marketing copy. It lives here, among
+    the first-run assets the Retire phase deletes at instantiation, so it never runs in a generated repo
+    (where the README is correctly replaced and the marker is gone)."""
+
+    def test_committed_root_readme_leads_with_the_marketing_marker(self):
+        readme = inst._read_text_or(os.path.join(validate.ROOT, "README.md"), "")
+        self.assertTrue(
+            inst._is_marketing_seed(readme),
+            "the template's root README.md must LEAD with " + repr(inst._MARKETING_SEED_MARKER)
+            + " (marketing copy goes BELOW it) so provisioning still recognizes and replaces the marketing "
+            "front at first run; a copy edit that displaced the marker would silently kill the front-door "
+            "replace and the engine's marketing page would land as a generated repo's product README.")
+
+
 class TestSeedReadme(unittest.TestCase):
     def test_greenfield_replaces_the_marketing_front_and_discloses(self):
         said = []
