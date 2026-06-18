@@ -45,6 +45,19 @@ Slow, gated, and verifiable beats fast and opaque. The Engine deliberately trade
 2. Open it in [Claude Code](https://claude.com/claude-code).
 3. A guided first-run setup walks you through your choices and stands up the Engine for your project.
 
+## What's inside
+
+Concretely, the Engine gives your project:
+
+- **Memory that persists across sessions** — decisions, course-corrections, and lessons are written into the repository and searchable, so the project's context survives even when a session's does not.
+- **A committed state cursor** — a short, always-current note of where things stand and what's unfinished, read first by every session.
+- **A knowledge map** — an automatically derived picture of what the project contains and how the pieces relate, kept in step with the files.
+- **Attention** — guidance on what to focus on next, so a session starts oriented instead of from a blank page.
+- **Guardrails and a review gate** — automatic checks plus a protected main branch, so every change lands as a pull request you approve.
+- **Explore and Build modes** — the AI investigates and plans in Explore, and only changes files once you start a build, so nothing moves without your say-so.
+- **Guided first-run setup** — "Use this template" runs a setup that installs the pieces you choose and stands the Engine up on your project.
+- **Built for Claude Code** — it wires into Claude Code's hooks and tools, and falls back to plain files in git if a supporting service is unavailable.
+
 ## Status
 
 The Engine is pre-1.0 and under active construction toward its first milestone. Expect rapid change.
