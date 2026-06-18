@@ -118,31 +118,34 @@ def interpreter_path(os_name: str | None = None) -> str:
     return f"{PROJECT_DIR_VAR}/.engine/.venv/{sub}"
 
 
-# The bounded wait that lets a hook survive the fresh-worktree race (issue #83): the gitignored
-# `.engine/.venv` is provisioned a beat AFTER a checkout, so a hook that fires in that window finds no
-# interpreter and exits 127 — a SessionStart hook cannot block, so the failure is silent and boot never
-# runs. The wait polls for the interpreter, then execs it; the ceiling is POLLS x INTERVAL seconds (the
-# observed provisioning gap is well under 1 s). It is NOT extended to cover a cold multi-second runtime
-# build — that degrades to the committed floor's present-marker, never to the operator's system Python.
-WAIT_FOR_RUNTIME_POLLS = 50          # bounded: 50 polls -> a ~5 s ceiling on a never-appearing interpreter
-WAIT_FOR_RUNTIME_INTERVAL = "0.1"    # seconds between polls (fractional; macOS BSD + GNU `sleep`)
+# The hook launcher (.engine/tools/hook-runner.sh) holds the bounded wait that lets a hook survive the
+# fresh-worktree race (issue #83): the gitignored `.engine/.venv` is provisioned a beat AFTER a checkout,
+# so a hook that fires in that window finds no interpreter and exits 127 — a SessionStart hook cannot
+# block, so the failure is silent and boot never runs. The launcher polls for the interpreter, then execs
+# it; the ceiling is ~5 s (the observed provisioning gap is well under 1 s), overridable for tests via
+# ENGINE_HOOK_WAIT_POLLS / ENGINE_HOOK_WAIT_INTERVAL. It is NOT extended to cover a cold multi-second
+# runtime build, and NEVER falls back to the operator's system Python. The wait/exec preamble used to be
+# inlined in every hook command; it moved into this one launcher so the command Claude Code DISPLAYS after
+# a hook fires stays short and legible to the non-engineer operator (it otherwise reads as a wall of code).
+HOOK_RUNNER = f"{PROJECT_DIR_VAR}/.engine/tools/hook-runner.sh"
 
 
 def hook_command(script_relpath: str, os_name: str | None = None) -> str:
-    """The full hook `command` string a settings.json registration carries: a bounded wait for the engine
-    tool-runtime interpreter, then `exec` of that explicit ${CLAUDE_PROJECT_DIR}-rooted interpreter on the
-    script. The wait closes the fresh-worktree race (issue #83) where the gitignored `.engine/.venv` is
-    provisioned a beat after the hook fires; without it the command exits 127 and the hook silently never
-    runs. When the interpreter is already present (the common case) the first `[ -x ]` test passes and it
-    execs immediately — zero added latency. If the interpreter never appears within the bound the command
-    runs NOTHING; it NEVER falls back to the operator's system Python (constraints §"cannot manage a
-    language runtime"). Shell-form (no `args`), so Claude Code runs it under `sh -c` (macOS/Linux) / Git
-    Bash (Windows); `${CLAUDE_PROJECT_DIR}` is substituted before the shell sees it. The settings.json
-    registration itself is wiring's (slice 20); this renders the invocation FORM hooks owns (D-156)."""
+    """The full hook `command` string a settings.json registration carries: a call to the hook launcher
+    (`.engine/tools/hook-runner.sh`) passing the explicit ${CLAUDE_PROJECT_DIR}-rooted venv interpreter and
+    the ${CLAUDE_PROJECT_DIR}-rooted script. The launcher does the bounded wait that closes the
+    fresh-worktree race (issue #83) and then `exec`s the interpreter; if the interpreter never appears it
+    runs NOTHING and NEVER falls back to the operator's system Python (constraints §"cannot manage a
+    language runtime"). The interpreter is still NAMED EXPLICITLY in the command (the launcher's first
+    argument), so D-156's "the hook command names the interpreter explicitly and ${CLAUDE_PROJECT_DIR}-
+    rooted" stays witnessable in the diff; only the wait/exec MECHANICS moved into the launcher — the
+    invocation FORM is hooks' (D-156); the command's internal STRUCTURE (inline vs. launcher) is an
+    unspecified build-spec leaf. Shell-form (no `args`), so Claude Code runs it under `sh -c` (macOS/Linux)
+    / Git Bash (Windows); `${CLAUDE_PROJECT_DIR}` is substituted before the shell sees it, and the script +
+    any trailing args stay the UNQUOTED tail so they word-split into the launcher's positional params. The
+    settings.json registration itself is wiring's (slice 20)."""
     interp = interpreter_path(os_name)
-    return (f'n=0; while [ ! -x "{interp}" ] && [ "$n" -lt {WAIT_FOR_RUNTIME_POLLS} ]; '
-            f'do sleep {WAIT_FOR_RUNTIME_INTERVAL}; n=$((n+1)); done; '
-            f'[ -x "{interp}" ] && exec "{interp}" {PROJECT_DIR_VAR}/{script_relpath}')
+    return f'sh "{HOOK_RUNNER}" "{interp}" {PROJECT_DIR_VAR}/{script_relpath}'
 
 
 # ---- the decision vocabulary a handler returns (the hook-script contract, normalized) ----------
@@ -322,15 +325,35 @@ def _demo(_argv: list) -> int:
     print(f"    exit code = {code}  (not 2 — only PreToolUse/Stop may block)")
     print(f"    finding on stderr: {err.strip()!r}\n")
 
-    print("(3) A MISSING tool-runtime — the interpreter named by the hook command is absent:")
-    print(f"    a registered hook runs:  {hook_command('tools/<some_hook>.py')}")
-    absent = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".venv-does-not-exist",
-                          "bin", "python")
-    proc = subprocess.run(f"{absent} -c pass", shell=True, capture_output=True, text=True)
-    print(f"    invoking an absent .venv interpreter → exit code = {proc.returncode}  "
-          f"(not 2, so NON-blocking — the shell, not the harness, fails open;")
-    print(f"     hooks.py is not even present to run). To vary: rename .engine/.venv and re-run the "
-          f"real hook command.\n")
+    import tempfile
+    print("(3) The hook LAUNCHER (.engine/tools/hook-runner.sh) — the wait/exec preamble lives here now,")
+    print("    so the command Claude Code DISPLAYS after a hook fires is short instead of a wall of shell:")
+    old = ('n=0; while [ ! -x "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ] && [ "$n" -lt 50 ]; '
+           'do sleep 0.1; n=$((n+1)); done; [ -x "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ] && '
+           'exec "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ${CLAUDE_PROJECT_DIR}/tools/boot.py')
+    print(f"    BEFORE: {old}")
+    print(f"    AFTER:  {hook_command('tools/boot.py')}")
+    print("    (the AFTER line is exactly what the hook-display renders; the surrounding 'Pre-compact /")
+    print("     completed successfully' chrome is the platform's and cannot be changed.)\n")
+
+    runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hook-runner.sh")
+    print("    The launcher still waits-then-execs the venv interpreter and NEVER falls back to system")
+    print("    Python — proven against the REAL hook-runner.sh on throwaway interpreters:")
+    with tempfile.TemporaryDirectory() as td:                         # (a) interpreter PRESENT -> execs it
+        stub = os.path.join(td, "python")
+        with open(stub, "w") as fh:
+            fh.write('#!/bin/sh\necho "RAN $@"\n')
+        os.chmod(stub, 0o755)
+        r = subprocess.run(["sh", runner, stub, os.path.join(td, "hook.py"), "demo-arg"],
+                           capture_output=True, text=True, timeout=10)
+        print(f"      present → {r.stdout.strip()!r}  (execs the interpreter; the script + args forward)")
+    with tempfile.TemporaryDirectory() as td:                         # (b) NEVER appears -> runs nothing
+        r = subprocess.run(["sh", runner, os.path.join(td, "python"), os.path.join(td, "hook.py")],
+                           capture_output=True, text=True, timeout=10,
+                           env={**os.environ, "ENGINE_HOOK_WAIT_POLLS": "3",
+                                "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})
+        print(f"      never   → stdout={r.stdout.strip()!r} exit={r.returncode}  "
+              f"(ran nothing; no system-Python fallback)\n")
 
     print("All three proceeded without a hard block except the one deliberate, eligible block — the "
           "fail-open floor holds.")

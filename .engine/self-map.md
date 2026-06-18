@@ -54,7 +54,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - skill: `.claude/skills/.gitkeep`, `.claude/skills/engine-conduct/SKILL.md`, `.claude/skills/engine-help/SKILL.md`, `.claude/skills/engine-setup/SKILL.md`, `.claude/skills/engine-start/SKILL.md`, `.claude/skills/engine-status/SKILL.md`, `.claude/skills/engine-tune/SKILL.md`
   - state: `.engine/state/*.json`
   - template: `.engine/templates/*.md`
-  - tool: `.engine/tools/*.py`
+  - tool: `.engine/tools/*.py`, `.engine/tools/*.sh`
 - wires: gitignore, hook, mcp
 
 ### `memory-substrate-sqlite-fts5` — version `0.0.0-dev` (required)
