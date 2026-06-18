@@ -1912,6 +1912,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_security_seed",
+      "name": ".engine/tools/demo_security_seed.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_security_seed",
+      "source": {
+        "fingerprint": "sha256:6286b4f62ac0d6223ea5b720821ebe7f6d7f6e8c2e4812ac550976a1bba9b8d6",
+        "path": ".engine/tools/demo_security_seed.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:engine_help",
       "name": ".engine/tools/engine_help.py",
       "owner": "core",
@@ -2007,7 +2024,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:83174cab2ea92013e89c64c9849df7ada90210218e48e108a30adca7fcc2924d",
+        "fingerprint": "sha256:46359026483e3086587be39fe1b74641570c4883d8c572badf35e67950bb00be",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -2160,7 +2177,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:8d156ebb192db2c31a0a6d662bec5ea5a9042787ad988717ba6d258c62da9071",
+        "fingerprint": "sha256:28d714fe7c4187f47bc63aea66c9bd54a8e975154af29561d508879bacc35cea",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -2859,6 +2876,23 @@
       "source": {
         "fingerprint": "sha256:1116267b61e4f43fdd7da22bdd413ba12f5cef5219d515c47a6a880a82211715",
         "path": ".engine/tools/test_secret_scan.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_security_seed",
+      "name": ".engine/tools/test_security_seed.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_security_seed",
+      "source": {
+        "fingerprint": "sha256:82601d222ac165f8b1c16eb4e651f6d3a16a506bc07e127dcf2fa53fc1527592",
+        "path": ".engine/tools/test_security_seed.py"
       },
       "status": "active",
       "type": "tool"

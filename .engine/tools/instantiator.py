@@ -95,6 +95,7 @@ COPY_HEADINGS = {
     "plan-mode-adopted": "Your safer default is on",
     "plan-mode-conflict": "Your editing default — keep yours, or use the safer one",
     "conduct-seeded": "Your stance came with this project",
+    "security-seeded": "A security-contact file came with this project",
     "security-tier": "About automatic secret scanning",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
@@ -139,6 +140,13 @@ FALLBACK_COPY = {
         "anything, which is a little safer. Use planning mode for this project, or keep your own default? "
         "Keeping yours changes nothing. Either way, nothing about your setup elsewhere changes and no safety "
         "check is removed."
+    ),
+    "security-seeded": (
+        "I added a short file called SECURITY.md at the top of your project. It tells anyone who finds a "
+        "security problem — a bug that could let someone get in, or get at your data — how to report it to you "
+        "privately, instead of posting it in the open where it could be misused. You own this file and can edit "
+        "it any time; if your project already had one, I left yours exactly as it is. I didn't add it silently "
+        "— this note is me telling you it's there."
     ),
     "security-tier": (
         "A quick note on automatic secret scanning — the check that warns you if a password or key is "
@@ -593,12 +601,64 @@ def _seed_conduct(say, copy=None) -> str:
     return "seeded"
 
 
+# A minimal, valid SECURITY.md used only when the maintainer's template seed is absent or empty — never an
+# error (provisioning "the security floor": an absent template seed yields a minimal default file). No personal
+# contact: this default, like the seed, travels to every generated repo.
+_DEFAULT_SECURITY_MD = (
+    "# Security Policy\n\n"
+    "## Reporting a security vulnerability\n\n"
+    "Please report security problems **privately** rather than opening a public issue. The preferred way is "
+    "GitHub's private vulnerability reporting — open this repository's **Security** tab and choose "
+    "**\"Report a vulnerability\"** — or contact the project's owner or maintainer privately. Include enough "
+    "detail to reproduce the problem.\n"
+)
+
+# The locations GitHub recognizes a SECURITY.md in, in precedence order (.github/ wins, then root, then docs/).
+# The seed scans ALL THREE and seeds only if NONE exists, so it never creates a root file GitHub would ignore
+# because a .github/ one already wins.
+_SECURITY_LOCATIONS = ("SECURITY.md", os.path.join(".github", "SECURITY.md"), os.path.join("docs", "SECURITY.md"))
+
+
+def _seed_security(say, copy=None) -> str:
+    """Seed a root SECURITY.md vulnerability-disclosure channel from the maintainer's template seed — the
+    seed-then-own pattern, the same SHAPE and DISCLOSURE as _seed_conduct, but COPY-IF-ABSENT: unlike the conduct
+    seed it NEVER overwrites. If the project already carries a SECURITY.md in any GitHub-recognized location
+    (root, .github/, or docs/), the engine leaves it exactly as it is and seeds nothing (returns "present").
+    Otherwise it copies .engine/provisioning/security-seed.md into a ROOT SECURITY.md; an absent or empty seed
+    yields a minimal default, never an error. The seeded file is operator-owned product config — in no `provides`,
+    preserved across the upgrade overlay with no engine carve-out (it lives outside .engine/, so the ownership
+    leg never reaches it). Discloses, in plain language, that the file was added — only when it actually seeds.
+    Paths are validate.ROOT-relative, so a redirected demo/test touches only the fixture, never the real tree."""
+    if any(os.path.exists(os.path.join(validate.ROOT, rel)) for rel in _SECURITY_LOCATIONS):
+        return "present"                        # never overwrite a project's existing disclosure file
+    seed_path = os.path.join(validate.ROOT, ".engine", "provisioning", "security-seed.md")
+    target = os.path.join(validate.ROOT, "SECURITY.md")
+    try:
+        content = ""
+        if os.path.isfile(seed_path):
+            with open(seed_path, encoding="utf-8") as fh:
+                content = fh.read()
+        if not content.strip():
+            content = _DEFAULT_SECURITY_MD
+        with open(target, "w", encoding="utf-8") as fh:
+            fh.write(content)
+    except OSError:
+        return "skipped"
+    if copy is not None:
+        say(copy["security-seeded"])
+    return "seeded"
+
+
 def _apply_substrates(say, copy=None) -> dict:
     """STEP 5 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
-    re-derive the knowledge graph (idempotent), confirm the state seed is present, and seed the operator's
-    codes-of-conduct override from the template seed (disclosed in plain language). The graph path is bound at
-    import (knowledge_gen), so the demo redirects it AND we pass it explicitly — a redirected run never
-    rewrites the real graph. Memory-backup setup is owed to the memory module (not yet built)."""
+    re-derive the knowledge graph (idempotent), confirm the state seed is present, seed the operator's
+    codes-of-conduct override from the template seed, and seed a root SECURITY.md disclosure channel
+    (both disclosed in plain language). The two seeds sit here — co-located with the conduct seed, AFTER the
+    runtime — a deliberate mirror of the as-built conduct-seed placement: a pure file copy has no runtime
+    dependency, and on a tool-runtime halt the phase never reaches here, so the seed lands on the resume (its
+    copy-if-absent makes that idempotent). The graph path is bound at import (knowledge_gen), so the demo
+    redirects it AND we pass it explicitly — a redirected run never rewrites the real graph. Memory-backup
+    setup is owed to the memory module (not yet built)."""
     result = {"step": "substrates", "status": "done"}
     try:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)
@@ -608,6 +668,7 @@ def _apply_substrates(say, copy=None) -> dict:
         result["status"] = "degraded"
     result["state_present"] = os.path.isfile(os.path.join(validate.ROOT, ".engine", "state", "state.json"))
     result["conduct"] = _seed_conduct(say, copy)
+    result["security"] = _seed_security(say, copy)
     return result
 
 
@@ -950,7 +1011,7 @@ _APPLY_DEMO_NOTE = (
 # The construction repo's own files the apply steps would write if redirection ever leaked — the demo asserts
 # they are byte-for-byte unchanged afterward (the isolation guarantee, shown mechanically, not just claimed).
 _REAL_ISOLATION_FILES = (".engine/knowledge/graph.json", ".claude/settings.json", ".mcp.json",
-                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md",
+                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md", "SECURITY.md",
                          ".engine/conduct/operator.md", ".engine/conduct/defaults.md")
 
 

@@ -49,6 +49,14 @@ you (for example, speaking plainly, and explaining choices before you make them)
 session, and they're yours: change, add, or remove any of them any time with /engine-conduct. I didn't put
 them in place silently — this note is me telling you they're here.
 
+## A security-contact file came with this project
+
+I added a short file called `SECURITY.md` at the top of your project. It tells anyone who finds a security
+problem — a bug that could let someone get in, or get at your data — how to report it to you privately,
+instead of posting it in the open where it could be misused. You own this file and can edit it any time; if
+your project already had one, I left yours exactly as it is. I didn't add it silently — this note is me
+telling you it's there.
+
 ## About automatic secret scanning
 
 A quick note on automatic secret scanning — the check that warns you if a password or key is committed by
