@@ -39,6 +39,7 @@ import module_manager     # noqa: E402  (remove() — the delete-unselected reus
 import wiring             # noqa: E402  (render_codeowners + apply_all — the apply-phase appliers)
 import knowledge_gen      # noqa: E402  (generate() — substrate re-derive)
 import bootstrap          # noqa: E402  (ControlPlane + render — the control-plane bootstrap; _parse_sections)
+import security_floor     # noqa: E402  (the native-scanning toggles — reuses ControlPlane's transport)
 
 # These sibling tools import only the Python standard library plus each other (validate binds its two
 # third-party packages LAZILY, slice 27b-pre), and every one carries `from __future__ import annotations`
@@ -96,7 +97,6 @@ COPY_HEADINGS = {
     "plan-mode-conflict": "Your editing default — keep yours, or use the safer one",
     "conduct-seeded": "Your stance came with this project",
     "security-seeded": "A security-contact file came with this project",
-    "security-tier": "About automatic secret scanning",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
     # The finish (verify + tidy-up) phase — slice 27c.
@@ -147,13 +147,6 @@ FALLBACK_COPY = {
         "privately, instead of posting it in the open where it could be misused. You own this file and can edit "
         "it any time; if your project already had one, I left yours exactly as it is. I didn't add it silently "
         "— this note is me telling you it's there."
-    ),
-    "security-tier": (
-        "A quick note on automatic secret scanning — the check that warns you if a password or key is "
-        "committed by accident. If your project's hosting doesn't include it, I can't switch it on for you, so "
-        "the project is on the basic level for now. To get automatic scanning you can make the project public, "
-        "or add GitHub's Advanced Security if your plan offers it. I'm telling you so you can decide — I won't "
-        "switch anything on or off without you."
     ),
     "codeowners-degraded": (
         "I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files "
@@ -460,7 +453,7 @@ def _uv_sync(uv_path: str, groups: list) -> bool:
         return False
 
 
-# ---- the seven apply steps (each returns one ledger entry; each idempotent) -------------------
+# ---- the eight apply steps (each returns one ledger entry; each idempotent) -------------------
 
 def _apply_delete_unselected(manifest: dict, say) -> dict:
     """STEP 1 — remove every module present on disk that the confirmed manifest did not keep (installed
@@ -703,10 +696,29 @@ def _apply_control_plane(control_transport, gh_refresh, control_issues, say, cop
     return {"step": "control-plane", "status": result.status, "protected": result.is_protected()}
 
 
+def _apply_security_toggles(control_transport, say, copy, repo=None, token=None) -> dict:
+    """STEP 8 — turn on GitHub's NATIVE security features (secret scanning + push protection, code scanning,
+    private vulnerability reporting) where the repository's tier supports them, branching on each call's
+    status and disclosing the outcome in plain language. REUSES the operator-privileged transport the ruleset
+    bootstrap already holds (no new capability) — the same injected `control_transport`. Degrades in place
+    (never halts) and ADDS NO required merge check (alerts are advisory). When the repo/sign-in is
+    unavailable (e.g. the construction repo) it skips quietly — the protected-branch gate is the real
+    guarantee, and these are advisory upgrades that can be turned on any time later."""
+    repo = repo or boot.repo_slug()
+    token = token or boot.gh_token()
+    if not repo or not token:
+        return {"step": "security-floor", "status": "skipped", "detail": "no project/sign-in"}
+    floor = security_floor.SecurityFloor(repo, token, transport=control_transport)
+    toggles = floor.apply(announce=say)
+    status = "applied" if all(t.is_good() for t in toggles) else "degraded"
+    return {"step": "security-floor", "status": status,
+            "toggles": {t.key: t.state for t in toggles}}
+
+
 def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_present=None,
           uv_installer=None, uv_runner=None, consent=None, control_transport=None, gh_refresh=None,
           control_issues=None, control_repo=None, control_token=None, handle=None) -> dict:
-    """The apply phase: run the seven ordered steps against the confirmed manifest. Refuses (no change) when
+    """The apply phase: run the eight ordered steps against the confirmed manifest. Refuses (no change) when
     the manifest is absent — apply presupposes a confirmed selection. The handle is the passed one, else the
     one the manifest stored. Returns a step ledger: {refused, halted, steps:[…]}. A degraded tool-runtime
     sets `halted` and the remaining steps are not attempted (they presuppose the runtime); every other step
@@ -729,6 +741,8 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     steps.append(_apply_wires(say))
     steps.append(_apply_control_plane(control_transport, gh_refresh, control_issues, say, copy,
                                       repo=control_repo, token=control_token))
+    steps.append(_apply_security_toggles(control_transport, say, copy,
+                                         repo=control_repo, token=control_token))
     return {"refused": False, "halted": False, "steps": steps}
 
 
@@ -1038,19 +1052,48 @@ def _approve_transport():
         if method == "PUT" and "/rulesets/" in path:
             state["met"] = True
             return 200, {"id": 901}, headers
+        sec = _security_floor_responses(method, path, body, available=True)
+        if sec is not None:
+            return sec[0], sec[1], headers
         if path.startswith("/repos/"):
             return 200, {"full_name": "you/your-project"}, headers
         return 404, None, headers
     return t
 
 
+def _security_floor_responses(method: str, path: str, body, available: bool):
+    """Demo-fake answers for the security-floor endpoints (security_and_analysis PATCH + repo read, CodeQL
+    default-setup, private vulnerability reporting). `available=True` → everything enables and reads back on;
+    `available=False` → the tier-unsupported codes, so the floor honestly discloses the gap. Returns
+    (status, json) for a security endpoint, else None (the caller then handles its own ruleset paths)."""
+    if path.endswith("/code-scanning/default-setup"):
+        if method == "PATCH":
+            return (202, {"run_id": 1}) if available else (403, {"message": "Advanced Security is not enabled"})
+        if method == "GET":
+            return (200, {"state": "configured" if available else "not-configured"})
+    if path.endswith("/private-vulnerability-reporting"):
+        if method == "PUT":
+            return (204, None) if available else (422, {"message": "public repositories only"})
+        if method == "GET":
+            return (200, {"enabled": bool(available)})
+    if method == "PATCH" and isinstance(body, dict) and "security_and_analysis" in body:
+        return (200, {}) if available else (403, {"message": "Advanced Security is not enabled"})
+    if method == "GET" and path.startswith("/repos/") and path.count("/") == 3:
+        sa = {"secret_scanning": {"status": "enabled" if available else "disabled"}}
+        return (200, {"full_name": "you/your-project", "security_and_analysis": sa})
+    return None
+
+
 def _already_transport():
     """An in-memory GitHub where the branch is ALREADY protected (models a resumed run after the first
-    pass turned the gate on) → a clean 'already', no write."""
+    pass turned the gate on) → a clean 'already', no write. The native security features read back as on."""
     def t(method, path, body=None):
         headers = {"X-OAuth-Scopes": "repo"}
         if method == "GET" and path.endswith("/rules/branches/main"):
             return 200, bootstrap.floor_ruleset()["rules"], headers
+        sec = _security_floor_responses(method, path, body, available=True)
+        if sec is not None:
+            return sec[0], sec[1], headers
         if path.startswith("/repos/"):
             return 200, {"full_name": "you/your-project"}, headers
         return 404, None, headers
@@ -1059,13 +1102,17 @@ def _already_transport():
 
 def _defer_transport():
     """An in-memory GitHub that denies the protection write (the operator can't administer the repo) → a
-    cause-matched degraded banner; the engine never pretends the gate is on."""
+    cause-matched degraded banner; the engine never pretends the gate is on. The native security features
+    read back as unavailable (the free-private/public-only gaps), so the floor discloses them."""
     def t(method, path, body=None):
         headers = {"X-OAuth-Scopes": "repo"}
         if method == "GET" and path.endswith("/rules/branches/main"):
             return 200, [], headers
         if method == "GET" and path.endswith("/rulesets"):
             return 200, [], headers
+        sec = _security_floor_responses(method, path, body, available=False)
+        if sec is not None:
+            return sec[0], sec[1], headers
         if method in ("POST", "PUT"):
             return 403, {"message": "Resource not accessible by integration"}, headers
         if path.startswith("/repos/"):
@@ -1115,9 +1162,19 @@ _STEP_LABELS = {
     "substrates": "Prepare the engine's saved information",
     "wires": "Switch the engine on (its automatic helpers)",
     "control-plane": "Turn on the branch review gate",
+    "security-floor": "Turn on GitHub's native security features",
 }
+# A security-floor "applied" means every native toggle reached an honest outcome (on / already / pending /
+# unavailable-and-disclosed); "skipped" is the clean no-project/sign-in case. Only a failed/unconfirmed
+# toggle degrades the step.
 _GOOD_STATUSES = {"done", "written", "adopted", "already", "materialized", "applied",
-                  "kept-operator-default"}
+                  "kept-operator-default", "skipped"}
+
+
+def _step(steps: list, name: str) -> dict:
+    """The ledger entry for a named step (the control-plane gate is no longer the LAST step — a security-
+    floor step follows it — so gate-result consumers must address it BY NAME, never by position)."""
+    return next((s for s in steps if s.get("step") == name), {})
 
 
 def _print_apply_ledger(steps: list, faked: dict) -> None:
@@ -1165,7 +1222,7 @@ def _apply_demo() -> int:
             graph_on = os.path.isfile(os.path.join(tmp, ".engine", "knowledge", "graph.json"))
             extras_gone = not os.path.isdir(os.path.join(tmp, ".engine", "modules", "extras-demo"))
         _print_apply_ledger(res["steps"], faked)
-        gate_on = bool(res["steps"][-1].get("protected"))
+        gate_on = bool(_step(res["steps"], "control-plane").get("protected"))
         print(f"    → the engine is switched on (its helpers are wired: {hooks_on}), the safer default is on "
               f"({plan_on}), its query server is registered ({mcp_on}) and saved information prepared "
               f"({graph_on}); the unkept add-on is gone ({extras_gone}); the review gate is on ({gate_on}).")
@@ -1218,8 +1275,8 @@ def _apply_demo() -> int:
             res = apply(announce=lambda t: None,
                         uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
                         control_transport=_defer_transport(), **dict(common, gh_refresh=lambda s: False))
-        cp = res["steps"][-1]
-        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 7
+        cp = _step(res["steps"], "control-plane")
+        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 8
         print(f"    → the review-gate step: {cp['status']} (the engine never pretends it's on: "
               f"protected={cp.get('protected')}).")
         print(f"    → setup still completed every other step and ended cleanly ({ended}).")
@@ -1303,7 +1360,7 @@ def _finish_demo() -> int:
         with _redirect_root(tmp):
             confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
             applied = _finish_apply(tmp)
-            gate = applied["steps"][-1]
+            gate = _step(applied["steps"], "control-plane")     # the gate is no longer the last step
             v = verify(announce=lambda t: print("    " + t), control_status=gate)
             r = retire(announce=lambda t: print("    " + t))
             assets_gone = all(not os.path.exists(os.path.join(tmp, rel))

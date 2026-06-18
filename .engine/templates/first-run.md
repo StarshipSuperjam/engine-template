@@ -57,14 +57,6 @@ instead of posting it in the open where it could be misused. You own this file a
 your project already had one, I left yours exactly as it is. I didn't add it silently — this note is me
 telling you it's there.
 
-## About automatic secret scanning
-
-A quick note on automatic secret scanning — the check that warns you if a password or key is committed by
-accident. If your project's hosting doesn't include it, I can't switch it on for you, so the project is on the
-basic level for now. To get automatic scanning you can make the project public, or add GitHub's Advanced
-Security if your plan offers it. I'm telling you so you can decide — I won't switch anything on or off without
-you.
-
 ## If I couldn't set up file ownership for reviews
 
 I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files for
