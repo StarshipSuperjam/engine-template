@@ -1827,7 +1827,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:3d748bb7564aa39c6aaaa030447e379d8cd578276a931c34669006b5661b8291",
+        "fingerprint": "sha256:31902909de6c4919e876005c3512fdd31b0a80d0a5fdd27cb8c2eb68550de6ff",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -1912,7 +1912,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:22db08b3c6b0bcc20bc247e1438e0acc4d5510066b8cce31142ebabd2674736a",
+        "fingerprint": "sha256:d448abf0b09e9e9d5fe7d7ae1b0a08cc9170eaa7d05bdd90b39862c2d73d7dc0",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -1997,7 +1997,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:999127d3215c72c6f549f9189734839cc8c07fe077507c3d62212856bc80ef3d",
+        "fingerprint": "sha256:3123f631f3638dc03b1c7365788f79a423ed4308806e039e1466a4bec71261af",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -2031,7 +2031,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:74759900280e3ee24398865c9857d8c40f563b9dcc13f7dc9d97e3a92e2370d1",
+        "fingerprint": "sha256:94d63417e3b95ecddf416ee607e30da720093c01ad241cfcfea3c541506f5545",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -2286,7 +2286,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:6c06f74c19bc9152308a69c80a93d514cb46a04a97a469c1468821c87c094e66",
+        "fingerprint": "sha256:3e7bec7911c61ca92c73317f7518f26f8c7de8d2b1e25fa81190f21cd86ab7bc",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -2456,7 +2456,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:67f02f09331c762a3f207a61f9a60198752c60adda677fe97eb3a725e2aa242f",
+        "fingerprint": "sha256:545ddd1662e2a7f544b952e645fd41ab514d764f80fe1a6c80226f2e4fb6a0a8",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -2883,6 +2883,23 @@
       "source": {
         "fingerprint": "sha256:7687ea13bcba06214c33f472d49e76ac04670e0cd8caa16a147e31d11a23bb2e",
         "path": ".engine/tools/test_policy_override_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_records",
+      "name": ".engine/tools/memory/test_records.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_records",
+      "source": {
+        "fingerprint": "sha256:aef893baf7621018597036fc5f0fe892ce9afe8fdf0bcfd41fb8f824068034d2",
+        "path": ".engine/tools/memory/test_records.py"
       },
       "status": "active",
       "type": "tool"

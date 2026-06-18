@@ -52,7 +52,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger  # noqa: E402
+from memory import ledger, records  # noqa: E402
 
 RECORD_VERSION = 1                       # the per-record ledger-version envelope (slice-1 forward-owe)
 RECORD_KIND = "turn-delta"
@@ -63,7 +63,8 @@ CHUNK_MAX_CHARS = 4_000                  # per-record body cap (paragraph-prefer
 MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024  # 64 MiB hard ceiling; refuse a larger transcript
 
 TRANSCRIPT_DIR_ENV = "ENGINE_MEMORY_TRANSCRIPT_DIR"  # adopter/test escape hatch (an ADDITIONAL root)
-SESSION_ENV = "CLAUDE_SESSION_ID"
+SESSION_ENV = "CLAUDE_CODE_SESSION_ID"   # the live platform session var (matches consolidate.py); the env
+                                         # fallback used only when the hook payload omits `session_id`
 TRANSCRIPT_ENV = "CLAUDE_TRANSCRIPT_PATH"
 
 _LOCK_ATTEMPTS = 20      # × interval => ~1s bound; on contention, a clean no-op (caught next Stop)
@@ -273,10 +274,13 @@ def _release_lock(fd) -> None:
 
 def _make_record(session_id: str, seq: int, speaker: str, text: str) -> dict:
     """The turn-delta record envelope. `ts`/`seq` are INTEGERS on purpose: the derived index's
-    record-text projection indexes only string leaves, so integers stay out of the search body."""
+    record-text projection indexes only string leaves, so integers stay out of the search body. `id` is the
+    stable, content-free record id minted at capture (slice 4b) — kept out of the search body too
+    (index._NON_BODY_KEYS)."""
     return {
         "v": RECORD_VERSION,
         "kind": RECORD_KIND,
+        records.RECORD_ID_KEY: records.new_record_id(),
         "session_id": session_id,
         "ts": int(time.time()),
         "seq": seq,
