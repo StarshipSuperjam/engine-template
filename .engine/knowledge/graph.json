@@ -1895,6 +1895,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_secret_scan",
+      "name": ".engine/tools/demo_secret_scan.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_secret_scan",
+      "source": {
+        "fingerprint": "sha256:fb72c7d954bf908eee10fe1ec28bf40cf6d699cf34c71f1e5a7f438f460b54d8",
+        "path": ".engine/tools/demo_secret_scan.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:engine_help",
       "name": ".engine/tools/engine_help.py",
       "owner": "core",
@@ -2143,7 +2160,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:b0dca9f6e51951662d2f08f8a43689136b433d42b0e8fc12587eae74a2b9331c",
+        "fingerprint": "sha256:8d156ebb192db2c31a0a6d662bec5ea5a9042787ad988717ba6d258c62da9071",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -2825,6 +2842,23 @@
       "source": {
         "fingerprint": "sha256:7687ea13bcba06214c33f472d49e76ac04670e0cd8caa16a147e31d11a23bb2e",
         "path": ".engine/tools/test_policy_override_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_secret_scan",
+      "name": ".engine/tools/test_secret_scan.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_secret_scan",
+      "source": {
+        "fingerprint": "sha256:1116267b61e4f43fdd7da22bdd413ba12f5cef5219d515c47a6a880a82211715",
+        "path": ".engine/tools/test_secret_scan.py"
       },
       "status": "active",
       "type": "tool"
