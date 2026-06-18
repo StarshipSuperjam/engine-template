@@ -102,42 +102,55 @@ class TestInterpreterPath(unittest.TestCase):
             self.assertNotIn("uv ", p)
             self.assertNotEqual(p, "python")
 
-    def test_hook_command_waits_for_the_venv_then_execs_the_rooted_script(self):
-        # The form is now a bounded wait-for-interpreter, then `exec` of the explicit venv interpreter on
-        # the ${CLAUDE_PROJECT_DIR}-rooted script (issue #83). Byte-exact so a drift is caught.
+    def test_hook_command_calls_the_launcher_with_the_explicit_interpreter(self):
+        # The form is now a call to the hook launcher (.engine/tools/hook-runner.sh) with the explicit
+        # ${CLAUDE_PROJECT_DIR}-rooted venv interpreter named as its first argument, then the
+        # ${CLAUDE_PROJECT_DIR}-rooted script. The wait/exec mechanics live in the launcher; the command
+        # stays legible. Byte-exact so a drift is caught.
         self.assertEqual(
             hooks.hook_command("tools/some_hook.py", "posix"),
-            'n=0; while [ ! -x "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ] && [ "$n" -lt 50 ]; '
-            'do sleep 0.1; n=$((n+1)); done; '
-            '[ -x "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ] && '
-            'exec "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ${CLAUDE_PROJECT_DIR}/tools/some_hook.py')
+            'sh "${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh" '
+            '"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ${CLAUDE_PROJECT_DIR}/tools/some_hook.py')
 
 
 class TestHookCommandWaitWrapper(unittest.TestCase):
-    """The bounded wait-for-venv the fresh-worktree race needs (issue #83): bounded, exec-only-the-venv,
-    never a system-Python fallback, args preserved, and the live wait/degrade behaviour under `sh -c`."""
+    """The wait/exec mechanics moved from the inline command into the committed launcher
+    (.engine/tools/hook-runner.sh) so the displayed command is legible, NOT a wall of shell. The launcher
+    keeps exactly the fresh-worktree-race behaviour (issue #83): bounded wait, exec-only-the-given-venv-
+    interpreter, never a system-Python fallback, args preserved, and the live wait/degrade behaviour."""
 
-    def _rendered(self, relpath, project_dir):
-        # what Claude Code runs: the form with ${CLAUDE_PROJECT_DIR} textually substituted, under `sh -c`.
-        return hooks.hook_command(relpath, "posix").replace(hooks.PROJECT_DIR_VAR, project_dir)
+    WRAPPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hook-runner.sh")
 
-    def test_the_wait_is_bounded_not_infinite(self):
+    def test_the_command_is_legible_not_a_wall_of_shell(self):
+        # the presentation fix: the displayed command no longer carries shell control-flow — it just calls
+        # the launcher. The wall (while/done/exec/sleep/loop-arithmetic) lives in hook-runner.sh now.
         cmd = hooks.hook_command(".engine/tools/boot.py", "posix")
-        self.assertIn("while", cmd)
-        self.assertIn(f'-lt {hooks.WAIT_FOR_RUNTIME_POLLS}', cmd)   # a numeric cap, never an unbounded loop
-        self.assertIn("exec", cmd)
+        self.assertIn("hook-runner.sh", cmd)
+        for control in ("while", "done", "exec", "sleep", "n=$(("):
+            self.assertNotIn(control, cmd)
 
-    def test_execs_only_the_venv_interpreter_never_system_python(self):
+    def test_command_names_the_explicit_venv_interpreter_never_system_python(self):
+        # the conformance witness (D-156): the explicit ${CLAUDE_PROJECT_DIR}-rooted venv interpreter is
+        # named IN the command (the launcher's first arg), never a bare/system interpreter or `uv run`.
         cmd = hooks.hook_command(".engine/tools/boot.py", "posix")
-        # the ONLY interpreter the command names/execs is the explicit venv path...
-        self.assertIn(f'exec "{hooks.interpreter_path("posix")}"', cmd)
-        self.assertEqual(cmd.count("exec "), 1)     # a single exec, of that interpreter
-        # ...never a bare/system interpreter or `uv run` (the venv path's own `/bin/python` is the only
-        # `bin/python` present, so guard the system locations explicitly).
+        self.assertIn(f'"{hooks.interpreter_path("posix")}"', cmd)
         self.assertNotIn("exec python", cmd)
         self.assertNotIn("uv ", cmd)
         self.assertNotIn("/usr/bin/", cmd)
         self.assertNotIn("/usr/local/bin/", cmd)
+
+    def test_the_launcher_waits_bounded_and_execs_only_the_given_interpreter(self):
+        # the launcher source: a bounded (not infinite) wait, then a single exec of ONLY the passed
+        # interpreter with the forwarded args — never a bare/system Python fallback.
+        with open(self.WRAPPER) as fh:
+            src = fh.read()
+        self.assertIn("while", src)
+        self.assertIn("-lt", src)                       # a numeric cap, never an unbounded loop
+        self.assertIn("shift", src)                     # the interpreter arg is consumed, so "$@" = script+args
+        self.assertIn('exec "$interp" "$@"', src)       # one exec, of the passed interpreter, args forwarded
+        self.assertEqual(src.count("exec "), 1)
+        for forbidden in ("uv ", "/usr/bin/", "/usr/local/bin/", "exec python"):
+            self.assertNotIn(forbidden, src)
 
     def test_per_os_form_carries_its_own_venv_interpreter(self):
         self.assertIn(".engine/.venv/bin/python",
@@ -152,11 +165,12 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
         self.assertTrue(hooks.hook_command(".engine/tools/modes.py accept-hook", "posix")
                         .rstrip().endswith(" accept-hook"))
 
-    def test_waits_then_execs_when_the_interpreter_appears_late(self):
-        # the race, simulated deterministically: the interpreter is created AFTER the command starts.
-        with tempfile.TemporaryDirectory() as pd:
-            interp = os.path.join(pd, ".engine", ".venv", "bin", "python")
-            os.makedirs(os.path.dirname(interp))
+    def test_launcher_waits_then_execs_when_the_interpreter_appears_late(self):
+        # the race, simulated deterministically against the REAL committed launcher: the interpreter is
+        # created AFTER the launcher starts; it must wait, then exec it, forwarding the script + its arg.
+        with tempfile.TemporaryDirectory() as td:
+            interp = os.path.join(td, "python")
+            script = os.path.join(td, "boot.py")
 
             def _provision_late():
                 time.sleep(0.3)
@@ -166,24 +180,23 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
 
             t = threading.Thread(target=_provision_late)
             t.start()
-            r = subprocess.run(["sh", "-c", self._rendered(".engine/tools/boot.py", pd)],
+            r = subprocess.run(["sh", self.WRAPPER, interp, script, "hook"],
                                capture_output=True, text=True, timeout=10)
             t.join()
-            self.assertIn("STUB-RAN", r.stdout)                 # the venv interpreter ran after the wait
-            self.assertIn(".engine/tools/boot.py", r.stdout)    # the script path passed through
+            self.assertIn("STUB-RAN", r.stdout)             # the interpreter ran after the wait
+            self.assertIn(script, r.stdout)                 # the script path passed through
+            self.assertIn("hook", r.stdout)                 # the trailing arg passed through
 
-    def test_runs_nothing_and_never_falls_back_when_interpreter_never_appears(self):
-        orig = hooks.WAIT_FOR_RUNTIME_POLLS
-        hooks.WAIT_FOR_RUNTIME_POLLS = 3                        # ~0.3 s bound so the test is fast
-        try:
-            with tempfile.TemporaryDirectory() as pd:
-                os.makedirs(os.path.join(pd, ".engine", ".venv", "bin"))   # dir exists, interpreter does NOT
-                r = subprocess.run(["sh", "-c", self._rendered(".engine/tools/boot.py", pd)],
-                                   capture_output=True, text=True, timeout=10)
-                self.assertEqual(r.stdout, "")                 # nothing ran — no system-Python fallback
-                self.assertNotEqual(r.returncode, 0)           # the falsy `[ -x ]` short-circuits the exec
-        finally:
-            hooks.WAIT_FOR_RUNTIME_POLLS = orig
+    def test_launcher_runs_nothing_and_never_falls_back_when_interpreter_never_appears(self):
+        with tempfile.TemporaryDirectory() as td:
+            interp = os.path.join(td, "python")             # never created
+            script = os.path.join(td, "boot.py")
+            r = subprocess.run(["sh", self.WRAPPER, interp, script],
+                               capture_output=True, text=True, timeout=10,
+                               env={**os.environ, "ENGINE_HOOK_WAIT_POLLS": "3",
+                                    "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})       # ~0.15 s bound, fast
+            self.assertEqual(r.stdout, "")                  # nothing ran — no system-Python fallback
+            self.assertNotEqual(r.returncode, 0)            # the falsy `[ -x ]` short-circuits the exec
 
 
 class TestHookCommandMatchesWiredLiterals(unittest.TestCase):

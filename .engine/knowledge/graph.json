@@ -954,7 +954,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:0e3fdec07b96e622e7edb799dae51fe010208f0047d4bb585810d61c5e8a79cd",
+        "fingerprint": "sha256:eed1e8dcdb95e0c7bb3ee1404ae035c134e8c6767db4f5fe4225cfd8215d62cc",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -972,7 +972,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:d855d7af3c9fedc97764db1622ff2e53d55850daf9c7c2b22e4a9695be23d65f",
+        "fingerprint": "sha256:b67a426aefaa612fe085640d28ee2bfb8844cc2797d8fb583a7f61fc1a6b2f69",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -2215,6 +2215,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:hook-runner",
+      "name": ".engine/tools/hook-runner.sh",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "hook-runner",
+      "source": {
+        "fingerprint": "sha256:8bae58f07954e17fd3b7647d00b2cca4f270d4abd71a8f5f344c25e5054ff94c",
+        "path": ".engine/tools/hook-runner.sh"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:hooks",
       "name": ".engine/tools/hooks.py",
       "owner": "core",
@@ -2225,7 +2242,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:54ff466667363101bb7b1efc693abb90134f596e33fac0b9ca98a9e7318affbc",
+        "fingerprint": "sha256:e409d953a2a300d4082c4b36b582fc07ec133caa5139c772480e1a125a578e21",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -2888,7 +2905,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:d1ab257e6d907063c5b8a45c5704e7945c3a7a62d1f7893465ae4aea265ee6ac",
+        "fingerprint": "sha256:fdba47bf8c8501b9e1ec329c5707258670fe63e7b858ad36f9f7e3f954b0c9fd",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",

@@ -6,11 +6,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/boot.py"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/boot.py"
           },
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
           }
         ]
       },
@@ -19,11 +19,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/boot.py"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/boot.py"
           },
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
           }
         ]
       },
@@ -32,11 +32,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/boot.py"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/boot.py"
           },
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
           }
         ]
       }
@@ -47,11 +47,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/modes.py"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/modes.py"
           },
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/knowledge_gen.py hook"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/knowledge_gen.py hook"
           }
         ]
       }
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/close.py"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/close.py"
           }
         ]
       }
@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/modes.py accept-hook"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/modes.py accept-hook"
           }
         ]
       }
@@ -84,7 +84,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "n=0; while [ ! -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && [ \"$n\" -lt 50 ]; do sleep 0.1; n=$((n+1)); done; [ -x \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ] && exec \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py pre-compact"
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py pre-compact"
           }
         ]
       }
