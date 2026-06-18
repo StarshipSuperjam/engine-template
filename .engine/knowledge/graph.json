@@ -65,7 +65,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:cb8d9135ea6a628d0a6235d5ad8f70b3296588bcbed00b3888c45998842c53b6",
+        "fingerprint": "sha256:ccbae65cc682ce2143938019f24560b3e533777791c5bee9d85f9e2833c70d09",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -2463,7 +2463,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:cec0154e3c2c5fd2a64e542c70fa37e4ab472c40be9af770497be59cd42ab0a6",
+        "fingerprint": "sha256:d7cfedbf5009da6f24b932cbf4b7d73a8ed26f1d2dc4b9733fa437e3c260e4c9",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",

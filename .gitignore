@@ -19,6 +19,10 @@
 __pycache__/
 *.pyc
 
+# Pytest's run-cache (regenerable; never committed). Mirrors the .engine/.pytest_cache/ carve-out in
+# the catalog-coverage check, so a local test run never leaves a stray "surface" directory behind.
+.pytest_cache/
+
 # macOS
 .DS_Store
 # BEGIN engine-managed block: core-knowledge-cache - do not edit inside

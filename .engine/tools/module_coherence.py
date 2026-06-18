@@ -123,9 +123,9 @@ OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/conduct/operator.
 
 # Directories under .engine/ that are regenerable derivatives or caches — never owned files. The
 # inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts
-# (the uv venv, Python bytecode, and knowledge's derived `.cache/` query index, slice 11). Pruning
-# them keeps the ownership leg from flagging a derived cache as an unowned orphan.
-PRUNE_DIRS = {".venv", "__pycache__", ".cache"}
+# (the uv venv, Python bytecode, the pytest run-cache, and knowledge's derived `.cache/` query index,
+# slice 11). Pruning them keeps the ownership leg from flagging a derived cache as an unowned orphan.
+PRUNE_DIRS = {".venv", "__pycache__", ".cache", ".pytest_cache"}
 
 MODULES_GLOB = ".engine/modules/*/manifest.json"
 
