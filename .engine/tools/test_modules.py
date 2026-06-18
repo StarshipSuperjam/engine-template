@@ -295,10 +295,11 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
-    def test_check_corpus_split_core_two_guards_validators_core_twenty_eight(self):
+    def test_check_corpus_split_core_two_guards_validators_core_twenty_nine(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
-        # the self-validation corpus is validators-core's (28 rules: the 25 prior — the 20 after the
+        # the self-validation corpus is validators-core's (29 rules: the 28 prior plus the
+        # knowledge-vocabulary parity guard (issue #131) — the 20 after the
         # operation grammar (slice OG) and the skill grammar (slice SG) plus the doc-frontmatter and
         # doc-shape grammar rules (slice 19) and the uv-group-drift gate (slice 25c) and the
         # skill-coherence self-election guard (slice 26a) and the policy-override-stale rule
@@ -339,6 +340,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/engine-manifest.json",
             ".engine/check/interface-declaration.json",
             ".engine/check/knowledge-coverage.json",
+            ".engine/check/knowledge-vocabulary.json",
             ".engine/check/link-integrity.json",
             ".engine/check/module-manifest.json",
             ".engine/check/operation-frontmatter.json",
@@ -353,7 +355,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/skill-shape.json",
             ".engine/check/state-cursor.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 28 corpus rules")
+        ], "validators-core owns exactly the 29 corpus rules")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))

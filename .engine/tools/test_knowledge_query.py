@@ -37,18 +37,18 @@ def _entity(eid, etype, owner, src, preds):
 
 
 def _fixture_graph() -> dict:
-    """A small controlled graph: checks governed by schemas + targeting state, all provided by core,
-    a 2-hop chain (check:c1 -> state:x -> schema:s2), and an isolated doc:orphan."""
+    """A small controlled graph: checks governed by schemas + targeting an interface, all provided by core,
+    a 2-hop chain (check:c1 -> interface:x -> schema:s2), and an isolated doc:orphan."""
     return {"schema_version": 1, "entities": [
         _entity("module:core", "module", "core", ".engine/modules/core/manifest.json", {}),
         _entity("schema:s1", "schema", "core", ".engine/schemas/s1.json",
                 {"provided_by": ["module:core"]}),
         _entity("schema:s2", "schema", "core", ".engine/schemas/s2.json",
                 {"provided_by": ["module:core"]}),
-        _entity("state:x", "state", "core", ".engine/state/x.json",
+        _entity("interface:x", "interface", "core", ".engine/interfaces/x.json",
                 {"provided_by": ["module:core"], "governed_by": ["schema:s2"]}),
         _entity("check:c1", "check", "core", ".engine/check/c1.json",
-                {"provided_by": ["module:core"], "governed_by": ["schema:s1"], "targets": ["state:x"]}),
+                {"provided_by": ["module:core"], "governed_by": ["schema:s1"], "targets": ["interface:x"]}),
         _entity("check:c2", "check", "core", ".engine/check/c2.json",
                 {"provided_by": ["module:core"], "governed_by": ["schema:s1"]}),
         _entity("doc:orphan", "doc", "core", ".engine/docs/orphan.md", {}),
@@ -79,7 +79,7 @@ class TestQueryOps(unittest.TestCase):
         e = kq._get_entity(self.conn, "check:c1")
         self.assertEqual(e["id"], "check:c1")
         self.assertEqual(e["predicates"]["governed_by"], ["schema:s1"])
-        self.assertEqual(e["predicates"]["targets"], ["state:x"])
+        self.assertEqual(e["predicates"]["targets"], ["interface:x"])
         self.assertEqual(e["predicates"]["provided_by"], ["module:core"])
 
     def test_get_entity_unknown_is_none(self):
@@ -97,7 +97,7 @@ class TestQueryOps(unittest.TestCase):
 
     def test_neighbors_out(self):
         got = {n["id"] for n in kq._neighbors(self.conn, "check:c1", direction="out")}
-        self.assertEqual(got, {"schema:s1", "state:x", "module:core"})
+        self.assertEqual(got, {"schema:s1", "interface:x", "module:core"})
 
     def test_neighbors_in_is_reverse_traversal(self):
         # who is governed_by schema:s1 — the checks point AT it (the reverse edge the index exists for)
@@ -116,7 +116,7 @@ class TestQueryOps(unittest.TestCase):
         d1 = {n["id"] for n in kq._neighbors(self.conn, "check:c1", direction="out", depth=1)}
         d2 = {n["id"] for n in kq._neighbors(self.conn, "check:c1", direction="out", depth=2)}
         self.assertNotIn("schema:s2", d1)
-        self.assertIn("schema:s2", d2)          # reached via check:c1 -> state:x -> schema:s2
+        self.assertIn("schema:s2", d2)          # reached via check:c1 -> interface:x -> schema:s2
 
     def test_neighbors_rejects_bad_args(self):
         with self.assertRaises(ValueError):
