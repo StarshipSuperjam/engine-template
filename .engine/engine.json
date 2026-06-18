@@ -3,7 +3,8 @@
   "packages": {
     "core": "0.0.0-dev",
     "validators-core": "0.0.0-dev",
-    "memory-substrate-sqlite-fts5": "0.0.0-dev"
+    "memory-substrate-sqlite-fts5": "0.0.0-dev",
+    "routine-mode": "0.0.0-dev"
   },
   "identity": "solo"
 }

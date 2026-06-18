@@ -26,12 +26,13 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (3 installed).
+The packages your engine is assembled from, and how they wire together (4 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
 - `core` (no dependencies)
 - `memory-substrate-sqlite-fts5` → `core`
+- `routine-mode` → `core`
 - `validators-core` → `core`
 
 ### `core` — version `0.0.0-dev` (required)
@@ -46,11 +47,11 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
-  - operation: `.engine/operations/*.md`
+  - operation: `.engine/operations/boot-session-start.md`, `.engine/operations/build-orchestration.md`, `.engine/operations/close-turn.md`, `.engine/operations/conduct-author.md`, `.engine/operations/control-plane-bootstrap.md`, `.engine/operations/engine-remove.md`, `.engine/operations/engine-upgrade.md`, `.engine/operations/first-run.md`, `.engine/operations/module-add.md`, `.engine/operations/module-remove.md`, `.engine/operations/operating-modes.md`, `.engine/operations/tune-policy.md`
   - policy: `.engine/policies/*.md`
   - provisioning: `.engine/provisioning/module-catalog.json`
   - schema: `.engine/schemas/*.json`
-  - skill: `.claude/skills/*/SKILL.md`, `.claude/skills/.gitkeep`
+  - skill: `.claude/skills/.gitkeep`, `.claude/skills/engine-conduct/SKILL.md`, `.claude/skills/engine-help/SKILL.md`, `.claude/skills/engine-setup/SKILL.md`, `.claude/skills/engine-start/SKILL.md`, `.claude/skills/engine-status/SKILL.md`, `.claude/skills/engine-tune/SKILL.md`
   - state: `.engine/state/*.json`
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`
@@ -62,6 +63,14 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - provides:
   - tool: `.engine/tools/memory/*.py`
 - wires: gitignore, hook
+
+### `routine-mode` — version `0.0.0-dev` (required)
+
+- depends on: `core`
+- provides:
+  - operation: `.engine/operations/routine-entry.md`
+  - skill: `.claude/skills/engine-routine/SKILL.md`
+- wires: none (this module adds no shared-state edits)
 
 ### `validators-core` — version `0.0.0-dev` (required)
 

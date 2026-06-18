@@ -426,6 +426,7 @@
         "targets": [
           "module:core",
           "module:memory-substrate-sqlite-fts5",
+          "module:routine-mode",
           "module:validators-core"
         ]
       },
@@ -465,6 +466,7 @@
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
+          "operation:routine-entry",
           "operation:tune-policy"
         ]
       },
@@ -504,6 +506,7 @@
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
+          "operation:routine-entry",
           "operation:tune-policy"
         ]
       },
@@ -928,7 +931,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a40cd5fe4b33e0f7489dc201ecf0d0d0eb5a0ca8b270d03241f2cb2503181127",
+        "fingerprint": "sha256:0e3fdec07b96e622e7edb799dae51fe010208f0047d4bb585810d61c5e8a79cd",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -948,6 +951,24 @@
       "source": {
         "fingerprint": "sha256:d855d7af3c9fedc97764db1622ff2e53d55850daf9c7c2b22e4a9695be23d65f",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
+      },
+      "status": "required",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
+      "id": "module:routine-mode",
+      "name": "routine-mode",
+      "owner": "routine-mode",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "routine-mode",
+      "source": {
+        "fingerprint": "sha256:fb2e5d9de597dfca3f8fdb1748736ee9ba18e3fa5ed500a21fb4bb34cb1ea50a",
+        "path": ".engine/modules/routine-mode/manifest.json"
       },
       "status": "required",
       "type": "module",
@@ -1187,6 +1208,26 @@
       "source": {
         "fingerprint": "sha256:fb3a504f4877e801e2926e5f6eb45fc9ab59a5abc8b8ce750266e0a905a46d16",
         "path": ".engine/operations/operating-modes.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:routine-entry",
+      "name": ".engine/operations/routine-entry.md",
+      "owner": "routine-mode",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:routine-mode"
+        ]
+      },
+      "slug": "routine-entry",
+      "source": {
+        "fingerprint": "sha256:cc1f1c961a12d35b36dd0e3e13cf2fbde2f8f8d9ca952ef31658dac2769a1a74",
+        "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
       "type": "operation"
