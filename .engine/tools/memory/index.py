@@ -56,9 +56,12 @@ _FTS_PROBE_TABLE = "engine_fts5_probe"
 # never drag in every record that carries it (the same pollution the capture-record provenance fields would
 # cause). Episodic provenance (`consolidated_ts`, `source_seqs`) is non-string and stays out by type. The
 # per-pass `batch` id the forgetting slice (4a) adds is a uuid — its hex fragments are real words, exactly the
-# `session_id` problem — so it joins this set too.
+# `session_id` problem — so it joins this set too. The per-record `id` (slice 4b) is also a uuid hex (its only
+# purpose is to NAME a record, never to be searched), so it joins for the same reason.
 _TAGS_KEY = "tags"
-_NON_BODY_KEYS = frozenset({"tags", "session_id", "kind", "speaker", "role", records.BATCH_KEY})
+_NON_BODY_KEYS = frozenset(
+    {"tags", "session_id", "kind", "speaker", "role", records.BATCH_KEY, records.RECORD_ID_KEY}
+)
 
 
 @dataclass

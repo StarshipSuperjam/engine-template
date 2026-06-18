@@ -27,11 +27,11 @@ class CaptureTestCase(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="engine-capture-test-")
         self.mem = os.path.join(self.tmp, "mem")
         self._saved = {k: os.environ.get(k) for k in (
-            "ENGINE_MEMORY_DIR", "ENGINE_MEMORY_TRANSCRIPT_DIR", "CLAUDE_SESSION_ID", "CLAUDE_TRANSCRIPT_PATH",
+            "ENGINE_MEMORY_DIR", "ENGINE_MEMORY_TRANSCRIPT_DIR", "CLAUDE_CODE_SESSION_ID", "CLAUDE_TRANSCRIPT_PATH",
         )}
         os.environ["ENGINE_MEMORY_DIR"] = self.mem
         os.environ["ENGINE_MEMORY_TRANSCRIPT_DIR"] = self.tmp
-        os.environ.pop("CLAUDE_SESSION_ID", None)
+        os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
         os.environ.pop("CLAUDE_TRANSCRIPT_PATH", None)
         self.ledger = os.path.join(self.mem, "ledger.ndjson")
         self.data_dir = self.mem
@@ -286,12 +286,12 @@ class ContentTests(CaptureTestCase):
 class EnvAndShapeTests(CaptureTestCase):
     def test_session_and_transcript_env_fallbacks_are_used(self):
         t = self.transcript("s.jsonl", [_msg("user", "from the environment")])
-        os.environ["CLAUDE_SESSION_ID"] = "env-session"
+        os.environ["CLAUDE_CODE_SESSION_ID"] = "env-session"
         os.environ["CLAUDE_TRANSCRIPT_PATH"] = t
         try:
             n = capture.capture_turn_delta({})   # empty payload -> both come from the env
         finally:
-            os.environ.pop("CLAUDE_SESSION_ID", None)
+            os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
             os.environ.pop("CLAUDE_TRANSCRIPT_PATH", None)
         self.assertEqual(n, 1)
         self.assertEqual(self.records()[0]["session_id"], "env-session")

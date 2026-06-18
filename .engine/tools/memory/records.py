@@ -10,6 +10,8 @@ imports nothing from the `memory` package — lets `index` and `forget` import t
 stdlib-only; imports nothing from `memory`.
 """
 
+import uuid
+
 # Record kinds (the `kind` field). `turn-delta` is capture's own (it stays in capture.py); these are the
 # shared kinds the reflection (3b) and forgetting (4a+) layers both reference.
 EPISODIC_KIND = "episodic"          # an AI-written episodic summary record
@@ -25,3 +27,15 @@ BATCH_KEY = "batch"                 # one id per consolidation pass, stamped on 
                                     # on the pass's marker. It lets `forget` derive, purely from the ledger,
                                     # which episodics a *completed* pass closed — and which are orphans from a
                                     # crashed pass (their batch carries no marker), to logically retire.
+
+# The stable, content-free record id (slice 4b). Minted at capture in each record factory — one per record, on
+# every kind (turn-delta, episodic, marker). It is a durable NAME for a record: a uuid hex, so it reveals nothing
+# about the gitignored content (content-free) and survives the index rebuild and the future compaction rewrite (it
+# rides in the record JSON, not an ephemeral index offset). The derived index keeps it OUT of the search body
+# (index._NON_BODY_KEYS): a uuid's hex fragments are real words, exactly the `session_id`/`batch` problem.
+RECORD_ID_KEY = "id"
+
+
+def new_record_id() -> str:
+    """Mint a fresh content-free record id (a uuid4 hex). Distinct per call; reveals nothing about content."""
+    return uuid.uuid4().hex

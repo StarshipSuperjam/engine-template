@@ -49,7 +49,7 @@ from memory import capture, index, ledger  # noqa: E402
 # `forget` and `index` also use. Importing the NAMES (not the module) avoids shadowing the
 # `store_episodic(..., records=...)` parameter and keeps `consolidate.EPISODIC_KIND` resolving for tests/demo.
 from memory.records import (  # noqa: E402
-    BATCH_KEY, DEFAULT_EPISODIC_TAG, EPISODIC_KIND, MARKER_KIND, MARKER_TAG,
+    BATCH_KEY, DEFAULT_EPISODIC_TAG, EPISODIC_KIND, MARKER_KIND, MARKER_TAG, RECORD_ID_KEY, new_record_id,
 )
 
 # The closed, Engine-shipped role vocabulary (D-030 / memory/README) — amendable via the grammar, never
@@ -140,6 +140,7 @@ def _make_episodic(session_id: str, rec: dict, batch: str) -> dict:
     out = {
         "v": capture.RECORD_VERSION,
         "kind": EPISODIC_KIND,
+        RECORD_ID_KEY: new_record_id(),     # the stable, content-free record id minted at capture (slice 4b)
         "session_id": session_id,
         "ts": now,
         "role": rec["role"],
@@ -162,8 +163,8 @@ def _make_marker(session_id: str, batch: str) -> dict:
     `batch` id: a *completed* pass is exactly one whose episodics' batch has a marker, so `forget` can
     logically retire the orphan episodics of a pass that crashed before its marker landed."""
     now = int(time.time())
-    return {"v": capture.RECORD_VERSION, "kind": MARKER_KIND, "session_id": session_id, "ts": now,
-            "tags": [MARKER_TAG], BATCH_KEY: batch}
+    return {"v": capture.RECORD_VERSION, "kind": MARKER_KIND, RECORD_ID_KEY: new_record_id(),
+            "session_id": session_id, "ts": now, "tags": [MARKER_TAG], BATCH_KEY: batch}
 
 
 def store_episodic(session_id: str, records, *, cwd=None) -> dict:
