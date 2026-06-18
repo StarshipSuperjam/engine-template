@@ -110,13 +110,16 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 # same shape of carve-out by which CODEOWNERS and the foundation .gitignore block sit [outside it]" (D-167,
 # D-169). Absent until the first tune, so it never appears in this construction repo; fixture-tested. The
 # conduct operator-override (.engine/conduct/operator.md), the maintainer's conduct seed
-# (.engine/provisioning/conduct-seed.md), and the maintainer's SECURITY.md disclosure seed
-# (.engine/provisioning/security-seed.md, security floor) are the same kind of carve-out: maintainer/operator-
-# authored content, preserved across overlay, in no `provides`, so the ownership leg must not read them as
-# orphans either. (The SEEDED root SECURITY.md needs no carve-out — it lives outside .engine/, so the
-# ownership walk never reaches it; it is product territory preserved by the overlay's "never touch product".)
+# (.engine/provisioning/conduct-seed.md), the maintainer's SECURITY.md disclosure seed
+# (.engine/provisioning/security-seed.md, security floor), and the maintainer's product-starter README seed
+# (.engine/provisioning/readme-seed.md, the front-door seed — D-213/D-214) are the same kind of carve-out:
+# maintainer/operator-authored content, preserved across overlay, in no `provides`, so the ownership leg must
+# not read them as orphans either. (The SEEDED root files — SECURITY.md, README.md — need no carve-out: they
+# live outside .engine/, so the ownership walk never reaches them; they are product territory preserved by the
+# overlay's "never touch product".)
 OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/conduct/operator.md",
-                   ".engine/provisioning/conduct-seed.md", ".engine/provisioning/security-seed.md"}
+                   ".engine/provisioning/conduct-seed.md", ".engine/provisioning/security-seed.md",
+                   ".engine/provisioning/readme-seed.md"}
 
 # Directories under .engine/ that are regenerable derivatives or caches — never owned files. The
 # inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts

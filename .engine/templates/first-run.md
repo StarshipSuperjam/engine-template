@@ -57,6 +57,14 @@ instead of posting it in the open where it could be misused. You own this file a
 your project already had one, I left yours exactly as it is. I didn't add it silently — this note is me
 telling you it's there.
 
+## Your project's front page is now yours
+
+This project started from a template, and its front page — the `README.md` at the top — was the Engine's own
+landing page, the page that advertises the Engine to people deciding whether to use it. I replaced it with a
+short starter for **your** project, so your repository's front door is about your work, not the Engine. This
+was intentional setup of your project's front page, not a change to anything you wrote — and the starter is
+yours to edit freely. I didn't do it silently — this note is me telling you.
+
 ## If I couldn't set up file ownership for reviews
 
 I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files for

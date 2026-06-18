@@ -97,6 +97,7 @@ COPY_HEADINGS = {
     "plan-mode-conflict": "Your editing default — keep yours, or use the safer one",
     "conduct-seeded": "Your stance came with this project",
     "security-seeded": "A security-contact file came with this project",
+    "readme-seeded": "Your project's front page is now yours",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
     # The finish (verify + tidy-up) phase — slice 27c.
@@ -147,6 +148,13 @@ FALLBACK_COPY = {
         "privately, instead of posting it in the open where it could be misused. You own this file and can edit "
         "it any time; if your project already had one, I left yours exactly as it is. I didn't add it silently "
         "— this note is me telling you it's there."
+    ),
+    "readme-seeded": (
+        "This project started from a template, and its front page — the README.md at the top — was the Engine's "
+        "own landing page, the page that advertises the Engine to people deciding whether to use it. I replaced "
+        "it with a short starter for YOUR project, so your repository's front door is about your work, not the "
+        "Engine. This was intentional setup of your project's front page, not a change to anything you wrote — and "
+        "the starter is yours to edit freely. I didn't do it silently — this note is me telling you."
     ),
     "codeowners-degraded": (
         "I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files "
@@ -642,16 +650,102 @@ def _seed_security(say, copy=None) -> str:
     return "seeded"
 
 
+# The engine's marketing landing-front marker — an invisible HTML comment the template's root README LEADS WITH
+# (and the product starter deliberately does NOT carry). It is the ONE positive-match the README seed/replace fires
+# on, so the replace can only ever touch the engine's own landing page, never operator content (D-213/D-214,
+# topology law 2). The landing front LEADS with this marker (the recognizer requires it at the file's start, not
+# merely somewhere inside) — so a README that only mentions the marker in passing is NOT a match and is preserved
+# (the conservative preserve-on-any-doubt law; #134 authors the marketing copy BELOW this leading marker). Stable
+# across marketing-copy rewrites; a fingerprint would instead need updating on every wording tweak or the replace
+# silently dies. The starter carrying no marker makes a re-run a true no-op (the engine never re-touches the root
+# README after instantiation).
+_MARKETING_SEED_MARKER = "<!-- engine-template:landing-front -->"
+
+# A minimal, valid product-starter README used only when the maintainer's template seed is absent or empty — never
+# an error (the same fallback shape as _DEFAULT_SECURITY_MD). It carries the D-067 required-spine disclosure in plain
+# operator language (no maintainer vocabulary) and the D-095 no-automated-style-floor gap, and it carries NO marker.
+_DEFAULT_README_MD = (
+    "# Your project\n\n"
+    "<!-- Replace this with your project's name and a one-line description of what it does. This starter was\n"
+    "     placed here when you set up the Engine; it is yours to edit freely as your project takes shape. -->\n\n"
+    "A new project, set up to be built with the help of an AI engine.\n\n"
+    "## What the engine does for this project\n\n"
+    "A few things are built in and always on — they are part of how the engine works, not add-ons you chose:\n\n"
+    "- **It remembers across sessions.** The engine keeps track of what you have decided and why, so a new "
+    "session starts from where the last one left off instead of from a blank slate.\n"
+    "- **It keeps your work safe.** Your history and progress are preserved between sessions, so a fresh start "
+    "never loses what came before.\n"
+    "- **It works in a steady routine and checks itself.** The engine follows a consistent way of working and "
+    "runs its own checkups to catch problems early.\n\n"
+    "One thing is **not** yet built in: there is no automatic check of your code's style or formatting. A future "
+    "add-on called `clean-code` is planned to fill that gap; until it lands, code style is not checked for you "
+    "automatically.\n\n"
+    "You own this file — edit it freely.\n"
+)
+
+
+def _is_marketing_seed(text) -> bool:
+    """True iff `text` LEADS WITH the engine's marketing landing-front marker — the ONE positive-match predicate
+    that fires the README replace. Requiring the marker at the START (not merely somewhere inside) is the
+    conservative reading of "the slot still holds the engine's recognizable marketing seed": a README that only
+    mentions the marker in passing is NOT a match and is preserved. Anything else — operator content, an
+    already-seeded starter, or an absent/unreadable/empty file passed as "" or None — is not a match either, so the
+    README is left exactly as it is. The starter the engine writes deliberately carries no marker → a re-run is a
+    no-op (preserve on any doubt; operator content is structurally never clobbered)."""
+    return bool(text) and text.lstrip().startswith(_MARKETING_SEED_MARKER)
+
+
+def _seed_readme(say, copy=None) -> str:
+    """Seed the product's own starter README over the engine's marketing landing front — the seed-then-own pattern,
+    the same SHAPE and DISCLOSURE as _seed_security, but REPLACE-IFF-MARKETING-SEED instead of copy-if-absent
+    (D-213/D-214). At rest in the template the root README is the engine's marketing landing front; "Use this
+    template" copies it to a generated repo's root, which topology reserves for the product. Apply replaces it with
+    a product starter, but ONLY where the current root README still carries the engine's own recognizable marketing
+    marker (_is_marketing_seed). Conservative positive-match-or-preserve: greenfield (the traveled marketing front)
+    -> replaced; brownfield (the product's own README), a re-run (the starter, no marker), or an absent/unreadable
+    file -> left exactly as it is, returns "present". The starter comes from .engine/provisioning/readme-seed.md; an
+    absent or empty seed yields a minimal default, never an error. The seeded README is operator-owned product config
+    (in no `provides`, at the repo root), preserved across the upgrade overlay. Discloses, in plain language, WHAT
+    CHANGED AND WHY IT IS THEIRS — only when it actually replaces (never silent, never on a no-op). Paths are
+    validate.ROOT-relative, so a redirected demo/test touches only the fixture, never the real tree."""
+    target = os.path.join(validate.ROOT, "README.md")
+    try:
+        current = ""
+        if os.path.isfile(target):
+            with open(target, encoding="utf-8") as fh:
+                current = fh.read()
+    except OSError:
+        return "present"                          # unreadable -> preserve on any doubt (never replace)
+    if not _is_marketing_seed(current):
+        return "present"                          # operator content / a seeded starter / absent -> untouched
+    seed_path = os.path.join(validate.ROOT, ".engine", "provisioning", "readme-seed.md")
+    try:
+        content = ""
+        if os.path.isfile(seed_path):
+            with open(seed_path, encoding="utf-8") as fh:
+                content = fh.read()
+        if not content.strip():
+            content = _DEFAULT_README_MD
+        with open(target, "w", encoding="utf-8") as fh:
+            fh.write(content)
+    except OSError:
+        return "skipped"
+    if copy is not None:
+        say(copy["readme-seeded"])
+    return "replaced"
+
+
 def _apply_substrates(say, copy=None) -> dict:
     """STEP 5 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
     re-derive the knowledge graph (idempotent), confirm the state seed is present, seed the operator's
-    codes-of-conduct override from the template seed, and seed a root SECURITY.md disclosure channel
-    (both disclosed in plain language). The two seeds sit here — co-located with the conduct seed, AFTER the
-    runtime — a deliberate mirror of the as-built conduct-seed placement: a pure file copy has no runtime
-    dependency, and on a tool-runtime halt the phase never reaches here, so the seed lands on the resume (its
-    copy-if-absent makes that idempotent). The graph path is bound at import (knowledge_gen), so the demo
-    redirects it AND we pass it explicitly — a redirected run never rewrites the real graph. Memory-backup
-    setup is owed to the memory module (not yet built)."""
+    codes-of-conduct override from the template seed, seed a root SECURITY.md disclosure channel, and seed the
+    product's own starter README over the engine's marketing landing front (all disclosed in plain language).
+    The three seeds sit here — co-located, AFTER the runtime — a deliberate mirror of the as-built conduct-seed
+    placement: a pure file copy has no runtime dependency, and on a tool-runtime halt the phase never reaches
+    here, so a seed lands on the resume (each is idempotent — copy-if-absent for conduct/security, replace-iff-
+    marketing-seed for the README). The graph path is bound at import (knowledge_gen), so the demo redirects it
+    AND we pass it explicitly — a redirected run never rewrites the real graph. Memory-backup setup is owed to
+    the memory module (not yet built)."""
     result = {"step": "substrates", "status": "done"}
     try:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)
@@ -662,6 +756,7 @@ def _apply_substrates(say, copy=None) -> dict:
     result["state_present"] = os.path.isfile(os.path.join(validate.ROOT, ".engine", "state", "state.json"))
     result["conduct"] = _seed_conduct(say, copy)
     result["security"] = _seed_security(say, copy)
+    result["readme"] = _seed_readme(say, copy)
     return result
 
 
@@ -954,6 +1049,11 @@ def _build_fixture(root: str) -> None:
     os.makedirs(os.path.join(eng, "knowledge"))
     _write_json(os.path.join(eng, "knowledge", "graph.json"), {"schema_version": 1, "entities": [], "edges": []})
     _write_json(os.path.join(root, ".claude", "settings.json"), {})  # hook-less: the engine is not wired yet
+    # A real generated repo's root README is the template's marketing landing front — it travels via "Use this
+    # template", carrying the engine marker. Plant it so STEP 5's greenfield replace path (marker present ->
+    # replaced) is exercised; the apply-demo also proves the construction repo's own README stays untouched.
+    with open(os.path.join(root, "README.md"), "w", encoding="utf-8") as fh:
+        fh.write(_MARKETING_SEED_MARKER + "\n\n# engine-template\n")
 
 
 def _catalog_path(root: str) -> str:
@@ -1025,7 +1125,7 @@ _APPLY_DEMO_NOTE = (
 # The construction repo's own files the apply steps would write if redirection ever leaked — the demo asserts
 # they are byte-for-byte unchanged afterward (the isolation guarantee, shown mechanically, not just claimed).
 _REAL_ISOLATION_FILES = (".engine/knowledge/graph.json", ".claude/settings.json", ".mcp.json",
-                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md", "SECURITY.md",
+                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md", "SECURITY.md", "README.md",
                          ".engine/conduct/operator.md", ".engine/conduct/defaults.md")
 
 
@@ -1126,6 +1226,14 @@ def _read_json_or(path: str, default):
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
     except Exception:  # noqa: BLE001
+        return default
+
+
+def _read_text_or(path: str, default: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
         return default
 
 
@@ -1295,6 +1403,43 @@ def _apply_demo() -> int:
         print("    → and here, in plain words, is exactly what I'd tell you — never installed silently:")
         print(f'      "{load_copy()["conduct-seeded"]}"')
         ok &= seeded
+
+    # Scenario 6 — your project's front page: the engine replaces ITS OWN marketing landing front with a starter
+    # for YOUR project (greenfield), leaves a README you wrote yourself untouched (brownfield), and never re-touches
+    # it on a second pass — so the replace can only ever reach the engine's own landing page, never your content.
+    print("\n— YOUR PROJECT'S FRONT PAGE: the engine seeds a starter README — but only over its OWN landing page.")
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)                              # plants the Engine's marketing front (carrying the marker)
+        readme = os.path.join(tmp, "README.md")
+        had_marker = _MARKETING_SEED_MARKER in _read_text_or(readme, "")
+        with _redirect_root(tmp):
+            confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
+            apply(announce=lambda t: None, uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
+                  control_transport=_approve_transport(), **common)
+            after = _read_text_or(readme, "")
+            replaced = (_MARKETING_SEED_MARKER not in after) and ("your project" in after.lower())
+            second_pass = _seed_readme(say=lambda t: None)     # the starter carries no marker → nothing matches
+        print(f"    → greenfield: the slot held the Engine's landing page (marker present: {had_marker}); it's now "
+              f"a starter for your project (replaced: {replaced}); a second setup pass changes nothing "
+              f"(no-op: {second_pass == 'present'}).")
+        print("    → and here, in plain words, is exactly what I'd tell you — never done silently:")
+        print(f'      "{load_copy()["readme-seeded"]}"')
+        ok &= (had_marker and replaced and second_pass == "present")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)
+        readme = os.path.join(tmp, "README.md")
+        mine = "# My Project\n\nMy own words — nothing to do with the Engine.\n"   # an operator-written README
+        with open(readme, "w", encoding="utf-8") as fh:
+            fh.write(mine)
+        with _redirect_root(tmp):
+            confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
+            apply(announce=lambda t: None, uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
+                  control_transport=_approve_transport(), **common)
+            preserved = _read_text_or(readme, "") == mine
+        print(f"    → brownfield: a README you wrote yourself (no engine marker) is left exactly as it is "
+              f"(unchanged: {preserved}).")
+        ok &= preserved
 
     # The isolation guarantee, shown.
     print("\n— ISOLATION CHECK: did any of that touch THIS real project's files?")
