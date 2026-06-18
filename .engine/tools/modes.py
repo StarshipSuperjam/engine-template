@@ -326,8 +326,10 @@ def _arg(argv: list, flag: str) -> str | None:
 
 def _resolve_session(argv: list) -> str | None:
     """The session id for a CLI stance change: the explicit `--session` value, else the platform's
-    `CLAUDE_CODE_SESSION_ID` environment variable. The operator-typed Build verb's skill body passes the
-    documented `${CLAUDE_SESSION_ID}` content token; if a platform leaves it empty or unexpanded (a
+    `CLAUDE_CODE_SESSION_ID` environment variable. The operator-typed Build verb's skill body passes
+    `--session "${CLAUDE_CODE_SESSION_ID}"`, which the shell expands from that env var (it is a plain
+    environment variable the platform sets for tool subprocesses, NOT a Claude content token — the only
+    content token Claude substitutes is `${CLAUDE_PROJECT_DIR}`). If it arrives empty or unexpanded (a
     literal `${...}`), fall back to the env var so the verb still resolves the real session. A session
     that supplies neither degrades SAFE — set_stance returns False and the stance stays explore."""
     session = _arg(argv, "--session")

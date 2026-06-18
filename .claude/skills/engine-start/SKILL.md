@@ -9,9 +9,10 @@ allowed-tools: Bash(uv run *)
 ## Steps
 
 1. Switch this session into building by running:
-   `uv run --directory .engine -- python tools/modes.py set-build --session "${CLAUDE_SESSION_ID}"`
-   (`${CLAUDE_SESSION_ID}` is filled in with this session's id before this runs; if it ever comes through
-   empty, the command falls back to the session's own environment value, so building still starts.)
+   `uv run --directory .engine -- python tools/modes.py set-build --session "${CLAUDE_CODE_SESSION_ID}"`
+   (`${CLAUDE_CODE_SESSION_ID}` holds this session's id; the system fills it in automatically before the
+   command runs. If it ever comes through empty, the command falls back to that same value, so building
+   still starts.)
 2. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
    and submit them as a pull request for your approval."
 3. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open

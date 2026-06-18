@@ -82,9 +82,10 @@ def _demo() -> int:
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
-    # The skill passes `--session "${CLAUDE_SESSION_ID}"`; _resolve_session falls back to the platform's
-    # CLAUDE_CODE_SESSION_ID env var if that token arrives empty or unexpanded, so the status reflects the
-    # REAL session's stance (looking-around vs building) rather than a default.
+    # The skill passes `--session "${CLAUDE_CODE_SESSION_ID}"` (the shell expands that env var, which the
+    # platform sets for tool subprocesses); _resolve_session falls back to reading CLAUDE_CODE_SESSION_ID
+    # directly if the argument arrives empty or unexpanded, so the status reflects the REAL session's
+    # stance (looking-around vs building) rather than a default.
     print(render(modes._resolve_session(argv)))
     return 0
 
