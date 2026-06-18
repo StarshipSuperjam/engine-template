@@ -57,10 +57,14 @@ _FTS_PROBE_TABLE = "engine_fts5_probe"
 # cause). Episodic provenance (`consolidated_ts`, `source_seqs`) is non-string and stays out by type. The
 # per-pass `batch` id the forgetting slice (4a) adds is a uuid — its hex fragments are real words, exactly the
 # `session_id` problem — so it joins this set too. The per-record `id` (slice 4b) is also a uuid hex (its only
-# purpose is to NAME a record, never to be searched), so it joins for the same reason.
+# purpose is to NAME a record, never to be searched), so it joins for the same reason. The reinforcement
+# marker's `target` (slice 4c) is a uuid hex too — it points at the reinforced record's `id` — so it joins as
+# well (the marker is dropped from recall by `forget.live_records` before indexing, but this keeps it out of
+# the body even if it were reached).
 _TAGS_KEY = "tags"
 _NON_BODY_KEYS = frozenset(
-    {"tags", "session_id", "kind", "speaker", "role", records.BATCH_KEY, records.RECORD_ID_KEY}
+    {"tags", "session_id", "kind", "speaker", "role",
+     records.BATCH_KEY, records.RECORD_ID_KEY, records.TARGET_KEY}
 )
 
 

@@ -1,4 +1,5 @@
-"""forget.py — the engine's active forgetting: Layer-1 logical retirement over the memory ledger (slice 4a).
+"""forget.py — the engine's active forgetting: Layer-1 logical retirement + scored demotion over the memory
+ledger (slices 4a + 4c).
 
 Active forgetting (memory/README) is **two-layered**. This module is **Layer 1** — *reversible, mechanical,
 memory-autonomous* tidying that needs no human gate because **nothing is lost**: a forgotten record is
@@ -18,27 +19,40 @@ Leaf discipline (principle §16): this module RETURNS records / a report and ren
 (boot/audits own that). Both recall paths — the FTS5 `rebuild` and the plain `_scan` — consume `live_records`,
 so the fast and slow lookups retire identically (the parity law, index.py). stdlib-only.
 
+Slice-4c scope: **scored demotion tiers**. A record is reinforced each time it is recalled — an append-only
+`reinforcement` marker (records.py) naming it by its stable id (slice 4b). `score` (score.py) folds a record's
+reinforcements into a **frecency x role-weight x recency** score and a tier (hot -> warm -> cold -> archived);
+`live_records` additionally drops the **archived** ones from recall (still resident + recoverable in the
+ledger — demotion never deletes), and drops the reinforcement markers themselves (pure derivation fuel, never
+recall results). Tier is **derived on read**, never persisted — like 4a's retirement, the state is re-derived
+from the ledger each rebuild, so it survives a throwaway-index rebuild. The live caller that appends a marker
+on recall is **slice 5** (the search server); 4c ships the marker kind, the `record_access` appender, and the
+operator demo (the `demote` verb) — with no live caller, the engine's own young ledger demotes nothing yet.
+
 The stable, content-free record id (slice 4b) is minted in the record factories (records/capture/consolidate),
-not here; this module hosts its operator demo (the `identity` verb). The scored demotion tiers, the gist
-roll-up, ledger compaction (the rebuild-and-swap), and Layer-2 audit-gated erasure are later sub-slices of the
-memory build plan's step 4.
+not here; this module hosts its operator demo (the `identity` verb). The gist roll-up, ledger compaction (the
+rebuild-and-swap that folds the reinforcement markers into a carried frecency snapshot), and Layer-2
+audit-gated erasure are later sub-slices (4d/4e) of the memory build plan's step 4. Perf forward-owe: 4c adds a
+third O(ledger) pass to `live_records` (the access index over the reinforcement markers); 4d's compaction —
+folding those markers into a carried snapshot field — is the designed retirement of that cost.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import time
 
 # Make the package parent (.engine/tools) importable so `from memory import ledger` resolves even when this
 # file is run directly as the demo script. Imported as `memory.forget`, the parent is already on sys.path, so
-# this is a guarded no-op. Module-level imports stay limited to `ledger` + `records` (the cycle-free set):
-# `index` imports THIS module for the fold, so importing `index`/`consolidate` here would cycle — the demo
-# imports them lazily instead.
+# this is a guarded no-op. Module-level imports stay limited to the cycle-free set `ledger` + `records` +
+# `score` (each imports nothing that reaches back to `forget`): `index` imports THIS module for the fold, so
+# importing `index`/`consolidate`/`capture` here would cycle — the demo + the appender import them lazily.
 _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger, records  # noqa: E402
+from memory import ledger, records, score  # noqa: E402
 
 
 def _closed_batches(src: str) -> set:
@@ -50,6 +64,25 @@ def _closed_batches(src: str) -> set:
             if isinstance(batch, str) and batch:
                 closed.add(batch)
     return closed
+
+
+def _access_index(src: str) -> dict:
+    """Map each reinforced record's id -> the wall-clock `ts` of every `reinforcement` marker that names it
+    (slice 4c). One pass over the **RAW** ledger — `ledger.iter_records`, NOT `live_records` — exactly as
+    `_closed_batches` reads markers raw. This is load-bearing: a `reinforcement` marker is itself dropped by
+    `live_records` (it is never a recall result), and a marker for an already-*archived* record would be
+    dropped with it — so scoring off the filtered stream would hide the very accesses that should keep or
+    restore that record, and an archived record could never climb back. The scorer must see ALL reinforcements.
+    Skips malformed entries (a fallen line never costs the records after it)."""
+    index: dict = {}
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict) or record.get("kind") != records.REINFORCEMENT_KIND:
+            continue
+        target = record.get(records.TARGET_KEY)
+        ts = record.get("ts")
+        if isinstance(target, str) and target and isinstance(ts, int) and not isinstance(ts, bool):
+            index.setdefault(target, []).append(ts)
+    return index
 
 
 def _is_retired(record, closed: set) -> bool:
@@ -67,18 +100,61 @@ def _is_retired(record, closed: set) -> bool:
     return batch not in closed
 
 
-def live_records(path: "str | None" = None):
-    """Yield the ledger records recall should surface — every record EXCEPT the episodics a crashed
-    consolidation pass orphaned (logical retirement). The orphan stays in the ledger, fully recoverable; this
-    generator just doesn't surface it. The single shared authority both retrieval paths consume, so the fast
-    (FTS5) and slow (scan) lookups retire identically.
+def _is_demoted(record, access_index: dict, now: int) -> bool:
+    """True iff recall should NOT surface `record` for a demotion reason (slice 4c):
+      * a `reinforcement` marker — pure derivation fuel for the scorer, never itself a recall result; or
+      * a record scored into the **archived** tier (frecency x role-weight x recency, score.py) — excluded
+        from the hot index, but it stays resident + fully recoverable in the ledger (demotion never deletes).
+    `consolidated` markers are NEVER demoted here — they are structural (carry no recall text) and stay
+    always-live, unchanged from 4a. Everything else (turn-deltas, episodics) is scored by its own
+    reinforcements (`access_index[id]`, empty for an un-reinforced record — born hot from its `ts`)."""
+    if not isinstance(record, dict):
+        return False
+    kind = record.get("kind")
+    if kind == records.REINFORCEMENT_KIND:
+        return True
+    if kind == records.MARKER_KIND:
+        return False
+    access_ts = access_index.get(record.get(records.RECORD_ID_KEY), ())
+    return score.tier(record, access_ts, now) == score.ARCHIVED
 
-    Two cheap sequential passes over the ledger: (1) collect the batch ids a marker closed; (2) stream,
-    dropping only the retired orphans. Mutates nothing — never writes, never deletes."""
+
+def record_access(target_id: str, *, path: "str | None" = None, now: "int | None" = None) -> None:
+    """Append a `reinforcement` (access) marker naming `target_id` — the move slice-5 recall makes on every
+    hit, recorded so demotion can score usage by the stable record id (slice 4b). A no-op on a blank/non-str
+    target. APPENDS ONLY; it never deletes or rewrites (the Layer-1 erasure-free invariant — a test source-
+    scans this module). Reuses the crash-safe `ledger.append` primitive; the marker is an ordinary record."""
+    if not isinstance(target_id, str) or not target_id:
+        return
+    from memory import capture  # lazy: keep capture off the module-load path (cycle discipline)
+    marker = {
+        "v": capture.RECORD_VERSION,
+        "kind": records.REINFORCEMENT_KIND,
+        records.RECORD_ID_KEY: records.new_record_id(),
+        records.TARGET_KEY: target_id,
+        "ts": int(time.time()) if now is None else now,
+        "tags": [records.REINFORCEMENT_TAG],
+    }
+    ledger.append(marker, path=path)
+
+
+def live_records(path: "str | None" = None, *, now: "int | None" = None):
+    """Yield the ledger records recall should surface — every record EXCEPT (a) the episodics a crashed
+    consolidation pass orphaned (logical retirement, 4a) and (b) the reinforcement markers + the records scored
+    into the archived tier (scored demotion, 4c). A dropped record stays in the ledger, fully recoverable; this
+    generator just doesn't surface it. The single shared authority both retrieval paths consume, so the fast
+    (FTS5) and slow (scan) lookups retire AND demote identically.
+
+    Three cheap sequential passes over the RAW ledger: (1) collect the batch ids a marker closed; (2) collect
+    each record's reinforcement timestamps; (3) stream, dropping the retired orphans and the demoted records.
+    `now` is resolved once so every record in one rebuild scores against a single clock. Mutates nothing —
+    never writes, never deletes."""
     src = ledger.ledger_path() if path is None else path
     closed = _closed_batches(src)
+    access_index = _access_index(src)
+    now = int(time.time()) if now is None else now
     for record in ledger.iter_records(path=src):
-        if not _is_retired(record, closed):
+        if not _is_retired(record, closed) and not _is_demoted(record, access_index, now):
             yield record
 
 
@@ -349,6 +425,140 @@ def _demo_identity_body() -> bool:
     return every_tagged and different and tag_private and stable
 
 
+# --- Operator demonstration: scored demotion tiers (slice 4c) ---------------------------------------------
+# A THROWAWAY-cabinet walkthrough for "active forgetting": a note left unused for weeks is set aside from
+# search but stays in the cabinet (recoverable), and using it again brings it straight back. It runs the REAL
+# factories + record_access + rebuild + recall and reads the cabinet back, so every claim is recognizable words
+# on screen — and prints only plain-language labels (never "tier"/"frecency"/"reinforcement"). Vary the notes
+# and the ages near the top and re-run:
+#     uv run --directory .engine --frozen -- python tools/memory/forget.py demote
+_DEMO_DEMOTE_SESSION = "session-orchard"
+_DEMO_FRESH_TEXT = "Decided the orchard layout ships with the apple rows first."
+_DEMO_OLD_TEXT = "Lesson: the midnight cron double-ran — never schedule it at 00:00. DO-NOT-LOSE-THIS."
+_DEMO_FRESH_WORD = "apple"
+_DEMO_OLD_WORD = "midnight"
+_DEMO_OLD_AGE_DAYS = 35          # ~2.5 half-lives untouched -> set aside (archived)
+_DEMO_REINFORCE_TIMES = 3
+_DEMO_DAY = 86400
+
+# Plain-language names for the freshness tiers — what the operator sees instead of hot/warm/cold/archived.
+_FRESHNESS = {score.HOT: "fresh", score.WARM: "getting stale", score.COLD: "stale",
+              score.ARCHIVED: "set aside (hidden from search)"}
+
+
+def _days(n: int) -> str:
+    """'1 day' / '35 days' — keep the screen grammatical if the operator varies the age."""
+    return f"{n} day" if n == 1 else f"{n} days"
+
+
+def _make_demo_episodic(role: str, text: str, age_days: int) -> dict:
+    """A real episodic through the live factory, made BATCHLESS (so it is always-live — never mistaken for a
+    crashed-pass orphan, 4a) and back-dated by `age_days` so the demo can age it without sleeping."""
+    from memory import consolidate  # lazy (consolidate -> index -> forget would cycle at module load)
+    rec = consolidate._make_episodic(_DEMO_DEMOTE_SESSION, {"role": role, "text": text}, "demo-batch")
+    rec.pop(records.BATCH_KEY, None)
+    rec["ts"] = int(time.time()) - age_days * _DEMO_DAY
+    return rec
+
+
+def _demo_recall_count(word: str) -> int:
+    from memory import index  # lazy
+    return len(index.query(word).records)
+
+
+def _demo_in_cabinet(record_id: str) -> int:
+    """How many records carrying `record_id` are physically in the ledger (the recoverability proof)."""
+    return sum(1 for r in ledger.iter_records(path=ledger.ledger_path())
+               if isinstance(r, dict) and r.get(records.RECORD_ID_KEY) == record_id)
+
+
+def _demo_freshness(record: dict) -> str:
+    """The plain-language freshness of `record`, scored against its real accesses + the real wall clock."""
+    accesses = _access_index(ledger.ledger_path()).get(record.get(records.RECORD_ID_KEY), ())
+    return _FRESHNESS[score.tier(record, accesses)]
+
+
+def _demo_demote() -> int:
+    import tempfile
+
+    print("=" * 80)
+    print("MEMORY — setting an unused note aside from search without losing it, and bringing it back (practice)")
+    print("=" * 80)
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["ENGINE_MEMORY_DIR"] = tmp          # the throwaway cabinet
+        try:
+            ok = _demo_demote_body()
+        finally:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+
+    print("\n" + "-" * 80)
+    print(f"What this just proved: a note nobody had used in ~{_days(_DEMO_OLD_AGE_DAYS)} was SET ASIDE from search but")
+    print("stayed in the cabinet (read back above: 1 record), and ONE use brought it straight back — reversible, on screen.")
+    print("On your real data, nothing changes yet: the engine doesn't record when you use a note (that trigger")
+    print("ships in a later step), so today this only runs in this practice demo on the old note it invents — the")
+    print("machinery is here, the live trigger comes later. NOTHING is ever erased here: setting-aside is")
+    print("hide-from-search only; permanently erasing a record is a SEPARATE step you approve later by merging a")
+    print("single-purpose pull request (and applying the `guardrail-ack` safety label) — never this. That was a")
+    print("PRACTICE cabinet, thrown away when the demo ended; like all memory, private, local, and deletable.")
+    print("Vary it: edit the notes and the age near the top of this file and re-run.")
+    return 0 if ok else 1
+
+
+def _demo_demote_body() -> bool:
+    print("\nPART 1 — a fresh note is found in search")
+    print("-" * 80)
+    fresh = _make_demo_episodic("decision", _DEMO_FRESH_TEXT, age_days=0)
+    ledger.append(fresh)
+    _demo_rebuild()
+    fresh_hits = _demo_recall_count(_DEMO_FRESH_WORD)
+    print(f'  a note from today: "{_snippet(_DEMO_FRESH_TEXT)}"')
+    print(f'  search "{_DEMO_FRESH_WORD}" -> found {fresh_hits}    freshness: {_demo_freshness(fresh)}')
+    part1 = fresh_hits == 1
+    print(f"  => {'a fresh note is in search.' if part1 else '!!! a fresh note was not found'}")
+
+    print(f"\nPART 2 — a note unused for ~{_days(_DEMO_OLD_AGE_DAYS)} is SET ASIDE from search, but stays in the cabinet")
+    print("-" * 80)
+    old = _make_demo_episodic("lesson", _DEMO_OLD_TEXT, age_days=_DEMO_OLD_AGE_DAYS)
+    old_id = old[records.RECORD_ID_KEY]
+    ledger.append(old)
+    _demo_rebuild()
+    old_hits = _demo_recall_count(_DEMO_OLD_WORD)
+    in_cab = _demo_in_cabinet(old_id)
+    print(f'  a note nobody has used in ~{_days(_DEMO_OLD_AGE_DAYS)}: "{_snippet(_DEMO_OLD_TEXT)}"')
+    print(f'  search "{_DEMO_OLD_WORD}" -> found {old_hits}    freshness: {_demo_freshness(old)}')
+    print(f"  still in the cabinet: {in_cab} record(s)  (hidden from search, NOT deleted)")
+    part2 = old_hits == 0 and in_cab == 1
+    print(f"  => {'set aside from search, still in the cabinet (recoverable).' if part2 else '!!! the old note was lost or still searchable'}")
+
+    print("\nPART 3 — using it again brings it straight back")
+    print("-" * 80)
+    for _ in range(_DEMO_REINFORCE_TIMES):
+        record_access(old_id)
+    _demo_rebuild()
+    back_hits = _demo_recall_count(_DEMO_OLD_WORD)
+    print(f"  used the old note {_DEMO_REINFORCE_TIMES} times (what search will do for you in a later step)")
+    print(f'  search "{_DEMO_OLD_WORD}" -> found {back_hits}    freshness: {_demo_freshness(old)}')
+    part3 = back_hits == 1
+    print(f"  => {'using it restored it to search — nothing was ever deleted.' if part3 else '!!! using it did not restore the note'}")
+
+    print('\nPART 4 — the private "when you used it" notes never show up in search')
+    print("-" * 80)
+    from memory import index  # lazy
+    surfaced = index.query(_DEMO_OLD_WORD).records + index.query(old_id).records
+    leaked = [r for r in surfaced if isinstance(r, dict) and r.get("kind") == records.REINFORCEMENT_KIND]
+    print("  searched for the note's words AND for its private name-tag;")
+    print(f'  "when you used it" notes returned by search: {len(leaked)}')
+    part4 = len(leaked) == 0
+    print(f"  => {'the usage notes are private bookkeeping, never search results.' if part4 else '!!! a usage note leaked into search'}")
+
+    return part1 and part2 and part3 and part4
+
+
+def _demo_rebuild() -> None:
+    from memory import index  # lazy
+    index.rebuild()
+
+
 def main(argv: list) -> int:
     cmd = argv[0] if argv else "demo"
     if cmd == "duplicates":
@@ -357,7 +567,9 @@ def main(argv: list) -> int:
         return _demo()
     if cmd == "identity":
         return _demo_identity()
-    print(f"usage: forget.py [duplicates|demo|identity]\nunknown command {cmd!r}", file=sys.stderr)
+    if cmd == "demote":
+        return _demo_demote()
+    print(f"usage: forget.py [duplicates|demo|identity|demote]\nunknown command {cmd!r}", file=sys.stderr)
     return 2
 
 
