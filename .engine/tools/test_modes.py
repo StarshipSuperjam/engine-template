@@ -353,9 +353,10 @@ class TestPlanAcceptanceBuildEntry(unittest.TestCase):
 
 
 class TestResolveSession(unittest.TestCase):
-    """The /engine-start (slice 26a) session-id resolution: the skill body passes the documented
-    ${CLAUDE_SESSION_ID} content token, with a fallback to the CLAUDE_CODE_SESSION_ID env var so the
-    Build verb still resolves the real session when a platform leaves the token empty or unexpanded."""
+    """The /engine-start (slice 26a) session-id resolution: the skill body passes
+    `--session "${CLAUDE_CODE_SESSION_ID}"` (the shell expands that env var), with a fallback to reading
+    the CLAUDE_CODE_SESSION_ID env var directly so the Build verb still resolves the real session when the
+    argument arrives empty or unexpanded."""
 
     def test_explicit_session_wins(self):
         with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "from-env"}):
@@ -366,9 +367,9 @@ class TestResolveSession(unittest.TestCase):
             self.assertEqual(modes._resolve_session([]), "from-env")
 
     def test_falls_back_to_env_on_unexpanded_token(self):
-        # a platform that did not expand the content token passes the literal ${CLAUDE_SESSION_ID}
+        # a shell that did not expand the env var passes the literal ${CLAUDE_CODE_SESSION_ID}
         with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "from-env"}):
-            self.assertEqual(modes._resolve_session(["--session", "${CLAUDE_SESSION_ID}"]), "from-env")
+            self.assertEqual(modes._resolve_session(["--session", "${CLAUDE_CODE_SESSION_ID}"]), "from-env")
 
     def test_none_when_neither_present(self):
         with mock.patch.dict(os.environ, {}, clear=True):
