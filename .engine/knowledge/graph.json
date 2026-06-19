@@ -972,7 +972,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:b67a426aefaa612fe085640d28ee2bfb8844cc2797d8fb583a7f61fc1a6b2f69",
+        "fingerprint": "sha256:7fcf382e851e798856ac715787ab9c21471a4585c9e64203680406eaf9cfa047",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -2276,7 +2276,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:69ee277658257f8556d8d741551648cef1686b40fe80de42e1c099f24917f496",
+        "fingerprint": "sha256:1129bfc9942478cb7ee1fc9a64acf28f58d4c8687a0a9fb04afbf8f216d4d3e0",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -2419,6 +2419,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:mcp_server",
+      "name": ".engine/tools/memory/mcp_server.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "mcp_server",
+      "source": {
+        "fingerprint": "sha256:2a0420c406b6855a0499fef13181d1d7cd09a4831ebc5cdd6cc971a759cf6b72",
+        "path": ".engine/tools/memory/mcp_server.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:modes",
       "name": ".engine/tools/modes.py",
       "owner": "core",
@@ -2548,7 +2565,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:e302a2145fb2d608817a0149207abc0d3ac811e4a65a57370c621d87420d5ac8",
+        "fingerprint": "sha256:227a259c3e5ead2fb89b3c2e2d1f9c7b504e0014538eb98d17db551b0c469b56",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -3099,6 +3116,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_mcp_server",
+      "name": ".engine/tools/memory/test_mcp_server.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_mcp_server",
+      "source": {
+        "fingerprint": "sha256:b7213038699f4c9b01d5c9a60257defd0b4f32908e2071d9fd7178bc666fa9be",
+        "path": ".engine/tools/memory/test_mcp_server.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_modes",
       "name": ".engine/tools/test_modes.py",
       "owner": "core",
@@ -3281,6 +3315,23 @@
       "source": {
         "fingerprint": "sha256:1aeb339fd38abd0e228677ec7b7c15eec5a57e59b8dc5b5c9af39bf0a179034b",
         "path": ".engine/tools/memory/test_score.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_search",
+      "name": ".engine/tools/memory/test_search.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_search",
+      "source": {
+        "fingerprint": "sha256:a2c568861a62474613ed0dc566f5f6d359e64d09bf782ba89d442f138c5c7637",
+        "path": ".engine/tools/memory/test_search.py"
       },
       "status": "active",
       "type": "tool"

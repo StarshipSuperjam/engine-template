@@ -53,6 +53,22 @@
         "type": "command",
         "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py pre-compact"
       }
+    },
+    {
+      "type": "mcp",
+      "name": "engine-memory",
+      "definition": {
+        "command": "uv",
+        "args": [
+          "run",
+          "--directory",
+          "${CLAUDE_PROJECT_DIR:-.}/.engine",
+          "--frozen",
+          "--",
+          "python",
+          "tools/memory/mcp_server.py"
+        ]
+      }
     }
   ]
 }

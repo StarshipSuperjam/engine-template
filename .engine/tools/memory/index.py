@@ -14,9 +14,11 @@ loses nothing (`rebuild()` reconstructs it), and backup is still "copy the ledge
 Leaf discipline: this module DETECTS the FTS5-absent / slow-path condition and RETURNS it to the caller; it
 never renders operator-facing prose (boot does that, principle §16). It writes no telemetry and logs no findings.
 
-Slice-2 scope: the index machinery + the two retrieval paths only, record-shape-agnostic and UNRANKED. The
-public `search` interface contract, BM25 ranking, role/tag filters, the engine-memory MCP server, and the
-boot/attention scent are slice 5; the closed record shape + role vocabulary are slice 3.
+Slice-2 built the index machinery + the two retrieval paths, record-shape-agnostic and UNRANKED (`query`). Slice 5
+adds ranked, filtered recall — `search` (BM25 best-first reinforced by usage; role/tag filters) implementing the
+`search.json` contract, exposed by the engine-memory MCP server (`mcp_server.py`). `query` stays UNRANKED for the
+rebuild/scan callers. The boot/attention per-prompt scent over this index is a later slice-5 PR; the closed record
+shape + role vocabulary are slice 3.
 
 Both retrieval paths split text into words with ONE tokenizer (`_tokenize`, modeled on SQLite's FTS5
 `unicode61`): the fast lookup stores the tokens it produces, and the slow scan matches the same way. That one
@@ -27,10 +29,12 @@ return the same set of records the fast lookup does, not a degraded different an
 from __future__ import annotations
 
 import json
+import math
 import os
 import sqlite3
 import sys
 import tempfile
+import time
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -42,7 +46,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import forget, ledger, records  # noqa: E402
+from memory import forget, ledger, records, score  # noqa: E402
 
 INDEX_FILENAME = "index.sqlite3"
 _FTS_PROBE_TABLE = "engine_fts5_probe"
@@ -70,7 +74,7 @@ _TAGS_KEY = "tags"
 _NON_BODY_KEYS = frozenset(
     {"tags", "session_id", "kind", "speaker", "role",
      records.BATCH_KEY, records.RECORD_ID_KEY, records.TARGET_KEY, records.TIER_KEY,
-     records.SUPERSEDED_BY_KEY, records.SOURCE_IDS_KEY}
+     records.SUPERSEDED_BY_KEY, records.SOURCE_IDS_KEY, records.SCORE_KEY}
 )
 
 
@@ -89,8 +93,9 @@ class RebuildReport:
 
 @dataclass
 class QueryResult:
-    """The records matching a query, in ledger order (UNRANKED — ranking is slice 5). `degraded` is True when
-    the answer came from the slow backup scan (FTS5 absent, the fast lookup not yet built, or scan forced)."""
+    """The records matching a query. `query` returns them in ledger order (UNRANKED); `search` (slice 5) returns
+    them ranked best-first, each a shallow copy carrying `records.SCORE_KEY` (the lexical relevance). `degraded` is
+    True when the answer came from the slow backup scan (FTS5 absent, the fast lookup not yet built, or scan forced)."""
 
     records: list = field(default_factory=list)
     degraded: bool = False
@@ -190,10 +195,11 @@ def index_path(cwd: "str | None" = None) -> str:
 
 def _build_schema(conn: sqlite3.Connection) -> None:
     # `entries` holds the full record per ledger ordinal (so a hit hydrates the exact record — the provenance
-    # slice 5 ranks over). `entries_fts` is a standalone FTS5 index keyed by the same ordinal, fed the
+    # `search` ranks over, slice 5). `entries_fts` is a standalone FTS5 index keyed by the same ordinal, fed the
     # PRE-FOLDED token stream from `_tokenize`. `remove_diacritics 0` tells FTS5 to do no diacritic folding of
     # its own — `_tokenize` already did it — so the indexed tokens are exactly what the scan path matches
-    # against and the two paths agree across scripts. No porter stemming: it is a slice-5 ranking concern.
+    # against and the two paths agree across scripts. No porter stemming — slice-5 `search` ranks the un-stemmed
+    # tokens (bm25 over this body); stemming stays a future ranking concern.
     conn.execute("CREATE TABLE entries (ord INTEGER PRIMARY KEY, record_json TEXT NOT NULL)")
     conn.execute("CREATE VIRTUAL TABLE entries_fts USING fts5(body, tokenize='unicode61 remove_diacritics 0')")
     # `meta` carries the ledger GENERATION this index was built against (slice 4d). `query` trusts the fast
@@ -348,6 +354,156 @@ def query(
             # broken index, never a bad query.
             pass
     return QueryResult(records=_scan(tokens, src, limit), degraded=True)
+
+
+# --- Ranked recall: the `search` interface (slice 5) ------------------------------------------------------
+# `query` (above) answers UNRANKED — it is the rebuild/scan workhorse and must stay order-stable for its callers
+# and tests. `search` is the ranked, filtered recall the `search.json` contract names: best-first by lexical
+# relevance, reinforced by usage, with optional role/tag filters. It is SIDE-EFFECT-FREE — it never reinforces and
+# never writes the ledger; the live reinforcement-on-recall caller is the engine-memory MCP server (mcp_server.py),
+# at the recall boundary, never here (rebuild/_scan/the demos all call read-only).
+
+# Build-spec leaf `search-rank`: the decimal places bm25/relevance is rounded to before the usage tiebreak. It
+# groups NEAR-equal matches into one relevance bucket so usage can reorder them (the "reinforced by usage" move),
+# while a clearly-stronger match lands in its own better bucket and is NEVER overtaken by usage ("BM25 leads").
+# Coarser (fewer places) lets usage reorder more; finer makes lexical relevance stricter — the demo validates both
+# directions. The ordering is LEXICOGRAPHIC, deliberately NOT a multiplicative blend: a multiplicative
+# rel * (1 + k*usage) gives usage ZERO leverage where bm25 ties at ~0 (a common query term) and UNBOUNDED leverage
+# where bm25 separates (frecency is unwindowed) — inverting "BM25 leads".
+_REL_DECIMALS = 1
+
+
+def _validate_roles(roles):
+    """The role filter as a set, or None for no filter. An unknown role (outside the closed vocabulary —
+    `score.ROLE_WEIGHTS` keys, which a test pins == `consolidate.ROLE_VOCABULARY` == `search.json`'s roles) raises
+    ValueError: a caller asking for a misspelled role is told, never silently handed all-roles results. The
+    engine-memory server surfaces the raise as a tool error; the server survives."""
+    if roles is None:
+        return None
+    valid = set(score.ROLE_WEIGHTS)
+    unknown = set(roles) - valid
+    if unknown:
+        raise ValueError(f"unknown role(s): {sorted(unknown)}; valid roles are {sorted(valid)}")
+    return set(roles)
+
+
+def _passes_filters(record, roles, tags) -> bool:
+    """The structured POST-FETCH filters (role/tags are non-body — never FTS MATCH terms). `roles`: the record's
+    `role` must be in the set. `tags`: any-match — the record shares at least one of the requested tags. Both apply
+    identically on the fast and slow paths, so the degraded path returns the same FILTERED set."""
+    if roles is not None:
+        if not isinstance(record, dict) or record.get("role") not in roles:
+            return False
+    if tags is not None:
+        have = record.get("tags") if isinstance(record, dict) else None
+        if not isinstance(have, (list, tuple)) or not (set(have) & tags):
+            return False
+    return True
+
+
+def _usage_of(record, access_index, now: int) -> float:
+    """The usage signal for the tiebreak: `score.score` (frecency × role-weight × recency) over the record's
+    accesses, collected once into `access_index`. A record with no id / no accesses still scores from birth —
+    never zero, so it is only deprioritized, never dropped (ranking, not retention)."""
+    rid = record.get(records.RECORD_ID_KEY) if isinstance(record, dict) else None
+    access_ts = access_index.get(rid, ()) if isinstance(rid, str) and rid else ()
+    return score.score(record, access_ts, now)
+
+
+def _rank_slice_score(candidates: list, limit: "int | None") -> list:
+    """Order the candidates best-first, slice to `limit`, and attach `records.SCORE_KEY` (the lexical relevance) to
+    a SHALLOW COPY of each kept record (never mutate the live record — the score must not leak back into the
+    ledger/index). Each candidate is `(rel, usage, ord, record)` with `rel` the positive lexical relevance
+    (higher = better). Sort key: bucketed relevance DESC (via `-rel` rounded, ASC), then usage DESC, then ledger
+    `ord` ASC (a stable, deterministic final tiebreak)."""
+    candidates.sort(key=lambda c: (round(-c[0], _REL_DECIMALS), -c[1], c[2]))
+    if limit is not None:
+        candidates = candidates[:limit]
+    out = []
+    for rel, _usage, _ord, record in candidates:
+        scored = dict(record) if isinstance(record, dict) else record
+        if isinstance(scored, dict):
+            scored[records.SCORE_KEY] = rel
+        out.append(scored)
+    return out
+
+
+def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
+    """The shared ranked retrieval. Fast path: bm25 over the FTS5 index (when present + generation-current); slow
+    path: a full scan computing a damped term-frequency relevance. BOTH rank the FULL matched set, THEN slice —
+    never an early ledger-order truncation, so the fast and slow paths return the same SET (the availability law;
+    exact ORDER may differ on the degraded path). Returns a QueryResult."""
+    access_index = forget._access_index(src)
+    # Fast path — trust the FTS5 index only while its stamped generation matches the ledger's current one.
+    if (not force_scan) and fts5_available() and os.path.exists(dst):
+        match = " ".join('"' + token + '"' for token in tokens)
+        sql = (
+            "SELECT e.ord, e.record_json, bm25(entries_fts) AS relevance "
+            "FROM entries_fts JOIN entries e ON e.ord = entries_fts.rowid "
+            "WHERE entries_fts MATCH ? ORDER BY relevance"
+        )
+        try:
+            conn = sqlite3.connect(dst)
+            try:
+                if _index_generation(conn) == ledger.generation(for_path=src):
+                    rows = conn.execute(sql, [match]).fetchall()
+                    candidates = []
+                    for ordinal, record_json, relevance in rows:
+                        record = json.loads(record_json)
+                        if not _passes_filters(record, roles, tags):
+                            continue
+                        # bm25 is more-negative for a better match; flip to a positive relevance (higher = better).
+                        rel = -float(relevance)
+                        candidates.append((rel, _usage_of(record, access_index, now), ordinal, record))
+                    return QueryResult(records=_rank_slice_score(candidates, limit), degraded=False)
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            # Broken/corrupt index: fall through to the always-correct scan (availability law). A malformed MATCH
+            # cannot land here (the tokens are always valid), so this only catches a broken index, never a bad query.
+            pass
+    # Slow path — rank the FULL matched set (no early limit break, so the SET matches the fast path).
+    want = set(tokens)
+    candidates = []
+    for ordinal, record in enumerate(forget.live_records(path=src, now=now)):
+        body_tokens = _tokenize(_record_text(record))
+        if not (want <= set(body_tokens)):
+            continue
+        if not _passes_filters(record, roles, tags):
+            continue
+        tf = sum(1 for t in body_tokens if t in want)   # total query-term occurrences in the body
+        candidates.append((math.log1p(tf), _usage_of(record, access_index, now), ordinal, record))
+    return QueryResult(records=_rank_slice_score(candidates, limit), degraded=True)
+
+
+def search(
+    query_text: str,
+    *,
+    roles: "list | None" = None,
+    tags: "list | None" = None,
+    limit: "int | None" = None,
+    force_scan: bool = False,
+    ledger_file: "str | None" = None,
+    index_file: "str | None" = None,
+) -> QueryResult:
+    """Ranked, filtered recall — the `search` interface (search.json). Every query word must appear (implicit AND),
+    and the matches come back BEST-FIRST: by lexical relevance (bm25 on the fast path, a damped term-frequency
+    proxy on the slow backup), with usage (frecency × role-weight × recency) breaking near-ties but never
+    overriding a clearly-stronger match. Optional `roles` (the closed vocabulary; an unknown role raises
+    ValueError) and `tags` (any-match) narrow. Each result is a shallow copy carrying `records.SCORE_KEY` (the
+    lexical relevance). `degraded` is True when answered by the slow backup scan.
+
+    SIDE-EFFECT-FREE: never reinforces, never writes the ledger — the live reinforcement-on-recall caller is the
+    engine-memory MCP server, at the recall boundary, not here."""
+    src = ledger.ledger_path() if ledger_file is None else ledger_file
+    dst = index_path() if index_file is None else index_file
+    roles_set = _validate_roles(roles)
+    tags_set = set(tags) if tags is not None else None
+    tokens = _tokenize(query_text)
+    if not tokens:
+        return QueryResult(records=[], degraded=False)
+    now = int(time.time())
+    return _ranked(tokens, src, dst, roles=roles_set, tags=tags_set, limit=limit, force_scan=force_scan, now=now)
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------
