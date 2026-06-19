@@ -206,7 +206,7 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
 
     # every engine hook wire's script-relpath-with-args. Core wires boot on three SessionStart matchers;
     # the per-prompt scent on UserPromptSubmit (slice 5, PR 2); memory-substrate (slice 3b) wires its
-    # consolidation sweep on the same three SessionStart matchers + a PreCompact near-no-op.
+    # consolidation sweep on the same three SessionStart matchers + a PreCompact hook (the compaction trigger, slice 5 PR 3).
     CORE_RELPATHS = (".engine/tools/boot.py", ".engine/tools/modes.py", ".engine/tools/knowledge_gen.py hook",
                      ".engine/tools/modes.py accept-hook", ".engine/tools/close.py", ".engine/tools/scent.py")
     MEMORY_RELPATHS = (".engine/tools/memory/consolidate.py session-start",
@@ -231,7 +231,7 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         memory = validate.load_json(
             os.path.join(validate.ROOT, ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"))
         m_cmds = self._hook_cmds(memory)
-        self.assertEqual(len(m_cmds), 4, "memory's three SessionStart sweeps + one PreCompact near-no-op")
+        self.assertEqual(len(m_cmds), 4, "memory's three SessionStart sweeps + one PreCompact compaction trigger")
         self.assertEqual(set(m_cmds), expected_memory, "every memory manifest hook command is hook_command's output")
 
         # settings.json registers BOTH modules' hooks: 8 core + 4 memory venv-rooted commands.
