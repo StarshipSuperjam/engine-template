@@ -98,6 +98,7 @@ COPY_HEADINGS = {
     "conduct-seeded": "Your stance came with this project",
     "security-seeded": "A security-contact file came with this project",
     "readme-seeded": "Your project's front page is now yours",
+    "license-cleared": "Your project starts without a license — and that's normal",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
     # The finish (verify + tidy-up) phase — slice 27c.
@@ -155,6 +156,19 @@ FALLBACK_COPY = {
         "it with a short starter for YOUR project, so your repository's front door is about your work, not the "
         "Engine. This was intentional setup of your project's front page, not a change to anything you wrote — and "
         "the starter is yours to edit freely. I didn't do it silently — this note is me telling you."
+    ),
+    "license-cleared": (
+        "A brand-new project normally starts with no license file at all — and that's a safe, normal place to "
+        "begin: your code is yours, and stays yours, until you choose to share it on your own terms. This project "
+        "started from a template, and that template carried its own license file — a LICENSE at the top naming the "
+        "template's author and their copyright, not you. Left in place it would have set the terms for YOUR project "
+        "under someone else's name, so I removed it — and I added nothing in its place, because which license to use "
+        "is your decision to make, not mine. GitHub treats a project with no license file as exactly this normal "
+        "starting state, and may show a small \"No license\" note on the project page; that's expected, not a "
+        "problem. When you're ready to pick one, GitHub's choosealicense.com walks through the common options in "
+        "plain language — and I can explain what a license file is and help you add the one you choose, though I "
+        "can't tell you which terms are right for you; for anything that really matters legally, ask a person. I "
+        "didn't do this silently — this note is me telling you."
     ),
     "codeowners-degraded": (
         "I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files "
@@ -735,17 +749,117 @@ def _seed_readme(say, copy=None) -> str:
     return "replaced"
 
 
+# The copyright holder named in the engine's OWN shipped template LICENSE — the SECOND leg of the clear's
+# conjunction. A generated repo's traveled license still names the template author here; an adopter's own license
+# (even their own MIT) names someone else, so it is never matched and never cleared. Year-agnostic: matched as a
+# substring of the single copyright line, so a future year bump (2026 -> 2027) still recognizes the engine's seed.
+_TEMPLATE_LICENSE_HOLDER = "StarshipSuperjam"
+
+# The engine's shipped MIT LICENSE text WITHOUT its variable `Copyright (c) <year> <holder>` line — the FIRST leg
+# of the conjunction. The recognizer compares a candidate's body (everything but its one copyright line), whitespace-
+# normalized, to this, so a traveled copy that differs only in line endings (CRLF), blank lines, a trailing newline,
+# or a leading byte-order mark still matches. Kept byte-true to the committed root LICENSE by a parity test in the
+# (retiring) test_instantiator.py — if the LICENSE is ever re-worded, that test fails and names this constant.
+_TEMPLATE_LICENSE_SEED = (
+    "MIT License\n\n"
+    "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+    "of this software and associated documentation files (the \"Software\"), to deal\n"
+    "in the Software without restriction, including without limitation the rights\n"
+    "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n"
+    "copies of the Software, and to permit persons to whom the Software is\n"
+    "furnished to do so, subject to the following conditions:\n\n"
+    "The above copyright notice and this permission notice shall be included in all\n"
+    "copies or substantial portions of the Software.\n\n"
+    "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n"
+    "IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n"
+    "FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n"
+    "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n"
+    "LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n"
+    "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n"
+    "SOFTWARE.\n"
+)
+_TEMPLATE_LICENSE_BODY = " ".join(_TEMPLATE_LICENSE_SEED.split())   # whitespace-normalized, for the body match
+
+
+def _is_template_license(text) -> bool:
+    """True iff `text` is the engine's OWN traveled template LICENSE — the positive-match conjunction that fires the
+    clear (D-221/D-222): (1) the body (everything but the one copyright line, whitespace-normalized) matches the
+    engine's shipped MIT seed, AND (2) that copyright line's holder field EQUALS the TEMPLATE AUTHOR
+    (_TEMPLATE_LICENSE_HOLDER) — equals, not merely contains, so a holder that only embeds the author string (e.g.
+    "StarshipSuperjam Foundation") is NOT a match. Requires EXACTLY ONE `Copyright (c)` line — a generated repo's traveled seed has exactly one;
+    an adopter who added their own has two, which is not a match. Deliberately NOT the README's HTML-comment marker
+    (a LICENSE must stay stock text for GitHub / SPDX license detection, so it cannot carry one) and NOT a body-only
+    match (that would delete an adopter who independently chose MIT). Conservative — any doubt (empty/unreadable,
+    zero or multiple copyright lines, a body or holder mismatch) returns False, so the LICENSE is PRESERVED. Tolerant
+    of line-ending, blank-line, trailing-newline and leading-BOM variance so a traveled copy still matches; a BOM can
+    only make the match fail (preserve), never spuriously succeed. The holder leg is year-agnostic (a substring of
+    the copyright line). Evaluated before any identity rendering could rewrite the copyright line (no apply step
+    touches LICENSE today; forward-defensive)."""
+    if not text:
+        return False
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff").split("\n")
+    copyrights = [ln for ln in lines if ln.strip().lower().startswith("copyright (c)")]
+    if len(copyrights) != 1:
+        return False                              # zero or several copyright lines -> not the engine's pristine seed
+    # The holder is the field after "Copyright (c) <year>"; require it to EQUAL the template author, not merely
+    # CONTAIN it — an unanchored substring test would false-match (and irreversibly DELETE) an adopter named e.g.
+    # "StarshipSuperjam Foundation" or "MyStarshipSuperjamCo". Year-agnostic: the leading year token is dropped.
+    field = copyrights[0].strip()[len("Copyright (c)"):].strip().split(None, 1)
+    holder = field[1].strip() if len(field) == 2 else ""
+    if holder != _TEMPLATE_LICENSE_HOLDER:
+        return False                              # names a different holder (an adopter's own license) -> preserve
+    body = " ".join(ln for ln in lines if not ln.strip().lower().startswith("copyright (c)")).split()
+    return " ".join(body) == _TEMPLATE_LICENSE_BODY
+
+
+def _seed_license(say, copy=None) -> str:
+    """Clear the engine's OWN traveled template LICENSE at greenfield first-run — the reconcile-the-root pattern, the
+    same SHAPE and DISCLOSURE as the README/SECURITY seeds, but CLEAR-IFF-TEMPLATE-SEED and seeding NO replacement (a
+    license is the adopter's legal choice, never the engine's to make; topology law 2, D-221/D-222). At rest the
+    template ships a stock MIT LICENSE (its author's copyright) so the public template repo is legally usable; "Use
+    this template" copies it to a generated repo's root, where it would govern the ADOPTER's product. Apply DELETES
+    it, but ONLY where the current root LICENSE still positively matches the engine's own shipped template-license
+    seed (_is_template_license: body match AND the copyright line still names the template author). Conservative
+    clear-or-preserve: greenfield (the traveled template license) -> removed; brownfield (the product's own license —
+    even their own MIT, which names a different holder), a re-run (the slot is now empty), or an absent/unreadable
+    file -> left exactly as it is, returns "present". No replacement is written. The root LICENSE is product-owned
+    config (in no `provides`, at the repo root, outside .engine/ so the ownership leg never reaches it); the engine
+    never re-touches it after instantiation. Discloses, in plain language, WHAT WAS REMOVED AND WHY — only when it
+    actually clears (never silent, never on a no-op). Paths are validate.ROOT-relative, so a redirected demo/test
+    touches only the fixture, never the real tree."""
+    target = os.path.join(validate.ROOT, "LICENSE")
+    try:
+        current = ""
+        if os.path.isfile(target):
+            with open(target, encoding="utf-8") as fh:
+                current = fh.read()
+    except OSError:
+        return "present"                          # unreadable -> preserve on any doubt (never delete)
+    if not _is_template_license(current):
+        return "present"                          # the product's own license / empty slot / absent -> untouched
+    try:
+        os.remove(target)
+    except OSError:
+        return "skipped"
+    if copy is not None:
+        say(copy["license-cleared"])
+    return "cleared"
+
+
 def _apply_substrates(say, copy=None) -> dict:
     """STEP 5 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
     re-derive the knowledge graph (idempotent), confirm the state seed is present, seed the operator's
-    codes-of-conduct override from the template seed, seed a root SECURITY.md disclosure channel, and seed the
-    product's own starter README over the engine's marketing landing front (all disclosed in plain language).
-    The three seeds sit here — co-located, AFTER the runtime — a deliberate mirror of the as-built conduct-seed
-    placement: a pure file copy has no runtime dependency, and on a tool-runtime halt the phase never reaches
-    here, so a seed lands on the resume (each is idempotent — copy-if-absent for conduct/security, replace-iff-
-    marketing-seed for the README). The graph path is bound at import (knowledge_gen), so the demo redirects it
-    AND we pass it explicitly — a redirected run never rewrites the real graph. Memory-backup setup is owed to
-    the memory module (not yet built)."""
+    codes-of-conduct override from the template seed, seed a root SECURITY.md disclosure channel, seed the
+    product's own starter README over the engine's marketing landing front, and clear the traveled template
+    LICENSE (all disclosed in plain language). The root reconciles sit here — co-located, AFTER the runtime — a
+    deliberate mirror of the as-built conduct-seed placement: a pure file write/delete has no runtime dependency,
+    and on a tool-runtime halt the phase never reaches here, so each lands on the resume (every one is idempotent —
+    copy-if-absent for conduct/security, replace-iff-marketing-seed for the README, clear-iff-template-seed for the
+    LICENSE — so a re-run is a no-op). The LICENSE clear keys on the template author's copyright line, so it must
+    run before any step that could rewrite that line with operator identity; none does today (the only identity
+    renderer, _apply_codeowners, touches CODEOWNERS only), so STEP 5 is safe — a forward-defensive invariant. The
+    graph path is bound at import (knowledge_gen), so the demo redirects it AND we pass it explicitly — a redirected
+    run never rewrites the real graph. Memory-backup setup is owed to the memory module (not yet built)."""
     result = {"step": "substrates", "status": "done"}
     try:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)
@@ -757,6 +871,7 @@ def _apply_substrates(say, copy=None) -> dict:
     result["conduct"] = _seed_conduct(say, copy)
     result["security"] = _seed_security(say, copy)
     result["readme"] = _seed_readme(say, copy)
+    result["license"] = _seed_license(say, copy)
     return result
 
 
@@ -1061,6 +1176,13 @@ def _build_fixture(root: str) -> None:
     # replaced) is exercised; the apply-demo also proves the construction repo's own README stays untouched.
     with open(os.path.join(root, "README.md"), "w", encoding="utf-8") as fh:
         fh.write(_MARKETING_SEED_MARKER + "\n\n# engine-template\n")
+    # The template's own MIT LICENSE travels the same way (its author's copyright). Plant a byte-true copy so
+    # STEP 5's greenfield clear path (recognizer matches -> removed) is exercised; the apply-demo also proves the
+    # construction repo's own LICENSE stays untouched. Assembled from the recognizer's own seed + holder so the
+    # fixture can never silently drift from what the recognizer accepts.
+    with open(os.path.join(root, "LICENSE"), "w", encoding="utf-8") as fh:
+        fh.write("MIT License\n\nCopyright (c) 2026 " + _TEMPLATE_LICENSE_HOLDER + "\n\n"
+                 + _TEMPLATE_LICENSE_SEED.split("\n", 2)[2])
 
 
 def _catalog_path(root: str) -> str:
@@ -1129,10 +1251,12 @@ _APPLY_DEMO_NOTE = (
     "check at the end proves."
 )
 
-# The construction repo's own files the apply steps would write if redirection ever leaked — the demo asserts
-# they are byte-for-byte unchanged afterward (the isolation guarantee, shown mechanically, not just claimed).
+# The construction repo's own files the apply steps would write (or DELETE) if redirection ever leaked — the demo
+# asserts they are byte-for-byte unchanged afterward (the isolation guarantee, shown mechanically, not just claimed).
+# LICENSE is load-bearing here: the construction repo's own root LICENSE positively MATCHES the clear recognizer, so
+# this snapshot is the mechanical proof a redirected run never deletes it (stronger than the README case).
 _REAL_ISOLATION_FILES = (".engine/knowledge/graph.json", ".claude/settings.json", ".mcp.json",
-                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md", "SECURITY.md", "README.md",
+                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md", "SECURITY.md", "README.md", "LICENSE",
                          ".engine/conduct/operator.md", ".engine/conduct/defaults.md")
 
 
@@ -1446,6 +1570,44 @@ def _apply_demo() -> int:
             preserved = _read_text_or(readme, "") == mine
         print(f"    → brownfield: a README you wrote yourself (no engine marker) is left exactly as it is "
               f"(unchanged: {preserved}).")
+        ok &= preserved
+
+    # Scenario 7 — your project's license: the engine REMOVES its OWN traveled license (greenfield) so the template
+    # author's copyright doesn't govern your product, adds nothing in its place, leaves a license you chose yourself
+    # untouched (brownfield), and never re-touches it on a second pass — so the clear can only ever reach the
+    # engine's own traveled license, never a license that is yours.
+    print("\n— YOUR PROJECT'S LICENSE: the engine removes its OWN traveled license — but only its own, never yours.")
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)                              # plants the template's own traveled MIT LICENSE
+        lic = os.path.join(tmp, "LICENSE")
+        had_template_license = _is_template_license(_read_text_or(lic, ""))
+        with _redirect_root(tmp):
+            confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
+            apply(announce=lambda t: None, uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
+                  control_transport=_approve_transport(), **common)
+            cleared = not os.path.exists(lic)
+            second_pass = _seed_license(say=lambda t: None)    # the slot is now empty → nothing matches
+        print(f"    → greenfield: the slot held the template's own license (template license present: "
+              f"{had_template_license}); it has been removed and nothing put in its place (cleared: {cleared}); a "
+              f"second setup pass changes nothing (no-op: {second_pass == 'present'}).")
+        print("    → and here, in plain words, is exactly what I'd tell you — never done silently:")
+        print(f'      "{load_copy()["license-cleared"]}"')
+        ok &= (had_template_license and cleared and second_pass == "present")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)
+        lic = os.path.join(tmp, "LICENSE")
+        mine = ("MIT License\n\nCopyright (c) 2026 Acme Corp\n\n"      # an adopter who chose MIT under their OWN name
+                + _TEMPLATE_LICENSE_SEED.split("\n", 2)[2])
+        with open(lic, "w", encoding="utf-8") as fh:
+            fh.write(mine)
+        with _redirect_root(tmp):
+            confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
+            apply(announce=lambda t: None, uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
+                  control_transport=_approve_transport(), **common)
+            preserved = _read_text_or(lic, "") == mine
+        print(f"    → brownfield: a license you chose yourself (same words, but YOUR name on the copyright) is left "
+              f"exactly as it is (unchanged: {preserved}).")
         ok &= preserved
 
     # The isolation guarantee, shown.

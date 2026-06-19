@@ -65,6 +65,19 @@ short starter for **your** project, so your repository's front door is about you
 was intentional setup of your project's front page, not a change to anything you wrote — and the starter is
 yours to edit freely. I didn't do it silently — this note is me telling you.
 
+## Your project starts without a license — and that's normal
+
+A brand-new project normally starts with no license file at all — and that's a safe, normal place to begin: your
+code is yours, and stays yours, until you choose to share it on your own terms. This project started from a
+template, and that template carried its own license file — a `LICENSE` at the top naming the template's author and
+their copyright, not you. Left in place it would have set the terms for **your** project under someone else's name,
+so I removed it — and I added nothing in its place, because which license to use is your decision to make, not
+mine. GitHub treats a project with no license file as exactly this normal starting state, and may show a small
+"No license" note on the project page; that's expected, not a problem. When you're ready to pick one, GitHub's
+choosealicense.com walks through the common options in plain language — and I can explain what a license file is
+and help you add the one you choose, though I can't tell you which terms are right for you; for anything that really
+matters legally, ask a person. I didn't do this silently — this note is me telling you.
+
 ## If I couldn't set up file ownership for reviews
 
 I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files for
