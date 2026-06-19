@@ -6,8 +6,10 @@ the submitted pull request — is build-orchestration's (slice 24) and is not he
 exactly two things at the end of every turn:
 
   1. AMBIENT CAPTURE — relay the turn's delta to MEMORY's ledger. This is memory's mechanism; close only
-     TRIGGERS it and never gates it. Memory-substrate is L2 (post-core / ~M1), so the trigger is a DORMANT
-     relay seam here: best-effort, a no-op until memory ships, never raising into the handler.
+     TRIGGERS it and never gates it. Memory-substrate has shipped (slice 5 / ~M1), so this relay is now LIVE:
+     it appends the completed turn's delta to memory's ledger. Still best-effort and fail-soft — any fault
+     (including the import, on a repo without the memory module) is a silent no-op, never raising into the
+     handler, so capture never gates close.
 
   2. THE FINDING-DISPOSITION GATE — the trust spine. Under the standing pushback habit every concern the
      session raises takes exactly one durable disposition (fix in line / log a tracked issue / escalate;
@@ -44,6 +46,7 @@ CLI (the operator-runnable demo; the live gate is what the wired `Stop` hook inv
   python tools/close.py summary --session S               # the plain-language disposition summary
   python tools/close.py clear   --session S               # wipe the record (a fresh turn)
   python tools/close.py demo                              # a scripted held-then-ends demonstration
+  python tools/close.py demo-relay                        # the ambient-capture relay inert->live demo (M1 seam)
 """
 from __future__ import annotations
 
@@ -221,16 +224,17 @@ def _pushback(open_findings):
     return f"{head} Still open: {items}" if items else head
 
 
-# ---- the ambient-capture trigger (DORMANT relay seam; memory's mechanism) -------------------
+# ---- the ambient-capture trigger (LIVE relay seam; memory's mechanism) ----------------------
 
 def _trigger_ambient_capture(payload):
     """Relay the turn's delta to MEMORY's ambient capture (close only triggers; memory owns the mechanism
-    and gates nothing — close/README §"Ambient capture"). Memory-substrate is L2 (post-core / ~M1): until
-    it ships there is nothing to relay to, so this is a DORMANT seam — best-effort, a no-op today (the
-    import fails), never gating close and never raising into the handler. When memory lands it plugs its
-    capture in here (owes -> memory-substrate)."""
+    and gates nothing — close/README §"Ambient capture"). Memory-substrate has shipped (slice 5 / ~M1), so
+    this seam is now LIVE: `memory.capture_turn_delta` appends the completed turn's delta to the ledger. Still
+    best-effort and fail-soft — any failure (including the import, on a repo without the memory module) is a
+    silent no-op, so capture never gates close and never raises into the handler. (Operator-runnable proof:
+    `close.py demo-relay` — the M1 inert→live crossover demo.)"""
     try:
-        import memory  # noqa: F401,E402 — absent until memory-substrate ships; ImportError -> silent no-op
+        import memory  # noqa: F401,E402 — absent on a repo without memory-substrate; ImportError -> silent no-op
         memory.capture_turn_delta(payload)
     except Exception:  # noqa: BLE001 — capture is ambient and NEVER gates close; any failure is a no-op
         return
@@ -295,7 +299,7 @@ def _promote(finding, now, github=_UNSET):
 # ---- the turn-close Stop gate ---------------------------------------------------------------
 
 def handler(payload):
-    """The turn-close `Stop` gate. FIRST trigger ambient memory capture (dormant until memory ships; never
+    """The turn-close `Stop` gate. FIRST trigger ambient memory capture (live since memory shipped; never
     gates). Then read the undispositioned findings:
       - none            -> proceed (the turn ends; the summary, if any, is assistant-narrated);
       - pending, normal -> BLOCK with the plain pushback (exit-2 stderr, fed to Claude — the reliable
@@ -390,6 +394,78 @@ def _demo(_argv):
     return 0
 
 
+def _demo_relay(_argv=None):
+    """Operator-runnable fail-then-pass for the AMBIENT-CAPTURE relay — the M1 seam close TRIGGERS and memory
+    OWNS (the twin of the per-prompt scent; both seam demos gate M1). On throwaway stores (a temp ledger + a
+    temp transcript) it shows the relay was a SAFE no-op while memory was unshipped (the inert state — and the
+    turn still ENDS, because capture never gates close), and that it now CAPTURES the turn into memory's ledger
+    (the live state). The REAL relay + real memory.capture run; only the session and transcript are fixtures."""
+    import builtins
+    import shutil
+    from unittest import mock
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        from memory import ledger, capture  # noqa: E402
+    except Exception:  # noqa: BLE001 — no memory module: the relay's inert state, demonstrated by its absence
+        print("This repo has no memory module installed — so the relay has nothing to capture into, which is")
+        print("itself the safe INERT state this seam degrades to. Install memory-substrate to watch it light up.")
+        return 0
+
+    tmp = tempfile.mkdtemp(prefix="engine-close-relay-demo-")
+    prev_dir = os.environ.get(ledger.ENV_DIR)
+    prev_tx = os.environ.get(capture.TRANSCRIPT_DIR_ENV)
+    os.environ[ledger.ENV_DIR] = tmp
+    os.environ[capture.TRANSCRIPT_DIR_ENV] = tmp
+    try:
+        transcript = os.path.join(tmp, "transcript.jsonl")
+        with open(transcript, "w", encoding="utf-8") as fh:
+            for role, text in (("user", "we should ship the calendar sync on Friday"),
+                               ("assistant", "agreed — the calendar sync ships Friday")):
+                fh.write(json.dumps({"type": role, "message": {"role": role, "content": text}}) + "\n")
+        payload = {"session_id": "demo-relay", "transcript_path": transcript}
+
+        def stored():
+            return sum(1 for _ in ledger.iter_records(path=ledger.ledger_path()))
+
+        print("The end-of-turn AMBIENT-CAPTURE relay — close TRIGGERS it, memory OWNS it (an M1 seam):\n")
+
+        # (1) INERT — memory unreachable (as it was before memory shipped): the relay no-ops AND the turn ends.
+        real_import = builtins.__import__
+
+        def no_memory(name, *a, **k):
+            if name == "memory" or name.startswith("memory."):
+                raise ImportError("memory not shipped")
+            return real_import(name, *a, **k)
+
+        before = stored()
+        with mock.patch("builtins.__import__", side_effect=no_memory):
+            _trigger_ambient_capture(payload)                            # the REAL relay, memory forced absent
+            ended = _verdict(handler({"session_id": "demo-relay-x"}))    # the turn still closes
+        inert = stored() - before
+        print("(1) memory UNREACHABLE (the seam's inert state before memory shipped):")
+        print(f"    captured this turn: {inert}   (the relay safely does nothing)")
+        print(f"    the turn still:     {ended}   (capture NEVER gates the turn)")
+
+        # (2) LIVE — memory present: the relay captures the turn-delta into the ledger.
+        before = stored()
+        _trigger_ambient_capture(payload)                                # the REAL relay, memory present
+        live = stored() - before
+        print("\n(2) memory PRESENT (now that it has shipped):")
+        print(f"    captured this turn: {live}   (the turn's words landed in memory's ledger)")
+
+        ok = inert == 0 and live >= 1 and "ENDS" in ended
+        print("\n" + ("DEMO PASSED: dormant it was a safe no-op; live it captures — and never gates the turn."
+                      if ok else "DEMO DID NOT BEHAVE AS EXPECTED — see above."))
+        return 0 if ok else 1
+    finally:
+        for key, prev in ((ledger.ENV_DIR, prev_dir), (capture.TRANSCRIPT_DIR_ENV, prev_tx)):
+            if prev is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = prev
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main(argv):
     cmd = argv[0] if argv else "hook"
     if cmd == "hook":
@@ -420,8 +496,10 @@ def main(argv):
         return 0
     if cmd == "demo":
         return _demo(argv[1:])
+    if cmd == "demo-relay":
+        return _demo_relay(argv[1:])
     print("usage: close.py [hook | record --session S --message M | dispose --session S --id F --kind K | "
-          "pending --session S | summary --session S | clear --session S | demo]", file=sys.stderr)
+          "pending --session S | summary --session S | clear --session S | demo | demo-relay]", file=sys.stderr)
     return 2
 
 

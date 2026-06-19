@@ -979,7 +979,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:97e28af0411fe017ad1f75a9ebee623f93de3f68b2bb30e985a6c7b5225f8a3f",
+        "fingerprint": "sha256:8af1a3a7c596e777b622baf93c0a0177ea2c46380fc1aadad893ce67504d0cf4",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -2063,7 +2063,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:17afe46566bd786bf3b2176e554fc6fc7d285e91a7897e26ca079714e3ead2ab",
+        "fingerprint": "sha256:f791f06d6d8a02f6e85dcd56763f82e396d17545535ba7a91d4967b722e9b008",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -2335,7 +2335,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:1129bfc9942478cb7ee1fc9a64acf28f58d4c8687a0a9fb04afbf8f216d4d3e0",
+        "fingerprint": "sha256:9c667b3176984f765b819bfe2ec41b9d4bf669e3af728706d501c0a06d9816e4",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -2643,6 +2643,23 @@
       "source": {
         "fingerprint": "sha256:1bc87a98f1deab1b27dd77f58da0c228a0ab585aedacf228fb9c5ef0c01fc0d1",
         "path": ".engine/tools/memory/rollup.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:scent",
+      "name": ".engine/tools/scent.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "scent",
+      "source": {
+        "fingerprint": "sha256:3399df6d5b54c5d4806efec1e15a059aaf570731578ddc3d621171a3a65b9be9",
+        "path": ".engine/tools/scent.py"
       },
       "status": "active",
       "type": "tool"
@@ -3049,7 +3066,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:fdba47bf8c8501b9e1ec329c5707258670fe63e7b858ad36f9f7e3f954b0c9fd",
+        "fingerprint": "sha256:d2d119b11b073f9165b77bfe18bc2e40b2fde0daed02c7f2ff609bb183d52340",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -3374,6 +3391,40 @@
       "source": {
         "fingerprint": "sha256:0b5aa419f997810c779d5df932ba305bbc17ea789c66e96877aef35413a05dea",
         "path": ".engine/tools/memory/test_rollup.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_scent",
+      "name": ".engine/tools/test_scent.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_scent",
+      "source": {
+        "fingerprint": "sha256:089534fb11a50dcb340807416c29e19aec03cd6cfe65aeb429a3e32377417d06",
+        "path": ".engine/tools/test_scent.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_scent_lookup",
+      "name": ".engine/tools/memory/test_scent_lookup.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_scent_lookup",
+      "source": {
+        "fingerprint": "sha256:c77f3c8243a93abab6e3841dcede52c9677e9d0a18331757f7c5cbd26d1843fe",
+        "path": ".engine/tools/memory/test_scent_lookup.py"
       },
       "status": "active",
       "type": "tool"
