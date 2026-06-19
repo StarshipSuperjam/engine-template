@@ -2051,7 +2051,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:7e0fc435efbb14c58036821b92a0ab48eab4be62936e75ec7a4fc033492117a3",
+        "fingerprint": "sha256:2726ba37cdc6b78eee5cf277c9a1f8a2aa7ae2ba2c8175fa75436de922a8f3a4",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -2085,7 +2085,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:88e96d1497c62929b8fa01b65ab42f05f2c83ab2e51485c35f98f573f3ce9cc0",
+        "fingerprint": "sha256:daf302c985f74a89869cd2e972aef0264e0f2a86cec04c65502b8e831cf7e467",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -3843,6 +3843,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_work_record",
+      "name": ".engine/tools/test_work_record.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_work_record",
+      "source": {
+        "fingerprint": "sha256:9113001d7fcd1116c2edf2ea81f05e1fb4fa9b69de6493b481a71ef20a92ae7b",
+        "path": ".engine/tools/test_work_record.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:tune",
       "name": ".engine/tools/tune.py",
       "owner": "core",
@@ -3923,6 +3940,23 @@
       "source": {
         "fingerprint": "sha256:5f84297378ec14ce86db66a5af4d70c25e1672cbf62af3d61d7e5cd032f08b04",
         "path": ".engine/tools/wiring.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:work_record",
+      "name": ".engine/tools/work_record.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "work_record",
+      "source": {
+        "fingerprint": "sha256:6e87d30c74baab91b4526ad7092aa20b6aff661d6ad95e3155ad034f50f6e6de",
+        "path": ".engine/tools/work_record.py"
       },
       "status": "active",
       "type": "tool"

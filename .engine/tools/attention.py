@@ -36,6 +36,11 @@ try:
 except Exception:            # pragma: no cover - knowledge import should not fail, but assembly degrades if it does
     knowledge_query = None
 
+try:
+    import work_record       # noqa: E402  (the in-flight git/GitHub work-record reader, a pure leaf -> no cycle)
+except Exception:            # pragma: no cover - a stdlib-only leaf should import, but assembly degrades if not
+    work_record = None
+
 POLICY_PATH = os.path.join(validate.ENGINE_DIR, "policies", "attention.md")
 STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
 
@@ -65,10 +70,13 @@ def load_policy_values(policy_path: str = POLICY_PATH, override: dict | None = N
 
 
 def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH, focus: str | None = None,
-                        edge_filter=None, depth: int = 1):
+                        edge_filter=None, depth: int = 1, gh=None):
     """Assemble the candidate-set from the substrates present today, reporting which were available and the
     cursor's as-of marker. Returns (candidates, available_inputs:set, cursor_as_of:str|None). Narrates nothing.
-    """
+
+    `gh` is the GitHub reader for the in-flight work-record read (None -> the local-git floor only; boot
+    passes a real reader, the CLI passes None). Like state/knowledge, the work record is read HERE — the only
+    boot-loaded input is the operator override (config, not a substrate)."""
     candidates: list = []
     available: set = set()
     cursor_as_of = None
@@ -106,6 +114,19 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH, fo
         except Exception:
             pass  # knowledge unavailable -> degrade over it
 
+    if work_record is not None:
+        try:
+            # The native git/GitHub work record's in-flight half (open PRs + the working branch) -> in_flight
+            # candidates. read_in_flight RAISES only when git cannot be consulted at all (then git stays in
+            # degraded_inputs); an empty list means git IS available with no in-flight work. The recency the
+            # reader emits is already trailing-Z-normalised (or None), so the ranking math never sees a bad ts.
+            for r in work_record.read_in_flight(gh=gh):
+                candidates.append({"id": r["id"], "category": "in_flight",
+                                   "recency": r.get("recency"), "source": "git"})
+            available.add("git")
+        except Exception:
+            pass  # the in-flight work record could not be consulted -> degrade over git
+
     return candidates, available, cursor_as_of
 
 
@@ -119,7 +140,7 @@ def _now_z() -> str:
 
 def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None, focus: str | None = None,
               depth: int = 1, budget_total: int | None = None, as_of: str | None = None,
-              apply_precedence: bool = True) -> dict:
+              apply_precedence: bool = True, gh=None) -> dict:
     """The live ranking path over the substrates present today, returning the attention-result.v1 dict
     (whose own `degraded_inputs` records the absent substrates). This is the ONE assembler the CLI (`rank`)
     and boot's SessionStart pack both call, so boot CONSUMES the partition it is handed — in the locked
@@ -129,9 +150,10 @@ def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None, f
     clock-free. `budget_total` (boot owns it) sizes the per-category split when supplied. `override` is the
     attention slice of the operator policy-override (D-167) the LOADING layer (boot) reads and passes as DATA;
     it is merged per-key into the effective values via the core merge (`load_policy_values`), keeping the
-    static-input determinism — attention never reads the override FILE itself."""
+    static-input determinism — attention never reads the override FILE itself. `gh` is the GitHub reader for
+    the in-flight work-record read (boot builds + passes it; the CLI leaves it None -> the local-git floor)."""
     policy_values = load_policy_values(policy_path, override)
-    candidates, available, cursor_as_of = assemble_candidates(policy_values, focus=focus, depth=depth)
+    candidates, available, cursor_as_of = assemble_candidates(policy_values, focus=focus, depth=depth, gh=gh)
     resolved_as_of = as_of or cursor_as_of
     as_of_is_wallclock = False
     if resolved_as_of is None:

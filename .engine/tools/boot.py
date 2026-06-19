@@ -206,20 +206,26 @@ def _resolve_member(member_id: str, state: dict | None) -> str:
         return "Open integration debt is waiting — clear it before new work piles on top."
     if ":" in member_id:
         kind, _, slug = member_id.partition(":")
+        if kind == "pr":         # an open pull request in flight (the work record's GitHub layer)
+            return f"Pull request #{slug} is open and in flight — pick it back up, or close it if it's done."
+        if kind == "branch":     # the working branch in flight (the work record's local-git floor)
+            return f"You have unmerged work on branch '{slug}' — carry it forward or set it down deliberately."
         return f"Related: {slug} ({kind}) — query and verify before relying on it."
     return member_id
 
 
-def needs_attention(state: dict | None) -> tuple[list[str], list[str]]:
+def needs_attention(state: dict | None, *, gh=None) -> tuple[list[str], list[str]]:
     """Consume attention.rank_live and render the ranked partition in its GIVEN precedence order as
     plain-language lines (a bounded prefix per category — boot renders, never re-orders). Returns
-    (lines, degraded_inputs). On the genesis repo the partition is largely empty and degraded_inputs
-    is non-empty every run (telemetry-as-register + the git work-record reader do not exist yet) — the
-    normal path, surfaced as a routine degraded notice, not an alarm."""
+    (lines, degraded_inputs). `gh` is the GitHub reader boot built from the live repo/token; attention reads
+    the in-flight work record (open PRs + the working branch) through it. With no gh (no token) attention
+    still gets the local-git floor, so the working branch surfaces offline. telemetry-as-register is still
+    absent, so degraded_inputs stays non-empty (boot's routine degraded notice, not an alarm)."""
     try:
         # Load the operator policy-override (operator config, absent until first tuned) and pass attention's
         # slice as DATA — boot is the LOADING layer; attention merges it per-key (D-167), never reads the file.
-        result = attention.rank_live(override=operator_overrides.slice_for("attention") or None)
+        # The work record, by contrast, is a SUBSTRATE attention reads itself (through the gh reader boot hands it).
+        result = attention.rank_live(override=operator_overrides.slice_for("attention") or None, gh=gh)
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
         return [], ["attention"]
     lines: list[str] = []
@@ -275,7 +281,10 @@ def gather_signals(session_id: str | None = None) -> dict:
     gate, reason = protected_branch_signal(repo, token)
     finding_count, register = open_findings(repo, token)
     debt_count, debt_as_of = telemetry.read_state_debt(STATE_PATH)
-    att_lines, att_degraded = needs_attention(state)
+    # The GitHub reader for attention's in-flight work-record read (open PRs). None without a repo/token ->
+    # attention falls back to the local-git floor (the working branch). Construction does no I/O (telemetry.py).
+    gh = telemetry.GitHubIssues(repo, token) if repo and token else None
+    att_lines, att_degraded = needs_attention(state, gh=gh)
     try:
         # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
         # low-stakes (a stranded local checkout cannot reach the protected branch), so it degrades QUIETLY
