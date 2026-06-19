@@ -39,7 +39,7 @@
     "conduct": [".engine/conduct/defaults.md"],
     "template": [".engine/templates/*.md"],
     "foundation": [".engine/suites.json", ".engine/self-map.md"],
-    "provisioning": [".engine/provisioning/module-catalog.json"]
+    "provisioning": [".engine/provisioning/first-run-assets.json", ".engine/provisioning/module-catalog.json"]
   },
   "wires": [
     {

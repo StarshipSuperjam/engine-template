@@ -310,6 +310,31 @@
       "type": "check"
     },
     {
+      "id": "check:first-run-reference-closure",
+      "kind": "custom/script",
+      "name": ".engine/check/first-run-reference-closure.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "first-run-reference-closure",
+      "source": {
+        "fingerprint": "sha256:8b1ce5f859908c915ecf447f93d7395e8e6ead3a474bd773751bbd394e656ac2",
+        "path": ".engine/check/first-run-reference-closure.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:guardrail-weakening",
       "kind": "custom/script",
       "name": ".engine/check/guardrail-weakening.json",
@@ -954,7 +979,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:eed1e8dcdb95e0c7bb3ee1404ae035c134e8c6767db4f5fe4225cfd8215d62cc",
+        "fingerprint": "sha256:97e28af0411fe017ad1f75a9ebee623f93de3f68b2bb30e985a6c7b5225f8a3f",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -1008,7 +1033,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:c4a03248ac4638a2d78176186b4e605a0d9b1afb003a872c3738723921c3d93f",
+        "fingerprint": "sha256:d7957e09dc6685ea4049a1120e5a553c9d9e32d34308855daf030264ceda0420",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2130,6 +2155,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_first_run_reference_closure",
+      "name": ".engine/tools/demo_first_run_reference_closure.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_first_run_reference_closure",
+      "source": {
+        "fingerprint": "sha256:0e887ae1763edc7df62c7956a485e10cd7c5907d3f0ad3c3267be43b6772a2b4",
+        "path": ".engine/tools/demo_first_run_reference_closure.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_secret_scan",
       "name": ".engine/tools/demo_secret_scan.py",
       "owner": "core",
@@ -2215,6 +2257,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:first_run_reference_closure_check",
+      "name": ".engine/tools/first_run_reference_closure_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "first_run_reference_closure_check",
+      "source": {
+        "fingerprint": "sha256:db7bde925ce3e1d9eac3ea703ec905cedba1940eacbb79f8f4bbdf9b18898501",
+        "path": ".engine/tools/first_run_reference_closure_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:forget",
       "name": ".engine/tools/memory/forget.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -2293,7 +2352,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:d17a64e516778d1b1a8c22137db977473e5c574d40d4dbe0c51dfba62d901bf6",
+        "fingerprint": "sha256:7bf017ceee8f2e4aad5ab90f41237e884abbff6c7bb3f040a1b7b76539425a37",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -2946,6 +3005,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_first_run_reference_closure",
+      "name": ".engine/tools/test_first_run_reference_closure.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_first_run_reference_closure",
+      "source": {
+        "fingerprint": "sha256:bf6c8c86a04cec3751a5d7f9d97ffbb9b7f7ea2b58776e636879ac6759e4fcf8",
+        "path": ".engine/tools/test_first_run_reference_closure.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_forget",
       "name": ".engine/tools/memory/test_forget.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -3007,7 +3083,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:0aa7c05c12b42ef2babe426905d541e75b00c703c2be2f319bc9cf51b2195e65",
+        "fingerprint": "sha256:6dd0ef0fd2c172c5a44d72ca7b5ff3c23ad45af3ab8603cad9250dbf94916622",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -3194,7 +3270,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:bc1c02861de5a52654fdba73adf581d040c15493d681a0d949ba79044e034cb8",
+        "fingerprint": "sha256:69e75112f1ba9e3a4112ceb38fdf4582c48df7a53eef22209ee8b0ce4a35a0cc",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -3364,7 +3440,7 @@
       },
       "slug": "test_security_floor",
       "source": {
-        "fingerprint": "sha256:3d1a1a8ce868f249b9305a01882448d35c6a272207066c5ecb5ccbf1e2462f3b",
+        "fingerprint": "sha256:766d6e59afcf0daca76afc27113323bb027dc6a8aa8ad9b865a60ede7807d608",
         "path": ".engine/tools/test_security_floor.py"
       },
       "status": "active",

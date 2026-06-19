@@ -978,6 +978,25 @@ class TestRetireIsolation(unittest.TestCase):
         self.assertTrue(os.path.isfile(real_self), "the real setup tool must survive a redirected retire")
 
 
+class TestFirstRunAssetsManifestParity(unittest.TestCase):
+    """The committed .engine/provisioning/first-run-assets.json manifest mirrors the operational retire-set
+    literal here, so the first-run reference-closure check can read the removed set without importing this
+    (retired) module. The manifest is authored, not derived — this parity test is what binds them (it runs in
+    the construction repo's CI, where both exist; both vanish together at retirement). engine-planning D-219/D-220."""
+    def _manifest(self):
+        with open(os.path.join(inst.validate.ROOT, ".engine", "provisioning", "first-run-assets.json"),
+                  encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_manifest_files_match_the_retire_set_literal(self):
+        self.assertEqual(sorted(self._manifest()["files"]), sorted(inst._FIRST_RUN_ASSET_FILES),
+                         "first-run-assets.json `files` drifted from instantiator._FIRST_RUN_ASSET_FILES")
+
+    def test_manifest_directories_match_the_retire_set_literal(self):
+        self.assertEqual(sorted(self._manifest()["directories"]), sorted(inst._FIRST_RUN_ASSET_DIRS),
+                         "first-run-assets.json `directories` drifted from instantiator._FIRST_RUN_ASSET_DIRS")
+
+
 class TestFinishCopy(unittest.TestCase):
     def test_template_carries_every_finish_section(self):
         copy = inst.load_copy(inst.TEMPLATE_PATH)
