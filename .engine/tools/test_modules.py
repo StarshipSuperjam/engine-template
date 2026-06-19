@@ -295,10 +295,14 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
-    def test_check_corpus_split_core_two_guards_validators_core_thirty(self):
+    def test_check_corpus_split_core_two_guards_validators_core_thirtyone(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
-        # the self-validation corpus is validators-core's (30 rules: the 29 prior plus the first-run
+        # the self-validation corpus is validators-core's (31 rules: the 30 prior plus the audit
+        # checklist schema gate (the audit-library module's concern-list, validated HERE because
+        # engine-self-validation consolidates in validators-core, not the surface's owner — README
+        # "Why a separate required package"; the same shape as the first-run reference-closure gate
+        # that enforces provisioning's invariant from here), and before that the first-run
         # reference-closure gate (issue #150; engine-planning D-219/D-220), and before it the
         # knowledge-vocabulary parity guard (issue #131) — the 20 after the
         # operation grammar (slice OG) and the skill grammar (slice SG) plus the doc-frontmatter and
@@ -329,6 +333,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(vc_checks, [
             ".engine/check/agent-frontmatter.json",
             ".engine/check/agent-shape.json",
+            ".engine/check/audit-concern-list.json",
             ".engine/check/catalog-coverage.json",
             ".engine/check/conduct-frontmatter.json",
             ".engine/check/conduct-shape.json",
@@ -357,7 +362,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/skill-shape.json",
             ".engine/check/state-cursor.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 30 corpus rules")
+        ], "validators-core owns exactly the 31 corpus rules")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
@@ -366,6 +371,36 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # validators-core depends on core (presence assertion, any version)
         vc = next(m for _p, m in manifests if m.get("id") == "validators-core")
         self.assertEqual(vc.get("depends"), {"core": ""})
+
+    def test_audit_library_owns_persona_and_concern_list(self):
+        # audit-library (required, L3) ships the static self-audit artifacts: the audit persona and the
+        # seeded concern-list (audits-owned data). It owns NO check or schema this slice — the concern-list
+        # check is validators-core's (engine-self-validation consolidates there) and the schema rides core's
+        # schema glob — so its provides is exactly persona + concern-list, and it depends on core +
+        # validators-core (the semantic audit assumes the mechanical floor).
+        manifests = module_coherence.discover_manifests()
+        al = next((m for _p, m in manifests if m.get("id") == "audit-library"), None)
+        self.assertIsNotNone(al, "audit-library must be a present module")
+        self.assertEqual(al.get("status"), "required")
+        self.assertEqual(al.get("wires"), [])
+        self.assertEqual(al.get("depends"), {"core": "", "validators-core": ""})
+        self.assertEqual(al.get("provides"), {
+            "agent": [".claude/agents/audit.md"],
+            "audits": [".engine/audits/concern-list.json"],
+        }, "audit-library owns exactly the persona and the seeded concern-list")
+
+    def test_seed_concern_list_conforms_to_its_schema(self):
+        # the committed seed concern-list is well-formed against concern-list.v1 — the same schema + dialect
+        # the audit-concern-list check validates it with at the merge. Pins the seed (every entry carries its
+        # required justification) and that the schema is itself usable.
+        from jsonschema import Draft202012Validator
+        schema = validate.load_json(os.path.join(validate.ROOT, ".engine/schemas/concern-list.v1.json"))
+        data = validate.load_json(os.path.join(validate.ROOT, ".engine/audits/concern-list.json"))
+        errors = [e.message for e in Draft202012Validator(schema).iter_errors(data)]
+        self.assertEqual(errors, [], f"seed concern-list must conform: {errors}")
+        self.assertTrue(data.get("concerns"), "the seed ships with concerns")
+        for c in data["concerns"]:
+            self.assertTrue(c.get("justification"), "every seed concern carries its justification")
 
     def test_real_repository_is_coherent(self):
         # The whole point of the slice: the committed tree has no unowned engine file and no

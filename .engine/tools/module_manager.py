@@ -1274,7 +1274,10 @@ def run_demo() -> bool:
     ok = ok and core["refused"] and "validators-core" in core["reason"]   # reverse-dependency refusal
     vc = plan_remove("validators-core")
     print("  remove validators-core -> " + ("REFUSED: " + vc["reason"] if vc["refused"] else "NOT refused?!"))
-    ok = ok and vc["refused"] and "required" in vc["reason"]              # required-foundation refusal
+    ok = ok and vc["refused"] and "audit-library" in vc["reason"]        # reverse-dependency refusal (audit-library needs it)
+    leaf = plan_remove("routine-mode")
+    print("  remove routine-mode    -> " + ("REFUSED: " + leaf["reason"] if leaf["refused"] else "NOT refused?!"))
+    ok = ok and leaf["refused"] and "required" in leaf["reason"]          # required-foundation refusal (a required leaf)
 
     print("\nPart B — removing an optional module end-to-end on a throwaway fixture:")
     with tempfile.TemporaryDirectory() as d:

@@ -1,0 +1,11 @@
+{
+  "id": "audit-library",
+  "version": "0.0.0-dev",
+  "status": "required",
+  "provides": {
+    "agent": [".claude/agents/audit.md"],
+    "audits": [".engine/audits/concern-list.json"]
+  },
+  "wires": [],
+  "depends": { "core": "", "validators-core": "" }
+}

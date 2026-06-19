@@ -1,6 +1,28 @@
 {
   "entities": [
     {
+      "id": "agent:audit",
+      "model-tier": "judgment",
+      "name": ".claude/agents/audit.md",
+      "owner": "audit-library",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:audit-library"
+        ]
+      },
+      "role": "audit",
+      "slug": "audit",
+      "source": {
+        "fingerprint": "sha256:9d79a863aaed01afe8d5c477f86b26c9ba1c6eb0a064da28058573c32b3b8e8e",
+        "path": ".claude/agents/audit.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
       "id": "check:agent-frontmatter",
       "kind": "schema",
       "name": ".engine/check/agent-frontmatter.json",
@@ -11,6 +33,9 @@
         ],
         "provided_by": [
           "module:validators-core"
+        ],
+        "targets": [
+          "agent:audit"
         ]
       },
       "slug": "agent-frontmatter",
@@ -36,12 +61,40 @@
         ],
         "provided_by": [
           "module:validators-core"
+        ],
+        "targets": [
+          "agent:audit"
         ]
       },
       "slug": "agent-shape",
       "source": {
         "fingerprint": "sha256:5a5c16c28664d3fd8260f4d386c6d9cdddde4ce741583578ba3d5006e17b6c73",
         "path": ".engine/check/agent-shape.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:audit-concern-list",
+      "kind": "schema",
+      "name": ".engine/check/audit-concern-list.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "audit-concern-list",
+      "source": {
+        "fingerprint": "sha256:ed339870cbd9312b1404b9e0ca85b4b2fe24362cdf45c02c014be796005cb55c",
+        "path": ".engine/check/audit-concern-list.json"
       },
       "status": "active",
       "suites": [
@@ -65,7 +118,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:ccbae65cc682ce2143938019f24560b3e533777791c5bee9d85f9e2833c70d09",
+        "fingerprint": "sha256:c5fefe8f6123756de1aef522f4aedcb081abae19efd7afd342068bd86524a943",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -474,6 +527,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "module:audit-library",
           "module:core",
           "module:memory-substrate-sqlite-fts5",
           "module:routine-mode",
@@ -973,6 +1027,25 @@
       "type": "interface"
     },
     {
+      "id": "module:audit-library",
+      "name": "audit-library",
+      "owner": "audit-library",
+      "predicates": {
+        "depends_on": [
+          "module:core",
+          "module:validators-core"
+        ]
+      },
+      "slug": "audit-library",
+      "source": {
+        "fingerprint": "sha256:128467564dd347f67a094970d2f4e96ac119a9ba79876cb2ffbb521e5b8c4a07",
+        "path": ".engine/modules/audit-library/manifest.json"
+      },
+      "status": "required",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
       "id": "module:core",
       "name": "core",
       "owner": "core",
@@ -1033,7 +1106,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:d7957e09dc6685ea4049a1120e5a553c9d9e32d34308855daf030264ceda0420",
+        "fingerprint": "sha256:454937d48ecc03da510822282d27973f9eab4e57a584d59656d313fca16ea79b",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -1469,6 +1542,23 @@
       "source": {
         "fingerprint": "sha256:6ab9d118d4ab2503dde86f2d3e79848441add0c9b1cf2b64a7dc99379f4c0765",
         "path": ".engine/schemas/check.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:concern-list.v1",
+      "name": ".engine/schemas/concern-list.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "concern-list.v1",
+      "source": {
+        "fingerprint": "sha256:a866b24da080ad5ce6893da1e7ba947bb3e00c206c6af9749a06ba69b585669b",
+        "path": ".engine/schemas/concern-list.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -2138,6 +2228,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_audit_concern_list",
+      "name": ".engine/tools/demo_audit_concern_list.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_audit_concern_list",
+      "source": {
+        "fingerprint": "sha256:35d8ffa4d07b0d445bec63d9f66cd52503e67185e6363889665492ee6b3df51c",
+        "path": ".engine/tools/demo_audit_concern_list.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_ci_author_exempt",
       "name": ".engine/tools/demo_ci_author_exempt.py",
       "owner": "core",
@@ -2556,7 +2663,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:414f48e78a2a444666a1602759ae2b7ec94c5d3062aecca34aaad00f6f1185fc",
+        "fingerprint": "sha256:ff51c4447a86be065d34d4ddb08723966707ea177bb986373bd8e84d645ceb97",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -2794,7 +2901,7 @@
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:288190876ab1ef9f9514a46c28f4a1407463535be01f5171f38eb08e54b1dbe0",
+        "fingerprint": "sha256:3af5f58539fc0c2a4aff4c2c182e77e1314886d9311153924224faa49b09f6c5",
         "path": ".engine/tools/test_agent.py"
       },
       "status": "active",
@@ -3270,7 +3377,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:9d3e19b94b8734fbb2817c456bb37e5e0474b0d2ba7c5605bab177329679b8ec",
+        "fingerprint": "sha256:60fd5bf45aed26ff84cfc45ad3017e6badbecd626761da557178e8c657498614",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -3287,7 +3394,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:69e75112f1ba9e3a4112ceb38fdf4582c48df7a53eef22209ee8b0ce4a35a0cc",
+        "fingerprint": "sha256:8052743dc6f28a20d3af136b909e1d4a5d4af8aa4e10815a78b69d8f6c166d8f",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

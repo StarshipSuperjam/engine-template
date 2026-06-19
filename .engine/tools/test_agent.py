@@ -159,8 +159,9 @@ class TestShapeRule(unittest.TestCase):
         self.assertEqual(SHAPE_RULE["target"], {"path": ".claude/agents/*.md"})
         self.assertEqual(SHAPE_RULE["tier"], "hard")
 
-    def test_live_rule_is_green_on_the_empty_stream(self):
-        # the real rule over the real .claude/agents/ — only .gitkeep, zero *.md matches, trivially green.
+    def test_live_shape_rule_is_green_on_the_committed_personas(self):
+        # the real shape rule over the real .claude/agents/ — the committed audit persona (plus .gitkeep)
+        # is well-shaped, so green; persona validity is load-bearing (this is no longer an empty stream).
         passed, found = validate.kind_shape(SHAPE_RULE, {})
         self.assertTrue(passed)
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])
@@ -217,7 +218,9 @@ class TestFrontmatterRule(unittest.TestCase):
         self.assertEqual(FM_RULE["tier"], "hard")
         self.assertEqual(FM_RULE.get("params"), {})   # catalog-routed: no params.schema override
 
-    def test_live_rule_is_green_on_the_empty_persona_stream(self):
+    def test_live_frontmatter_rule_is_green_on_the_committed_personas(self):
+        # the real frontmatter rule over the real .claude/agents/ — the committed audit persona conforms to
+        # agent.v1, so green; persona validity is load-bearing (this is no longer an empty stream).
         passed, found = validate.kind_schema(FM_RULE, {})
         self.assertTrue(passed)
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "concerns": [
+    {
+      "target": "the project's saved memory (the experiential decision and preference records the engine keeps)",
+      "adversarial-question": "Do any saved beliefs now contradict each other, has observed behaviour since refuted one, or is a heavily-used record actually obsolete — and is any already-retired record still physically present when it has earned erasure?",
+      "finding-types": ["contradicting-belief", "refuted-belief", "obsolete-high-use-record", "earned-erasure"],
+      "justification": "Memory's mechanical consolidation and decay keep the store tidy by frequency and age, but they cannot judge that a belief is now wrong or that two records disagree — that is a content judgment made fresh each run, above the mechanical layer, and never expressible as a check."
+    },
+    {
+      "target": "the engine-labelled open issues (the deployed engine's own debt register)",
+      "adversarial-question": "Does any open engine-labelled issue no longer reproduce against the current code, or has the backlog grown past the point where the operator can honestly triage it?",
+      "finding-types": ["non-reproducing-debt", "triage-pressure"],
+      "justification": "Whether a recorded problem still reproduces is a probe run now against current state, not a field a check can read; the register's own count cannot tell a stale entry from a live one."
+    },
+    {
+      "target": "the installed optional modules and the operator's recurring friction",
+      "adversarial-question": "Is an installed optional module never actually exercised in this project (a retire candidate), or does a friction the operator keeps hitting map to a capability a module they have not installed would provide (a suggest-to-install)?",
+      "finding-types": ["unexercised-module", "unmet-need-maps-to-module"],
+      "justification": "Fit is a judgment about lived use, not a presence count — a module can be installed and inert, or a real need can sit unserved because its module was never chosen; neither is visible to a mechanical rule."
+    },
+    {
+      "target": "the project-authored local surfaces (proposed contracts and policies, local operations, local skills and agents)",
+      "adversarial-question": "Is a proposed contract or policy abandoned without ever being adopted, is a single-referrer local operation really just one skill's private depth, or is a local skill or agent orphaned with nothing using it?",
+      "finding-types": ["abandoned-proposal", "single-referrer-operation", "orphaned-local-surface"],
+      "justification": "These are local, preserved-across-update artifacts the audit may retire; whether one still earns its place is an affirmative-case judgment about what work it does that nothing else does — exactly the call a check cannot make, and one the generic sweep targets only by chance without this row."
+    }
+  ]
+}
