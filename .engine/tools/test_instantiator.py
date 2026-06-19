@@ -796,6 +796,145 @@ class TestSeedReadme(unittest.TestCase):
         self.assertFalse(exists, "the engine never creates a root README out of nothing")
 
 
+# ==== the root LICENSE clear (issue #147, D-221/D-222) ===============================================
+
+def _template_license_text(holder="StarshipSuperjam", year="2026"):
+    """Reconstruct a full LICENSE (copyright line + body) from the recognizer's OWN seed, for fixtures — so the
+    fixtures can never silently drift from what the recognizer accepts. With the template author's holder this is the
+    engine's traveled license (cleared); with any other holder it's an adopter's own license (preserved)."""
+    return ("MIT License\n\nCopyright (c) " + year + " " + holder + "\n\n"
+            + inst._TEMPLATE_LICENSE_SEED.split("\n", 2)[2])
+
+
+class TestLicenseRecognizer(unittest.TestCase):
+    def test_holder_constant_is_the_committed_template_author(self):
+        # A typo here would silently stop the clear on every generated repo — pin the exact holder.
+        self.assertEqual(inst._TEMPLATE_LICENSE_HOLDER, "StarshipSuperjam")
+
+    def test_the_exact_template_license_is_recognized(self):
+        self.assertTrue(inst._is_template_license(_template_license_text()))
+
+    def test_a_year_bump_still_matches(self):
+        # leg 2 is a year-agnostic holder substring, so the template author's own license ages without going unseen
+        self.assertTrue(inst._is_template_license(_template_license_text(year="2027")))
+
+    def test_crlf_trailing_newline_and_bom_variance_still_match(self):
+        base = _template_license_text()
+        self.assertTrue(inst._is_template_license(base.replace("\n", "\r\n")), "CRLF (a Windows-saved copy)")
+        self.assertTrue(inst._is_template_license(base.rstrip("\n")), "a missing trailing newline")
+        self.assertTrue(inst._is_template_license("\ufeff" + base), "a leading byte-order mark")
+
+    def test_an_adopters_own_mit_with_a_different_holder_is_not_matched(self):
+        # The catastrophic false-positive guard: same body, but THEIR name on the copyright → preserved, never deleted.
+        self.assertFalse(inst._is_template_license(_template_license_text(holder="Acme Corp")))
+
+    def test_a_holder_that_only_embeds_the_author_substring_is_not_matched(self):
+        # The holder must EQUAL the template author, not merely contain it — an unanchored substring test would
+        # false-match (and DELETE) an adopter whose name embeds the author string. Same body, these holders → preserve.
+        for holder in ("StarshipSuperjamson", "MyStarshipSuperjam Inc", "The StarshipSuperjam Foundation",
+                       "starshipsuperjam"):     # a case-variant is a different name too → preserve on doubt
+            self.assertFalse(inst._is_template_license(_template_license_text(holder=holder)),
+                             f"holder {holder!r} merely embeds the author — must be preserved, never cleared")
+
+    def test_a_non_mit_license_is_not_matched(self):
+        self.assertFalse(inst._is_template_license(
+            "Apache License\n\nCopyright (c) 2026 StarshipSuperjam\n\nVersion 2.0, January 2004 — terms differ.\n"))
+
+    def test_a_second_copyright_line_preserves(self):
+        # An adopter who ADDED their own copyright alongside the traveled one → two lines → not the pristine seed → keep.
+        two = ("MIT License\n\nCopyright (c) 2026 Acme Corp\nCopyright (c) 2026 StarshipSuperjam\n\n"
+               + inst._TEMPLATE_LICENSE_SEED.split("\n", 2)[2])
+        self.assertFalse(inst._is_template_license(two))
+
+    def test_empty_or_none_is_not_matched(self):
+        self.assertFalse(inst._is_template_license(""))
+        self.assertFalse(inst._is_template_license(None))
+
+
+def _seed_license_root(tmp, *, license_text=None):
+    """Plant a fixture root for a _seed_license test: optionally a root LICENSE (its exact text). Omit to model the
+    absent-file case. The caller holds the surrounding inst._redirect_root(tmp)."""
+    if license_text is not None:
+        with open(os.path.join(tmp, "LICENSE"), "w", encoding="utf-8") as fh:
+            fh.write(license_text)
+
+
+class TestSeedLicense(unittest.TestCase):
+    def test_greenfield_clears_the_template_license_and_discloses(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_license_root(d, license_text=_template_license_text())
+                outcome = inst._seed_license(said.append, inst.load_copy())
+                exists = os.path.exists(os.path.join(d, "LICENSE"))
+        self.assertEqual(outcome, "cleared")
+        self.assertFalse(exists, "the traveled template license is removed")
+        blob = "\n".join(said).lower()
+        self.assertTrue(said, "the clear is disclosed, never silent")
+        self.assertIn("license", blob)
+        self.assertIn("removed", blob, "names what was removed (the clear is disclosed in plain words)")
+
+    def test_no_replacement_is_seeded(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_license_root(d, license_text=_template_license_text())
+                inst._seed_license(lambda t: None, inst.load_copy())
+                exists = os.path.exists(os.path.join(d, "LICENSE"))
+        self.assertFalse(exists, "the engine seeds NO replacement license — the slot is left empty (the adopter's choice)")
+
+    def test_brownfield_adopter_license_is_preserved_untouched(self):
+        said = []
+        mine = _template_license_text(holder="Acme Corp")     # an adopter's own MIT, their name on the copyright
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_license_root(d, license_text=mine)
+                outcome = inst._seed_license(said.append, inst.load_copy())
+                now = inst._read_text_or(os.path.join(d, "LICENSE"), "")
+        self.assertEqual(outcome, "present")
+        self.assertEqual(now, mine, "a license the adopter chose (different holder) is left exactly as it is")
+        self.assertEqual(said, [], "no disclosure on a no-op")
+
+    def test_rerun_after_a_clear_is_a_noop(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_license_root(d, license_text=_template_license_text())
+                inst._seed_license(lambda t: None, inst.load_copy())          # first pass clears
+                outcome = inst._seed_license(said.append, inst.load_copy())   # second pass: slot now empty
+        self.assertEqual(outcome, "present", "the slot is now empty → second pass is a no-op")
+        self.assertEqual(said, [], "a re-run never re-touches the root LICENSE")
+
+    def test_absent_license_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                outcome = inst._seed_license(lambda t: None, inst.load_copy())   # no root LICENSE at all
+        self.assertEqual(outcome, "present", "no LICENSE to recognize → preserve-on-doubt, delete nothing")
+
+
+class TestRepoLicenseIsTheTemplateSeed(unittest.TestCase):
+    """A durable parity guard on the TEMPLATE's OWN root LICENSE (issue #147): the committed LICENSE must stay
+    recognizable as the engine's shipped template-license seed, or provisioning's first-run clear (_seed_license)
+    silently stops recognizing it — and the template author's copyright would then travel and govern a generated
+    repo's product (R29). It also documents that the construction repo's own LICENSE WOULD be cleared by a
+    non-redirected apply (which is why the apply-demo's isolation check lists LICENSE). Like the README guard above,
+    it reads the REAL committed LICENSE and lives among the first-run assets the Retire phase deletes, so it never
+    runs in a generated repo (where the traveled license is correctly cleared and gone)."""
+
+    def test_committed_root_license_matches_the_template_seed_recognizer(self):
+        license_text = inst._read_text_or(os.path.join(validate.ROOT, "LICENSE"), "")
+        self.assertTrue(
+            inst._is_template_license(license_text),
+            "the template's root LICENSE must stay recognizable as the engine's shipped MIT seed; if it was "
+            "re-worded or its copyright holder changed, update inst._TEMPLATE_LICENSE_SEED / "
+            "inst._TEMPLATE_LICENSE_HOLDER to match, or first-run setup will stop clearing the traveled license and "
+            "the template author's copyright would govern a generated repo's product (R29).")
+
+
 class TestApplyDemoRunsGreen(unittest.TestCase):
     def test_apply_demo_exits_zero(self):
         import contextlib, io
@@ -807,6 +946,7 @@ class TestApplyDemoRunsGreen(unittest.TestCase):
         self.assertIn("byte-for-byte unchanged", out, "the isolation guarantee is shown")
         self.assertIn("naming it, not hiding it", out, "the honest-ceiling banner leads the demo")
         self.assertIn("front page", out, "the README seed/replace scenario runs in the demo")
+        self.assertIn("removed and nothing put in its place", out, "the LICENSE-clear scenario runs in the demo")
 
 
 class TestApplyCli(unittest.TestCase):
