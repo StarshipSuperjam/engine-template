@@ -1,13 +1,14 @@
-"""records.py — the shared record vocabulary for the memory ledger (memory-substrate-sqlite-fts5, slice 4d-ii).
+"""records.py — the shared record vocabulary for the memory ledger (memory-substrate-sqlite-fts5, slice 5).
 
 The `kind` strings and provenance keys that more than one memory tool must agree on, in ONE place so they
 never drift and no import cycle can form. `consolidate` writes the episodic + marker records; `index` keeps
 provenance keys out of the search body; `forget` derives logical retirement from the marker↔batch linkage and
 (slice 4c) appends the `reinforcement` access marker + scores demotion from it; `compact` (slice 4d-i) folds those
 markers into the carried current-state fields below and `score` reads them back; `rollup` (slice 4d-ii) writes the
-gist + supersession markers and `forget` derives the raws' retirement from them. Because all of them need these
-names and `consolidate` already imports `index`, defining them here — a leaf that imports nothing from the
-`memory` package — lets `index`, `forget`, `score`, `compact`, and `rollup` import them without
+gist + supersession markers and `forget` derives the raws' retirement from them; `index.search` (slice 5) ranks
+recall best-first and attaches the per-result `SCORE_KEY`. Because all of them need these names and `consolidate`
+already imports `index`, defining them here — a leaf that imports nothing from the `memory` package — lets `index`,
+`forget`, `score`, `compact`, and `rollup` import them without
 `consolidate`→`index`→`forget`→`consolidate` becoming a cycle.
 
 stdlib-only; imports nothing from `memory`.
@@ -91,6 +92,13 @@ SOURCE_IDS_KEY = "source_ids"       # on the gist: the RECORD_ID_KEY values of t
 # marker is gone. Minted ONLY across a closed gate, so its mere presence proves the gist pass completed — trusted
 # unconditionally. A uuid hex, so `index` keeps it OUT of the search body (index._NON_BODY_KEYS).
 SUPERSEDED_BY_KEY = "superseded_by"
+
+# The per-result ranking field (slice 5 — the `search` interface). NOT a stored ledger field: `index.search`
+# attaches it to a SHALLOW COPY of each returned record, carrying the record's lexical relevance ("BM25 for the
+# lexical floor" — search.json) so a caller can see the ordering basis. The usage signal (frecency) is the
+# internal tiebreak, NOT this exposed number. Because `search` could re-project a scored copy, `index` keeps this
+# key OUT of the search body too (index._NON_BODY_KEYS) — belt-and-suspenders, since scored copies are never indexed.
+SCORE_KEY = "score"
 
 
 def new_record_id() -> str:
