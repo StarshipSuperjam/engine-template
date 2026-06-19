@@ -106,6 +106,15 @@
       }
     },
     {
+      "type": "hook",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/scent.py"
+      }
+    },
+    {
       "type": "mcp",
       "name": "engine-knowledge-graph",
       "definition": {

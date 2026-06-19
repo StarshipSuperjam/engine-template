@@ -17,8 +17,9 @@ never renders operator-facing prose (boot does that, principle §16). It writes 
 Slice-2 built the index machinery + the two retrieval paths, record-shape-agnostic and UNRANKED (`query`). Slice 5
 adds ranked, filtered recall — `search` (BM25 best-first reinforced by usage; role/tag filters) implementing the
 `search.json` contract, exposed by the engine-memory MCP server (`mcp_server.py`). `query` stays UNRANKED for the
-rebuild/scan callers. The boot/attention per-prompt scent over this index is a later slice-5 PR; the closed record
-shape + role vocabulary are slice 3.
+rebuild/scan callers. The boot/attention per-prompt scent over this index is `scent_lookup` (slice 5, PR 2): a fast,
+OR-match, relevance-ONLY top-k lookup (no usage pass, fast-path only) the boot-owned `scent.py` UserPromptSubmit hook
+calls to surface attributed pointers. The closed record shape + role vocabulary are slice 3.
 
 Both retrieval paths split text into words with ONE tokenizer (`_tokenize`, modeled on SQLite's FTS5
 `unicode61`): the fast lookup stores the tokens it produces, and the slow scan matches the same way. That one
@@ -504,6 +505,123 @@ def search(
         return QueryResult(records=[], degraded=False)
     now = int(time.time())
     return _ranked(tokens, src, dst, roles=roles_set, tags=tags_set, limit=limit, force_scan=force_scan, now=now)
+
+
+# --- The per-prompt scent lookup: `scent_lookup` (slice 5, PR 2) -------------------------------------------
+# The scent is a HOT PATH (the boot-owned `scent.py` UserPromptSubmit hook fires it every prompt) under a
+# single-digit-ms budget (boot/README "single-digit ms; no embeddings, no LLM, no graph walk"). So `search` is
+# the WRONG primitive for it on two counts, both measured: (1) `search`/`_ranked` does an unconditional
+# O(ledger) `forget._access_index` + `live_records` usage pass (~46 ms on a ~1800-record ledger) — the
+# "reinforced by usage" tiebreak the scent's threshold gate does not even read; (2) `search` is implicit-AND, so
+# a raw multi-word prompt requires ONE record holding EVERY prompt word and matches almost nothing. `scent_lookup`
+# is the scent-shaped primitive: OR-match the prompt's tokens, rank by bm25 ALONE (relevance-only — NO usage
+# pass, so no O(ledger) cost: the FTS5 index is already rebuilt from `live_records`, so a direct query returns
+# only live records), bounded top-k, and FAST-PATH ONLY — it never runs the slow scan (that both blows the
+# latency budget and uses a different score scale, log1p(tf) vs bm25, so the threshold gate would diverge).
+# `available=False` is reserved for the design's ONE degraded-latency condition — FTS5 absent on this machine
+# (memory detects, boot renders the scent's slower-mode disclosure, memory/README); a merely missing/stale/broken
+# index is "no fast recall right now" -> silent (records=[], available=True), never a misleading slower-mode notice.
+
+# How many distinct prompt tokens feed the OR-match, and the default bm25 top-k. Bounded so a long prompt cannot
+# build an unbounded MATCH and a common term cannot return the whole ledger before the bm25 ORDER BY ... LIMIT
+# trims to the strongest. (Common terms score ~0 via bm25 IDF, so they are kept only as weak OR alternates and
+# fall below any sane salience threshold downstream — no stopword list is needed for correctness.)
+_SCENT_MAX_QUERY_TERMS = 32
+_SCENT_DEFAULT_TOPK = 20
+
+
+@dataclass
+class ScentResult:
+    """The per-prompt scent's lookup outcome. `records` are bm25-ranked best-first shallow copies, each carrying
+    `records.SCORE_KEY` (the positive lexical relevance) — the input to the scent's salience threshold gate.
+    `available` is False ONLY when this machine has no FTS5 (the design's degraded-latency condition: the scent
+    surfaces a slower-mode disclosure and stays silent on pointers, never running a per-prompt slow scan). A
+    missing/stale/broken index, or a prompt with no usable terms, returns `available=True` with empty `records`
+    (silent — no fast recall this prompt), never a degraded notice."""
+
+    records: list = field(default_factory=list)
+    available: bool = True
+
+
+def _salient_terms(query_text: str) -> list:
+    """The de-duplicated prompt tokens that feed the OR-match, length>=2 and capped at `_SCENT_MAX_QUERY_TERMS`
+    (a bounded MATCH). Uses the shared `_tokenize` so the scent folds words exactly as the index stored them."""
+    terms: list = []
+    for token in _tokenize(query_text):
+        if len(token) >= 2 and token not in terms:
+            terms.append(token)
+            if len(terms) >= _SCENT_MAX_QUERY_TERMS:
+                break
+    return terms
+
+
+def scent_lookup(
+    query_text: str,
+    *,
+    limit: "int | None" = None,
+    ledger_file: "str | None" = None,
+    index_file: "str | None" = None,
+) -> ScentResult:
+    """The per-prompt scent's fast lexical lookup over the FTS5 index — OR-match, bm25-ranked, RELEVANCE-ONLY.
+
+    Returns up to `limit` (default `_SCENT_DEFAULT_TOPK`) records whose words best match the prompt's, best-first by
+    bm25, each a shallow copy carrying `records.SCORE_KEY` (the positive relevance — higher = better). It does NOT
+    compute usage/frecency (the scent's salience gate reads relevance alone), so it pays NO O(ledger) pass; and it is
+    FAST-PATH ONLY — on FTS5-absent / missing / stale / broken index it returns empty rather than running the slow
+    scan, protecting the single-digit-ms budget. SIDE-EFFECT-FREE: never reinforces, never writes the ledger (the
+    push does not count as usage; reinforcement stays at the model-initiated MCP `search` pull). `available` is False
+    only for FTS5-absent — the design's one slower-mode disclosure condition."""
+    # Resolve the shared memory dir ONCE when both paths default: `ledger_path`/`index_path` each call
+    # `ledger_dir` -> a worktree-aware `git rev-parse` subprocess (~tens of ms), so resolving per-path would
+    # pay it TWICE every prompt. One resolution keeps the per-prompt path cost to a single git call; the FTS5
+    # query itself is sub-millisecond. (This git step is constant in memory size — it does not grow with the
+    # ledger, unlike the O(ledger) usage pass `search` pays — and every engine hook that touches memory, e.g.
+    # close's capture relay, already pays it.)
+    if ledger_file is None or index_file is None:
+        mem_dir = ledger.ledger_dir()
+        src = ledger_file or os.path.join(mem_dir, ledger.LEDGER_FILENAME)
+        dst = index_file or os.path.join(mem_dir, INDEX_FILENAME)
+    else:
+        src, dst = ledger_file, index_file
+    terms = _salient_terms(query_text)
+    topk = _SCENT_DEFAULT_TOPK if limit is None else max(1, int(limit))
+    if not terms:
+        return ScentResult(records=[], available=True)        # nothing to look up -> silent, not degraded
+    if not fts5_available():
+        return ScentResult(records=[], available=False)       # the ONE degraded-latency condition (slower-mode)
+    if not os.path.exists(dst):
+        return ScentResult(records=[], available=True)        # no index built yet -> silent (never a slow scan)
+    match = " OR ".join('"' + token + '"' for token in terms)
+    sql = (
+        "SELECT e.record_json, bm25(entries_fts) AS relevance "
+        "FROM entries_fts JOIN entries e ON e.ord = entries_fts.rowid "
+        "WHERE entries_fts MATCH ? ORDER BY relevance LIMIT ?"
+    )
+    try:
+        conn = sqlite3.connect(dst)
+        try:
+            # Trust the fast lookup only while its stamped generation matches the ledger's current one (a
+            # compaction that swapped the ledger out leaves a stale index). Stale -> silent, NOT the slow scan.
+            if _index_generation(conn) != ledger.generation(for_path=src):
+                return ScentResult(records=[], available=True)
+            rows = conn.execute(sql, [match, topk]).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        # Broken/corrupt index -> silent this prompt (no slow scan on the hot path). A malformed MATCH cannot
+        # land here: the tokens are letters/numbers only and each is double-quoted, so this only catches a broken
+        # index, never a bad query.
+        return ScentResult(records=[], available=True)
+    out = []
+    for record_json, relevance in rows:
+        record = json.loads(record_json)
+        scored = dict(record) if isinstance(record, dict) else record
+        if isinstance(scored, dict):
+            # bm25 is more-negative for a better match; flip to a positive relevance (higher = better), the same
+            # convention `search` exposes via SCORE_KEY, so the scent's salience gate reads one scale.
+            scored[records.SCORE_KEY] = -float(relevance)
+        out.append(scored)
+    return ScentResult(records=out, available=True)
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------
