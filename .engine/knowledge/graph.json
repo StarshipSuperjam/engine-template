@@ -2080,7 +2080,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:ace6e4478db95daf8d0e1768a29055e947309a604dedeeb41fccad17529d6afa",
+        "fingerprint": "sha256:def8f1c43f68680a292d5b48c3842ad78c8c43eecd02d8c44ccb5669843ffbca",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -2131,7 +2131,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:d448abf0b09e9e9d5fe7d7ae1b0a08cc9170eaa7d05bdd90b39862c2d73d7dc0",
+        "fingerprint": "sha256:c99a87ad460443cfa5d982275850dd74f0a24fd683ce40784684e9cb432f853f",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -2641,7 +2641,7 @@
       },
       "slug": "rollup",
       "source": {
-        "fingerprint": "sha256:1bc87a98f1deab1b27dd77f58da0c228a0ab585aedacf228fb9c5ef0c01fc0d1",
+        "fingerprint": "sha256:d7852d1cd8f0a78db4eb89cf5916a3d5cca982b042a683960161aae7712f40a2",
         "path": ".engine/tools/memory/rollup.py"
       },
       "status": "active",
@@ -2920,6 +2920,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_compact_trigger",
+      "name": ".engine/tools/memory/test_compact_trigger.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_compact_trigger",
+      "source": {
+        "fingerprint": "sha256:48df6d743dcb3ff78a6b4fb77206c01f0146885261d334579b042a02efbe9ae7",
+        "path": ".engine/tools/memory/test_compact_trigger.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_conduct",
       "name": ".engine/tools/test_conduct.py",
       "owner": "core",
@@ -2947,7 +2964,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:9cb49c4c9b894b7a52b4948c697343ea655c3ec65d8ae7269d992bd5673a9aab",
+        "fingerprint": "sha256:1cbdf98f30fe712a2338bbf6f87de21c198f0671fcb14abf1132281a754bb89f",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
@@ -3066,7 +3083,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:d2d119b11b073f9165b77bfe18bc2e40b2fde0daed02c7f2ff609bb183d52340",
+        "fingerprint": "sha256:9a16468a55e1661e906375eca255eccd50a2d36c51c0ef0fca8734ce0fb80b92",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -3391,6 +3408,23 @@
       "source": {
         "fingerprint": "sha256:0b5aa419f997810c779d5df932ba305bbc17ea789c66e96877aef35413a05dea",
         "path": ".engine/tools/memory/test_rollup.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_rollup_sweep",
+      "name": ".engine/tools/memory/test_rollup_sweep.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_rollup_sweep",
+      "source": {
+        "fingerprint": "sha256:9b884c318e7af1c93f2ae35e1a35c67e8207348bf80b628824ccde9f45f99805",
+        "path": ".engine/tools/memory/test_rollup_sweep.py"
       },
       "status": "active",
       "type": "tool"

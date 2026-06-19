@@ -16,7 +16,9 @@ REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODI
     session's raw notes (`read`), writes a short labelled summary of each thread, and stores it (`store`).
     This unifies the "normal" and "abandoned-session" consolidation into ONE sweep: the locked design's
     abandoned-session predicate already subsumes the normal path, since the previous session is "no longer
-    live with no marker" by the next start. `PreCompact` is wired but is a near-no-op (it cannot reach the AI).
+    live with no marker" by the next start. The sweep ALSO carries the roll-up backlog (slice 5 PR 3) in the
+    same single injection. `PreCompact` cannot reach the AI, so it carries no consolidation — but it now rides
+    the deterministic ledger-compaction trigger (`compact.maybe_compact`).
 
   - **Leaf discipline (principle §16).** `detect_unconsolidated` RETURNS session-id signals and renders no
     prose; the hook handler — memory's own behavior, exactly as boot's handler renders its briefing — composes
@@ -208,7 +210,7 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
         capture._release_lock(lock_fd)
 
 
-# --- Memory's own hooks (SessionStart sweep + PreCompact near-no-op) ---------------------------
+# --- Memory's own hooks (SessionStart sweep + PreCompact compaction trigger) -------------------
 
 def _consolidation_directive(pending: list) -> str:
     """The BACKGROUND directive the SessionStart sweep injects when sessions need tidying. It must keep tidy-up
@@ -234,20 +236,43 @@ def _consolidation_directive(pending: list) -> str:
 
 
 def _session_start_handler(payload) -> dict:
-    """Memory's SessionStart sweep: inject the background tidy-up directive ONLY when earlier sessions are
-    untidied, else proceed silently (inert on the common case — the self-interference floor: this fires on the
-    operator's own sessions, so a nothing-pending start must add nothing). run_hook fail-opens on any fault."""
+    """Memory's ONE SessionStart behavior: inject ONE combined background directive carrying BOTH maintenance
+    backlogs — untidied raw notes (consolidation, 3b) and clusters of old episodes ready to roll up (roll-up,
+    slice 5 PR 3, via the lazy `rollup` import) — or proceed silently when neither is pending (the self-
+    interference floor: this fires on the operator's OWN sessions, so a nothing-pending start must add nothing).
+    ONE injection, not two competing ones, keeps the operator's first turn unsplit. FINE-GRAINED fail-open: a
+    roll-up fault degrades to consolidation-only (it can never drop the older, more important consolidation
+    directive); run_hook fail-opens the whole handler on any other fault."""
     live = payload.get("session_id") if isinstance(payload, dict) else None
     pending = detect_unconsolidated(live_session_id=live)
-    if not pending:
+    roll_block = ""
+    try:
+        from memory import rollup   # lazy: keep rollup + its deps off the cold-start load path until needed
+        groups = rollup.detect_rollup_candidates()   # the COLD-tier floor self-excludes the live session (no live id)
+        if groups:
+            roll_block = rollup.rollup_directive(groups)
+    except Exception:
+        roll_block = ""   # fine-grained fail-open: a roll-up fault never drops the consolidation directive
+    if not pending and not roll_block:
         return hooks.proceed()
-    return hooks.inject(_consolidation_directive(pending))
+    blocks = []
+    if pending:
+        blocks.append(_consolidation_directive(pending))
+    if roll_block:
+        blocks.append(roll_block)
+    return hooks.inject("\n\n".join(blocks))
 
 
 def _pre_compact_handler(payload) -> dict:
     """PreCompact CANNOT reach the in-context AI (the shipped runtime: a hook never makes the model generate;
-    PreCompact's only lever is blocking compaction). All AI consolidation is the SessionStart sweep. This hook
-    is wired for completeness + as the home for any future cheap pre-compaction housekeeping; today a no-op."""
+    PreCompact's only lever is blocking compaction), so AI consolidation stays on the SessionStart sweep. But
+    DETERMINISTIC ledger compaction is exactly the cheap pre-compaction housekeeping this hook CAN do — it rides
+    the "tolerable moment, never the hot path" the design names for the expensive step (memory/README) and, IF
+    enough reclaimable waste has piled up, folds-and-prunes it (slice 5 PR 3). `maybe_compact` is fail-open
+    (never raises) and Layer-1-only (never erases recall content); this handler ALWAYS proceeds — PreCompact must
+    never block the squash."""
+    from memory import compact   # lazy: keep compaction's import graph off the SessionStart load path
+    compact.maybe_compact()       # gated on reclaimable waste; report dropped (a leaf renders no prose); fail-open
     return hooks.proceed()
 
 

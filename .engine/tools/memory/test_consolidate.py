@@ -300,7 +300,10 @@ class HookHandlerTests(_Base):
         self.assertEqual(code, hooks.EXIT_PROCEED)
         self.assertEqual(out.strip(), "")              # the common case adds nothing to the operator's session
 
-    def test_pre_compact_proceeds_as_a_noop(self):
+    def test_pre_compact_skips_and_proceeds_when_no_waste(self):
+        # PreCompact now runs the gated ledger-compaction trigger (slice 5 PR 3). On a ledger with no reclaimable
+        # waste the gate SKIPS (no rewrite) and the handler proceeds with no output — it must never block the
+        # squash. (The fires-and-still-proceeds path is pinned in test_compact_trigger.py.)
         code, out, _err = self._run_hook("PreCompact", consolidate._pre_compact_handler,
                                          {"trigger": "auto"})
         self.assertEqual(code, hooks.EXIT_PROCEED)
