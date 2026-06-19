@@ -295,10 +295,11 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
-    def test_check_corpus_split_core_two_guards_validators_core_twenty_nine(self):
+    def test_check_corpus_split_core_two_guards_validators_core_thirty(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
-        # the self-validation corpus is validators-core's (29 rules: the 28 prior plus the
+        # the self-validation corpus is validators-core's (30 rules: the 29 prior plus the first-run
+        # reference-closure gate (issue #150; engine-planning D-219/D-220), and before it the
         # knowledge-vocabulary parity guard (issue #131) — the 20 after the
         # operation grammar (slice OG) and the skill grammar (slice SG) plus the doc-frontmatter and
         # doc-shape grammar rules (slice 19) and the uv-group-drift gate (slice 25c) and the
@@ -338,6 +339,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/doc-frontmatter.json",
             ".engine/check/doc-shape.json",
             ".engine/check/engine-manifest.json",
+            ".engine/check/first-run-reference-closure.json",
             ".engine/check/interface-declaration.json",
             ".engine/check/knowledge-coverage.json",
             ".engine/check/knowledge-vocabulary.json",
@@ -355,7 +357,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/skill-shape.json",
             ".engine/check/state-cursor.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 29 corpus rules")
+        ], "validators-core owns exactly the 30 corpus rules")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
@@ -503,6 +505,19 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             module_coherence.discover_manifests = orig
         self.assertEqual(rc, 2)
         self.assertIn("CONFIG ERROR", err.getvalue())
+
+
+class TestSeededRootFileOwnership(unittest.TestCase):
+    """The seeded root SECURITY.md is operator-owned product territory, and its template seed is operator config.
+    (Re-homed from the retired test_security_seed.py — these assert permanent module_coherence constants that
+    govern the upgrade overlay, so they must survive first-run retirement; issue #150.)"""
+    def test_seeded_root_security_md_is_not_engine_owned(self):
+        # product territory, in no `provides`, NO carve-out: it must NOT be a FOUNDATION_INFRA member
+        # (that set is overlay-REPLACED on upgrade, which would clobber the operator's edited disclosure).
+        self.assertNotIn("SECURITY.md", module_coherence.FOUNDATION_INFRA)
+
+    def test_security_seed_source_is_carved_out_in_operator_config(self):
+        self.assertIn(".engine/provisioning/security-seed.md", module_coherence.OPERATOR_CONFIG)
 
 
 class TestTopologicalOrder(unittest.TestCase):

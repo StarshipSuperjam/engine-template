@@ -11,9 +11,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import security_floor as sf  # noqa: E402
 import protection_guard      # noqa: E402
 import demo_security_floor   # noqa: E402
-import test_instantiator as ti  # noqa: E402  (reuse the engineering-jargon ban list)
 
 REPO = "you/your-project"
+
+# The engineering-jargon ban list, inlined per-file (the same convention test_engine_status.py /
+# test_engine_help.py / test_tune.py already use). Held locally rather than imported from test_instantiator,
+# which retires at first-run instantiation — importing it would break a generated repo's first `unittest
+# discover` at collection time (the first-run reference-closure invariant, D-219/D-220).
+_FORBIDDEN = ("orchestrat", "coherence", "wiring", "wires", "manifest", "idempotent", "venv", "sync",
+              "lockfile", "pyproject", "ruleset", "override", "custom/script", "provides", "invocation",
+              "model-auto", "operator-typed", "model-only", "foundation")
 
 
 def _fake(*, secrets=(200, {}), secrets_status="enabled", code_patch=(202, {}), code_state="configured",
@@ -154,7 +161,7 @@ class TestDisclosureIsPlainLanguage(unittest.TestCase):
 
     def test_inherits_the_engineering_jargon_ban(self):
         blob = self._all_renders()
-        for term in ti._FORBIDDEN:
+        for term in _FORBIDDEN:
             self.assertNotIn(term, blob, f"engineering jargon {term!r} must not reach the operator")
 
     def test_render_never_echoes_the_api_response_body(self):

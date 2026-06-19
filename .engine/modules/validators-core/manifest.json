@@ -16,6 +16,7 @@
       ".engine/check/doc-frontmatter.json",
       ".engine/check/doc-shape.json",
       ".engine/check/engine-manifest.json",
+      ".engine/check/first-run-reference-closure.json",
       ".engine/check/interface-declaration.json",
       ".engine/check/knowledge-coverage.json",
       ".engine/check/knowledge-vocabulary.json",

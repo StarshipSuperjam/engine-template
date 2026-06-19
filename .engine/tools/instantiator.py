@@ -864,6 +864,13 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
 _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/instantiator.py",
     ".engine/tools/test_instantiator.py",
+    # The SECURITY.md-seed test + its demo exercise first-run-only machinery (instantiator._seed_security) and
+    # import the retired instantiator / test_instantiator, so they retire in the SAME pass — else they survive
+    # into a generated repo and abort its first `unittest discover` at collection (the first-run reference-closure
+    # invariant, engine-planning D-219/D-220). The .engine/provisioning/first-run-assets.json manifest mirrors
+    # this list (parity-tested) so the closure check can read the retired set without importing the instantiator.
+    ".engine/tools/test_security_seed.py",
+    ".engine/tools/demo_security_seed.py",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
 )
@@ -953,7 +960,7 @@ def retire(*, root=None, announce=None) -> dict:
             deleted.append(rel)
         else:
             already.append(rel)
-    _drop_bytecode(base, ("instantiator", "test_instantiator"))
+    _drop_bytecode(base, ("instantiator", "test_instantiator", "test_security_seed", "demo_security_seed"))
     graph_status = "regenerated"
     try:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)  # so the saved information no longer lists the
