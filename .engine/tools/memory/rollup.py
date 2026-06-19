@@ -24,12 +24,14 @@ roll-up never spuriously marks a session consolidated. APPENDS ONLY — never de
 erasure-free invariant; the swap that prunes the folded markers lives in `compact.py`, slice 4d-i, which folds a
 closed-batch supersession into the raw's carried `superseded_by` field).
 
-**Degenerate live (expected, precedented — the 4c/4d-i shape).** The live caller — a 3b-shaped `SessionStart`
-background sweep that hands the in-context AI the cold session-groups to judge (a hook cannot think, so it cannot
-ride a non-AI hook) — is **slice 5**, alongside the recall-time reinforcement caller and the live compaction
-trigger. Until then the engine's young ledger has no old, low-frecency episodes, so a roll-up pass finds no
-candidates; 4d-ii ships the mechanism + the manual verbs + the operator demo. The selection floors (COLD tier,
-group-by-session, ≥3 per group, episodics only) are build-spec leaves recorded with the maintainer.
+**The live caller (slice 5, PR 3).** A 3b-shaped `SessionStart` background sweep hands the in-context AI the cold
+session-groups to judge — a hook cannot think, so it cannot ride a non-AI hook. It is FOLDED INTO memory's one
+`SessionStart` behavior (`consolidate._session_start_handler`, the single keyed memory hook the design's wired-hook
+list names — `Stop`, `PreCompact`, `SessionStart`): that handler injects ONE combined background directive — the
+consolidation backlog and, via `rollup_directive`, the roll-up backlog — so the operator's first turn is never
+split by two competing asks. On a young ledger there are still no old, low-frecency episodes, so the sweep finds no
+candidates and the directive stays silent. The selection floors (COLD tier, group-by-session, ≥3 per group,
+episodics only) are build-spec leaves recorded with the maintainer.
 
 Leaf discipline (principle §16): the detect/store functions RETURN a report and render no operator-facing prose
 (the demo is the one operator surface). stdlib + the cycle-free `memory` set (forget / ledger / records / score);
@@ -49,6 +51,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
+import hooks  # noqa: E402 — .engine/tools/hooks.py: the roll-up sweep rides its fail-open SessionStart harness
 from memory import forget, ledger, records, score  # noqa: E402
 
 # --- Build-spec leaves (the roll-up selection floors) -----------------------------------------------------
@@ -58,6 +61,7 @@ from memory import forget, ledger, records, score  # noqa: E402
 # coarse "related" pre-filter; the AI judges true relatedness within the group). A group needs >= _MIN_GROUP raws
 # (a "gist" of one raw is a rename). All recorded with the maintainer; richer relatedness deferred.
 _MIN_GROUP = 3
+_MAX_DIRECTIVE_IDS = 8    # cap the directive's id enumeration (mirrors consolidate._MAX_DIRECTIVE_IDS)
 
 
 class _InjectedCrash(Exception):
@@ -248,10 +252,56 @@ def store_gist(session_id: str, gists, *, cwd=None, _crash_after: "str | None" =
         capture._release_lock(lock_fd)
 
 
+# --- The live sweep (memory's own SessionStart behavior; wired via consolidate's handler) -----------------
+
+def rollup_directive(groups: dict) -> str:
+    """The BACKGROUND directive the SessionStart sweep injects when sessions have a cluster of old, unused
+    episodes ready to roll up. Like the consolidation directive it stays SUBORDINATE to the operator's request
+    (memory's operation, not orientation — boot/README): never a first-turn hijack. The detect leaf renders
+    nothing; this composes the prose. DISTINCT from `consolidate._consolidation_directive` in two ways the AI must
+    honor: (1) it folds OLD episodic summaries, not raw turn-notes; (2) each gist must name its `source_ids` — the
+    exact note ids it rolls up — which `rollup.py read` returns so the AI can. Reuses the closed role vocabulary
+    so the prose can never drift from `_validate`'s accepted set."""
+    from memory import consolidate  # lazy: reuse the closed role vocabulary (3b) without an import cycle
+    ids = sorted(groups)
+    n = len(ids)
+    shown = ids[:_MAX_DIRECTIVE_IDS]
+    listed = ", ".join(shown) + (f", and {n - len(shown)} more" if n > len(shown) else "")
+    sessions = "1 earlier session has" if n == 1 else f"{n} earlier sessions have"
+    return (
+        "Background memory upkeep — older notes ready to summarize. NOT urgent, and NOT to be done before the "
+        f"operator's actual request. {sessions} a cluster of old, unused notes ({listed}) that can be rolled into "
+        "one short summary each. At a natural pause, AFTER you have served the operator's current request, tidy "
+        "each one: run `.engine/.venv/bin/python .engine/tools/memory/rollup.py read <session-id>` to read that "
+        "session's old notes (each carries its id), decide which genuinely cohere, write ONE compact summary of the "
+        "cluster, choose ONE label from "
+        f"{{{', '.join(consolidate.ROLE_VOCABULARY)}}}, and store it with `… rollup.py store <session-id>` — a JSON "
+        "array of {\"role\": …, \"text\": …, \"source_ids\": [the ids of the exact notes this summary replaces]} on "
+        "stdin. Name only the ids you actually read and are folding in; the originals are filed away, never erased. "
+        "The operator's request always comes first; this can wait turns or whole sessions. Do not announce it "
+        "unless asked."
+    )
+
+
+def _session_start_handler(payload) -> dict:
+    """Roll-up's SessionStart sweep IN ISOLATION: inject the roll-up directive only when cold candidate groups
+    exist, else proceed silently. The WIRED sweep is `consolidate._session_start_handler`, which calls this
+    module's `detect_rollup_candidates` + `rollup_directive` alongside the consolidation backlog in ONE injection;
+    this handler is the manual/test twin (the unwired `session-start` verb) so the roll-up half can be exercised on
+    its own. run_hook fail-opens on any fault. The live session needs no exclusion: roll-up candidacy is COLD-tier
+    (≈16–30 days untouched), which a live session's fresh episodes can never be."""
+    groups = detect_rollup_candidates()
+    if not groups:
+        return hooks.proceed()
+    return hooks.inject(rollup_directive(groups))
+
+
 # --- CLI (the verbs the in-context AI / operator call) ----------------------------------------------------
 
 def main(argv: list) -> int:
     cmd = argv[0] if argv else "demo"
+    if cmd == "session-start":
+        return hooks.run_hook("SessionStart", _session_start_handler)
     if cmd == "detect":
         groups = detect_rollup_candidates()
         for sid in sorted(groups):
@@ -278,7 +328,10 @@ def main(argv: list) -> int:
         return 0 if report.get("status") in ("ok", "already-rolled-up") else 1
     if cmd == "demo":
         return _demo()
-    print(f"usage: rollup.py [detect|read <sid>|store <sid>|demo]\nunknown command {cmd!r}", file=sys.stderr)
+    if cmd == "demo-sweep":
+        return _demo_sweep()
+    print(f"usage: rollup.py [session-start|detect|read <sid>|store <sid>|demo|demo-sweep]\n"
+          f"unknown command {cmd!r}", file=sys.stderr)
     return 2
 
 
@@ -404,10 +457,11 @@ def _demo() -> int:
     print("single summary and file the originals away — they no longer turn up in a search (only the summary")
     print("does), but they are still saved. A power-cut in the middle never loses a note and never files an")
     print("original away without its summary in place; a later tidy keeps the original→summary link and erases")
-    print("nothing. On your real data nothing rolls up yet: the engine doesn't run this pass on its own (that")
-    print("live trigger is a later step), so today this only runs in this practice demo on the old notes it")
-    print("invents. That was a PRACTICE cabinet, thrown away when the demo ended; like all memory, private,")
-    print("local, and deletable. Vary it: edit the notes, the age, and the crash-point near the top and re-run.")
+    print("nothing. The engine now reminds the AI to do this on its own — in the background, AFTER your request,")
+    print("only when a session has a cluster of old, unused notes (the `demo-sweep` walkthrough shows that")
+    print("reminder, and shows it stay silent when there's nothing old enough). That was a PRACTICE cabinet,")
+    print("thrown away when the demo ended; like all memory, private, local, and deletable. Vary it: edit the")
+    print("notes, the age, and the crash-point near the top and re-run.")
     return 0 if ok else 1
 
 
@@ -540,6 +594,106 @@ def _demo_body() -> bool:
     print(f"  => {'the tidy kept every original, kept the link, and erased nothing.' if part3 else '!!! the tidy lost a note, broke the link, or re-surfaced an original'}")
 
     return part1 and part2a and part2b and part3
+
+
+# --- demo-sweep: the live SessionStart reminder (the caller), and its silence ------------------------------
+# A SEPARATE walkthrough from `demo` (which proves the roll-up MECHANISM). This proves the live CALLER: at the
+# start of a session, when an earlier session has a cluster of old unused notes, the engine leaves the AI the
+# exact background reminder printed below (after the operator's request, never before) — and stays SILENT when
+# there is nothing old enough. Each scenario runs in its OWN throwaway cabinet so "speaks" and "silent" can't
+# bleed together. Vary the note age/count in the `demo` section above and watch the reminder appear/vanish:
+#     uv run --directory .engine --frozen -- python tools/memory/rollup.py demo-sweep
+_DEMO_SWEEP_SESSION = "session-orchard-old"
+
+
+def _wrap_sweep(text: str, width: int) -> list:
+    """A tiny word-wrap so the printed reminder is legible (stdlib textwrap, kept local to the demo)."""
+    import textwrap
+    return textwrap.wrap(text, width=width) if text else ["(silent — nothing to roll up)"]
+
+
+def _sweep_part_speaks() -> bool:
+    import tempfile
+    print("\nPART 1 — an earlier session has a cluster of OLD notes: the engine leaves the AI a background reminder")
+    print("-" * 88)
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["ENGINE_MEMORY_DIR"] = tmp          # the throwaway cabinet for THIS scenario
+        try:
+            for role, text, _word in _DEMO_OLD_NOTES:
+                ledger.append(_make_old_episode(role, text, _DEMO_AGE_DAYS, session_id=_DEMO_SWEEP_SESSION))
+            _rebuild()
+            groups = detect_rollup_candidates()
+            decision = _session_start_handler({"session_id": "the-session-you-are-in-now"})  # the REAL sweep handler
+            injected = decision.get("context", "") if decision.get("action") == "inject" else ""
+        finally:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+    print(f"  old, unused notes filed for '{_DEMO_SWEEP_SESSION}': {len(_DEMO_OLD_NOTES)}")
+    print(f"  sessions the engine flags as ready to roll up: {len(groups)}")
+    print(f"  did the engine leave a background reminder? {'yes' if injected else 'NO'}")
+    print("\n  The exact background reminder the engine would hand the AI at the next session start:\n")
+    for line in _wrap_sweep(injected, 84):
+        print(f"    | {line}")
+    names_session = _DEMO_SWEEP_SESSION in injected
+    names_verbs = ("rollup.py read" in injected) and ("rollup.py store" in injected)
+    names_sources = "source_ids" in injected
+    subordinate = "before the operator" in injected.lower() or "after you have served" in injected.lower()
+    print()
+    print(f"  it names the session to roll up: {'yes' if names_session else 'NO'}")
+    print(f"  it tells the AI exactly how (read + store): {'yes' if names_verbs else 'NO'}")
+    print(f"  it requires naming which notes are folded in (source_ids): {'yes' if names_sources else 'NO'}")
+    print(f"  it keeps the work AFTER your request, never before: {'yes' if subordinate else 'NO'}")
+    ok = bool(injected) and len(groups) == 1 and names_session and names_verbs and names_sources and subordinate
+    print(f"  => {'the engine spoke, named the session, and told the AI how — after your request.' if ok else '!!! the reminder was missing, malformed, or not subordinate to your request'}")
+    return ok
+
+
+def _sweep_part_silent() -> bool:
+    import tempfile
+    print("\nPART 2 — nothing old enough: the engine stays SILENT and adds nothing")
+    print("-" * 88)
+    with tempfile.TemporaryDirectory() as tmp:        # (a) an empty cabinet — its own scenario
+        os.environ["ENGINE_MEMORY_DIR"] = tmp
+        try:
+            silent_empty = _session_start_handler({"session_id": "x"}).get("action") == "proceed"
+        finally:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+    print(f"  (a) an empty cabinet -> the engine stays silent: {'yes' if silent_empty else 'NO'}")
+    with tempfile.TemporaryDirectory() as tmp:        # (b) a cabinet whose notes are too FRESH to roll up
+        os.environ["ENGINE_MEMORY_DIR"] = tmp
+        try:
+            for role, text, _word in _DEMO_OLD_NOTES:
+                ledger.append(_make_old_episode(role, text, age_days=0, session_id="session-fresh"))
+            _rebuild()
+            fresh_groups = detect_rollup_candidates()
+            silent_fresh = _session_start_handler({"session_id": "x"}).get("action") == "proceed"
+        finally:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+    print(f"  (b) {len(_DEMO_OLD_NOTES)} fresh notes (too new) -> flagged: {len(fresh_groups)}; "
+          f"the engine stays silent: {'yes' if silent_fresh else 'NO'}")
+    ok = silent_empty and len(fresh_groups) == 0 and silent_fresh
+    print(f"  => {'with nothing old enough, the engine says nothing — it will not nag you.' if ok else '!!! the engine spoke when it should have stayed silent'}")
+    return ok
+
+
+def _demo_sweep() -> int:
+    print("=" * 88)
+    print("MEMORY — the background reminder to roll up old notes: when it speaks, and when it stays silent (practice)")
+    print("=" * 88)
+    ok1 = _sweep_part_speaks()
+    ok2 = _sweep_part_silent()
+
+    print("\n" + "-" * 88)
+    print("What this just proved: at the start of a session, IF an earlier session has a cluster of old, unused")
+    print("notes, the engine quietly leaves the AI the background reminder shown above — to roll them into one")
+    print("summary, AFTER your request and never before. With nothing old enough it stays completely SILENT and")
+    print("adds nothing to your session. This is a DISTINCT, second kind of reminder from the existing one that")
+    print("tidies raw notes into summaries — this one rolls OLD summaries into a single shorter one. It only")
+    print("points; the AI reads the notes and writes the summary, and you can delete any summary it makes. Once")
+    print("you merge this PR this reminder is LIVE on your real sessions — it runs on its own in the background,")
+    print("with no further approval each time; that is what merging turns on. On your real, fresh data it will be")
+    print("silent (your notes are too new). Practice cabinet, thrown away. Vary it: raise/lower the note age and")
+    print("count in the `demo` section above and re-run to watch the reminder appear, then go silent.")
+    return 0 if (ok1 and ok2) else 1
 
 
 if __name__ == "__main__":

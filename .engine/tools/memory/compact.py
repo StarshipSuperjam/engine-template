@@ -31,10 +31,13 @@ crash-staled index to the always-correct scan until it is rebuilt, so an erased 
 resurface from a stale index. Recovery binds to the fixed canonical ledger name: a temp left by a crash is a
 complete same-schema file but is NEVER the canonical name, so it is ignored-and-reaped, never promoted.
 
-**Degenerate live (expected, precedented — the 4c shape).** The live caller that appends reinforcement markers
-is slice 5; until then the engine's young ledger has none, so a `compact` pass folds nothing and rewrites an
-identical record set at generation 1 — a safe no-op-shaped tidy. The live AUTO-trigger (a maintenance cadence)
-is a forward-owe; 4d ships the mechanism + the manual `compact` verb + the operator demo.
+**The live AUTO-trigger (slice 5, PR 3).** `maybe_compact` gates `compact` on `reclaimable_waste` — the count of
+foldable markers (reinforcement + CLOSED-batch supersessions) — reaching `_COMPACT_WASTE_THRESHOLD`, and rides
+memory's `PreCompact` hook: the "tolerable moment, never the hot path" the design names for the expensive step
+(memory/README). Until the young ledger accumulates that much waste the gate SKIPS, so nothing is rewritten; when
+it fires it is still the Layer-1 no-op-shaped tidy (recall content byte-preserved, only non-recall markers folded).
+The reinforcement markers it folds come from recall (slice 5, PR 1); the closed-batch supersessions from the live
+roll-up sweep (PR 3). `should_compact` / `reclaimable_waste` are pure lock-free reads (the gate never writes).
 
 Leaf discipline (principle §16): RETURNS a small report and renders no operator-facing prose (the demo is the
 one operator surface). stdlib + the cycle-free `memory` set (ledger / records / score / forget); `capture` (the
@@ -59,9 +62,29 @@ _TEMP_PREFIX = ".compact-"          # the in-dir swap temp; NEVER the canonical 
 _TEMP_SUFFIX = ".ndjson"
 
 
+_COMPACT_WASTE_THRESHOLD = 64   # build-spec leaf (uncalibrated, recorded): the auto-trigger compacts only once
+#                                 this many foldable markers have piled up. Failure direction is "nothing lost"
+#                                 — a too-high value just defers a tidy; calibration is a post-v1 forward-owe.
+
+
 class _InjectedCrash(Exception):
     """A TEST/DEMO-only fault, raised at a chosen swap point to model a power-cut. Production `compact` never
     passes `_crash_after`, so this never fires in real use (a test pins the default off)."""
+
+
+def _is_foldable(record, closed_rollup) -> bool:
+    """True iff `record` is a NON-recall marker that `compact` folds-and-prunes: a `reinforcement` marker, or a
+    `superseded` marker whose roll-up batch is CLOSED. An UN-closed (crashed-pass) supersession is inert — passed
+    through verbatim, NEVER folded (so a crashed roll-up's hiding is never baked in). This is the SINGLE prune
+    predicate that `compact`'s write loop, its `pruned` count, AND the `should_compact` gate all share, so the
+    gate can never say "compact" for waste a compaction would not actually reclaim (the fire-when-nothing-folds
+    trap)."""
+    if not isinstance(record, dict):
+        return False
+    kind = record.get("kind")
+    if kind == records.REINFORCEMENT_KIND:
+        return True
+    return kind == records.SUPERSEDED_KIND and record.get(records.BATCH_KEY) in closed_rollup
 
 
 def _reap_temps(data_dir: str) -> int:
@@ -132,12 +155,8 @@ def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: in
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
         for record in raw_records:
-            if isinstance(record, dict):
-                kind = record.get("kind")
-                if kind == records.REINFORCEMENT_KIND:
-                    continue  # folded into its target's snapshot; pruned (non-recall derivation fuel)
-                if kind == records.SUPERSEDED_KIND and record.get(records.BATCH_KEY) in closed_rollup:
-                    continue  # CLOSED-batch supersession: folded into its raw's superseded_by; pruned
+            if _is_foldable(record, closed_rollup):
+                continue  # reinforcement / closed-batch supersession: folded into carried fields, then pruned
             folded = _fold_record(record, access_index, t0)
             folded = _fold_supersession(folded, superseded_by_map)
             line = json.dumps(folded, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -177,9 +196,7 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
         access_index = forget._access_index(target)
         closed_rollup = forget._closed_rollup_batches(target)          # slice 4d-ii: roll-up batches a marker closed
         superseded_by_map = forget._superseded_by_map(target, closed_rollup)   # raw id -> gist id (closed batches only)
-        pruned = sum(1 for r in raw if isinstance(r, dict) and (
-            r.get("kind") == records.REINFORCEMENT_KIND
-            or (r.get("kind") == records.SUPERSEDED_KIND and r.get(records.BATCH_KEY) in closed_rollup)))
+        pruned = sum(1 for r in raw if _is_foldable(r, closed_rollup))
         folded = sum(1 for r in raw if isinstance(r, dict)
                      and isinstance(r.get(records.RECORD_ID_KEY), str)
                      and (access_index.get(r.get(records.RECORD_ID_KEY))
@@ -205,6 +222,42 @@ def _index_filename() -> str:
     return index.INDEX_FILENAME
 
 
+# --- The live auto-trigger gate (slice 5, PR 3) -----------------------------------------------------------
+
+def reclaimable_waste(path: "str | None" = None) -> int:
+    """How many foldable markers (reinforcement + CLOSED-batch supersessions) a compaction pass would prune RIGHT
+    NOW — the reclaimable-waste signal the auto-trigger gates on, counted by the SAME `_is_foldable` predicate
+    `compact` prunes by (so the gate can never fire when nothing folds). A LOCK-FREE read: two cheap O(ledger)
+    passes (one to derive the closed roll-up batches, one to count) and it NEVER writes. The count is inherently
+    a snapshot — a concurrent append can only shift it slightly, and `compact` re-derives everything under the
+    single-writer lock — so the gate is advisory while the actual fold is always exact."""
+    target = path if path is not None else ledger.ledger_path()
+    closed_rollup = forget._closed_rollup_batches(target)
+    return sum(1 for r in ledger.iter_records(path=target) if _is_foldable(r, closed_rollup))
+
+
+def should_compact(path: "str | None" = None) -> bool:
+    """True once the reclaimable waste reaches `_COMPACT_WASTE_THRESHOLD` — the gate that keeps the auto-trigger
+    off a clean / low-waste ledger (else every `PreCompact` would rewrite a byte-identical ledger and rebuild the
+    index for no gain). A pure lock-free read."""
+    return reclaimable_waste(path) >= _COMPACT_WASTE_THRESHOLD
+
+
+def maybe_compact(path: "str | None" = None) -> dict:
+    """The auto-trigger memory's `PreCompact` hook rides: compact ONLY when enough waste has piled up, else a
+    clean no-op. FAIL-OPEN by construction — it NEVER raises (any fault degrades to a skipped report so the host
+    action, the context squash, always proceeds) and NEVER erases (it calls only the Layer-1-only `compact`).
+    Returns the `compact` report on a fire, or `{"status": "skipped", ...}` when the gate holds it off or a fault
+    is swallowed."""
+    try:
+        waste = reclaimable_waste(path)
+        if waste < _COMPACT_WASTE_THRESHOLD:
+            return {"status": "skipped", "reason": "below the compaction threshold", "waste": waste}
+        return compact(path)
+    except Exception as exc:   # fail-open: a maintenance fault must never strand the squash the hook rides
+        return {"status": "skipped", "reason": f"compaction faulted, skipped: {exc}", "waste": -1}
+
+
 # --- Operator demonstration -------------------------------------------------------------------------------
 # A walkthrough on a THROWAWAY practice cabinet (a temp folder), never real data. It runs the REAL fold + swap +
 # rebuild + recall and reads the cabinet back, so every claim is recognizable words/counts on screen — and
@@ -212,7 +265,8 @@ def _index_filename() -> str:
 # the load-bearing promise: a power-cut mid-tidy never loses or corrupts your memory. PART 2 exercises BOTH
 # crash points (just before, and just after, the tidied copy is put in place). Vary the notes/ages near the top
 # and re-run:
-#     uv run --directory .engine --frozen -- python tools/memory/compact.py compact
+#     uv run --directory .engine --frozen -- python tools/memory/compact.py demo
+# (The `demo-trigger` walkthrough is a SEPARATE demo of WHEN the tidy fires on its own; this one is the tidy itself.)
 _DEMO_SESSION = "session-harbor"
 _DEMO_KEEP_TEXT = "Decided the harbor lights switch to solar next spring. DO-NOT-LOSE-THIS."
 _DEMO_KEEP_WORD = "harbor"
@@ -319,12 +373,12 @@ def _demo() -> int:
     print("a power-cut in the MIDDLE of that tidy never loses or corrupts a single note: you always end with one")
     print("whole filing cabinet (the old one if the tidy hadn't finished, the new one if it had), never a")
     print("half-written mess. Your real notes — even ones set aside from search, even a recovered duplicate —")
-    print("all survive the rewrite. On your real data nothing is tidied yet: the engine doesn't record when you")
-    print("use a note (that comes in a later step), so today this only runs in this practice demo. NOTHING is")
-    print("ever erased here: tidying only removes the private bookkeeping; permanently erasing a real note is a")
-    print("SEPARATE step you approve later by merging a pull request (and applying the `guardrail-ack` safety")
-    print("label) — never this. That was a PRACTICE cabinet, thrown away when the demo ended; like all memory,")
-    print("private, local, and deletable. Vary it: edit the notes and ages near the top of this file and re-run.")
+    print("all survive the rewrite. The engine now runs this tidy on its OWN — automatically, once enough private")
+    print("bookkeeping has piled up (the `demo-trigger` walkthrough shows exactly when it fires and when it holds")
+    print("off). NOTHING is ever erased here: tidying only removes the private bookkeeping; permanently erasing a")
+    print("real note is a SEPARATE step you approve later by merging a pull request (and applying the")
+    print("`guardrail-ack` safety label) — never this. That was a PRACTICE cabinet, thrown away when the demo")
+    print("ended; like all memory, private, local, and deletable. Vary it: edit the notes/ages near the top and re-run.")
     return 0 if ok else 1
 
 
@@ -427,11 +481,125 @@ def _demo_body(data_dir: str) -> bool:
     return part1 and part2a and part2b and part3
 
 
+# --- demo-trigger: WHEN the tidy fires on its own (the gate + fail-open) ----------------------------------
+# A SEPARATE walkthrough from `demo` (which proves the tidy itself is crash-safe). This one proves the GATE: the
+# tidy fires ONLY once enough private bookkeeping has piled up, leaves a clean-enough cabinet untouched, and — if
+# the tidy ever faults — the engine carries on and loses nothing. Dial the two pile numbers below (or the
+# threshold near the top) and watch the "skipped"/"fired" flip:
+#     uv run --directory .engine --frozen -- python tools/memory/compact.py demo-trigger
+_DEMO_TRIGGER_BELOW = max(1, _COMPACT_WASTE_THRESHOLD - 8)   # a pile JUST UNDER the line -> the tidy is SKIPPED
+_DEMO_TRIGGER_ABOVE = _COMPACT_WASTE_THRESHOLD + 8           # a pile OVER the line -> the tidy FIRES
+_DEMO_TRIGGER_TEXT = "Decided the lighthouse keeper rota rotates every fortnight. DO-NOT-LOSE-THIS."
+_DEMO_TRIGGER_WORD = "lighthouse"
+
+
+def _demo_trigger() -> int:
+    import tempfile
+
+    print("=" * 88)
+    print("MEMORY — the tidy runs ON ITS OWN, but only when there's enough to clear, and never loses a note (practice)")
+    print("=" * 88)
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["ENGINE_MEMORY_DIR"] = tmp          # the throwaway cabinet
+        try:
+            ok = _demo_trigger_body()
+        finally:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+
+    print("\n" + "-" * 88)
+    print("What this just proved: the engine now tidies its private 'used it' bookkeeping ON ITS OWN — but ONLY once")
+    print("enough has piled up; with a clean-enough cabinet it does nothing and leaves your filing exactly as it was.")
+    print("When it does fire, every real note is still here and still findable. If the tidy ever hits a snag, the")
+    print("engine just carries on — it never holds anything up. This tidy is PURELY MECHANICAL filing: no AI reads,")
+    print("judges, or rewrites anything here, and none of your actual notes change — it only folds away the private")
+    print("bookkeeping. (The AI-written summaries are a SEPARATE background job, the roll-up sweep; it never runs at")
+    print("this moment.) Once you merge this PR this runs automatically — at the moment your conversation's context is")
+    print("compacted — on your real sessions, in the background, with no further approval each time; that is what")
+    print("merging turns on. NOTHING is ever erased; permanently erasing")
+    print("a real note is a separate step you approve by merging a pull request (and applying the `guardrail-ack`")
+    print("label). Practice cabinet, thrown away. Vary it: change the two pile numbers near the top (or the")
+    print("threshold) and watch the tidy flip between skipped and fired.")
+    return 0 if ok else 1
+
+
+def _demo_trigger_body() -> bool:
+    from unittest import mock
+
+    # --- PART 1 ------------------------------------------------------------------------------------------
+    print("\nPART 1 — a clean-enough cabinet: the tidy is SKIPPED and your filing is left untouched")
+    print("-" * 88)
+    keep = _make_episodic(_DEMO_TRIGGER_TEXT, age_days=0)
+    keep_id = keep[records.RECORD_ID_KEY]
+    ledger.append(keep)
+    for _ in range(_DEMO_TRIGGER_BELOW):
+        forget.record_access(keep_id)
+    _rebuild()
+    waste_below = reclaimable_waste()
+    version_before = ledger.generation()
+    ids_before = _content_ids()
+    report1 = maybe_compact()                          # the REAL auto-trigger
+    untouched = (ledger.generation() == version_before and _content_ids() == ids_before)
+    print(f"  private bookkeeping piled up: {waste_below}   (the tidy only fires at {_COMPACT_WASTE_THRESHOLD})")
+    print(f"  the engine's own decision: {report1['status']}   (it chose NOT to tidy)")
+    print(f"  the filing cabinet is left exactly as it was (nothing rewritten): {'yes' if untouched else 'NO'}")
+    part1 = report1["status"] == "skipped" and untouched
+    print(f"  => {'below the line, so the engine left everything alone — no needless rewrite.' if part1 else '!!! the tidy ran (or changed the cabinet) when it should have skipped'}")
+
+    # --- PART 2 ------------------------------------------------------------------------------------------
+    print("\nPART 2 — enough has piled up: the tidy FIRES on its own, and every real note survives")
+    print("-" * 88)
+    ledger.append(_make_episodic("Decided the south jetty repaint waits for calmer weather.", age_days=0))
+    for _ in range(_DEMO_TRIGGER_ABOVE):               # pile MORE on top of Part 1's, well over the line
+        forget.record_access(keep_id)
+    _rebuild()
+    waste_above = reclaimable_waste()
+    content_before = _content_ids()
+    fires = should_compact()
+    report2 = maybe_compact()                          # the REAL auto-trigger
+    kept_found = _recall_count(_DEMO_TRIGGER_WORD)
+    content_after = _content_ids()
+    waste_now = reclaimable_waste()
+    print(f"  private bookkeeping piled up: {waste_above}   (now well over {_COMPACT_WASTE_THRESHOLD})")
+    print(f"  the engine's own decision: {report2['status']}   (it chose to tidy)")
+    print(f"  every real note still present after the tidy: {len(content_after)} of {len(content_before)}")
+    print(f'  the DO-NOT-LOSE-THIS note is still findable: search "{_DEMO_TRIGGER_WORD}" -> found {kept_found}')
+    print(f"  private bookkeeping after the tidy: {waste_now}   (folded away)")
+    part2 = (fires and report2["status"] == "ok" and content_after == content_before
+             and len(content_after) == 2 and kept_found == 1 and waste_now == 0)
+    print(f"  => {'over the line, so the engine tidied on its own — every real note survived, bookkeeping cleared.' if part2 else '!!! the tidy failed to fire, lost a note, or left the bookkeeping'}")
+
+    # --- PART 3 ------------------------------------------------------------------------------------------
+    print("\nPART 3 — if the tidy ever hits a snag, the engine carries on and loses nothing")
+    print("-" * 88)
+    for _ in range(_DEMO_TRIGGER_ABOVE):               # pile the bookkeeping back up so the tidy WOULD fire
+        forget.record_access(keep_id)
+    _rebuild()
+    ids_pre_fault = _content_ids()
+    with mock.patch.object(sys.modules[__name__], "compact",
+                           side_effect=RuntimeError("disk hiccup (simulated)")):
+        report3 = maybe_compact()                      # the REAL auto-trigger, with the underlying tidy faulting
+    whole, _count = _cabinet_whole()
+    survived = _content_ids() == ids_pre_fault
+    print("  the underlying tidy was forced to fail.")
+    print(f"  the engine carried on (no error raised to the session): {'yes' if report3['status'] == 'skipped' else 'NO'}")
+    print(f"  the filing cabinet is whole and every real note survived: {'yes' if (whole and survived) else 'NO'}")
+    part3 = report3["status"] == "skipped" and whole and survived
+    print(f"  => {'a snag in the tidy never stalls you and never loses a note — the engine just moves on.' if part3 else '!!! a fault stranded the session or lost a note'}")
+
+    return part1 and part2 and part3
+
+
 def main(argv: list) -> int:
-    cmd = argv[0] if argv else "compact"
-    if cmd == "compact":
+    cmd = argv[0] if argv else "demo"
+    if cmd == "run":                                   # the manual lever: a REAL gated compaction on the real ledger
+        report = maybe_compact()
+        print(json.dumps(report, ensure_ascii=False))
+        return 0 if report.get("status") in ("ok", "skipped", "busy") else 1   # busy = a transient, not an error
+    if cmd == "demo":
         return _demo()
-    print(f"usage: compact.py [compact]\nunknown command {cmd!r}", file=sys.stderr)
+    if cmd == "demo-trigger":
+        return _demo_trigger()
+    print(f"usage: compact.py [run|demo|demo-trigger]\nunknown command {cmd!r}", file=sys.stderr)
     return 2
 
 
