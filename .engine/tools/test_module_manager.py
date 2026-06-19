@@ -81,15 +81,23 @@ class TestRemoveRefusals(unittest.TestCase):
 
 
 class TestRealRepoRefusals(unittest.TestCase):
-    """The two real modules (both required) — read-only, no mutation."""
+    """The real required modules — read-only, no mutation."""
 
     def test_remove_core_is_refused_naming_validators_core(self):
         plan = module_manager.plan_remove("core")
         self.assertTrue(plan["refused"])
         self.assertIn("validators-core", plan["reason"])   # reverse-dependency refusal
 
-    def test_remove_validators_core_is_refused_as_required(self):
+    def test_remove_validators_core_is_refused_naming_audit_library(self):
+        # audit-library is the first module to depend on validators-core, so its removal is now a
+        # reverse-dependency refusal (audit-library needs it), ahead of its required-foundation status.
         plan = module_manager.plan_remove("validators-core")
+        self.assertTrue(plan["refused"])
+        self.assertIn("audit-library", plan["reason"])     # reverse-dependency refusal
+
+    def test_remove_a_required_leaf_is_refused_as_required(self):
+        # a required module that nothing depends on falls through to the required-foundation refusal.
+        plan = module_manager.plan_remove("routine-mode")
         self.assertTrue(plan["refused"])
         self.assertIn("required", plan["reason"])          # required-foundation refusal
 
