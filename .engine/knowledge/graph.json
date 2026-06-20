@@ -2329,6 +2329,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_actionlint",
+      "name": ".engine/tools/demo_actionlint.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_actionlint",
+      "source": {
+        "fingerprint": "sha256:fd8e79457701e664efc9d4f5bb45a377482c7ceb76fb48655cb9eed759430d12",
+        "path": ".engine/tools/demo_actionlint.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_audit_concern_list",
       "name": ".engine/tools/demo_audit_concern_list.py",
       "owner": "core",
@@ -2781,7 +2798,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:d7cfedbf5009da6f24b932cbf4b7d73a8ed26f1d2dc4b9733fa437e3c260e4c9",
+        "fingerprint": "sha256:2a136a243fb53b89789102770d2f91e2ea509e5fc758f9d35bac74395fecbe6a",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -3021,6 +3038,23 @@
       "source": {
         "fingerprint": "sha256:6b692dabc9a2158bd4255b00c35439a97b30e43b56304ebd9fb853f12230d68f",
         "path": ".engine/tools/telemetry.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_actionlint",
+      "name": ".engine/tools/test_actionlint.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_actionlint",
+      "source": {
+        "fingerprint": "sha256:496341bbda9d5f95b53e5646a4a1a553c26a68b7ea42175bbd5861e9261f887e",
+        "path": ".engine/tools/test_actionlint.py"
       },
       "status": "active",
       "type": "tool"
