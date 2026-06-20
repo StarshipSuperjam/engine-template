@@ -104,6 +104,56 @@
       "type": "check"
     },
     {
+      "id": "check:audit-digest-fingerprint",
+      "kind": "custom/script",
+      "name": ".engine/check/audit-digest-fingerprint.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "audit-digest-fingerprint",
+      "source": {
+        "fingerprint": "sha256:023423950a3f1a9514f9eded6b89c239635e08ccd454613b72f3002c1b5d4e9d",
+        "path": ".engine/check/audit-digest-fingerprint.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:audit-digest-staleness",
+      "kind": "custom/script",
+      "name": ".engine/check/audit-digest-staleness.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "audit-digest-staleness",
+      "source": {
+        "fingerprint": "sha256:bd2776edaafdbb47a3d989e2470c9b18e95e04c7d333d84a2b5a32c18dfa1818",
+        "path": ".engine/check/audit-digest-staleness.json"
+      },
+      "status": "active",
+      "suites": [
+        "audit-prep"
+      ],
+      "tier": "soft",
+      "type": "check"
+    },
+    {
       "id": "check:catalog-coverage",
       "kind": "coverage",
       "name": ".engine/check/catalog-coverage.json",
@@ -1106,7 +1156,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:454937d48ecc03da510822282d27973f9eab4e57a584d59656d313fca16ea79b",
+        "fingerprint": "sha256:023e453ebbbe396dffe34444b30cfbcf562e75aeeafe672a16bf4370af322c8c",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2075,6 +2125,57 @@
       "type": "tool"
     },
     {
+      "id": "tool:audit_digest",
+      "name": ".engine/tools/audit_digest.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "audit_digest",
+      "source": {
+        "fingerprint": "sha256:5742fdec98624e580fedea7da35ff6605406c2c64e4f0ff87d38fbf2c3d722ee",
+        "path": ".engine/tools/audit_digest.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:audit_digest_fingerprint_check",
+      "name": ".engine/tools/audit_digest_fingerprint_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "audit_digest_fingerprint_check",
+      "source": {
+        "fingerprint": "sha256:5f7103134bc4f599e45aaeb1542952792943f6c1e5ef2b230236c48ba63bb259",
+        "path": ".engine/tools/audit_digest_fingerprint_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:audit_digest_staleness_check",
+      "name": ".engine/tools/audit_digest_staleness_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "audit_digest_staleness_check",
+      "source": {
+        "fingerprint": "sha256:bdc5b389d11f078dcb45e1ea8fad934a826ec19ac878a64e4dc7ed9e7f77bb01",
+        "path": ".engine/tools/audit_digest_staleness_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:boot",
       "name": ".engine/tools/boot.py",
       "owner": "core",
@@ -2240,6 +2341,23 @@
       "source": {
         "fingerprint": "sha256:35d8ffa4d07b0d445bec63d9f66cd52503e67185e6363889665492ee6b3df51c",
         "path": ".engine/tools/demo_audit_concern_list.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_audit_digest",
+      "name": ".engine/tools/demo_audit_digest.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_audit_digest",
+      "source": {
+        "fingerprint": "sha256:e53d5ac984e83a40181bdbfcf57bdb9c22ace1eb2a29b7d45d2243d27420224b",
+        "path": ".engine/tools/demo_audit_digest.py"
       },
       "status": "active",
       "type": "tool"
@@ -2925,6 +3043,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_audit_digest",
+      "name": ".engine/tools/test_audit_digest.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_audit_digest",
+      "source": {
+        "fingerprint": "sha256:9f1620fddc84baa302e5afe2a6b20aa71e13d698f18925c7dcb0e4b9a0957c70",
+        "path": ".engine/tools/test_audit_digest.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_boot",
       "name": ".engine/tools/test_boot.py",
       "owner": "core",
@@ -3411,7 +3546,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:8052743dc6f28a20d3af136b909e1d4a5d4af8aa4e10815a78b69d8f6c166d8f",
+        "fingerprint": "sha256:7426a394c23869d93aef7aa44f24ad6bc182e3b1c74eb04762d2d2da66fa91d1",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
