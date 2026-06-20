@@ -161,5 +161,63 @@ class TestAttentionIntegration(unittest.TestCase):
         self.assertNotIn("git", available)
 
 
+def _run_paths(*, in_repo=True, current="claude/feature", default="main",
+               committed=None, working=None, staged=None):
+    """A fake git runner for changed_paths: answers the branch-resolution reads (_current_branch /
+    _default_branch) plus the three diff legs (committed `<base>...HEAD`, working-tree `HEAD`, staged
+    `--cached`). `in_repo=False` makes every read fail (not a git checkout)."""
+    def run(args):
+        if not in_repo:
+            return None
+        if args[:2] == ["rev-parse", "--is-inside-work-tree"]:
+            return "true"
+        if args[:1] == ["symbolic-ref"]:
+            return f"refs/remotes/origin/{default}" if default else None
+        if args[:2] == ["rev-parse", "--abbrev-ref"]:
+            return current
+        if args[:1] == ["log"]:
+            return "2026-06-19T10:00:00Z"
+        if args[:2] == ["diff", "--name-only"]:
+            spec = args[2] if len(args) > 2 else None
+            if spec == "HEAD":
+                return "\n".join(working) if working else None
+            if spec == "--cached":
+                return "\n".join(staged) if staged else None
+            if spec and "..." in spec:
+                return "\n".join(committed) if committed else None
+        return None
+    return run
+
+
+class TestChangedPaths(unittest.TestCase):
+    def test_committed_and_uncommitted_and_staged_union_deduped_sorted(self):
+        recs = wr.changed_paths(run=_run_paths(
+            committed=["b.py", "a.py"], working=["c.py"], staged=["b.py", "d.py"]))
+        self.assertEqual(recs, ["a.py", "b.py", "c.py", "d.py"])  # union, deduped (b.py once), sorted
+
+    def test_default_branch_skips_the_committed_leg_but_keeps_local_edits(self):
+        # On the default branch _current_branch is None -> the committed leg is NOT run (its merge-base diff
+        # would be empty/meaningless), but uncommitted/staged local work is still in-flight work in hand.
+        recs = wr.changed_paths(run=_run_paths(
+            current="main", default="main", committed=["should_not_appear.py"], working=["w.py"]))
+        self.assertEqual(recs, ["w.py"])
+
+    def test_default_branch_clean_is_empty(self):
+        self.assertEqual(wr.changed_paths(run=_run_paths(current="main", default="main")), [])
+
+    def test_detached_head_skips_the_committed_leg(self):
+        recs = wr.changed_paths(run=_run_paths(current="HEAD", committed=["x.py"], staged=["s.py"]))
+        self.assertEqual(recs, ["s.py"])
+
+    def test_not_a_repo_is_empty(self):
+        self.assertEqual(wr.changed_paths(run=_run_paths(in_repo=False)), [])
+
+    def test_cap_bounds_the_list(self):
+        many = [f"f{i:02d}.py" for i in range(40)]
+        recs = wr.changed_paths(run=_run_paths(committed=many), cap=5)
+        self.assertEqual(len(recs), 5)
+        self.assertEqual(recs, ["f00.py", "f01.py", "f02.py", "f03.py", "f04.py"])  # the sorted prefix
+
+
 if __name__ == "__main__":
     unittest.main()

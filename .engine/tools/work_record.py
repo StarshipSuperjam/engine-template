@@ -40,6 +40,8 @@ import subprocess
 _PR_WINDOW = 20
 # How many in-flight records to surface in all (PRs + the working branch), freshest first.
 _CAP = 12
+# How many in-flight changed paths to surface — a bound so a huge branch never floods focus derivation.
+_PATHS_CAP = 50
 
 
 class WorkRecordUnavailable(Exception):
@@ -144,6 +146,31 @@ def read_in_flight(gh=None, *, run=_run_git, window: int = _PR_WINDOW, cap: int 
     # Freshest first (a missing recency sorts last), then bounded so orientation never floods.
     records.sort(key=lambda r: (r["recency"] is not None, r["recency"] or ""), reverse=True)
     return records[:cap]
+
+
+def changed_paths(*, run=_run_git, cap: int = _PATHS_CAP) -> list[str]:
+    """The repo-relative paths the current branch's in-flight work touches — the "work in hand" the focused
+    knowledge read keys on (engine-template #37, PR 2). The union of:
+      - the COMMITTED diff vs the default branch, but ONLY on a real non-default branch (so the default branch
+        itself contributes no committed diff): `git diff --name-only <default>...HEAD` (the three-dot form
+        diffs against the merge-base of the two — "what this branch added");
+      - the UNCOMMITTED working-tree diff and the STAGED diff (always — local edits are in-flight work in
+        hand even on the default branch).
+    Each leg is independently fail-open (a None from `run` contributes nothing); the union is deduped, sorted,
+    and bounded. Returns [] on a clean default branch, a detached HEAD, or outside a repo. A PURE stdlib leaf —
+    imports no knowledge_query, so attention (which maps these paths to graph entities) imports IT with no
+    cycle; the path -> entity mapping is attention's job, not this reader's."""
+    paths: set = set()
+    if _current_branch(run) is not None:        # a real branch other than the default -> committed leg applies
+        base = _default_branch(run)
+        committed = run(["diff", "--name-only", f"{base}...HEAD"])
+        if committed:
+            paths.update(committed.splitlines())
+    for leg in (["diff", "--name-only", "HEAD"], ["diff", "--name-only", "--cached"]):
+        out = run(leg)
+        if out:
+            paths.update(out.splitlines())
+    return sorted(p for p in paths if p)[:cap]
 
 
 # ---- operator-runnable demo (real read_in_flight + the real boot rendering; only git/network faked) ------

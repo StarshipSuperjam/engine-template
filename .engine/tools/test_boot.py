@@ -35,6 +35,9 @@ def _offline():
         mock.patch.object(boot, "repo_slug", return_value=None),
         mock.patch.object(boot, "gh_token", return_value=None),
         mock.patch.object(boot, "recently_shipped", return_value=["#1 — a merged change"]),
+        # No real git in offline tests: the work-in-hand focus derivation reads local git, so pin it empty
+        # (a focused-read test opts back in by re-patching derive_focus with its own fixture).
+        mock.patch.object(boot.attention, "derive_focus", return_value=[]),
     ]
     for p in patchers:
         p.start()
@@ -55,7 +58,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "findings_unavailable": False, "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": False, "shipped": [], "stance": "Exploring", "strand": None,
-            "live_standing": None}
+            "live_standing": None, "neighborhood": None}
 
 
 def _signals(**over):
@@ -210,8 +213,9 @@ class TestConsumesAttentionNeverReRanks(unittest.TestCase):
         ], "degraded_inputs": []}
         state = {"standing_situation": {"milestone": "M1", "phase": "core"},
                  "integration_debt": {"open_count": 3}}
-        with mock.patch.object(boot.attention, "rank_live", return_value=result):
-            lines, degraded = boot.needs_attention(state)
+        with mock.patch.object(boot.attention, "derive_focus", return_value=[]), \
+                mock.patch.object(boot.attention, "rank_live", return_value=result):
+            lines, degraded, _ = boot.needs_attention(state)
         self.assertEqual(degraded, [])
         self.assertEqual(len(lines), 2)
         # orientation line first (it was first in the array), debt line second — array order preserved.
@@ -222,14 +226,82 @@ class TestConsumesAttentionNeverReRanks(unittest.TestCase):
         self.assertIn("integration debt", lines[1].lower())
 
     def test_caps_members_per_category_without_reordering(self):
+        # An ACTION category (recent_decisions) — structural_neighbors are now routed to the pack
+        # neighborhood block, not the action lines, so the per-category cap is exercised on a category that
+        # still renders as action lines.
         members = [{"id": f"k:{i}", "rank": i} for i in range(10)]
-        result = {"partition": [{"category": "structural_neighbors", "precedence_rank": 4,
+        result = {"partition": [{"category": "recent_decisions", "precedence_rank": 3,
                                  "members": members}], "degraded_inputs": []}
-        with mock.patch.object(boot.attention, "rank_live", return_value=result):
-            lines, _ = boot.needs_attention({})
+        with mock.patch.object(boot.attention, "derive_focus", return_value=[]), \
+                mock.patch.object(boot.attention, "rank_live", return_value=result):
+            lines, _, _ = boot.needs_attention({})
         self.assertEqual(len(lines), boot.NEEDS_ATTENTION_CAP)  # a bounded prefix
         self.assertIn("0 (k)", lines[0])                        # member 0 first (the prefix, in order)
         self.assertIn(f"{boot.NEEDS_ATTENTION_CAP - 1} (k)", lines[-1])  # ...through member CAP-1
+
+
+class TestFocusedNeighborhood(unittest.TestCase):
+    """The orientation-time focused knowledge read (#37, PR 2): a focus derived from the work in hand drives
+    a structural_neighbors walk that surfaces as an AI-facing neighborhood block — NOT operator action lines."""
+
+    def _partition_with_neighbors(self):
+        # An in_flight action item AND a structural_neighbors entry (the focused-read output) in one partition.
+        return {"partition": [
+            {"category": "in_flight", "precedence_rank": 2,
+             "members": [{"id": "pr:161", "rank": 1}]},
+            {"category": "structural_neighbors", "precedence_rank": 4,
+             "members": [{"id": "module:core", "rank": 1}, {"id": "module:core", "rank": 2},
+                         {"id": "schema:attention-result.v1", "rank": 3}]},
+        ], "degraded_inputs": ["telemetry"]}
+
+    def test_structural_neighbors_feed_the_neighborhood_not_the_action_lines(self):
+        with mock.patch.object(boot.attention, "derive_focus",
+                               return_value=["tool:attention", "tool:boot"]), \
+                mock.patch.object(boot.attention, "rank_live",
+                                  return_value=self._partition_with_neighbors()):
+            lines, degraded, nb = boot.needs_attention({})
+        # the in_flight item IS an action line; the neighbors are NOT (they went to the neighborhood)
+        self.assertTrue(any("161" in ln for ln in lines))
+        self.assertFalse(any("core" in ln for ln in lines))
+        self.assertEqual(degraded, ["telemetry"])
+        self.assertEqual(nb["focus"], ["attention", "boot"])     # focus slugs, deduped, from the work in hand
+        self.assertEqual(nb["adjacent"], ["core", "attention-result.v1"])  # neighbor slugs, deduped, in order
+
+    def test_render_neighborhood_names_slugs_never_raw_ids(self):
+        block = "\n".join(boot.render_neighborhood({"focus": ["attention", "boot"], "adjacent": ["core"]}))
+        self.assertIn("attention, boot", block)
+        self.assertIn("core", block)
+        self.assertNotIn("tool:", block)     # no kind:slug jargon leaks to the briefing
+        self.assertNotIn("module:", block)
+        self.assertIn("knowledge neighborhood of your current work", block)
+
+    def test_no_focus_renders_no_block(self):
+        self.assertEqual(boot.render_neighborhood(None), [])
+        self.assertEqual(boot.render_neighborhood({"focus": [], "adjacent": []}), [])
+        with mock.patch.object(boot.attention, "derive_focus", return_value=[]), \
+                mock.patch.object(boot.attention, "rank_live",
+                                  return_value={"partition": [], "degraded_inputs": []}):
+            _, _, nb = boot.needs_attention({})
+        self.assertIsNone(nb)
+
+    def test_empty_neighborhood_still_names_the_focus(self):
+        # focus present but no neighbors (sparse graph) -> the block still tells the AI what you're touching.
+        block = "\n".join(boot.render_neighborhood({"focus": ["attention"], "adjacent": []}))
+        self.assertIn("attention", block)
+        self.assertIn("nothing adjacent", block.lower())
+
+    def test_pack_carries_the_neighborhood_block_when_focus_present(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.attention, "derive_focus", return_value=["tool:attention"]), \
+                    mock.patch.object(boot.attention, "rank_live",
+                                      return_value=self._partition_with_neighbors()):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("knowledge neighborhood of your current work", pack)
+        self.assertIn("You're touching: attention", pack)
 
 
 class TestGovernanceAlarms(unittest.TestCase):
@@ -345,13 +417,14 @@ class TestFailOpen(unittest.TestCase):
         patchers = _offline()
         try:
             with mock.patch.object(boot.attention, "rank_live", side_effect=Exception("down")):
-                lines, degraded = boot.needs_attention({})
+                lines, degraded, neighborhood = boot.needs_attention({})
                 pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
         self.assertEqual(lines, [])
         self.assertEqual(degraded, ["attention"])
+        self.assertIsNone(neighborhood)  # attention down -> no focused-read neighborhood either
         _assert_ai_briefing(self, pack)  # the briefing still assembles + carries the present-marker token
 
     def test_a_bad_protection_body_never_blanks_the_whole_pack(self):
