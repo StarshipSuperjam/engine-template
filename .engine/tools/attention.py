@@ -95,8 +95,11 @@ def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP) -> list:
         paths = work_record.changed_paths(run=runner)
         if not paths:
             return []
+        # One find() -> an EXACT path->id index (no SQLite GLOB, so a metacharacter path can't mis-resolve).
+        # The catalog guarantees one entity per source_path (a file owns exactly one surface entity), so the
+        # dict build has no real clobber; if that invariant ever broke, find()'s id-order makes it deterministic.
         by_path = {e["source_path"]: e["id"] for e in knowledge_query.find()
-                   if e.get("source_path") and e.get("id")}   # one find() -> an EXACT path->id index
+                   if e.get("source_path") and e.get("id")}
         focus: list = []
         for p in paths:
             eid = by_path.get(p)

@@ -259,7 +259,9 @@ def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | 
             line = _resolve_member(member.get("id", ""), state)
             if line:                       # skip an id-less member rather than render a blank bullet
                 lines.append(line)
-    neighborhood = {"focus": [_slug(f) for f in focus], "adjacent": adjacent} if focus else None
+    # Drop any empty slug on the focus side too (symmetry with `adjacent` above) — a defensive guard; the
+    # real derive_focus only yields well-formed `kind:slug` ids, but the two sides should filter alike.
+    neighborhood = {"focus": [s for s in (_slug(f) for f in focus) if s], "adjacent": adjacent} if focus else None
     return lines, list(result.get("degraded_inputs") or []), neighborhood
 
 
