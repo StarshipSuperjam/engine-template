@@ -214,28 +214,74 @@ def _resolve_member(member_id: str, state: dict | None) -> str:
     return member_id
 
 
-def needs_attention(state: dict | None, *, gh=None) -> tuple[list[str], list[str]]:
-    """Consume attention.rank_live and render the ranked partition in its GIVEN precedence order as
-    plain-language lines (a bounded prefix per category — boot renders, never re-orders). Returns
-    (lines, degraded_inputs). `gh` is the GitHub reader boot built from the live repo/token; attention reads
-    the in-flight work record (open PRs + the working branch) through it. With no gh (no token) attention
-    still gets the local-git floor, so the working branch surfaces offline. telemetry-as-register is still
-    absent, so degraded_inputs stays non-empty (boot's routine degraded notice, not an alarm)."""
+def _slug(member_id: str) -> str:
+    """The bare slug of an entity id (`tool:attention` -> `attention`, `module:core` -> `core`) — the
+    AI-/operator-legible name, never the raw `kind:slug` id."""
+    return member_id.split(":", 1)[-1] if member_id else ""
+
+
+def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | None]:
+    """Consume attention.rank_live and SPLIT its ranked partition into (1) operator ACTION lines, rendered in
+    the GIVEN precedence order as plain language (a bounded prefix per category — boot renders, never
+    re-orders), and (2) the knowledge NEIGHBORHOOD of the work in hand. The neighborhood is AI-orientation
+    context, NOT an operator action item, so `structural_neighbors` are routed to the pack's neighborhood
+    block (assemble_pack) and never to the action list. Returns (action_lines, degraded_inputs, neighborhood).
+
+    The focus is DERIVED here from the in-flight work record (#37): the files the work touches -> their owning
+    entities -> a focused knowledge read. `gh` is the GitHub reader boot built from the live repo/token;
+    attention reads the work record (open PRs + the working branch) through it, and the focus from the local
+    git floor (no token needed). telemetry-as-register is still absent, so degraded_inputs stays non-empty
+    (boot's routine degraded notice) — and the focused read does NOT clear it: `knowledge` merely leaves
+    degraded_inputs on a focused session; the "couldn't rank" notice persists until telemetry wires."""
+    try:
+        focus = attention.derive_focus(gh=gh)
+    except Exception:  # noqa: BLE001 — focus derivation is best-effort; the rest of the pack stands
+        focus = []
     try:
         # Load the operator policy-override (operator config, absent until first tuned) and pass attention's
         # slice as DATA — boot is the LOADING layer; attention merges it per-key (D-167), never reads the file.
         # The work record, by contrast, is a SUBSTRATE attention reads itself (through the gh reader boot hands it).
-        result = attention.rank_live(override=operator_overrides.slice_for("attention") or None, gh=gh)
+        result = attention.rank_live(override=operator_overrides.slice_for("attention") or None,
+                                     focus=focus or None, gh=gh)
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
-        return [], ["attention"]
-    lines: list[str] = []
+        return [], ["attention"], None
+    lines: list = []
+    adjacent: list = []
     for entry in result.get("partition", []):
         members = entry.get("members") or []
+        if entry.get("category") == "structural_neighbors":
+            for member in members[:NEEDS_ATTENTION_CAP]:   # the neighborhood -> the AI pack block, not here
+                slug = _slug(member.get("id", ""))
+                if slug and slug not in adjacent:
+                    adjacent.append(slug)
+            continue
         for member in members[:NEEDS_ATTENTION_CAP]:
             line = _resolve_member(member.get("id", ""), state)
             if line:                       # skip an id-less member rather than render a blank bullet
                 lines.append(line)
-    return lines, list(result.get("degraded_inputs") or [])
+    # Drop any empty slug on the focus side too (symmetry with `adjacent` above) — a defensive guard; the
+    # real derive_focus only yields well-formed `kind:slug` ids, but the two sides should filter alike.
+    neighborhood = {"focus": [s for s in (_slug(f) for f in focus) if s], "adjacent": adjacent} if focus else None
+    return lines, list(result.get("degraded_inputs") or []), neighborhood
+
+
+def render_neighborhood(nb: dict | None) -> list:
+    """The AI-facing "knowledge neighborhood of your current work" orientation block, from the neighborhood
+    dict {focus:[slugs], adjacent:[slugs]} attention derived — or [] when there is no work in hand. This is
+    orientation CONTEXT for the model (the focused knowledge read, #37), NOT an operator alarm and NOT an
+    action item; it carries no RELAY_MARKER. The graph is sparse today (a tool's only structural neighbor is
+    often its module), so `adjacent` can be thin — it enriches as the graph gains cross-entity edges."""
+    if not nb or not nb.get("focus"):
+        return []
+    focus_names = ", ".join(nb["focus"])
+    adjacent = nb.get("adjacent") or []
+    adj = ", ".join(adjacent) if adjacent else "(nothing adjacent in the current graph yet)"
+    return [
+        "--- knowledge neighborhood of your current work (orientation context, not an alarm) ---",
+        f"You're touching: {focus_names}. Structurally adjacent in the knowledge graph: {adj}. "
+        "Pull deeper with the knowledge-graph tools if a change reaches into them.",
+        "",
+    ]
 
 
 # ---- "what just happened" — merged PRs, never a changelog -----------------------------------
@@ -284,7 +330,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     # The GitHub reader for attention's in-flight work-record read (open PRs). None without a repo/token ->
     # attention falls back to the local-git floor (the working branch). Construction does no I/O (telemetry.py).
     gh = telemetry.GitHubIssues(repo, token) if repo and token else None
-    att_lines, att_degraded = needs_attention(state, gh=gh)
+    att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh)
     try:
         # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
         # low-stakes (a stranded local checkout cannot reach the protected branch), so it degrades QUIETLY
@@ -310,6 +356,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         "findings_unavailable": finding_count is None and bool(repo) and token is None,
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
+        # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
+        "neighborhood": neighborhood,
         "shipped": recently_shipped(),
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
@@ -500,6 +548,9 @@ def assemble_pack(session_id: str | None = None) -> str:
     # relay. Always the Explore note: the handler clears the stance to Explore before this pack is built.
     out.append(modes.describe_explore_scope())
     out.append("")
+    # The focused knowledge read (#37): the structural neighborhood of the work in hand — AI-orientation
+    # context, placed in the briefing (not the operator dashboard), and only when there is work in hand.
+    out.extend(render_neighborhood(s.get("neighborhood")))
     out.append("--- the full status (your grounding for this session) ---")
     out.append(dashboard)
     return "\n".join(out)

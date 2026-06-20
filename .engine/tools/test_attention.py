@@ -29,6 +29,7 @@ import math
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
@@ -433,6 +434,89 @@ class TestEffectiveValues(unittest.TestCase):
             attention.load_policy_values = original
         self.assertEqual(captured["override"], {"budget_orientation": 0.40},
                          "rank_live forwards the operator override to the per-key merge")
+
+
+class TestDeriveFocus(unittest.TestCase):
+    """derive_focus maps the in-flight changed files to their owning graph entities — the work-in-hand focus
+    the orientation-time focused read keys on (#37). The git runner and the graph are injected/mocked."""
+
+    def _patch(self, paths, entities):
+        return (mock.patch.object(attention.work_record, "changed_paths", return_value=paths),
+                mock.patch.object(attention.knowledge_query, "find", return_value=entities))
+
+    def test_maps_changed_files_to_owning_entities_exactly(self):
+        entities = [{"source_path": ".engine/tools/attention.py", "id": "tool:attention"},
+                    {"source_path": ".engine/tools/boot.py", "id": "tool:boot"}]
+        p1, p2 = self._patch([".engine/tools/attention.py", ".engine/tools/boot.py"], entities)
+        with p1, p2:
+            self.assertEqual(attention.derive_focus(run=lambda a: None), ["tool:attention", "tool:boot"])
+
+    def test_skips_paths_that_own_no_entity(self):
+        # a non-surface file (root README) owns no entity -> silently skipped, never guessed
+        entities = [{"source_path": ".engine/tools/attention.py", "id": "tool:attention"}]
+        p1, p2 = self._patch(["README.md", ".engine/tools/attention.py"], entities)
+        with p1, p2:
+            self.assertEqual(attention.derive_focus(run=lambda a: None), ["tool:attention"])
+
+    def test_excludes_test_and_demo_entities(self):
+        entities = [{"source_path": ".engine/tools/attention.py", "id": "tool:attention"},
+                    {"source_path": ".engine/tools/test_attention.py", "id": "tool:test_attention"},
+                    {"source_path": ".engine/tools/demo_x.py", "id": "tool:demo_x"}]
+        paths = [e["source_path"] for e in entities]
+        p1, p2 = self._patch(paths, entities)
+        with p1, p2:
+            self.assertEqual(attention.derive_focus(run=lambda a: None), ["tool:attention"])
+
+    def test_distinct_and_capped_in_stable_order(self):
+        entities = [{"source_path": f".engine/tools/t{i}.py", "id": f"tool:t{i}"} for i in range(10)]
+        p1, p2 = self._patch([e["source_path"] for e in entities], entities)
+        with p1, p2:
+            self.assertEqual(attention.derive_focus(run=lambda a: None, cap=3),
+                             ["tool:t0", "tool:t1", "tool:t2"])
+
+    def test_no_changed_paths_is_empty(self):
+        p1, p2 = self._patch([], [{"source_path": "x", "id": "tool:x"}])
+        with p1, p2:
+            self.assertEqual(attention.derive_focus(run=lambda a: None), [])
+
+    def test_find_failure_degrades_to_empty(self):
+        with mock.patch.object(attention.work_record, "changed_paths",
+                               return_value=[".engine/tools/attention.py"]), \
+             mock.patch.object(attention.knowledge_query, "find",
+                               side_effect=Exception("knowledge unavailable")):
+            self.assertEqual(attention.derive_focus(run=lambda a: None), [])
+
+    def test_lazy_run_default_never_crashes_when_work_record_absent(self):
+        # the run default is LAZY (run=None), so calling derive_focus() with the guarded work_record import
+        # degraded to None returns [] cleanly — never an AttributeError at call (or import) time.
+        with mock.patch.object(attention, "work_record", None):
+            self.assertEqual(attention.derive_focus(), [])
+
+
+class TestFocusSetWalk(unittest.TestCase):
+    """assemble_candidates walks a focus SET: dedupes neighbors across members and excludes focus members
+    (co-changed entities are not each other's structural neighbors). The graph + work record are mocked."""
+
+    def test_set_focus_dedupes_neighbors_and_excludes_focus_members(self):
+        def fake_neighbors(fid, edge_filter=None, depth=1):
+            return {"tool:a": [{"id": "tool:b"}, {"id": "mod:x"}],   # tool:b is itself a focus member
+                    "tool:b": [{"id": "tool:a"}, {"id": "mod:x"}]}.get(fid, [])
+        with mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
+                mock.patch.object(attention.knowledge_query, "neighbors", side_effect=fake_neighbors):
+            cands, available, _ = attention.assemble_candidates(
+                FIXTURE_POLICY, state_path="/nonexistent", focus=["tool:a", "tool:b"], gh=None)
+        sn = [c["id"] for c in cands if c["category"] == "structural_neighbors"]
+        self.assertEqual(sn, ["mod:x"])             # mod:x once; tool:a / tool:b excluded (focus members)
+        self.assertIn("knowledge", available)
+
+    def test_single_string_focus_still_walks(self):
+        with mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
+                mock.patch.object(attention.knowledge_query, "neighbors", return_value=[{"id": "mod:x"}]):
+            cands, available, _ = attention.assemble_candidates(
+                FIXTURE_POLICY, state_path="/nonexistent", focus="tool:a", gh=None)
+        sn = [c["id"] for c in cands if c["category"] == "structural_neighbors"]
+        self.assertEqual(sn, ["mod:x"])
+        self.assertIn("knowledge", available)
 
 
 if __name__ == "__main__":

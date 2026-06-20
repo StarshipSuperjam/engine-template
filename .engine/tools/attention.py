@@ -7,12 +7,13 @@ today and degrades over the ones that do not, then exposes the operator's no-Cla
     `orientation` candidate; the offline integration-debt count — carried with its as-of marker — stands in
     for the live register (attention/README.md:73-76) as a single `blocking_debt` candidate when non-zero.
     The `register` pointer is deliberately ignored: boot/telemetry own the live read, not attention.
-  - knowledge (knowledge_query.neighbors, when a --focus entity is given): each neighbour becomes a
-    `structural_neighbors` candidate. At depth 1 every neighbour is one hop, so proximity is uniform today
-    (the query does not return hop-depth).
-  - telemetry (the live debt register, slice 18) and git/GitHub (the work-record reader, a later slice) DO
-    NOT exist yet — they are never in `available_inputs`, so every result records them in `degraded_inputs`.
-    The spec's "local git stands in for the live register" is a forward-obligation of the work-record slice.
+  - knowledge (knowledge_query.neighbors): each neighbour of the focus becomes a `structural_neighbors`
+    candidate. The focus is the "work in hand" — given explicitly (the CLI `--focus`) or DERIVED from the
+    in-flight work record (`derive_focus`, the orientation default boot uses). A focus may be a single entity
+    id or a SET; each member is walked at depth 1, so proximity is uniform today (the query returns no hop-depth).
+  - git/GitHub (the in-flight work-record reader, work_record): open PRs + the working branch become
+    `in_flight` candidates, and the files that work touches drive the knowledge focus above (#37). telemetry
+    (the live debt register, slice 18) does NOT exist yet, so it is always in a result's `degraded_inputs`.
 
 The adapter NARRATES nothing in the result (boot surfaces degradation loudly, at its slice); the CLI prints
 a degrade note to stderr only, for the operator's own demo. `as_of` is the recorded reference time: the live
@@ -44,6 +45,10 @@ except Exception:            # pragma: no cover - a stdlib-only leaf should impo
 POLICY_PATH = os.path.join(validate.ENGINE_DIR, "policies", "attention.md")
 STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
 
+# How many distinct entities the work-in-hand focus may span — the build-spec-leaf cap (D-052/D-113), decided
+# with the maintainer (a SET of all touched components, capped). It bounds the FOCUS, not the neighbour count.
+FOCUS_CAP = 5
+
 
 # ---- policy + substrate reads ---------------------------------------------------------------
 
@@ -69,7 +74,50 @@ def load_policy_values(policy_path: str = POLICY_PATH, override: dict | None = N
     return effective
 
 
-def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH, focus: str | None = None,
+def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP) -> list:
+    """The knowledge focus for the orientation-time focused read: the distinct graph entities that OWN the
+    files the in-flight work touches (#37 — "which entities neighbor the work in hand", attention/README:69).
+
+    Maps each changed path (`work_record.changed_paths`) to its entity via an EXACT source-path lookup over a
+    one-shot `knowledge_query.find()` index — never a SQLite GLOB match, so a path with shell metacharacters
+    (`*?[]`) can't silently mis-resolve. Skips a path that owns no entity (a non-surface file: the root
+    README, CLAUDE.md, the derived graph.json, ...) and EXCLUDES a changed file's own `test_`/`demo_` entity
+    (the focus is the thing under test, not its test). Distinct, stable order, capped at `cap`.
+
+    Fail-open: returns [] on no in-flight work, or any read failure (work_record/knowledge absent, or `find`
+    raising KnowledgeUnavailable) — boot still ranks the rest. `gh` is accepted for the deferred PR-files
+    layer but unused today; the floor is local git. `run` defaults LAZILY to work_record's git runner (never
+    as a default-arg expression, which would crash at import if the guarded work_record import degraded)."""
+    if work_record is None or knowledge_query is None:
+        return []
+    runner = run or work_record._run_git
+    try:
+        paths = work_record.changed_paths(run=runner)
+        if not paths:
+            return []
+        # One find() -> an EXACT path->id index (no SQLite GLOB, so a metacharacter path can't mis-resolve).
+        # The catalog guarantees one entity per source_path (a file owns exactly one surface entity), so the
+        # dict build has no real clobber; if that invariant ever broke, find()'s id-order makes it deterministic.
+        by_path = {e["source_path"]: e["id"] for e in knowledge_query.find()
+                   if e.get("source_path") and e.get("id")}
+        focus: list = []
+        for p in paths:
+            eid = by_path.get(p)
+            if eid is None:
+                continue                                       # a non-surface file owns no entity -> skip
+            if eid.split(":", 1)[-1].startswith(("test_", "demo_")):
+                continue                                       # focus the thing under test, not its test/demo
+            if eid not in focus:
+                focus.append(eid)
+            if len(focus) >= cap:
+                break
+        return focus
+    except Exception:
+        return []  # the work-in-hand focus could not be derived -> degrade (no focused read this session)
+
+
+def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
+                        focus: "str | list[str] | None" = None,
                         edge_filter=None, depth: int = 1, gh=None):
     """Assemble the candidate-set from the substrates present today, reporting which were available and the
     cursor's as-of marker. Returns (candidates, available_inputs:set, cursor_as_of:str|None). Narrates nothing.
@@ -107,10 +155,23 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH, fo
             # and never bulks up orientation. Pass the walk set explicitly rather than leaning on the
             # neighbors() default, so the pin lives at attention's own call site.
             walk_edges = edge_filter if edge_filter is not None else list(knowledge_query.WALK_EDGE_KINDS)
-            for n in knowledge_query.neighbors(focus, edge_filter=walk_edges, depth=depth):
-                candidates.append({"id": n["id"], "category": "structural_neighbors",
-                                   "proximity": 1.0, "recency": None, "source": "knowledge"})
-            available.add("knowledge")
+            # The focus is the work in hand — a single entity id or a SET (the changed work usually spans
+            # several entities, #37). Walk each member, then DEDUPE neighbours and EXCLUDE any neighbour that
+            # is itself a focus member (co-changed entities are not each other's "structural neighbours").
+            # FOCUS_CAP bounds the focus set; the structural_neighbors PARTITION is bounded downstream by the
+            # policy budget/trim via rank() — this cap does not (and need not) bound the candidate count.
+            focus_ids = [focus] if isinstance(focus, str) else list(focus)
+            focus_set = set(focus_ids)
+            seen: set = set()
+            for fid in focus_ids:
+                for n in knowledge_query.neighbors(fid, edge_filter=walk_edges, depth=depth):
+                    nid = n["id"]
+                    if nid in focus_set or nid in seen:
+                        continue
+                    seen.add(nid)
+                    candidates.append({"id": nid, "category": "structural_neighbors",
+                                       "proximity": 1.0, "recency": None, "source": "knowledge"})
+            available.add("knowledge")  # the substrate WAS consulted (an empty neighbourhood is still a read)
         except Exception:
             pass  # knowledge unavailable -> degrade over it
 
@@ -138,7 +199,8 @@ def _now_z() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None, focus: str | None = None,
+def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None,
+              focus: "str | list[str] | None" = None,
               depth: int = 1, budget_total: int | None = None, as_of: str | None = None,
               apply_precedence: bool = True, gh=None) -> dict:
     """The live ranking path over the substrates present today, returning the attention-result.v1 dict
@@ -179,11 +241,18 @@ def _note_degrade(degraded: list) -> None:
 
 
 def _cmd_rank(rest: list) -> int:
-    """Live rank over the substrates present today (the operator CLI over the shared `rank_live`)."""
+    """Live rank over the substrates present today (the operator CLI over the shared `rank_live`). With no
+    explicit `--focus`, the focus is AUTO-DERIVED from the in-flight work record (the orientation default, so
+    the CLI shows the same focused read boot does); `--no-focus` opts out (a bare, focus-free rank)."""
+    if "--no-focus" in rest:
+        focus = None
+    else:
+        explicit = _flag(rest, "--focus", None)
+        focus = explicit if explicit is not None else (derive_focus() or None)
     budget = _flag(rest, "--budget", None)
     result = rank_live(
         policy_path=_flag(rest, "--policy", POLICY_PATH),
-        focus=_flag(rest, "--focus", None),
+        focus=focus,
         depth=int(_flag(rest, "--depth", "1")),
         budget_total=int(budget) if budget is not None else None,
         as_of=_flag(rest, "--as-of", None),
@@ -273,7 +342,7 @@ def _cmd_demo(rest: list) -> int:
 
 def main(argv: list) -> int:
     if not argv:
-        print("usage: attention.py {rank [--focus ID] [--as-of T] [--budget N] [--no-precedence] "
+        print("usage: attention.py {rank [--focus ID] [--no-focus] [--as-of T] [--budget N] [--no-precedence] "
               "[--policy P] | rank-fixture FIXTURE.json --as-of T [...] | demo}", file=sys.stderr)
         return 2
     cmd, rest = argv[0], argv[1:]
