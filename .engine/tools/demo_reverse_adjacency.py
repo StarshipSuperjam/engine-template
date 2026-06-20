@@ -13,7 +13,7 @@ git "what files changed" read is faked, so it is deterministic and needs no netw
 
 It shows three honest cases side by side (forward-only vs bidirectional), each capped exactly the way boot
 caps the operator-facing view:
-  * a POLICY file  -> the bidirectional read GAINS the checks that govern it (the real win);
+  * a POLICY file  -> the bidirectional read GAINS the checks that target (validate) it (the real win);
   * a bare TOOL    -> stays module-only either way (the honest residual D-224 names: a leaf with no inbound
                       structural edge has no reverse tissue to surface);
   * a MODULE manifest -> a highly-connected focus; the view stays BOUNDED (capped), it never floods.
@@ -119,7 +119,7 @@ def main(argv: list | None = None) -> int:
         scenario_after = after
     else:
         # Scenario 1 leads with a CONNECTIVE focus so the win is visible on a no-args run.
-        f1, b1, a1 = _show("1) Editing a POLICY -> the bidirectional read gains the checks that govern it:",
+        f1, b1, a1 = _show("1) Editing a POLICY -> the bidirectional read gains the checks that target it:",
                            [".engine/policies/attention.md"])
         f2, b2, a2 = _show("2) Editing a bare TOOL -> honestly stays module-only (no inbound edges to reverse):",
                            [".engine/tools/attention.py"])

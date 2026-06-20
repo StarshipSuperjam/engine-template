@@ -2424,7 +2424,7 @@
       },
       "slug": "demo_reverse_adjacency",
       "source": {
-        "fingerprint": "sha256:70dc9606ddb1083d4a0a5df81d637fa5a8704547f01178b8e401c0a17e6db550",
+        "fingerprint": "sha256:a652d05d31e827467ed61109ccafc1f9b07feef218c71140cbdddb90172ad8dd",
         "path": ".engine/tools/demo_reverse_adjacency.py"
       },
       "status": "active",
