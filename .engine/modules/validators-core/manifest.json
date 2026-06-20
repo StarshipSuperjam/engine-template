@@ -7,6 +7,8 @@
       ".engine/check/agent-frontmatter.json",
       ".engine/check/agent-shape.json",
       ".engine/check/audit-concern-list.json",
+      ".engine/check/audit-digest-fingerprint.json",
+      ".engine/check/audit-digest-staleness.json",
       ".engine/check/catalog-coverage.json",
       ".engine/check/conduct-frontmatter.json",
       ".engine/check/conduct-shape.json",
