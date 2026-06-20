@@ -494,29 +494,51 @@ class TestDeriveFocus(unittest.TestCase):
 
 
 class TestFocusSetWalk(unittest.TestCase):
-    """assemble_candidates walks a focus SET: dedupes neighbors across members and excludes focus members
-    (co-changed entities are not each other's structural neighbors). The graph + work record are mocked."""
+    """assemble_candidates walks a focus SET BIDIRECTIONALLY (D-224): it asks knowledge for each focus
+    member's neighbours in BOTH directions, dedupes across members and across edges, and excludes focus
+    members themselves (co-changed entities are not each other's structural neighbors). Graph + work record
+    are mocked here; the real `direction="both"` SQL is covered in test_knowledge_query."""
 
     def test_set_focus_dedupes_neighbors_and_excludes_focus_members(self):
-        def fake_neighbors(fid, edge_filter=None, depth=1):
+        # The mock signature MUST accept `direction` — assemble_candidates now passes direction="both" (D-224).
+        def fake_neighbors(fid, edge_filter=None, depth=1, direction="out"):
             return {"tool:a": [{"id": "tool:b"}, {"id": "mod:x"}],   # tool:b is itself a focus member
                     "tool:b": [{"id": "tool:a"}, {"id": "mod:x"}]}.get(fid, [])
         with mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
-                mock.patch.object(attention.knowledge_query, "neighbors", side_effect=fake_neighbors):
+                mock.patch.object(attention.knowledge_query, "neighbors",
+                                  side_effect=fake_neighbors) as walk:
             cands, available, _ = attention.assemble_candidates(
                 FIXTURE_POLICY, state_path="/nonexistent", focus=["tool:a", "tool:b"], gh=None)
         sn = [c["id"] for c in cands if c["category"] == "structural_neighbors"]
         self.assertEqual(sn, ["mod:x"])             # mod:x once; tool:a / tool:b excluded (focus members)
         self.assertIn("knowledge", available)
+        for call in walk.call_args_list:            # the D-224 pin lives at attention's call site
+            self.assertEqual(call.kwargs.get("direction"), "both")
+
+    def test_walk_dedupes_a_neighbour_reached_by_two_edges(self):
+        # `direction="both"` can return the SAME id twice from one focus member (e.g. reached via reverse
+        # provided_by AND reverse targets); the `seen` dedup collapses it to a single candidate.
+        def fake_neighbors(fid, edge_filter=None, depth=1, direction="out"):
+            return [{"id": "check:x", "predicate": "provided_by", "direction": "in"},
+                    {"id": "check:x", "predicate": "targets", "direction": "in"}]
+        with mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
+                mock.patch.object(attention.knowledge_query, "neighbors", side_effect=fake_neighbors):
+            cands, available, _ = attention.assemble_candidates(
+                FIXTURE_POLICY, state_path="/nonexistent", focus="module:y", gh=None)
+        sn = [c["id"] for c in cands if c["category"] == "structural_neighbors"]
+        self.assertEqual(sn, ["check:x"])           # one candidate despite two edge-rows
+        self.assertIn("knowledge", available)
 
     def test_single_string_focus_still_walks(self):
         with mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
-                mock.patch.object(attention.knowledge_query, "neighbors", return_value=[{"id": "mod:x"}]):
+                mock.patch.object(attention.knowledge_query, "neighbors",
+                                  return_value=[{"id": "mod:x"}]) as walk:
             cands, available, _ = attention.assemble_candidates(
                 FIXTURE_POLICY, state_path="/nonexistent", focus="tool:a", gh=None)
         sn = [c["id"] for c in cands if c["category"] == "structural_neighbors"]
         self.assertEqual(sn, ["mod:x"])
         self.assertIn("knowledge", available)
+        self.assertEqual(walk.call_args.kwargs.get("direction"), "both")
 
 
 if __name__ == "__main__":

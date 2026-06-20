@@ -107,6 +107,17 @@ class TestQueryOps(unittest.TestCase):
             self.assertEqual(n["direction"], "in")
             self.assertEqual(n["predicate"], "governed_by")
 
+    def test_neighbors_both_unions_forward_and_reverse(self):
+        # The cold-start orientation walk (D-224): `direction="both"` is the union of out and in, deduped.
+        # schema:s1 is forward-poor (out -> only its module) but reverse-rich (the checks it governs point AT
+        # it) — exactly the connective tissue a forward-only walk starves. both() must surface both halves.
+        out = {n["id"] for n in kq._neighbors(self.conn, "schema:s1", direction="out")}
+        inn = {n["id"] for n in kq._neighbors(self.conn, "schema:s1", direction="in")}
+        both = {n["id"] for n in kq._neighbors(self.conn, "schema:s1", direction="both")}
+        self.assertEqual(out, {"module:core"})                       # forward-only collapses to the module
+        self.assertEqual(both, out | inn)                            # both is the deduped union
+        self.assertEqual(both, {"module:core", "check:c1", "check:c2"})
+
     def test_neighbors_edge_filter(self):
         got = {n["id"] for n in kq._neighbors(self.conn, "check:c1", edge_filter=["governed_by"],
                                               direction="out")}

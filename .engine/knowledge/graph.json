@@ -2101,7 +2101,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:9e52d3ee0b40af18769e985ec7ad1103599523295ee85a74fd0b3c27916a35dc",
+        "fingerprint": "sha256:c1351d634a3f904dfa046777b5a49e05ba8a39e240a8bd2321f90fe8b8c726fe",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -2186,7 +2186,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:96edce9b13807374fee339be197472b0f30d2e388d42e60916435fb4a384e7a7",
+        "fingerprint": "sha256:d204486a8c4d9365d573c4fae990f8a8fea85e70a817f0743b0dcbf51d3f615a",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -2409,6 +2409,23 @@
       "source": {
         "fingerprint": "sha256:a7a5cf4eefba8f6910d482bd81d299fdcd519e3852d6914648e817ce76b1d1a8",
         "path": ".engine/tools/demo_focus_read.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_reverse_adjacency",
+      "name": ".engine/tools/demo_reverse_adjacency.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_reverse_adjacency",
+      "source": {
+        "fingerprint": "sha256:70dc9606ddb1083d4a0a5df81d637fa5a8704547f01178b8e401c0a17e6db550",
+        "path": ".engine/tools/demo_reverse_adjacency.py"
       },
       "status": "active",
       "type": "tool"
@@ -3053,7 +3070,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:5def44d239d35a0fed4f1c3e79bd8ded2a72f7f2a449d23a5e77bea5f3448adf",
+        "fingerprint": "sha256:31d01559999a093b169fbdb923641520afad38558c4827a3400038b2cc5d33f0",
         "path": ".engine/tools/test_attention.py"
       },
       "status": "active",
@@ -3444,7 +3461,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:0cca37df4a1f9521d9797154f7b09df6d628946a41ab73eb245180a3ef6f3e09",
+        "fingerprint": "sha256:14e44d87fcbc621c8eb62b3fe9d92c46a231c125453fbc12f86a385100d3dab1",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",

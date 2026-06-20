@@ -269,8 +269,11 @@ def render_neighborhood(nb: dict | None) -> list:
     """The AI-facing "knowledge neighborhood of your current work" orientation block, from the neighborhood
     dict {focus:[slugs], adjacent:[slugs]} attention derived — or [] when there is no work in hand. This is
     orientation CONTEXT for the model (the focused knowledge read, #37), NOT an operator alarm and NOT an
-    action item; it carries no RELAY_MARKER. The graph is sparse today (a tool's only structural neighbor is
-    often its module), so `adjacent` can be thin — it enriches as the graph gains cross-entity edges."""
+    action item; it carries no RELAY_MARKER. The walk is bidirectional (D-224), so a connective focus — a
+    policy, a module, a governed/targeted surface — surfaces its reverse tissue (its governing checks, its
+    dependents, the checks that target it). A genuinely bare leaf (ungoverned AND untargeted, e.g. a tool
+    whose only edge is `provided_by` -> its module) honestly stays module-only, so `adjacent` can still be
+    thin; that is disclosed neutrally, never as an alarm. It enriches as the graph gains cross-entity edges."""
     if not nb or not nb.get("focus"):
         return []
     focus_names = ", ".join(nb["focus"])
