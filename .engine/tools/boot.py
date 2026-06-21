@@ -68,6 +68,7 @@ import modes             # noqa: E402  (clear_stance + the stance vocabulary: th
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
 import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
+import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
 
 # The card title a healthy boot always renders — byte-identical to the present-marker the floor names
 # in CLAUDE.deployed.md (slice 19 `owes ←`). The byte-identity is locked by test_boot.py; renaming it
@@ -401,6 +402,15 @@ def gather_signals(session_id: str | None = None) -> dict:
         audit_stale = audit_digest.staleness()
     except Exception:  # noqa: BLE001 — any failure degrades this one signal, never the pack
         audit_stale = None
+    try:
+        # The stranded-PR conflict detector (#136), RELAYED from pr_reconcile's own detection (boot computes no
+        # new state). A pull request stuck on the engine's two derived index files cannot reach the protected
+        # branch (GitHub blocks the merge), so it degrades QUIETLY to None on no-PR / no-GitHub / an unknown
+        # (async-uncomputed) merge state — never a false "all clear". boot OFFERS the fix; the assistant runs it
+        # on the operator's consent (the strand model). gh is None without a repo/token -> detect returns None.
+        pr_conflict = pr_reconcile.detect_conflict(gh)
+    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
+        pr_conflict = None
     # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
@@ -424,6 +434,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         "shipped": recently_shipped(),
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
+        # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
+        "pr_conflict": pr_conflict,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
         "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
@@ -469,6 +481,19 @@ def render_dashboard(s: dict) -> str:
             "this doesn't affect what we build, but your project folder needs attention. Just say the word "
             "and I'll get it healthy again — I'll save anything at risk first (including any work that's "
             "drifted off your branch) to a safe point, so nothing is lost.")
+
+    # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier
+    # (below the governance alarms — a conflicting PR cannot reach protected `main`, so it is NOT a governance
+    # alarm). boot OFFERS the one-step fix; the assistant runs pr_reconcile.reconcile only on the operator's
+    # consent (the strand model; boot-session-start.md). Leads with "no work is lost" so it reconciles with
+    # the integrate-time "a collision is never your problem" framing the operator already met.
+    if s["pr_conflict"]:
+        pinned.append(
+            "⚠️ **One of your pull requests can't be merged yet** — two pieces of work landed at once and "
+            "clashed. **No work is lost and nothing is broken.** Most often this is just a clash on the "
+            "engine's internal index files, which I can clear in one step while keeping both pieces of work. "
+            "Say **reconcile it** and I'll check: I'll either clear it for you, or — if the clash is in real "
+            "content — tell you plainly that it needs your decision.")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
@@ -557,6 +582,8 @@ def present_marker_line(s: dict) -> str:
         return f"⚠ {PRESENT_MARKER}: {s['finding_count']} open engine finding(s) to review"
     if s["strand"]:   # ranked after the governance alarms + findings; a governance alarm still wins the marker
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
+    if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
+        return f"⚠ {PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it"
     return f"{PRESENT_MARKER}: all clear"
 
 

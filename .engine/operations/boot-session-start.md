@@ -63,3 +63,13 @@ branch, or unsaved changes — to a safe point first, then re-attaches the folde
 missing engine files; if it cannot safely tell where to put the folder, it refuses rather than guess, and the
 assistant says so. The assistant relays the plain-language result. (Bringing a merely *behind* folder up to
 date is a separate, deferred step — the repair handles the broken states, not ordinary behind-ness.)
+
+**A stranded pull request is the same shape (#136).** When boot surfaces a pull request that can't be merged,
+the assistant likewise **waits for the operator's go-ahead**, then runs the reconcile (`pr_reconcile.reconcile`).
+The reconcile first checks whether the clash is confined to the engine's two internal index files — the
+knowledge graph and the self-map, the only files a clash on which is *spurious* (both sides are regenerations
+of one source tree). If so, it reconciles the pull request against the latest default branch, regenerates those
+two files from the reconciled tree, and keeps both pieces of work, **lossless-or-it-does-not-run**. If anything
+but those two files clashed, it changes nothing, restores the branch exactly as it was, and routes the operator
+to a plain-language decision rather than touching a real conflict. The assistant relays the plain result, and
+never claims the merge is now guaranteed — a later change can still land first.
