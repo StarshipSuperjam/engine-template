@@ -3189,7 +3189,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:cf86fcbfd7b9ace9b6f26b40a2f4c3b5b3c57d45fdd9a2b94f112fc1e9d77719",
+        "fingerprint": "sha256:b58a64e41aa854cbd33dfcd5699bca591ab9c5f0e729aa5d598042fce3a622f2",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -4005,7 +4005,7 @@
       },
       "slug": "test_self_review_setup",
       "source": {
-        "fingerprint": "sha256:24cbc76f04d1464d36f1dadceb6e16a4910d3749ba1acf4a4797d51e94d6f98d",
+        "fingerprint": "sha256:1fade48f2326d469314015b7ac03bb5ae6bab6e2da1f4558cf9f8b4f73a397fe",
         "path": ".engine/tools/test_self_review_setup.py"
       },
       "status": "active",

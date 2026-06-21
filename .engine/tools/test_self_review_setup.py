@@ -2,7 +2,7 @@
 """Tests for the operator setup page `.engine/audits/self-review-setup.md` (audit-library slice 3b).
 
 This page is the returnable, plain-language guide that tells the operator how to arm the engine's scheduled
-self-review (the one-time token), keep it running (expiry / allowance / re-arm), change how-often / which
+self-review (the one-time token), keep it running (expiry / usage limits / re-arm), change how-often / which
 model, and optionally run it as a Cloud Routine. It survives first-run (the year-later token re-arm depends on
 it), so it lives with the audit's own files and is owned by audit-library's `provides`.
 
@@ -81,8 +81,15 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", self.text)
 
     def test_carries_the_two_step_token_setup(self):
-        self.assertIn("claude setup-token", self.text)
-        self.assertIn("allowance", self.text.lower())  # the separate Agent-SDK opt-in note
+        # Setup is genuinely TWO steps — the sign-in token, then the GitHub secret. The phantom third step
+        # ("turn on access for scheduled runs", a Claude-account toggle that does not exist) was removed (#175):
+        # a qualifying-plan token plus the secret is the whole setup.
+        self.assertIn("claude setup-token", self.text)        # step 1: the sign-in token
+        self.assertIn("two one-time steps", self.text)        # two, not three — the count must not regress
+        # The phantom toggle must not return. Key on text UNIQUE to the deleted Step 2: Step 1 legitimately
+        # keeps "sign in to your Claude account" and the heading is "Turn it on", so don't assert on those.
+        self.assertNotIn("scheduled or developer", self.text)
+        self.assertNotIn("turn on access for scheduled runs", self.text.lower())
 
     def test_cloud_routine_eliminates_the_wrong_choices(self):
         # The design's Cloud-Routine walkthrough names Remote (not Local) on a recurring schedule.
