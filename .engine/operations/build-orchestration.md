@@ -54,6 +54,20 @@ whose only wall is the protected-branch merge.
    operator's merge. A build session is **done when the pull request is submitted**; merge-and-walk leaves
    nothing dangling.
 
+**Regenerating the engine's internal index files is part of integrate.** As the single writer, the
+orchestrator reconciles the pull request's base against the default branch, then regenerates the engine's
+internal index files — the knowledge graph and the self-map — last, from the reconciled tree, so the pull
+request is current before review. A textual conflict on one of these files is **spurious** — both sides are
+only regenerations of the same sources — so the resolution is to clear it and regenerate unconditionally,
+never a side-pick and never a hand-merge. The load-bearing guarantee is **reconcile-before-merge**: the
+eventual merge must already be clean, because the server-side merge button cannot run a local fix. A quiet
+line in the Review record states how many internal index files were regenerated and that no work was lost —
+the operator meets the disclosure, never the conflict. **One case is not yet self-healing:** a stranded
+conflict is still possible — a sibling pull request can merge mid-flight — though only its *resolution* is
+taken off the operator's hands. When no session is on the conflicted pull request, an AI session reconciles
+it — today by the manual rebase-and-regenerate recipe, with a named one-step recovery path forthcoming —
+never the operator.
+
 **The plan gate runs in two beats.** *Before the spend*, the risk assessment is the consent-and-coverage
 surface (step 1). *After the audit*, the orchestrator synthesizes the findings into one recommended call
 plus the trade, re-engaging the operator on a material finding and **always** on an unresolved

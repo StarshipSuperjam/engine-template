@@ -191,11 +191,12 @@ def _is_demoted(record, access_index: dict, now: int) -> bool:
     dropped from recall here like `reinforcement`: pure bookkeeping (no recall text), never a recall result.
     Everything else (turn-deltas, episodics, gists) is scored by its own reinforcements (`access_index[id]`,
     empty for an un-reinforced record — born hot from its `ts`); a gist is recall content and demotes like an
-    episodic."""
+    episodic. The slice-4e `operator-adjudicated-erasure` marker is likewise dropped from recall (pure
+    content-free bookkeeping — it authorises erasing its target, it is never itself a recall result)."""
     if not isinstance(record, dict):
         return False
     kind = record.get("kind")
-    if kind in (records.REINFORCEMENT_KIND, records.SUPERSEDED_KIND, records.ROLLUP_KIND):
+    if kind in (records.REINFORCEMENT_KIND, records.SUPERSEDED_KIND, records.ROLLUP_KIND, records.ERASURE_KIND):
         return True
     if kind == records.MARKER_KIND:
         return False

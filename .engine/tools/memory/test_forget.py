@@ -150,6 +150,23 @@ class BuildConformanceTests(unittest.TestCase):
         for token in ("os.remove", "os.unlink", "os.truncate", "truncate(", "rmtree", "os.replace"):
             self.assertNotIn(token, src, f"forget.py must not reach physical erasure: found {token!r}")
 
+    def test_no_layer1_file_mints_an_erasure_marker(self):
+        # Layer-2 physical erasure (slice 4e) is reachable ONLY through compact's gated removal, which fires only on
+        # an `operator-adjudicated-erasure` marker. The SOLE minter of that marker is `compact.enact_erasure`. So no
+        # OTHER memory tool may call the minter — a Layer-1 routine that minted a marker could route the autonomous
+        # fold into erasure. The ban targets the minter CALL (`enact_erasure(`), NOT the kind constant (forget
+        # legitimately references `records.ERASURE_KIND` to drop the marker from recall) and NOT `compact()` (rollup
+        # / consolidate legitimately call it — calling compact is not minting). A glob-walk over the whole memory
+        # package (not a fixed file list) so a tool added LATER is covered too; compact.py is the chokepoint owner.
+        mem_dir = os.path.dirname(os.path.abspath(__file__))
+        for name in sorted(os.listdir(mem_dir)):
+            if not name.endswith(".py") or name.startswith("test_") or name in ("compact.py", "__init__.py"):
+                continue
+            with open(os.path.join(mem_dir, name), encoding="utf-8") as fh:
+                src = fh.read()
+            self.assertNotIn("enact_erasure(", src,
+                             f"{name} must not mint an erasure marker — the sole minter is compact.enact_erasure")
+
 
 if __name__ == "__main__":
     unittest.main()

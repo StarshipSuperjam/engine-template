@@ -93,6 +93,23 @@ SOURCE_IDS_KEY = "source_ids"       # on the gist: the RECORD_ID_KEY values of t
 # unconditionally. A uuid hex, so `index` keeps it OUT of the search body (index._NON_BODY_KEYS).
 SUPERSEDED_BY_KEY = "superseded_by"
 
+# The operator-adjudicated-erasure marker (slice 4e — Layer-2 physical erasure). Its OWN evidence class (NOT a
+# stretch of `operator-directed`): the one marker that authorises COMPACTION to physically REMOVE a recall record
+# from the ledger — the single irreversible act in the memory system, reachable ONLY because the operator merged a
+# single-purpose erasure pull request (the §17 consent gate). It names the target by its stable, content-free
+# RECORD_ID_KEY (reusing TARGET_KEY — already non-body) and carries MERGE_SHA_KEY, the merge identity that
+# authorised it. Pure non-content provenance: no `text`/`session_id`; `index` keeps MERGE_SHA_KEY (and TARGET_KEY)
+# OUT of the search body, and `forget.live_records` drops the marker from recall (forget._is_demoted). `compact`
+# removes the TARGET but RETAINS the marker itself (the idempotency tombstone, so a re-compaction is a clean no-op).
+# In slice 4e PR (i) the marker is minted ONLY by hand — the test + the throwaway-cabinet demo (compact.enact_erasure,
+# the SOLE minter); no automatic producer exists until the cross-session observer (PR ii) reads a merged erasure PR.
+# The MERGE_SHA presence is a STRUCTURAL fail-safe floor, NOT consent verification — the real merged-not-closed /
+# immutable-merge-tree binding is the observer's job (slice ii); `compact`'s read-side validity check ignores a
+# SHA-less marker so a hand-written or bypassed one can never erase.
+ERASURE_KIND = "operator-adjudicated-erasure"   # the `kind` of the merge-gated physical-removal marker
+MERGE_SHA_KEY = "merge_sha"                      # the merge commit SHA that authorised the erasure (provenance only)
+ERASURE_TAG = "operator-adjudicated-erasure"     # the marker's tag (kept out of the search body like every tag)
+
 # The per-result ranking field (slice 5 — the `search` interface). NOT a stored ledger field: `index.search`
 # attaches it to a SHALLOW COPY of each returned record, carrying the record's lexical relevance ("BM25 for the
 # lexical floor" — search.json) so a caller can see the ordering basis. The usage signal (frecency) is the

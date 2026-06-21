@@ -1197,7 +1197,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:011c5ad03ac48a78229fa351bfe3d237f063240c510a7e62de3b21bc50a7b777",
+        "fingerprint": "sha256:c4143abf7ff0c75323021bd7c9500d322c595231bc6b437b98a2e0b6b55d336b",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -2288,7 +2288,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:def8f1c43f68680a292d5b48c3842ad78c8c43eecd02d8c44ccb5669843ffbca",
+        "fingerprint": "sha256:8577ddd0c85ad23b68b1aa754bdbbcfd38ab7e46d73b74f5259e2564118c776f",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -2339,7 +2339,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:c99a87ad460443cfa5d982275850dd74f0a24fd683ce40784684e9cb432f853f",
+        "fingerprint": "sha256:48a1855599e4d26a8f1a6c7cf94b26c00713884d7b64b26c9becddf9a4f0c9fd",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -2426,6 +2426,23 @@
       "source": {
         "fingerprint": "sha256:0719cdd97208064e60b15c44b845ed134ff6ef3044eb348f2bdef711d7f204ab",
         "path": ".engine/tools/demo_ci_author_exempt.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_derived_reconcile",
+      "name": ".engine/tools/demo_derived_reconcile.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_derived_reconcile",
+      "source": {
+        "fingerprint": "sha256:1e4ed21e99ee73a7cb5a0407eb9902000c7bb5068a9d924485df3a60e7cf9f51",
+        "path": ".engine/tools/demo_derived_reconcile.py"
       },
       "status": "active",
       "type": "tool"
@@ -2594,7 +2611,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:9f71f1f623f8d75178d5c18179451a8bf959321eaebca8d83db40cf6e3b0f22a",
+        "fingerprint": "sha256:e26cbf1c95ce4300422ac43a183fe4d0b65e42b3bc8d503a9deed8a5fe61b332",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -2645,7 +2662,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:9c667b3176984f765b819bfe2ec41b9d4bf669e3af728706d501c0a06d9816e4",
+        "fingerprint": "sha256:12d201b6ecd9a892abebdc7c582d28bbda1c2869a2a7e5a4b3af727b5e2bf31b",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -2849,7 +2866,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:0b682aeb75252863235c9890c4868585686f921c10782f0f5984b9c66868a682",
+        "fingerprint": "sha256:2691c1f47e466db1b84a45252fce05595919a3110cf99f96eaddb43c4673c00e",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -2934,7 +2951,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:227a259c3e5ead2fb89b3c2e2d1f9c7b504e0014538eb98d17db551b0c469b56",
+        "fingerprint": "sha256:2f480a5299ff0bfb71bf6c8e4a77568570d17358443396ecddbd0acc0e36b07e",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -3291,7 +3308,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:d4b69027c8eb29a42b4dfb27190472211c74478f852ba003bee707d678f395d8",
+        "fingerprint": "sha256:f02a9779c728775c23cb5a77ad89d792f5f1f9c79034502b8d59454275970714",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
@@ -3308,7 +3325,7 @@
       },
       "slug": "test_compact_trigger",
       "source": {
-        "fingerprint": "sha256:48df6d743dcb3ff78a6b4fb77206c01f0146885261d334579b042a02efbe9ae7",
+        "fingerprint": "sha256:6f8e7cfd0c4e1b4e85c14475faa1ca41a6dbd6be5636982325250f1bbb5dc2a2",
         "path": ".engine/tools/memory/test_compact_trigger.py"
       },
       "status": "active",
@@ -3417,6 +3434,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_erase_enact",
+      "name": ".engine/tools/memory/test_erase_enact.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_erase_enact",
+      "source": {
+        "fingerprint": "sha256:cbda108faeabc93b9aaf12dad0688f7e4aa16265e6f0836b92deb01b7fd010fd",
+        "path": ".engine/tools/memory/test_erase_enact.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_first_run_reference_closure",
       "name": ".engine/tools/test_first_run_reference_closure.py",
       "owner": "core",
@@ -3444,7 +3478,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:2dde4622880d9fa3eb2d5a70e2a13d7323e0916a077e45148a7d65391e5926de",
+        "fingerprint": "sha256:6fbd855da197aff39f0016c8508ccce3b145ce84120af746edd7cb08b7601e4d",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -3546,7 +3580,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:49a6d941402353f181af59f3c8cf31abe6655a6cc06eae55fe2e6b138810acc3",
+        "fingerprint": "sha256:2f626f5cd489b8e0745ac17ac0dd62a1c16f5474f6ff2ea222c9d27acae992af",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -3954,7 +3988,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:bc25e8859d0a4b81d6f32eed280d7b832f6f52238d000adf4cf0a92b096b7940",
+        "fingerprint": "sha256:0d471d4fc4d29f64ccb1127c69709bf6bc245a675151c2f1cd46adfaf1ea9830",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",
