@@ -15,6 +15,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -321,6 +322,42 @@ class TestCLI(unittest.TestCase):
         rc, _out, err = self._run(["bogus"])
         self.assertEqual(rc, 2)
         self.assertIn("unknown command", err)
+
+
+class TestSourceDeterminismRoundTrip(unittest.TestCase):
+    """§19.1 enforcing correlate (principles.md): regenerating the self-map from the same committed source
+    tree yields byte-identical output — including across a PROCESS BOUNDARY under a different
+    PYTHONHASHSEED. This guards the source-determinism *property against a future regression*; it does NOT
+    by itself prove the generator nondeterminism-free — it passes trivially today because every collection
+    is sorted before it reaches output. The process/hash-seed axis is the only coverage this adds over
+    TestRenderMapDeterminism, which already permutes module + catalog order in-process.
+    """
+
+    @staticmethod
+    def _canonical_in_subprocess(seed: str) -> bytes:
+        # Absolute tools dir on sys.path (NOT a cwd-relative "tools") so the subprocess resolves the
+        # import regardless of the runner's working directory.
+        tools_dir = os.path.dirname(os.path.abspath(self_map.__file__))
+        code = (
+            "import sys\n"
+            f"sys.path.insert(0, {tools_dir!r})\n"
+            "import self_map\n"
+            "sys.stdout.buffer.write(self_map.canonical_map().encode('utf-8'))\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True,
+            env={**os.environ, "PYTHONHASHSEED": seed}, check=True)
+        return proc.stdout
+
+    def test_regeneration_is_byte_identical_same_process(self):
+        self.assertEqual(self_map.canonical_map(), self_map.canonical_map())
+
+    def test_regeneration_is_byte_identical_across_hash_seeds(self):
+        in_process = self_map.canonical_map().encode("utf-8")
+        a = self._canonical_in_subprocess("1")
+        b = self._canonical_in_subprocess("2")
+        self.assertEqual(a, b, "self-map bytes differ across PYTHONHASHSEED — a nondeterministic generation path")
+        self.assertEqual(a, in_process, "subprocess self-map differs from in-process — nondeterminism leaked in")
 
 
 if __name__ == "__main__":

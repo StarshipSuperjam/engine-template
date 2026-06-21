@@ -19,6 +19,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -584,6 +585,43 @@ class TestCommitBoundaryRegen(unittest.TestCase):
                    for h in grp.get("hooks", []) if "knowledge_gen.py" in h.get("command", "")]
         self.assertEqual(len(kg_cmds), 1)
         self.assertTrue(kg_cmds[0].rstrip().endswith(" hook"))
+
+
+class TestSourceDeterminismRoundTrip(unittest.TestCase):
+    """§19.1 enforcing correlate (principles.md): regenerating the graph from the same committed source
+    tree yields byte-identical output — including across a PROCESS BOUNDARY under a different
+    PYTHONHASHSEED. This guards the source-determinism *property against a future regression* (e.g. a
+    change that lets unsorted set/dict iteration leak into committed bytes); it does NOT by itself prove
+    the generator nondeterminism-free — it passes trivially today because every collection is sorted
+    before it reaches output (`render_graph` sort_keys + sorted `derive_entities`). The process/hash-seed
+    axis is the only coverage this adds over the in-process determinism the rest of the suite exercises.
+    """
+
+    @staticmethod
+    def _canonical_in_subprocess(seed: str) -> bytes:
+        # Absolute tools dir on sys.path (NOT a cwd-relative "tools") so the subprocess resolves the
+        # import regardless of the runner's working directory.
+        tools_dir = os.path.dirname(os.path.abspath(knowledge_gen.__file__))
+        code = (
+            "import sys\n"
+            f"sys.path.insert(0, {tools_dir!r})\n"
+            "import knowledge_gen\n"
+            "sys.stdout.buffer.write(knowledge_gen.canonical_graph().encode('utf-8'))\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True,
+            env={**os.environ, "PYTHONHASHSEED": seed}, check=True)
+        return proc.stdout
+
+    def test_regeneration_is_byte_identical_same_process(self):
+        self.assertEqual(knowledge_gen.canonical_graph(), knowledge_gen.canonical_graph())
+
+    def test_regeneration_is_byte_identical_across_hash_seeds(self):
+        in_process = knowledge_gen.canonical_graph().encode("utf-8")
+        a = self._canonical_in_subprocess("1")
+        b = self._canonical_in_subprocess("2")
+        self.assertEqual(a, b, "graph bytes differ across PYTHONHASHSEED — a nondeterministic generation path")
+        self.assertEqual(a, in_process, "subprocess graph differs from in-process — nondeterminism leaked in")
 
 
 if __name__ == "__main__":
