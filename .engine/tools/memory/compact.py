@@ -16,12 +16,12 @@ What one pass does, under the single-writer `.capture.lock`, as ONE critical sec
   4. **Bump the generation BEFORE the swap**, then `ledger.replace_ledger` (fsync temp → atomic rename → fsync
      dir), then rebuild the index stamped with the new generation.
 
-**Layer-1 never erases recall content** — only the (non-recall) `reinforcement` markers and the (non-recall)
-CLOSED-batch `superseded` markers are pruned; every turn-delta, episodic (including a 4a crash-duplicate orphan,
-which stays logically retired, AND a gist-superseded raw, which stays superseded via its carried `superseded_by`),
-gist, and `consolidated` marker survives the rewrite (a build-conformance invariant: no Layer-1 routine reaches
-erasure — Layer-2 physical erasure of recall content is slice 4e, audit-adjudicated and operator-merge-gated). A
-supersession is folded ONLY when its roll-up batch is closed: an un-closed (crashed-pass) `superseded` marker is
+**The Layer-1 fold never erases recall content** — only the (non-recall) `reinforcement` markers and the
+(non-recall) CLOSED-batch `superseded` markers are pruned; every turn-delta, episodic (including a 4a crash-duplicate
+orphan, which stays logically retired, AND a gist-superseded raw, which stays superseded via its carried
+`superseded_by`), gist, and `consolidated` marker survives the fold (a build-conformance invariant: no Layer-1
+routine reaches erasure). Physical erasure of recall content is the SEPARATE, gated Layer-2 path below, never the
+fold. A supersession is folded ONLY when its roll-up batch is closed: an un-closed (crashed-pass) `superseded` marker is
 inert, so it is passed through verbatim, NEVER folded — else a crashed roll-up's hiding would be baked permanently
 into the rewrite. Because frecency is
 a **recurrence on the carried snapshot** (score.frecency), a compacted record scores IDENTICALLY to before — so
@@ -30,6 +30,18 @@ ledger (old or new); a stale index is always fully rebuilt — and the generatio
 crash-staled index to the always-correct scan until it is rebuilt, so an erased record (slice 4e) can never
 resurface from a stale index. Recovery binds to the fixed canonical ledger name: a temp left by a crash is a
 complete same-schema file but is NEVER the canonical name, so it is ignored-and-reaped, never promoted.
+
+**Layer-2 — gated physical erasure (slice 4e PR i).** This same pass ALSO physically removes a record iff a VALID
+`operator-adjudicated-erasure` marker targets its stable id (`_is_erased` / `_erasure_targets`) — the single
+irreversible act in the memory system, reachable ONLY through that marker, which the operator authorises by merging
+a single-purpose erasure pull request. The marker is RETAINED (the idempotency tombstone, so a re-compaction whose
+target is already gone is a clean no-op), and a marker missing its merge SHA is inert — a READ-side fail-safe floor,
+NOT consent verification (the merged-not-closed / immutable-merge-tree binding is the cross-session observer's job,
+slice ii). The AUTONOMOUS fold can never reach erasure: no routine mints a marker, and the SOLE minter
+(`enact_erasure`) has no caller in this slice but the test + demo — so until the observer ships, the removal set is
+always empty and this pass stays the Layer-1 no-op-shaped tidy. (Resurrection of an erased record via a restore /
+migration-revert is SURFACED through boot's open-findings via the generation stamp this pass bumps — the consumer is
+slice 6; no wired backup/restore round-trip exists yet.)
 
 **The live AUTO-trigger (slice 5, PR 3).** `maybe_compact` gates `compact` on `reclaimable_waste` — the count of
 foldable markers (reinforcement + CLOSED-batch supersessions) — reaching `_COMPACT_WASTE_THRESHOLD`, and rides
@@ -85,6 +97,43 @@ def _is_foldable(record, closed_rollup) -> bool:
     if kind == records.REINFORCEMENT_KIND:
         return True
     return kind == records.SUPERSEDED_KIND and record.get(records.BATCH_KEY) in closed_rollup
+
+
+# --- Layer-2: gated physical erasure (slice 4e PR i) ------------------------------------------------------
+# The single irreversible act. A record is physically removed by `compact` iff a VALID
+# `operator-adjudicated-erasure` marker targets its stable id. The validity floor is enforced on the READ side
+# here (not only at the writer), so a marker that reaches the ledger by any path other than `enact_erasure` —
+# hand-edited, or minted by a future bypass — still cannot erase unless it carries its consent provenance.
+
+def _is_erasure_marker(record) -> bool:
+    """True iff `record` is a VALID operator-adjudicated-erasure marker: the right kind, a non-empty target id,
+    AND a non-empty merge SHA. The SHA-presence is a READ-side STRUCTURAL fail-safe floor — a marker minted
+    without its consent provenance is inert and erases nothing. It is NOT consent verification (the
+    merged-not-closed / immutable-merge-tree binding is the cross-session observer's job, slice ii)."""
+    if not isinstance(record, dict) or record.get("kind") != records.ERASURE_KIND:
+        return False
+    target = record.get(records.TARGET_KEY)
+    merge_sha = record.get(records.MERGE_SHA_KEY)
+    return isinstance(target, str) and bool(target) and isinstance(merge_sha, str) and bool(merge_sha)
+
+
+def _erasure_targets(raw_records) -> set:
+    """The set of stable record ids that VALID erasure markers target — the Layer-2 removal set, derived from the
+    already-materialized raw ledger (no extra disk pass). Empty whenever no valid marker is present, so the
+    autonomous fold is a pure no-op until the cross-session observer (slice ii) starts writing markers from merged
+    erasure PRs."""
+    return {r.get(records.TARGET_KEY) for r in raw_records if _is_erasure_marker(r)}
+
+
+def _is_erased(record, erasure_targets) -> bool:
+    """True iff `record` is recall content whose stable id a valid erasure marker targets — physical removal at
+    compaction, the single irreversible act. Eligible ONLY for a NON-erasure-marker record (`kind != ERASURE_KIND`),
+    so the erasure marker is NEVER pruned by its own (or a colliding) id — it is RETAINED as the idempotency
+    tombstone, making a re-compaction whose target is already gone a clean no-op."""
+    if not isinstance(record, dict) or record.get("kind") == records.ERASURE_KIND:
+        return False
+    rid = record.get(records.RECORD_ID_KEY)
+    return isinstance(rid, str) and bool(rid) and rid in erasure_targets
 
 
 def _reap_temps(data_dir: str) -> int:
@@ -145,18 +194,22 @@ def _fold_supersession(record, superseded_by_map: dict):
 
 
 def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: int,
-                          closed_rollup: set, superseded_by_map: dict) -> str:
+                          closed_rollup: set, superseded_by_map: dict, erasure_targets: set) -> str:
     """Write the folded, marker-pruned ledger to a fresh temp in `data_dir`, fsynced. Drops ONLY `reinforcement`
     markers AND CLOSED-batch `superseded` markers (both folded away into carried fields); every recall-content
     record (turn-delta, episodic, gist) + every `consolidated` marker + every UN-closed (crashed-pass)
-    `superseded` marker survives (Layer-1 never erases recall content, and an inert supersession is never folded
-    — passed through verbatim so a crashed roll-up's hiding is never baked in). Returns the temp path."""
+    `superseded` marker survives (the Layer-1 fold never erases recall content, and an inert supersession is never
+    folded — passed through verbatim so a crashed roll-up's hiding is never baked in). The ONE exception is
+    Layer-2 (slice 4e): a recall record whose stable id is in `erasure_targets` (a VALID merge-gated marker names
+    it) is physically dropped — the single irreversible act; the marker itself is retained. Returns the temp path."""
     tmp = os.path.join(data_dir, _TEMP_PREFIX + uuid.uuid4().hex + _TEMP_SUFFIX)
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
         for record in raw_records:
             if _is_foldable(record, closed_rollup):
                 continue  # reinforcement / closed-batch supersession: folded into carried fields, then pruned
+            if _is_erased(record, erasure_targets):
+                continue  # Layer-2: a valid merge-gated erasure marker targets this record -> physically removed
             folded = _fold_record(record, access_index, t0)
             folded = _fold_supersession(folded, superseded_by_map)
             line = json.dumps(folded, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -196,12 +249,14 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
         access_index = forget._access_index(target)
         closed_rollup = forget._closed_rollup_batches(target)          # slice 4d-ii: roll-up batches a marker closed
         superseded_by_map = forget._superseded_by_map(target, closed_rollup)   # raw id -> gist id (closed batches only)
+        erasure_targets = _erasure_targets(raw)        # slice 4e: ids a VALID merge-gated marker authorises removing
         pruned = sum(1 for r in raw if _is_foldable(r, closed_rollup))
+        erased = sum(1 for r in raw if _is_erased(r, erasure_targets))   # recall content physically removed (Layer-2)
         folded = sum(1 for r in raw if isinstance(r, dict)
                      and isinstance(r.get(records.RECORD_ID_KEY), str)
                      and (access_index.get(r.get(records.RECORD_ID_KEY))
                           or r.get(records.RECORD_ID_KEY) in superseded_by_map))
-        tmp = _write_compacted_temp(data_dir, raw, access_index, t0, closed_rollup, superseded_by_map)
+        tmp = _write_compacted_temp(data_dir, raw, access_index, t0, closed_rollup, superseded_by_map, erasure_targets)
         if _crash_after == "write":
             raise _InjectedCrash("write")              # power-cut: temp left, OLD ledger intact, gen unbumped
         ledger.bump_generation(for_path=target)        # bump BEFORE the swap (the crash-safe ordering)
@@ -210,7 +265,7 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
             raise _InjectedCrash("swap")               # power-cut: NEW ledger in place, gen bumped, index stale
         from memory import index                       # lazy: index imports forget; import at use, not load
         index.rebuild(ledger_file=target, index_file=index_dst)
-        return {"status": "ok", "folded": folded, "pruned": pruned,
+        return {"status": "ok", "folded": folded, "pruned": pruned, "erased": erased,
                 "generation": ledger.generation(for_path=target)}
     finally:
         capture._release_lock(lock_fd)                 # the OS frees the flock on a real power-cut; mirror it
@@ -256,6 +311,50 @@ def maybe_compact(path: "str | None" = None) -> dict:
         return compact(path)
     except Exception as exc:   # fail-open: a maintenance fault must never strand the squash the hook rides
         return {"status": "skipped", "reason": f"compaction faulted, skipped: {exc}", "waste": -1}
+
+
+# --- Layer-2 enactment: minting the merge-gated erasure marker (slice 4e PR i) ----------------------------
+# `enact_erasure` is the SOLE minter of an `operator-adjudicated-erasure` marker. In this slice it has NO caller
+# but the test + the throwaway-cabinet demo: there is DELIBERATELY no `erase` CLI verb on the real ledger, because
+# the only design-sanctioned producer is the cross-session observer (slice ii), which mints a marker ONLY after
+# reading a MERGED single-purpose erasure PR. So in normal operation no marker is ever minted, the removal set is
+# always empty, and `compact` stays the Layer-1 no-op-shaped tidy.
+
+def enact_erasure(target_id: str, merge_sha: str, *, path: "str | None" = None, now: "int | None" = None):
+    """Append an `operator-adjudicated-erasure` marker authorising the NEXT compaction to physically remove the
+    record named by `target_id` — the single irreversible act, recorded with the `merge_sha` that authorised it.
+    Returns the appended marker dict, or None on a no-op. APPENDS ONLY; never deletes or rewrites — the physical
+    removal is `compact`'s, gated on this marker. A blank target OR a blank merge SHA is a no-op (the
+    consent-provenance floor: no merge identity, no marker). Held under the shared single-writer `.capture.lock`
+    (like `forget.record_access`): on contention it is a clean no-op (the observer re-mints next session — the
+    marker is idempotent), NEVER writing lock-free."""
+    if not isinstance(target_id, str) or not target_id:
+        return None
+    if not isinstance(merge_sha, str) or not merge_sha:
+        return None   # the consent-provenance floor: an erasure marker without its merge identity is never minted
+    from memory import capture  # lazy: keep capture off the module-load path (cycle discipline)
+    target = path if path is not None else ledger.ledger_path()
+    data_dir = os.path.dirname(target) or "."
+    os.makedirs(data_dir, exist_ok=True)
+    lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
+    if lock_fd is None:
+        return None  # a compaction or live capture holds the single-writer lock — skip; never write lock-free
+    try:
+        marker = {
+            "v": capture.RECORD_VERSION,
+            "kind": records.ERASURE_KIND,
+            records.RECORD_ID_KEY: records.new_record_id(),
+            records.TARGET_KEY: target_id,
+            records.MERGE_SHA_KEY: merge_sha,
+            "ts": int(time.time()) if now is None else now,
+            "tags": [records.ERASURE_TAG],
+        }
+        if marker[records.RECORD_ID_KEY] == target_id:
+            return None   # a marker can never name itself (2^-128 paranoia guard on the uuid mint; cheap to pin)
+        ledger.append(marker, path=path)
+        return marker
+    finally:
+        capture._release_lock(lock_fd)
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------
@@ -589,6 +688,123 @@ def _demo_trigger_body() -> bool:
     return part1 and part2 and part3
 
 
+# --- demo-erase: the ONE irreversible act — permanently erasing a note you authorised --------------------
+# A SEPARATE walkthrough proving Layer-2: a note you AUTHORISED is permanently erased at the next tidy; a note you
+# did NOT authorise is untouched; running the tidy again changes nothing; and the slip that authorises it names the
+# note by a private tag, never its words. Vary which note is authorised (by its readable word) at the top and re-run:
+#     uv run --directory .engine --frozen -- python tools/memory/compact.py demo-erase
+_DEMO_ERASE_KEEP_TEXT = "Decided the harbor festival keeps its Saturday fireworks. KEEP-THIS-NOTE."
+_DEMO_ERASE_KEEP_WORD = "fireworks"
+_DEMO_ERASE_GONE_TEXT = "Withdrawn idea: move the depot onto the floodplain. ERASE-THIS-NOTE."
+_DEMO_ERASE_GONE_WORD = "floodplain"
+_DEMO_ERASE_AUTHORISED = "gone"   # which note you authorised erasing: "gone" (default) or "keep" — VARY and re-run
+
+
+def _slip_count() -> int:
+    """How many permanent-erase slips (erasure markers) are physically on file."""
+    return sum(1 for r in _all_records() if r.get("kind") == records.ERASURE_KIND)
+
+
+def _slip_mentions_word(word: str) -> bool:
+    """True iff any erase-slip's stored form contains the note's distinctive word — it must NOT (a slip names the
+    note only by a private content-free tag, never its words; the D-007 promise, made to flip)."""
+    w = (word or "").lower()
+    return any(w in json.dumps(r, ensure_ascii=False).lower()
+               for r in _all_records() if r.get("kind") == records.ERASURE_KIND)
+
+
+def _demo_erase() -> int:
+    import tempfile
+
+    print("=" * 88)
+    print("MEMORY — permanently erasing a note you authorised: the ONE thing that cannot be undone (practice)")
+    print("=" * 88)
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["ENGINE_MEMORY_DIR"] = tmp          # the throwaway cabinet
+        try:
+            ok = _demo_erase_body()
+        finally:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+
+    print("\n" + "-" * 88)
+    print("What this just proved: the engine can PERMANENTLY erase a note — but ONLY the one you authorised, and the")
+    print("note you did not authorise is left exactly as it was. The slip that authorises an erase names the note by a")
+    print("private tag, never its words. And running the tidy again changes nothing — an erase happens once and only")
+    print("once. This is the ONE thing the engine can do to your memory that cannot be undone. Soon it will happen")
+    print("ONLY because you merged a single-purpose pull request authorising exactly that note; THIS change ships that")
+    print("mechanism, alone — nothing erases on its own yet (no slip is ever created automatically until a later step).")
+    print("That was a PRACTICE cabinet, thrown away when the demo ended. Vary it: at the top, switch which note is")
+    print("authorised (by its word) and re-run — the erase follows your choice; the note you did not authorise survives.")
+    return 0 if ok else 1
+
+
+def _demo_erase_body() -> bool:
+    # plant the two notes; pick which is authorised-for-erasing by its readable word (varyable at the top)
+    keep = _make_episodic(_DEMO_ERASE_KEEP_TEXT, age_days=0)
+    gone = _make_episodic(_DEMO_ERASE_GONE_TEXT, age_days=0)
+    ledger.append(keep)
+    ledger.append(gone)
+    _rebuild()
+    if _DEMO_ERASE_AUTHORISED == "keep":
+        target, target_word, other_text, other_word = keep, _DEMO_ERASE_KEEP_WORD, _DEMO_ERASE_GONE_TEXT, _DEMO_ERASE_GONE_WORD
+    else:
+        target, target_word, other_text, other_word = gone, _DEMO_ERASE_GONE_WORD, _DEMO_ERASE_KEEP_TEXT, _DEMO_ERASE_KEEP_WORD
+    target_id = target[records.RECORD_ID_KEY]
+
+    # --- PART 1 ------------------------------------------------------------------------------------------
+    print("\nPART 1 — two real notes are on file, both findable")
+    print("-" * 88)
+    found_target = _recall_count(target_word)
+    found_other = _recall_count(other_word)
+    print(f'  the note you will authorise erasing: "{_snippet(target.get("text") or _DEMO_ERASE_GONE_TEXT)}"')
+    print(f'    search "{target_word}" -> found {found_target}')
+    print(f'  the other note (you will NOT authorise it): "{_snippet(other_text)}"')
+    print(f'    search "{other_word}" -> found {found_other}')
+    part1 = found_target == 1 and found_other == 1
+    print(f"  => {'both notes are on file and findable.' if part1 else '!!! a note is missing at the start'}")
+
+    # --- PART 2 ------------------------------------------------------------------------------------------
+    print("\nPART 2 — you authorise erasing ONE note; the slip names it by a private tag, never its words")
+    print("-" * 88)
+    slip = enact_erasure(target_id, merge_sha="demo-merge-authorisation")   # in real use: created ONLY when you merge a PR
+    slips = _slip_count()
+    leak = _slip_mentions_word(target_word)
+    print("  an erase-slip authorising this one note is now on file")
+    print("    (in real use, this slip is created ONLY when you merge a single-purpose pull request authorising it)")
+    print(f"  permanent-erase slips on file: {slips}")
+    print(f'  does the slip contain the note\'s words? search the slip for "{target_word}" -> {"YES (leak!)" if leak else "no — named by a private tag only"}')
+    part2 = slip is not None and slips == 1 and not leak
+    print(f"  => {'one slip on file, carrying none of the note words.' if part2 else '!!! the slip is missing or it leaked the note words'}")
+
+    # --- PART 3 ------------------------------------------------------------------------------------------
+    print("\nPART 3 — the tidy enacts it: the authorised note is permanently gone; the other is untouched")
+    print("-" * 88)
+    report = compact()
+    target_gone = _in_cabinet(target_id) == 0
+    found_target_after = _recall_count(target_word)
+    found_other_after = _recall_count(other_word)
+    print(f'  the authorised note: search "{target_word}" -> found {found_target_after}   (physically gone: {"yes" if target_gone else "NO"})')
+    print(f'  the other note: search "{other_word}" -> found {found_other_after}   (untouched)')
+    print(f"  erase-slips still on file: {_slip_count()}  (kept as proof that this was authorised)")
+    part3 = (target_gone and found_target_after == 0 and found_other_after == 1
+             and report.get("erased") == 1 and _slip_count() == 1)
+    print(f"  => {'the note you authorised is permanently gone; the other is exactly as it was.' if part3 else '!!! the wrong note changed, or nothing was erased'}")
+
+    # --- PART 4 ------------------------------------------------------------------------------------------
+    print("\nPART 4 — running the tidy again changes nothing: once, and only once")
+    print("-" * 88)
+    report2 = compact()
+    other_still_here = _recall_count(other_word)
+    target_still_gone = _in_cabinet(target_id) == 0
+    print(f"  the other note is still here: found {other_still_here}")          # gate S1: the KEPT note's count must hold
+    print(f'  the erased note is still gone: {"yes" if target_still_gone else "NO"}')
+    print(f"  this tidy erased (again): {report2.get('erased')}   (0 — the erase already happened once)")
+    part4 = other_still_here == 1 and target_still_gone and report2.get("erased") == 0
+    print(f"  => {'the other note is untouched and the erase did not repeat — once and only once.' if part4 else '!!! the kept note changed or the erase repeated'}")
+
+    return part1 and part2 and part3 and part4
+
+
 def main(argv: list) -> int:
     cmd = argv[0] if argv else "demo"
     if cmd == "run":                                   # the manual lever: a REAL gated compaction on the real ledger
@@ -599,7 +815,9 @@ def main(argv: list) -> int:
         return _demo()
     if cmd == "demo-trigger":
         return _demo_trigger()
-    print(f"usage: compact.py [run|demo|demo-trigger]\nunknown command {cmd!r}", file=sys.stderr)
+    if cmd == "demo-erase":
+        return _demo_erase()
+    print(f"usage: compact.py [run|demo|demo-trigger|demo-erase]\nunknown command {cmd!r}", file=sys.stderr)
     return 2
 
 

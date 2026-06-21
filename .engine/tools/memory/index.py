@@ -75,7 +75,7 @@ _TAGS_KEY = "tags"
 _NON_BODY_KEYS = frozenset(
     {"tags", "session_id", "kind", "speaker", "role",
      records.BATCH_KEY, records.RECORD_ID_KEY, records.TARGET_KEY, records.TIER_KEY,
-     records.SUPERSEDED_BY_KEY, records.SOURCE_IDS_KEY, records.SCORE_KEY}
+     records.SUPERSEDED_BY_KEY, records.SOURCE_IDS_KEY, records.SCORE_KEY, records.MERGE_SHA_KEY}
 )
 
 
