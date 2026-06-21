@@ -115,6 +115,9 @@ class TestStaleness(unittest.TestCase):
             f = audit_digest.staleness(os.path.join(d, "audit-digest.md"), now=JUNE)
             self.assertEqual(f["severity"], "soft")
             self.assertIn("hasn't run yet", f["message"])
+            # The never-run notice must give the operator an actionable next step — the ask-the-engine path
+            # a non-engineer can always take — not just "set it up" with no how (PR 3b, the setup-page loop).
+            self.assertIn("ask me to set it up", f["message"])
 
     def test_fresh_digest_is_clear(self):
         with tempfile.TemporaryDirectory() as d:

@@ -117,6 +117,23 @@ def main() -> int:
         print(f"   expected: sealed from the file and verifies (clear) -> {step5}")
         ok = ok and step5
 
+        print("\n[6] When no self-review has run yet, the freshness notice doesn't just say 'set it up' — it")
+        print("    offers to set it up for you, and a plain-language setup guide travels with the project.")
+        print("    This step reads BOTH (read-only) so you can see the doorway-to-guide loop closes.")
+        print("-" * 78)
+        never_run = os.path.join(d, "never-run-here.md")  # a path with no file -> the 'hasn't run yet' notice
+        notice = audit_digest.staleness(never_run, now=today)
+        guide_path = os.path.join(validate.ENGINE_DIR, "audits", "self-review-setup.md")
+        guide_text = validate.read(guide_path)
+        print(f"   the boot notice you'd see: {validate.fmt(notice)}")
+        print(f"   the setup guide on disk:   {guide_path} ({len(guide_text)} characters)")
+        step6 = ("ask me to set it up" in notice["message"]
+                 and os.path.isfile(guide_path)
+                 and "CLAUDE_CODE_OAUTH_TOKEN" in guide_text)
+        print("   expected: the notice offers to set it up, and the guide names the exact secret to add ->"
+              f" {step6}")
+        ok = ok and step6
+
         print("\n" + BANNER)
         print("In plain words: the seal rule passes on a freshly-written file and goes RED the moment the")
         print("file is hand-edited; the freshness rule stays quiet while the self-review is recent and")
