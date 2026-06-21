@@ -160,8 +160,9 @@ class BuildConformanceTests(unittest.TestCase):
         # autonomous fold into erasure. The ban targets the minter CALL (`enact_erasure(`), NOT the kind constant
         # (forget legitimately references `records.ERASURE_KIND` to drop the marker from recall) and NOT `compact()`
         # (rollup / consolidate legitimately call it — calling compact is not minting). A glob-walk over the whole
-        # memory package (not a fixed file list) so a Layer-1 tool added LATER is covered too.
-        sanctioned = ("compact.py", "erasure_observer.py", "__init__.py")
+        # memory package (not a fixed file list) so a Layer-1 tool added LATER is covered too. The package marker
+        # `__init__.py` is NOT exempted — it is scanned like any other file (it must never mint either).
+        sanctioned = ("compact.py", "erasure_observer.py")
         mem_dir = os.path.dirname(os.path.abspath(__file__))
         for name in sorted(os.listdir(mem_dir)):
             if not name.endswith(".py") or name.startswith("test_") or name in sanctioned:

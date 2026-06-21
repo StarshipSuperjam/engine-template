@@ -182,11 +182,14 @@ def _heads_up(pr_numbers: list) -> str:
     the PR(s) the operator merged (operator-recognisable, immutable) and NEVER the note's content."""
     refs = ", ".join(f"#{n}" for n in sorted(set(pr_numbers)))
     count = len(set(pr_numbers))
-    note = "one remembered note is" if count == 1 else f"{count} remembered notes are"
+    if count == 1:
+        clause = f"a single-purpose erasure pull request ({refs}), one remembered note is"
+    else:
+        clause = f"single-purpose erasure pull requests ({refs}), {count} remembered notes are"
     return (
-        f"INFORM THE USER, in plain language (they asked to be told once): because they merged a single-purpose "
-        f"erasure pull request ({refs}), {note} now scheduled to be permanently erased at the next memory tidy — "
-        f"the one action on their memory that cannot be undone, happening only because they merged it.")
+        f"INFORM THE USER, in plain language (they asked to be told once): because they merged {clause} now "
+        f"scheduled to be permanently erased at the next memory tidy — the one action on their memory that "
+        f"cannot be undone, happening only because they merged it.")
 
 
 def _session_start_handler(payload) -> dict:

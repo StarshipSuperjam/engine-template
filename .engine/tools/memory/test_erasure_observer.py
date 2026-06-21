@@ -117,6 +117,19 @@ class EnactTests(_Base):
         self.assertEqual(obs.enact_from_merged_prs(gh), [])
         self.assertEqual(self._targets(), [])
 
+    def test_a_closed_pr_with_a_speculative_merge_sha_is_inert(self):
+        # `merged_at` is the AUTHORITATIVE "was actually merged" signal; `merge_commit_sha` ALONE is not a merge.
+        # GitHub computes a SPECULATIVE test-merge `merge_commit_sha` for an open/mergeable PR, and a closed-but-
+        # unmerged PR can RETAIN it — whose tree could even contain a committed proposal. The merge gate must still
+        # reject it (this pins the `merged_at` half AT THE INTEGRATION LEVEL: an AI could open a PR, commit a valid
+        # proposal, take the speculative SHA, then CLOSE without merging — never touching protected main — and it
+        # must remain inert). Mutation: gating only on a non-empty `merge_commit_sha` would erase here; this reds it.
+        target = _rid()
+        pr = {"number": 7, "merged_at": None, "merge_commit_sha": _GOOD_SHA, "body": "closed, never merged"}
+        gh = _gh(prs={7: pr}, contents={_GOOD_SHA: _contents_for(target)})
+        self.assertEqual(obs.enact_from_merged_prs(gh), [])
+        self.assertEqual(self._targets(), [])
+
     def test_a_missing_proposal_is_inert(self):
         gh = _gh(prs={7: _merged_pr(7)}, contents={})                    # no proposal at the merge tree (404)
         self.assertEqual(obs.enact_from_merged_prs(gh), [])
