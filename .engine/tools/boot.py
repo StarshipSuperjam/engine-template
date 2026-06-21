@@ -246,45 +246,79 @@ def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | 
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
         return [], ["attention"], None
     lines: list = []
-    adjacent: list = []
     for entry in result.get("partition", []):
-        members = entry.get("members") or []
         if entry.get("category") == "structural_neighbors":
-            for member in members[:NEEDS_ATTENTION_CAP]:   # the neighborhood -> the AI pack block, not here
-                slug = _slug(member.get("id", ""))
-                if slug and slug not in adjacent:
-                    adjacent.append(slug)
-            continue
-        for member in members[:NEEDS_ATTENTION_CAP]:
+            continue        # the knowledge neighbourhood is the AI pack block (rendered from the richer
+                            # neighborhood_of summary below), never an operator action line
+        for member in (entry.get("members") or [])[:NEEDS_ATTENTION_CAP]:
             line = _resolve_member(member.get("id", ""), state)
             if line:                       # skip an id-less member rather than render a blank bullet
                 lines.append(line)
-    # Drop any empty slug on the focus side too (symmetry with `adjacent` above) — a defensive guard; the
-    # real derive_focus only yields well-formed `kind:slug` ids, but the two sides should filter alike.
-    neighborhood = {"focus": [s for s in (_slug(f) for f in focus) if s], "adjacent": adjacent} if focus else None
+    # The focused knowledge read's render channel (#37 / D-224): a per-(member, relationship) summary that
+    # PRESERVES the full neighbour counts the ranked partition strips, so render_neighborhood discloses
+    # truncation honestly ("core provides 147, showing 4") instead of an arbitrary capped few passed off as
+    # the whole. Best-effort — a failure degrades to no block, never breaks the rest of the pack.
+    try:
+        neighborhood = attention.neighborhood_of(focus) if focus else None
+    except Exception:  # noqa: BLE001 — the neighbourhood is orientation context; its loss never breaks the pack
+        neighborhood = None
     return lines, list(result.get("degraded_inputs") or []), neighborhood
 
 
+# (predicate, direction) -> the plain-language relationship phrase for the AI orientation render. §12: these
+# are VERBS only — never the internal type nouns ("surface"/"module"/"check"/"policy"/"schema"); the slugs
+# already name the things. A walk edge is provided_by/governed_by/targets/depends_on; "in" means the edge
+# points AT the focus — the reverse connective tissue D-224 surfaces.
+_RELATION_PHRASE = {
+    ("provided_by", "out"): "is part of",
+    ("provided_by", "in"): "provides",
+    ("governed_by", "out"): "is governed by",
+    ("governed_by", "in"): "governs",
+    ("targets", "out"): "checks",
+    ("targets", "in"): "is checked by",
+    ("depends_on", "out"): "depends on",
+    ("depends_on", "in"): "is relied on by",
+}
+
+
 def render_neighborhood(nb: dict | None) -> list:
-    """The AI-facing "knowledge neighborhood of your current work" orientation block, from the neighborhood
-    dict {focus:[slugs], adjacent:[slugs]} attention derived — or [] when there is no work in hand. This is
+    """The AI-facing "knowledge neighborhood of your current work" orientation block, from the per-(member,
+    relationship) summary `attention.neighborhood_of` derived — or [] when there is no work in hand. This is
     orientation CONTEXT for the model (the focused knowledge read, #37), NOT an operator alarm and NOT an
-    action item; it carries no RELAY_MARKER. The walk is bidirectional (D-224), so a connective focus — a
-    policy, a module, a governed/targeted surface — surfaces its reverse tissue (its governing checks, its
-    dependents, the checks that target it). A genuinely bare leaf (ungoverned AND untargeted, e.g. a tool
-    whose only edge is `provided_by` -> its module) honestly stays module-only, so `adjacent` can still be
-    thin; that is disclosed neutrally, never as an alarm. It enriches as the graph gains cross-entity edges."""
+    action item; it carries no RELAY_MARKER.
+
+    The walk is bidirectional (D-224): a connective focus surfaces its reverse tissue — its governing rule, its
+    dependents, the checks that target it — not just the module it lives in. Each relationship is rendered with
+    its TRUE count, so a highly-connected focus reads "core provides 147 (showing 4: ...)": the sample is
+    DISCLOSED as a sample, never an arbitrary capped few passed off as the whole or the salient set (honest
+    truncation — ranking WHICH few is relevant is deferred, D-224 Q38/Q39). A genuinely bare leaf (its only
+    edge is `is part of` -> its module) honestly reads module-only. Plain words throughout (§12): relationship
+    verbs + slugs, never raw ids or internal type nouns."""
     if not nb or not nb.get("focus"):
         return []
-    focus_names = ", ".join(nb["focus"])
-    adjacent = nb.get("adjacent") or []
-    adj = ", ".join(adjacent) if adjacent else "(nothing adjacent in the current graph yet)"
-    return [
-        "--- knowledge neighborhood of your current work (orientation context, not an alarm) ---",
-        f"You're touching: {focus_names}. Structurally adjacent in the knowledge graph: {adj}. "
-        "Pull deeper with the knowledge-graph tools if a change reaches into them.",
-        "",
-    ]
+    focus_names = ", ".join(_slug(f) for f in nb["focus"])
+    out = ["--- knowledge neighborhood of your current work (orientation context, not an alarm) ---",
+           f"You're touching: {focus_names}."]
+    rel_lines: list = []
+    for g in nb.get("groups") or []:
+        phrase = _RELATION_PHRASE.get((g.get("predicate"), g.get("direction")))
+        sample = [s for s in (_slug(x) for x in (g.get("sample") or [])) if s]
+        if not phrase or not sample:
+            continue
+        src, total = _slug(g.get("source", "")), g.get("total", len(sample))
+        if total <= 1:
+            rel_lines.append(f"  {src} {phrase} {sample[0]}")
+        elif total <= len(sample):                 # the whole set fits the sample -> the slugs ARE the full list
+            rel_lines.append(f"  {src} {phrase}: {', '.join(sample)}")
+        else:                                        # truncated -> disclose the TRUE count AND that the shown few
+            # are arbitrary examples, not a ranked top-N (which few matter most is deferred, D-224 Q38/Q39), so
+            # the sample can never read as "the 4 that matter".
+            rel_lines.append(f"  {src} {phrase} {total} "
+                             f"(showing {len(sample)} examples, not ranked by importance: {', '.join(sample)})")
+    out.extend(rel_lines or ["  (nothing else is connected to your work in the graph yet)"])
+    out.append("Pull deeper with the knowledge-graph tools if a change reaches into them.")
+    out.append("")
+    return out
 
 
 # ---- "what just happened" — merged PRs, never a changelog -----------------------------------

@@ -11,15 +11,18 @@ logic end-to-end over the REAL committed knowledge graph — `attention.derive_f
 entities), the REAL bidirectional ranking walk, and boot's REAL capped neighborhood render. ONLY the local
 git "what files changed" read is faked, so it is deterministic and needs no network, no token, no edits.
 
-It shows three honest cases side by side (forward-only vs bidirectional), each capped exactly the way boot
-caps the operator-facing view:
+It shows three honest cases side by side (forward-only vs bidirectional), each rendered through boot's REAL
+per-source block:
   * a POLICY file  -> the bidirectional read GAINS the checks that target (validate) it (the real win);
   * a bare TOOL    -> stays module-only either way (the honest residual D-224 names: a leaf with no inbound
                       structural edge has no reverse tissue to surface);
-  * a MODULE manifest -> a highly-connected focus; the view stays BOUNDED (capped), it never floods.
+  * a MODULE manifest -> a highly-connected hub; the render DISCLOSES the true count ("provides 148, showing
+                      4"), so an arbitrary sample never masquerades as the whole or the salient set.
 
 Vary it yourself: pass a path to pretend you're editing, e.g.
-    uv run --directory .engine -- python tools/demo_reverse_adjacency.py .engine/policies/memory.md
+    uv run --directory .engine -- python tools/demo_reverse_adjacency.py .engine/policies/escalation.md
+(Pass a path the project doesn't track — say a top-level README — and it calmly reports "no focused read";
+that is the engine degrading correctly, not an error.)
 
 Run: uv run --directory .engine -- python tools/demo_reverse_adjacency.py
 """
@@ -31,8 +34,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import attention          # noqa: E402
 import boot               # noqa: E402
 import knowledge_query    # noqa: E402
-
-CAP = boot.NEEDS_ATTENTION_CAP   # the same bound boot puts on the operator-facing neighborhood
 
 
 def _fake_changed(paths):
@@ -60,7 +61,7 @@ def _slug(eid: str) -> str:
 
 def _forward_only(focus_ids: list) -> list:
     """The PR-2 (forward-only) neighbourhood: walk each focus member with direction='out', dedupe, exclude
-    focus members, slugify, cap exactly as boot would. The 'before' baseline."""
+    focus members, slugify. The 'before' baseline — what a leaf collapsed to before D-224."""
     focus_set, seen, adj = set(focus_ids), set(), []
     for fid in focus_ids:
         for n in knowledge_query.neighbors(fid, direction="out"):    # the OLD default
@@ -69,44 +70,40 @@ def _forward_only(focus_ids: list) -> list:
                 continue
             seen.add(nid)
             adj.append(_slug(nid))
-    return adj[:CAP]
-
-
-def _bidirectional(focus_ids: list) -> list:
-    """The D-224 (bidirectional) neighbourhood, via the REAL rank_live walk, capped the way boot caps it."""
-    result = attention.rank_live(focus=focus_ids or None)            # real walk; offline, gh=None
-    adj: list = []
-    for entry in result.get("partition", []):
-        if entry.get("category") == "structural_neighbors":
-            for m in entry.get("members", [])[:CAP]:                 # boot's NEEDS_ATTENTION_CAP bound
-                s = _slug(m.get("id", ""))
-                if s and s not in adj:
-                    adj.append(s)
     return adj
 
 
 def _show(title: str, changed: list):
+    """Run the REAL focused read for `changed` and print before/after. Returns (focus, summary, rendered) so
+    the caller's self-checks read the real STRUCTURE, not the printout."""
     print(title)
     print(f"   pretending you've touched: {', '.join(changed)}")
     focus = attention.derive_focus(run=_fake_changed(changed))       # real path -> entity mapping
     if not focus:
         print("   (these files own no graph surface -> no focused read)\n")
-        return [], [], []
+        return None, None, ""
     before = _forward_only(focus)
-    after = _bidirectional(focus)
-    nb = {"focus": [_slug(f) for f in focus], "adjacent": after}
+    summary = attention.neighborhood_of(focus)                       # the REAL bidirectional summary
+    rendered = boot.render_neighborhood(summary)                     # boot's REAL honest render
     print(f"   the work maps to: {', '.join(_slug(f) for f in focus)}")
     print(f"   forward-only (before): {', '.join(before) or '(only its module / nothing)'}")
-    print(f"   bidirectional (after): {', '.join(after) or '(only its module / nothing)'}")
-    gained = [a for a in after if a not in before]
-    if gained:
-        print(f"   NEW reverse tissue surfaced: {', '.join(gained)}")
-    print("   what the model now sees in its briefing:")
-    for line in boot.render_neighborhood(nb):
+    print("   what the model now sees in its briefing (bidirectional; any truncation disclosed by count):")
+    for line in rendered:
         if line:
             print(f"     {line}")
     print()
-    return focus, before, after
+    return focus, summary, "\n".join(rendered)
+
+
+def _has_reverse(summary) -> bool:
+    """True if the focus gained connective tissue a forward-only walk could not see (a `direction:in` edge)."""
+    return bool(summary) and any(g["direction"] == "in" for g in summary.get("groups", []))
+
+
+def _has_disclosed_truncation(summary, rendered: str) -> bool:
+    """True if a relationship floods past the sample AND the render DISCLOSES the true count (not a bare few)."""
+    flooded = bool(summary) and any(g["total"] > len(g["sample"]) for g in summary.get("groups", []))
+    return flooded and "(showing " in rendered
 
 
 def main(argv: list | None = None) -> int:
@@ -114,34 +111,42 @@ def main(argv: list | None = None) -> int:
     print("Bidirectional orientation walk — the reverse connective tissue of the work in hand (#37 / D-224).\n")
 
     if argv:
-        focus, before, after = _show("Your scenario:", argv)
-        ok = bool(focus)
-        scenario_after = after
+        focus, _summary, rendered = _show("Your scenario:", argv)
+        # A custom path that owns no graph surface degrading to "no focused read" is CORRECT behavior, not a
+        # failure — so the only thing to assert for an arbitrary path is that what DID render carries no jargon.
+        ok = True
+        all_rendered = [rendered]
     else:
-        # Scenario 1 leads with a CONNECTIVE focus so the win is visible on a no-args run.
-        f1, b1, a1 = _show("1) Editing a POLICY -> the bidirectional read gains the checks that target it:",
+        # 1) a CONNECTIVE focus (a policy) -> the bidirectional read GAINS the checks that target it.
+        f1, s1, r1 = _show("1) Editing a POLICY -> the bidirectional read gains the checks that target it:",
                            [".engine/policies/attention.md"])
-        f2, b2, a2 = _show("2) Editing a bare TOOL -> honestly stays module-only (no inbound edges to reverse):",
+        # 2) a bare TOOL -> honestly stays module-only (no inbound structural edge to reverse).
+        f2, s2, r2 = _show("2) Editing a bare TOOL -> honestly stays module-only (no inbound edges to reverse):",
                            [".engine/tools/attention.py"])
-        f3, b3, a3 = _show("3) Editing a MODULE manifest -> highly connected, yet the view stays BOUNDED:",
+        # 3) a MODULE manifest -> a hub; the render must DISCLOSE the true count ("provides N, showing 4"),
+        #    never an arbitrary capped few passed off as the whole (the maintainer's honesty correction).
+        f3, s3, r3 = _show("3) Editing a MODULE manifest -> a hub; the render DISCLOSES the true count:",
                            [".engine/modules/core/manifest.json"])
-        # Self-checks: the policy GAINS tissue forward-only couldn't see; the tool does NOT; the hub is bounded.
-        ok = (bool(f1) and len(a1) > len(b1)
-              and bool(f2) and a2 == b2
-              and bool(f3) and len(a3) <= CAP)
-        scenario_after = a1
+        ok = (_has_reverse(s1)                            # the policy gained reverse tissue forward-only can't see
+              and bool(f2) and not _has_reverse(s2)       # the bare tool honestly stays module-only
+              and _has_disclosed_truncation(s3, r3))      # the hub floods AND the render discloses the true count
+        all_rendered = [r1, r2, r3]
 
-    rendered = "\n".join(boot.render_neighborhood({"focus": ["x"], "adjacent": scenario_after}))
-    jargon_free = "tool:" not in rendered and "module:" not in rendered and "governed_by" not in rendered
+    blob = "\n".join(all_rendered)
+    # §12: the AI block names plain components + relationship VERBS, never raw ids or internal type/predicate
+    # vocabulary. The tokens below are exactly what a leak would look like.
+    jargon_free = not any(t in blob for t in ("tool:", "module:", "policy:", "check:", "schema:",
+                                              "provided_by", "governed_by", "depends_on", "targets"))
 
-    print("Only the 'which files changed' git read was faked; the entity mapping, the bidirectional neighbor")
+    print("Only the 'which files changed' git read was faked; the entity mapping, the bidirectional neighbour")
     print("walk, and the render are the engine's real logic over the real committed knowledge graph. The block")
-    print("names plain components (never raw ids), is orientation context (not an alarm), and stays bounded.")
+    print("names plain components (never raw ids), is orientation context (not an alarm), and discloses any")
+    print("truncation by its true count.")
 
     if not (ok and jargon_free):
         print("\nDEMO UNEXPECTED: the bidirectional read did not behave as described for the built-in "
-              "scenarios (policy should gain tissue, a bare tool should not, the hub should stay bounded, "
-              "and the block must be jargon-free).", file=sys.stderr)
+              "scenarios (the policy should gain reverse tissue, a bare tool should not, the hub should "
+              "DISCLOSE its true count, and the block must be jargon-free).", file=sys.stderr)
         return 1
     return 0
 

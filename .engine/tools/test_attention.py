@@ -541,5 +541,67 @@ class TestFocusSetWalk(unittest.TestCase):
         self.assertEqual(walk.call_args.kwargs.get("direction"), "both")
 
 
+class TestNeighborhoodOf(unittest.TestCase):
+    """neighborhood_of returns the per-(member, relationship) SUMMARY the orientation render needs: each focus
+    member's BIDIRECTIONAL neighbours grouped by (predicate, direction), with the FULL count + a bounded
+    sample — so the render can disclose truncation honestly rather than show an arbitrary capped few (D-224).
+    The graph is mocked here; the real `direction="both"` SQL is covered in test_knowledge_query."""
+
+    def test_groups_by_relationship_and_walks_both_directions(self):
+        def fake(fid, edge_filter=None, depth=1, direction="out"):
+            return [{"id": "module:core", "predicate": "provided_by", "direction": "out"},
+                    {"id": "check:policy-frontmatter", "predicate": "targets", "direction": "in"},
+                    {"id": "check:policy-shape", "predicate": "targets", "direction": "in"}]
+        with mock.patch.object(attention.knowledge_query, "neighbors", side_effect=fake) as walk:
+            nb = attention.neighborhood_of(["policy:attention"])
+        self.assertEqual(nb["focus"], ["policy:attention"])
+        by_rel = {(g["predicate"], g["direction"]): g for g in nb["groups"]}
+        self.assertEqual(by_rel[("provided_by", "out")]["total"], 1)
+        self.assertEqual(by_rel[("provided_by", "out")]["sample"], ["module:core"])
+        self.assertEqual(by_rel[("targets", "in")]["total"], 2)
+        self.assertEqual(by_rel[("targets", "in")]["sample"],
+                         ["check:policy-frontmatter", "check:policy-shape"])
+        for call in walk.call_args_list:                    # the D-224 bidirectional pin lives at the call site
+            self.assertEqual(call.kwargs.get("direction"), "both")
+
+    def test_excludes_focus_members_from_their_own_neighbourhood(self):
+        def fake(fid, edge_filter=None, depth=1, direction="out"):
+            return {"tool:a": [{"id": "tool:b", "predicate": "depends_on", "direction": "out"},
+                               {"id": "module:core", "predicate": "provided_by", "direction": "out"}],
+                    "tool:b": []}.get(fid, [])
+        with mock.patch.object(attention.knowledge_query, "neighbors", side_effect=fake):
+            nb = attention.neighborhood_of(["tool:a", "tool:b"])
+        ids = [n for g in nb["groups"] for n in g["sample"]]
+        self.assertNotIn("tool:b", ids)         # a co-changed focus member is not its own structural neighbour
+        self.assertIn("module:core", ids)
+
+    def test_full_count_preserved_when_sample_is_capped(self):
+        many = [{"id": f"tool:t{i:02d}", "predicate": "provided_by", "direction": "in"} for i in range(30)]
+        with mock.patch.object(attention.knowledge_query, "neighbors", return_value=many):
+            nb = attention.neighborhood_of(["module:core"])
+        g = nb["groups"][0]
+        self.assertEqual(g["total"], 30)                                 # the TRUE count is kept for the render
+        self.assertEqual(len(g["sample"]), attention.NEIGHBORHOOD_SAMPLE_CAP)   # only a bounded sample is shown
+        self.assertEqual(g["sample"], [f"tool:t{i:02d}" for i in range(attention.NEIGHBORHOOD_SAMPLE_CAP)])
+
+    def test_groups_in_deterministic_order_forward_edges_first(self):
+        # neighbours arrive reverse-first; groups must still sort by the pinned edge order, forward before reverse.
+        def fake(fid, edge_filter=None, depth=1, direction="out"):
+            return [{"id": "x:1", "predicate": "targets", "direction": "in"},
+                    {"id": "x:2", "predicate": "provided_by", "direction": "out"}]
+        with mock.patch.object(attention.knowledge_query, "neighbors", side_effect=fake):
+            nb = attention.neighborhood_of(["m:a"])
+        self.assertEqual([(g["predicate"], g["direction"]) for g in nb["groups"]],
+                         [("provided_by", "out"), ("targets", "in")])
+        self.assertNotIn("_order", nb["groups"][0])          # the internal sort key is popped, never leaked
+
+    def test_fail_open_returns_none(self):
+        self.assertIsNone(attention.neighborhood_of(None))
+        self.assertIsNone(attention.neighborhood_of([]))
+        with mock.patch.object(attention.knowledge_query, "neighbors",
+                               side_effect=Exception("knowledge unavailable")):
+            self.assertIsNone(attention.neighborhood_of(["tool:a"]))
+
+
 if __name__ == "__main__":
     unittest.main()
