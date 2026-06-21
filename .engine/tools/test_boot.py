@@ -37,7 +37,7 @@ def _offline():
         mock.patch.object(boot, "recently_shipped", return_value=["#1 — a merged change"]),
         # No real git in offline tests: the work-in-hand focus derivation reads local git, so pin it empty
         # (a focused-read test opts back in by re-patching derive_focus with its own fixture).
-        mock.patch.object(boot.attention, "derive_focus", return_value=[]),
+        mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)),
     ]
     for p in patchers:
         p.start()
@@ -213,7 +213,7 @@ class TestConsumesAttentionNeverReRanks(unittest.TestCase):
         ], "degraded_inputs": []}
         state = {"standing_situation": {"milestone": "M1", "phase": "core"},
                  "integration_debt": {"open_count": 3}}
-        with mock.patch.object(boot.attention, "derive_focus", return_value=[]), \
+        with mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
                 mock.patch.object(boot.attention, "rank_live", return_value=result):
             lines, degraded, _ = boot.needs_attention(state)
         self.assertEqual(degraded, [])
@@ -232,7 +232,7 @@ class TestConsumesAttentionNeverReRanks(unittest.TestCase):
         members = [{"id": f"k:{i}", "rank": i} for i in range(10)]
         result = {"partition": [{"category": "recent_decisions", "precedence_rank": 3,
                                  "members": members}], "degraded_inputs": []}
-        with mock.patch.object(boot.attention, "derive_focus", return_value=[]), \
+        with mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
                 mock.patch.object(boot.attention, "rank_live", return_value=result):
             lines, _, _ = boot.needs_attention({})
         self.assertEqual(len(lines), boot.NEEDS_ATTENTION_CAP)  # a bounded prefix
@@ -264,14 +264,15 @@ class TestFocusedNeighborhood(unittest.TestCase):
         ], "degraded_inputs": ["telemetry"]}
 
     def test_structural_neighbors_never_become_action_lines_and_the_summary_is_carried(self):
-        with mock.patch.object(boot.attention, "derive_focus", return_value=["tool:attention"]), \
+        with mock.patch.object(boot.attention, "derive_focus", return_value=(["tool:attention"], 1)), \
                 mock.patch.object(boot.attention, "rank_live", return_value=self._partition()), \
                 mock.patch.object(boot.attention, "neighborhood_of", return_value=self._summary()):
             lines, degraded, nb = boot.needs_attention({})
         self.assertTrue(any("161" in ln for ln in lines))      # the in_flight item IS an action line
         self.assertFalse(any("core" in ln for ln in lines))    # the neighbours are NOT (they are the AI block)
         self.assertEqual(degraded, ["telemetry"])
-        self.assertEqual(nb, self._summary())                  # the rich summary is carried verbatim to render
+        # the rich summary is carried to render, plus the true focus count for honest focus-truncation (#165)
+        self.assertEqual(nb, {**self._summary(), "focus_total": 1})
 
     def test_render_is_per_source_by_relationship_in_plain_words(self):
         block = "\n".join(boot.render_neighborhood(self._summary()))
@@ -296,13 +297,26 @@ class TestFocusedNeighborhood(unittest.TestCase):
         self.assertIn("audit_library, boot, close, conduct", block)
         self.assertNotIn("provides:", block)                              # not rendered as if it were the whole
 
+    def test_focus_truncation_is_disclosed_too(self):
+        # the SAME honesty one level up (#165): when more was changed than FOCUS_CAP shows, the header discloses
+        # the true count, so the shown focus is never passed off as the whole change.
+        summary = {"focus": ["tool:a", "tool:b", "tool:c", "tool:d", "tool:e"], "focus_total": 7, "groups": []}
+        block = "\n".join(boot.render_neighborhood(summary))
+        self.assertIn("You're touching: a, b, c, d, e (showing 5 of 7 you've changed).", block)
+
+    def test_untruncated_focus_carries_no_count_noise(self):
+        summary = {"focus": ["tool:a", "tool:b"], "focus_total": 2, "groups": []}
+        block = "\n".join(boot.render_neighborhood(summary))
+        self.assertIn("You're touching: a, b.", block)
+        self.assertNotIn("you've changed", block)        # no truncation -> no disclosure clause
+
     def test_no_focus_or_no_groups_renders_cleanly(self):
         self.assertEqual(boot.render_neighborhood(None), [])
         self.assertEqual(boot.render_neighborhood({"focus": [], "groups": []}), [])
         bare = "\n".join(boot.render_neighborhood({"focus": ["tool:x"], "groups": []}))
         self.assertIn("You're touching: x", bare)                         # the focus is still named
         self.assertIn("nothing else is connected", bare.lower())          # neutral, no-jargon, not an alarm
-        with mock.patch.object(boot.attention, "derive_focus", return_value=[]), \
+        with mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
                 mock.patch.object(boot.attention, "rank_live",
                                   return_value={"partition": [], "degraded_inputs": []}):
             _, _, nb = boot.needs_attention({})
@@ -311,7 +325,7 @@ class TestFocusedNeighborhood(unittest.TestCase):
     def test_pack_carries_the_neighborhood_block_when_focus_present(self):
         patchers = _offline()
         try:
-            with mock.patch.object(boot.attention, "derive_focus", return_value=["tool:attention"]), \
+            with mock.patch.object(boot.attention, "derive_focus", return_value=(["tool:attention"], 1)), \
                     mock.patch.object(boot.attention, "rank_live", return_value=self._partition()), \
                     mock.patch.object(boot.attention, "neighborhood_of", return_value=self._summary()):
                 pack = boot.assemble_pack()
