@@ -97,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           uv run --directory .engine --frozen -- python tools/audit_digest.py \
-            seal .engine/audits/audit-digest.md \
+            seal audits/audit-digest.md \
             --body-file "${RUNNER_TEMP}/audit-digest-body.md"
       - name: Refresh the committed where-we-stand snapshot
         env:

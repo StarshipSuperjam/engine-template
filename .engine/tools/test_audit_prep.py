@@ -72,6 +72,17 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("--body-file", text)
         self.assertIn("telemetry.py refresh", text)
 
+    def test_seal_path_is_engine_relative_not_doubled(self):
+        # Regression (#176): the Seal step runs with `--directory .engine` (cwd becomes .engine), so its
+        # positional path must be RELATIVE to .engine — `seal audits/audit-digest.md`, which resolves to the
+        # canonical .engine/audits/audit-digest.md that the boot staleness read, the fingerprint check, and the
+        # later `git add` all key on. A `.engine/`-prefixed path nested to `.engine/.engine/audits/...` — the
+        # doubled-path bug that wrote the digest where nothing could find it (the `git add` then aborted with
+        # exit 128, and boot could never see it). Pin the `seal `-prefixed form so the trap cannot return.
+        text = self._text()
+        self.assertIn("seal audits/audit-digest.md", text)
+        self.assertNotIn("seal .engine/audits/audit-digest.md", text)
+
 
 if __name__ == "__main__":
     unittest.main()
