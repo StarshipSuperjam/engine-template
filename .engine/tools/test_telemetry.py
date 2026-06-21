@@ -126,13 +126,15 @@ class TestPureHelpers(unittest.TestCase):
         self.assertEqual(telemetry.parse_source_id(body), "rule:y")
         self.assertIsNone(telemetry.parse_source_id("no marker here"))
 
-    def test_issue_body_has_no_backstage_jargon(self):
+    def test_issue_body_leaks_no_raw_identifier(self):
+        # The raw source-id identifier lives only in the invisible HTML-comment marker (parsed back by
+        # parse_source_id); it must never surface in the operator-visible prose. This guards a SYMBOL (a raw
+        # identifier leak is a bug), not vocabulary, so it is not a banned-word list (engine-planning
+        # D-225 / R30) — whether the prose leans on jargon is a judgment, not a filter.
         body = telemetry.issue_body(rec("rule:y"), T[0], T[0]).lower()
-        # the operator-visible prose (everything but the invisible HTML-comment marker)
-        prose = body.split("<!--")[0]
-        for banned in ("stream", "severity class", "trust-critical", "persistent-but-benign",
-                       "persistence", "triage", "source-id", "source_id"):
-            self.assertNotIn(banned, prose, f"backstage term {banned!r} leaked into the issue body")
+        prose = body.split("<!--")[0]  # the operator-visible prose, minus the invisible marker
+        for sym in ("source-id", "source_id"):
+            self.assertNotIn(sym, prose, f"raw identifier {sym!r} leaked into the issue body prose")
 
 
 class TestDedupAndPromotion(unittest.TestCase):
