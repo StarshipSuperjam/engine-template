@@ -17,7 +17,9 @@ episodic consolidation — the closed role vocabulary + the abandoned-session ``
 (``memory.consolidate``), and active forgetting (Layer 1): logical retirement + scored demotion
 (``memory.forget``), crash-safe ledger compaction (``memory.compact``), and gist roll-up
 (``memory.rollup``). The public search interface + MCP server (with the live recall/reinforcement caller and
-the live maintenance triggers), Layer-2 audit-gated erasure, and backup/restore land in later slices.
+the live maintenance triggers) land in later slices, as does backup/restore (with its resurrection-surfacing).
+Layer-2 audit-gated physical erasure has shipped its enactment core (the gated removal + sole minter in
+``memory.compact``, slice 4e-i) and its cross-session observer (``memory.erasure_observer``, slice 4e-ii).
 """
 
 from memory.capture import capture_turn_delta  # noqa: F401 — the public capture entry close's relay calls
