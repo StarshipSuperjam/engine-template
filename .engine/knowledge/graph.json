@@ -2101,7 +2101,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:9e52d3ee0b40af18769e985ec7ad1103599523295ee85a74fd0b3c27916a35dc",
+        "fingerprint": "sha256:88279397266e2d0d4de31b5510173bf782bb6305d4aa658cf134bc6caf87e89c",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -2186,7 +2186,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:96edce9b13807374fee339be197472b0f30d2e388d42e60916435fb4a384e7a7",
+        "fingerprint": "sha256:893598b65cb3773bf6de696d123030c9cf751b6cf69f351addd9785745ff0b39",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -2426,6 +2426,23 @@
       "source": {
         "fingerprint": "sha256:a7a5cf4eefba8f6910d482bd81d299fdcd519e3852d6914648e817ce76b1d1a8",
         "path": ".engine/tools/demo_focus_read.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_reverse_adjacency",
+      "name": ".engine/tools/demo_reverse_adjacency.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_reverse_adjacency",
+      "source": {
+        "fingerprint": "sha256:1c255d9c129d774c467704cc57af2ed0a41c05475a9f9a79358d028e29eab3ce",
+        "path": ".engine/tools/demo_reverse_adjacency.py"
       },
       "status": "active",
       "type": "tool"
@@ -3087,7 +3104,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:5def44d239d35a0fed4f1c3e79bd8ded2a72f7f2a449d23a5e77bea5f3448adf",
+        "fingerprint": "sha256:d6b4d1b94536adb80d99d78691f0c7ec522f8dbd54a2b41e362f4ca759e1a342",
         "path": ".engine/tools/test_attention.py"
       },
       "status": "active",
@@ -3121,7 +3138,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:d221c21d45fc06fb5374bab91cfa83ed70877f64fd2e0e45669964312c58a0c4",
+        "fingerprint": "sha256:d24073bc61886a69c87a2c46296dac739bde89aef88065b1e71f1d942ecf14c1",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -3478,7 +3495,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:0cca37df4a1f9521d9797154f7b09df6d628946a41ab73eb245180a3ef6f3e09",
+        "fingerprint": "sha256:14e44d87fcbc621c8eb62b3fe9d92c46a231c125453fbc12f86a385100d3dab1",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",

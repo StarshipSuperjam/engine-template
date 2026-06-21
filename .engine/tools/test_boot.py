@@ -241,67 +241,96 @@ class TestConsumesAttentionNeverReRanks(unittest.TestCase):
 
 
 class TestFocusedNeighborhood(unittest.TestCase):
-    """The orientation-time focused knowledge read (#37, PR 2): a focus derived from the work in hand drives
-    a structural_neighbors walk that surfaces as an AI-facing neighborhood block — NOT operator action lines."""
+    """The orientation-time focused knowledge read (#37, D-224): a focus derived from the work in hand drives
+    a BIDIRECTIONAL neighbourhood, rendered as an AI-facing block — PER SOURCE, by relationship, with the TRUE
+    count disclosed when truncated — NOT operator action lines, and never an arbitrary capped few as if salient."""
 
-    def _partition_with_neighbors(self):
-        # An in_flight action item AND a structural_neighbors entry (the focused-read output) in one partition.
+    def _summary(self):
+        # what attention.neighborhood_of returns: per-(member, relationship) groups with full counts + samples.
+        return {"focus": ["tool:attention"], "groups": [
+            {"source": "tool:attention", "predicate": "provided_by", "direction": "out",
+             "total": 1, "sample": ["module:core"]},
+            {"source": "tool:attention", "predicate": "targets", "direction": "in",
+             "total": 2, "sample": ["check:policy-frontmatter", "check:policy-shape"]},
+        ]}
+
+    def _partition(self):
+        # an in_flight action item AND a structural_neighbors entry (the ranked partition still carries the
+        # flat slice for the CLI/budget); needs_attention must route structural_neighbors OUT of the action lines.
         return {"partition": [
-            {"category": "in_flight", "precedence_rank": 2,
-             "members": [{"id": "pr:161", "rank": 1}]},
+            {"category": "in_flight", "precedence_rank": 2, "members": [{"id": "pr:161", "rank": 1}]},
             {"category": "structural_neighbors", "precedence_rank": 4,
-             "members": [{"id": "module:core", "rank": 1}, {"id": "module:core", "rank": 2},
-                         {"id": "schema:attention-result.v1", "rank": 3}]},
+             "members": [{"id": "module:core", "rank": 1}]},
         ], "degraded_inputs": ["telemetry"]}
 
-    def test_structural_neighbors_feed_the_neighborhood_not_the_action_lines(self):
-        with mock.patch.object(boot.attention, "derive_focus",
-                               return_value=["tool:attention", "tool:boot"]), \
-                mock.patch.object(boot.attention, "rank_live",
-                                  return_value=self._partition_with_neighbors()):
+    def test_structural_neighbors_never_become_action_lines_and_the_summary_is_carried(self):
+        with mock.patch.object(boot.attention, "derive_focus", return_value=["tool:attention"]), \
+                mock.patch.object(boot.attention, "rank_live", return_value=self._partition()), \
+                mock.patch.object(boot.attention, "neighborhood_of", return_value=self._summary()):
             lines, degraded, nb = boot.needs_attention({})
-        # the in_flight item IS an action line; the neighbors are NOT (they went to the neighborhood)
-        self.assertTrue(any("161" in ln for ln in lines))
-        self.assertFalse(any("core" in ln for ln in lines))
+        self.assertTrue(any("161" in ln for ln in lines))      # the in_flight item IS an action line
+        self.assertFalse(any("core" in ln for ln in lines))    # the neighbours are NOT (they are the AI block)
         self.assertEqual(degraded, ["telemetry"])
-        self.assertEqual(nb["focus"], ["attention", "boot"])     # focus slugs, deduped, from the work in hand
-        self.assertEqual(nb["adjacent"], ["core", "attention-result.v1"])  # neighbor slugs, deduped, in order
+        self.assertEqual(nb, self._summary())                  # the rich summary is carried verbatim to render
 
-    def test_render_neighborhood_names_slugs_never_raw_ids(self):
-        block = "\n".join(boot.render_neighborhood({"focus": ["attention", "boot"], "adjacent": ["core"]}))
-        self.assertIn("attention, boot", block)
-        self.assertIn("core", block)
-        self.assertNotIn("tool:", block)     # no kind:slug jargon leaks to the briefing
+    def test_render_is_per_source_by_relationship_in_plain_words(self):
+        block = "\n".join(boot.render_neighborhood(self._summary()))
+        self.assertIn("You're touching: attention", block)
+        self.assertIn("attention is part of core", block)                 # forward provided_by -> its module
+        self.assertIn("attention is checked by: policy-frontmatter, policy-shape", block)  # reverse targets
+        self.assertNotIn("tool:", block)                                  # no raw ids
         self.assertNotIn("module:", block)
+        self.assertNotIn("provided_by", block)                            # no raw predicate vocabulary (§12)
+        self.assertNotIn("targets", block)
         self.assertIn("knowledge neighborhood of your current work", block)
 
-    def test_no_focus_renders_no_block(self):
+    def test_honest_truncation_discloses_the_true_count(self):
+        # the maintainer's binding correction: a hub focus must NOT show an arbitrary capped few as if salient;
+        # the render states the true total and frames the sample AS a sample (#37 / D-224).
+        summary = {"focus": ["module:core"], "groups": [
+            {"source": "module:core", "predicate": "provided_by", "direction": "in",
+             "total": 147, "sample": ["audit_library", "boot", "close", "conduct"]}]}
+        block = "\n".join(boot.render_neighborhood(summary))
+        # the TRUE count, AND the shown few framed as arbitrary examples (never "the 4 that matter")
+        self.assertIn("core provides 147 (showing 4 examples, not ranked by importance:", block)
+        self.assertIn("audit_library, boot, close, conduct", block)
+        self.assertNotIn("provides:", block)                              # not rendered as if it were the whole
+
+    def test_no_focus_or_no_groups_renders_cleanly(self):
         self.assertEqual(boot.render_neighborhood(None), [])
-        self.assertEqual(boot.render_neighborhood({"focus": [], "adjacent": []}), [])
+        self.assertEqual(boot.render_neighborhood({"focus": [], "groups": []}), [])
+        bare = "\n".join(boot.render_neighborhood({"focus": ["tool:x"], "groups": []}))
+        self.assertIn("You're touching: x", bare)                         # the focus is still named
+        self.assertIn("nothing else is connected", bare.lower())          # neutral, no-jargon, not an alarm
         with mock.patch.object(boot.attention, "derive_focus", return_value=[]), \
                 mock.patch.object(boot.attention, "rank_live",
                                   return_value={"partition": [], "degraded_inputs": []}):
             _, _, nb = boot.needs_attention({})
-        self.assertIsNone(nb)
-
-    def test_empty_neighborhood_still_names_the_focus(self):
-        # focus present but no neighbors (sparse graph) -> the block still tells the AI what you're touching.
-        block = "\n".join(boot.render_neighborhood({"focus": ["attention"], "adjacent": []}))
-        self.assertIn("attention", block)
-        self.assertIn("nothing adjacent", block.lower())
+        self.assertIsNone(nb)                                             # no work in hand -> no neighbourhood
 
     def test_pack_carries_the_neighborhood_block_when_focus_present(self):
         patchers = _offline()
         try:
             with mock.patch.object(boot.attention, "derive_focus", return_value=["tool:attention"]), \
-                    mock.patch.object(boot.attention, "rank_live",
-                                      return_value=self._partition_with_neighbors()):
+                    mock.patch.object(boot.attention, "rank_live", return_value=self._partition()), \
+                    mock.patch.object(boot.attention, "neighborhood_of", return_value=self._summary()):
                 pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
         self.assertIn("knowledge neighborhood of your current work", pack)
         self.assertIn("You're touching: attention", pack)
+        self.assertIn("attention is checked by", pack)
+
+    def test_relation_phrase_covers_every_walk_edge_in_both_directions(self):
+        # render_neighborhood SILENTLY skips a group whose (predicate, direction) has no phrase. Pin the
+        # table to the full pinned edge set so a future walk edge can't make a real neighbour group vanish
+        # unseen (the render must always be able to name the relationship the graph reaches a neighbour by).
+        import knowledge_index
+        for edge in knowledge_index.WALK_EDGE_KINDS:
+            for direction in ("in", "out"):
+                self.assertIn((edge, direction), boot._RELATION_PHRASE,
+                              f"render_neighborhood has no plain-language phrase for ({edge}, {direction})")
 
 
 class TestGovernanceAlarms(unittest.TestCase):

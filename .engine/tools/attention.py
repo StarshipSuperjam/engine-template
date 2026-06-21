@@ -49,6 +49,12 @@ STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
 # with the maintainer (a SET of all touched components, capped). It bounds the FOCUS, not the neighbour count.
 FOCUS_CAP = 5
 
+# How many neighbours of each (focus member, relationship) the orientation SUMMARY samples for display. The
+# rest are NOT dropped silently — `neighborhood_of` keeps the FULL count per relationship so the render can
+# disclose the truncation honestly ("core provides 147, showing 4"), never an arbitrary capped few passed off
+# as the whole (D-224 honest-truncation; relevance-ordering WHICH few is deferred to Q38/Q39).
+NEIGHBORHOOD_SAMPLE_CAP = 4
+
 
 # ---- policy + substrate reads ---------------------------------------------------------------
 
@@ -155,6 +161,15 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
             # and never bulks up orientation. Pass the walk set explicitly rather than leaning on the
             # neighbors() default, so the pin lives at attention's own call site.
             walk_edges = edge_filter if edge_filter is not None else list(knowledge_query.WALK_EDGE_KINDS)
+            # The walk is BIDIRECTIONAL (forward + reverse, `direction="both"`) over that same pinned edge
+            # set (D-224). Forward-only starves a leaf: a non-check, ungoverned surface has no outgoing
+            # structural edge but `provided_by` -> its module, so it collapses to just its module. Reverse
+            # (`direction:in`) surfaces the connective tissue that already exists in the graph — a policy's
+            # governed surfaces, a module's dependents/surfaces, any surface's targeting checks. Reverse is a
+            # query-time direction over the SAME forward edges (D-203 gate 3), NOT a new edge type, so it is
+            # budget-neutral: reverse candidates compete for the same fixed structural_neighbors slice, never
+            # grow it. A genuinely bare leaf (ungoverned AND untargeted, e.g. a tool) still resolves to only
+            # its module; relevance-ordering a dense neighbourhood is deferred (engine-planning Q38/Q39, D-224).
             # The focus is the work in hand — a single entity id or a SET (the changed work usually spans
             # several entities, #37). Walk each member, then DEDUPE neighbours and EXCLUDE any neighbour that
             # is itself a focus member (co-changed entities are not each other's "structural neighbours").
@@ -164,7 +179,7 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
             focus_set = set(focus_ids)
             seen: set = set()
             for fid in focus_ids:
-                for n in knowledge_query.neighbors(fid, edge_filter=walk_edges, depth=depth):
+                for n in knowledge_query.neighbors(fid, edge_filter=walk_edges, depth=depth, direction="both"):
                     nid = n["id"]
                     if nid in focus_set or nid in seen:
                         continue
@@ -189,6 +204,52 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
             pass  # the in-flight work record could not be consulted -> degrade over git
 
     return candidates, available, cursor_as_of
+
+
+def neighborhood_of(focus: "str | list[str] | None", *, depth: int = 1):
+    """The work-in-hand's structural neighbourhood as a per-(member, relationship) SUMMARY — the render
+    channel for the orientation block (#37 / D-224). For each focus member it runs the SAME bidirectional,
+    edge-pinned walk assemble_candidates runs (`direction="both"`, WALK_EDGE_KINDS, depth 1), then GROUPS the
+    neighbours by the relationship that reaches each one — its (predicate, direction) — carrying the FULL
+    count plus a bounded sample (NEIGHBORHOOD_SAMPLE_CAP) per group.
+
+    This exists because the ranked partition cannot carry it: rank() reduces every member to {id, rank}
+    (the per-neighbour detail is stripped) and structural_neighbors is a budgeted slice, so a hub focus would
+    render an arbitrary capped few with no count. The per-relationship count preserved here lets the render
+    DISCLOSE truncation honestly ("core provides 147, showing 4") instead of passing a sample off as salient.
+
+    Returns {"focus": [ids], "groups": [{"source", "predicate", "direction", "total", "sample": [ids]}]} with
+    groups in a deterministic order (focus order, then the pinned edge order, forward before reverse), or None
+    when there is no work in hand / knowledge is unavailable (fail-open, like derive_focus — boot then renders
+    no block). Returns IDs, not slugs: the render owns the plain-language slugging + relationship phrasing."""
+    if not focus or knowledge_query is None:
+        return None
+    focus_ids = [focus] if isinstance(focus, str) else list(focus)
+    focus_set = set(focus_ids)
+    try:
+        walk_edges = list(knowledge_query.WALK_EDGE_KINDS)
+        edge_order = {e: i for i, e in enumerate(walk_edges)}
+        groups: list = []
+        for idx, fid in enumerate(focus_ids):
+            # Group this member's bidirectional neighbours by the relationship that reaches each — (predicate,
+            # direction) — excluding co-changed focus members (they are not each other's structural neighbours).
+            by_rel: dict = {}
+            for n in knowledge_query.neighbors(fid, edge_filter=walk_edges, depth=depth, direction="both"):
+                nid = n["id"]
+                if nid in focus_set:
+                    continue
+                bucket = by_rel.setdefault((n["predicate"], n["direction"]), [])
+                if nid not in bucket:        # dedupe within a relationship (the walk's UNION already dedupes;
+                    bucket.append(nid)       # this guards a degenerate multi-edge graph too)
+            for (predicate, direction), nids in by_rel.items():
+                groups.append({"source": fid, "predicate": predicate, "direction": direction,
+                               "_order": (idx, edge_order.get(predicate, len(walk_edges)),
+                                          0 if direction == "out" else 1),
+                               "total": len(nids), "sample": nids[:NEIGHBORHOOD_SAMPLE_CAP]})
+        groups.sort(key=lambda g: g.pop("_order"))
+        return {"focus": focus_ids, "groups": groups}
+    except Exception:
+        return None  # knowledge unavailable -> no focused neighbourhood this session (boot renders no block)
 
 
 # ---- live ranking (the single assembler shared by the CLI and boot) -------------------------
