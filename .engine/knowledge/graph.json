@@ -1120,7 +1120,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:7fcf382e851e798856ac715787ab9c21471a4585c9e64203680406eaf9cfa047",
+        "fingerprint": "sha256:10a2f5a85c7f583742e708fdc9bb510b985c6d2364c89bc4cbefe50402fceff8",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -2084,7 +2084,7 @@
       },
       "slug": "__init__",
       "source": {
-        "fingerprint": "sha256:65681a71c3b350b879d5de12015fedce452f5873988f06c95365a66dae49ea24",
+        "fingerprint": "sha256:f673755c37c92a7e5e8cce7992619155cf7aa0312774060fba340cbae8169fae",
         "path": ".engine/tools/memory/__init__.py"
       },
       "status": "active",
@@ -2596,6 +2596,23 @@
       "source": {
         "fingerprint": "sha256:7c4052ff95f3a9c6d95aacd250c892e74354937aae9693c118b33fea5307679c",
         "path": ".engine/tools/engine_status.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:erasure_observer",
+      "name": ".engine/tools/memory/erasure_observer.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "erasure_observer",
+      "source": {
+        "fingerprint": "sha256:10f7efa29a584c5fa7df1e6e2b8d0c4ca4a1b0f89cf752730de249b067894baf",
+        "path": ".engine/tools/memory/erasure_observer.py"
       },
       "status": "active",
       "type": "tool"
@@ -3485,6 +3502,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_erasure_observer",
+      "name": ".engine/tools/memory/test_erasure_observer.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_erasure_observer",
+      "source": {
+        "fingerprint": "sha256:6b28f3c6575c79248e8d11ba498b02eeed0e2d097c7e781ab3bc82439df9757f",
+        "path": ".engine/tools/memory/test_erasure_observer.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_first_run_reference_closure",
       "name": ".engine/tools/test_first_run_reference_closure.py",
       "owner": "core",
@@ -3512,7 +3546,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:6fbd855da197aff39f0016c8508ccce3b145ce84120af746edd7cb08b7601e4d",
+        "fingerprint": "sha256:af4994975dc3a46297122071c8457d397519f4ebe6a814d1e40736329938a044",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -3529,7 +3563,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:9a16468a55e1661e906375eca255eccd50a2d36c51c0ef0fca8734ce0fb80b92",
+        "fingerprint": "sha256:9098bbe3a9303313a9e671dc1d4721fa826eefd7672b624317eb5f070c4dadd6",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",

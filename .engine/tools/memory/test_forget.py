@@ -152,20 +152,26 @@ class BuildConformanceTests(unittest.TestCase):
 
     def test_no_layer1_file_mints_an_erasure_marker(self):
         # Layer-2 physical erasure (slice 4e) is reachable ONLY through compact's gated removal, which fires only on
-        # an `operator-adjudicated-erasure` marker. The SOLE minter of that marker is `compact.enact_erasure`. So no
-        # OTHER memory tool may call the minter — a Layer-1 routine that minted a marker could route the autonomous
-        # fold into erasure. The ban targets the minter CALL (`enact_erasure(`), NOT the kind constant (forget
-        # legitimately references `records.ERASURE_KIND` to drop the marker from recall) and NOT `compact()` (rollup
-        # / consolidate legitimately call it — calling compact is not minting). A glob-walk over the whole memory
-        # package (not a fixed file list) so a tool added LATER is covered too; compact.py is the chokepoint owner.
+        # an `operator-adjudicated-erasure` marker. Exactly TWO Layer-2 files may touch the minter call:
+        # `compact.py` (the chokepoint OWNER — it DEFINES `enact_erasure` and performs the removal) and, since slice
+        # 4e-ii, `erasure_observer.py` (the SANCTIONED cross-session ENACTOR — it calls the minter, but ONLY with a
+        # merge SHA read from a genuinely-merged single-purpose erasure PR, never from evidence or argv). Every OTHER
+        # (Layer-1) memory file must NOT call the minter — a Layer-1 routine that minted a marker could route the
+        # autonomous fold into erasure. The ban targets the minter CALL (`enact_erasure(`), NOT the kind constant
+        # (forget legitimately references `records.ERASURE_KIND` to drop the marker from recall) and NOT `compact()`
+        # (rollup / consolidate legitimately call it — calling compact is not minting). A glob-walk over the whole
+        # memory package (not a fixed file list) so a Layer-1 tool added LATER is covered too. The package marker
+        # `__init__.py` is NOT exempted — it is scanned like any other file (it must never mint either).
+        sanctioned = ("compact.py", "erasure_observer.py")
         mem_dir = os.path.dirname(os.path.abspath(__file__))
         for name in sorted(os.listdir(mem_dir)):
-            if not name.endswith(".py") or name.startswith("test_") or name in ("compact.py", "__init__.py"):
+            if not name.endswith(".py") or name.startswith("test_") or name in sanctioned:
                 continue
             with open(os.path.join(mem_dir, name), encoding="utf-8") as fh:
                 src = fh.read()
             self.assertNotIn("enact_erasure(", src,
-                             f"{name} must not mint an erasure marker — the sole minter is compact.enact_erasure")
+                             f"{name} must not mint an erasure marker — the only sanctioned callers are "
+                             f"compact.enact_erasure (the owner) and erasure_observer (the cross-session enactor)")
 
 
 if __name__ == "__main__":
