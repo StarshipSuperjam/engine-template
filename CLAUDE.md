@@ -67,6 +67,12 @@ smell to recheck, never a verdict to relay). My adjudication raises confidence; 
   validator and the guards) so they are not rubber-stamped across many small green PRs.
 - The merge-gate **reviewer is a non-engineer at every layer** — what grows toward M1 is the machinery that
   fills the evidence bundle, not the gate-holder's ability to read code.
+- **Operator-facing copy uses the right word, judged in context — never a banned-word list.** Clarity over
+  engineer-shorthand is a writing-and-review *judgment*, and keeping internal machinery out of operator
+  narration is a *relevance* judgment (engine-planning §12) — neither is a mechanical word-substring filter
+  (which would grade prose, against §7) and **no forbidden-word list is kept or created** (a list invites
+  list-growth and teaches that word-banning is a writing function — D-225). Whether a render leans on jargon
+  is judged by the `audit` prose probe and the per-PR build-conformance review, not a filter.
 
 ## The seed (stage 0) and its frozen names
 
