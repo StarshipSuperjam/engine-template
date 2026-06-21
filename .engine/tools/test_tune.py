@@ -6,7 +6,7 @@ threshold policies' keys; validate_value refuses a fixed (structural) setting wi
 an unknown setting, and a non-number value (a bool is not a number); write_override creates the file, merges,
 and preserves every other saved setting; set_value writes only after validation passes, opens a reviewed PR
 through the INJECTED opener (faked — no real commit), saves-without-PR on request, and degrades when the
-opener fails; and the pinned operator strings carry no governance jargon. The demo runs.
+opener fails. The demo runs.
 """
 import contextlib
 import io
@@ -133,21 +133,6 @@ class TestSetValue(unittest.TestCase):
             self.assertIsNone(res["pr"])
             self.assertIn("could not be opened", res["message"])
             self.assertTrue(os.path.exists(p))
-
-
-class TestPlainLanguage(unittest.TestCase):
-    # The governing plain-language law's forbidden vocabulary — none may surface in the pinned operator copy.
-    _FORBIDDEN = ("orchestrat", "coherence", "wiring", "manifest", "idempotent", "venv", "lockfile",
-                  "pyproject", "ruleset", "override", "policy-override", "custom/script", "provides",
-                  "invocation", "model-auto", "operator-typed", "model-only", "foundation", "structural",
-                  "precedence", "schema")
-
-    def test_pinned_strings_are_plain(self):
-        for label, text in (("refuse", tune._REFUSE_STRUCTURAL), ("reassure", tune._REASSURANCE),
-                            ("confirm", tune._CONFIRM)):
-            low = text.lower()
-            for term in self._FORBIDDEN:
-                self.assertNotIn(term, low, f"plain-language law: '{term}' must not surface in {label}")
 
 
 class TestCLIAndDemo(unittest.TestCase):

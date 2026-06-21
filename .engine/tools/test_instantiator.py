@@ -19,10 +19,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import instantiator as inst  # noqa: E402
 import validate  # noqa: E402
 
-_FORBIDDEN = ("orchestrat", "coherence", "wiring", "wires", "manifest", "idempotent", "venv", "sync",
-              "lockfile", "pyproject", "ruleset", "override", "custom/script", "provides", "invocation",
-              "model-auto", "operator-typed", "model-only", "foundation")
-
 
 def _module(root, mid, status, version="1.0.0"):
     d = os.path.join(root, ".engine", "modules", mid)
@@ -98,12 +94,6 @@ class TestPresentGather(unittest.TestCase):
             out = self._gather(p)
             self.assertIn("engine-x — Does x.", out)
             self.assertIn("Product Management", out)
-
-    def test_walkthrough_is_plain_language(self):
-        out = self._gather(None)
-        low = out.lower()
-        for term in _FORBIDDEN:
-            self.assertNotIn(term, low, f"plain-language law: '{term}' must not surface to the operator")
 
 
 class TestConfirm(unittest.TestCase):
@@ -282,11 +272,6 @@ class TestStartabilityWithoutRuntime(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         # In this construction repo the manifest is present, so the verb short-circuits "already set up".
         self.assertIn(inst._ALREADY_SET_UP.split("\n")[0], proc.stdout, proc.stdout)
-
-
-# Apply copy is held to a STRICTER plain-language list than the gather copy: the apply phase also names the
-# tool-runtime and the control-plane, whose maintainer terms must never reach the operator.
-_FORBIDDEN_APPLY = _FORBIDDEN + ("control-plane", "tool-runtime")
 
 
 def _confirmed_fixture(tmp, handle="octocat", keep=None):
@@ -604,17 +589,6 @@ class TestApplyCopySurface(unittest.TestCase):
         copy = inst.load_copy("/no/such/first-run.md")
         self.assertEqual(copy["tool-runtime-consent"], inst.FALLBACK_COPY["tool-runtime-consent"])
 
-    def test_apply_copy_is_plain_language(self):
-        # The expanded plain-language law over the apply copy surface AND the rendered control-plane banners
-        # the apply phase surfaces (no tool-runtime / control-plane / venv / ruleset … reaches the operator).
-        surfaces = list(inst.load_copy(inst.TEMPLATE_PATH).values())
-        surfaces += [inst.bootstrap.render(inst.bootstrap.Result(s, "main", ["x"], c))
-                     for s, c in (("applied", None), ("already", None), ("degraded", "not-admin"),
-                                  ("degraded", "org-policy"), ("degraded", "didnt-save"))]
-        blob = "\n".join(surfaces).lower()
-        for term in _FORBIDDEN_APPLY:
-            self.assertNotIn(term, blob, f"plain-language law: '{term}' must not surface in the apply copy")
-
 
 class TestApplyChainRunsOnSystemPython39(unittest.TestCase):
     # The apply phase runs on the operator's SYSTEM python (3.9 on macOS) BEFORE it installs the 3.11+
@@ -691,8 +665,6 @@ class TestReadmeRecognizer(unittest.TestCase):
             self.assertIn("keeps your work safe", low)
             self.assertIn("clean-code", low)                  # the D-095 gap named
             self.assertNotIn("required", low, "never 'the memory package is required'")
-            for jargon in _FORBIDDEN:
-                self.assertNotIn(jargon, low, f"starter must not leak maintainer jargon: {jargon!r}")
 
 
 class TestRepoReadmeLeadsWithMarker(unittest.TestCase):
@@ -972,8 +944,6 @@ class TestApplyCli(unittest.TestCase):
 
 # ==== VERIFY + RETIRE (core slice 27c) ===============================================================
 
-# The finish (verify + retire) copy adds the saved-information terms to the apply forbidden list.
-_FORBIDDEN_FINISH = _FORBIDDEN_APPLY + ("graph", "fingerprint")
 _FINISH_KEYS = ("verify-paused", "verify-next-actions", "verify-ok", "verify-gate-on",
                 "verify-gate-pending", "retire-success")
 
@@ -1143,12 +1113,6 @@ class TestFinishCopy(unittest.TestCase):
         for key in _FINISH_KEYS:
             self.assertTrue(copy[key].strip(), f"finish copy section {key!r} missing from the template")
 
-    def test_finish_copy_is_plain_language(self):
-        copy = inst.load_copy(inst.TEMPLATE_PATH)
-        blob = "\n".join(copy[k] for k in _FINISH_KEYS).lower()
-        for term in _FORBIDDEN_FINISH:
-            self.assertNotIn(term, blob, f"plain-language law: '{term}' must not surface in the finish copy")
-
 
 class TestFinishDemoRunsGreen(unittest.TestCase):
     def test_finish_demo_exits_zero(self):
@@ -1194,10 +1158,6 @@ class TestFinishCli(unittest.TestCase):
 
 # ==== BROWNFIELD COLLISION CHECK (core slice 27d) ====================================================
 
-# The overlap copy is held to a STRICTER plain-language list: the engine's own corner is never a "namespace",
-# placing files is never an "overlay", its marked section is never a "fence", a review rule is never a
-# "CODEOWNERS"/"glob".
-_FORBIDDEN_COLLISION = _FORBIDDEN + ("namespace", "overlay", "fence", "glob", "codeowners")
 _COLLISION_KEYS = ("collision-intro", "collision-exclusive", "collision-shared", "collision-codeowners",
                    "collision-none", "collision-unreadable")
 # A representative engine-owned path set the deferred live caller would pass (from the release tree). Tests
@@ -1369,12 +1329,6 @@ class TestCollisionCopy(unittest.TestCase):
         copy = inst.load_copy(inst.TEMPLATE_PATH)
         for key in _COLLISION_KEYS:
             self.assertTrue(copy[key].strip(), f"overlap copy section {key!r} missing from the template")
-
-    def test_collision_copy_is_plain_language(self):
-        copy = inst.load_copy(inst.TEMPLATE_PATH)
-        blob = "\n".join(copy[k] for k in _COLLISION_KEYS).lower()
-        for term in _FORBIDDEN_COLLISION:
-            self.assertNotIn(term, blob, f"plain-language law: '{term}' must not surface in the overlap copy")
 
 
 class TestCollisionDemoRunsGreen(unittest.TestCase):

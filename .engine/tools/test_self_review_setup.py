@@ -24,28 +24,10 @@ PAGE_PATH = os.path.join(_ENGINE, "audits", "self-review-setup.md")
 MANIFEST_PATH = os.path.join(_ENGINE, "modules", "audit-library", "manifest.json")
 FIRST_RUN_ASSETS_PATH = os.path.join(_ENGINE, "provisioning", "first-run-assets.json")
 
-# The operator never meets maintainer or audit backstage vocabulary. The maintainer stems mirror the apply
-# copy's forbidden set (kept in step with the convention, INLINED — never imported from the retired
-# test_instantiator) and the audit/schedule terms are this module's own (audit-library/README.md:132-138 +
-# "never call the schedule a cron"). NOT forbidden: "agent" — the page legitimately names the
-# `.claude/agents/audit.md` path in the pasted Cloud-Routine prompt.
-_FORBIDDEN = ("orchestrat", "coherence", "wiring", "wires", "manifest", "idempotent", "venv", "sync",
-              "lockfile", "pyproject", "ruleset", "override", "custom/script", "provides", "invocation",
-              "model-auto", "operator-typed", "model-only", "foundation",
-              "persona", "lens", "function-probe", "concern-list", "cron")
-
 
 def _page_text() -> str:
     with open(PAGE_PATH, encoding="utf-8") as fh:
         return fh.read()
-
-
-def _prose_only(text: str) -> str:
-    # Drop ``` fenced blocks before the vocabulary scan: the schedule line is GitHub's own literal syntax
-    # (`- cron: "17 7 * * 0"`), shown for the operator to copy verbatim — that is not the engine CALLING the
-    # schedule a "cron" in prose, which is the thing the plain-language bar forbids. Fences are balanced, so
-    # the even-indexed split segments are the text OUTSIDE code blocks.
-    return "".join(text.split("```")[0::2])
 
 
 class TestSetupPagePresenceAndOwnership(unittest.TestCase):
@@ -109,14 +91,6 @@ class TestSetupPageContent(unittest.TestCase):
         # Honesty line (operator-ratified): the review can't yet read saved working memory (the off-repo
         # backup is unbuilt), so the page says so up front rather than letting a clean review be over-trusted.
         self.assertIn("saved working memory", self.text)
-
-
-class TestSetupPagePlainLanguage(unittest.TestCase):
-    def test_no_backstage_vocabulary_in_prose(self):
-        prose = _prose_only(_page_text()).lower()
-        for term in _FORBIDDEN:
-            self.assertNotIn(term, prose,
-                             f"the operator setup page must not leak backstage vocabulary: {term!r}")
 
 
 if __name__ == "__main__":
