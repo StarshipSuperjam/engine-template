@@ -4,13 +4,12 @@ already has its own files). The tool `tools/instantiator.py` reads these section
 built-in fallbacks keep it working if this file is ever missing, and a parity test holds the two in step. This
 is the single review surface for what the operator is told as the engine installs their choices, turns on its
 guardrails, checks the result fits together, cleans up the one-time setup files, and reports any overlap with a
-project's existing files. Plain language only — no engine/maintainer vocabulary reaches these words (so the
-private tool folder is never called a "tool-runtime", "uv", a "venv", or a "sync"; the review gate is never a
-"control-plane" or a "ruleset"; nothing is an "override" or a "manifest"; the consistency check is never
-"coherence"; the saved information is never a "graph" or a "fingerprint"; the tidy-up is never "retire"; the
-engine's own corner of the project is never a "namespace", placing files there is never an "overlay", the
-engine's marked section in a shared file is never a "fence", and a review rule is never a "CODEOWNERS" rule or
-a "glob"). The copy for the GitHub authorization screen, and for a review gate that couldn't be turned on,
+project's existing files. Plain language only — keep the engine's internal machinery out of what the operator
+reads: name each thing by what it does for them, not by its engine/maintainer term. That is a relevance
+judgment made in the writing and the review, never a banned-word list — the right word for the operator's need
+is the right word, and no word-list is kept (a list invites list-growth and teaches that word-banning is a
+writing function). Whether a render leans on engineer-shorthand is judged by the `audit` self-review's prose
+probe and the per-change review, not a filter. The copy for the GitHub authorization screen, and for a review gate that couldn't be turned on,
 lives with the review-gate tool itself, so it is not repeated here. Edit the wording here; the section HEADINGS
 are stable keys the tool matches, so don't rename them. -->
 

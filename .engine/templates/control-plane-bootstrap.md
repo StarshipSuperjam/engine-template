@@ -1,9 +1,11 @@
 <!-- The operator-facing copy for the control-plane bootstrap (the tool `tools/bootstrap.py` reads these
 sections by heading and renders them; built-in fallbacks keep it working if this file is ever missing).
 This is the single review surface for what the operator is told when the safety gate is turned on or can't
-be. Plain language only — no engine/maintainer vocabulary (ruleset, scope, idempotent, token) reaches these
-words. The one literal the operator will see on GitHub's screen (`repo`) is pre-translated here before it
-appears. Edit the wording here; the section HEADINGS are stable keys the tool matches, so don't rename them. -->
+be. Plain language only — keep the engine's internal machinery out of what the operator reads: name each thing
+by what it does for them, not by its engine/maintainer term. That is a relevance judgment made in the writing
+and the review, never a banned-word list (none is kept here or anywhere). The one literal the operator will
+see on GitHub's screen (`repo`) is pre-translated here before it appears. Edit the wording here; the section
+HEADINGS are stable keys the tool matches, so don't rename them. -->
 
 ## Before you approve
 
