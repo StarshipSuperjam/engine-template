@@ -12,8 +12,9 @@ forgotten (the freshly-stale catch at validation; a lingering one is the audit's
 It surfaces in PLAIN operator language: the live MERGE that actually applies the override is
 `validate.effective_policy_values`, consumed by attention's `load_policy_values` (never re-implemented) — but
 that merge's per-key message is maintainer-register ("Override key … structural-law value …"), which must not
-reach the operator at the merge gate (the validation plain-language law; the same forbidden vocabulary the
-tune tool's own copy is pinned against). So this rule classifies each saved setting against the SAME inputs
+reach the operator at the merge gate (the validation plain-language law — keep the engine's internal machinery
+out of operator view, the same judgment the tune tool's own copy is written to). So this rule classifies each
+saved setting against the SAME inputs
 the merge is given — the policy's shipped defaults and the consumer's structural-key set — and writes its own
 plain sentence. It is a `custom/script` rule: it prints the finding.v1 array on stdout and returns 0 (the
 `skill_coherence_check` pattern). With no saved-settings file (the normal state until the operator first
@@ -39,9 +40,9 @@ _FILE = ".engine/operator-overrides.json"
 _STALE = ("A saved setting no longer exists: “{key}” isn't one of the engine's settings anymore, "
           "so the engine is using its own value for it instead. Type /engine-tune to set a setting the "
           f"engine still has, or remove this one from your saved settings ({_FILE}).")
-_FIXED = ("A saved setting can't be changed: “{key}” keeps the engine's safety order and is fixed "
-          "on purpose, so the engine is ignoring the saved value. Type /engine-tune to change a setting you "
-          f"can, or remove this one from your saved settings ({_FILE}).")
+_FIXED = ("A saved setting can't be changed: “{key}” is structural — it encodes part of the engine's safety "
+          "order, so the engine is ignoring the saved value. Type /engine-tune to change a setting you can, "
+          f"or remove this one from your saved settings ({_FILE}).")
 _NOTNUM = ("A saved setting isn't a number: “{key}” is set to something that isn't a number, so the "
            f"engine is using its own value for it instead. Type /engine-tune to set it again, or fix it in "
            f"your saved settings ({_FILE}).")
