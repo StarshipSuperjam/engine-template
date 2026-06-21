@@ -2101,7 +2101,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:72fac2d9f82bb274e627cb9be8349bd038216253f861efe59e7de952169951b0",
+        "fingerprint": "sha256:f3cdf319725028f19046cf60c70b7c6cd82073241af31b342a215cb685958058",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -2186,8 +2186,25 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:827f5c00315cfc08b933f5cdc914967bfc6f557ef9e48ac64cd2d2990b0984dd",
+        "fingerprint": "sha256:07b1f482b106e000eb4254ca044741f59fe3b416c7842bde3dbf0e9ef14883de",
         "path": ".engine/tools/boot.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:boot_slice",
+      "name": ".engine/tools/boot_slice.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "boot_slice",
+      "source": {
+        "fingerprint": "sha256:7c70aa90adfe927cad299dd2d964165db96c7448c18efccc56dc3844461e6f0d",
+        "path": ".engine/tools/boot_slice.py"
       },
       "status": "active",
       "type": "tool"
@@ -2375,6 +2392,23 @@
       "source": {
         "fingerprint": "sha256:f4f8ac7b71526ac20565d1c1c1ed6a585ff21504ffa349de4ae42f9e6dc64fd2",
         "path": ".engine/tools/demo_audit_digest.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_boot_slice",
+      "name": ".engine/tools/demo_boot_slice.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_boot_slice",
+      "source": {
+        "fingerprint": "sha256:7dcc2e541d1432501c39ebc196845b651616239e1de66255c0f5210782da192d",
+        "path": ".engine/tools/demo_boot_slice.py"
       },
       "status": "active",
       "type": "tool"
@@ -3104,7 +3138,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:d83d2dd9b61b14223d9f63ebd6bb9ff85a878bf39cb91eae79a3588791bba033",
+        "fingerprint": "sha256:e35273482d08407597ead29f9df4370967c0e5e6315314a3c76c7424f2915ec2",
         "path": ".engine/tools/test_attention.py"
       },
       "status": "active",
@@ -3155,8 +3189,25 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:0e0adf4f7fd6ec76843dee7659c5e5a03abc008b44f84ed1da8890ca28886a92",
+        "fingerprint": "sha256:cb796fbc77690a448733ec4ca7bb4e95f94e78f095b8b07e785636226286062c",
         "path": ".engine/tools/test_boot.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_boot_slice",
+      "name": ".engine/tools/test_boot_slice.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_boot_slice",
+      "source": {
+        "fingerprint": "sha256:97bcdd7d390a7729add49f7f9d15b5f81c3c7b051ceb5508a73bfc2408b76d00",
+        "path": ".engine/tools/test_boot_slice.py"
       },
       "status": "active",
       "type": "tool"

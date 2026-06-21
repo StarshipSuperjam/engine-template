@@ -38,6 +38,9 @@ def _offline():
         # No real git in offline tests: the work-in-hand focus derivation reads local git, so pin it empty
         # (a focused-read test opts back in by re-patching derive_focus with its own fixture).
         mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)),
+        # boot's rung-1 slice read touches the real .cache/graph; pin it absent so offline tests are hermetic
+        # (source=None -> the reads run on knowledge_query exactly as before; threading is tested explicitly).
+        mock.patch.object(boot.boot_slice, "read", return_value=None),
     ]
     for p in patchers:
         p.start()
@@ -201,6 +204,11 @@ class TestWhereWeAreLiveOrCached(unittest.TestCase):
 
 
 class TestConsumesAttentionNeverReRanks(unittest.TestCase):
+    def setUp(self):
+        p = mock.patch.object(boot.boot_slice, "read", return_value=None)   # hermetic: no real .cache read
+        p.start()
+        self.addCleanup(p.stop)
+
     def test_renders_attention_order_verbatim(self):
         # A partition whose ARRAY order is deliberately NOT precedence order: orientation (precedence 5)
         # appears before blocking_debt (precedence 1). Boot must render in the GIVEN array order — proving
@@ -244,6 +252,13 @@ class TestFocusedNeighborhood(unittest.TestCase):
     """The orientation-time focused knowledge read (#37, D-224): a focus derived from the work in hand drives
     a BIDIRECTIONAL neighbourhood, rendered as an AI-facing block — PER SOURCE, by relationship, with the TRUE
     count disclosed when truncated — NOT operator action lines, and never an arbitrary capped few as if salient."""
+
+    def setUp(self):
+        # The direct needs_attention tests below don't go through _offline(); pin boot's rung-1 slice read
+        # absent so they stay hermetic (source=None -> the knowledge_query path, exactly as before).
+        p = mock.patch.object(boot.boot_slice, "read", return_value=None)
+        p.start()
+        self.addCleanup(p.stop)
 
     def _summary(self):
         # what attention.neighborhood_of returns: per-(member, relationship) groups with full counts + samples.
@@ -335,6 +350,22 @@ class TestFocusedNeighborhood(unittest.TestCase):
         self.assertIn("knowledge neighborhood of your current work", pack)
         self.assertIn("You're touching: attention", pack)
         self.assertIn("attention is checked by", pack)
+
+    def test_boot_reads_the_slice_once_and_threads_it_as_the_source(self):
+        # boot's rung-1 boot-slice read (#37) is fetched ONCE and threaded into all three knowledge reads, so
+        # orientation reads the gitignored cache, not the SQLite index. Re-patch read with a sentinel here
+        # (setUp pinned it None) and assert every read received it.
+        sentinel = object()
+        with mock.patch.object(boot.boot_slice, "read", return_value=sentinel) as rd, \
+                mock.patch.object(boot.attention, "derive_focus",
+                                  return_value=(["tool:attention"], 1)) as df, \
+                mock.patch.object(boot.attention, "rank_live", return_value=self._partition()) as rl, \
+                mock.patch.object(boot.attention, "neighborhood_of", return_value=self._summary()) as no:
+            boot.needs_attention({})
+        rd.assert_called_once_with()                                   # one slice read for the whole pack
+        self.assertIs(df.call_args.kwargs.get("source"), sentinel)
+        self.assertIs(rl.call_args.kwargs.get("source"), sentinel)
+        self.assertIs(no.call_args.kwargs.get("source"), sentinel)
 
     def test_relation_phrase_covers_every_walk_edge_in_both_directions(self):
         # render_neighborhood SILENTLY skips a group whose (predicate, direction) has no phrase. Pin the
