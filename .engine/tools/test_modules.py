@@ -378,11 +378,12 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(vc.get("depends"), {"core": ""})
 
     def test_audit_library_owns_persona_and_concern_list(self):
-        # audit-library (required, L3) ships the static self-audit artifacts: the audit persona and the
-        # seeded concern-list (audits-owned data). It owns NO check or schema this slice — the concern-list
-        # check is validators-core's (engine-self-validation consolidates there) and the schema rides core's
-        # schema glob — so its provides is exactly persona + concern-list, and it depends on core +
-        # validators-core (the semantic audit assumes the mechanical floor).
+        # audit-library (required, L3) ships the static self-audit artifacts: the audit persona, the
+        # seeded concern-list (audits-owned data), and the operator setup page for arming the scheduled
+        # self-review. It owns NO check or schema this slice — the concern-list check is validators-core's
+        # (engine-self-validation consolidates there) and the schema rides core's schema glob — so its
+        # provides is exactly persona + concern-list + setup page, and it depends on core + validators-core
+        # (the semantic audit assumes the mechanical floor).
         manifests = module_coherence.discover_manifests()
         al = next((m for _p, m in manifests if m.get("id") == "audit-library"), None)
         self.assertIsNotNone(al, "audit-library must be a present module")
@@ -391,8 +392,8 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(al.get("depends"), {"core": "", "validators-core": ""})
         self.assertEqual(al.get("provides"), {
             "agent": [".claude/agents/audit.md"],
-            "audits": [".engine/audits/concern-list.json"],
-        }, "audit-library owns exactly the persona and the seeded concern-list")
+            "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md"],
+        }, "audit-library owns exactly the persona, the seeded concern-list, and the setup page")
 
     def test_seed_concern_list_conforms_to_its_schema(self):
         # the committed seed concern-list is well-formed against concern-list.v1 — the same schema + dialect

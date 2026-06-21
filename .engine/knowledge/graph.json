@@ -1088,7 +1088,7 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:128467564dd347f67a094970d2f4e96ac119a9ba79876cb2ffbb521e5b8c4a07",
+        "fingerprint": "sha256:ed9040c6247d36cf1b0f85097bb45962252f6e43bff54b2a43a37865839de517",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
@@ -2135,7 +2135,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:0d011f305aa412e647b31b3c128641227feef756dd44847203204845b96fe518",
+        "fingerprint": "sha256:84126e3cdc546fd91b3718bfefd0aea1c3451153672bcc253d3801223fb4a194",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -2373,7 +2373,7 @@
       },
       "slug": "demo_audit_digest",
       "source": {
-        "fingerprint": "sha256:f4f8ac7b71526ac20565d1c1c1ed6a585ff21504ffa349de4ae42f9e6dc64fd2",
+        "fingerprint": "sha256:8a4ef53c3e689f2afc59601ff1ef8606a151efaa7bd425cd3eab42e6bebaf885",
         "path": ".engine/tools/demo_audit_digest.py"
       },
       "status": "active",
@@ -3121,7 +3121,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:874ac051d2b4ab13a18aae009c0d728ad6c2b6784d3830f7967abec032c928b7",
+        "fingerprint": "sha256:8eda81a6a3f1ecce8248579e58dfb813e079040b6abde916295e61be8b378bca",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -3631,7 +3631,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:7426a394c23869d93aef7aa44f24ad6bc182e3b1c74eb04762d2d2da66fa91d1",
+        "fingerprint": "sha256:e6ad378fc61a1e4e9544b4638a96c697e1951f400b6e91efbac28a4475ee3b84",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -3905,6 +3905,23 @@
       "source": {
         "fingerprint": "sha256:bc25e8859d0a4b81d6f32eed280d7b832f6f52238d000adf4cf0a92b096b7940",
         "path": ".engine/tools/test_self_map.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_self_review_setup",
+      "name": ".engine/tools/test_self_review_setup.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_self_review_setup",
+      "source": {
+        "fingerprint": "sha256:24cbc76f04d1464d36f1dadceb6e16a4910d3749ba1acf4a4797d51e94d6f98d",
+        "path": ".engine/tools/test_self_review_setup.py"
       },
       "status": "active",
       "type": "tool"
