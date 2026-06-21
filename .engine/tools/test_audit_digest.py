@@ -142,5 +142,46 @@ class TestStaleness(unittest.TestCase):
         self.assertEqual(audit_digest.STALENESS_DAYS, 30)
 
 
+class TestSealCLI(unittest.TestCase):
+    """The `seal` CLI — especially the --body-file path the scheduled run uses to feed captured prose, and
+    the argv filtering that keeps --body-file out of the positional file/date slots."""
+
+    def _bodyfile(self, d, text=BODY):
+        p = os.path.join(d, "captured-prose.md")
+        with open(p, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+        return p
+
+    def test_body_file_seals_the_files_contents_as_the_body(self):
+        with tempfile.TemporaryDirectory() as d:
+            digest = os.path.join(d, "audit-digest.md")
+            rc = audit_digest.main(["seal", digest, "--body-file", self._bodyfile(d)])
+            self.assertEqual(rc, 0)
+            self.assertEqual(audit_digest.check(digest)["severity"], "note")
+            _fm, body = audit_digest.split(digest)
+            self.assertIn("here is what I found", body)
+
+    def test_body_file_is_stripped_before_the_positional_file_and_date(self):
+        # --body-file (and its value) must never be mis-read as the file path (argv[1]) or the date
+        # (argv[2]) — even when it sits BEFORE the positionals.
+        with tempfile.TemporaryDirectory() as d:
+            digest = os.path.join(d, "audit-digest.md")
+            rc = audit_digest.main(["seal", "--body-file", self._bodyfile(d), digest, "2026-06-01"])
+            self.assertEqual(rc, 0)
+            fm, _body = audit_digest.split(digest)
+            self.assertEqual(audit_digest._iso(fm["generated"]), "2026-06-01")
+            self.assertEqual(audit_digest.check(digest)["severity"], "note")
+
+    def test_take_body_file_removes_the_pair_from_any_position(self):
+        with tempfile.TemporaryDirectory() as d:
+            bf = self._bodyfile(d, "hello")
+            rest, body = audit_digest._take_body_file(["seal", "f.md", "--body-file", bf, "2026-06-01"])
+            self.assertEqual(rest, ["seal", "f.md", "2026-06-01"])
+            self.assertEqual(body, "hello")
+
+    def test_body_file_without_a_path_is_an_error(self):
+        self.assertEqual(audit_digest.main(["seal", "x.md", "--body-file"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,77 @@
+"""The audit-prep scheduled self-review workflow (audit-library): a committed workflow that runs the
+read-only audit persona on a schedule and commits the digest it produces. These tests attest the
+load-bearing facts a non-engineer cannot read off the YAML: the file exists, is engine-owned (travels on
+upgrade + renders into CODEOWNERS), runs on a schedule, gates cleanly when unarmed, pins the
+operator-configurable model knob's default, and wires the tested seal/refresh plumbing. The end-to-end run
+itself is disclosed-unrun (no token in this construction repo); its grammar is covered by the actionlint
+workflow. Mirrors test_actionlint.py / test_secret_scan.py."""
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import validate            # noqa: E402
+import module_coherence    # noqa: E402
+import module_manager      # noqa: E402
+
+WORKFLOW_REL = ".github/workflows/audit-prep.yml"
+
+
+class TestAuditPrepIsAnEngineOwnedTraveler(unittest.TestCase):
+    """The workflow is a FOUNDATION_INFRA member, so it travels on upgrade (FOUNDATION_CODE) and is owned in
+    CODEOWNERS (foundation_infra_paths) — the same treatment as the other engine workflows."""
+
+    def test_workflow_is_present_in_the_tree(self):
+        self.assertTrue(os.path.isfile(os.path.join(validate.ROOT, WORKFLOW_REL)),
+                        f"{WORKFLOW_REL} must exist")
+
+    def test_is_a_foundation_infra_member(self):
+        self.assertIn(WORKFLOW_REL, module_coherence.FOUNDATION_INFRA)
+
+    def test_travels_on_upgrade_via_foundation_code(self):
+        self.assertIn(WORKFLOW_REL, module_manager.FOUNDATION_CODE)
+
+    def test_renders_into_codeowners_via_foundation_infra_paths(self):
+        owned = module_coherence.foundation_infra_paths()
+        self.assertIn(WORKFLOW_REL, owned)
+        self.assertFalse(any("*" in p for p in owned), "paths are concrete, never bare globs")
+
+
+class TestAuditPrepShape(unittest.TestCase):
+    """The load-bearing grammar a non-engineer cannot read off the YAML."""
+
+    def _text(self):
+        return validate.read(os.path.join(validate.ROOT, WORKFLOW_REL))
+
+    def test_runs_on_a_schedule(self):
+        text = self._text()
+        self.assertIn("schedule:", text)
+        self.assertIn("cron:", text)
+
+    def test_runs_the_audit_persona_read_only_via_direct_claude(self):
+        # Direct `claude` (not an action that would let the agent commit) keeps the persona read-only — the
+        # workflow's own later steps commit.
+        text = self._text()
+        self.assertIn("claude -p", text)
+        self.assertIn("--agent audit", text)
+
+    def test_gates_cleanly_when_unarmed(self):
+        # The skip-when-unarmed pattern: a gate job's output the real job is conditioned on, so a repo with
+        # no token never accumulates failing runs.
+        text = self._text()
+        self.assertIn("needs.gate.outputs.armed", text)
+
+    def test_model_knob_defaults_to_opus(self):
+        # The operator-configurable judgment model, defaulted so an unset variable never drops the run to a
+        # platform default. Pinned here so the default cannot silently change.
+        self.assertIn("vars.AUDIT_MODEL || 'opus'", self._text())
+
+    def test_seals_the_digest_and_refreshes_the_cache(self):
+        text = self._text()
+        self.assertIn("audit_digest.py", text)
+        self.assertIn("--body-file", text)
+        self.assertIn("telemetry.py refresh", text)
+
+
+if __name__ == "__main__":
+    unittest.main()

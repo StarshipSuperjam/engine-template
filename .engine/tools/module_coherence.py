@@ -70,7 +70,8 @@ ENGINE_MANIFEST_REL = ".engine/engine.json"
 # manifest, the root CLAUDE.md, the tool-runtime lockfiles, and the engine-owned .github/ control-plane
 # artifacts (the two required-check workflows; the advisory secret-scan workflow + dependabot.yml that
 # form the git-native security floor [control-plane "The security floor"]; the advisory actionlint
-# workflow that grammar-checks every workflow file; the PR template, the issue templates, and CODEOWNERS
+# workflow that grammar-checks every workflow file; the scheduled audit-prep workflow that runs the
+# engine's self-review; the PR template, the issue templates, and CODEOWNERS
 # itself). This is the foundation infrastructure-artifact set of repository-topology/README.md +
 # module-system/README.md §Coherence — the high-trust files a bare `provides`-union would leave
 # unowned. It is the SINGLE SOURCE for three derived consumers, so they cannot drift apart:
@@ -89,6 +90,7 @@ FOUNDATION_INFRA = (
     ".github/workflows/engine-guard.yml",
     ".github/workflows/secret-scan.yml",
     ".github/workflows/actionlint.yml",
+    ".github/workflows/audit-prep.yml",
     ".github/dependabot.yml",
     ".github/pull_request_template.md",
     ".github/ISSUE_TEMPLATE/*.md",

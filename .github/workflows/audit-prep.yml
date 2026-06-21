@@ -1,0 +1,141 @@
+# audit-prep — the engine's scheduled self-review (audit-library). It runs the read-only `audit` persona
+# on a recurring schedule, then commits the plain-language digest it produces (plus an auto-refreshed
+# where-we-stand cache) back as an ordinary pull request for the operator to read and merge.
+#
+# PRESENT-BUT-INERT UNTIL ARMED. The workflow ships committed in every repo, but the self-review only RUNS
+# once the operator does the one-time setup (a `CLAUDE_CODE_OAUTH_TOKEN` secret). With no token set, the
+# `gate` job skips the run cleanly — it never fails red — so an un-set-up repo never accumulates failing runs.
+# Because the workflow is committed from day one, the digest-staleness signal has a baseline to measure
+# against: a self-review that is missing, stopped, or never set up is surfaced on the operator's return.
+#
+# NOT EXERCISED END-TO-END DURING TEMPLATE CONSTRUCTION. This construction repo holds no subscription token
+# and no Agent-SDK credit, and committing back needs a deployed repo — so this file is validated by its
+# GRAMMAR (the actionlint workflow lints it) and by read-review, NOT by a run. The plumbing it calls — the
+# digest seal and the offline-cache refresh — IS unit-tested and demoed. That the scheduled run itself
+# produces a digest is confirmed the first time an operator arms it (the same maturity honesty the project
+# applies to its other v1-shipped-but-undogfooded paths).
+#
+# THE PERSONA STAYS READ-ONLY — THE WORKFLOW COMMITS. The `audit` persona only reads and reports; it never
+# writes. The sealing, the cache refresh, and the git + pull-request steps below are the WORKFLOW's, kept
+# separate from the persona, which is why this runs `claude` directly rather than an action that would let
+# the agent do the commit itself.
+#
+# CADENCE is the one cron line below (`17 7 * * 0` = weekly, Sundays 07:17 UTC). GitHub requires the schedule
+# to be written here literally — it cannot be read from a setting — so to change how often the self-review
+# runs, edit that one line. (A too-frequent cadence can use up the monthly allowance; the first-run
+# walkthrough shows ready-made alternatives.) On a public repo GitHub disables a schedule after 60 idle days;
+# a commit or `gh workflow enable` re-arms it, and the staleness signal says so if it lapses.
+name: audit-prep
+
+on:
+  schedule:
+    - cron: "17 7 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    outputs:
+      armed: ${{ steps.armed.outputs.armed }}
+    steps:
+      # Secrets cannot be read in a job-level `if:`, so a gate step reads the token into an env var and
+      # writes an `armed` output; the real job below is gated on that output. This is the skip-clean-when-
+      # unarmed pattern: no token -> the self-review is simply not set up yet, and the run ends green.
+      - name: Is the self-review armed?
+        id: armed
+        env:
+          AUDIT_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -n "${AUDIT_TOKEN}" ]; then
+            echo "armed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "armed=false" >> "${GITHUB_OUTPUT}"
+            echo "::notice::The scheduled self-review is not set up yet (no CLAUDE_CODE_OAUTH_TOKEN secret). Skipping cleanly — nothing failed."
+          fi
+
+  audit:
+    name: audit
+    needs: gate
+    if: needs.gate.outputs.armed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up uv (pinned)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.11.8"
+      - name: Materialize the engine tool-runtime
+        run: uv sync --directory .engine --frozen
+      - name: Install the Claude Code CLI (pinned)
+        env:
+          CLAUDE_CODE_VERSION: "2.1.176"
+        run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      - name: Run the read-only self-review and capture its plain-language digest
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # AUDIT_MODEL is the model the engine uses to judge its OWN health. The default is `opus` (the
+          # current most-capable model). You may override it with a repository variable named AUDIT_MODEL
+          # (Settings -> Variables) — for example to move to a newer model. Choosing a cheaper or weaker
+          # model gives you a LESS trustworthy self-review, and a mistyped name fails this run the same
+          # quiet way a mistyped secret does, so change it deliberately.
+          AUDIT_MODEL: ${{ vars.AUDIT_MODEL || 'opus' }}
+        run: |
+          set -euo pipefail
+          claude -p \
+            --agent audit \
+            --model "${AUDIT_MODEL}" \
+            "Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble." \
+            > "${RUNNER_TEMP}/audit-digest-body.md"
+      - name: Seal the digest with its run-date
+        run: |
+          set -euo pipefail
+          uv run --directory .engine --frozen -- python tools/audit_digest.py \
+            seal .engine/audits/audit-digest.md \
+            --body-file "${RUNNER_TEMP}/audit-digest-body.md"
+      - name: Refresh the committed offline where-we-stand cache (freight)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: uv run --directory .engine --frozen -- python tools/telemetry.py refresh
+      - name: Open the digest pull request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "engine self-review"
+          git config user.email "engine-self-review@users.noreply.github.com"
+          stamp="$(date -u +%Y-%m-%d)"
+          branch="audit-prep/${stamp}"
+          git checkout -b "${branch}"
+          git add .engine/audits/audit-digest.md .engine/state/state.json
+          if git diff --cached --quiet; then
+            echo "::notice::The self-review produced no changes to commit."
+            exit 0
+          fi
+          git commit -m "Engine self-review digest (${stamp})"
+          git push --set-upstream origin "${branch}"
+          cat > "${RUNNER_TEMP}/pr-body.md" <<'EOF'
+          The engine ran its scheduled self-review. This pull request carries two things:
+
+          1. The self-review's plain-language summary — what it looked at, what it found, and what it
+             recommends. This is the engine's own account of its own health, for you to read and act on.
+
+          2. An automatically-refreshed snapshot of where the project stands (the open-items count and the
+             milestone/phase markers). These are derived mechanically — you are NOT being asked to vouch
+             for these numbers, and they always carry the date they were taken. Your merge attests to the
+             self-review above, not to these auto-derived values.
+
+          You can merge this to record the self-review, or close it to skip this cycle. Nothing here changes
+          any of your settings.
+          EOF
+          gh pr create \
+            --base main \
+            --head "${branch}" \
+            --title "Engine self-review digest (${stamp})" \
+            --body-file "${RUNNER_TEMP}/pr-body.md"

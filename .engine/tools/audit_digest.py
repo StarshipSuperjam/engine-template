@@ -26,7 +26,7 @@ input.
 
 Library + CLI (mirrors self_map.py — plain language first):
 
-  uv run --directory .engine -- python tools/audit_digest.py seal <file> [YYYY-MM-DD]  # stamp date + seal
+  uv run --directory .engine -- python tools/audit_digest.py seal <file> [YYYY-MM-DD] [--body-file P]  # stamp + seal
   uv run --directory .engine -- python tools/audit_digest.py check [<file>]            # is the seal intact?
   uv run --directory .engine -- python tools/audit_digest.py staleness [<file>]        # how fresh is it?
 
@@ -208,15 +208,35 @@ def seal(path: str, generated=None, body: str | None = None) -> dict:
 
 # ---- CLI ------------------------------------------------------------------------------------
 
+def _take_body_file(argv: list):
+    """Pull an optional `--body-file PATH` pair out of argv (wherever it sits) and return
+    (argv_without_it, body_text|None). The scheduled run passes the captured persona prose this way; the
+    pair is removed BEFORE the positional file/date are read, so `--body-file` can never be mis-parsed as
+    the file path (argv[1]) or the run-date (argv[2])."""
+    out, body, i = [], None, 0
+    while i < len(argv):
+        if argv[i] == "--body-file":
+            if i + 1 >= len(argv):
+                raise ValueError("--body-file needs a file path")
+            with open(argv[i + 1], encoding="utf-8", newline="") as fh:
+                body = fh.read()
+            i += 2
+            continue
+        out.append(argv[i])
+        i += 1
+    return out, body
+
+
 def main(argv: list) -> int:
     cmd = argv[0] if argv else "check"
     try:
         if cmd == "seal":
-            if len(argv) < 2:
-                print("usage: audit_digest.py seal <file> [YYYY-MM-DD]", file=sys.stderr)
+            rest, body = _take_body_file(argv)   # strip --body-file PATH before any positional read
+            if len(rest) < 2:
+                print("usage: audit_digest.py seal <file> [YYYY-MM-DD] [--body-file PATH]", file=sys.stderr)
                 return 2
-            gen = argv[2] if len(argv) > 2 else None
-            print(validate.fmt(seal(argv[1], generated=gen)))
+            gen = rest[2] if len(rest) > 2 else None
+            print(validate.fmt(seal(rest[1], generated=gen, body=body)))
             return 0
         if cmd == "check":
             print(validate.fmt(check(argv[1] if len(argv) > 1 else None)))
