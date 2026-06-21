@@ -154,7 +154,8 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
         return validate.finding(
             "soft",
             f"The engine's self-review hasn't run yet — set up the scheduled self-review so the engine "
-            f"can start checking its own health. Once it runs, this notice clears.",
+            f"can start checking its own health, or ask me to set it up for you. Once it runs, this notice "
+            f"clears.",
             where)
     try:
         fm, _body = split(path)
