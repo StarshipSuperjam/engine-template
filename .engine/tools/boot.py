@@ -67,6 +67,7 @@ import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-b
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
+import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
 
 # The card title a healthy boot always renders — byte-identical to the present-marker the floor names
 # in CLAUDE.deployed.md (slice 19 `owes ←`). The byte-identity is locked by test_boot.py; renaming it
@@ -392,6 +393,14 @@ def gather_signals(session_id: str | None = None) -> dict:
         strand = checkout_health.detect_strand()
     except Exception:  # noqa: BLE001 — any detector failure degrades that one signal, never the pack
         strand = None
+    try:
+        # The self-review freshness signal, RELAYED from audit_digest's own detection (boot computes no new
+        # state). Called arg-less so it reads the committed digest + today and owns STALENESS_DAYS/the re-arm
+        # copy itself — boot never re-detects or re-literals the bound. Low-stakes (a missing digest is the
+        # normal pre-arm state), so it degrades SILENTLY to None — never a "couldn't check the self-review" nag.
+        audit_stale = audit_digest.staleness()
+    except Exception:  # noqa: BLE001 — any failure degrades this one signal, never the pack
+        audit_stale = None
     # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
@@ -415,6 +424,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         "shipped": recently_shipped(),
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
+        # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
+        "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
         "live_standing": live_standing,
     }
@@ -510,7 +521,17 @@ def render_dashboard(s: dict) -> str:
 
     out.append("")
     out.append("### Needs your attention")
-    out.extend(f"- {line}" for line in s["att_lines"]) if s["att_lines"] else out.append(
+    attention = list(s["att_lines"])
+    # The self-review freshness advisory (audit-library 3c), relayed read-only from audit_digest's own
+    # detection. A SOFT, never-blocking nudge naming the one re-arming action — it sits here in the attention
+    # body (surfaced by the pack's step-3 instruction so the assistant raises it when it matters), and is
+    # DELIBERATELY never pinned / present-marker / must_push: a never-armed repo still reads "all clear" and
+    # this never becomes a forced every-session alarm. A `note` (current) digest adds nothing — its silence is
+    # the healthy signal. The fresh-digest recency line is a deferred build-spec leaf (lands with a real digest).
+    stale = s["audit_stale"]
+    if stale and stale["severity"] == "soft":
+        attention.append(stale["message"])
+    out.extend(f"- {line}" for line in attention) if attention else out.append(
         "- Nothing is blocking right now.")
 
     out.append("")

@@ -174,5 +174,22 @@ class TestNoWrites(unittest.TestCase):
                              f"the read-only derive module must contain no '{forbidden}' (no writes)")
 
 
+class TestWhereLinesRendersTheRealCard(unittest.TestCase):
+    """`_where_lines` renders the REAL boot dashboard over a hand-built signals dict to extract the
+    'Where we are' block. render_dashboard reads its signals by HARD SUBSCRIPT, so this guards that the
+    hand-built dict stays complete: a new boot signal not added here would KeyError this operator-runnable
+    demo path — caught here in the suite, not only when the operator runs the demo. (audit-library 3c added
+    `audit_stale`; this is the test that would have caught the missing key.)"""
+
+    def test_renders_without_keyerror_and_returns_the_standing_block(self):
+        import boot  # lazy: boot imports this module at top — importing here mirrors the demo and avoids a cycle
+        live = {"milestone": "Ship the beta", "phase": "Building the checkout page"}
+        lines = ss._where_lines(boot, live=live, state=None)
+        self.assertTrue(any(ln.startswith("**Where we are:**") for ln in lines),
+                        "the standing block must carry the 'Where we are' line")
+        self.assertTrue(any("Ship the beta" in ln for ln in lines),
+                        "and the milestone the live source named")
+
+
 if __name__ == "__main__":
     unittest.main()

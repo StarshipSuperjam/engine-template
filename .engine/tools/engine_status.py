@@ -60,6 +60,12 @@ _EXAMPLE_SIGNALS = {
     "shipped": ["#42 Add the sign-in page", "#41 Set up the database"],
     "stance": "Looking around — reading and planning, not changing anything yet.",
     "strand": None,   # the operator-checkout strand signal (boot slice B); None = the folder is healthy
+    # A representative self-review-has-gone-stale finding (audit-library 3c) so the example also shows the
+    # gentle freshness advisory in the attention list. Illustrative wording — the real text comes from
+    # audit_digest.staleness(); render_dashboard reads only its severity + message.
+    "audit_stale": {"severity": "soft",
+                    "message": "The engine hasn't reviewed its own health in a while — re-arm the scheduled "
+                               "self-review so it refreshes on the next run, or ask me to do it for you."},
     # the live-derived "where we are" (boot #100); present here so the example shows the current live line
     "live_standing": {"milestone": "Ship the beta", "phase": "Building the checkout page (issue #128)"},
 }

@@ -19,6 +19,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import audit_digest
 import boot
 import hooks
 import module_coherence
@@ -61,7 +62,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "findings_unavailable": False, "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": False, "shipped": [], "stance": "Exploring", "strand": None,
-            "live_standing": None, "neighborhood": None}
+            "audit_stale": None, "live_standing": None, "neighborhood": None}
 
 
 def _signals(**over):
@@ -484,6 +485,66 @@ class TestStrandSurfacing(unittest.TestCase):
                 p.stop()
         self.assertEqual(relayed["strand"], self._STRAND)   # the detector's signal is relayed verbatim
         self.assertIsNone(failed["strand"])                 # a detector failure degrades quietly to None
+
+
+class TestAuditStaleness(unittest.TestCase):
+    """audit-library 3c: boot RELAYS audit_digest's self-review freshness on the operator's return. A SOFT
+    finding (hasn't-run-yet / has-gone-stale) surfaces gently in the needs-attention body — NEVER pinned, in
+    the present-marker, or in must_push, so a never-armed repo still reads "all clear" and it never becomes a
+    forced every-session alarm; a `note` (current) digest adds nothing; the read fails open to None."""
+
+    def _never_run(self):
+        # The REAL never-run finding from audit_digest (an absent digest path) — pins the actual relayed text,
+        # so a future drift in that message is caught here, not only in test_audit_digest.
+        return audit_digest.staleness(path="/no/such/audit-digest.md")
+
+    def test_soft_advisory_surfaces_in_the_needs_attention_body(self):
+        f = self._never_run()
+        self.assertEqual(f["severity"], "soft")
+        body = boot.render_dashboard(_signals(audit_stale=f))
+        self.assertIn(f["message"], body)
+        lines = body.splitlines()
+        heading = next(i for i, ln in enumerate(lines) if ln.startswith("### Needs your attention"))
+        msg = next(i for i, ln in enumerate(lines) if f["message"] in ln)
+        self.assertGreater(msg, heading, "the self-review advisory belongs in the needs-attention body")
+
+    def test_marker_stays_all_clear_and_advisory_is_not_force_relayed(self):
+        # The acceptance criterion (Shane's "softer" choice): a never-armed repo — soft staleness, nothing
+        # else wrong — still reads all-clear, and the assistant is NOT compelled to relay it (raised with
+        # judgment via the needs-attention headline, never the forced governance-critical must_push set).
+        s = _signals(audit_stale=self._never_run())
+        self.assertEqual(boot.present_marker_line(s), f"{boot.PRESENT_MARKER}: all clear")
+        self.assertEqual(boot.must_push(s), [])
+
+    def test_a_stale_finding_renders_the_same_gentle_way(self):
+        stale = validate.finding("soft", "STALE-SELF-REVIEW-MARKER: re-arm it", None)
+        self.assertIn("STALE-SELF-REVIEW-MARKER", boot.render_dashboard(_signals(audit_stale=stale)))
+
+    def test_a_current_digest_adds_no_line(self):
+        fresh = validate.finding("note", "FRESH-MARKER: the self-review is current", None)
+        body = boot.render_dashboard(_signals(audit_stale=fresh))
+        self.assertNotIn("FRESH-MARKER", body)            # a `note` digest is silent — its silence is healthy
+        self.assertIn("Nothing is blocking right now", body)
+
+    def test_absent_signal_renders_clean_and_never_raises(self):
+        # None (the degraded / not-read state) renders no advisory and never raises a KeyError on the subscript.
+        self.assertIn("Nothing is blocking right now", boot.render_dashboard(_signals(audit_stale=None)))
+
+    def test_gather_signals_relays_staleness_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            sentinel = validate.finding("soft", "RELAYED-STALENESS", None)
+            with mock.patch.object(boot.audit_digest, "staleness", return_value=sentinel):
+                relayed = boot.gather_signals()
+            with mock.patch.object(boot.audit_digest, "staleness", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["audit_stale"], sentinel)   # the detector's finding is relayed verbatim
+        self.assertIsNone(failed["audit_stale"])             # a read failure degrades quietly to None
+        _assert_ai_briefing(self, pack)                      # the pack still assembles on the failure path
 
 
 class TestFailOpen(unittest.TestCase):
