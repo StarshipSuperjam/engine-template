@@ -103,6 +103,20 @@ def main() -> int:
         print(f"   expected: flagged (so you're told to re-arm it) -> {step4}")
         ok = ok and step4
 
+        print("\n[5] The scheduled run's own path: the self-review writes its words to a file, and the engine")
+        print("    seals THAT file in — the same --body-file step the workflow runs — and it verifies the same.")
+        print("-" * 78)
+        prose = os.path.join(d, "captured-prose.md")
+        with open(prose, "w", encoding="utf-8", newline="") as fh:
+            fh.write(SAMPLE_BODY)
+        produced = os.path.join(d, "from-body-file.md")
+        rc = audit_digest.main(["seal", produced, "--body-file", prose])
+        f = audit_digest.check(produced)
+        print(f"   sealed from the captured file -> CLI exit {rc}; seal rule: {_verdict(f)}")
+        step5 = rc == 0 and f["severity"] == "note"
+        print(f"   expected: sealed from the file and verifies (clear) -> {step5}")
+        ok = ok and step5
+
         print("\n" + BANNER)
         print("In plain words: the seal rule passes on a freshly-written file and goes RED the moment the")
         print("file is hand-edited; the freshness rule stays quiet while the self-review is recent and")

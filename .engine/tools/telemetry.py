@@ -432,6 +432,36 @@ def refresh_standing(state_path: str, repo: str, token: str, *, now: str | None 
     return standing
 
 
+def refresh_cache(state_path: str, repo: str, token: str, *, now: str | None = None, transport=None) -> dict:
+    """The scheduled audit-prep workflow's offline-cache refresh: derive BOTH offline-floor fields — the
+    integration-debt count and the standing situation — from GitHub in ONE read-only pass and write them
+    together as freight (D-198: the standing cache rides the same GitHub pass as the debt count). UNLIKE
+    `run`, it makes NO triage writes — it never opens, updates, or closes an Issue, so it can never
+    auto-close the open Issues a `run([])` would — it only counts open items and reads the milestone/phase.
+    Each field degrades INDEPENDENTLY: a debt-read failure or a standing-derive failure leaves that one field's
+    prior cached value untouched (never clobbered with a failed read), so an unreachable GitHub leaves the
+    committed cache as-is. A GitHub read/derive failure never raises; the `refresh` CLI's fail-open backstops
+    any other error, so the workflow never crashes (the digest still commits). `transport` is injectable so
+    tests/the demo run the real derive + write offline. Returns
+    {debt, standing, degraded} for the caller's plain-language report."""
+    now = now or utc_now()
+    gh = GitHubIssues(repo, token, transport=transport)
+    debt = standing = None
+    try:
+        open_issues = gh.list_open_engine_issues()
+        debt = {"open_count": len(open_issues), "as_of": now, "register": gh.issues_query_url()}
+    except DegradedReadError:
+        debt = None   # leave the prior committed debt count untouched
+    try:
+        derived = standing_situation.derive_standing_situation(gh)
+        standing = {"milestone": derived.get("milestone"), "phase": derived.get("phase"), "as_of": now}
+    except Exception:  # noqa: BLE001 — a where-we-are read failure must not break the debt refresh or the workflow
+        standing = None   # leave the prior committed standing untouched
+    if debt is not None or standing is not None:
+        refresh_state(state_path, debt, standing)
+    return {"debt": debt, "standing": standing, "degraded": debt is None and standing is None}
+
+
 def degraded_readout(count, as_of) -> str:
     """The exact, plain-language degraded line (state/README + telemetry/README wording). Telemetry
     PRODUCES it; boot renders it (a later slice)."""
@@ -664,14 +694,43 @@ def _demo(_argv) -> int:
     return 0
 
 
+def _refresh_cli(argv: list) -> int:
+    """The audit-prep workflow's offline-cache refresh verb. Reads GITHUB_REPOSITORY + GITHUB_TOKEN from the
+    environment (the workflow passes the GitHub token — never the Claude OAuth token, which only auths the
+    persona run), refreshes BOTH offline-cache fields read-only, and reports in plain language. Exits 0 even
+    when GitHub is unreachable — the cache is best-effort freight and a failed refresh must never block the
+    digest the workflow commits. An optional argv[0] overrides the state path (for tests)."""
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    token = os.environ.get("GITHUB_TOKEN")
+    if not repo or not token:
+        print("usage: telemetry.py refresh   (needs GITHUB_REPOSITORY and GITHUB_TOKEN in the environment; "
+              "it uses the GitHub token, never the Claude token)", file=sys.stderr)
+        return 2
+    state_path = argv[0] if argv else DEFAULT_STATE_PATH
+    result = refresh_cache(state_path, repo, token)
+    if result["degraded"]:
+        print("Could not reach GitHub to refresh the offline where-we-stand cache; left the committed "
+              "values unchanged. The digest still commits.")
+        return 0
+    bits = []
+    if result["debt"] is not None:
+        bits.append(f"{result['debt']['open_count']} open engine item(s)")
+    if result["standing"] is not None:
+        bits.append("the where-we-are markers")
+    print("Refreshed the committed offline cache (" + ", ".join(bits) + ").")
+    return 0
+
+
 def main(argv: list) -> int:
     """Fail-open: telemetry is self-surfacing and must never break a session. Any unexpected error
     emits a plain finding and exits 0."""
     try:
         if argv and argv[0] == "demo":
             return _demo(argv[1:])
-        print("usage: telemetry.py demo   (the in-session run is driven by boot/build, not this CLI)",
-              file=sys.stderr)
+        if argv and argv[0] == "refresh":
+            return _refresh_cli(argv[1:])
+        print("usage: telemetry.py {demo|refresh}   (the in-session triage run is driven by boot/build, "
+              "not this CLI)", file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 — fail-open is the whole point
         print(json.dumps(validate.finding(

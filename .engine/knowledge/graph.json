@@ -2135,7 +2135,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:5742fdec98624e580fedea7da35ff6605406c2c64e4f0ff87d38fbf2c3d722ee",
+        "fingerprint": "sha256:0d011f305aa412e647b31b3c128641227feef756dd44847203204845b96fe518",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -2373,7 +2373,7 @@
       },
       "slug": "demo_audit_digest",
       "source": {
-        "fingerprint": "sha256:e53d5ac984e83a40181bdbfcf57bdb9c22ace1eb2a29b7d45d2243d27420224b",
+        "fingerprint": "sha256:f4f8ac7b71526ac20565d1c1c1ed6a585ff21504ffa349de4ae42f9e6dc64fd2",
         "path": ".engine/tools/demo_audit_digest.py"
       },
       "status": "active",
@@ -2815,7 +2815,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:2a136a243fb53b89789102770d2f91e2ea509e5fc758f9d35bac74395fecbe6a",
+        "fingerprint": "sha256:0b682aeb75252863235c9890c4868585686f921c10782f0f5984b9c66868a682",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -3053,7 +3053,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:6b692dabc9a2158bd4255b00c35439a97b30e43b56304ebd9fb853f12230d68f",
+        "fingerprint": "sha256:17438fa0f43ea3d47b3b4c9999439cfcc713fb04667305f7685f960c68f51fb4",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -3121,8 +3121,25 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:9f1620fddc84baa302e5afe2a6b20aa71e13d698f18925c7dcb0e4b9a0957c70",
+        "fingerprint": "sha256:874ac051d2b4ab13a18aae009c0d728ad6c2b6784d3830f7967abec032c928b7",
         "path": ".engine/tools/test_audit_digest.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_audit_prep",
+      "name": ".engine/tools/test_audit_prep.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_audit_prep",
+      "source": {
+        "fingerprint": "sha256:cf86fcbfd7b9ace9b6f26b40a2f4c3b5b3c57d45fdd9a2b94f112fc1e9d77719",
+        "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
       "type": "tool"
@@ -3971,7 +3988,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:43989d918d0880d860b18e99ab432c4d5cd7582af3e498365302abf2349b4df0",
+        "fingerprint": "sha256:0b82bd34f5f6f4d73ce3a018198aa78a1cc1c2032f3b9c71997092a63c2b0313",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

@@ -307,6 +307,112 @@ def _standing_transport(*, milestones=(200, []), pulls=(200, []), issues=None):
     return t
 
 
+def _cache_transport(*, open_issues=(), milestones=(200, []), pulls=(200, []), issues=None, fail_list=None):
+    """A transport answering the GETs refresh_cache makes in ONE read-only pass: the open-engine-issues list
+    (the debt count) and the where-we-are derive (milestones/pulls/issue). `fail_list` fails the issues list,
+    and a 4xx status on a derive leg fails that leg — to exercise per-field degradation."""
+    issues = issues or {}
+
+    def t(method, path, body):
+        base = path.split("?")[0]
+        if base.endswith("/issues") and method == "GET":
+            return (fail_list, None) if fail_list else (200, list(open_issues))
+        if "/milestones" in base:
+            return milestones
+        if "/pulls" in base:
+            return pulls
+        m = re.search(r"/issues/(\d+)", base)
+        if m:
+            return issues.get(int(m.group(1)), (404, None))
+        return (404, None)
+    return t
+
+
+_STANDING_OK = dict(
+    milestones=(200, [{"title": "Ship the beta"}]),
+    pulls=(200, [{"number": 99, "merged_at": "x", "body": "Closes #80"}]),
+    issues={80: (200, {"number": 80, "title": "The drift fix", "labels": [{"name": "engine"}]})})
+
+
+class TestCacheRefresh(unittest.TestCase):
+    """refresh_cache — the audit-prep workflow's freight pass. One read-only GitHub pass refreshes BOTH
+    offline-cache fields; each degrades INDEPENDENTLY; an unreachable GitHub writes nothing and never raises;
+    and it never opens/updates/closes an Issue (so it carries none of run([])'s auto-close hazard)."""
+
+    OPEN = [{"number": 11, "title": "a", "body": "b"}, {"number": 12, "title": "c", "body": "d"}]
+
+    def _schema(self):
+        return validate.load_json(os.path.join(validate.SCHEMAS_DIR, "state.v1.json"))
+
+    def test_one_pass_refreshes_both_fields(self):
+        transport = _cache_transport(open_issues=self.OPEN, **_STANDING_OK)
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, open_count=0, as_of=None)
+            result = telemetry.refresh_cache(sp, "o/r", "tok", now=T[2], transport=transport)
+            data = validate.load_json(sp)
+        self.assertFalse(result["degraded"])
+        self.assertEqual(data["integration_debt"]["open_count"], 2)
+        self.assertEqual(data["integration_debt"]["as_of"], T[2])
+        self.assertIn("is:open", data["integration_debt"]["register"])
+        self.assertEqual(data["standing_situation"],
+                         {"milestone": "Ship the beta", "phase": "The drift fix (issue #80)", "as_of": T[2]})
+        self.assertEqual(list(validate.Draft202012Validator(self._schema()).iter_errors(data)), [])
+
+    def test_debt_read_failure_preserves_debt_and_still_refreshes_standing(self):
+        transport = _cache_transport(fail_list=503, **_STANDING_OK)
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, open_count=7, as_of=T[0], register="https://x/issues")
+            telemetry.refresh_cache(sp, "o/r", "tok", now=T[2], transport=transport)
+            data = validate.load_json(sp)
+        self.assertEqual(data["integration_debt"]["open_count"], 7)               # prior debt untouched
+        self.assertEqual(data["standing_situation"]["milestone"], "Ship the beta")  # standing refreshed
+
+    def test_standing_derive_failure_preserves_standing_and_still_refreshes_debt(self):
+        transport = _cache_transport(open_issues=self.OPEN, milestones=(403, None))
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, milestone="KEEP", phase="KEEP", open_count=0)
+            telemetry.refresh_cache(sp, "o/r", "tok", now=T[2], transport=transport)
+            data = validate.load_json(sp)
+        self.assertEqual(data["integration_debt"]["open_count"], 2)               # debt refreshed
+        self.assertEqual(data["standing_situation"]["milestone"], "KEEP")        # prior standing untouched
+
+    def test_github_unreachable_writes_nothing_and_never_raises(self):
+        transport = _cache_transport(fail_list=503, milestones=(503, None))
+        with tempfile.TemporaryDirectory() as d:
+            sp = _write_state(d, milestone="KEEP", phase="KEEP", open_count=4, as_of=T[0])
+            with open(sp, "rb") as fh:
+                before = fh.read()
+            result = telemetry.refresh_cache(sp, "o/r", "tok", now=T[2], transport=transport)
+            with open(sp, "rb") as fh:
+                self.assertEqual(fh.read(), before, "both legs failed -> nothing written")
+        self.assertTrue(result["degraded"])
+
+
+class TestRefreshCLI(unittest.TestCase):
+    """The `refresh` CLI verb: reads repo+token from the env, forwards an optional state path, exits 0 even
+    when degraded (the cache is best-effort freight), and treats a missing env as a clear usage error."""
+
+    def test_missing_env_is_a_usage_error(self):
+        with mock.patch.dict(os.environ, {}, clear=True), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(telemetry.main(["refresh"]), 2)
+
+    def test_verb_forwards_the_state_path_and_exits_zero(self):
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "tok"}, clear=True), \
+             mock.patch.object(telemetry, "refresh_cache",
+                               return_value={"debt": {"open_count": 3}, "standing": {}, "degraded": False}) as m, \
+             contextlib.redirect_stdout(io.StringIO()):
+            rc = telemetry.main(["refresh", "/tmp/s.json"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(m.call_args[0][0], "/tmp/s.json")
+
+    def test_verb_exits_zero_when_github_is_unreachable(self):
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "tok"}, clear=True), \
+             mock.patch.object(telemetry, "refresh_cache",
+                               return_value={"debt": None, "standing": None, "degraded": True}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(telemetry.main(["refresh"]), 0)
+
+
 class TestStandingCacheRefresh(unittest.TestCase):
     """The standing-situation offline cache (D-198): telemetry is its sole writer, it is DISJOINT from the
     debt count, it carries an `as_of` provenance, and it rides the same GitHub pass — but a derive failure
