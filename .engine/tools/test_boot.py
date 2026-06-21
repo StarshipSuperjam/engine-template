@@ -62,7 +62,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "findings_unavailable": False, "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": False, "shipped": [], "stance": "Exploring", "strand": None,
-            "audit_stale": None, "live_standing": None, "neighborhood": None}
+            "pr_conflict": None, "audit_stale": None, "live_standing": None, "neighborhood": None}
 
 
 def _signals(**over):
@@ -485,6 +485,57 @@ class TestStrandSurfacing(unittest.TestCase):
                 p.stop()
         self.assertEqual(relayed["strand"], self._STRAND)   # the detector's signal is relayed verbatim
         self.assertIsNone(failed["strand"])                 # a detector failure degrades quietly to None
+
+
+class TestPrConflictSurfacing(unittest.TestCase):
+    """#136: a pull request stranded on the two derived index files is surfaced read-only at the STRAND tier —
+    pinned BELOW the governance alarms (a conflicting PR cannot reach protected `main`), carried on the
+    always-visible present-marker (so it cannot rot unnoticed), and DELIBERATELY NOT in the must-push/INFORM
+    set. boot OFFERS the one-step fix; the assistant runs pr_reconcile.reconcile on the operator's consent."""
+    _PR = {"pr": 7, "title": "My pull request"}
+
+    def test_render_surfaces_the_offer_only_when_a_pr_is_stuck(self):
+        stuck = boot.render_dashboard(_signals(pr_conflict=self._PR))
+        self.assertIn("can't be merged", stuck.lower())
+        self.assertIn("no work is lost", stuck.lower())          # leads with the reassurance (PR-1 framing)
+        self.assertIn("reconcile it", stuck.lower())             # names the one-step fix the operator says
+        # offers to CHECK, never asserts the diagnosis / promises keep-both before assess has classified it
+        self.assertIn("needs your decision", stuck.lower())
+        self.assertNotIn("can't be merged", boot.render_dashboard(_signals(pr_conflict=None)).lower())
+
+    def test_pr_conflict_pins_below_the_governance_alarm(self):
+        pack = boot.render_dashboard(_signals(gate="off", reason="x", pr_conflict=self._PR))
+        lines = pack.splitlines()
+        gate = next(i for i, ln in enumerate(lines) if "safety gate is off" in ln.lower())
+        pr = next(i for i, ln in enumerate(lines) if "can't be merged" in ln.lower())
+        self.assertLess(gate, pr, "the governance alarm must pin above the stuck-PR heads-up")
+
+    def test_present_marker_reflects_a_stuck_pr_but_governance_outranks(self):
+        self.assertEqual(
+            boot.present_marker_line(_signals(pr_conflict=self._PR)),
+            f"⚠ {boot.PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it")
+        self.assertEqual(boot.present_marker_line(_signals(pr_conflict=None)),
+                         f"{boot.PRESENT_MARKER}: all clear")
+        # a governance alarm (and a strand) still outranks the stuck-PR marker
+        self.assertEqual(boot.present_marker_line(_signals(gate="off", pr_conflict=self._PR)),
+                         "⚠ Protected branch is off")
+
+    def test_pr_conflict_is_not_in_the_must_push_set(self):
+        # not governance-critical -> no INFORM marker; the always-visible present-marker carries it instead.
+        self.assertEqual(boot.must_push(_signals(pr_conflict=self._PR)), [])
+
+    def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.pr_reconcile, "detect_conflict", return_value=self._PR):
+                relayed = boot.gather_signals()
+            with mock.patch.object(boot.pr_reconcile, "detect_conflict", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["pr_conflict"], self._PR)   # the detector's signal is relayed verbatim
+        self.assertIsNone(failed["pr_conflict"])             # a detector failure degrades quietly to None
 
 
 class TestAuditStaleness(unittest.TestCase):

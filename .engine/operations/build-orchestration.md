@@ -64,9 +64,11 @@ eventual merge must already be clean, because the server-side merge button canno
 line in the Review record states how many internal index files were regenerated and that no work was lost —
 the operator meets the disclosure, never the conflict. **One case is not yet self-healing:** a stranded
 conflict is still possible — a sibling pull request can merge mid-flight — though only its *resolution* is
-taken off the operator's hands. When no session is on the conflicted pull request, an AI session reconciles
-it — today by the manual rebase-and-regenerate recipe, with a named one-step recovery path forthcoming —
-never the operator.
+taken off the operator's hands. When that happens, the engine **surfaces the stranded pull request at the
+next session's start and offers a one-step fix the assistant runs on the operator's say-so** — it reconciles
+the pull request against the latest default branch, regenerates the two internal index files from the
+reconciled tree, and is lossless-or-it-does-not-run; if anything but those two files clashed, it changes
+nothing and routes the operator to a plain-language decision. Never the operator.
 
 **The plan gate runs in two beats.** *Before the spend*, the risk assessment is the consent-and-coverage
 surface (step 1). *After the audit*, the orchestrator synthesizes the findings into one recommended call
