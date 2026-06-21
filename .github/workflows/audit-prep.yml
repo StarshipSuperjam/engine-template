@@ -22,9 +22,10 @@
 #
 # CADENCE is the one cron line below (`17 7 * * 0` = weekly, Sundays 07:17 UTC). GitHub requires the schedule
 # to be written here literally — it cannot be read from a setting — so to change how often the self-review
-# runs, edit that one line. (A too-frequent cadence can use up the monthly allowance; the first-run
-# walkthrough shows ready-made alternatives.) On a public repo GitHub disables a schedule after 60 idle days;
-# a commit or `gh workflow enable` re-arms it, and the staleness signal says so if it lapses.
+# runs, edit that one line (cron's five fields are minute hour day-of-month month day-of-week; e.g.
+# `17 7 1 * *` is monthly). A too-frequent cadence can use up the monthly allowance, so lengthen it rather
+# than shorten it if unsure. On a public repo GitHub disables a schedule after 60 idle days; a commit or
+# `gh workflow enable` re-arms it, and the staleness signal says so if it lapses.
 name: audit-prep
 
 on:
@@ -98,7 +99,7 @@ jobs:
           uv run --directory .engine --frozen -- python tools/audit_digest.py \
             seal .engine/audits/audit-digest.md \
             --body-file "${RUNNER_TEMP}/audit-digest-body.md"
-      - name: Refresh the committed offline where-we-stand cache (freight)
+      - name: Refresh the committed where-we-stand snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

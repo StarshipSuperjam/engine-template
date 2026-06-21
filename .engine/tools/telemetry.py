@@ -438,10 +438,11 @@ def refresh_cache(state_path: str, repo: str, token: str, *, now: str | None = N
     together as freight (D-198: the standing cache rides the same GitHub pass as the debt count). UNLIKE
     `run`, it makes NO triage writes — it never opens, updates, or closes an Issue, so it can never
     auto-close the open Issues a `run([])` would — it only counts open items and reads the milestone/phase.
-    Each field degrades INDEPENDENTLY and the function never raises: a debt-read failure or a standing-derive
-    failure leaves that one field's prior cached value untouched (never clobbered with a failed read), so an
-    unreachable GitHub leaves the committed cache as-is and never crashes the workflow (the digest still
-    commits). `transport` is injectable so tests/the demo run the real derive + write offline. Returns
+    Each field degrades INDEPENDENTLY: a debt-read failure or a standing-derive failure leaves that one field's
+    prior cached value untouched (never clobbered with a failed read), so an unreachable GitHub leaves the
+    committed cache as-is. A GitHub read/derive failure never raises; the `refresh` CLI's fail-open backstops
+    any other error, so the workflow never crashes (the digest still commits). `transport` is injectable so
+    tests/the demo run the real derive + write offline. Returns
     {debt, standing, degraded} for the caller's plain-language report."""
     now = now or utc_now()
     gh = GitHubIssues(repo, token, transport=transport)

@@ -2135,7 +2135,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:99451ce25261a64be703f5c3ea77aea6e1909a61cbe46d75df68aa866151eb0d",
+        "fingerprint": "sha256:0d011f305aa412e647b31b3c128641227feef756dd44847203204845b96fe518",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -3036,7 +3036,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:2baf185f1eebfae9e0e5ca694ecdd99177c866ef733b276fe1b0730b3b41b598",
+        "fingerprint": "sha256:17438fa0f43ea3d47b3b4c9999439cfcc713fb04667305f7685f960c68f51fb4",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -3104,7 +3104,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:6c50a4ce6478278149a9b970dea2719e38d8d4f52291c35d99daecf599530582",
+        "fingerprint": "sha256:874ac051d2b4ab13a18aae009c0d728ad6c2b6784d3830f7967abec032c928b7",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",

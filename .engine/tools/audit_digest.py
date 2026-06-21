@@ -235,6 +235,11 @@ def main(argv: list) -> int:
             if len(rest) < 2:
                 print("usage: audit_digest.py seal <file> [YYYY-MM-DD] [--body-file PATH]", file=sys.stderr)
                 return 2
+            if body is not None and not body.strip():
+                # The scheduled run captured nothing (the self-review produced no prose) — refuse rather than
+                # commit an empty digest. The bare re-seal path (body is None) is unaffected.
+                print("ERROR: the captured self-review is empty — nothing to seal.", file=sys.stderr)
+                return 2
             gen = rest[2] if len(rest) > 2 else None
             print(validate.fmt(seal(rest[1], generated=gen, body=body)))
             return 0

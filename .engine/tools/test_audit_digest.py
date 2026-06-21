@@ -175,12 +175,20 @@ class TestSealCLI(unittest.TestCase):
     def test_take_body_file_removes_the_pair_from_any_position(self):
         with tempfile.TemporaryDirectory() as d:
             bf = self._bodyfile(d, "hello")
-            rest, body = audit_digest._take_body_file(["seal", "f.md", "--body-file", bf, "2026-06-01"])
-            self.assertEqual(rest, ["seal", "f.md", "2026-06-01"])
-            self.assertEqual(body, "hello")
+            mid, b1 = audit_digest._take_body_file(["seal", "f.md", "--body-file", bf, "2026-06-01"])
+            self.assertEqual((mid, b1), (["seal", "f.md", "2026-06-01"], "hello"))
+            trailing, b2 = audit_digest._take_body_file(["seal", "f.md", "2026-06-01", "--body-file", bf])
+            self.assertEqual((trailing, b2), (["seal", "f.md", "2026-06-01"], "hello"))
 
     def test_body_file_without_a_path_is_an_error(self):
         self.assertEqual(audit_digest.main(["seal", "x.md", "--body-file"]), 2)
+
+    def test_empty_body_file_is_refused_not_sealed_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            digest = os.path.join(d, "audit-digest.md")
+            empty = self._bodyfile(d, "   \n\n  ")
+            self.assertEqual(audit_digest.main(["seal", digest, "--body-file", empty]), 2)
+            self.assertFalse(os.path.exists(digest), "an empty self-review must not be written")
 
 
 if __name__ == "__main__":
