@@ -1197,7 +1197,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:011c5ad03ac48a78229fa351bfe3d237f063240c510a7e62de3b21bc50a7b777",
+        "fingerprint": "sha256:c4143abf7ff0c75323021bd7c9500d322c595231bc6b437b98a2e0b6b55d336b",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -2431,6 +2431,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_derived_reconcile",
+      "name": ".engine/tools/demo_derived_reconcile.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_derived_reconcile",
+      "source": {
+        "fingerprint": "sha256:1e4ed21e99ee73a7cb5a0407eb9902000c7bb5068a9d924485df3a60e7cf9f51",
+        "path": ".engine/tools/demo_derived_reconcile.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_first_run_reference_closure",
       "name": ".engine/tools/demo_first_run_reference_closure.py",
       "owner": "core",
@@ -2849,7 +2866,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:0b682aeb75252863235c9890c4868585686f921c10782f0f5984b9c66868a682",
+        "fingerprint": "sha256:2691c1f47e466db1b84a45252fce05595919a3110cf99f96eaddb43c4673c00e",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -3546,7 +3563,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:49a6d941402353f181af59f3c8cf31abe6655a6cc06eae55fe2e6b138810acc3",
+        "fingerprint": "sha256:2f626f5cd489b8e0745ac17ac0dd62a1c16f5474f6ff2ea222c9d27acae992af",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -3954,7 +3971,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:bc25e8859d0a4b81d6f32eed280d7b832f6f52238d000adf4cf0a92b096b7940",
+        "fingerprint": "sha256:0d471d4fc4d29f64ccb1127c69709bf6bc245a675151c2f1cd46adfaf1ea9830",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",
