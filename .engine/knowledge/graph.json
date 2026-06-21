@@ -1102,7 +1102,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:8af1a3a7c596e777b622baf93c0a0177ea2c46380fc1aadad893ce67504d0cf4",
+        "fingerprint": "sha256:fe9ddc2071f5b8b710a6b47353c608244a446bc842d9835fffd9c50f5d2f60da",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -3087,7 +3087,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:135f9f4cf0846b5ab72c4f62a02b0b735e28178622794adbf377fe4b579535f8",
+        "fingerprint": "sha256:12834d57ea14f583795cf8b04c2ca579c7ad17c4f58cc091799727be7cd0639a",
         "path": ".engine/tools/self_map.py"
       },
       "status": "active",
@@ -3563,7 +3563,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:9098bbe3a9303313a9e671dc1d4721fa826eefd7672b624317eb5f070c4dadd6",
+        "fingerprint": "sha256:1592ffda0c9751b5c9d7ad633f03c3f45e96ab67561aa1e8e8c470092527627d",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -4073,7 +4073,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:0d471d4fc4d29f64ccb1127c69709bf6bc245a675151c2f1cd46adfaf1ea9830",
+        "fingerprint": "sha256:7c689c97356646c9314b5d3544ec64c6d9a8ba83b0f5d584197dbf8defe35f86",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",
