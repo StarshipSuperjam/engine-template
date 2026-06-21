@@ -35,4 +35,7 @@ jobs:
           PROTECTED_BRANCH: main
         run: uv run --directory .engine --frozen -- python tools/validate.py --suite CI
       - name: Run the self-tests (the checker-of-checkers)
-        run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py'
+        # -b (buffer): unittest captures each test's stdout/stderr and discards it on
+        # success, replaying only a FAILING test's output. Keeps a green run's tail (the
+        # `Ran N tests … OK` summary) from being buried under demo-test walkthrough output.
+        run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
