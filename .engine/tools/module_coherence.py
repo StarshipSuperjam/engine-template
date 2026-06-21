@@ -173,7 +173,9 @@ def provides_claims(manifests: list) -> dict:
         mid = m.get("id")
         for _group, patterns in (m.get("provides") or {}).items():
             for pattern in patterns:
-                for abs_path in _glob.glob(os.path.join(validate.ROOT, pattern), recursive=True):
+                # sorted() so the claim order is filesystem-order-independent — a §19 defense-in-depth,
+                # matching discover_manifests/engine_file_inventory/foundation_infra_paths below.
+                for abs_path in sorted(_glob.glob(os.path.join(validate.ROOT, pattern), recursive=True)):
                     if os.path.isfile(abs_path):
                         claims.setdefault(_rel(abs_path), []).append(mid)
     return claims
