@@ -60,6 +60,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
+import boot_slice        # noqa: E402  (#37: boot's rung-1 knowledge cache; read() fail-opens to None)
 import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
 import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-branch evaluation)
@@ -233,9 +234,14 @@ def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | 
     git floor (no token needed). telemetry-as-register is still absent, so degraded_inputs stays non-empty
     (boot's routine degraded notice) — and the focused read does NOT clear it: `knowledge` merely leaves
     degraded_inputs on a focused session; the "couldn't rank" notice persists until telemetry wires."""
+    # Boot's RUNG-1 knowledge read (#37): a fresh boot slice is read once and threaded into every knowledge
+    # read below, so orientation reads the gitignored cache instead of the SQLite index. `read()` fail-opens to
+    # None (a missing/stale/broken slice, or knowledge unavailable) — then the reads run on `knowledge_query`
+    # exactly as before (the shared rungs 2-4), or boot orients without the block. Never blocks boot.
+    source = boot_slice.read()
     try:
         # with_total: the count BEHIND the cap, so the render discloses focus truncation honestly (#165).
-        focus, focus_total = attention.derive_focus(gh=gh, with_total=True)
+        focus, focus_total = attention.derive_focus(gh=gh, with_total=True, source=source)
     except Exception:  # noqa: BLE001 — focus derivation is best-effort; the rest of the pack stands
         focus, focus_total = [], 0
     try:
@@ -243,7 +249,7 @@ def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | 
         # slice as DATA — boot is the LOADING layer; attention merges it per-key (D-167), never reads the file.
         # The work record, by contrast, is a SUBSTRATE attention reads itself (through the gh reader boot hands it).
         result = attention.rank_live(override=operator_overrides.slice_for("attention") or None,
-                                     focus=focus or None, gh=gh)
+                                     focus=focus or None, gh=gh, source=source)
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
         return [], ["attention"], None
     lines: list = []
@@ -260,7 +266,7 @@ def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | 
     # truncation honestly ("core provides 147, showing 4") instead of an arbitrary capped few passed off as
     # the whole. Best-effort — a failure degrades to no block, never breaks the rest of the pack.
     try:
-        neighborhood = attention.neighborhood_of(focus) if focus else None
+        neighborhood = attention.neighborhood_of(focus, source=source) if focus else None
     except Exception:  # noqa: BLE001 — the neighbourhood is orientation context; its loss never breaks the pack
         neighborhood = None
     if neighborhood is not None:

@@ -80,7 +80,7 @@ def load_policy_values(policy_path: str = POLICY_PATH, override: dict | None = N
     return effective
 
 
-def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP, with_total: bool = False):
+def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP, with_total: bool = False, source=None):
     """The knowledge focus for the orientation-time focused read: the distinct graph entities that OWN the
     files the in-flight work touches (#37 — "which entities neighbor the work in hand", attention/README:69).
 
@@ -99,9 +99,15 @@ def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP, with_total: bool = 
     Fail-open: returns the empty result on no in-flight work, or any read failure (work_record/knowledge absent,
     or `find` raising KnowledgeUnavailable) — boot still ranks the rest. `gh` is accepted for the deferred
     PR-files layer but unused today; the floor is local git. `run` defaults LAZILY to work_record's git runner
-    (never as a default-arg expression, which would crash at import if the guarded work_record import degraded)."""
+    (never as a default-arg expression, which would crash at import if the guarded work_record import degraded).
+
+    `source` (opt-in; default off -> the `knowledge_query` module, so the CLI/tests are bit-for-bit unchanged):
+    boot passes its rung-1 boot-slice read-shim (#37) here, which exposes the same `find()` — so orientation
+    reads the cached path->entity map instead of the SQLite index. A slice present means knowledge is available
+    even if the `knowledge_query` import itself degraded (`src` is then the slice)."""
     empty = ([], 0) if with_total else []
-    if work_record is None or knowledge_query is None:
+    src = source or knowledge_query
+    if work_record is None or src is None:
         return empty
     runner = run or work_record._run_git
     try:
@@ -111,7 +117,7 @@ def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP, with_total: bool = 
         # One find() -> an EXACT path->id index (no SQLite GLOB, so a metacharacter path can't mis-resolve).
         # The catalog guarantees one entity per source_path (a file owns exactly one surface entity), so the
         # dict build has no real clobber; if that invariant ever broke, find()'s id-order makes it deterministic.
-        by_path = {e["source_path"]: e["id"] for e in knowledge_query.find()
+        by_path = {e["source_path"]: e["id"] for e in src.find()
                    if e.get("source_path") and e.get("id")}
         mapped: list = []
         for p in paths:
@@ -130,13 +136,18 @@ def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP, with_total: bool = 
 
 def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
                         focus: "str | list[str] | None" = None,
-                        edge_filter=None, depth: int = 1, gh=None):
+                        edge_filter=None, depth: int = 1, gh=None, source=None):
     """Assemble the candidate-set from the substrates present today, reporting which were available and the
     cursor's as-of marker. Returns (candidates, available_inputs:set, cursor_as_of:str|None). Narrates nothing.
 
     `gh` is the GitHub reader for the in-flight work-record read (None -> the local-git floor only; boot
     passes a real reader, the CLI passes None). Like state/knowledge, the work record is read HERE — the only
-    boot-loaded input is the operator override (config, not a substrate)."""
+    boot-loaded input is the operator override (config, not a substrate).
+
+    `source` (opt-in; default off -> the `knowledge_query` module, so the CLI's `rank` is bit-for-bit
+    unchanged): boot passes its rung-1 boot-slice read-shim (#37) so the structural-neighbours walk reads the
+    cache, not the SQLite index — making boot's "zero index consults at orientation" real (this discarded
+    partition would otherwise still walk the index). The shim exposes the same `neighbors()` + edge vocabulary."""
     candidates: list = []
     available: set = set()
     cursor_as_of = None
@@ -160,13 +171,16 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
     except Exception:
         pass  # state absent or malformed -> degrade over it (it stays out of available_inputs)
 
-    if focus and knowledge_query is not None:
+    src = source or knowledge_query
+    if focus and src is not None:
         try:
             # The cold-start adjacency walk is PINNED to the four structural edges (the attention policy's
             # `## Scope` budget-neutrality invariant, D-203): a new edge kind (e.g. supersedes) is pull-only
             # and never bulks up orientation. Pass the walk set explicitly rather than leaning on the
-            # neighbors() default, so the pin lives at attention's own call site.
-            walk_edges = edge_filter if edge_filter is not None else list(knowledge_query.WALK_EDGE_KINDS)
+            # neighbors() default, so the pin lives at attention's own call site. Read it from `src` (the
+            # boot slice carries the same WALK_EDGE_KINDS) so the branch never depends on the knowledge_query
+            # module when boot passes its own rung-1 source.
+            walk_edges = edge_filter if edge_filter is not None else list(src.WALK_EDGE_KINDS)
             # The walk is BIDIRECTIONAL (forward + reverse, `direction="both"`) over that same pinned edge
             # set (D-224). Forward-only starves a leaf: a non-check, ungoverned surface has no outgoing
             # structural edge but `provided_by` -> its module, so it collapses to just its module. Reverse
@@ -185,7 +199,7 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
             focus_set = set(focus_ids)
             seen: set = set()
             for fid in focus_ids:
-                for n in knowledge_query.neighbors(fid, edge_filter=walk_edges, depth=depth, direction="both"):
+                for n in src.neighbors(fid, edge_filter=walk_edges, depth=depth, direction="both"):
                     nid = n["id"]
                     if nid in focus_set or nid in seen:
                         continue
@@ -212,7 +226,7 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
     return candidates, available, cursor_as_of
 
 
-def neighborhood_of(focus: "str | list[str] | None", *, depth: int = 1):
+def neighborhood_of(focus: "str | list[str] | None", *, depth: int = 1, source=None):
     """The work-in-hand's structural neighbourhood as a per-(member, relationship) SUMMARY — the render
     channel for the orientation block (#37 / D-224). For each focus member it runs the SAME bidirectional,
     edge-pinned walk assemble_candidates runs (`direction="both"`, WALK_EDGE_KINDS, depth 1), then GROUPS the
@@ -227,20 +241,26 @@ def neighborhood_of(focus: "str | list[str] | None", *, depth: int = 1):
     Returns {"focus": [ids], "groups": [{"source", "predicate", "direction", "total", "sample": [ids]}]} with
     groups in a deterministic order (focus order, then the pinned edge order, forward before reverse), or None
     when there is no work in hand / knowledge is unavailable (fail-open, like derive_focus — boot then renders
-    no block). Returns IDs, not slugs: the render owns the plain-language slugging + relationship phrasing."""
-    if not focus or knowledge_query is None:
+    no block). Returns IDs, not slugs: the render owns the plain-language slugging + relationship phrasing.
+
+    `source` (opt-in; default off -> the `knowledge_query` module): boot passes its rung-1 boot-slice read-shim
+    (#37), whose `neighbors()` returns the same shape in the same `(id,predicate,direction)` order — so the
+    grouping/sampling here, and thus the rendered block, is byte-identical whether read from the cache or the
+    live walk (the parity test pins this)."""
+    src = source or knowledge_query
+    if not focus or src is None:
         return None
     focus_ids = [focus] if isinstance(focus, str) else list(focus)
     focus_set = set(focus_ids)
     try:
-        walk_edges = list(knowledge_query.WALK_EDGE_KINDS)
+        walk_edges = list(src.WALK_EDGE_KINDS)
         edge_order = {e: i for i, e in enumerate(walk_edges)}
         groups: list = []
         for idx, fid in enumerate(focus_ids):
             # Group this member's bidirectional neighbours by the relationship that reaches each — (predicate,
             # direction) — excluding co-changed focus members (they are not each other's structural neighbours).
             by_rel: dict = {}
-            for n in knowledge_query.neighbors(fid, edge_filter=walk_edges, depth=depth, direction="both"):
+            for n in src.neighbors(fid, edge_filter=walk_edges, depth=depth, direction="both"):
                 nid = n["id"]
                 if nid in focus_set:
                     continue
@@ -269,7 +289,7 @@ def _now_z() -> str:
 def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None,
               focus: "str | list[str] | None" = None,
               depth: int = 1, budget_total: int | None = None, as_of: str | None = None,
-              apply_precedence: bool = True, gh=None) -> dict:
+              apply_precedence: bool = True, gh=None, source=None) -> dict:
     """The live ranking path over the substrates present today, returning the attention-result.v1 dict
     (whose own `degraded_inputs` records the absent substrates). This is the ONE assembler the CLI (`rank`)
     and boot's SessionStart pack both call, so boot CONSUMES the partition it is handed — in the locked
@@ -280,9 +300,12 @@ def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None,
     attention slice of the operator policy-override (D-167) the LOADING layer (boot) reads and passes as DATA;
     it is merged per-key into the effective values via the core merge (`load_policy_values`), keeping the
     static-input determinism — attention never reads the override FILE itself. `gh` is the GitHub reader for
-    the in-flight work-record read (boot builds + passes it; the CLI leaves it None -> the local-git floor)."""
+    the in-flight work-record read (boot builds + passes it; the CLI leaves it None -> the local-git floor).
+    `source` (opt-in, default off -> `knowledge_query`) is boot's rung-1 boot-slice read-shim, threaded to
+    assemble_candidates so the structural-neighbours walk reads the cache, not the SQLite index (#37)."""
     policy_values = load_policy_values(policy_path, override)
-    candidates, available, cursor_as_of = assemble_candidates(policy_values, focus=focus, depth=depth, gh=gh)
+    candidates, available, cursor_as_of = assemble_candidates(policy_values, focus=focus, depth=depth, gh=gh,
+                                                              source=source)
     resolved_as_of = as_of or cursor_as_of
     as_of_is_wallclock = False
     if resolved_as_of is None:

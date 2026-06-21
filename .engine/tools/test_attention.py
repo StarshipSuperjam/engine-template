@@ -623,5 +623,72 @@ class TestNeighborhoodOf(unittest.TestCase):
             self.assertIsNone(attention.neighborhood_of(["tool:a"]))
 
 
+class _FakeSource:
+    """A stand-in for boot_slice's read-shim: exposes the same find()/neighbors() + edge vocabulary the
+    orientation reads call, so the `source=` seam is provable WITHOUT the real graph. (The order-faithful
+    real-graph parity and the byte-identical render live in test_boot_slice / test_boot.)"""
+    WALK_EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on")
+    EDGE_KINDS = WALK_EDGE_KINDS + ("supersedes",)
+
+    def __init__(self, by_path=None, adjacency=None):
+        self._by_path = by_path or {}
+        self._adjacency = adjacency or {}
+
+    def find(self):
+        return [{"source_path": p, "id": i} for p, i in self._by_path.items()]
+
+    def neighbors(self, entity_id, edge_filter=None, depth=1, direction="out"):
+        return list(self._adjacency.get(entity_id, []))
+
+
+class TestSliceSourceInjection(unittest.TestCase):
+    """The opt-in `source=` (boot's rung-1 boot-slice read-shim, #37) makes the orientation reads consult the
+    injected source instead of the knowledge_query module — one code path, default off so the CLI is unchanged."""
+
+    def test_derive_focus_reads_the_injected_source_not_knowledge_query(self):
+        src = _FakeSource(by_path={".engine/tools/attention.py": "tool:attention"})
+        with mock.patch.object(attention.work_record, "changed_paths",
+                               return_value=[".engine/tools/attention.py"]), \
+             mock.patch.object(attention.knowledge_query, "find",
+                               side_effect=AssertionError("knowledge_query.find must NOT be consulted")):
+            self.assertEqual(attention.derive_focus(run=lambda a: None, source=src), ["tool:attention"])
+
+    def test_neighborhood_of_reads_the_injected_source(self):
+        src = _FakeSource(adjacency={"policy:attention": [
+            {"id": "module:core", "predicate": "provided_by", "direction": "out"},
+            {"id": "check:policy-shape", "predicate": "targets", "direction": "in"}]})
+        with mock.patch.object(attention.knowledge_query, "neighbors",
+                               side_effect=AssertionError("knowledge_query.neighbors must NOT be consulted")):
+            nb = attention.neighborhood_of(["policy:attention"], source=src)
+        by_rel = {(g["predicate"], g["direction"]): g for g in nb["groups"]}
+        self.assertEqual(by_rel[("provided_by", "out")]["sample"], ["module:core"])
+        self.assertEqual(by_rel[("targets", "in")]["sample"], ["check:policy-shape"])
+
+    def test_assemble_candidates_reads_the_injected_source_and_records_knowledge_available(self):
+        src = _FakeSource(adjacency={"tool:a": [{"id": "module:core", "predicate": "provided_by",
+                                                 "direction": "out"}]})
+        with mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
+             mock.patch.object(attention.knowledge_query, "neighbors",
+                               side_effect=AssertionError("knowledge_query.neighbors must NOT be consulted")):
+            cands, available, _ = attention.assemble_candidates(
+                FIXTURE_POLICY, state_path="/nonexistent", focus="tool:a", gh=None, source=src)
+        sn = [c["id"] for c in cands if c["category"] == "structural_neighbors"]
+        self.assertEqual(sn, ["module:core"])
+        self.assertIn("knowledge", available)        # a slice read counts as knowledge available
+
+    def test_source_works_even_when_the_knowledge_query_import_degraded(self):
+        # NIT-1 robustness: slice present => `src` is truthy even if knowledge_query is None, so orientation
+        # still reads knowledge (and the WALK_EDGE_KINDS reference comes off `src`, never the absent module).
+        src = _FakeSource(by_path={".engine/tools/boot.py": "tool:boot"},
+                          adjacency={"policy:attention": [{"id": "module:core", "predicate": "provided_by",
+                                                           "direction": "out"}]})
+        with mock.patch.object(attention, "knowledge_query", None), \
+             mock.patch.object(attention.work_record, "changed_paths",
+                               return_value=[".engine/tools/boot.py"]):
+            self.assertEqual(attention.derive_focus(run=lambda a: None, source=src), ["tool:boot"])
+            nb = attention.neighborhood_of(["policy:attention"], source=src)
+        self.assertEqual(nb["groups"][0]["sample"], ["module:core"])
+
+
 if __name__ == "__main__":
     unittest.main()
