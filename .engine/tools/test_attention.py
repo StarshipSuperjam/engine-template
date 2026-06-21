@@ -492,6 +492,26 @@ class TestDeriveFocus(unittest.TestCase):
         with mock.patch.object(attention, "work_record", None):
             self.assertEqual(attention.derive_focus(), [])
 
+    def test_with_total_reports_count_behind_the_cap_and_keeps_list_default(self):
+        # opt-in `with_total` returns (capped_focus, true_total) so the render can disclose focus truncation
+        # (#165); the default (no with_total) is unchanged — a bare list — so existing callers are unaffected.
+        entities = [{"source_path": f".engine/tools/t{i}.py", "id": f"tool:t{i}"} for i in range(7)]
+        capped = [f"tool:t{i}" for i in range(5)]
+        p1, p2 = self._patch([e["source_path"] for e in entities], entities)
+        with p1, p2:
+            self.assertEqual(attention.derive_focus(run=lambda a: None, cap=5), capped)   # default: bare list
+            focus, total = attention.derive_focus(run=lambda a: None, cap=5, with_total=True)
+        self.assertEqual(focus, capped)                                  # the capped focus is identical
+        self.assertEqual(total, 7)                                       # AND the TRUE count behind the cap
+
+    def test_with_total_respects_the_pair_shape_on_the_degrade_paths(self):
+        # fail-open must respect the return shape: with_total -> ([], 0), never a bare [] that crashes unpacking.
+        p1, p2 = self._patch([], [{"source_path": "x", "id": "tool:x"}])      # no changed paths -> empty
+        with p1, p2:
+            self.assertEqual(attention.derive_focus(run=lambda a: None, with_total=True), ([], 0))
+        with mock.patch.object(attention, "work_record", None):              # substrate absent -> empty
+            self.assertEqual(attention.derive_focus(with_total=True), ([], 0))
+
 
 class TestFocusSetWalk(unittest.TestCase):
     """assemble_candidates walks a focus SET BIDIRECTIONALLY (D-224): it asks knowledge for each focus

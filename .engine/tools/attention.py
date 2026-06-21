@@ -80,7 +80,7 @@ def load_policy_values(policy_path: str = POLICY_PATH, override: dict | None = N
     return effective
 
 
-def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP) -> list:
+def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP, with_total: bool = False):
     """The knowledge focus for the orientation-time focused read: the distinct graph entities that OWN the
     files the in-flight work touches (#37 — "which entities neighbor the work in hand", attention/README:69).
 
@@ -90,36 +90,42 @@ def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP) -> list:
     README, CLAUDE.md, the derived graph.json, ...) and EXCLUDES a changed file's own `test_`/`demo_` entity
     (the focus is the thing under test, not its test). Distinct, stable order, capped at `cap`.
 
-    Fail-open: returns [] on no in-flight work, or any read failure (work_record/knowledge absent, or `find`
-    raising KnowledgeUnavailable) — boot still ranks the rest. `gh` is accepted for the deferred PR-files
-    layer but unused today; the floor is local git. `run` defaults LAZILY to work_record's git runner (never
-    as a default-arg expression, which would crash at import if the guarded work_record import degraded)."""
+    `with_total` (opt-in; default off, so existing list-returning callers are bit-for-bit unaffected): when
+    True, returns `(focus, total)` where `total` is the count of ALL distinct mapped entities BEFORE the cap —
+    so the render can DISCLOSE focus truncation honestly ("touching 5 of 7 you've changed", #165) rather than
+    pass the capped few off as the whole. To know the true total the scan no longer stops early at the cap; the
+    changed-path set is already bounded (work_record caps it), so the full scan stays cheap.
+
+    Fail-open: returns the empty result on no in-flight work, or any read failure (work_record/knowledge absent,
+    or `find` raising KnowledgeUnavailable) — boot still ranks the rest. `gh` is accepted for the deferred
+    PR-files layer but unused today; the floor is local git. `run` defaults LAZILY to work_record's git runner
+    (never as a default-arg expression, which would crash at import if the guarded work_record import degraded)."""
+    empty = ([], 0) if with_total else []
     if work_record is None or knowledge_query is None:
-        return []
+        return empty
     runner = run or work_record._run_git
     try:
         paths = work_record.changed_paths(run=runner)
         if not paths:
-            return []
+            return empty
         # One find() -> an EXACT path->id index (no SQLite GLOB, so a metacharacter path can't mis-resolve).
         # The catalog guarantees one entity per source_path (a file owns exactly one surface entity), so the
         # dict build has no real clobber; if that invariant ever broke, find()'s id-order makes it deterministic.
         by_path = {e["source_path"]: e["id"] for e in knowledge_query.find()
                    if e.get("source_path") and e.get("id")}
-        focus: list = []
+        mapped: list = []
         for p in paths:
             eid = by_path.get(p)
             if eid is None:
                 continue                                       # a non-surface file owns no entity -> skip
             if eid.split(":", 1)[-1].startswith(("test_", "demo_")):
                 continue                                       # focus the thing under test, not its test/demo
-            if eid not in focus:
-                focus.append(eid)
-            if len(focus) >= cap:
-                break
-        return focus
+            if eid not in mapped:                              # collect ALL distinct (no early break) so `total`
+                mapped.append(eid)                             # is the true count behind the cap
+        focus = mapped[:cap]
+        return (focus, len(mapped)) if with_total else focus
     except Exception:
-        return []  # the work-in-hand focus could not be derived -> degrade (no focused read this session)
+        return empty  # the work-in-hand focus could not be derived -> degrade (no focused read this session)
 
 
 def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,

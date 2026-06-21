@@ -11,13 +11,14 @@ logic end-to-end over the REAL committed knowledge graph — `attention.derive_f
 entities), the REAL bidirectional ranking walk, and boot's REAL capped neighborhood render. ONLY the local
 git "what files changed" read is faked, so it is deterministic and needs no network, no token, no edits.
 
-It shows three honest cases side by side (forward-only vs bidirectional), each rendered through boot's REAL
-per-source block:
+It shows four honest cases, each rendered through boot's REAL per-source block:
   * a POLICY file  -> the bidirectional read GAINS the checks that target (validate) it (the real win);
   * a bare TOOL    -> stays module-only either way (the honest residual D-224 names: a leaf with no inbound
                       structural edge has no reverse tissue to surface);
-  * a MODULE manifest -> a highly-connected hub; the render DISCLOSES the true count ("provides 148, showing
-                      4"), so an arbitrary sample never masquerades as the whole or the salient set.
+  * a MODULE manifest -> a highly-connected hub; the render DISCLOSES the true count ("provides N, showing 4
+                      examples"), so an arbitrary sample never masquerades as the whole or the salient set;
+  * SEVEN files at once -> the FOCUS itself is capped at five, and the header DISCLOSES the true count too
+                      ("showing 5 of 7 you've changed"), so the shown focus never masquerades as the whole (#165).
 
 Vary it yourself: pass a path to pretend you're editing, e.g.
     uv run --directory .engine -- python tools/demo_reverse_adjacency.py .engine/policies/escalation.md
@@ -78,12 +79,14 @@ def _show(title: str, changed: list):
     the caller's self-checks read the real STRUCTURE, not the printout."""
     print(title)
     print(f"   pretending you've touched: {', '.join(changed)}")
-    focus = attention.derive_focus(run=_fake_changed(changed))       # real path -> entity mapping
+    focus, focus_total = attention.derive_focus(run=_fake_changed(changed), with_total=True)  # real mapping
     if not focus:
         print("   (these files own no graph surface -> no focused read)\n")
         return None, None, ""
     before = _forward_only(focus)
     summary = attention.neighborhood_of(focus)                       # the REAL bidirectional summary
+    if summary:
+        summary["focus_total"] = focus_total                         # mirror boot: the true count behind the cap
     rendered = boot.render_neighborhood(summary)                     # boot's REAL honest render
     print(f"   the work maps to: {', '.join(_slug(f) for f in focus)}")
     print(f"   forward-only (before): {', '.join(before) or '(only its module / nothing)'}")
@@ -104,6 +107,12 @@ def _has_disclosed_truncation(summary, rendered: str) -> bool:
     """True if a relationship floods past the sample AND the render DISCLOSES the true count (not a bare few)."""
     flooded = bool(summary) and any(g["total"] > len(g["sample"]) for g in summary.get("groups", []))
     return flooded and "(showing " in rendered
+
+
+def _has_disclosed_focus_truncation(summary, rendered: str) -> bool:
+    """True if the FOCUS itself was capped (more changed than shown) AND the header discloses the true count (#165)."""
+    capped = bool(summary) and summary.get("focus_total", 0) > len(summary.get("focus", []))
+    return capped and "you've changed)" in rendered
 
 
 def main(argv: list | None = None) -> int:
@@ -127,10 +136,16 @@ def main(argv: list | None = None) -> int:
         #    never an arbitrary capped few passed off as the whole (the maintainer's honesty correction).
         f3, s3, r3 = _show("3) Editing a MODULE manifest -> a hub; the render DISCLOSES the true count:",
                            [".engine/modules/core/manifest.json"])
+        # 4) MORE than FOCUS_CAP files at once -> the FOCUS itself is capped; the header DISCLOSES the true count
+        #    too (#165), so the shown focus is never passed off as the whole change.
+        many = [f".engine/tools/{t}.py" for t in
+                ("attention", "boot", "close", "modes", "hooks", "telemetry", "validate")]
+        f4, s4, r4 = _show("4) Editing 7 files at once -> the focus is capped at 5, and the header says so:", many)
         ok = (_has_reverse(s1)                            # the policy gained reverse tissue forward-only can't see
               and bool(f2) and not _has_reverse(s2)       # the bare tool honestly stays module-only
-              and _has_disclosed_truncation(s3, r3))      # the hub floods AND the render discloses the true count
-        all_rendered = [r1, r2, r3]
+              and _has_disclosed_truncation(s3, r3)       # the hub floods AND the render discloses the true count
+              and _has_disclosed_focus_truncation(s4, r4))  # the over-cap focus discloses its true count too
+        all_rendered = [r1, r2, r3, r4]
 
     blob = "\n".join(all_rendered)
     # §12: the AI block names plain components + relationship VERBS, never raw ids or internal type/predicate
@@ -144,9 +159,10 @@ def main(argv: list | None = None) -> int:
     print("truncation by its true count.")
 
     if not (ok and jargon_free):
-        print("\nDEMO UNEXPECTED: the bidirectional read did not behave as described for the built-in "
-              "scenarios (the policy should gain reverse tissue, a bare tool should not, the hub should "
-              "DISCLOSE its true count, and the block must be jargon-free).", file=sys.stderr)
+        print("\nDEMO UNEXPECTED: the focused read did not behave as described for the built-in scenarios "
+              "(the policy should gain reverse tissue, a bare tool should not, the hub should DISCLOSE its "
+              "true count, an over-cap focus should disclose ITS true count, and the block must be "
+              "jargon-free).", file=sys.stderr)
         return 1
     return 0
 

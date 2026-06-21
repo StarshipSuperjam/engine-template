@@ -234,9 +234,10 @@ def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | 
     (boot's routine degraded notice) — and the focused read does NOT clear it: `knowledge` merely leaves
     degraded_inputs on a focused session; the "couldn't rank" notice persists until telemetry wires."""
     try:
-        focus = attention.derive_focus(gh=gh)
+        # with_total: the count BEHIND the cap, so the render discloses focus truncation honestly (#165).
+        focus, focus_total = attention.derive_focus(gh=gh, with_total=True)
     except Exception:  # noqa: BLE001 — focus derivation is best-effort; the rest of the pack stands
-        focus = []
+        focus, focus_total = [], 0
     try:
         # Load the operator policy-override (operator config, absent until first tuned) and pass attention's
         # slice as DATA — boot is the LOADING layer; attention merges it per-key (D-167), never reads the file.
@@ -262,6 +263,8 @@ def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | 
         neighborhood = attention.neighborhood_of(focus) if focus else None
     except Exception:  # noqa: BLE001 — the neighbourhood is orientation context; its loss never breaks the pack
         neighborhood = None
+    if neighborhood is not None:
+        neighborhood["focus_total"] = focus_total   # the true count behind FOCUS_CAP, for honest disclosure (#165)
     return lines, list(result.get("degraded_inputs") or []), neighborhood
 
 
@@ -293,12 +296,20 @@ def render_neighborhood(nb: dict | None) -> list:
     DISCLOSED as a sample, never an arbitrary capped few passed off as the whole or the salient set (honest
     truncation — ranking WHICH few is relevant is deferred, D-224 Q38/Q39). A genuinely bare leaf (its only
     edge is `is part of` -> its module) honestly reads module-only. Plain words throughout (§12): relationship
-    verbs + slugs, never raw ids or internal type nouns."""
+    verbs + slugs, never raw ids or internal type nouns.
+
+    When the focus itself was truncated (more files were changed than `FOCUS_CAP` shows), the header discloses
+    the true count too ("touching: a, b, c, d, e (showing 5 of 7 you've changed)", #165) — the same honesty as
+    the per-relationship counts, one level up, so the shown focus is never passed off as the whole change."""
     if not nb or not nb.get("focus"):
         return []
-    focus_names = ", ".join(_slug(f) for f in nb["focus"])
+    focus = nb["focus"]
+    focus_names = ", ".join(_slug(f) for f in focus)
+    total = nb.get("focus_total") or len(focus)
+    touching = (f"You're touching: {focus_names} (showing {len(focus)} of {total} you've changed)."
+                if total > len(focus) else f"You're touching: {focus_names}.")
     out = ["--- knowledge neighborhood of your current work (orientation context, not an alarm) ---",
-           f"You're touching: {focus_names}."]
+           touching]
     rel_lines: list = []
     for g in nb.get("groups") or []:
         phrase = _RELATION_PHRASE.get((g.get("predicate"), g.get("direction")))
