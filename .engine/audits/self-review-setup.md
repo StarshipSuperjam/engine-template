@@ -18,8 +18,8 @@ until it lands, keep in mind the review covers your committed project, not your 
 
 ## Turn it on
 
-Setup is three one-time steps. Do **all three** — skipping any one makes the review quietly fail to run, with
-no error you'd notice, so don't stop early.
+Setup is two one-time steps. Do **both** — skipping either makes the review quietly fail to run, with no error
+you'd notice, so don't stop early.
 
 **Step 1 — create a sign-in token.** On your own computer, run:
 
@@ -28,16 +28,11 @@ claude setup-token
 ```
 
 This opens your browser to sign in to your Claude account and hands you back a token — a long private string
-tied to your subscription, good for one year. Keep it handy for Step 3.
+tied to your subscription, good for one year. That token is the only access the review needs; it just has to
+come from one of Anthropic's paid plans (Pro, Max, Team, or Enterprise). A token from a free account won't run
+the review, and — like a mistyped one — it fails quietly, with no error you'd notice. Keep it handy for Step 2.
 
-**Step 2 — turn on access for scheduled runs.** This is a *separate* one-time switch in your Claude account,
-not part of the command above: the one-time go-ahead that lets an automatic, unattended run draw on your
-subscription's monthly allowance. Look for it in your Claude account settings, named for scheduled or developer
-("Agent") runs and turn it on. **This step is the easiest to miss, and there is no error if you skip it — the
-review simply never runs** — so don't move on until you've turned it on. (If you can't find the switch, ask me
-and I'll point you to where it currently lives.)
-
-**Step 3 — give the token to this project.** On GitHub, open this project's **Settings → Secrets and variables
+**Step 2 — give the token to this project.** On GitHub, open this project's **Settings → Secrets and variables
 → Actions** and add a new repository **secret** — a private value GitHub keeps for this project and never shows
 again — named exactly:
 
@@ -58,9 +53,10 @@ A few ordinary things can quietly stop the review. In every case the engine tell
 names the one thing to do, so you're never left guessing:
 
 - **The sign-in token expires after a year.** When it lapses, the review stops. Run `claude setup-token` again
-  and update the `CLAUDE_CODE_OAUTH_TOKEN` secret (Step 3) with the new value.
-- **Running too often can use up your monthly allowance.** If that happens, the review pauses until the
-  allowance resets — the fix is to run it *less* often, not more (see below).
+  and update the `CLAUDE_CODE_OAUTH_TOKEN` secret (Step 2) with the new value.
+- **Running it very often uses your subscription, like any other Claude usage.** A too-frequent schedule can run
+  into your plan's usage limits and pause the review until they reset — so the fix is to run it *less* often, not
+  more (see below).
 - **On a public project, GitHub pauses any schedule after 60 days with no activity.** A new commit, or just
   asking me to start it again, brings it back.
 
@@ -80,7 +76,7 @@ that sets the schedule — it's the one with five numbers in quotes — and repl
     - cron: "17 7 1 * *"
 ```
 
-If you're unsure, run it *less* often rather than more — too-frequent runs can use up your monthly allowance.
+If you're unsure, run it *less* often rather than more — a too-frequent schedule can run into your plan's usage limits.
 One thing to know: if you later update the engine, it puts the default weekly schedule back, so re-apply your
 change after an update. (Which model does the review — below — is remembered across updates; the schedule is
 the one setting you re-apply.)

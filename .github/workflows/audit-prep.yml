@@ -8,8 +8,8 @@
 # Because the workflow is committed from day one, the digest-staleness signal has a baseline to measure
 # against: a self-review that is missing, stopped, or never set up is surfaced on the operator's return.
 #
-# NOT EXERCISED END-TO-END DURING TEMPLATE CONSTRUCTION. This construction repo holds no subscription token
-# and no Agent-SDK credit, and committing back needs a deployed repo — so this file is validated by its
+# NOT EXERCISED END-TO-END DURING TEMPLATE CONSTRUCTION. This construction repo holds no subscription token,
+# and committing back needs a deployed repo — so this file is validated by its
 # GRAMMAR (the actionlint workflow lints it) and by read-review, NOT by a run. The plumbing it calls — the
 # digest seal and the offline-cache refresh — IS unit-tested and demoed. That the scheduled run itself
 # produces a digest is confirmed the first time an operator arms it (the same maturity honesty the project
@@ -23,8 +23,8 @@
 # CADENCE is the one cron line below (`17 7 * * 0` = weekly, Sundays 07:17 UTC). GitHub requires the schedule
 # to be written here literally — it cannot be read from a setting — so to change how often the self-review
 # runs, edit that one line (cron's five fields are minute hour day-of-month month day-of-week; e.g.
-# `17 7 1 * *` is monthly). A too-frequent cadence can use up the monthly allowance, so lengthen it rather
-# than shorten it if unsure. On a public repo GitHub disables a schedule after 60 idle days; a commit or
+# `17 7 1 * *` is monthly). A too-frequent cadence can run into the subscription's usage limits, so lengthen it
+# rather than shorten it if unsure. On a public repo GitHub disables a schedule after 60 idle days; a commit or
 # `gh workflow enable` re-arms it, and the staleness signal says so if it lapses.
 name: audit-prep
 
