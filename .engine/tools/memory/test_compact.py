@@ -195,6 +195,11 @@ class IdAndPruneTests(_Base):
 
 
 class NeverDropsRecallContentTests(_Base):
+    """The Layer-1 guarantee: an UNMARKED compaction (no operator-adjudicated-erasure marker present) drops NO
+    recall content — every turn-delta / episodic / gist survives the fold, even when archived or crash-retired.
+    This is the partial-build safety net too: until the observer (slice ii) writes a marker, the removal set is
+    always empty, so the half-built system erases nothing. (The MARKED case is Layer2ErasureTests, below.)"""
+
     def test_every_content_record_survives_compaction(self):
         a = self._episodic("the manifest note")
         b = self._episodic("the migration note", role="decision")
@@ -225,6 +230,94 @@ class NeverDropsRecallContentTests(_Base):
         self.assertNotIn(aid, [r.get(records.RECORD_ID_KEY) for r in forget.live_records()])  # excluded from recall
         compact.compact()
         self.assertEqual(len(self._by_id(aid)), 1)             # but still resident in the ledger
+
+
+class Layer2ErasureTests(_Base):
+    """Slice 4e — the gated Layer-2 physical erasure (the single irreversible act). Compaction removes a recall
+    record IFF a VALID operator-adjudicated-erasure marker targets it; an UNMARKED record is never removed; the
+    marker is RETAINED (the idempotency tombstone); a re-compaction is a clean no-op; the generation bumps; and a
+    crash just after the swap still leaves the target erased.
+
+    Mutation-kills (the contract for the cold lens) — the suite goes RED if:
+      * the `_is_erased` continue is dropped from `_write_compacted_temp` -> the marked record survives (test 1);
+      * `_is_erased` is inverted to match UNMARKED records -> the kept record vanishes (test 1);
+      * `_is_erased` ignores the target id (erase all / none) -> test 1 fails either way;
+      * the marker is pruned (or the `kind != ERASURE_KIND` guard removed) -> retention / no-op fail (tests 2, 4);
+      * the read-side SHA floor is removed -> a SHA-less marker erases (test 3)."""
+
+    def _slips(self):
+        return sum(1 for r in ledger.iter_records()
+                   if isinstance(r, dict) and r.get("kind") == records.ERASURE_KIND)
+
+    def test_1_a_marked_record_is_removed_and_an_unmarked_one_survives(self):
+        gone = self._episodic("erase this floodplain note")
+        keep = self._episodic("keep this fireworks note")
+        index.rebuild()
+        before = self._content_ids()
+        compact.enact_erasure(gone[records.RECORD_ID_KEY], "merge-sha-abc")
+        report = compact.compact()
+        after = self._content_ids()
+        self.assertEqual(report["erased"], 1)
+        self.assertNotIn(gone[records.RECORD_ID_KEY], after)            # the WITH-marker record IS removed
+        self.assertIn(keep[records.RECORD_ID_KEY], after)              # the WITHOUT-marker record is NEVER removed
+        self.assertEqual(after, before - {gone[records.RECORD_ID_KEY]})   # and ONLY the marked one
+
+    def test_2_the_marker_is_retained_and_generation_bumps(self):
+        gone = self._episodic("erase this note")
+        compact.enact_erasure(gone[records.RECORD_ID_KEY], "merge-sha-abc")
+        gen0 = ledger.generation()
+        report = compact.compact()
+        self.assertEqual(report["erased"], 1)
+        self.assertEqual(self._slips(), 1)                             # the marker is RETAINED (the tombstone)
+        self.assertGreater(ledger.generation(), gen0)                  # generation bumped across the erasing pass
+
+    def test_3_a_sha_less_marker_is_inert(self):
+        keep = self._episodic("keep this note")
+        self.assertIsNone(compact.enact_erasure(keep[records.RECORD_ID_KEY], ""))   # blank sha -> no marker minted
+        ledger.append({"v": capture.RECORD_VERSION, "kind": records.ERASURE_KIND,   # hand-inject a SHA-less marker
+                       records.RECORD_ID_KEY: records.new_record_id(),
+                       records.TARGET_KEY: keep[records.RECORD_ID_KEY],
+                       "ts": int(time.time()), "tags": [records.ERASURE_TAG]})       # NOTE: no merge_sha
+        report = compact.compact()
+        self.assertEqual(report["erased"], 0)                          # the read-side consent floor holds
+        self.assertIn(keep[records.RECORD_ID_KEY], self._content_ids())  # the target survives (no consent provenance)
+
+    def test_4_re_running_is_a_clean_no_op(self):
+        gone = self._episodic("erase this note")
+        keep = self._episodic("keep this note")
+        compact.enact_erasure(gone[records.RECORD_ID_KEY], "merge-sha-abc")
+        compact.compact()
+        after1 = self._content_ids()
+        report2 = compact.compact()                                    # re-run, target already gone
+        self.assertEqual(report2["erased"], 0)                         # idempotent no-op
+        self.assertEqual(self._content_ids(), after1)                 # the kept note unchanged
+        self.assertIn(keep[records.RECORD_ID_KEY], after1)
+        self.assertEqual(self._slips(), 1)                            # the marker still retained
+
+    def test_5_the_marker_is_never_pruned_by_a_colliding_target_id(self):
+        # If a marker targeted another marker's id, a naive predicate would prune the marker, breaking idempotency.
+        # _is_erased excludes ERASURE_KIND, so EVERY erasure marker is retained regardless of what targets it.
+        keep = self._episodic("keep this note")
+        marker = compact.enact_erasure(keep[records.RECORD_ID_KEY], "merge-sha-abc")
+        ledger.append({"v": capture.RECORD_VERSION, "kind": records.ERASURE_KIND,    # a 2nd marker targeting the 1st
+                       records.RECORD_ID_KEY: records.new_record_id(),
+                       records.TARGET_KEY: marker[records.RECORD_ID_KEY], records.MERGE_SHA_KEY: "sha2",
+                       "ts": int(time.time()), "tags": [records.ERASURE_TAG]})
+        compact.compact()
+        self.assertEqual(self._slips(), 2)                            # BOTH markers retained (neither pruned)
+        self.assertNotIn(keep[records.RECORD_ID_KEY], self._content_ids())   # the real target still erased
+
+    def test_6_a_crash_after_the_swap_leaves_the_target_erased(self):
+        # The first slice where the swap's durability backs an IRREVERSIBLE (not merely recoverable) guarantee:
+        # a power-cut just AFTER the erasing swap must leave the target GONE (the new ledger is already in place).
+        gone = self._episodic("erase this note")
+        keep = self._episodic("keep this note")
+        compact.enact_erasure(gone[records.RECORD_ID_KEY], "merge-sha-abc")
+        with self.assertRaises(compact._InjectedCrash):
+            compact.compact(_crash_after="swap")
+        ids = self._content_ids()                                     # read the on-disk ledger after the 'crash'
+        self.assertNotIn(gone[records.RECORD_ID_KEY], ids)           # the erased target stays gone
+        self.assertIn(keep[records.RECORD_ID_KEY], ids)
 
 
 class SearchBodyTests(_Base):

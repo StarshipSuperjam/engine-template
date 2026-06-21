@@ -122,11 +122,12 @@ class GateTests(_Base):
 
 
 class Layer1InvariantTests(_Base):
-    def test_auto_trigger_never_erases_recall_content(self):
-        # The Layer-1 build-conformance invariant, enforced BEHAVIORALLY through the REAL PreCompact handler: the
-        # auto-trigger may fold/prune only NON-recall markers; it must never reduce the set of recall-CONTENT
-        # records (turn-delta / episodic / gist). Plant a mix, capture the content ids, fire the trigger, assert
-        # IDENTICAL. (Mutation check: deleting any content record before the compare makes this assertion fail.)
+    def test_auto_trigger_never_erases_unmarked_content(self):
+        # The Layer-1 invariant, enforced BEHAVIORALLY through the REAL PreCompact handler with NO erasure marker
+        # present: the auto-trigger may fold/prune only NON-recall markers; it must never reduce the set of
+        # recall-CONTENT records (turn-delta / episodic / gist). Plant a mix, capture the content ids, fire the
+        # trigger, assert IDENTICAL. (Mutation: deleting any content record before the compare makes this fail. The
+        # MARKED case — a valid marker DOES erase its target via this same live path — is the next test.)
         live = self._episodic("a fresh live decision", age_days=0)
         self._episodic("an old archived lesson", age_days=40, role="lesson")            # archived, still content
         raws = self._raws(3, session_id="roll-S")                                       # rolled up -> closed waste
@@ -142,6 +143,36 @@ class Layer1InvariantTests(_Base):
         self.assertEqual(code, hooks.EXIT_PROCEED)                    # the trigger fired AND the squash proceeded
         self.assertEqual(self._content_ids(), before)                # every recall-content record survived
         self.assertEqual(compact.reclaimable_waste(), 0)             # the non-recall waste was actually folded away
+
+    def test_auto_trigger_erases_only_a_marked_target(self):
+        # The LIVE erasure path end-to-end (the only end-to-end test of the unattended squash-triggered erasure):
+        # fire the REAL PreCompact handler with a VALID erasure marker present AND enough reclaimable waste to trip
+        # the gate (the gate counts foldable markers, NOT erasure markers, so the marked record is removed only when
+        # a compaction actually fires). The marked target is physically gone; every UNMARKED content id survives;
+        # the marker is retained; a 2nd auto-fire (waste now 0 -> gate skips) changes nothing. (Mutation: drop the
+        # `_is_erased` continue -> the target survives; invert it -> a kept id vanishes.)
+        def slips():
+            return sum(1 for r in ledger.iter_records()
+                       if isinstance(r, dict) and r.get("kind") == records.ERASURE_KIND)
+        target = self._episodic("erase this one", age_days=0)
+        keep = self._episodic("keep this one", age_days=0)
+        live = self._episodic("a used note", age_days=0)
+        self._pile_waste(live[records.RECORD_ID_KEY], _THRESHOLD)        # trip the gate so maybe_compact fires compact
+        compact.enact_erasure(target[records.RECORD_ID_KEY], "merge-sha-xyz")
+        index.rebuild()
+        before = self._content_ids()
+        self.assertIn(target[records.RECORD_ID_KEY], before)
+        self.assertTrue(compact.should_compact())
+        code, _out, _err = self._run_hook("PreCompact", consolidate._pre_compact_handler, {"trigger": "auto"})
+        self.assertEqual(code, hooks.EXIT_PROCEED)                    # the trigger fired AND the squash proceeded
+        after = self._content_ids()
+        self.assertNotIn(target[records.RECORD_ID_KEY], after)        # the marked target is physically gone
+        self.assertEqual(after, before - {target[records.RECORD_ID_KEY]})  # and ONLY it (every unmarked id survives)
+        self.assertEqual(slips(), 1)                                  # the marker is retained (the tombstone)
+        code2, _o2, _e2 = self._run_hook("PreCompact", consolidate._pre_compact_handler, {"trigger": "auto"})
+        self.assertEqual(code2, hooks.EXIT_PROCEED)
+        self.assertEqual(self._content_ids(), after)                 # 2nd fire: gate skips (waste folded), no change
+        self.assertEqual(slips(), 1)
 
 
 class FailOpenTests(_Base):
