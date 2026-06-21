@@ -41,19 +41,6 @@ class TestFindings(unittest.TestCase):
         self.assertEqual(len(fs), 1)
         self.assertIn("isn't a number", fs[0]["message"])
 
-    def test_surfaced_messages_carry_no_maintainer_jargon(self):
-        # The operator reads these at the merge gate; none of the merge's maintainer-register vocabulary may
-        # surface (the convergent deliverable-gate finding). Phrases, not bare substrings — a backstage
-        # setting key may legitimately contain a word like "precedence".
-        forbidden = ("override key", "structural", "override-eligible", "shipped default", "not carried")
-        fs = poc.findings("hard", override={"attention": {"precedence_blocking_debt": 1, "gone_setting": 2},
-                                            "triage-threshold": {"persistence": "x"}})
-        self.assertEqual(len(fs), 3)
-        for f in fs:
-            low = f["message"].lower()
-            for term in forbidden:
-                self.assertNotIn(term, low, f"plain-language law: '{term}' must not surface to the operator")
-
     def test_whole_slice_for_a_gone_policy_is_surfaced(self):
         fs = poc.findings("hard", override={"made-up-policy": {"x": 1, "y": 2}})
         self.assertEqual(len(fs), 2, "every key of a policy that no longer exists is stale")

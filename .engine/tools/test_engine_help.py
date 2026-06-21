@@ -6,7 +6,7 @@ while model-only verbs are excluded); the typed-name source (directory for a ski
 a legacy command — NOT the display `name`); the load-bearing degradation guarantee (a malformed command
 file is skipped, the listing never raises — contrasted with the merged `validate.frontmatter`, which
 DOES raise on the same input); the available-commands relay (empty when absent, relayed-sorted when
-present, empty on a malformed catalog); and that `render` is plain (no governance jargon), shows one
+present, empty on a malformed catalog); and that `render` shows one
 plain line — not a bare heading — when nothing is available, carries the getting-started pointer, and is
 deterministically ordered. CLI `main([])`/`main(["demo"])` run.
 """
@@ -141,16 +141,8 @@ class TestAvailableVerbsRelay(unittest.TestCase):
 
 
 class TestRender(unittest.TestCase):
-    # The governing plain-language law's forbidden vocabulary — none may surface in operator-facing text.
-    _FORBIDDEN = ("orchestrat", "coherence", "wiring", "wires", "manifest", "idempotent", "venv", "sync",
-                  "lockfile", "pyproject", "ruleset", "override", "policy-override", "custom/script",
-                  "provides", "invocation", "model-auto", "operator-typed", "model-only", "foundation")
-
-    def test_render_is_plain_and_carries_the_pointer(self):
+    def test_render_carries_the_pointer(self):
         out = eh.render([{"name": "engine-start", "description": "Start building."}], [])
-        low = out.lower()
-        for term in self._FORBIDDEN:
-            self.assertNotIn(term, low, f"plain-language law: '{term}' must not surface")
         self.assertIn("/engine-start", out)
         self.assertIn("getting-started", out, "the closing pointer to the orientation guide")
 

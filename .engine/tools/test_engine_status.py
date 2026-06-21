@@ -5,8 +5,8 @@ the session id passed through (so the real stance shows); the operator-facing da
 the always-answers guarantee (a renderer failure degrades to a plain line, never raises); the CLI
 (`main([])` prints; `--session X` is resolved and passed through; `demo` runs and shows a clearly-labelled
 made-up EXAMPLE so a real alarm is never mistaken for the operator's own); and that the strings THIS tool
-adds carry no engine/maintainer jargon (the plain-language law — the dashboard body itself is boot's, vetted
-in test_boot). gather_signals (boot's I/O boundary) is faked so the tests are deterministic and offline;
+adds leak no raw code identifier or exception fragment (a leaked internal would be a bug, not a word choice —
+the dashboard body itself is boot's, vetted in test_boot). gather_signals (boot's I/O boundary) is faked so the tests are deterministic and offline;
 the REAL render/degrade/demo logic runs ([[demo-must-exercise-real-logic]]).
 """
 import contextlib
@@ -22,11 +22,10 @@ import boot  # noqa: E402
 import test_boot  # noqa: E402  (reuse `_signals(**over)`, the COMPLETE signals dict render_dashboard needs)
 
 
-# The plain-language law's forbidden vocabulary (engine/maintainer jargon) plus the internal symbol names a
-# careless edit could leak — none may surface in the operator-facing strings this tool owns.
-_FORBIDDEN = ("orchestrat", "coherence", "wiring", "wires", "manifest", "idempotent", "venv", "lockfile",
-              "pyproject", "ruleset", "invocation", "model-auto", "operator-typed", "model-only",
-              "foundation", "gather_signals", "render_dashboard", "subscript", "keyerror")
+# A raw code identifier or exception fragment surfacing in operator text means an internal name or a traceback
+# leaked there — a correctness bug, not a word choice. This guards SYMBOLS, not vocabulary, so it is not a
+# banned-word list (engine-planning D-225 / R30): each name below is a real internal of this tool's render path.
+_RAW_CODE_IDENTIFIERS = ("gather_signals", "render_dashboard", "subscript", "keyerror")
 
 
 class TestRenderReusesBootSeam(unittest.TestCase):
@@ -102,13 +101,15 @@ class TestCLI(unittest.TestCase):
         self.assertIn("safety gate is off", out)               # the example's gate-off alarm actually rendered
 
 
-class TestPlainLanguage(unittest.TestCase):
-    def test_the_tools_own_strings_are_plain(self):
-        # The dashboard body is boot's (vetted in test_boot); these are the strings THIS tool adds.
+class TestNoRawCodeIdentifierLeak(unittest.TestCase):
+    def test_the_tools_own_strings_leak_no_raw_code_identifier(self):
+        # The dashboard body is boot's (vetted in test_boot); these are the strings THIS tool adds. A raw
+        # identifier or exception name here would be a leaked internal (a bug), not a vocabulary choice.
         mine = "\n".join([es._DEGRADED, es._DEMO_INTRO, es._DEMO_EXAMPLE_BANNER,
                           es._DEMO_EXAMPLE_INTRO]).lower()
-        for term in _FORBIDDEN:
-            self.assertNotIn(term, mine, f"plain-language law: '{term}' must not surface")
+        for sym in _RAW_CODE_IDENTIFIERS:
+            self.assertNotIn(sym, mine,
+                             f"raw code identifier / exception fragment {sym!r} must not reach the operator")
 
 
 if __name__ == "__main__":

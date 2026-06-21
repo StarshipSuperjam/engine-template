@@ -19,8 +19,9 @@ Design fidelity (for a maintainer reading the source, not the operator):
   operator's MERGE is the "confirm" (D-167 "write + commit → confirm", reconciled with the protected-branch
   invariant). The PR-opener is INJECTED (`set_value(opener=…)`) and faked in tests/the demo — the real
   open NEVER runs in the construction repo (a named inductive gap, like the slice-25 upgrade opener).
-- All operator-facing strings are plain language (no policy/override/structural/precedence jargon); the
-  non-tunable-key refusal is a pinned plain sentence.
+- All operator-facing strings address the operator plainly — the right word, explained where it carries
+  weight, with the engine's internal machinery kept out of view (a judgment in the writing and the review,
+  never a word-list); the non-tunable-key refusal is a pinned sentence.
 """
 from __future__ import annotations
 import json
@@ -42,10 +43,11 @@ _STRUCTURAL = {
     "attention": frozenset(attention_rank.PRECEDENCE_KEYS) | frozenset(attention_rank.TRIM_KEYS),
 }
 
-# Pinned operator copy (plain language — no "structural"/"law"/"precedence"). The refusal both names the
-# fixed nature and steers to what CAN change (plan-gate operator finding).
-_REFUSE_STRUCTURAL = ("That setting keeps the engine's safety order and is fixed on purpose, so it can't be "
-                      "changed here. The settings you can adjust are the ones this command lists.")
+# Pinned operator copy (plain, judged in the review — no word-list). The refusal names the setting's
+# structural, fixed nature and steers to what CAN change (plan-gate operator finding).
+_REFUSE_STRUCTURAL = ("That setting is structural — it encodes part of the engine's safety order, so it's "
+                      "fixed on purpose and can't be changed here. The settings you can adjust are the ones "
+                      "this command lists.")
 _REASSURANCE = ("This won't change anything on its own — it prepares your change as a request you approve "
                 "before it takes effect.")
 _CONFIRM = ("I've prepared your change as a pull request — open it and merge it to make it take effect. "

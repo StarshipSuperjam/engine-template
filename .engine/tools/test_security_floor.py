@@ -14,15 +14,6 @@ import demo_security_floor   # noqa: E402
 
 REPO = "you/your-project"
 
-# The engineering-jargon ban list, inlined per-file (the same convention test_engine_status.py /
-# test_engine_help.py / test_tune.py already use). Held locally rather than imported from test_instantiator,
-# which retires at first-run instantiation — importing it would break a generated repo's first `unittest
-# discover` at collection time (the first-run reference-closure invariant, D-219/D-220).
-_FORBIDDEN = ("orchestrat", "coherence", "wiring", "wires", "manifest", "idempotent", "venv", "sync",
-              "lockfile", "pyproject", "ruleset", "override", "custom/script", "provides", "invocation",
-              "model-auto", "operator-typed", "model-only", "foundation")
-
-
 def _fake(*, secrets=(200, {}), secrets_status="enabled", code_patch=(202, {}), code_state="configured",
           pvr_put=(204, None), pvr_enabled=True, record=None):
     """A fake GitHub: each enable call returns the given (status, body); the read-back reflects the given
@@ -139,7 +130,7 @@ class TestApplyAdvisoryAndNoRulesetTouch(unittest.TestCase):
 
 class TestDisclosureIsPlainLanguage(unittest.TestCase):
     """The rendered operator surface never leaks an HTTP status, a bare product-tier name, an API field, or
-    engineering jargon — across every outcome state."""
+    the raw API response body — across every outcome state."""
 
     def _all_renders(self) -> str:
         blobs = []
@@ -158,11 +149,6 @@ class TestDisclosureIsPlainLanguage(unittest.TestCase):
                      "codeql", "security_and_analysis", "default-setup", "endpoint", "ruleset",
                      "transport", "oauth", "http", " patch ", " put "):
             self.assertNotIn(term, blob, f"the operator surface must not contain {term!r}")
-
-    def test_inherits_the_engineering_jargon_ban(self):
-        blob = self._all_renders()
-        for term in _FORBIDDEN:
-            self.assertNotIn(term, blob, f"engineering jargon {term!r} must not reach the operator")
 
     def test_render_never_echoes_the_api_response_body(self):
         # GitHub's own 403 body literally says "Advanced Security is not enabled" — a banned tier name. The
