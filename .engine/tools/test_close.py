@@ -129,12 +129,15 @@ class TestGateBranches(CloseBase):
         code, _out, _err = _stop({"session_id": self.sid, "stop_hook_active": False})
         self.assertEqual(code, hooks.EXIT_PROCEED)               # disposed -> the turn ends
 
-    def test_pushback_is_operator_plain_no_jargon(self):
+    def test_pushback_leaks_no_raw_code_identifier(self):
+        # The operator's pushback line must never carry a raw hook name / code identifier — a symbol
+        # surfacing verbatim means an internal leaked (a bug), not a word choice. This guards SYMBOLS, not
+        # vocabulary, so it is not a banned-word list (engine-planning D-225 / R30): whether the prose leans
+        # on jargon is a judgment (the audit probe + the per-PR review), never a filter.
         close.record_finding(self.sid, "x")
         _code, _out, err = _stop({"session_id": self.sid, "stop_hook_active": False})
-        for banned in ("Stop hook", "block budget", "stop_hook_active", "finding-record",
-                       "PreToolUse", "telemetry", "source_id"):
-            self.assertNotIn(banned, err)
+        for sym in ("stop_hook_active", "finding-record", "PreToolUse", "source_id"):
+            self.assertNotIn(sym, err, f"raw code identifier {sym!r} leaked into the operator pushback")
 
 
 class TestForcedContinuation(CloseBase):

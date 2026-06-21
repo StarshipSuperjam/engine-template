@@ -281,12 +281,15 @@ class TestCopySurface(unittest.TestCase):
         r2 = bootstrap.Result("degraded", "main", [], "didnt-save")
         self.assertIn("didn't save", bootstrap.render(r2))
 
-    def test_copy_has_no_maintainer_jargon(self):
-        # Plain-language law: no engine/maintainer vocabulary reaches the operator copy.
+    def test_copy_leaks_no_raw_api_token(self):
+        # A raw GitHub-API / protocol token in the operator copy signals a leaked implementation detail (a
+        # bug), not a word choice — this guards SYMBOLS, not vocabulary, so it is not a banned-word list
+        # (engine-planning D-225 / R30). Whether the prose leans on jargon is a judgment (the audit probe +
+        # the per-PR review), never a filter.
         copy = bootstrap.load_copy(bootstrap.TEMPLATE_PATH)
         blob = " ".join(copy.values()).lower()
-        for banned in ("ruleset", "idempotent", "venv", "oauth", "endpoint", "wiring", "coherence"):
-            self.assertNotIn(banned, blob, f"maintainer term {banned!r} leaked into operator copy")
+        for sym in ("ruleset", "oauth", "endpoint"):
+            self.assertNotIn(sym, blob, f"raw API token {sym!r} leaked into operator copy")
 
 
 class _RulesetFake:

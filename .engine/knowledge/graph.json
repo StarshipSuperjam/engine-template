@@ -3291,7 +3291,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:78683bfd8ac245e327c1365cf36ed358190e097de41b4dc6ef26b42b06b02cdd",
+        "fingerprint": "sha256:cf82178aa5d3d667aa26e3531d9df885508a1beda278763f26b0141a9c33bbaa",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -3342,7 +3342,7 @@
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:5d98753bfb062946738395ff64a3b7b92bfc9f2c11a4f2c70afc1eb0cdf62c82",
+        "fingerprint": "sha256:40612d4568ade4e101bfe846779f259906056fed15a4df0990b6e9d81a1eaa36",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -4175,7 +4175,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:0b82bd34f5f6f4d73ce3a018198aa78a1cc1c2032f3b9c71997092a63c2b0313",
+        "fingerprint": "sha256:e8405ef72dc3d1571e4d8f284a41f0d9cafd3a0869a6dd1797586402cf9f71a6",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
