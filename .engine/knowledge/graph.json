@@ -168,7 +168,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:c5fefe8f6123756de1aef522f4aedcb081abae19efd7afd342068bd86524a943",
+        "fingerprint": "sha256:1c26aea81ecc564b0002e730bee753bfad3783b99a93ed6c922d9f1ade2e95d5",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -1120,7 +1120,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:10a2f5a85c7f583742e708fdc9bb510b985c6d2364c89bc4cbefe50402fceff8",
+        "fingerprint": "sha256:e3f3757e3e328845ceb186600f24176684a5f3db7ec6fcdc9d0b3ef0900bbc4d",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -2618,6 +2618,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:erasure_proposer",
+      "name": ".engine/tools/memory/erasure_proposer.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "erasure_proposer",
+      "source": {
+        "fingerprint": "sha256:0b8d505972ea7f7bc9e23ec99e43344b28acee072a433f6d889f2b55791ac95a",
+        "path": ".engine/tools/memory/erasure_proposer.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:first_run_reference_closure_check",
       "name": ".engine/tools/first_run_reference_closure_check.py",
       "owner": "core",
@@ -3519,6 +3536,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_erasure_proposer",
+      "name": ".engine/tools/memory/test_erasure_proposer.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_erasure_proposer",
+      "source": {
+        "fingerprint": "sha256:ec88a35ccbb80ba6f56d51078b92ff1d9a03811e4e7726e849649012105d8a31",
+        "path": ".engine/tools/memory/test_erasure_proposer.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_first_run_reference_closure",
       "name": ".engine/tools/test_first_run_reference_closure.py",
       "owner": "core",
@@ -3784,7 +3818,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:e6ad378fc61a1e4e9544b4638a96c697e1951f400b6e91efbac28a4475ee3b84",
+        "fingerprint": "sha256:4ea0ce26719ff1f85634b9e8bccc3571ac9fc22a92766cfc2101262a81ef1b08",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

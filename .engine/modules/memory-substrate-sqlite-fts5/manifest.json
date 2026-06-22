@@ -5,6 +5,9 @@
   "provides": {
     "tool": [
       ".engine/tools/memory/*.py"
+    ],
+    "erasures": [
+      ".engine/erasures/proposal.json"
     ]
   },
   "depends": {
