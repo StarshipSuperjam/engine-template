@@ -8,6 +8,9 @@
     ],
     "erasures": [
       ".engine/erasures/proposal.json"
+    ],
+    "backup": [
+      ".engine/memory-backup/pointer.json"
     ]
   },
   "depends": {
@@ -100,6 +103,33 @@
       "hook": {
         "type": "command",
         "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py session-start"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "SessionStart",
+      "matcher": "startup",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/backup_vault.py session-start"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "SessionStart",
+      "matcher": "resume",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/backup_vault.py session-start"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "SessionStart",
+      "matcher": "clear",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/backup_vault.py session-start"
       }
     },
     {

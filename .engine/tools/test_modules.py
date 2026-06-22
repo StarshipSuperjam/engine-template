@@ -382,10 +382,15 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
     def test_audit_library_owns_persona_and_concern_list(self):
         # audit-library (required, L3) ships the static self-audit artifacts: the audit persona, the
         # seeded concern-list (audits-owned data), and the operator setup page for arming the scheduled
-        # self-review. It owns NO check or schema this slice — the concern-list check is validators-core's
-        # (engine-self-validation consolidates there) and the schema rides core's schema glob — so its
-        # provides is exactly persona + concern-list + setup page, and it depends on core + validators-core
-        # (the semantic audit assumes the mechanical floor).
+        # self-review. It ALSO owns the run-time self-review digest (.engine/audits/audit-digest.md) — the
+        # plain-language output the scheduled run writes and commits. The digest does not exist at
+        # construction time (provides_claims only claims files that exist, so the literal entry claims
+        # nothing here), but once a real run commits one it is a "system-owned" artifact (audits design),
+        # so claiming it keeps a committed digest from reading as an ownership orphan — the gap the first
+        # real run (digest PR #194) exposed. The literal path (not a `*.md` glob) avoids double-claiming the
+        # setup page. It owns NO check or schema this slice — the concern-list check is validators-core's and
+        # the schema rides core's schema glob — and it depends on core + validators-core (the semantic audit
+        # assumes the mechanical floor).
         manifests = module_coherence.discover_manifests()
         al = next((m for _p, m in manifests if m.get("id") == "audit-library"), None)
         self.assertIsNotNone(al, "audit-library must be a present module")
@@ -394,8 +399,33 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(al.get("depends"), {"core": "", "validators-core": ""})
         self.assertEqual(al.get("provides"), {
             "agent": [".claude/agents/audit.md"],
-            "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md"],
-        }, "audit-library owns exactly the persona, the seeded concern-list, and the setup page")
+            "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md",
+                       ".engine/audits/audit-digest.md"],
+        }, "audit-library owns the persona, the seeded concern-list, the setup page, and the run-time digest")
+
+    def test_committed_digest_is_owned_not_an_orphan(self):
+        # Regression (digest PR #194): the scheduled run commits .engine/audits/audit-digest.md, but that file
+        # does not exist at construction time, so the construction-tree coherence test never meets it — it was
+        # only on a real digest PR that the ownership walk saw it and, unclaimed, reported it as an orphan and
+        # failed engine-ci. audit-library now claims it. This guards the claim the two ways
+        # test_real_repository_is_coherent cannot (it never sees a digest):
+        #   (a) the claimed path is the EXACT path the digest tool writes (audit_digest.AUDIT_DIGEST_PATH), so
+        #       a path drift on either side is caught — not just a hard-coded string; and
+        #   (b) the pure ownership leg treats a PRESENT, claimed digest as owned, and would still orphan the
+        #       same digest if the claim were dropped (the mutation that proves this test bites).
+        import audit_digest
+        digest_rel = os.path.relpath(audit_digest.AUDIT_DIGEST_PATH, validate.ROOT).replace(os.sep, "/")
+        al = next((m for _p, m in module_coherence.discover_manifests() if m.get("id") == "audit-library"), None)
+        self.assertIn(digest_rel, al["provides"]["audits"],
+                      "audit-library must claim the exact path the digest tool writes, or a committed digest orphans")
+        # (b) the resolution proof, pure: a present digest claimed by audit-library is NOT an orphan; the same
+        # digest UNCLAIMED is — so a future drop of the claim is caught downstream.
+        owned = validate.ownership_findings([digest_rel], {digest_rel: ["audit-library"]},
+                                            exempt=set(), tier="hard", message="")
+        self.assertEqual(owned, [], "a claimed committed digest must not be an orphan")
+        orphaned = validate.ownership_findings([digest_rel], {}, exempt=set(), tier="hard", message="")
+        self.assertEqual(len(orphaned), 1, "an UNCLAIMED committed digest must orphan — proves this guard bites")
+        self.assertIn("orphan", orphaned[0]["message"])
 
     def test_memory_substrate_owns_tools_and_the_erasure_proposal(self):
         # memory-substrate-sqlite-fts5 owns its tools (the memory/*.py glob) AND, since slice 4e-iii, the committed
@@ -409,7 +439,8 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(ms.get("provides"), {
             "tool": [".engine/tools/memory/*.py"],
             "erasures": [".engine/erasures/proposal.json"],
-        }, "memory owns its tools and the committed erasure proposal")
+            "backup": [".engine/memory-backup/pointer.json"],
+        }, "memory owns its tools, the committed erasure proposal, and the committed backup-vault pointer")
 
     def test_seed_concern_list_conforms_to_its_schema(self):
         # the committed seed concern-list is well-formed against concern-list.v1 — the same schema + dialect

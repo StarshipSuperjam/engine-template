@@ -168,7 +168,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:1c26aea81ecc564b0002e730bee753bfad3783b99a93ed6c922d9f1ade2e95d5",
+        "fingerprint": "sha256:48990ead300d226e9eb78fa3861a3734e06d8ea3674c9c17191b016d365ec6d5",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -1115,7 +1115,7 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:ed9040c6247d36cf1b0f85097bb45962252f6e43bff54b2a43a37865839de517",
+        "fingerprint": "sha256:fa818055f227f079f274ee50f79ab9d01f34d04eba4ec1559b681e40c9b27aa8",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
@@ -1147,7 +1147,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:c2e46dbe7a0d48cdb96c2244b10a976e62d1c443d803a295c5b6b9edd15f784d",
+        "fingerprint": "sha256:eccdca7d8c2c1a6695729f0225325cd444b27c30f41a7ef31edf9f0bc22c83bf",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -2218,6 +2218,23 @@
       "source": {
         "fingerprint": "sha256:bdc5b389d11f078dcb45e1ea8fad934a826ec19ac878a64e4dc7ed9e7f77bb01",
         "path": ".engine/tools/audit_digest_staleness_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:backup_vault",
+      "name": ".engine/tools/memory/backup_vault.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "backup_vault",
+      "source": {
+        "fingerprint": "sha256:a6b79795224261b46142475bb2c21e57fe876c356d623e87946cc9715c5722db",
+        "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
       "type": "tool"
@@ -3328,6 +3345,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_backup_vault",
+      "name": ".engine/tools/memory/test_backup_vault.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_backup_vault",
+      "source": {
+        "fingerprint": "sha256:51143e8c8b3f9464e806477e3d9e3f97f4a3f3016da386f0f7ca786517ee3c87",
+        "path": ".engine/tools/memory/test_backup_vault.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_boot",
       "name": ".engine/tools/test_boot.py",
       "owner": "core",
@@ -3661,7 +3695,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:72b878e0e0a7c34d305f32204711d6b6a5241160a6df9fdfa66af835d02541e0",
+        "fingerprint": "sha256:ccefe7db12b79ea4d91be07685458e288c46db362e42a2153aa9e59e296b552d",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -3899,7 +3933,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:16bb88ddb882130719efd10a672ad4989a2b54a9deade24e2a8fbe76e73d0021",
+        "fingerprint": "sha256:ff980414e581e925c58685b5a072da854d9853fd3ccf8629cbe5454ad92ea7b2",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

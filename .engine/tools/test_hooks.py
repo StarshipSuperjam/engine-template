@@ -208,15 +208,16 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     # the per-prompt scent on UserPromptSubmit (slice 5, PR 2); the commit-boundary regen for the knowledge
     # graph AND the self-map (the #136 self-map/graph-asymmetry close) on PreToolUse; memory-substrate
     # (slice 3b) wires its consolidation sweep on the same three SessionStart matchers + a PreCompact hook
-    # (the compaction trigger, slice 5 PR 3), and (slice 4e-ii) the cross-session erasure OBSERVER on the
-    # same three SessionStart matchers.
+    # (the compaction trigger, slice 5 PR 3), (slice 4e-ii/iii) the cross-session erasure OBSERVER and the
+    # earned-erasure PROPOSER, and (slice 6a) the backup-vault push, each on the same three SessionStart matchers.
     CORE_RELPATHS = (".engine/tools/boot.py", ".engine/tools/modes.py", ".engine/tools/knowledge_gen.py hook",
                      ".engine/tools/self_map.py hook", ".engine/tools/modes.py accept-hook",
                      ".engine/tools/close.py", ".engine/tools/scent.py")
     MEMORY_RELPATHS = (".engine/tools/memory/consolidate.py session-start",
                        ".engine/tools/memory/consolidate.py pre-compact",
                        ".engine/tools/memory/erasure_observer.py session-start",
-                       ".engine/tools/memory/erasure_proposer.py session-start")
+                       ".engine/tools/memory/erasure_proposer.py session-start",
+                       ".engine/tools/memory/backup_vault.py session-start")
 
     def _venv_hook_commands(self, commands):
         return [c for c in commands if ".venv/bin/python" in c]
@@ -237,9 +238,9 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         memory = validate.load_json(
             os.path.join(validate.ROOT, ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"))
         m_cmds = self._hook_cmds(memory)
-        self.assertEqual(len(m_cmds), 10, "memory's three consolidation SessionStart sweeps + one PreCompact "
+        self.assertEqual(len(m_cmds), 13, "memory's three consolidation SessionStart sweeps + one PreCompact "
                                           "compaction trigger + three erasure-observer SessionStart sweeps + three "
-                                          "erasure-proposer SessionStart sweeps")
+                                          "erasure-proposer SessionStart sweeps + three backup-vault SessionStart pushes")
         self.assertEqual(set(m_cmds), expected_memory, "every memory manifest hook command is hook_command's output")
 
         # settings.json registers BOTH modules' hooks: 9 core + 10 memory venv-rooted commands.
@@ -247,7 +248,7 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 19, "the nineteen venv-rooted hook commands in settings (9 core + 10 memory)")
+        self.assertEqual(len(s_cmds), 22, "the twenty-two venv-rooted hook commands in settings (9 core + 13 memory)")
         self.assertEqual(set(s_cmds), expected_core | expected_memory,
                          "settings matches the form (and so both manifests) exactly")
 
