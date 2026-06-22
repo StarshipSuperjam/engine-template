@@ -16,12 +16,23 @@ catches both a hand-edit of the map and a source change with no regenerate, with
 (the standard generated-file check, like `gofmt -l` / `prettier --check`). The gate runs in CI as
 the `custom/script` rule engine/check/self-map-drift (its thin entry is self_map_check.py).
 
+REGENERATION AT THE COMMIT BOUNDARY (resolves the #136 self-map/graph asymmetry): the `hook` verb is the
+`PreToolUse` entry the engine wires (beside knowledge_gen's graph hook). On a `git commit` it refreshes the
+committed self-map best-effort and ALWAYS proceeds — the refresh lands UNSTAGED in the working tree and is
+captured by the following commit. It is a MUTATION, not a gate: it never blocks the commit, and on any failure
+proceeds (the CI drift gate is the durable backstop). This gives the self-map the same commit-boundary refresh
+the knowledge graph already had — closing the asymmetry the #136 resolution noted (graph.json had a hook, the
+self-map did not). Both are subordinate to `integrate`'s authoritative regenerate-last and the unbypassable CI
+drift gate (best-effort hook -> integrate regenerate-last -> CI gate).
+
 Library + CLI (mirrors module_coherence.py / wiring.py — plain language first, --no JSON channel):
 
   uv run --directory .engine -- python tools/self_map.py show       # print the readout (live)
   uv run --directory .engine -- python tools/self_map.py generate   # (re)write .engine/self-map.md
   uv run --directory .engine -- python tools/self_map.py check       # is the committed map in sync?
   uv run --directory .engine -- python tools/self_map.py demo        # safe fail->pass on a temp copy
+  uv run --directory .engine -- python tools/self_map.py hook-demo   # show the commit-boundary regen (no writes)
+  uv run --directory .engine -- python tools/self_map.py hook        # the PreToolUse entry the engine wires
 
 Reuse: the present-set readers discover_manifests()/load_engine_manifest() are reused from
 module_coherence.py (exposed in slice 6 for exactly this — one present-set reader, no drift), and
@@ -42,11 +53,13 @@ polished operator-reachable access path is a provisioning/operations leaf (slice
 """
 from __future__ import annotations
 import os
+import re
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
+import hooks             # noqa: E402  (the run_hook harness for the commit-boundary regen hook)
 import module_coherence  # noqa: E402
 
 # The committed map's home. A top-level .engine/ file (beside engine.json / suites.json), claimed
@@ -313,7 +326,77 @@ def check(path: str | None = None) -> dict:
     return drift_finding(canonical_map(), read_committed(path), path)
 
 
+# ---- the commit-boundary regen hook ----------------------------------------------------------
+# A `git commit` command, matched at a command-start position (line start, or just after a shell
+# separator) — the same shape knowledge_gen.py / modes.py use. The intercept matches on the tool NAME
+# (Bash) and tests the command INSIDE the script, never via a settings `if:` matcher. A missed match
+# (`git -c k=v commit`, an alias, a `git commit` inside a quoted string) just leaves a slightly stale
+# self-map that the CI drift gate catches at the PR — it never blocks, and never mis-fires on echoed
+# text (the separator anchor).
+_CMD_START = r"(?:^|[\n;&|])\s*"
+_GIT_COMMIT_RE = re.compile(_CMD_START + r"git\s+commit\b")
+
+
+def _is_git_commit(payload: dict) -> bool:
+    """True iff this tool call is a `git commit` Bash command — the regen trigger. Degrades safe: a
+    non-dict payload / non-Bash tool / absent or non-string command -> False (no regen)."""
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+        return False
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    return isinstance(command, str) and bool(_GIT_COMMIT_RE.search(command))
+
+
+def _regen_handler(payload: dict) -> dict:
+    """The `PreToolUse` regen behaviour: on a `git commit`, refresh the committed self-map best-effort,
+    then ALWAYS proceed. Like knowledge_gen's graph hook, this is a MUTATION that legitimately writes the
+    real SELF_MAP_PATH (UNSTAGED). It NEVER blocks and NEVER injects: a regen failure proceeds (the commit
+    is allowed) and is caught downstream by the CI drift gate. It is a MUTATION, not a gate, so it does not
+    promote a finding — but it is never silent on failure (a plain note to stderr). The regen fires even
+    when the commit will be denied by another `PreToolUse` hook (e.g. modes' Explore write-gate): every
+    hook runs and `deny` wins, so the regen only ever refreshes an unstaged file the denied commit never
+    captures — harmless."""
+    if not _is_git_commit(payload):
+        return hooks.proceed()
+    try:
+        result = generate()  # best-effort: refresh the committed self-map (UNSTAGED) in the working tree
+    except Exception as exc:  # noqa: BLE001 — a best-effort MUTATION, never a gate: proceed, never block;
+        #   the CI self-map-drift check is the durable backstop for any resulting staleness.
+        sys.stderr.write(
+            f"(ontology) the commit-boundary self-map refresh could not run "
+            f"({type(exc).__name__}: {exc}); your commit was not affected — the merge-time check will "
+            f"catch any staleness.\n")
+        return hooks.proceed()
+    # Not silent when it changed something: a plain best-effort note (on a proceeding `PreToolUse` this
+    # reaches the debug log, not the transcript — the durable record is the working-tree change the CI gate
+    # forces into a following commit). Keyed to generate()'s own "Wrote ..." message (same file).
+    if (result.get("message") or "").startswith("Wrote"):
+        sys.stderr.write(
+            "(ontology) refreshed the self-map (.engine/self-map.md) for this commit; it is left in your "
+            "working tree for the next commit — your commit was not affected.\n")
+    return hooks.proceed()
+
+
 # ---- CLI ------------------------------------------------------------------------------------
+
+def _hook_demo(_argv: list) -> int:
+    """Show the commit-boundary regen WITHOUT touching the committed map: which tool calls trigger it,
+    that a refresh writes the map, and that it never blocks. The real self-map.md is untouched."""
+    commit = {"tool_name": "Bash", "tool_input": {"command": "git add -A && git commit -m 'x'"}}
+    status = {"tool_name": "Bash", "tool_input": {"command": "git status"}}
+    a_read = {"tool_name": "Read", "tool_input": {"file_path": "x"}}
+    print("Which tool calls fire the commit-boundary regen (the PreToolUse hook tests this in-script):")
+    for label, p in (("git add -A && git commit", commit), ("git status", status), ("a Read", a_read)):
+        print(f"    {'FIRES' if _is_git_commit(p) else 'skips'} - {label}")
+    with tempfile.TemporaryDirectory() as d:
+        scratch = os.path.join(d, "self-map.md")
+        print("\nWhen it fires it refreshes the self-map (shown on a throwaway copy):")
+        print("    " + validate.fmt(generate(scratch)))
+    print("\nThe hook ALWAYS proceeds: a commit is never blocked, and on any failure the commit still "
+          "goes through (the merge-time drift check catches any staleness). Your real "
+          ".engine/self-map.md was never touched.")
+    return 0
+
 
 def _demo(_argv: list) -> int:
     """A safe, scripted fail->pass on a THROWAWAY COPY — never touches the committed map."""
@@ -352,8 +435,12 @@ def main(argv: list) -> int:
             return 1 if f["severity"] == "hard" else 0
         if cmd == "demo":
             return _demo(argv[1:])
-        print(f"usage: self_map.py {{show|generate|check|demo}} [path]\nunknown command {cmd!r}",
-              file=sys.stderr)
+        if cmd == "hook-demo":
+            return _hook_demo(argv[1:])
+        if cmd == "hook":  # the PreToolUse entry the engine wires: regen at the git-commit boundary
+            return hooks.run_hook("PreToolUse", _regen_handler)
+        print(f"usage: self_map.py {{show|generate|check|demo|hook-demo|hook}} [path]\n"
+              f"unknown command {cmd!r}", file=sys.stderr)
         return 2
     except (OSError, ValueError) as exc:  # a malformed source / unwritable path -> plain, no traceback
         print(f"CONFIG ERROR: {exc}", file=sys.stderr)

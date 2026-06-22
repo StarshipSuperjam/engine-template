@@ -19,9 +19,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
+import hooks             # noqa: E402  (the run_hook harness the commit-boundary regen rides)
 import self_map          # noqa: E402
 import self_map_check    # noqa: E402
 
@@ -358,6 +360,111 @@ class TestSourceDeterminismRoundTrip(unittest.TestCase):
         b = self._canonical_in_subprocess("2")
         self.assertEqual(a, b, "self-map bytes differ across PYTHONHASHSEED — a nondeterministic generation path")
         self.assertEqual(a, in_process, "subprocess self-map differs from in-process — nondeterminism leaked in")
+
+
+class TestCommitBoundaryRegen(unittest.TestCase):
+    """The PreToolUse commit-boundary regen hook (resolves the #136 self-map/graph asymmetry). On a
+    `git commit` it refreshes the self-map best-effort and ALWAYS proceeds — it never blocks, never
+    injects, fails open, and is reached via the `hook` verb (whose absence/mistyping would BLOCK the
+    commit: the no-arg default is `show`, an stdout dump, and an unknown verb returns exit 2)."""
+
+    _COMMIT = {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'x'"}}
+    _STATUS = {"tool_name": "Bash", "tool_input": {"command": "git status"}}
+
+    def test_is_git_commit_true_on_commit_amend_and_compound(self):
+        for cmd in ("git commit -m 'x'", "git commit --amend", "git add -A && git commit -m y"):
+            p = {"tool_name": "Bash", "tool_input": {"command": cmd}}
+            self.assertTrue(self_map._is_git_commit(p), cmd)
+
+    def test_is_git_commit_false_on_non_commit_non_bash_and_malformed(self):
+        self.assertFalse(self_map._is_git_commit(self._STATUS))
+        self.assertFalse(self_map._is_git_commit(
+            {"tool_name": "Bash", "tool_input": {"command": "git log --oneline"}}))
+        # a non-Bash tool never fires, even if its input text contains the words
+        self.assertFalse(self_map._is_git_commit(
+            {"tool_name": "Read", "tool_input": {"file_path": "git commit"}}))
+        self.assertFalse(self_map._is_git_commit({"tool_name": "Bash"}))   # no tool_input
+        self.assertFalse(self_map._is_git_commit(None))                    # malformed
+        self.assertFalse(self_map._is_git_commit({}))
+        # a non-string command degrades safe (no TypeError, no spurious finding)
+        for bad in (["git", "commit"], 123, {"x": 1}, None):
+            self.assertFalse(self_map._is_git_commit(
+                {"tool_name": "Bash", "tool_input": {"command": bad}}), repr(bad))
+
+    def test_handler_regenerates_on_commit_and_proceeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            scratch = os.path.join(d, "self-map.md")
+            with mock.patch.object(self_map, "SELF_MAP_PATH", scratch), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                decision = self_map._regen_handler(self._COMMIT)
+            self.assertEqual(decision, hooks.proceed())             # ALWAYS proceed
+            self.assertTrue(os.path.exists(scratch))                # the map was refreshed...
+            with open(scratch, encoding="utf-8") as fh:
+                self.assertIn("What this engine is made of", fh.read())  # ...with the real map
+
+    def test_handler_does_not_regenerate_on_non_commit(self):
+        with tempfile.TemporaryDirectory() as d:
+            scratch = os.path.join(d, "self-map.md")               # never created
+            with mock.patch.object(self_map, "SELF_MAP_PATH", scratch):
+                decision = self_map._regen_handler(self._STATUS)
+            self.assertEqual(decision, hooks.proceed())
+            self.assertFalse(os.path.exists(scratch))               # no regen on a non-commit
+
+    def test_handler_fails_open_on_generate_error(self):
+        err = io.StringIO()
+        with mock.patch.object(self_map, "generate", side_effect=OSError("boom")), \
+                contextlib.redirect_stderr(err):
+            decision = self_map._regen_handler(self._COMMIT)
+        self.assertEqual(decision, hooks.proceed())                 # fail-open: proceed, never block
+        self.assertIn("could not run", err.getvalue())              # not silent
+        self.assertIn("commit was not affected", err.getvalue())
+
+    def test_handler_returns_proceed_on_every_path(self):
+        # PreToolUse is block-eligible, so a block/deny return here would BLOCK the commit. The handler
+        # must return proceed on every path.
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(self_map, "SELF_MAP_PATH", os.path.join(d, "m.md")), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(self_map._regen_handler(self._COMMIT), hooks.proceed())
+            self.assertEqual(self_map._regen_handler(self._STATUS), hooks.proceed())
+        with mock.patch.object(self_map, "generate", side_effect=ValueError("x")), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self_map._regen_handler(self._COMMIT), hooks.proceed())
+
+    def test_end_to_end_via_run_hook_proceeds_exit_zero_no_stdout(self):
+        with tempfile.TemporaryDirectory() as d:
+            scratch = os.path.join(d, "self-map.md")
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(self_map, "SELF_MAP_PATH", scratch):
+                code = hooks.run_hook("PreToolUse", self_map._regen_handler,
+                                      stdin=io.StringIO(json.dumps(self._COMMIT)), stdout=out, stderr=err)
+            self.assertEqual(code, hooks.EXIT_PROCEED)              # exit 0 — the commit proceeds
+            self.assertEqual(out.getvalue(), "")                   # no structured-output corruption
+            self.assertTrue(os.path.exists(scratch))               # the map was refreshed
+
+    def test_main_hook_verb_routes_to_run_hook(self):
+        # The `hook` verb MUST route to run_hook; its absence would fall through to the usage error
+        # (exit 2 = a PreToolUse BLOCK) and the no-arg default `show` would dump the map to stdout.
+        with mock.patch.object(hooks, "run_hook", return_value=0) as run:
+            self.assertEqual(self_map.main(["hook"]), 0)
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0], "PreToolUse")
+        self.assertIs(run.call_args.args[1], self_map._regen_handler)
+
+    def test_wired_command_passes_the_hook_arg(self):
+        # The footgun guard: the wired command MUST end in ` hook`. Dropping the arg re-enables the
+        # no-arg `show` -> stdout dump on every PreToolUse. Assert it in both the manifest and settings.
+        manifest = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
+        sm_wires = [w for w in manifest["wires"] if w.get("type") == "hook"
+                    and "self_map.py" in w.get("hook", {}).get("command", "")]
+        self.assertEqual(len(sm_wires), 1, "exactly one self_map hook wire")
+        self.assertEqual(sm_wires[0]["event"], "PreToolUse")
+        self.assertTrue(sm_wires[0]["hook"]["command"].rstrip().endswith(" hook"))
+        settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
+        sm_cmds = [h["command"] for grp in settings["hooks"].get("PreToolUse", [])
+                   for h in grp.get("hooks", []) if "self_map.py" in h.get("command", "")]
+        self.assertEqual(len(sm_cmds), 1)
+        self.assertTrue(sm_cmds[0].rstrip().endswith(" hook"))
 
 
 if __name__ == "__main__":
