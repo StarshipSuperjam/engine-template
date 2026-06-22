@@ -57,7 +57,7 @@ class _Base(unittest.TestCase):
         fake = bv._FakeVault()
         for n in notes:
             bv._demo_plant(n)
-        res = bv.setup(transport=fake.transport, consent="y")
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
         self.assertTrue(res.get("ok"))
         return fake
 
@@ -225,6 +225,61 @@ class DemoSelfCheckTests(_Base):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             rc = rv._demo()
         self.assertEqual(rc, 0)
+
+
+class NamespaceMissingTests(_Base):
+    def test_a_now_missing_folder_in_a_populated_vault_is_a_distinct_finding(self):
+        fake = self._seed_and_backup(["a note"])                       # project A's folder IS in the vault
+        p = bv.read_pointer()
+        bv.write_pointer(p["owner"], p["repo"], p["branch"], "0" * 32)  # repoint at a namespace that was never pushed
+        snap = rv.fetch_snapshot(transport=fake.transport)             # ... so "my" folder is gone, others remain
+        self.assertFalse(snap["ok"])
+        self.assertEqual(snap["error"], "namespace-missing")          # distinct, NOT a silent "no backup yet"
+        msg = rv._floor4_fetch("namespace-missing")
+        self.assertIn("removed from the backup", msg)                 # consequence
+        self.assertIn("set up the backup again", msg)                 # a recovery action
+        for banned in ("namespace", "http", "git"):
+            self.assertNotIn(banned, msg.lower())
+
+    def test_a_fresh_vault_with_no_folders_stays_no_backup_data(self):
+        fake = bv._FakeVault()
+        fake.transport("POST", "/user/repos", {"name": "engine-memory-vault", "private": True, "auto_init": True})
+        bv.write_pointer("demo-user", "engine-memory-vault", "main", "f" * 32)
+        snap = rv.fetch_snapshot(transport=fake.transport)            # repo exists but holds NO project folders yet
+        self.assertFalse(snap["ok"])
+        self.assertEqual(snap["error"], "no-backup-data")            # "no backup yet", never "your folder was deleted"
+
+
+class CoexistenceTests(_Base):
+    def test_project_A_memory_survives_project_B_adopting_the_same_vault(self):
+        """The headline D-237 guarantee: a 2nd project adopting the shared vault never clobbers the first's folder."""
+        fake = bv._FakeVault()
+        bv._demo_plant("project A note ALPHAWORD")
+        a_ledger = _rb(ledger.ledger_path())
+        res_a = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertTrue(res_a["ok"])
+        a_pointer = dict(bv.read_pointer())
+
+        with tempfile.TemporaryDirectory() as cab_b:                  # project B: its own ledger, the SAME vault
+            os.environ["ENGINE_MEMORY_DIR"] = cab_b
+            os.remove(bv._pointer_path())                             # B starts unconfigured (its own pointer)
+            bv._project_slug = lambda: "test-org/project-b"
+            bv._demo_plant("project B note BETAWORD")
+            res_b = bv.setup(scope="shared", transport=fake.transport, consent="y")
+            self.assertTrue(res_b.get("adopted"))                    # B ADOPTED the existing vault
+            self.assertNotEqual(res_b["namespace"], res_a["namespace"])   # ... with its OWN fresh id
+
+        os.environ["ENGINE_MEMORY_DIR"] = self._cab.name             # back to project A
+        bv.write_pointer(a_pointer["owner"], a_pointer["repo"], a_pointer["branch"], a_pointer["namespace"])
+        self._wipe_local()
+        res_r = rv.restore_now(transport=fake.transport, consent="y", github=None)
+        self.assertTrue(res_r["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), a_ledger)        # A's memory survived B adopting the vault
+
+        bv.write_pointer("demo-user", "engine-memory-vault", "main", res_b["namespace"])   # and B's folder is really there
+        snap_b = rv.fetch_snapshot(transport=fake.transport)
+        self.assertTrue(snap_b["ok"])
+        self.assertIn(b"BETAWORD", snap_b["ledger_bytes"])           # both projects coexist in the one vault
 
 
 if __name__ == "__main__":

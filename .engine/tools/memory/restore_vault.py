@@ -1,7 +1,8 @@
 """restore_vault.py — memory's backup vault, the RESTORE path (memory-substrate, slice 6b).
 
-The EXPORT half (`backup_vault.py`, slice 6a) copies the gitignored ledger + a 4-key snapshot manifest to a
-per-project PRIVATE GitHub repo. That made memory durable off-machine — but nothing brought it BACK. This module is
+The EXPORT half (`backup_vault.py`) copies the gitignored ledger + a 4-key snapshot manifest to a PRIVATE GitHub
+repo — by default the shared `engine-memory-vault`, this project in its own minted-id folder (D-237); restore binds
+on that same folder id. That made memory durable off-machine — but nothing brought it BACK. This module is
 the RESTORE half, which fully closes Risk R2 (memory loss / portability for a non-engineer). Locked design:
 engine-planning memory README §"Backup and portability" — "restore = replace the ledger and rebuild the derived
 index (routed through `migrations` if the record shape changed)", guarded by the ledger-generation stamp so an older
@@ -71,7 +72,7 @@ def _fetch_blob(gh, owner: str, repo: str, sha) -> "bytes | None":
 def fetch_snapshot(*, transport=None) -> dict:
     """Fetch the backed-up ledger bytes + manifest from the configured vault. Pure GitHub API over the bounded
     transport; cheap-probe-first (a repo GET bounds a dead host). Never raises. Returns {ok, error, ledger_bytes,
-    manifest, ...}; error in {not-configured, no-token, unreachable, no-backup-data, corrupt}."""
+    manifest, ...}; error in {not-configured, no-token, unreachable, no-backup-data, namespace-missing, corrupt}."""
     pointer = bv.read_pointer()
     if pointer is None:
         return {"ok": False, "error": "not-configured"}
@@ -97,7 +98,14 @@ def fetch_snapshot(*, transport=None) -> dict:
         led_entry = entries.get(f"{namespace}/ledger.ndjson")
         man_entry = entries.get(f"{namespace}/manifest.json")
         if not isinstance(led_entry, dict) or not isinstance(man_entry, dict):
-            return {"ok": False, "error": "no-backup-data"}
+            # A now-MISSING namespace (the vault is populated — it holds OTHER projects' folders — but mine is gone,
+            # i.e. my folder was removed by hand) is a DISTINCT finding the operator must see (floor 2), never the
+            # silent "no backup yet" no-restore. A truly fresh vault (no other folders) stays `no-backup-data`.
+            mine = f"{namespace}/"
+            others = any(e.get("type") == "blob" and "/" in (e.get("path") or "")
+                         and not (e.get("path") or "").startswith(mine)
+                         for e in entries.values() if isinstance(e, dict))
+            return {"ok": False, "error": "namespace-missing" if others else "no-backup-data"}
         ledger_bytes = _fetch_blob(gh, owner, repo, led_entry.get("sha"))
         manifest_raw = _fetch_blob(gh, owner, repo, man_entry.get("sha"))
         if ledger_bytes is None or manifest_raw is None:
@@ -199,6 +207,11 @@ _MSG_UNREACHABLE = ("I couldn't reach your backup just now, so I didn't restore 
                     "computer is unchanged. Check your internet connection and ask me to try the restore again.")
 _MSG_NO_BACKUP_DATA = ("The backup is set up, but I couldn't find a saved memory in it to restore yet (it may not "
                        "have finished its first backup). Your memory on this computer is unchanged.")
+_MSG_NAMESPACE_MISSING = ("Your project's saved-memory folder is no longer in the backup — it looks like it was "
+                          "removed from the backup by hand. Nothing on this computer changed. If your memory is still "
+                          "here, ask me to set up the backup again and I'll rebuild it from this computer. If this "
+                          "computer is empty too and the memory isn't saved on another machine, that backed-up copy "
+                          "is gone for good.")
 _MSG_CORRUPT = ("I couldn't read a complete copy of your memory from the backup, so I did NOT change anything on "
                 "this computer — better to keep what you have than risk a half copy. Try the restore again in a "
                 "little while.")
@@ -218,7 +231,8 @@ _MSG_DECLINED = "No restore was done. Your memory on this computer is unchanged.
 
 def _floor4_fetch(error: "str | None") -> str:
     return {"not-configured": _MSG_NOT_CONFIGURED, "no-token": _MSG_UNREACHABLE, "unreachable": _MSG_UNREACHABLE,
-            "no-backup-data": _MSG_NO_BACKUP_DATA, "corrupt": _MSG_CORRUPT}.get(error or "", _MSG_UNREACHABLE)
+            "no-backup-data": _MSG_NO_BACKUP_DATA, "namespace-missing": _MSG_NAMESPACE_MISSING,
+            "corrupt": _MSG_CORRUPT}.get(error or "", _MSG_UNREACHABLE)
 
 
 def _restore_consent_prompt(local_count: int, backup_count: int) -> str:

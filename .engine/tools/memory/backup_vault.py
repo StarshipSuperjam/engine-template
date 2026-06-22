@@ -2,12 +2,13 @@
 
 The engine's experiential memory is the gitignored, append-only ledger (`.engine/memory/ledger.ndjson`). It is
 canonical and deliberately out of git — but a disk failure or a new machine loses it, and a non-engineer has no
-backup discipline (Risk R2). The locked design (engine-planning memory README §"Backup and portability", D-061):
-the Engine **backs memory up itself** — copy the ledger + a snapshot manifest to a per-project PRIVATE GitHub repo
-via the operator's own GitHub credentials. This module is the EXPORT half; RESTORE (replace-the-ledger + the
-auto-restore-offer + resurrection-surfacing) is the next slice.
+backup discipline (Risk R2). The locked design (engine-planning memory README §"Backup and portability", D-061 +
+D-237): the Engine **backs memory up itself** — copy the ledger + a snapshot manifest to a PRIVATE GitHub repo via
+the operator's own GitHub credentials. The default destination is a single SHARED cross-project vault
+(`engine-memory-vault`), each project in its own minted-id folder; a per-project repo is offered at every setup
+(D-237). This module is the EXPORT half + create/adopt; RESTORE lives in restore_vault.py.
 
-Three operator-facing FLOORS are law here (Floor 3, the restore-offer, is the next slice's):
+Operator-facing FLOORS that live here (Floor 3's restore-offer lives in restore_vault.py):
   (1) consent-before-create — no backup repo is created without plain-language consent naming the repo + its
       must-stay-private requirement; consent is FOREGROUND only (a SessionStart hook can inject text, never read an
       interactive yes/no), so the `setup` verb gets it;
@@ -44,6 +45,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
@@ -70,9 +72,33 @@ _STATE_FILENAME = "backup-vault-state.json"
 # `setup` fills it.
 POINTER_REL = ".engine/memory-backup/pointer.json"
 
-# The vault repo name suffix (per-project, one repo per project — the v1 default; a shared vault is an opt-in this
-# slice does NOT build). Name = "<project-repo-name><suffix>".
-_VAULT_NAME_SUFFIX = "-engine-memory-backup"
+# Backup destination scope (D-237 / engine-planning memory README §Backup 256-269). Build-spec leaf (recorded; the
+# operator chose SHARED this session — the design's settled default): "shared" = one fixed vault per GitHub account
+# holding every engine project in its own namespace folder; "per-project" = one repo per project. The per-project
+# mode stays reachable (a code change, not an operator toggle, this slice; surfacing the choice as a real operator
+# setting is provisioning's bootstrap-UX leaf). The choice is PRESENTED at every setup (floor 1); failure direction
+# is benign — the namespace folder keeps projects separate either way.
+_DEFAULT_SCOPE = "shared"                        # "shared" | "per-project"
+_SHARED_VAULT_NAME = "engine-memory-vault"       # the one shared vault, baked (used in shared mode)
+_PER_PROJECT_SUFFIX = "-engine-memory-backup"    # per-project mode: name = "<project-repo-name><suffix>"
+
+# The engine's self-describing marker, the FIRST line of the backup README. ADOPT verifies it before reusing an
+# existing same-named private repo, so the engine can never colonize a coincidentally-named repo it did not create
+# (the design's "recognized by the self-describing destination", 305-307). Content-free.
+_VAULT_README_MARKER = "<!-- engine-memory-vault -->"
+
+
+def _vault_name(project_name: str, scope: str) -> str:
+    """The destination repo name for `scope`: the one shared vault, or the per-project name."""
+    return _SHARED_VAULT_NAME if scope == "shared" else f"{project_name}{_PER_PROJECT_SUFFIX}"
+
+
+def _mint_namespace() -> str:
+    """Mint a fresh namespace id at destination-binding — a content-free, collision-free, rename-stable opaque id (a
+    uuid4 hex, MIRRORING records.new_record_id — the design's namespace-identity law, 262-269). Backup and restore
+    bind on this id, never a runtime project name, so a shared vault can never mis-route or restore the wrong
+    project's memory. The representation (uuid4 hex) is a recorded build-spec leaf."""
+    return uuid.uuid4().hex
 
 # A fixed, content-free commit message for every backup push (NEVER derived from ledger content — D-007 leak guard).
 _COMMIT_MESSAGE = "Update memory backup (engine)"
@@ -227,9 +253,13 @@ def write_pointer(owner: str, repo: str, branch: str, namespace: str, *, now: "i
          "namespace": namespace, "created_at": _iso_utc(when)}
     path = _pointer_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(p, fh, indent=2)
+    tmp = path + ".tmp"                                   # atomic write (mirrors ledger.replace_ledger): the minted
+    with open(tmp, "w", encoding="utf-8") as fh:         # namespace id must be durably IN the pointer BEFORE the
+        json.dump(p, fh, indent=2)                       # first export, surviving a kill-window (D-237, 265).
         fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
     return p
 
 
@@ -380,27 +410,86 @@ def push_now(*, transport=None, now: "int | None" = None) -> dict:
 # Floor wording — plain language, non-engineer; consequence + ONE recovery action, never a git/HTTP error.
 # ============================================================================================================
 
-def _consent_prompt(vault_name: str) -> str:
-    """Floor 1: the foreground consent prompt. States WHAT is copied (the notes about this project), WHERE (a new
-    private repo on the operator's GitHub), the ongoing cadence, the must-stay-private requirement, and that nothing
-    leaves the computer until they say yes."""
+def _choice_prompt() -> str:
+    """Floor 1: the shared-vs-per-repo choice, PRESENTED at every setup (engine-planning memory README 290-295). The
+    shared vault is the default; the disclosure names the trade-off AND why one would pick per-repo. The plain
+    CONTENT is law; this exact wording is memory's provisional realization (provisioning's UX leaf may re-skin it)."""
+    return (
+        "Where should I keep this project's backup?\n\n"
+        f"  - SHARED BACKUP (recommended): one private repository, \"{_SHARED_VAULT_NAME}\", that holds the memory\n"
+        "    for ALL your engine projects, each in its own folder. Simplest — set up once, everything in one place.\n"
+        "  - A SEPARATE BACKUP, just for this project: a private repository for this project alone.\n\n"
+        "Most people pick shared. Choose a separate backup if THIS project is more private than your others, or if\n"
+        "you might one day give someone access to one project without handing them all of them — a shared backup\n"
+        "means one accidental flip to public would expose every project at once, while a separate one limits any\n"
+        "single slip to this project.\n\n"
+        "Keep everything in one shared backup? [Y/n]  (n = a separate backup just for this project): ")
+
+
+def _ask_scope() -> str:
+    """Foreground: present the choice, default shared. EOFError (a pipe / no stdin) -> the default, so a non-interactive
+    run never raises (mirrors _ask_consent)."""
+    try:
+        answer = input(_choice_prompt())
+    except EOFError:
+        return _DEFAULT_SCOPE
+    return "per-project" if str(answer).strip().lower() in ("n", "no") else "shared"
+
+
+def _consent_prompt(vault_name: str, scope: str) -> str:
+    """Floor 1: the foreground consent naming the chosen destination + its must-stay-private requirement. The shared
+    variant carries the co-location disclosure (one repo holds every project; a flip exposes them all); privacy is
+    named as honest posture, never a guarantee (it cannot prevent a later out-of-band flip)."""
+    if scope == "shared":
+        return (
+            f"I'll keep this project's AI memory in your shared backup — the PRIVATE repository \"{vault_name}\" on\n"
+            "your own GitHub. I'll create it if it doesn't exist yet, or add this project's own folder to it if it\n"
+            "does. Here is exactly what that means:\n\n"
+            "  - WHAT is copied: a private copy of the notes the engine has saved about this project — the\n"
+            "    decisions, lessons, and plans it remembers. (Your code and your work are not involved.)\n"
+            "  - ONE SHARED PLACE: this repository holds the memory for ALL your engine projects, each in its own\n"
+            "    folder — so anyone who can see this one repository can see every project's notes, and one accidental\n"
+            "    flip to public would expose every project at once. (A separate backup just for this project would\n"
+            "    limit any single slip to this project.)\n"
+            "  - PRIVATE, WATCHED HONESTLY: the engine creates it private, verifies it, and keeps checking — but it\n"
+            "    can't stop you or GitHub from flipping it public later, which is why the point above matters.\n"
+            "  - FROM THEN ON: the engine keeps it up to date for you automatically — about once a day.\n\n"
+            "Nothing leaves your computer until you say yes.\n\n"
+            "Use the shared backup for this project now? [y/N]: ")
     return (
         "The engine can keep a safe copy of this project's AI memory somewhere other than this computer, so a copy\n"
         "is always there if you ever need it. Here is exactly what that means:\n\n"
         "  - WHAT is copied: a private copy of the notes the engine has saved about this project — the decisions,\n"
         "    lessons, and plans it remembers. (Your code and your work are not involved.)\n"
         f"  - WHERE it goes: a brand-new, PRIVATE repository on your own GitHub account, named \"{vault_name}\",\n"
-        "    that only you can see.\n"
-        "  - IT STAYS PRIVATE: the engine creates it private, checks that it is private, and keeps checking.\n"
-        "  - FROM THEN ON: the engine keeps it up to date for you automatically — about once a day — so you never\n"
-        "    have to remember to do it.\n\n"
+        "    just for this project, that only you can see.\n"
+        "  - PRIVATE, WATCHED HONESTLY: the engine creates it private, verifies it, and keeps checking — but it\n"
+        "    can't stop a later flip to public out of its control.\n"
+        "  - FROM THEN ON: the engine keeps it up to date for you automatically — about once a day.\n\n"
         "Nothing leaves your computer until you say yes.\n\n"
         "Create the private backup now? [y/N]: ")
 
 
-def _readme_text(project_name: str) -> str:
-    """Floor 2: the plain-language README committed into the backup repo on creation."""
+def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
+    """Floor 2: the plain-language README committed into the backup repo on creation. Leads with the engine's
+    self-describing marker (adopt verifies it). The shared variant is multi-project-framed, names the deliberately
+    opaque folder ids so they're never mistaken for clutter, and redirects the dangerous delete-a-folder instinct by
+    naming its cost (engine-planning memory README 295-303)."""
+    if scope == "shared":
+        return (
+            f"{_VAULT_README_MARKER}\n"
+            "# Your engine memory vault\n\n"
+            "This private repository holds the AI memory for **all your engine projects** — each project in its own\n"
+            "folder.\n\n"
+            "The folders have **scrambled names like `a3f90c…` on purpose**: the engine uses a private code for each\n"
+            "project instead of its name, so nothing in here reveals what you're working on. Each scrambled folder is\n"
+            "one project's memory; you're not meant to tell which is which by looking. **Nothing here is junk.**\n\n"
+            "**Keep it private. Don't delete or rename a folder, and don't hand-edit the files — deleting a folder\n"
+            "permanently erases that project's saved memory, and the engine cannot bring it back.** To remove or fix\n"
+            "a project's memory, ask the engine. On a new computer, the engine restores each project's memory from\n"
+            "its folder — you don't need to do anything in here.\n")
     return (
+        f"{_VAULT_README_MARKER}\n"
         f"# {project_name} — AI memory backup\n\n"
         f"This repository is an automatic backup of the AI memory for the **{project_name}** project.\n\n"
         "**Keep it private.** It holds the project's working notes — the decisions, lessons, and plans the engine\n"
@@ -442,12 +531,28 @@ _MSG_NOT_PRIVATE = ("Something went wrong creating the backup as private, so I r
 _MSG_CREATE_FAILED = ("I couldn't create the backup repository just now. Your memory is safe on this computer, and "
                       "nothing was created. You can ask me to try the backup setup again in a little while.")
 _MSG_DECLINED = "No backup was created. Nothing left your computer."
+_MSG_ADOPT_PUBLIC = (f"Heads up: your backup repository \"{_SHARED_VAULT_NAME}\" is currently PUBLIC, and it holds the "
+                     "saved memory for ALL your projects — so anyone on the internet can read them right now. I did "
+                     "NOT add this project to it. Open it on GitHub, go to Settings, and switch it to Private as soon "
+                     "as you can; then ask me to set up the backup again.")
+_MSG_FOREIGN_VAULT = (f"There's already a private repository named \"{_SHARED_VAULT_NAME}\" on your account that I "
+                      "didn't create, so I left it alone — I won't add your memory to a repository I don't recognize. "
+                      "Rename that repository, or tell me to use a separate backup just for this project.")
+_MSG_UNREACHABLE_SETUP = ("I couldn't reach GitHub, so I couldn't set up the backup. Nothing was created. Try again "
+                          "when you have a steady internet connection.")
+
+
+def _is_shared(repo: str) -> bool:
+    return repo == _SHARED_VAULT_NAME
 
 
 def _setup_done_msg(owner: str, repo: str) -> str:
+    if _is_shared(repo):
+        return (f"Your project's AI memory is now backed up to your shared private repository (\"{owner}/{repo}\"), in "
+                "this project's own folder — and I'll keep it up to date automatically, about once a day. Your other "
+                "projects each have their own folder in there and weren't touched.")
     return (f"Your project's AI memory is now backed up to a private repository on your GitHub (\"{owner}/{repo}\"), "
-            "and I'll keep it up to date automatically — about once a day. Restoring it onto a new computer is the "
-            "next piece I'll add; until then, this copy is your safety net.")
+            "and I'll keep it up to date automatically — about once a day; this copy is your safety net.")
 
 
 # ============================================================================================================
@@ -464,56 +569,85 @@ def _safe_demo_delete(repo: str, project_name: str) -> bool:
     marker AND is neither the project repo nor the real vault repo — so `demo --live` can never delete real data."""
     return (isinstance(repo, str) and _DEMO_MARKER in repo
             and repo != project_name
-            and repo != f"{project_name}{_VAULT_NAME_SUFFIX}")
+            and repo != _SHARED_VAULT_NAME
+            and repo != f"{project_name}{_PER_PROJECT_SUFFIX}")
 
 
-def _seed_readme(gh, owner: str, repo: str, branch: str, project_name: str) -> bool:
-    """Floor 2: commit the plain-language README into the backup repo. Best-effort (the backup DATA matters more than
-    a perfect README); auto_init left a generic README, so this is an UPDATE needing its existing blob sha."""
+def _seed_readme(gh, owner: str, repo: str, branch: str, project_name: str, scope: str = _DEFAULT_SCOPE) -> bool:
+    """Floor 2: commit the plain-language README (with the self-describing marker) into the backup repo. Best-effort
+    (the backup DATA matters more than a perfect README); auto_init left a generic README, so this is an UPDATE
+    needing its existing blob sha."""
     base = f"/repos/{owner}/{repo}"
     existing = _get(gh, f"{base}/contents/README.md?ref={branch}")
     sha = existing.get("sha") if isinstance(existing, dict) else None
     body = {"message": _COMMIT_MESSAGE, "branch": branch,
-            "content": base64.b64encode(_readme_text(project_name).encode("utf-8")).decode("ascii")}
+            "content": base64.b64encode(_readme_text(project_name, scope).encode("utf-8")).decode("ascii")}
     if isinstance(sha, str) and sha:
         body["sha"] = sha
     status, _ = _send(gh, "PUT", f"{base}/contents/README.md", body)
     return status in (200, 201)
 
 
-def _ask_consent(vault_name: str) -> str:
+def _ask_consent(vault_name: str, scope: str) -> str:
     try:
-        return input(_consent_prompt(vault_name))
+        return input(_consent_prompt(vault_name, scope))
     except EOFError:
         return "n"
 
 
-def setup(*, transport=None, consent: "str | None" = None, now: "int | None" = None) -> dict:
-    """Foreground first-time setup: explain -> consent -> create PRIVATE repo -> verify private -> seed README ->
-    write the committed pointer -> first push. `consent` ('y'/'n') bypasses the stdin prompt for tests/demo. Creates
-    NOTHING without a yes (Floor 1). Returns a result dict with a plain-language `message`."""
-    when = int(time.time()) if now is None else int(now)
-    if _setup_done():
-        return {"ok": True, "already": True, "message": "Memory backup is already set up."}
-    project = _project_slug()
-    if not project or "/" not in project:
-        return {"ok": False, "error": "no-project", "message": _MSG_NO_PROJECT}
-    project_name = project.split("/")[-1]
-    vault_name = f"{project_name}{_VAULT_NAME_SUFFIX}"
+def _authenticated_login(gh) -> "str | None":
+    """The login of the token's GitHub account — the owner under which `/user/repos` creates, so the vault always
+    lives there. None on any doubt (the subscript is null-guarded so a (status, None) fault can't raise)."""
+    status, data = _send(gh, "GET", "/user")
+    login = (data or {}).get("login") if status == 200 else None
+    return login if isinstance(login, str) and login else None
 
-    gh = _gh(transport)
-    if gh is None:                                               # check we CAN back up before asking permission to
-        return {"ok": False, "error": "no-token", "message": _MSG_NO_TOKEN}
 
-    answer = consent if consent is not None else _ask_consent(vault_name)
-    if str(answer).strip().lower() not in ("y", "yes"):
-        return {"ok": False, "declined": True, "message": _MSG_DECLINED}
+def _vault_is_engine_created(gh, owner: str, repo: str, branch: str) -> bool:
+    """ADOPT guard: True iff the existing repo's README leads with the engine's self-describing marker — so the engine
+    never colonizes a coincidentally same-named private repo it did not create (design 305-307)."""
+    existing = _get(gh, f"/repos/{owner}/{repo}/contents/README.md?ref={branch}")
+    content = existing.get("content") if isinstance(existing, dict) else None
+    if not isinstance(content, str):
+        return False
+    try:
+        text = base64.b64decode(content).decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 — an unreadable README -> treat as not-ours (fail safe; never colonize)
+        return False
+    return text.lstrip().startswith(_VAULT_README_MARKER)
 
+
+def _adopt_existing(gh, login: str, vault_name: str, probe: dict) -> dict:
+    """Reuse an EXISTING private vault (floor 3): verify it's private + engine-created (the self-describing marker),
+    then bind. NEVER creates or deletes (it may hold other projects' folders). Returns {ok, owner, repo, branch,
+    created:False} or a decline dict."""
+    if probe.get("private") is not True:
+        return {"ok": False, "error": "adopt-public", "message": _MSG_ADOPT_PUBLIC}
+    branch = probe.get("default_branch") or "main"
+    if not _vault_is_engine_created(gh, login, vault_name, branch):
+        return {"ok": False, "error": "foreign-vault", "message": _MSG_FOREIGN_VAULT}
+    return {"ok": True, "owner": login, "repo": vault_name, "branch": branch, "created": False}
+
+
+def _bind_destination(gh, login: str, vault_name: str, scope: str, project_name: str) -> dict:
+    """Create the chosen private destination, or ADOPT the operator's existing engine vault. The privacy-delete
+    touches ONLY a repo created in THIS call — an existing repo is never deleted. Returns {ok, owner, repo, branch,
+    created} or a decline dict {ok:False, error, message}."""
+    probe_status, probe = _send(gh, "GET", f"/repos/{login}/{vault_name}")
+    if probe_status == 200 and isinstance(probe, dict):
+        return _adopt_existing(gh, login, vault_name, probe)
+    if probe_status != 404:                                      # None / 5xx / other -> don't blind-create a duplicate
+        return {"ok": False, "error": "unreachable", "message": _MSG_UNREACHABLE_SETUP}
     status, repo_obj = _send(gh, "POST", "/user/repos",
                              {"name": vault_name, "private": True, "auto_init": True,
                               "description": _REPO_DESCRIPTION})
     if status == 403:
         return {"ok": False, "error": "no-scope", "message": _MSG_NO_SCOPE}
+    if status == 422:                                           # name exists (a private repo we couldn't see, or a
+        again_status, again = _send(gh, "GET", f"/repos/{login}/{vault_name}")   # race) -> re-probe + adopt, never a
+        if again_status == 200 and isinstance(again, dict):                      # create-failed loop
+            return _adopt_existing(gh, login, vault_name, again)
+        return {"ok": False, "error": "unreachable", "message": _MSG_UNREACHABLE_SETUP}
     if status not in (200, 201) or not isinstance(repo_obj, dict):
         return {"ok": False, "error": "create-failed", "message": _MSG_CREATE_FAILED}
     owner = (repo_obj.get("owner") or {}).get("login")
@@ -521,22 +655,60 @@ def setup(*, transport=None, consent: "str | None" = None, now: "int | None" = N
     branch = repo_obj.get("default_branch") or "main"
     if not (isinstance(owner, str) and owner and isinstance(repo, str) and repo):
         return {"ok": False, "error": "create-failed", "message": _MSG_CREATE_FAILED}
-
-    check = _get(gh, f"/repos/{owner}/{repo}")               # verify PRIVATE — never leave a public backup
+    check = _get(gh, f"/repos/{owner}/{repo}")                  # verify PRIVATE — never leave a public backup
     if check is None or check.get("private") is not True:
-        _send(gh, "DELETE", f"/repos/{owner}/{repo}")
+        _send(gh, "DELETE", f"/repos/{owner}/{repo}")          # delete THIS just-created repo only
         return {"ok": False, "error": "not-private", "message": _MSG_NOT_PRIVATE}
+    readme_ok = _seed_readme(gh, owner, repo, branch, project_name, scope)
+    return {"ok": True, "owner": owner, "repo": repo, "branch": branch, "created": True, "readme_seeded": readme_ok}
 
-    namespace = project_name
-    readme_ok = _seed_readme(gh, owner, repo, branch, project_name)
+
+def setup(*, scope: "str | None" = None, transport=None, consent: "str | None" = None,
+          now: "int | None" = None) -> dict:
+    """Foreground first-time setup. Presents the shared-vs-per-repo choice (floor 1; shared default), then on consent
+    CREATES the chosen private destination — or ADOPTS the operator's existing shared vault (recognized by its
+    self-describing README marker) — writes the committed pointer with a freshly MINTED namespace id, and does the
+    first push. `scope`/`consent` bypass the prompts for tests/demo. Creates NOTHING without a yes (Floor 1).
+
+    Result: {ok, ...} with a plain-language `message`. error in {no-project, no-token, no-scope, create-failed,
+    not-private, adopt-public, foreign-vault, unreachable}."""
+    when = int(time.time()) if now is None else int(now)
+    if _setup_done():
+        return {"ok": True, "already": True, "message": "Memory backup is already set up."}
+    project = _project_slug()
+    if not project or "/" not in project:
+        return {"ok": False, "error": "no-project", "message": _MSG_NO_PROJECT}
+    project_name = project.split("/")[-1]
+
+    gh = _gh(transport)
+    if gh is None:                                               # check we CAN back up before asking permission to
+        return {"ok": False, "error": "no-token", "message": _MSG_NO_TOKEN}
+
+    chosen_scope = scope if scope is not None else _ask_scope()
+    vault_name = _vault_name(project_name, chosen_scope)
+    answer = consent if consent is not None else _ask_consent(vault_name, chosen_scope)
+    if str(answer).strip().lower() not in ("y", "yes"):
+        return {"ok": False, "declined": True, "message": _MSG_DECLINED}
+
+    login = _authenticated_login(gh)
+    if not login:
+        return {"ok": False, "error": "create-failed", "message": _MSG_CREATE_FAILED}
+
+    bind = _bind_destination(gh, login, vault_name, chosen_scope, project_name)
+    if not bind.get("ok"):
+        return bind
+    owner, repo, branch, created = bind["owner"], bind["repo"], bind["branch"], bind["created"]
+
+    namespace = _mint_namespace()                               # a fresh id, even on adopt (never a discovered one)
     write_pointer(owner, repo, branch, namespace, now=when)
     result = push_now(transport=transport, now=when)
     _record_state(now=when, success=result.get("ok", False), privacy_ok=result.get("error") != "public")
     msg = _setup_done_msg(owner, repo)
     if not result.get("ok"):
         msg += " (The first copy will finish on the next backup.)"
-    return {"ok": True, "created": True, "owner": owner, "repo": repo, "namespace": namespace,
-            "readme_seeded": readme_ok, "first_push": result.get("ok", False), "message": msg}
+    return {"ok": True, "created": created, "adopted": not created, "owner": owner, "repo": repo,
+            "namespace": namespace, "readme_seeded": bind.get("readme_seeded"),
+            "first_push": result.get("ok", False), "message": msg}
 
 
 # ============================================================================================================
@@ -600,7 +772,11 @@ def status(*, now: "int | None" = None) -> int:
     when = int(time.time()) if now is None else int(now)
     state = _read_state()
     last = _last_success(state)
-    print(f"Memory backup: ON — your private repository \"{pointer['owner']}/{pointer['repo']}\".")
+    if _is_shared(pointer["repo"]):
+        print(f"Memory backup: ON — your shared private repository \"{pointer['owner']}/{pointer['repo']}\", in this "
+              "project's own folder. Your other projects each have their own folder in there and weren't touched.")
+    else:
+        print(f"Memory backup: ON — your private repository \"{pointer['owner']}/{pointer['repo']}\".")
     if last is None:
         print("Last successful backup: none yet (the next backup will make the first copy).")
     else:
@@ -664,22 +840,46 @@ class _FakeVault:
         self.deleted: list = []
         self.created: list = []
         self.pushed_ledger_via_contents = False
+        self._hidden_probes: set = set()
         self._n = 1000
 
     def _next(self, prefix: str) -> str:
         self._n += 1
         return f"{prefix}{self._n:036x}"
 
+    def hide_next_probe(self, name: str) -> None:
+        """Make the NEXT repo-GET on `name` return 404 (a private repo the token can't see yet / an eventual-
+        consistency race), so a create then 422s — exercising the 422->re-probe->adopt fallback."""
+        self._hidden_probes.add(f"{self.owner}/{name}")
+
+    def preseed(self, name: str, readme: str) -> str:
+        """Plant an EXISTING repo (NOT created by this run) carrying `readme` — for the adopt / foreign-vault /
+        adopt-public tests. Returns the slug. The instance `private` flag still governs the live repo GET."""
+        slug = f"{self.owner}/{name}"
+        branch = "main"
+        blob = self._next("b"); tree = self._next("t"); commit = self._next("c")
+        self.blobs[blob] = base64.b64encode(readme.encode("utf-8")).decode("ascii")
+        self.trees[tree] = {"sha": tree, "tree": []}
+        self.commits[commit] = {"sha": commit, "tree": {"sha": tree}}
+        self.refs[f"{slug}@{branch}"] = commit
+        self.contents[f"{slug}@README.md"] = blob
+        self.repos[slug] = {"default_branch": branch}
+        return slug
+
     def transport(self, method: str, path: str, body=None):
+        if method == "GET" and path == "/user":
+            return 200, {"login": self.owner}
         if method == "POST" and path == "/user/repos":
             if self.no_scope:
                 return 403, None
             name = body["name"]
             slug = f"{self.owner}/{name}"
+            if slug in self.repos:                           # name already exists -> 422 (the create-OR-adopt race)
+                return 422, None
             branch = "main"
             blob = self._next("b"); tree = self._next("t"); commit = self._next("c")
             self.blobs[blob] = base64.b64encode(b"# init\n").decode("ascii")
-            self.trees[tree] = {"sha": tree}
+            self.trees[tree] = {"sha": tree, "tree": []}
             self.commits[commit] = {"sha": commit, "tree": {"sha": tree}}
             self.refs[f"{slug}@{branch}"] = commit
             self.contents[f"{slug}@README.md"] = blob
@@ -694,6 +894,9 @@ class _FakeVault:
                 self.repos.pop(slug, None)
                 return 204, None
             if method == "GET":
+                if slug in self._hidden_probes:                  # a private repo the token can't see yet (race):
+                    self._hidden_probes.discard(slug)            # 404 once, then visible on the re-probe
+                    return 404, None
                 if slug not in self.repos:
                     return 404, None
                 return 200, {"private": self.private, "default_branch": self.repos[slug]["default_branch"]}
@@ -723,12 +926,16 @@ class _FakeVault:
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/trees$", path)
         if m and method == "POST":
             sha = self._next("t")
-            self.trees[sha] = body
+            base = self.trees.get(body.get("base_tree"), {})       # merge base_tree's inherited entries (the real
+            merged = {e["path"]: e for e in base.get("tree", [])}  # recursive Trees API flattens them) so another
+            for e in body.get("tree", []):                         # project's folders SURVIVE a later push — a real
+                merged[e["path"]] = e                              # cross-project coexistence round-trip can be tested
+            self.trees[sha] = {"sha": sha, "tree": list(merged.values())}
             return 201, {"sha": sha}
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/trees/([^?]+)", path)
-        if m and method == "GET":                        # the RESTORE read side: the real recursive GET has no base_tree
-            stored = self.trees.get(m.group(3))          # key (it flattens inherited entries); restore only looks up the
-            if stored is None:                           # two namespace paths, which this last-pushed tree carries.
+        if m and method == "GET":                        # the RESTORE read side: a recursive GET returns the FLATTENED
+            stored = self.trees.get(m.group(3))          # cumulative tree (base_tree merged on each push above), so a
+            if stored is None:                           # restore finds every project's namespace folder, not just the last.
                 return 404, None
             return 200, {"sha": m.group(3), "tree": stored.get("tree", []), "truncated": False}
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/commits$", path)
@@ -803,14 +1010,17 @@ def _demo_body() -> bool:
     # --- PART 1 — consent gate -----------------------------------------------------------------------------
     print("\nPART 1 — nothing is created until you say yes")
     print("-" * 96)
-    print("  The exact words the engine shows you (Floor 1 — consent before anything is created):\n")
-    for line in _consent_prompt("your-project-engine-memory-backup").rstrip().splitlines():
+    print("  The choice the engine shows you (Floor 1 — shared vault by default, a per-project repo one step away):\n")
+    for line in _choice_prompt().rstrip().splitlines():
         print(f"    | {line}")
-    declined = setup(transport=_FakeVault().transport, consent="n")
+    print("\n  Then, for the shared vault, the consent it asks (the co-location trade-off named plainly):\n")
+    for line in _consent_prompt(_SHARED_VAULT_NAME, "shared").rstrip().splitlines():
+        print(f"    | {line}")
+    declined = setup(scope="shared", transport=_FakeVault().transport, consent="n")
     fake = _FakeVault()
-    accepted = setup(transport=fake.transport, consent="y")
+    accepted = setup(scope="shared", transport=fake.transport, consent="y")
     print(f"\n  you answer 'n': {declined['message']}  (repos created: {len(_FakeVault().created)})")
-    print(f"  you answer 'y': a private backup repo is created and verified private")
+    print("  you answer 'y': a private shared vault is created and verified private")
     part1 = (declined.get("declined") is True and accepted.get("ok") is True
              and accepted.get("created") is True and len(fake.created) == 1 and not fake.deleted)
     print(f"  => {'consent is real — no yes, nothing created.' if part1 else '!!! consent gate failed'}")
@@ -818,7 +1028,7 @@ def _demo_body() -> bool:
     # --- PART 2 — the self-describing README (Floor 2) -----------------------------------------------------
     print("\nPART 2 — the engine writes a plain-language README into the backup repo (Floor 2)")
     print("-" * 96)
-    for line in _readme_text("your-project").rstrip().splitlines():
+    for line in _readme_text("your-project", "shared").rstrip().splitlines():
         print(f"    | {line}")
     part2 = accepted.get("readme_seeded") is True
     print(f"  => {'the backup repo describes itself in plain words.' if part2 else '!!! the README was not seeded'}")

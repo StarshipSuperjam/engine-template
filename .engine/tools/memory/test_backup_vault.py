@@ -63,7 +63,7 @@ class ManifestTests(_Base):
 class SetupTests(_Base):
     def test_consent_yes_creates_private_repo_and_writes_pointer(self):
         fake = bv._FakeVault()
-        res = bv.setup(transport=fake.transport, consent="y")
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
         self.assertTrue(res["ok"])
         self.assertTrue(res.get("created"))
         self.assertEqual(len(fake.created), 1)
@@ -72,13 +72,15 @@ class SetupTests(_Base):
         self.assertIsNotNone(p)
         self.assertTrue(bv._setup_done())
         self.assertEqual(p["repo"], res["repo"])
-        self.assertEqual(p["namespace"], "test-project")
+        self.assertEqual(p["repo"], "engine-memory-vault")              # shared is the default
+        self.assertNotEqual(p["namespace"], "test-project")            # namespace is a MINTED id, not the project name
+        self.assertRegex(p["namespace"], r"^[0-9a-f]{32}$")            # a uuid4 hex (mirrors records.new_record_id)
         for k in ("owner", "repo", "branch", "namespace", "created_at"):
             self.assertTrue(p[k])
 
     def test_consent_no_creates_nothing(self):
         fake = bv._FakeVault()
-        res = bv.setup(transport=fake.transport, consent="n")
+        res = bv.setup(scope="shared", transport=fake.transport, consent="n")
         self.assertTrue(res.get("declined"))
         self.assertEqual(fake.created, [])
         self.assertIsNone(bv.read_pointer())
@@ -86,7 +88,7 @@ class SetupTests(_Base):
 
     def test_missing_repo_scope_discloses_and_creates_nothing(self):
         fake = bv._FakeVault(no_scope=True)
-        res = bv.setup(transport=fake.transport, consent="y")
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
         self.assertFalse(res["ok"])
         self.assertEqual(res["error"], "no-scope")
         self.assertIn("gh auth refresh -s repo", res["message"])
@@ -95,7 +97,7 @@ class SetupTests(_Base):
 
     def test_wrongly_public_create_is_deleted_and_disclosed(self):
         fake = bv._FakeVault(private=False)   # the create succeeds, but the verify GET reads it as public
-        res = bv.setup(transport=fake.transport, consent="y")
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
         self.assertFalse(res["ok"])
         self.assertEqual(res["error"], "not-private")
         self.assertTrue(fake.deleted)                                  # the wrongly-public repo was removed
@@ -108,7 +110,7 @@ class PushTests(_Base):
     def test_ledger_pushed_via_git_data_not_contents(self):
         ledger.append({"kind": "turn-delta", "text": "hello"})
         fake = bv._FakeVault()
-        bv.setup(transport=fake.transport, consent="y")              # setup pushes the first copy
+        bv.setup(scope="shared", transport=fake.transport, consent="y")              # setup pushes the first copy
         self.assertFalse(fake.pushed_ledger_via_contents)            # the ledger NEVER goes via the 1MB Contents API
         self.assertTrue(fake.blobs)                                  # it went via Git Data blobs
 
@@ -141,7 +143,7 @@ class SessionStartTests(_Base):
 
     def test_pushes_after_setup_then_silent_within_cooldown(self):
         fake = bv._FakeVault()
-        bv.setup(transport=fake.transport, consent="y")             # records a success at ~now
+        bv.setup(scope="shared", transport=fake.transport, consent="y")             # records a success at ~now
         orig = bv._gh
         bv._gh = lambda transport=None: bv._Boundary(fake.transport)
         try:
@@ -156,7 +158,7 @@ class SessionStartTests(_Base):
 
     def test_privacy_flip_surfaced_once_then_silent(self):
         fake = bv._FakeVault()
-        bv.setup(transport=fake.transport, consent="y")
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
         fake.private = False
         orig = bv._gh
         bv._gh = lambda transport=None: bv._Boundary(fake.transport)
@@ -172,7 +174,7 @@ class SessionStartTests(_Base):
 
     def test_push_failure_discloses_floor4_and_never_raises(self):
         fake = bv._FakeVault()
-        bv.setup(transport=fake.transport, consent="y")
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
         fake.private = True
         fake.fail_blob = True                                       # the repo is reachable + private, the upload fails
         orig = bv._gh
@@ -207,7 +209,7 @@ class PointerTests(_Base):
     def test_pointer_is_content_free(self):
         ledger.append({"kind": "turn-delta", "text": "RUMBLEDETHUMPS a secret private note"})
         fake = bv._FakeVault()
-        bv.setup(transport=fake.transport, consent="y")
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
         blob = json.dumps(bv.read_pointer()).lower()
         self.assertNotIn("rumbledethumps", blob)
         self.assertNotIn("secret", blob)
@@ -224,7 +226,8 @@ class DemoGuardTests(unittest.TestCase):
     def test_safe_demo_delete_only_targets_disposable_names(self):
         self.assertTrue(bv._safe_demo_delete("test-project-memvault-demo-abcd1234", "test-project"))
         self.assertFalse(bv._safe_demo_delete("test-project", "test-project"))                       # the project repo
-        self.assertFalse(bv._safe_demo_delete("test-project-engine-memory-backup", "test-project"))  # the real vault
+        self.assertFalse(bv._safe_demo_delete("test-project-engine-memory-backup", "test-project"))  # per-project vault
+        self.assertFalse(bv._safe_demo_delete("engine-memory-vault", "test-project"))                # the shared vault
         self.assertFalse(bv._safe_demo_delete("some-random-repo", "test-project"))                   # no marker
 
 
@@ -235,6 +238,109 @@ class DemoSelfCheckTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             rc = bv._demo()
         self.assertEqual(rc, 0)
+
+
+class SharedVaultScopeTests(_Base):
+    def test_shared_is_the_default_and_names_the_one_vault(self):
+        fake = bv._FakeVault()
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertEqual(res["repo"], "engine-memory-vault")
+        self.assertEqual(fake.created, ["demo-user/engine-memory-vault"])
+
+    def test_per_project_scope_names_the_per_project_repo(self):
+        fake = bv._FakeVault()
+        res = bv.setup(scope="per-project", transport=fake.transport, consent="y")
+        self.assertEqual(res["repo"], "test-project-engine-memory-backup")
+
+    def test_default_scope_constant_is_shared(self):
+        self.assertEqual(bv._DEFAULT_SCOPE, "shared")                       # D-237: shared is the recorded default
+
+    def test_minted_namespace_is_an_opaque_id_not_the_project_name(self):
+        a, b = bv._mint_namespace(), bv._mint_namespace()
+        self.assertRegex(a, r"^[0-9a-f]{32}$")
+        self.assertNotEqual(a, b)                                          # distinct per call (collision-free)
+        self.assertNotIn("test-project", a)
+
+    def test_shared_consent_discloses_co_location_and_why_per_repo(self):
+        consent = bv._consent_prompt("engine-memory-vault", "shared")
+        self.assertIn("every project's notes", consent)
+        self.assertIn("expose every project at once", consent)             # the read + flip blast radius
+        chooser = bv._choice_prompt()
+        self.assertIn("more private than your others", chooser)            # a concrete why-per-repo, not just a consequence
+
+    def test_shared_readme_carries_marker_explains_folders_and_delete_cost(self):
+        r = bv._readme_text("anything", "shared")
+        self.assertTrue(r.startswith(bv._VAULT_README_MARKER))
+        self.assertIn("scrambled names", r)                               # the opaque ids are explained, not clutter
+        self.assertIn("permanently erases", r)                            # the delete-a-folder cost is named
+
+
+class AdoptTests(_Base):
+    def test_second_project_adopts_the_shared_vault_with_its_own_id(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")    # project A creates the vault
+        ns_a = bv.read_pointer()["namespace"]
+        self.assertEqual(fake.created, ["demo-user/engine-memory-vault"])
+        os.remove(bv._pointer_path())                                      # a DIFFERENT project: its own pointer
+        bv._project_slug = lambda: "test-org/other-project"
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")   # project B adopts
+        self.assertTrue(res["ok"])
+        self.assertTrue(res.get("adopted"))
+        self.assertFalse(res.get("created"))
+        self.assertEqual(fake.created, ["demo-user/engine-memory-vault"])  # B created NOTHING new
+        self.assertFalse(fake.deleted)                                     # and deleted NOTHING (never touch an existing vault)
+        ns_b = bv.read_pointer()["namespace"]
+        self.assertNotEqual(ns_a, ns_b)                                    # B minted its OWN fresh id
+        self.assertEqual(bv.read_pointer()["repo"], "engine-memory-vault")
+
+    def test_foreign_lookalike_repo_is_not_colonized(self):
+        fake = bv._FakeVault()
+        fake.preseed("engine-memory-vault", "# not an engine repo\n")      # a same-named repo we did NOT create
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["error"], "foreign-vault")
+        self.assertFalse(fake.created)
+        self.assertFalse(fake.deleted)                                     # never delete a foreign repo
+        self.assertIsNone(bv.read_pointer())
+
+    def test_existing_public_vault_is_refused_and_never_deleted(self):
+        fake = bv._FakeVault(private=False)
+        fake.preseed("engine-memory-vault", bv._readme_text("x", "shared"))
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["error"], "adopt-public")
+        self.assertFalse(fake.deleted)                                     # NEVER delete an existing vault (holds others)
+        self.assertIn("PUBLIC", res["message"])
+        self.assertIsNone(bv.read_pointer())
+
+    def test_name_exists_race_re_probes_and_adopts(self):
+        fake = bv._FakeVault()
+        fake.preseed("engine-memory-vault", bv._readme_text("x", "shared"))   # exists, with our marker
+        fake.hide_next_probe("engine-memory-vault")                           # first probe can't see it -> create 422s
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertTrue(res["ok"])
+        self.assertTrue(res.get("adopted"))
+        self.assertFalse(fake.created)                                     # POST 422'd; adopted, never a create-failed loop
+
+    def test_name_exists_race_against_a_foreign_repo_is_refused(self):
+        fake = bv._FakeVault()
+        fake.preseed("engine-memory-vault", "# not an engine repo\n")      # a foreign same-named repo (no marker)
+        fake.hide_next_probe("engine-memory-vault")                        # first probe misses -> create 422s
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["error"], "foreign-vault")                    # the 422->re-probe path ALSO marker-checks
+        self.assertFalse(fake.created)
+        self.assertFalse(fake.deleted)
+
+    def test_probe_transport_fault_creates_nothing(self):
+        def faulty(method, path, body=None):
+            if path == "/user":
+                return 200, {"login": "demo-user"}
+            return None, None                                              # every repo op faults
+        res = bv.setup(scope="shared", transport=faulty, consent="y")
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["error"], "unreachable")
+        self.assertIsNone(bv.read_pointer())                              # never blind-create a possible duplicate
 
 
 if __name__ == "__main__":
