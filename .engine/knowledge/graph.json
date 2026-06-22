@@ -2233,7 +2233,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:a6b79795224261b46142475bb2c21e57fe876c356d623e87946cc9715c5722db",
+        "fingerprint": "sha256:d3e94bfb30e6d77a50c8a911220937cf329a3297f77cd6d1cec0a84c4393f0f0",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -2250,7 +2250,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:94c92a5c590d64d60eb17e8acfbeab1106304805817002cbbc761609a584afaa",
+        "fingerprint": "sha256:e11bfdf346e4156da07bc80ea3578dc482668519f1120e90351d17b63bad5f9a",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -2658,7 +2658,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:02bfe96a194f5db04ae40962e81354ab2e251265c5cda010e1755561e80345b3",
+        "fingerprint": "sha256:05fcdc55802442cc18117f12ecf5f2c20b1d16c82f46025db3ff2a787fcc9daa",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -2930,7 +2930,7 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:0c5ebc93ba55ec5c19e32d58cd3479869fb08d4e2bdecea26c15e45a3e09f5f2",
+        "fingerprint": "sha256:9f1b052bf9c4d6defa6b14de59c01e8d4aa9abd01115ae6f935bdbeac6e0d461",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -3107,6 +3107,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:restore_vault",
+      "name": ".engine/tools/memory/restore_vault.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "restore_vault",
+      "source": {
+        "fingerprint": "sha256:445f433c5292b1b9943a1175f38e38e23c61d72e4776a98185147f2cb1bf7959",
+        "path": ".engine/tools/memory/restore_vault.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:rollup",
       "name": ".engine/tools/memory/rollup.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -3236,7 +3253,7 @@
       },
       "slug": "standing_situation",
       "source": {
-        "fingerprint": "sha256:71872646ee0179989d65e9bf027fab55c952e8111265328986b885540aec8709",
+        "fingerprint": "sha256:feebbd22d39f6eeb98ac0e0c07a824654f2a63f9e725fde980906a9aef4bac86",
         "path": ".engine/tools/standing_situation.py"
       },
       "status": "active",
@@ -3372,7 +3389,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:3e65dc39a3fdc1fef2231530db3d86fd5b97d233bc91b9e3b7c031c75323626c",
+        "fingerprint": "sha256:7d038f958d8949f855c8d03deacb716de85052f93e6cfc49bb7111842c6ac0eb",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -3848,7 +3865,7 @@
       },
       "slug": "test_ledger",
       "source": {
-        "fingerprint": "sha256:53485a888d5f98089fb969f39647c7e96b6d8929ac77f6c6d97aa427543e3732",
+        "fingerprint": "sha256:4875147f4c02650b6c2289529a3145ffc70b4b08ef0bbd42e7bd0763cbfcf3b2",
         "path": ".engine/tools/memory/test_ledger.py"
       },
       "status": "active",
@@ -4037,6 +4054,23 @@
       "source": {
         "fingerprint": "sha256:2f278c4e2f652863a53a859765786f6bc4adadc4bff3a7dc87f91f0d9c94a623",
         "path": ".engine/tools/memory/test_records.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_restore_vault",
+      "name": ".engine/tools/memory/test_restore_vault.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_restore_vault",
+      "source": {
+        "fingerprint": "sha256:196c0e50e7067b02e360522bbbe308f4128ec6ebd626d34eab7c37223793b4da",
+        "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
       "type": "tool"
