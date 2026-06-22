@@ -2835,6 +2835,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:issue_conformance_ci",
+      "name": ".engine/tools/issue_conformance_ci.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_conformance_ci",
+      "source": {
+        "fingerprint": "sha256:34dc46cb824356e75ef386cc3ecb38c30ac51da794b311eef41f177777d14037",
+        "path": ".engine/tools/issue_conformance_ci.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:issue_gate",
       "name": ".engine/tools/issue_gate.py",
       "owner": "core",
@@ -3015,7 +3032,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:b771817762600da948af7e292017ffb6e2662ba71d3c1d1207ce3aad565c846e",
+        "fingerprint": "sha256:90571d20f502900711534aa4c335f37616a3de7efb9a8eabfc8ed294418faae2",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -3816,6 +3833,23 @@
       "source": {
         "fingerprint": "sha256:12771e53e5e8abaa369c574ed5b85761438eb5a48a2b34a452ae4bdbb07984be",
         "path": ".engine/tools/test_issue_author.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_issue_conformance_ci",
+      "name": ".engine/tools/test_issue_conformance_ci.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_issue_conformance_ci",
+      "source": {
+        "fingerprint": "sha256:d5f8aecbbd7a04aedf72f0c8cd7aa0b51e5dbff5fc621f46d0492172dddc9fb4",
+        "path": ".engine/tools/test_issue_conformance_ci.py"
       },
       "status": "active",
       "type": "tool"
