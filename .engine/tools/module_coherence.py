@@ -91,6 +91,7 @@ FOUNDATION_INFRA = (
     ".github/workflows/secret-scan.yml",
     ".github/workflows/actionlint.yml",
     ".github/workflows/audit-prep.yml",
+    ".github/workflows/engine-issue-conformance.yml",
     ".github/dependabot.yml",
     ".github/pull_request_template.md",
     ".github/ISSUE_TEMPLATE/*.md",
