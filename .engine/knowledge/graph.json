@@ -1122,7 +1122,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:e3f3757e3e328845ceb186600f24176684a5f3db7ec6fcdc9d0b3ef0900bbc4d",
+        "fingerprint": "sha256:c2e46dbe7a0d48cdb96c2244b10a976e62d1c443d803a295c5b6b9edd15f784d",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -2650,7 +2650,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:0b8d505972ea7f7bc9e23ec99e43344b28acee072a433f6d889f2b55791ac95a",
+        "fingerprint": "sha256:9601fd03b50cc02d9ed7007dea3bbbc1962dc8a0859b1673c2bda5917e108b05",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -3568,7 +3568,7 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:ec88a35ccbb80ba6f56d51078b92ff1d9a03811e4e7726e849649012105d8a31",
+        "fingerprint": "sha256:0cc044b3414b1bfde57588c5a2d2a30f00f7258851d5fa1398523a0c32b5c894",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",
@@ -3619,7 +3619,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:1592ffda0c9751b5c9d7ad633f03c3f45e96ab67561aa1e8e8c470092527627d",
+        "fingerprint": "sha256:72b878e0e0a7c34d305f32204711d6b6a5241160a6df9fdfa66af835d02541e0",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",

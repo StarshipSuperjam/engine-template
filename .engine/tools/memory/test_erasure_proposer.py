@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -284,14 +285,180 @@ class AutoOpenTests(_Base):
         result = emit.propose(opener=_raise_if_called, transport=_no_existing_transport()[0], root=self._tmp.name)
         self.assertEqual(result["opened"], [])
 
-    def test_a_transport_only_practice_run_writes_but_never_reaches_the_real_opener(self):
-        # The footgun guard (mirrors module_manager): an injected transport with NO opener writes the proposal but
-        # opens nothing — so the REAL _open_erasure_pr is never reached in the suite (construction-repo safety, proven).
+    def test_a_transport_only_run_drives_the_real_api_opener_and_fails_safe(self):
+        # With the hook-safe API opener, a transport-only run (no injected opener) exercises the REAL _open_erasure_pr
+        # against the injected transport — fully offline. A transport that cannot complete the API sequence (here: no
+        # git-ref handler) makes the opener FAIL-SAFE: no open, no crash. (The suite never opens against real GitHub
+        # because every call injects a fake transport.)
         self._retired("an old hidden duplicate", age_days=60, batch="b1")
         result = emit.propose(transport=_no_existing_transport()[0], root=self._tmp.name)
         self.assertEqual(result["opened"], [])
-        self.assertIn("practice", result["message"].lower())
-        self.assertTrue(os.path.exists(os.path.join(self._tmp.name, obs._PROPOSAL_PATH)))
+        self.assertIn("could not open", result["message"].lower())
+
+
+def _writable_transport(*, base_sha="basesha", pr_number=77):
+    """A transport that COMPLETES the API opener's create-ref -> put-contents -> open-pull sequence (and reports no
+    existing erasure PRs), recording every call — so the REAL `_open_erasure_pr` runs fully offline."""
+    calls = []
+
+    def transport(method, path, body):
+        calls.append((method, path, body))
+        if "/issues?" in path:                                     # dedup (state=all) + serializer (state=open): none
+            return 200, []
+        if "/git/ref/heads/" in path and method == "GET":
+            return 200, {"object": {"sha": base_sha}}
+        if path.endswith("/git/refs") and method == "POST":
+            return 201, {"ref": (body or {}).get("ref")}
+        if "/contents/" in path and method == "GET":                  # the committed placeholder's existing blob sha
+            return 200, {"sha": "existingblobsha", "content": "", "encoding": "base64"}
+        if "/contents/" in path and method == "PUT":
+            return 201, {"commit": {"sha": "commitsha"}}
+        if path.endswith("/pulls") and method == "POST":
+            return 201, {"number": pr_number}
+        if path.endswith("/labels") and method == "POST":
+            return 200, []
+        if path.endswith(f"/labels/{obs.ERASURE_LABEL}") and method == "GET":
+            return 404, None
+        return 404, None
+
+    return transport, calls
+
+
+class ApiOpenerTests(_Base):
+    def test_opens_purely_via_the_api_and_commits_only_the_one_proposal_file(self):
+        transport, calls = _writable_transport(pr_number=88)
+        number = emit._open_erasure_pr(obs._FakeGH(transport), "erasure-x", "title", "body", '{"target":"x"}')
+        self.assertEqual(number, 88)
+        puts = [c for c in calls if c[0] == "PUT" and "/contents/" in c[1]]
+        self.assertEqual(len(puts), 1, "exactly one file is committed (single-purpose merge tree)")
+        self.assertTrue(puts[0][1].endswith(obs._PROPOSAL_PATH))
+        self.assertEqual(puts[0][2].get("sha"), "existingblobsha", "updates the committed placeholder by its blob sha")
+        self.assertFalse(any("checkout" in str(c) or "push" in str(c) for c in calls), "no local git")
+
+    def test_a_transport_only_run_opens_through_the_real_api_opener(self):
+        rid = self._retired("an old hidden duplicate", age_days=60, batch="b1")
+        transport, _calls = _writable_transport(pr_number=77)
+        result = emit.propose(transport=transport, root=self._tmp.name)
+        self.assertEqual(result["opened"], [77])
+        self.assertEqual(result["target"], rid)
+
+    def test_fails_safe_when_the_base_ref_is_unreadable(self):
+        def t(method, path, body):
+            return (404, None)                                     # even the base ref read fails
+        self.assertIsNone(emit._open_erasure_pr(obs._FakeGH(t), "br", "t", "b", "c"))
+
+    def test_fails_safe_when_the_branch_ref_already_exists(self):
+        def t(method, path, body):
+            if "/git/ref/heads/" in path and method == "GET":
+                return 200, {"object": {"sha": "s"}}
+            if path.endswith("/git/refs"):
+                return 422, {"message": "Reference already exists"}
+            return 404, None
+        self.assertIsNone(emit._open_erasure_pr(obs._FakeGH(t), "br", "t", "b", "c"))   # never wedge / duplicate
+
+    def test_does_not_raise_on_a_transport_fault(self):
+        def t(method, path, body):
+            raise RuntimeError("network down")
+        self.assertIsNone(emit._open_erasure_pr(obs._FakeGH(t), "br", "t", "b", "c"))
+
+
+class SerializerTests(_Base):
+    def test_holds_the_next_proposal_while_an_erasure_pr_is_already_open(self):
+        # one-in-flight: an OPEN engine-erasure PR (for ANOTHER note, so per-target dedup does not fire) -> hold.
+        self._retired("an old hidden duplicate", age_days=60, batch="b1")
+        other = "f" * 32
+
+        def transport(method, path, body):
+            if "/issues?" in path:                                 # both state=all and state=open report PR #5 open
+                return 200, [{"number": 5, "pull_request": {}}]
+            if "/pulls/5" in path:
+                return 200, {"number": 5, "merged_at": None, "merge_commit_sha": None, "head": {"sha": "abc"}}
+            if "/contents/" in path and "ref=abc" in path:
+                return 200, _contents(other)                       # the open PR targets a DIFFERENT note
+            return 404, None
+
+        result = emit.propose(opener=_raise_if_called, transport=transport, root=self._tmp.name)
+        self.assertEqual(result["opened"], [])
+        self.assertIn("already open", result["message"].lower())
+
+    def test_declines_when_the_open_list_cannot_be_read(self):
+        self._retired("an old hidden duplicate", age_days=60, batch="b1")
+
+        def transport(method, path, body):
+            if "state=open" in path:
+                return 503, None                                   # serializer read fails -> DECLINE, never proceed
+            if "/issues?" in path:
+                return 200, []                                     # per-target dedup: none
+            return 404, None
+
+        result = emit.propose(opener=_raise_if_called, transport=transport, root=self._tmp.name)
+        self.assertEqual(result["opened"], [])
+        self.assertIn("declined", result["message"].lower())
+
+
+class ThrottleTests(_Base):
+    def test_checks_when_there_is_no_record(self):
+        self.assertTrue(emit._should_check(1_000))
+
+    def test_skips_within_the_cooldown(self):
+        emit._record_check(1_000_000)
+        self.assertFalse(emit._should_check(1_000_000 + emit._DAY))
+
+    def test_checks_after_the_interval(self):
+        emit._record_check(1_000_000)
+        self.assertTrue(emit._should_check(1_000_000 + (emit.EARNED_ERASURE_CHECK_INTERVAL_DAYS + 1) * emit._DAY))
+
+    def test_checks_on_a_future_timestamp_so_it_never_sticks_off(self):
+        emit._record_check(2_000_000)                              # a 'future' last-check (clock skew / tampering)
+        self.assertTrue(emit._should_check(1_000_000))
+
+    def test_checks_on_a_corrupt_sidecar(self):
+        with open(emit._state_path(), "w", encoding="utf-8") as fh:
+            fh.write("not json {{")
+        self.assertTrue(emit._should_check(1_000_000))
+
+    def test_record_check_persists(self):
+        emit._record_check(1234567)
+        self.assertEqual(emit._last_check(), 1234567)
+
+
+class SessionStartTests(_Base):
+    def test_silent_no_op_when_throttled_and_does_not_even_check(self):
+        emit._record_check(1_000_000)
+        with mock.patch.object(emit, "propose", side_effect=AssertionError("must not check while throttled")) as p:
+            out = emit._session_start_handler({}, now=1_000_000 + emit._DAY)        # within the cooldown
+        self.assertEqual(p.call_count, 0)
+        self.assertIsInstance(out, dict)
+
+    def test_runs_and_relays_a_heads_up_on_a_new_open_and_stamps_the_check(self):
+        with mock.patch.object(emit, "propose", return_value={"opened": [7], "target": "x"}):
+            out = emit._session_start_handler({}, now=2_000_000)
+        self.assertIn("#7", json.dumps(out))
+        self.assertEqual(emit._last_check(), 2_000_000)                              # the check was stamped
+
+    def test_is_silent_when_nothing_was_opened(self):
+        with mock.patch.object(emit, "propose", return_value={"opened": [], "target": None}):
+            out = emit._session_start_handler({}, now=2_000_000)
+        self.assertNotIn("#", json.dumps(out))
+
+    def test_fail_open_when_propose_raises(self):
+        with mock.patch.object(emit, "propose", side_effect=RuntimeError("boom")):
+            out = emit._session_start_handler({}, now=2_000_000)                     # must NOT raise
+        self.assertIsInstance(out, dict)
+
+    def test_the_offline_demo_never_reaches_the_real_opener(self):
+        with mock.patch.object(emit, "_open_erasure_pr", side_effect=AssertionError("the real opener was reached")):
+            ok = emit._demo_body(self._tmp.name)                                     # injects a stub opener
+        self.assertTrue(ok)
+
+
+class HeadsUpTests(unittest.TestCase):
+    def test_plain_language_names_the_pr_and_carries_no_jargon(self):
+        text = emit._heads_up([7])
+        self.assertIn("#7", text)
+        self.assertIn("close", text.lower())
+        self.assertIn("recoverable", text.lower())
+        self.assertNotIn("target", text.lower())                                     # no record-id / engine jargon
 
 
 # --- structural + the committed placeholder ----------------------------------------------------------------
