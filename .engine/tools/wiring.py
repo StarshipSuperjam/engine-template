@@ -671,18 +671,32 @@ def _demo_gitignore(path: str) -> int:
     print(f"Starting from a sample file ({_rel(path)}) with two of your own lines:")
     print(_indent(sample), end="")
     print("(i) Applying the engine's gitignore directive...")
-    print("    " + validate.fmt(_text_fence_apply(path, "demo", [".engine/.venv/"], create=True)))
+    f1 = _text_fence_apply(path, "demo", [".engine/.venv/"], create=True)
+    print("    " + validate.fmt(f1))
     print(_indent(_read_text(path)), end="")
     print("(ii) Applying the SAME directive again (should change nothing)...")
+    before_reapply = _read_text(path)
     print("    " + validate.fmt(_text_fence_apply(path, "demo", [".engine/.venv/"], create=True)))
+    idempotent = _read_text(path) == before_reapply
     print("(iii) Now add your OWN identical-looking line OUTSIDE the engine block...")
     _write_text(path, _read_text(path) + ".engine/.venv/\n")
     print(_indent(_read_text(path)), end="")
     print("    Reversing the engine directive...")
-    print("    " + validate.fmt(_text_fence_reverse(path, "demo")))
-    print(_indent(_read_text(path)), end="")
+    f3 = _text_fence_reverse(path, "demo")
+    print("    " + validate.fmt(f3))
+    final = _read_text(path)
+    print(_indent(final), end="")
     print(f"Done - your own '.engine/.venv/' line survived; the engine block is gone. "
           f"Delete {path} when finished.")
+    # Self-check: the directive applied cleanly (not a hard finding), re-applying changed nothing
+    # (idempotent), and after reversal the operator's OWN '.engine/.venv/' line is the only one left —
+    # the engine-managed block is gone.
+    ok = (f1.get("severity") != "hard" and idempotent and f3.get("severity") != "hard"
+          and final.count(".engine/.venv/") == 1)
+    if not ok:
+        print("\nDEMO UNEXPECTED: the gitignore fence did not apply idempotently and reverse cleanly while "
+              "preserving the operator's own line.", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -29,7 +29,9 @@ whose only wall is the protected-branch merge.
    will run, and what is missing — never a time or a cost figure, which the engine has no method to know),
    the how-careful depth choice, and — only when the change weakens one of the engine's own guardrails — the
    plain-language warning naming which protection weakens and what the AI could then do unwatched. The
-   operator iterates the plan to solid and approves the plan and the depth **before any work starts**.
+   operator iterates the plan to solid and approves the plan and the depth **before any work starts**. To
+   see what a change touches — what depends on the parts it changes, and what checks or governs them — run
+   the impact check in `.engine/operations/knowledge-impact-check.md` before settling the plan.
    *Always runs*, even with zero review packs.
 2. **Plan-review — cold review before building.** The installed plan-review passes run cold-context at the
    approved depth, before any implementation; each finding takes one disposition per the finding-disposition

@@ -291,12 +291,14 @@ def _plan_words(plan: list) -> str:
 def _demo() -> int:
     import tempfile
     print("1) What checkout_health DETECTS — is your top-level project folder healthy or stranded:\n")
+    states = {}
     with tempfile.TemporaryDirectory() as tmp:
         for name, label, kw in (
             ("healthy", "a healthy folder (on its branch, engine files present)", {"detach": False, "drop_settings": False}),
             ("detached", "a folder stuck off its branch (detached HEAD)", {"detach": True, "drop_settings": False}),
             ("missing", "a folder missing the engine's files", {"detach": False, "drop_settings": True})):
-            print(f"  • {label}:\n      {detect_strand(cwd=_fixture(tmp, name, **kw))}")
+            states[name] = detect_strand(cwd=_fixture(tmp, name, **kw))
+            print(f"  • {label}:\n      {states[name]}")
 
     print("\n2) The REPAIR, on a throwaway example folder (never your real one):\n")
     with tempfile.TemporaryDirectory() as tmp:
@@ -306,7 +308,8 @@ def _demo() -> int:
         print("   normal way would leave that work behind. Watch where it goes.\n")
         print(f"   What I'd do, in plain terms: {_plan_words(unstrand(cwd=root)['plan'])}.")
         result = unstrand(cwd=root, apply=True)
-        print(f"   After the repair: folder healthy now? {detect_strand(cwd=root) is None}")
+        healed = detect_strand(cwd=root) is None
+        print(f"   After the repair: folder healthy now? {healed}")
         print(f"   I saved your at-risk work first to the safe point (a rescue branch): {result.get('rescue')}")
         note = _run(["git", "-C", root, "show", f"{result['rescue']}:my-important-note.txt"])
         print(f"   Proof it survived — 'my-important-note.txt' on the safe point still reads: {note!r}")
@@ -316,6 +319,14 @@ def _demo() -> int:
     signals = boot.gather_signals()
     signals["strand"] = {"states": ["detached"], "main": "/your/project/folder"}
     print(boot.render_dashboard(signals))
+    # Self-check: detection separates a healthy folder from the two stranded shapes, the repair heals the
+    # folder, and the at-risk work survives on the rescue branch (the lossless-repair guarantee).
+    ok = (states.get("healthy") is None and states.get("detached") is not None
+          and states.get("missing") is not None and healed and "DO NOT LOSE THIS" in (note or ""))
+    if not ok:
+        print("\nDEMO UNEXPECTED: strand detection, the repair, or the at-risk-work rescue did not behave "
+              "as expected.", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -470,6 +470,11 @@ def _demo() -> int:
     print("while you work is a later step still. Today proves only this: once a turn finishes, its")
     print("notes are saved and can't be lost — even if you just close the window.")
     print("To vary it: edit _DEMO_TURNS at the top of this file and re-run.")
+    ok = (n > 0 and filed > 0 and again == 0 and not before_handoff and bool(after_handoff))
+    if not ok:
+        print("\nDEMO UNEXPECTED: a practice turn did not file notes, a re-run was not a no-op, or the "
+              "end-of-turn ambient capture did not save a note.", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -78,11 +78,20 @@ def _demo() -> int:
     operator can see both the all-clear shape and an alarm shape with their own eyes, without a real alarm
     having to fire. The example is pure data, so it renders the same every time."""
     print(_DEMO_INTRO + "\n")
-    print(render())
+    live = render()
+    print(live)
     print()
     print(_DEMO_EXAMPLE_BANNER)
     print(_DEMO_EXAMPLE_INTRO + "\n")
-    print(boot.render_dashboard(_EXAMPLE_SIGNALS))
+    example = boot.render_dashboard(_EXAMPLE_SIGNALS)
+    print(example)
+    # Self-check: the live status rendered, and the example alarm shape rendered its distinctive attention
+    # line (so the operator sees both an all-clear and an alarm shape with their own eyes).
+    ok = bool(live) and "branch protection" in example
+    if not ok:
+        print("\nDEMO UNEXPECTED: the example alarm dashboard did not render its expected attention line.",
+              file=sys.stderr)
+        return 1
     return 0
 
 

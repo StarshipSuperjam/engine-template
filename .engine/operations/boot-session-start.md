@@ -55,6 +55,10 @@ that must never be depended on, so the reliable post-compaction floor stays the 
 plus the next per-prompt scent. The memory reversible-forgetting readout and the modes stance line
 render only once those substrates exist, so on a fresh engine they are simply absent.
 
+**Beyond what this pack pushes, a session can reach the wiring map deliberately.** When a change needs an
+impact check — what depends on a part, what checks or governs it — or when a part is unfamiliar, the
+session can query the project's own map; when and how is `.engine/operations/knowledge-impact-check.md`.
+
 **The un-stranding repair is operator-consented and lossless.** The assistant **waits for the operator to
 say yes** — it never runs the repair un-asked. Only then does it run the un-stranding fix
 (`checkout_health.unstrand`), the deployed-floor never-strand-main rule's one sanctioned write to the operator

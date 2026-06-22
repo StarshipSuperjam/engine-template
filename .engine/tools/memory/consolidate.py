@@ -12,8 +12,11 @@ REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODI
 
   - **The mechanism: a `SessionStart` sweep.** Memory's own `SessionStart` hook DETECTS earlier sessions whose
     raw notes were never tidied (have turn-deltas, no consolidation marker, not the live session) and INJECTS
-    a BACKGROUND directive — the in-context AI, at a natural pause AFTER the operator's request, reads each
-    session's raw notes (`read`), writes a short labelled summary of each thread, and stores it (`store`).
+    a directive — the in-context AI, at the first natural pause AFTER the operator's request (so never a
+    first-turn hijack), briefly tells the operator in plain words that it is tidying memory (a COUNT, never the
+    id codes), then reads each session's raw notes (`read`), writes a short labelled summary of each thread,
+    and stores it (`store`). The directive is visible and prompt — done THIS session, not deferred forever (the
+    passivity that left 21 sessions untidied is gone) — but always subordinate to the operator's request.
     This unifies the "normal" and "abandoned-session" consolidation into ONE sweep: the locked design's
     abandoned-session predicate already subsumes the normal path, since the previous session is "no longer
     live with no marker" by the next start. The sweep ALSO carries the roll-up backlog (slice 5 PR 3) in the
@@ -213,30 +216,37 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
 # --- Memory's own hooks (SessionStart sweep + PreCompact compaction trigger) -------------------
 
 def _consolidation_directive(pending: list) -> str:
-    """The BACKGROUND directive the SessionStart sweep injects when sessions need tidying. It must keep tidy-up
-    SUBORDINATE to the operator's request (memory's operation, not orientation — boot/README): never a
-    first-turn hijack. Memory's own hook composes this prose; the detection leaf above renders nothing."""
+    """The directive the SessionStart sweep injects when earlier sessions need tidying. It stays SUBORDINATE to
+    the operator's request (memory's operation, not orientation — boot/README: never a first-turn hijack), but
+    it is NOT passive: at the first natural pause the model briefly tells the operator in plain words (a COUNT,
+    never the id codes) that it is tidying memory, and does it THIS session — not "whenever, or never" (that
+    passivity is what left 21 sessions untidied). The ids are listed for the model's `read`/`store` only; the
+    operator hears a count. Memory's own hook composes this prose; the detection leaf above renders nothing."""
     n = len(pending)
     shown = pending[:_MAX_DIRECTIVE_IDS]
     ids = ", ".join(shown) + (f", and {n - len(shown)} more" if n > len(shown) else "")
     sessions = "1 earlier session" if n == 1 else f"{n} earlier sessions"
-    verb = "has" if n == 1 else "have"
+    have = "has" if n == 1 else "have"
     return (
-        "Background memory upkeep — NOT urgent, and NOT to be done before the operator's actual request. "
-        f"{sessions} ({ids}) {verb} raw turn-notes that were never tidied into summaries. At a natural pause, "
-        "AFTER you have served the operator's current request, tidy each one: run "
+        "Memory upkeep — do this DURING this session, but ALWAYS after you have served the operator's current "
+        "request: never before it, never a first-turn hijack. "
+        f"{sessions} {have} raw turn-notes that were never tidied into summaries. At the first natural pause, "
+        "once the operator's current request is served: (1) briefly tell the operator, in plain words, that "
+        f"you are tidying up memory from {sessions} — give them only that COUNT, never the id codes or any "
+        "internal terms; then (2) tidy each one. The sessions are: "
+        f"{ids}. For each, run "
         "`.engine/.venv/bin/python .engine/tools/memory/consolidate.py read <session-id>` to read its raw "
         "notes, write a short compact summary of each meaningful thread (what was explored; what was decided "
         "or rejected, and why; what the operator prefers or learned), choose ONE label per summary from "
         f"{{{', '.join(ROLE_VOCABULARY)}}}, and store them with "
         "`… consolidate.py store <session-id>` (a JSON array of {\"role\": …, \"text\": …} on stdin). "
-        "This is reflection, not re-litigation — be terse. The operator's request always comes first; this "
-        "work can wait turns or whole sessions. Do not announce it unless asked."
+        "This is reflection, not re-litigation — be terse. The operator's request always comes first; keep it "
+        "a quiet pass, not an interruption — but do it this session, not someday."
     )
 
 
 def _session_start_handler(payload) -> dict:
-    """Memory's ONE SessionStart behavior: inject ONE combined background directive carrying BOTH maintenance
+    """Memory's ONE SessionStart behavior: inject ONE combined directive carrying BOTH maintenance
     backlogs — untidied raw notes (consolidation, 3b) and clusters of old episodes ready to roll up (roll-up,
     slice 5 PR 3, via the lazy `rollup` import) — or proceed silently when neither is pending (the self-
     interference floor: this fires on the operator's OWN sessions, so a nothing-pending start must add nothing).
@@ -369,7 +379,7 @@ def _demo() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["ENGINE_MEMORY_DIR"] = tmp           # the throwaway cabinet
         try:
-            _demo_body()
+            ok = _demo_body()
         finally:
             os.environ.pop("ENGINE_MEMORY_DIR", None)
 
@@ -382,10 +392,14 @@ def _demo() -> int:
     print("GOOD summary — that is judged on your real sessions, where every summary is readable and deletable;")
     print("here the summaries are hand-written SAMPLES standing in for the AI's. To vary it: edit the raw")
     print("notes AND the sample summaries near the top of this file and re-run.")
+    if not ok:
+        print("\nDEMO UNEXPECTED: the filing around the summary did not behave as expected (stored and "
+              "findable, the label kept out of search text, the backlog detection).", file=sys.stderr)
+        return 1
     return 0
 
 
-def _demo_body() -> None:
+def _demo_body() -> bool:
     session_a = "session-pelican"
     session_b = "session-three-labels"
     session_c = "session-login-fix"
@@ -453,12 +467,18 @@ def _demo_body() -> None:
     print(f"  Sessions detected as needing tidy-up: {pending}")
     print(f"    -> '{session_d}' (a past session, never tidied) IS listed; the live "
           f"'{session_live}' is NOT.")
-    print("\n  The exact background directive the engine would hand the AI at the next session start:\n")
+    print("\n  The exact directive the engine would hand the AI at the next session start:\n")
     for line in _wrap(_consolidation_directive(pending), 76):
         print(f"    | {line}")
     print("\n  => A past, never-tidied session is caught by the same sweep; the AI receives the directive above")
-    print("     and does the tidy-up AFTER your request, never before. (Whether it then writes a good summary")
-    print("     is the part judged live.)")
+    print("     and does the tidy-up THIS session, right after your request — and briefly tells you it is doing")
+    print("     so (a count, never the id codes), never before your request, never a hijack. (Whether it then")
+    print("     writes a good summary is the part judged live.)")
+    # The mechanical invariants this practice run proves (NOT the AI's wording, which is judged live): a
+    # summary stored+findable, the label kept out of search text, a tidied session dropping off the backlog,
+    # and a past untidied session detected while the live one is not.
+    return (bool(out) and ok and session_c in before and session_c not in after
+            and session_d in pending and session_live not in pending)
 
 
 def _wrap(text: str, width: int) -> list:

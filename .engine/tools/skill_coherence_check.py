@@ -107,6 +107,9 @@ def _demo() -> int:
     print("\nThe honest limit: this guarantees the assistant can't AUTO-START this command. It does not "
           "make it impossible for the assistant to begin building another way — that stays visible and "
           "deliberate, and nothing reaches your main branch without your approval either way.")
+    if not found:
+        print("\nDEMO UNEXPECTED: the guard did not flag the removed operator-only protection.", file=sys.stderr)
+        return 1
     return 0
 
 

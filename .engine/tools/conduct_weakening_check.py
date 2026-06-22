@@ -80,6 +80,11 @@ def _demo() -> int:
         print(f"Findings: {len(fs)} (the weakening line trips; the pro-guardrail line does not).\n")
         for f in fs:
             print(f"  - {f.get('message')}")
+    ok = len(fs) == 1
+    if not ok:
+        print("\nDEMO UNEXPECTED: the guard should flag exactly the one weakening line (the pro-guardrail "
+              f"line must not trip) — got {len(fs)} findings.", file=sys.stderr)
+        return 1
     return 0
 
 

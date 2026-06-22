@@ -54,7 +54,19 @@ from memory import forget, ledger, records       # noqa: E402
 # (the note stays resident + fully recoverable); too low only proposes more readily, and a human still merge-gates each.
 EARNED_ERASURE_MIN_AGE_DAYS = 30
 
+# Build-spec leaf (uncalibrated, recorded; the operator chose ~7 days this session). How often the throttled local
+# trigger may CHECK for an earned note — a FIXED cadence (not a self-tuning controller, which the design refuses). It
+# is a politeness/cost guard only: the SAFETY guards are the age window above + the human merge. Failure direction is
+# benign in both senses — too short merely checks more often (each open still merge-gated, deduped, one-at-a-time);
+# too long merely defers reclaiming a little disk.
+EARNED_ERASURE_CHECK_INTERVAL_DAYS = 7
+
 _DAY = 86400
+
+# A gitignored runtime sidecar under .engine/memory/ (sibling of capture-state.json / ledger-meta.json) holding the
+# last-check timestamp for the throttle. Never committed; resolved via ledger.ledger_dir() so it lands in the throwaway
+# cabinet under tests/demo and the real store in production.
+_STATE_FILENAME = "erasure-proposer-state.json"
 
 # Plain words for the closed, engine-shipped role vocabulary (consolidate.ROLE_VOCABULARY) — so the operator-facing
 # `cost` never surfaces a raw engine token. An unknown/absent role degrades to the neutral "a note".
@@ -198,6 +210,20 @@ def _proposed_targets(gh):
     return out
 
 
+def _open_erasure_pr_numbers(gh):
+    """The numbers of the `engine-erasure` pull requests that are currently OPEN — the one-in-flight serializer's read,
+    so auto-open holds the next proposal until the operator has resolved (merged or closed) the current one. Returns the
+    list, or None if the open-list could not be read (host doubt -> the caller DECLINES to open, fail-SAFE — never read
+    an unreadable list as 'none open -> go ahead'). Never raises."""
+    raw = observer._get(gh, f"/repos/{gh.repo}/issues?state=open&labels={observer.ERASURE_LABEL}&per_page=100")
+    if raw is None:
+        return None                                   # could not read -> cannot confirm none open -> decline upstream
+    if not isinstance(raw, list):
+        return []
+    return [item["number"] for item in raw
+            if isinstance(item, dict) and "pull_request" in item and isinstance(item.get("number"), int)]
+
+
 def _apply_label(gh, number: int) -> bool:
     """Ensure the `engine-erasure` label exists and apply it to the just-opened pull request (a PR is an issue for
     labelling). The observer discovers ONLY by this label, so this is load-bearing. Fail-OPEN: a label failure leaves
@@ -212,33 +238,46 @@ def _apply_label(gh, number: int) -> bool:
 
 # --- the real PR opener (INJECTED in tests/demo; NEVER runs in the construction repo) ----------------------
 
-def _open_erasure_pr(branch: str, title: str, body: str, paths: list, *, repo=None, token=None):
-    """THE GIT+PR BOUNDARY: stage ONLY the proposal file on a new branch, commit, push, and open the single-purpose
-    pull request (POST /pulls). Mirrors `module_manager._open_upgrade_pr`, but stages ONLY `paths` (never `-A`) so the
-    merge tree the observer reads carries exactly the one proposal change. INJECTED for tests + the demo (propose's
-    `opener=...`) and reached AUTOMATICALLY by nothing (no hook/cron calls `propose`), so this real path runs only on
-    a deliberate operator `propose` — never in tests/demo, never on its own. Returns the new PR number."""
-    import subprocess
-    import urllib.request
-    import json as _json
-    import boot
-    import validate
-    slug = repo or boot.repo_slug()
-    tok = token if token is not None else boot.gh_token()
-    if not slug or not tok:
-        raise RuntimeError("could not determine the repository / credentials to open the erasure pull request.")
+def _open_erasure_pr(gh, branch: str, title: str, body: str, content: str):
+    """THE GIT+PR BOUNDARY — HOOK-SAFE: build the branch, commit the single proposal file, and open the single-purpose
+    pull request ENTIRELY via the GitHub API over the bounded `gh` transport (create-ref -> put-contents -> open-pull).
+    There is NO local git and NO working-tree mutation, and every call is timeout-bounded — so the background
+    SessionStart trigger can never switch the operator's branch out from under a live session, nor hang on a stalled
+    `git push`. The PUT commits EXACTLY the one proposal file, so the merge tree the observer reads carries exactly that
+    one change (single-purpose). Fail-SAFE throughout: any non-success status, unreadable body, or transport fault ->
+    return None (the caller reports a retry, never a raise from a hook); a pre-existing branch ref (a 422 from a prior
+    partial open) is treated as already-in-flight -> None, so a deterministic branch name can never wedge or duplicate.
+    Returns the new pull-request number, or None."""
+    import boot  # noqa: E402 — lazy: only for the protected-branch name
     base = getattr(boot, "PROTECTED_BRANCH", "main")
-    for args in (["git", "checkout", "-b", branch], ["git", "add", *paths],
-                 ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
-        subprocess.run(args, cwd=validate.ROOT, check=True, capture_output=True)
-    url = f"https://api.github.com/repos/{slug}/pulls"
-    payload = _json.dumps({"title": title, "head": branch, "base": base, "body": body}).encode("utf-8")
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-               "User-Agent": "engine-erasure-proposer", "Authorization": f"Bearer {tok}",
-               "Content-Type": "application/json"}
-    with urllib.request.urlopen(urllib.request.Request(url, data=payload, headers=headers), timeout=60) as resp:
-        pr = _json.loads(resp.read())
-    return pr.get("number")
+    try:
+        head = observer._get(gh, f"/repos/{gh.repo}/git/ref/heads/{base}")
+        base_sha = (head or {}).get("object", {}).get("sha")
+        if not isinstance(base_sha, str) or not base_sha:
+            return None
+        status, _ = gh._transport("POST", f"/repos/{gh.repo}/git/refs",
+                                  {"ref": f"refs/heads/{branch}", "sha": base_sha})
+        if status not in (200, 201):                 # 422 (ref already exists) or any error -> decline, never wedge
+            return None
+        encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
+        put = {"message": title, "content": encoded, "branch": branch}
+        # proposal.json ships as a committed placeholder, so it already exists on the branch — the Contents API needs
+        # the existing blob sha to UPDATE it (omitting it 422s). A fresh tree without the file -> no sha -> create.
+        existing = observer._get(gh, f"/repos/{gh.repo}/contents/{observer._PROPOSAL_PATH}?ref={base}")
+        file_sha = (existing or {}).get("sha")
+        if isinstance(file_sha, str) and file_sha:
+            put["sha"] = file_sha
+        status, _ = gh._transport("PUT", f"/repos/{gh.repo}/contents/{observer._PROPOSAL_PATH}", put)
+        if status not in (200, 201):
+            return None
+        status, pr = gh._transport("POST", f"/repos/{gh.repo}/pulls",
+                                   {"title": title, "head": branch, "base": base, "body": body})
+        if status not in (200, 201) or not isinstance(pr, dict):
+            return None
+        number = pr.get("number")
+        return number if isinstance(number, int) else None
+    except Exception:  # noqa: BLE001 — fail-SAFE: a degraded host yields no open, never a raise from a SessionStart hook
+        return None
 
 
 def _branch_for(target: str) -> str:
@@ -292,21 +331,98 @@ def propose(path: "str | None" = None, *, opener=None, transport=None, root: "st
     if target in proposed:
         return {"opened": [], "target": target,
                 "message": "An erasure pull request already covers this note."}
+    open_already = _open_erasure_pr_numbers(gh)        # the one-in-flight serializer (after the per-target dedup)
+    if open_already is None:
+        return {"opened": [], "target": target,
+                "message": "Could not check existing erasure pull requests; declined to open (no duplicate risk)."}
+    if open_already:
+        return {"opened": [], "target": target,
+                "message": "An erasure pull request is already open for your review — holding the next one until it is resolved."}
     proposal = build_proposal(record, now=now)
-    dest = write_proposal(proposal, root=root)
-    injected = opener is not None or transport is not None
-    open_fn = opener or (None if injected else _open_erasure_pr)
-    if open_fn is None:
-        return {"opened": [], "target": target, "proposal": proposal, "wrote": dest,
-                "message": "Wrote the proposal (practice run — no pull request opened)."}
-    number = open_fn(_branch_for(target), _PR_TITLE, _pr_body(proposal), [observer._PROPOSAL_PATH],
-                     repo=None, token=None)
+    if opener is not None:
+        # Injected stub (tests/demo): keep the file-backed callable seam — write the proposal where the stub reads it.
+        write_proposal(proposal, root=root)
+        number = opener(_branch_for(target), _PR_TITLE, _pr_body(proposal), [observer._PROPOSAL_PATH],
+                        repo=None, token=None)
+    else:
+        # The real, hook-safe path: commit the proposal via the API over `gh` (real or injected transport) — no local
+        # write, no working-tree mutation.
+        content = json.dumps(proposal, ensure_ascii=False, indent=2) + "\n"
+        number = _open_erasure_pr(gh, _branch_for(target), _PR_TITLE, _pr_body(proposal), content)
     if number is None:
         return {"opened": [], "target": target,
                 "message": "Could not open the pull request; will try again at the next review."}
     labelled = _apply_label(gh, number)
     return {"opened": [number], "target": target, "proposal": proposal, "labelled": labelled,
             "message": f"Opened a single-purpose erasure pull request (#{number}) for your review."}
+
+
+# --- the throttled local trigger (a SessionStart hook; fail-open; mirrors erasure_observer) ----------------
+
+def _state_path() -> str:
+    return os.path.join(ledger.ledger_dir(), _STATE_FILENAME)
+
+
+def _last_check() -> "int | None":
+    """The last-check timestamp from the gitignored sidecar, or None if it is missing or unreadable (-> 'check now')."""
+    try:
+        with open(_state_path(), encoding="utf-8") as fh:
+            return int(json.load(fh).get("last_check_ts"))
+    except Exception:  # noqa: BLE001 — a missing/corrupt sidecar must never STOP the loop; treat as 'check now'
+        return None
+
+
+def _should_check(now: int) -> bool:
+    """Throttle gate: check at most once per EARNED_ERASURE_CHECK_INTERVAL_DAYS. A missing/corrupt OR a FUTURE timestamp
+    (clock skew / tampering) -> check now, so the loop can never silently stick OFF; otherwise wait out the interval."""
+    last = _last_check()
+    if last is None or last > now:
+        return True
+    return (now - last) >= EARNED_ERASURE_CHECK_INTERVAL_DAYS * _DAY
+
+
+def _record_check(now: int) -> None:
+    """Stamp the sidecar with this check time. Best-effort: a write failure just means we check again next session."""
+    try:
+        os.makedirs(ledger.ledger_dir(), exist_ok=True)
+        with open(_state_path(), "w", encoding="utf-8") as fh:
+            json.dump({"last_check_ts": int(now)}, fh)
+    except Exception:  # noqa: BLE001 — never strand the session on a sidecar write
+        pass
+
+
+def _heads_up(pr_numbers: list) -> str:
+    """The one-time, model-facing relay for a NEWLY-OPENED erasure pull request — plain language, no ids/jargon beyond
+    the operator-recognisable PR number, never the note's content. Mirrors erasure_observer._heads_up's prefix."""
+    refs = ", ".join(f"#{n}" for n in sorted(set(pr_numbers)))
+    return (
+        f"INFORM THE USER, in plain language (they asked to be told once): the engine has opened a single-purpose "
+        f"pull request ({refs}) proposing to permanently erase one old note it had already hidden as a duplicate. "
+        f"Nothing is erased yet, and nothing erases on its own — it is erased only if they merge that pull request, "
+        f"and even then a later session carries it out. If they would rather keep the note, they can just close the "
+        f"pull request: closing loses nothing — the note stays exactly where it is, hidden from recall and still fully "
+        f"recoverable. The engine will not raise this same note again.")
+
+
+def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
+    """Memory's earned-erasure PROPOSER at SessionStart — the throttled local trigger. Fail-open throughout (a fault
+    here must NEVER block or slow session start): if the throttle interval has elapsed, run the auto-open (which is
+    itself fail-SAFE and, via the API opener, touches no working tree and cannot hang), then stamp the check; on a NEW
+    open relay ONE plain-language heads-up; otherwise proceed silently. `payload` is unused (we read the ledger + GitHub,
+    not the event). The check itself is the only side effect on a throttled session: none."""
+    import hooks  # noqa: E402 — lazy: keep the module-load path light
+    try:
+        when = int(time.time()) if now is None else int(now)
+        if not _should_check(when):
+            return hooks.proceed()                    # within the cooldown -> a cheap, silent no-op
+        result = propose()                            # the real, un-injected, hook-safe auto-open path
+        _record_check(when)
+        opened = result.get("opened") or []
+        if opened:
+            return hooks.inject(_heads_up(opened))
+    except Exception:  # noqa: BLE001 — fail-open: a fault must never strand the session start
+        return hooks.proceed()
+    return hooks.proceed()
 
 
 # --- CLI -------------------------------------------------------------------------------------------------
@@ -330,14 +446,18 @@ def _print_candidates(path: "str | None" = None) -> int:
 
 def main(argv: list) -> int:
     cmd = argv[0] if argv else "demo"
+    if cmd == "session-start":
+        import hooks  # noqa: E402 — lazy
+        return hooks.run_hook("SessionStart", _session_start_handler)
     if cmd == "candidates":
         return _print_candidates()
     if cmd == "propose":
         print(propose()["message"])
         return 0
     if cmd == "demo":
-        return _demo()
-    print(f"usage: erasure_proposer.py [candidates|propose|demo]\nunknown command {cmd!r}", file=sys.stderr)
+        return _demo_live() if "--live" in argv[1:] else _demo()
+    print(f"usage: erasure_proposer.py [session-start|candidates|propose|demo [--live]]\nunknown command {cmd!r}",
+          file=sys.stderr)
     return 2
 
 
@@ -499,7 +619,52 @@ def _demo_body(tree: str) -> bool:
     part5 = again["opened"] == []
     print(f"  => {'a note already in front of you is left alone — no duplicate pull request.' if part5 else '!!! it opened a duplicate pull request'}")
 
-    return part1 and part2 and part3 and part4 and part5
+    # --- PART 6 ------------------------------------------------------------------------------------------
+    print(f"\nPART 6 — the weekly throttle: after a check it does not even LOOK again until ~{EARNED_ERASURE_CHECK_INTERVAL_DAYS} days pass")
+    print("-" * 96)
+    base = 1_000_000_000
+    fresh_look = _should_check(base)                       # no record yet -> look now
+    _record_check(base)
+    too_soon = _should_check(base + 2 * _DAY)              # 2 days later -> within the cooldown, do not even look
+    elapsed = _should_check(base + (EARNED_ERASURE_CHECK_INTERVAL_DAYS + 1) * _DAY)   # interval passed -> look again
+    print(f"  a first session (no record yet): {'looks now' if fresh_look else 'skips'}")
+    print(f"  2 days later: {'looks' if too_soon else 'skips — not yet a week, so no GitHub call and nothing opens'}")
+    print(f"  {EARNED_ERASURE_CHECK_INTERVAL_DAYS + 1} days later: {'looks again' if elapsed else 'still skips'}")
+    part6 = fresh_look and (not too_soon) and elapsed
+    print(f"  => {'it checks at most once a week. Three distinct reasons it stays quiet: nothing earned, a request already open, or simply not yet time.' if part6 else '!!! the throttle did not gate as expected'}")
+
+    return part1 and part2 and part3 and part4 and part5 and part6
+
+
+def _demo_live() -> int:
+    """The LIVE end-to-end test the operator runs himself: plant a fake earned note in a THROWAWAY memory store (the
+    real ledger is never read or touched) and run the REAL armed trigger so it opens a REAL `engine-erasure` pull
+    request you can see in GitHub. The API opener changes no local branch or file, so cleanup is just closing the PR.
+    Nothing is erased — the pull request only PROPOSES."""
+    import tempfile
+    print("=" * 96)
+    print("LIVE TEST — this opens a REAL pull request on your GitHub repo, on purpose. It NEVER touches your real")
+    print("            memory (the test note lives in a throwaway store) and changes NO local branch or file (the pull")
+    print("            request is built entirely via the GitHub API).")
+    print("=" * 96)
+    with tempfile.TemporaryDirectory() as cabinet:
+        os.environ["ENGINE_MEMORY_DIR"] = cabinet           # the throwaway store — the real ledger is never used
+        try:
+            _plant_retired(_DEMO_OLD_TEXT, _DEMO_OLD_ROLE, _DEMO_OLD_AGE_DAYS, "batch-live")
+            print(f"\nPlanted one fake ~{_DEMO_OLD_AGE_DAYS}-day-old hidden duplicate in the throwaway store; opening a real pull request...\n")
+            result = propose()                              # un-injected -> the real gh + the real API opener
+        finally:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+    print(f"  {result['message']}")
+    opened = result.get("opened") or []
+    if opened:
+        print("\n  Open it in GitHub and read the plain-language body — nothing is erased; it only PROPOSES erasing one")
+        print("  note. When you are done (your real memory was never touched), clean it up with one command:")
+        print(f"      gh pr close {opened[0]} --delete-branch")
+    else:
+        print("\n  No pull request opened (see the message above — e.g. GitHub unreachable, an erasure request already")
+        print("  open, or no credentials resolved). Your real memory was never read or touched.")
+    return 0
 
 
 if __name__ == "__main__":

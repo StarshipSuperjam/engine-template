@@ -412,16 +412,27 @@ def _demo(_argv: list) -> int:
     print(f"  some other action finishes ->            stance={current_stance(sid)} (unchanged — only "
           f"accepting a plan enters Build)")
     accept_handler({"session_id": sid, "tool_name": _PLAN_EXIT_TOOL})
-    print(f"  accepting a plan ->                      stance={current_stance(sid)}")
-    print(f"  the SAME edit denied above is now ->     {_decision_line(gate('Edit'))} "
-          f"(the real capability, not just the label)")
+    built = current_stance(sid)
+    print(f"  accepting a plan ->                      stance={built}")
+    e_build = _decision_line(gate('Edit'))
+    print(f"  the SAME edit denied above is now ->     {e_build} (the real capability, not just the label)")
 
-    print(f"\nClear the signal (what boot does at SessionStart): clear_stance -> {clear_stance(sid)}")
-    print(f"Back in EXPLORE (stance={current_stance(sid)}): an Edit is denied again -> "
-          f"{_decision_line(gate('Edit'))}")
+    cleared = clear_stance(sid)
+    print(f"\nClear the signal (what boot does at SessionStart): clear_stance -> {cleared}")
+    stance_after_clear = current_stance(sid)
+    e_explore = _decision_line(gate('Edit'))
+    print(f"Back in EXPLORE (stance={stance_after_clear}): an Edit is denied again -> {e_explore}")
     print("\nThe gate is a §6 nudge, not a wall — a disguised verb slips it, a crash fails it open; the "
           "merge wall is the guarantee. Accepting a plan enters Build (human-gated, not a stronger gate); "
           "the entry is announced as the build begins, not by the (silent) hook.")
+    # Self-check: accepting a plan enters Build (where the same Edit is now allowed); clearing the signal
+    # returns to Explore (where the Edit is denied again).
+    ok = ("build" in str(built).lower() and "explore" in str(stance_after_clear).lower()
+          and "allow" in e_build.lower() and ("den" in e_explore.lower()))
+    if not ok:
+        print("\nDEMO UNEXPECTED: the Explore->Build->Explore transitions or the Edit-gate decisions did not "
+              "behave as expected.", file=sys.stderr)
+        return 1
     return 0
 
 
