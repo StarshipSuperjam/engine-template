@@ -30,6 +30,7 @@ Library + CLI (mirrors self_map.py — plain language first):
   uv run --directory .engine -- python tools/audit_digest.py check [<file>]            # is the seal intact?
   uv run --directory .engine -- python tools/audit_digest.py staleness [<file>]        # how fresh is it?
   uv run --directory .engine -- python tools/audit_digest.py body [<file>]             # the review prose, frontmatter stripped
+  uv run --directory .engine -- python tools/audit_digest.py prior [--limit N]         # the engine's own recent digests, as over-time corroboration
 
 The two CI/audit-prep rules are thin custom/script entries over check()/staleness():
 audit_digest_fingerprint_check.py (the CI seal gate) and audit_digest_staleness_check.py (the report-only
@@ -37,10 +38,14 @@ freshness signal). finding.v1 + the frontmatter reader are reused from validate.
 precedent.
 """
 from __future__ import annotations
+import base64
 import datetime
 import hashlib
+import json
 import os
 import sys
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
@@ -208,6 +213,172 @@ def seal(path: str, generated=None, body: str | None = None) -> dict:
         "note", f"Sealed the self-review file ({_display(path)}), dated {generated}.", _loc_opt(path))
 
 
+# ---- the audit-over-audit corroboration read: the digest's own recent history (D-234) --------
+#
+# The scheduled self-review reads its own most recent committed digests as over-time CORROBORATION —
+# never as a decision (a keep/retire call still rests on a fresh check run THIS cycle; the persona's
+# guardrails fix that). This is a same-repo read on the workflow's own token, so it needs no new auth.
+# We read the last N committed versions of the digest directly via the GitHub API on the normal shallow
+# checkout — deliberately NOT an `actions/checkout fetch-depth: 0` deep clone, whose cost grows unbounded
+# with repo age just to read one file's history. The transport is injectable, so tests fake ONLY the
+# network and run the real logic. When the history is unreadable (a fresh repo with none yet, a transient
+# GitHub blip), the read degrades to a plain marker so the self-review says — plainly — that it has no
+# earlier reviews to compare against, and never fabricates a trend.
+
+API_ROOT = "https://api.github.com"
+USER_AGENT = "engine-audit-digest"
+
+# The digest's repo-relative path — what the commits/contents API key on (AUDIT_DIGEST_PATH is absolute).
+DIGEST_REPO_PATH = os.path.relpath(AUDIT_DIGEST_PATH, validate.ROOT).replace(os.sep, "/")
+
+# The branch the prior digests are read from — the same base the digest pull requests target. The
+# in-flight digest this run produces is not committed to it yet, so the run is never fed its own output.
+PRIOR_DIGESTS_BASE = "main"
+
+# The corroboration window: how many of the most recent committed digests the self-review is fed
+# (oldest→newest). A plain bound — a build-spec leaf recorded with the maintainer — wide enough to catch
+# an intermittent finding that comes and goes across cycles, not only one that persists every run. Each
+# digest is the engine's own small output (~a few KB), so the whole window stays small. Pinned by a unit
+# test so it cannot drift silently. (GitHub caps a single commits page at 100; a window past that would
+# need pagination, which a "recent" read never wants, so the per-page request is clamped to 100.)
+PRIOR_DIGESTS_DEFAULT_LIMIT = 20
+
+# A generous per-digest safety cap (characters of body fed). Real digests are ~5KB; this only guards a
+# pathological case and sits far above any real digest, so it never truncates a finding out of the window.
+PRIOR_DIGEST_MAX_CHARS = 32 * 1024
+
+# The persona-facing marker when there is nothing to corroborate against — no history yet, or a read
+# failure. Plain and instructive, never backstage vocabulary: it tells the self-review to review only
+# what it can check now and to disclose the gap, so a degraded read can never read as a clean trend.
+_PRIOR_NONE_MARKER = (
+    "PRIOR SELF-REVIEWS: none are available to compare against this run. Review only what you can check "
+    "now, and say plainly in your digest that you have no earlier reviews to compare against — do not "
+    "invent a trend or a change over time.")
+
+
+class DegradedReadError(Exception):
+    """Raised when the digest's own history cannot be read from GitHub. It is NEVER swallowed as 'no
+    history' — an unreadable history degrades to an honest 'nothing to compare against' marker, never a
+    silent empty that would let the self-review present a clean trend it never actually saw."""
+
+
+def _split_text(raw: str):
+    """(frontmatter_text, body) for IN-MEMORY digest content — the string analogue of split(), which
+    reads a file path. Same `---`-fence rule: maxsplit=2 keeps an in-body `---` rule inside the body."""
+    parts = raw.split("---", 2)
+    if raw.startswith("---") and len(parts) == 3:
+        return parts[1], parts[2]
+    return "", raw
+
+
+def _generated_of(fm_text: str):
+    """The `generated:` run-date from a digest's frontmatter text, or None. A light line scan — the prior
+    digests arrive from the API as strings (not files on disk), so validate.frontmatter (which reads a
+    path) does not apply, and only the date label is needed here; the seal itself is verified at commit
+    time, never on this read."""
+    for line in fm_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("generated:"):
+            return stripped[len("generated:"):].strip() or None
+    return None
+
+
+class _DigestHistory:
+    """The committed digest's own recent-history boundary (same-repo, own-repo token). Mirrors telemetry's
+    injectable-transport seam: `transport(method, path, body) -> (status, json|None)` is injectable so
+    tests and the demo fake ONLY the network and run the real logic. NOT telemetry.GitHubIssues, which is
+    issue-shaped — this reads the commits + contents APIs for one file's history."""
+
+    def __init__(self, repo: str, token: str, *, path: str = DIGEST_REPO_PATH,
+                 base: str = PRIOR_DIGESTS_BASE, transport=None):
+        self.repo = repo
+        self.token = token
+        self.path = path
+        self.base = base
+        self._transport = transport or self._http
+
+    def _http(self, method: str, path: str, body=None):
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        req = urllib.request.Request(
+            API_ROOT + path, data=data, method=method,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": "application/json",
+                "User-Agent": USER_AGENT,
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw = resp.read().decode("utf-8")
+                return resp.status, (json.loads(raw) if raw else None)
+        except urllib.error.HTTPError as exc:           # 4xx/5xx — surface the status, never swallow
+            return exc.code, None
+        except urllib.error.URLError as exc:             # network unreachable — a read failure
+            raise DegradedReadError(f"GitHub is unreachable: {exc}") from exc
+
+    def recent(self, limit: int) -> list:
+        """The last `limit` committed digests, OLDEST→NEWEST, as (generated_date_or_None, body). The
+        commits API returns newest-first, so we reverse to feed oldest→newest. Returns [] when the file
+        has no history yet (a fresh repo, or the path was never committed); RAISES DegradedReadError on
+        any read failure — an unreadable history must never read as 'no history'."""
+        per_page = min(100, max(1, int(limit)))   # GitHub caps a commits page at 100; a recent read never paginates
+        status, commits = self._transport(
+            "GET",
+            f"/repos/{self.repo}/commits?path={self.path}&sha={self.base}&per_page={per_page}",
+            None)
+        if status in (404, 409):   # 404 path/branch never committed, 409 empty repo — no history yet
+            return []
+        if status >= 400 or commits is None:
+            raise DegradedReadError(f"GitHub returned {status} listing the digest history")
+        out = []
+        for commit in reversed(commits):     # newest-first → feed oldest→newest
+            sha = commit.get("sha")
+            if not sha:
+                continue
+            cstatus, payload = self._transport(
+                "GET", f"/repos/{self.repo}/contents/{self.path}?ref={sha}", None)
+            if cstatus >= 400 or payload is None or "content" not in payload:
+                raise DegradedReadError(f"GitHub returned {cstatus} reading a digest at {sha[:8]}")
+            raw = base64.b64decode(payload["content"]).decode("utf-8", "replace")
+            fm_text, body = _split_text(raw)
+            out.append((_generated_of(fm_text), body))
+        return out
+
+
+def render_prior_digests(repo: str, token: str, *, limit: int = PRIOR_DIGESTS_DEFAULT_LIMIT,
+                         transport=None) -> str:
+    """Plain text the audit-prep workflow feeds into the read-only self-review persona's prompt so it can
+    read its own recent digests as over-time CORROBORATION (never a decision). The persona never reaches
+    GitHub itself — this owns the read and the workflow injects the result. Returns a header plus each
+    prior digest oldest→newest (with its run-date); or — when there is NO history yet OR on ANY read
+    failure — a plain 'nothing to compare against' marker (NEVER a silent empty, NEVER a fabricated
+    trend), so the self-review honestly degrades to a review of only what it can see now. `transport` is
+    injectable for tests; bounded by `limit`."""
+    try:
+        history = _DigestHistory(repo, token, transport=transport).recent(limit)
+    except Exception as exc:  # noqa: BLE001 — any read failure degrades to honest, never a silent empty
+        return _PRIOR_NONE_MARKER + f"  (the earlier reviews could not be read this run — {exc})"
+    if not history:
+        return _PRIOR_NONE_MARKER
+    parts = [
+        f"PRIOR SELF-REVIEWS — the engine's own {len(history)} most recent self-reviews, oldest first. "
+        "Read these ONLY as corroboration: if a finding keeps showing up across them, that is evidence it "
+        "is genuinely there rather than a one-time blip. They never decide anything — a keep-it-or-"
+        "retire-it call still rests on the fresh check you run THIS cycle, and a quiet stretch is never "
+        "read as 'gone'. Where this run's own fresh read agrees with what these earlier reviews showed, "
+        "present that as a separate point from the fresh read itself, not as the reason for the call.", ""]
+    for date, body in history:
+        body = body.strip()
+        if len(body) > PRIOR_DIGEST_MAX_CHARS:
+            body = body[:PRIOR_DIGEST_MAX_CHARS] + "\n…(earlier review truncated)"
+        parts.append(f"----- prior self-review (run {date or 'date unknown'}) -----")
+        if body:
+            parts.append(body)
+    return "\n".join(parts)
+
+
 # ---- CLI ------------------------------------------------------------------------------------
 
 def _take_body_file(argv: list):
@@ -227,6 +398,39 @@ def _take_body_file(argv: list):
         out.append(argv[i])
         i += 1
     return out, body
+
+
+def _prior_cli(argv: list) -> int:
+    """The audit-prep workflow's audit-over-audit verb: print the engine's own recent committed digests
+    (oldest→newest) so the read-only self-review can read them as over-time corroboration — the persona
+    never reaches GitHub itself. Reads GITHUB_REPOSITORY + GITHUB_TOKEN from the environment (the GitHub
+    token, never the Claude OAuth token, which only auths the persona run). Optional `--limit N` overrides
+    the window (default PRIOR_DIGESTS_DEFAULT_LIMIT). Exits 0 whenever the env is present — even with no
+    history or on a read failure, which it reports in-band so the self-review degrades honestly rather
+    than failing; a transient GitHub blip must never fail the self-review."""
+    limit = PRIOR_DIGESTS_DEFAULT_LIMIT
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--limit":
+            if i + 1 >= len(argv):
+                print("usage: audit_digest.py prior [--limit N]   (--limit needs a number)", file=sys.stderr)
+                return 2
+            try:
+                limit = max(1, int(argv[i + 1]))
+            except ValueError:
+                print("usage: audit_digest.py prior [--limit N]   (--limit needs a number)", file=sys.stderr)
+                return 2
+            i += 2
+            continue
+        i += 1
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    token = os.environ.get("GITHUB_TOKEN")
+    if not repo or not token:
+        print("usage: audit_digest.py prior [--limit N]   (needs GITHUB_REPOSITORY and GITHUB_TOKEN in "
+              "the environment; it uses the GitHub token, never the Claude token)", file=sys.stderr)
+        return 2
+    print(render_prior_digests(repo, token, limit=limit))
+    return 0
 
 
 def main(argv: list) -> int:
@@ -263,10 +467,15 @@ def main(argv: list) -> int:
             _fm, body = split(path)
             print(body.strip("\n"))
             return 0
+        if cmd == "prior":
+            # The audit-over-audit corroboration feed: the engine's own recent committed digests, read
+            # over the GitHub API (same-repo, own-repo token) and printed oldest→newest for the read-only
+            # self-review. Degrades in-band (never raises) when there is no history or the read fails.
+            return _prior_cli(argv[1:])
     except Exception as exc:  # a tool error is loud, never a silent pass
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    print(f"unknown command '{cmd}' (expected: seal, check, staleness, body)", file=sys.stderr)
+    print(f"unknown command '{cmd}' (expected: seal, check, staleness, body, prior)", file=sys.stderr)
     return 2
 
 

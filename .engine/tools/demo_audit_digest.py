@@ -13,6 +13,10 @@ do what they claim.
 It works entirely on a THROWAWAY copy in a temp folder; your real repo is never touched. It uses the very
 same logic the real rules run. Vary it yourself: change the sample text, change the dates, and re-run — the
 verdicts follow. The sample below is also a fair picture of what a real self-review file reads like.
+
+The last step also shows the audit-over-audit corroboration read: each run, the self-review is handed its
+OWN recent reviews to read as corroboration only — never as the decision — and degrades honestly when there
+is nothing to compare against. That read is faked here (no network, no token), running the real logic.
 """
 from __future__ import annotations
 import datetime
@@ -134,11 +138,54 @@ def main() -> int:
               f" {step6}")
         ok = ok and step6
 
+        print("\n[7] Audit-over-audit: each run the self-review is also handed its OWN recent reviews, to read")
+        print("    as corroboration only (does a finding keep coming back?) — never as the decision itself.")
+        print("    This fakes the GitHub read (no network, no token) and shows the three things that happen.")
+        print("-" * 78)
+
+        def _fake_history(versions, *, fail=False):
+            # versions: list of (sha, date, body), NEWEST-FIRST (the order GitHub's commits API returns).
+            import base64 as _b64
+            order = [s for s, _d, _b in versions]
+            store = {s: f"---\ngenerated: {d}\nfingerprint: sha256:x\n---\n\n{b}\n" for s, d, b in versions}
+
+            def transport(method, path, body):
+                if fail:
+                    return 500, None          # a GitHub hiccup — the read must degrade honestly, not fabricate
+                if "/commits?" in path:
+                    return 200, [{"sha": s} for s in order]
+                sha = path.split("ref=")[1]
+                return 200, {"content": _b64.b64encode(store[sha].encode()).decode()}
+            return transport
+
+        present = audit_digest.render_prior_digests("you/proj", "tok", transport=_fake_history([
+            ("c2", "2026-06-08", "Module X still shows no sign of use."),
+            ("c1", "2026-06-01", "Module X shows no sign of use."),
+        ]))
+        none_yet = audit_digest.render_prior_digests("you/proj", "tok", transport=_fake_history([]))
+        degraded = audit_digest.render_prior_digests("you/proj", "tok", transport=_fake_history([], fail=True))
+        print("   --- with two earlier reviews on record (fed oldest-first, framed as corroboration) ---")
+        for line in present.splitlines():
+            print("   | " + line)
+        print("\n   --- with no earlier reviews yet ---")
+        print("   | " + none_yet)
+        print("   --- when the earlier reviews can't be read (a GitHub hiccup) ---")
+        print("   | " + degraded)
+        step7 = (present.index("2026-06-01") < present.index("2026-06-08")   # fed oldest-first
+                 and "corroboration" in present.lower()                       # framed as corroboration
+                 and "THIS cycle" in present                                  # the call rests on a fresh check
+                 and none_yet == audit_digest._PRIOR_NONE_MARKER              # no history -> honest plain marker
+                 and degraded.startswith("PRIOR SELF-REVIEWS: none"))         # read failure -> honest degrade
+        print("\n   expected: earlier reviews fed oldest-first as corroboration; both no-history and a failed")
+        print(f"   read degrade to an honest 'nothing to compare against' -> {step7}")
+        ok = ok and step7
+
         print("\n" + BANNER)
         print("In plain words: the seal rule passes on a freshly-written file and goes RED the moment the")
         print("file is hand-edited; the freshness rule stays quiet while the self-review is recent and")
-        print("speaks up when it hasn't run in a while (or at all). Both read a throwaway copy and change")
-        print("nothing. Your real .engine/audits/audit-digest.md was never touched.")
+        print("speaks up when it hasn't run in a while (or at all); and the self-review reads its own recent")
+        print("reviews as corroboration, degrading honestly when there is nothing to compare against. Every")
+        print("step read a throwaway copy or a faked read and changed nothing. Your real repo was never touched.")
         print(f"DEMO {'OK' if ok else 'FAILED'}")
         print(BANNER)
     return 0 if ok else 1

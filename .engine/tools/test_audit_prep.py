@@ -145,6 +145,43 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("snapshot of where the project stands", text)   # the footer names what rides along
         self.assertIn("attests to the self-review", text)             # …and the merge-attests framing
 
+    def test_fetches_prior_digests_and_feeds_them_to_the_persona(self):
+        # #200 / D-234 audit-over-audit: the workflow fetches the engine's OWN recent committed digests (the
+        # `prior` verb) and feeds them into the read-only persona's prompt between fresh markers — so the
+        # persona reads its history as corroboration without ever reaching GitHub itself.
+        text = self._text()
+        self.assertIn("audit_digest.py prior", text)                 # the workflow fetches the prior digests
+        self.assertIn("BEGIN PRIOR SELF-REVIEWS", text)              # …and feeds them into the persona's prompt
+        self.assertIn("END PRIOR SELF-REVIEWS", text)
+
+    def test_prior_digests_feed_frames_corroboration_never_decision(self):
+        # The feed wording must hold the D-234 contract the persona obeys: read the history ONLY as
+        # corroboration, never as a decision; the call rests on a fresh check THIS cycle; and if there is
+        # nothing to compare against, degrade plainly rather than invent a trend.
+        text = self._text()
+        self.assertIn("corroboration", text)
+        self.assertIn("THIS cycle", text)
+        self.assertIn("never invent a trend", text)
+
+    def test_prior_digests_read_is_the_gh_api_not_a_deep_clone(self):
+        # The recorded build-spec leaf: read the last N digest versions over the GitHub API on the normal
+        # shallow checkout — deliberately NOT `actions/checkout fetch-depth: 0`, whose deep clone grows with
+        # the repo's whole history just to read one file. Pin that no checkout step actually SETS fetch-depth
+        # (the explanatory comment naming it does not count — parse the YAML, don't substring the comment).
+        import yaml  # the engine runtime ships pyyaml; parse so a comment mentioning fetch-depth doesn't trip us
+        doc = yaml.safe_load(self._text())
+        for job in doc["jobs"].values():
+            for step in job.get("steps", []):
+                if "checkout" in str(step.get("uses", "")):
+                    self.assertNotIn("fetch-depth", step.get("with", {}) or {},
+                                     "the digest history is read over the gh API, never a deep clone")
+
+    def test_prior_digests_step_degrades_in_band_when_the_fetch_fails(self):
+        # Mirrors the issue-feed step: if the fetch step itself fails, leave an honest marker so the persona
+        # still degrades to a point-in-time review rather than the run dying or concern silently skipped.
+        text = self._text()
+        self.assertIn("PRIOR SELF-REVIEWS: none are available to compare against this run (the fetch step failed)", text)
+
 
 if __name__ == "__main__":
     unittest.main()
