@@ -266,6 +266,28 @@ def bump_generation(cwd: str | None = None, *, for_path: str | None = None) -> i
     return new_val
 
 
+def set_generation(value: int, cwd: str | None = None, *, for_path: str | None = None) -> int:
+    """Durably SET the generation to an explicit `value` (temp + fsync + atomic os.replace) — the sibling of
+    bump_generation that RESTORE (slice 6b) uses: a restored ledger must carry the BACKUP's true generation, not a
+    blind +1, so the lineage and the *next* restore's resurrection compare stay faithful. A non-int/negative value
+    clamps to 0 (the same fail-safe floor `generation` reads). The CALLER must hold the single-writer lock (restore
+    does); this is not itself serialized. Returns the value written."""
+    new_val = value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+    path = meta_path(cwd, for_path=for_path)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    try:
+        os.write(fd, json.dumps({"generation": new_val}, separators=(",", ":")).encode("utf-8"))
+        _durable_fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
+    return new_val
+
+
 def _durable_fsync(fd) -> None:
     """Flush `fd` to stable storage as durably as the platform allows: F_FULLFSYNC on Darwin (a true barrier),
     else os.fsync. A fsync fault must NEVER crash past the caller's lock-release, so every call is guarded —

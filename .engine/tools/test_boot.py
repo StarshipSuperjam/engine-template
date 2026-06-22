@@ -62,7 +62,8 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "findings_unavailable": False, "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": False, "shipped": [], "stance": "Exploring", "strand": None,
-            "pr_conflict": None, "audit_stale": None, "live_standing": None, "neighborhood": None}
+            "pr_conflict": None, "restore_offer": None, "audit_stale": None, "live_standing": None,
+            "neighborhood": None}
 
 
 def _signals(**over):
@@ -536,6 +537,60 @@ class TestPrConflictSurfacing(unittest.TestCase):
                 p.stop()
         self.assertEqual(relayed["pr_conflict"], self._PR)   # the detector's signal is relayed verbatim
         self.assertIsNone(failed["pr_conflict"])             # a detector failure degrades quietly to None
+
+
+class TestRestoreOfferSurfacing(unittest.TestCase):
+    """Slice 6b (Floor 3): when local memory is empty AND a backup is configured, boot surfaces a plain-language
+    auto-restore OFFER — a recovery opportunity (NOT a ⚠ governance alarm), pinned BELOW the governance alarms,
+    carried on the always-visible present-marker, and DELIBERATELY NOT in the must-push/INFORM set. boot OFFERS;
+    the assistant runs restore_vault on the operator's consent. Memory owns the detector; boot owns the wording."""
+    _OFFER = {"configured": True}
+
+    def test_render_surfaces_the_offer_only_when_present(self):
+        offered = boot.render_dashboard(_signals(restore_offer=self._OFFER))
+        self.assertIn("restore my memory", offered.lower())
+        self.assertIn("looks empty", offered.lower())
+        self.assertIn("until you say so", offered.lower())       # the consent-first reassurance
+        self.assertNotIn("restore my memory", boot.render_dashboard(_signals(restore_offer=None)).lower())
+
+    def test_offer_pins_below_the_governance_alarm(self):
+        pack = boot.render_dashboard(_signals(gate="off", reason="x", restore_offer=self._OFFER))
+        lines = pack.splitlines()
+        gate = next(i for i, ln in enumerate(lines) if "safety gate is off" in ln.lower())
+        offer = next(i for i, ln in enumerate(lines) if "restore my memory" in ln.lower())
+        self.assertLess(gate, offer, "the governance alarm must pin above the restore offer")
+
+    def test_present_marker_reflects_the_offer_but_every_alarm_outranks(self):
+        self.assertEqual(
+            boot.present_marker_line(_signals(restore_offer=self._OFFER)),
+            f"{boot.PRESENT_MARKER}: your saved memory looks empty — say 'restore my memory' and I'll try to bring "
+            "back your backup")
+        self.assertEqual(boot.present_marker_line(_signals(restore_offer=None)),
+                         f"{boot.PRESENT_MARKER}: all clear")
+        # a governance alarm AND a stuck PR both outrank the offer marker (it is ranked last)
+        self.assertEqual(boot.present_marker_line(_signals(gate="off", restore_offer=self._OFFER)),
+                         "⚠ Protected branch is off")
+        self.assertEqual(
+            boot.present_marker_line(_signals(pr_conflict={"pr": 7}, restore_offer=self._OFFER)),
+            f"⚠ {boot.PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it")
+
+    def test_offer_is_not_in_the_must_push_set(self):
+        # a recovery opportunity, not governance-critical -> no INFORM marker; the present-marker carries it.
+        self.assertEqual(boot.must_push(_signals(restore_offer=self._OFFER)), [])
+
+    def test_gather_signals_relays_the_local_detector_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            from memory import restore_vault
+            with mock.patch.object(restore_vault, "detect_restore_offer", return_value=self._OFFER):
+                relayed = boot.gather_signals()
+            with mock.patch.object(restore_vault, "detect_restore_offer", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["restore_offer"], self._OFFER)   # the local detector's signal is relayed verbatim
+        self.assertIsNone(failed["restore_offer"])                # a detector/import failure degrades quietly to None
 
 
 class TestAuditStaleness(unittest.TestCase):
