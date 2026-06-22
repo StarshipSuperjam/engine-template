@@ -426,6 +426,15 @@ def gather_signals(session_id: str | None = None) -> dict:
         pr_conflict = pr_reconcile.detect_conflict(gh)
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         pr_conflict = None
+    try:
+        # The memory auto-restore offer (Floor 3, slice 6b), RELAYED from memory's own LOCAL-ONLY detector (no
+        # network; boot computes no new state). restore_vault is imported LAZILY here because restore_vault ->
+        # backup_vault -> boot is a back-edge that is only safe lazily (pr_reconcile has no such edge). Degrades
+        # QUIETLY to None — a fresh project with no backup, or one whose memory is present, is the normal state.
+        from memory import restore_vault
+        restore_offer = restore_vault.detect_restore_offer()
+    except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        restore_offer = None
     # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
@@ -451,6 +460,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
+        # the memory auto-restore offer (#R2, slice 6b): local memory is empty + a backup is configured, or None
+        "restore_offer": restore_offer,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
         "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
@@ -509,6 +520,14 @@ def render_dashboard(s: dict) -> str:
             "engine's internal index files, which I can clear in one step while keeping both pieces of work. "
             "Say **reconcile it** and I'll check: I'll either clear it for you, or — if the clash is in real "
             "content — tell you plainly that it needs your decision.")
+
+    # The memory auto-restore OFFER (Floor 3, slice 6b), surfaced read-only at the strand/pr_conflict tier — a
+    # recovery OPPORTUNITY, not a governance alarm, so it pins below them. boot OFFERS; the assistant runs the
+    # restore on the operator's consent (the strand model). Memory owns the detector; boot owns this wording.
+    if s["restore_offer"]:
+        pinned.append(
+            "↩️ **Your saved memory looks empty, and this project has a backup.** Say **restore my memory** and "
+            "I'll try to bring it back from the backup. Nothing on this computer changes until you say so.")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
@@ -599,6 +618,9 @@ def present_marker_line(s: dict) -> str:
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
     if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
         return f"⚠ {PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it"
+    if s["restore_offer"]:   # a recovery OFFER (not a ⚠ alarm); ranked last, below every governance/strand signal
+        return (f"{PRESENT_MARKER}: your saved memory looks empty — say 'restore my memory' and I'll try to bring "
+                "back your backup")
     return f"{PRESENT_MARKER}: all clear"
 
 

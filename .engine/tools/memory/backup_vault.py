@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import base64
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -284,6 +285,17 @@ def _record_state(*, now: int, success: bool, privacy_ok: bool) -> None:
 # ============================================================================================================
 # The Git Data push (large-file safe: blob -> tree -> commit -> ref; the Contents API caps ~1MB).
 # ============================================================================================================
+
+def _git_blob_sha1(raw: bytes) -> str:
+    """The git object id of a blob with `raw` content: sha1(b'blob <len>\\0' + raw). RESTORE (slice 6b) recomputes
+    this over a fetched blob and requires it equals the tree entry's sha — git's own content-addressing — so a
+    truncated or corrupted download can never be swapped over good local memory. The _FakeVault stores blobs under
+    this same id, so the offline demo/tests exercise the real integrity check."""
+    h = hashlib.sha1()
+    h.update(b"blob " + str(len(raw)).encode("ascii") + b"\x00")
+    h.update(raw)
+    return h.hexdigest()
+
 
 def _create_blob(gh, base: str, content: bytes) -> "str | None":
     encoded = base64.b64encode(content).decode("ascii")
@@ -697,14 +709,28 @@ class _FakeVault:
         if m and method == "POST":
             if self.fail_blob:
                 return 422, None
-            sha = self._next("b")
+            raw = base64.b64decode(body["content"])     # store under the REAL git object id, so a fetch can verify it
+            sha = _git_blob_sha1(raw)
             self.blobs[sha] = body["content"]
             return 201, {"sha": sha}
+        m = re.match(r"^/repos/([^/]+)/([^/]+)/git/blobs/([^?]+)", path)
+        if m and method == "GET":                        # the RESTORE read side (slice 6b): return the blob base64
+            content = self.blobs.get(m.group(3))
+            if content is None:
+                return 404, None
+            return 200, {"sha": m.group(3), "content": content, "encoding": "base64",
+                         "size": len(base64.b64decode(content))}
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/trees$", path)
         if m and method == "POST":
             sha = self._next("t")
             self.trees[sha] = body
             return 201, {"sha": sha}
+        m = re.match(r"^/repos/([^/]+)/([^/]+)/git/trees/([^?]+)", path)
+        if m and method == "GET":                        # the RESTORE read side: the real recursive GET has no base_tree
+            stored = self.trees.get(m.group(3))          # key (it flattens inherited entries); restore only looks up the
+            if stored is None:                           # two namespace paths, which this last-pushed tree carries.
+                return 404, None
+            return 200, {"sha": m.group(3), "tree": stored.get("tree", []), "truncated": False}
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/commits$", path)
         if m and method == "POST":
             sha = self._next("c")
