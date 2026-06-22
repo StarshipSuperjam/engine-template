@@ -7,7 +7,9 @@ run-date + the raw body, never the header text); an absent or malformed file is 
 crash; and the freshness boundary sits exactly at STALENESS_DAYS. All work on throwaway temp files.
 """
 from __future__ import annotations
+import contextlib
 import datetime
+import io
 import os
 import sys
 import tempfile
@@ -192,6 +194,36 @@ class TestSealCLI(unittest.TestCase):
             empty = self._bodyfile(d, "   \n\n  ")
             self.assertEqual(audit_digest.main(["seal", digest, "--body-file", empty]), 2)
             self.assertFalse(os.path.exists(digest), "an empty self-review must not be written")
+
+
+class TestBodyCLI(unittest.TestCase):
+    """The `body` verb — the scheduled run builds the digest pull request's body from the sealed digest with
+    this, so the operator reads the actual review prose in the PR, not boilerplate. It strips the sealed
+    front-matter and refuses (loudly) when there is no digest to read, so a PR body can never be opened empty."""
+
+    def test_body_prints_the_prose_without_frontmatter(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "audit-digest.md")
+            audit_digest.seal(p, generated=JUNE, body=BODY)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                rc = audit_digest.main(["body", p])
+            printed = out.getvalue()
+            self.assertEqual(rc, 0)
+            self.assertIn("here is what I found", printed)    # the review prose is present
+            self.assertNotIn("fingerprint:", printed)         # …and the sealed header is gone
+            self.assertNotIn("generated:", printed)
+            self.assertNotIn("schema_version:", printed)
+            self.assertFalse(printed.startswith("---"), "no leading front-matter fence in the body output")
+
+    def test_missing_file_is_a_loud_error_not_empty_output(self):
+        # By contract the seal step runs first, so the file exists — but if it is somehow absent the verb must
+        # fail (so the workflow's `set -e` aborts before `gh pr create`), never print an empty body.
+        with tempfile.TemporaryDirectory() as d:
+            missing = os.path.join(d, "nope.md")
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                rc = audit_digest.main(["body", missing])
+            self.assertEqual(rc, 2)
+            self.assertEqual(out.getvalue(), "", "a missing digest prints nothing to stdout, only a stderr error")
 
 
 if __name__ == "__main__":
