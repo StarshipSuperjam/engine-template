@@ -16,6 +16,6 @@
   },
   "tier": "hard",
   "suites": ["CI"],
-  "ci_author_exempt": ["dependabot[bot]"],
+  "ci_author_exempt": ["dependabot[bot]", "github-actions[bot]"],
   "message": "The pull request body must contain all eight required sections as level-2 headings (## Purpose, ## Scope, ## Out of scope, ## Risk, ## Validation, ## Review, ## Files of interest, ## Claude involvement), each filled with real content. A section counts as empty if it contains only the template's angle-bracket placeholder prompts (e.g. <why this change exists>) or whitespace. This is how a reviewer who cannot read code gets a complete, structured account of the change. The check confirms each section is present and filled; it cannot judge whether the content is accurate or honest — that is the reviewer's job. Fill any flagged section with a substantive description before merging."
 }

@@ -119,6 +119,32 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertNotIn("GITHUB_TOKEN", persona_step)
         self.assertNotIn("GH_TOKEN", persona_step)
 
+    def test_feed_frames_the_backlog_as_complete_not_a_sample(self):
+        # #198: given pasted issue data with no provenance, the persona hedged ("couldn't confirm this is the
+        # complete open list"). The feed now states the backlog is the COMPLETE open set (read to exhaustion,
+        # a read failure surfaced in-band) so the persona treats it as the whole backlog and stops hedging.
+        text = self._text()
+        self.assertIn("COMPLETE set of currently-open engine-labelled issues", text)
+        self.assertIn("read to exhaustion", text)
+
+    def test_pr_body_is_the_digest_review_not_boilerplate(self):
+        # The digest PR's body IS the review prose: the `body` verb strips the sealed front-matter from the
+        # committed digest, and that becomes the PR body — so the operator reads the actual self-review in the
+        # PR rather than generic boilerplate. The path is .engine-relative (the doubled-path trap, #176).
+        text = self._text()
+        self.assertIn("audit_digest.py body audits/audit-digest.md", text)
+        self.assertNotIn("body .engine/audits/audit-digest.md", text)   # never the doubled path
+
+    def test_pr_body_keeps_the_load_bearing_disclaimer(self):
+        # The body verb alone would drop the framing the operator needs: that a where-we-stand snapshot rides
+        # along in the same diff, and that the merge attests to the review, not to the auto-derived numbers.
+        # A short footer keeps both, so the operator still knows what is in the diff and what they're vouching for.
+        # Assert on footer-UNIQUE phrases — a bare "snapshot" also appears in a step name and a comment, so it
+        # would pass even if the footer sentence were deleted.
+        text = self._text()
+        self.assertIn("snapshot of where the project stands", text)   # the footer names what rides along
+        self.assertIn("attests to the self-review", text)             # …and the merge-attests framing
+
 
 if __name__ == "__main__":
     unittest.main()

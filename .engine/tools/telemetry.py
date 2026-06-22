@@ -726,6 +726,10 @@ def render_engine_issue_backlog(repo: str, token: str, *, transport=None) -> str
         return ("OPEN ENGINE-LABELLED ISSUES (the debt register): none are open right now — "
                 "concern #2 has nothing to review this run.")
     parts = [f"OPEN ENGINE-LABELLED ISSUES (the debt register) — {len(issues)} open, fetched for concern #2. "
+             "This is the COMPLETE set of currently-open engine-labelled issues: it was read by paging the "
+             "engine-label query to exhaustion, and any read failure is reported in-band (on a failed read you "
+             "would see a read-failure notice in place of this list, never a silently short one) — so "
+             "treat it as the whole open backlog, not a sample, and do not hedge that issues may be missing. "
              "Judge each against the CURRENT code: does it still reproduce, and is the backlog still honestly "
              "triageable?", ""]
     for issue in issues:

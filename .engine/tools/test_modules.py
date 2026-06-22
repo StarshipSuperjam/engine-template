@@ -409,7 +409,8 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(ms.get("provides"), {
             "tool": [".engine/tools/memory/*.py"],
             "erasures": [".engine/erasures/proposal.json"],
-        }, "memory owns its tools and the committed erasure proposal")
+            "backup": [".engine/memory-backup/pointer.json"],
+        }, "memory owns its tools, the committed erasure proposal, and the committed backup-vault pointer")
 
     def test_seed_concern_list_conforms_to_its_schema(self):
         # the committed seed concern-list is well-formed against concern-list.v1 — the same schema + dialect
