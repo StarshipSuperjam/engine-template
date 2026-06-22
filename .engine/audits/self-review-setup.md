@@ -11,17 +11,21 @@ It ships switched **off**: it does nothing until you set it up here. While it's 
 stops, the engine tells you on your next start — so a self-review that never ran, or stopped running, is never
 invisible. You can come back to this page any time; it stays with the project.
 
-One limit worth knowing up front: for now this review looks at your project's **committed files**. It can't
-yet read your **saved working memory** — the notes the engine keeps about your decisions as you work —
-because that needs a backup feature this version of the engine doesn't have yet. That's a planned addition;
-until it lands, keep in mind the review covers your committed project, not your saved memory.
+One thing worth knowing up front about what the review can see: it reads your project's **committed files**
+and the **open issues the engine has filed about its own health** (the running list of things it has flagged).
+It can't yet read your **saved working memory** — the notes the engine keeps about your decisions as you work
+— because that needs a backup feature this version of the engine doesn't have yet. That's a planned addition;
+until it lands, keep in mind the review covers your committed project and its open issue list, but not your
+saved memory.
 
 ## Turn it on
 
-Setup is two one-time steps. Do **both** — skipping either makes the review quietly fail to run, with no error
-you'd notice, so don't stop early.
+Setup is three one-time steps. Do **all three** — skipping any one makes the review quietly fail to run, with
+no error you'd notice, so don't stop early.
 
-**Step 1 — create a sign-in token.** On your own computer, run:
+**Step 1 — create a sign-in token.** This one step uses **Claude Code's command-line tool** — separate from
+the Claude Desktop app you run the engine in, so you may need to install it first (it's quick). If you're not
+sure how, just **ask me and I'll walk you through it**. Then, in a terminal, run:
 
 ```
 claude setup-token
@@ -41,8 +45,22 @@ CLAUDE_CODE_OAUTH_TOKEN
 ```
 
 Paste the token from Step 1 as its value. The name has to match exactly: a typo here makes the review fail
-without any error you'd notice. That's it — on the next scheduled day the self-review runs on its own and opens
-a summary for you to read and approve.
+without any error you'd notice.
+
+**Step 3 — let the engine open the summary for you.** On GitHub, open this project's **Settings → Actions →
+General**, scroll to **Workflow permissions**, and turn on the option named
+**"Allow GitHub Actions to create and approve pull requests."** Without this, the review still runs but can't
+open its summary for you to read — so it would look like nothing happened. This only lets the engine *open* a
+summary as an ordinary change for you; it can never merge anything on its own — approving is always your call.
+
+A note for the cautious: that one setting also lets automated actions *approve* changes in general, which you
+may not want. On this project that approval power does nothing — a merge always takes your own action, and an
+automated approval doesn't count toward it — so it's safe to leave on here. If you later tighten this project
+to require an approval before a merge, set it to require *your* review specifically, so an automated approval
+can't stand in for yours.
+
+Once all three are done, on the next scheduled day the self-review runs on its own and opens a summary for you
+to read and approve.
 
 If you'd like to check it works straight away instead of waiting for the schedule, you can start a run by hand
 from the project's **Actions** tab — find **audit-prep** and use **Run workflow**.

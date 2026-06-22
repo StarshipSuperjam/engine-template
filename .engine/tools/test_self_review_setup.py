@@ -62,16 +62,34 @@ class TestSetupPageContent(unittest.TestCase):
         # A typo in the secret name fails the run silently, so the page must carry it EXACTLY.
         self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", self.text)
 
-    def test_carries_the_two_step_token_setup(self):
-        # Setup is genuinely TWO steps — the sign-in token, then the GitHub secret. The phantom third step
-        # ("turn on access for scheduled runs", a Claude-account toggle that does not exist) was removed (#175):
-        # a qualifying-plan token plus the secret is the whole setup.
+    def test_carries_the_three_step_setup(self):
+        # Setup is THREE steps now — the sign-in token, the GitHub secret, then the create/approve-PR setting
+        # that lets the run open its summary (round-2: without it the run dies with no summary opened). The
+        # phantom step from #175 ("turn on access for scheduled runs", a Claude-account toggle that does NOT
+        # exist) stays banned — the real third step is the GitHub setting, not that fiction.
         self.assertIn("claude setup-token", self.text)        # step 1: the sign-in token
-        self.assertIn("two one-time steps", self.text)        # two, not three — the count must not regress
-        # The phantom toggle must not return. Key on text UNIQUE to the deleted Step 2: Step 1 legitimately
-        # keeps "sign in to your Claude account" and the heading is "Turn it on", so don't assert on those.
+        self.assertIn("three one-time steps", self.text)      # three, not two — and never the phantom toggle
+        self.assertNotIn("two one-time steps", self.text)     # the old count must not linger
+        # The #175 phantom toggle must never return:
         self.assertNotIn("scheduled or developer", self.text)
         self.assertNotIn("turn on access for scheduled runs", self.text.lower())
+
+    def test_names_the_cli_prerequisite_for_the_token(self):
+        # Round-2 / engine-planning D-229 S2: `claude setup-token` needs Claude Code's command-line tool, which
+        # the engine's Claude-Desktop operator may not have installed — the page must name that (and offer to
+        # help set it up), not silently assume it.
+        self.assertIn("command-line tool", self.text)
+
+    def test_documents_the_create_and_approve_pr_setting(self):
+        # Round-2 / Option A: the run can only open its summary if the operator enables GitHub's "create and
+        # approve pull requests" setting (off by default for EVERY repo). Without this step on the page, every
+        # adopter's self-review runs but silently opens no summary.
+        self.assertIn("create and approve pull requests", self.text)
+
+    def test_discloses_it_now_reads_the_open_issue_list(self):
+        # Round-2: the review now also reads the open engine issues (concern #2), so the coverage note says so
+        # — keeping the honesty contract that names what the review can and cannot see.
+        self.assertIn("open issue", self.text)
 
     def test_cloud_routine_eliminates_the_wrong_choices(self):
         # The design's Cloud-Routine walkthrough names Remote (not Local) on a recurring schedule.
