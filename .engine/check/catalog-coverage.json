@@ -16,6 +16,7 @@
       ".engine/.venv/",
       ".engine/.pytest_cache/",
       ".engine/memory/",
+      ".engine/memory-backup/",
       ".claude/worktrees/"
     ]
   },
