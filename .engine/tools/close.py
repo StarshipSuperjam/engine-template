@@ -359,16 +359,18 @@ def _demo(_argv):
     clear(sid)
     print("The turn-close disposition gate — what the Stop hook decides (the real handler):\n")
 
-    print(f"(1) A turn that raised nothing: pending={len(pending(sid))} "
-          f"-> {_verdict(handler({'session_id': sid}))}   (quiet; the turn ends)")
+    v1 = _verdict(handler({'session_id': sid}))
+    print(f"(1) A turn that raised nothing: pending={len(pending(sid))} -> {v1}   (quiet; the turn ends)")
 
     fid = record_finding(sid, "The new endpoint has no rate limit.")
     print(f"\n(2) The session raises a concern (record -> {fid}); a turn-end is now HELD until it's settled:")
-    print(f"    pending={len(pending(sid))} -> {_verdict(handler({'session_id': sid}))}")
+    v2 = _verdict(handler({'session_id': sid}))
+    print(f"    pending={len(pending(sid))} -> {v2}")
 
     dispose(sid, fid, "logged")
     print(f"\n(3) Disposition it (saved as a follow-up); the turn now ENDS:")
-    print(f"    pending={len(pending(sid))} -> {_verdict(handler({'session_id': sid}))}")
+    v3 = _verdict(handler({'session_id': sid}))
+    print(f"    pending={len(pending(sid))} -> {v3}")
     print(f"    summary -> {summary(sid)!r}")
 
     clear(sid)
@@ -391,6 +393,13 @@ def _demo(_argv):
 
     print("\nThe gate is posture + a strong local block over what was recorded — the merge wall is the only "
           "guarantee; the pushback is the reliable surface, the clean-turn summary is narrated.")
+    # Self-check: a quiet turn ends, a raised concern HELDs the turn, disposition lets it end, and the
+    # cap-exhausted forced continuation logs the leftover (never deadlocks).
+    ok = "ENDS" in v1 and "HELD" in v2 and "ENDS" in v3 and open_issues >= 1
+    if not ok:
+        print("\nDEMO UNEXPECTED: the held-then-ends disposition gate or the cap-exhaustion logging did not "
+              "behave as expected.", file=sys.stderr)
+        return 1
     return 0
 
 

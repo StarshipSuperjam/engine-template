@@ -98,7 +98,7 @@ def render_engine_issue_body(*, what_this_is: str, whats_next: str, references=N
     )
 
 
-def _demo() -> None:
+def _demo() -> int:
     print("ISSUE-AUTHORING HELPER DEMO — one body assembled from the contract's parts.\n")
     body = render_engine_issue_body(
         what_this_is=(
@@ -115,25 +115,36 @@ def _demo() -> None:
         references=[("The check's last run", "https://github.com/owner/repo/actions/runs/123")],
     )
     print(body)
+    refused = 0
     print("--- leaving out a required part stops the call ---")
     try:
         render_engine_issue_body(what_this_is="only one part supplied")  # type: ignore[call-arg]
     except TypeError as exc:
+        refused += 1
         print(f"Refused — a required part was missing: {exc}")
     print("\n--- a present-but-blank part stops the call ---")
     try:
         render_engine_issue_body(what_this_is="   ", whats_next="x")
     except ValueError as exc:
+        refused += 1
         print(f"Refused — a required part was blank: {exc}")
     print("\n--- a reference without a label and a link is refused (never a bare id) ---")
     try:
         render_engine_issue_body(what_this_is="x", whats_next="y", references=[("", "rule:abc")])
     except ValueError as exc:
+        refused += 1
         print(f"Refused — a reference needs a label and a link: {exc}")
+    # Self-check: a complete call renders a body, and each of the three contract violations is refused.
+    ok = bool(body) and refused == 3
+    if not ok:
+        print(f"\nDEMO UNEXPECTED: the body did not render or a refusal did not fire ({refused}/3 refused).",
+              file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "demo":
-        _demo()
+        sys.exit(_demo())
     else:
         print(__doc__)

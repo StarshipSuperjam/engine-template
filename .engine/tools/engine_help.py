@@ -133,7 +133,8 @@ def _demo() -> int:
     import tempfile
 
     print("Your Engine's commands, the way /engine-help lists them:\n")
-    print(render(installed_verbs(), available_verbs()))
+    live = render(installed_verbs(), available_verbs())
+    print(live)
     print("\n" + "-" * 70 + "\n")
     print("The same listing when a command file is broken — to show the help always answers.\n"
           "This copies your commands into a throwaway temporary folder (your real files are NOT\n"
@@ -150,9 +151,17 @@ def _demo() -> int:
         with open(os.path.join(broken_dir, "SKILL.md"), "w", encoding="utf-8") as fh:
             fh.write("---\ndescription: [this line is broken\ninvocation: operator-typed\n---\n\n"
                      "## Steps\n\n1. Go.\n")
-        print(render(installed_verbs(root=tmp), available_verbs(None)))
+        broken_listing = render(installed_verbs(root=tmp), available_verbs(None))
+        print(broken_listing)
     print("\nThe broken command was skipped, the rest are still listed, and nothing crashed — so\n"
           "\"what can I do here?\" always gets an answer, even during an outage or with a damaged file.")
+    # Self-check: the live listing rendered, and the throwaway-copy listing still rendered with the broken
+    # command skipped — so "what can I do here?" always gets an answer, even with a damaged command file.
+    ok = bool(live) and bool(broken_listing) and "engine-broken" not in broken_listing
+    if not ok:
+        print("\nDEMO UNEXPECTED: a listing did not render, or the broken command was not skipped.",
+              file=sys.stderr)
+        return 1
     return 0
 
 

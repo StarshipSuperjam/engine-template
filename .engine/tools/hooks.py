@@ -311,12 +311,14 @@ def _demo(_argv: list) -> int:
                                    {"hook_event_name": "Stop"})
     print(f"    exit code = {code}  (2 = block; the platform feeds this back to Claude)")
     print(f"    stderr → Claude: {err.strip()!r}\n")
+    c1 = code
 
     print("(2) A gate that CRASHES — a handler that raises; the action must still proceed:")
     code, _out, err = _run_capture("PreToolUse", lambda p: (_ for _ in ()).throw(RuntimeError("boom")),
                                    {"hook_event_name": "PreToolUse"})
     print(f"    exit code = {code}  (not 2, so NON-blocking — the tool runs)")
     print(f"    plain-language finding on stderr: {err.strip()!r}\n")
+    c2 = code
 
     print("(2b) A block requested on a NON-eligible event (PostToolUse) — the budget rejects it, "
           "fail-open:")
@@ -324,6 +326,7 @@ def _demo(_argv: list) -> int:
                                    {"hook_event_name": "PostToolUse"})
     print(f"    exit code = {code}  (not 2 — only PreToolUse/Stop may block)")
     print(f"    finding on stderr: {err.strip()!r}\n")
+    c2b = code
 
     import tempfile
     print("(3) The hook LAUNCHER (.engine/tools/hook-runner.sh) — the wait/exec preamble lives here now,")
@@ -347,6 +350,7 @@ def _demo(_argv: list) -> int:
         r = subprocess.run(["sh", runner, stub, os.path.join(td, "hook.py"), "demo-arg"],
                            capture_output=True, text=True, timeout=10)
         print(f"      present → {r.stdout.strip()!r}  (execs the interpreter; the script + args forward)")
+        present_out = r.stdout
     with tempfile.TemporaryDirectory() as td:                         # (b) NEVER appears -> runs nothing
         r = subprocess.run(["sh", runner, os.path.join(td, "python"), os.path.join(td, "hook.py")],
                            capture_output=True, text=True, timeout=10,
@@ -354,11 +358,20 @@ def _demo(_argv: list) -> int:
                                 "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})
         print(f"      never   → stdout={r.stdout.strip()!r} exit={r.returncode}  "
               f"(ran nothing; no system-Python fallback)\n")
+        never_out = r.stdout
 
     print("All three proceeded without a hard block except the one deliberate, eligible block — the "
           "fail-open floor holds.")
     print("(The plain-language operator surfacing in the PR Validation section and boot orientation is "
           "rendered by later slices; here the failure is EMITTED as a finding.)")
+    # Self-check: the eligible block returns exit 2; a crashing handler and a block on a non-eligible event
+    # both proceed (not 2); and the launcher execs a present interpreter but runs nothing when it never
+    # appears (no system-Python fallback).
+    ok = (c1 == 2 and c2 != 2 and c2b != 2 and "RAN" in present_out and not never_out.strip())
+    if not ok:
+        print("\nDEMO UNEXPECTED: the hooks fail-open contract or the launcher's no-fallback behaviour did "
+              "not hold.", file=sys.stderr)
+        return 1
     return 0
 
 

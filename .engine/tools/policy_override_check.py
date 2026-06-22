@@ -98,6 +98,13 @@ def _demo() -> int:
     for f in fs:
         print(f"  - {f.get('message')}")
     print("\nThe valid saved value (the triage patience setting = 5) applies as normal and is not listed.")
+    # Self-check: the two planted bad settings (the removed one + the fixed one) surface; the valid numeric
+    # setting does not — so exactly two findings.
+    ok = len(fs) == 2
+    if not ok:
+        print(f"\nDEMO UNEXPECTED: expected exactly the two stale/fixed settings to surface, got {len(fs)}.",
+              file=sys.stderr)
+        return 1
     return 0
 
 

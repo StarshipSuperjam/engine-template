@@ -369,7 +369,7 @@ def _demo() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["ENGINE_MEMORY_DIR"] = tmp           # the throwaway cabinet
         try:
-            _demo_body()
+            ok = _demo_body()
         finally:
             os.environ.pop("ENGINE_MEMORY_DIR", None)
 
@@ -382,10 +382,14 @@ def _demo() -> int:
     print("GOOD summary — that is judged on your real sessions, where every summary is readable and deletable;")
     print("here the summaries are hand-written SAMPLES standing in for the AI's. To vary it: edit the raw")
     print("notes AND the sample summaries near the top of this file and re-run.")
+    if not ok:
+        print("\nDEMO UNEXPECTED: the filing around the summary did not behave as expected (stored and "
+              "findable, the label kept out of search text, the backlog detection).", file=sys.stderr)
+        return 1
     return 0
 
 
-def _demo_body() -> None:
+def _demo_body() -> bool:
     session_a = "session-pelican"
     session_b = "session-three-labels"
     session_c = "session-login-fix"
@@ -459,6 +463,11 @@ def _demo_body() -> None:
     print("\n  => A past, never-tidied session is caught by the same sweep; the AI receives the directive above")
     print("     and does the tidy-up AFTER your request, never before. (Whether it then writes a good summary")
     print("     is the part judged live.)")
+    # The mechanical invariants this practice run proves (NOT the AI's wording, which is judged live): a
+    # summary stored+findable, the label kept out of search text, a tidied session dropping off the backlog,
+    # and a past untidied session detected while the live one is not.
+    return (bool(out) and ok and session_c in before and session_c not in after
+            and session_d in pending and session_live not in pending)
 
 
 def _wrap(text: str, width: int) -> list:

@@ -230,27 +230,34 @@ def _demo() -> int:
          "head": {"ref": "claude/work-record"}},
         {"number": 158, "title": "Polish the landing", "updated_at": "2026-06-17T09:00:00Z",
          "head": {"ref": "claude/landing"}}))
-    show("1) Online — your open pull requests plus the branch you're on:",
-         read_in_flight(gh1, run=_fake_run(current="claude/my-feature")))
+    r1 = read_in_flight(gh1, run=_fake_run(current="claude/my-feature"))
+    show("1) Online — your open pull requests plus the branch you're on:", r1)
 
     # (2) The current branch already HAS an open PR -> the PR subsumes it (no double-listing).
     gh2 = _gh(_canned_prs(
         {"number": 161, "title": "Wire the work-record reader", "updated_at": "2026-06-19T12:00:00Z",
          "head": {"ref": "claude/work-record"}}))
-    show("2) On a branch that already has an open PR — the PR represents it, the branch isn't listed twice:",
-         read_in_flight(gh2, run=_fake_run(current="claude/work-record")))
+    r2 = read_in_flight(gh2, run=_fake_run(current="claude/work-record"))
+    show("2) On a branch that already has an open PR — the PR represents it, the branch isn't listed twice:", r2)
 
     # (3) Offline floor: no GitHub reader -> just the working branch, from the tracked repo alone.
-    show("3) Offline (no GitHub token) — the local-git floor still shows the branch you're on:",
-         read_in_flight(None, run=_fake_run(current="claude/my-feature")))
+    r3 = read_in_flight(None, run=_fake_run(current="claude/my-feature"))
+    show("3) Offline (no GitHub token) — the local-git floor still shows the branch you're on:", r3)
 
     # (4) GitHub read FAILS but git works -> degrade to the floor, never a crash.
     gh4 = _gh(_fail_prs)
-    show("4) GitHub unreachable / auth expired — it degrades to the local-git floor rather than failing:",
-         read_in_flight(gh4, run=_fake_run(current="claude/my-feature")))
+    r4 = read_in_flight(gh4, run=_fake_run(current="claude/my-feature"))
+    show("4) GitHub unreachable / auth expired — it degrades to the local-git floor rather than failing:", r4)
 
     print("No real GitHub call was made and nothing was written. When GitHub can't be read at all and git")
     print("isn't runnable either, the reader reports `git` as a degraded input and boot says so plainly.")
+    # Self-check: online reads the PRs; a branch already covered by a PR isn't double-listed; and both the
+    # offline and the GitHub-failure cases still surface the working branch (the local-git floor).
+    ok = len(r1) >= 2 and len(r2) == 1 and bool(r3) and bool(r4)
+    if not ok:
+        print("\nDEMO UNEXPECTED: in-flight reading, the no-double-list rule, or the local-git floor did not "
+              "behave as expected.", file=sys.stderr)
+        return 1
     return 0
 
 
