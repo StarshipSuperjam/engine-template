@@ -7,6 +7,7 @@ run-date + the raw body, never the header text); an absent or malformed file is 
 crash; and the freshness boundary sits exactly at STALENESS_DAYS. All work on throwaway temp files.
 """
 from __future__ import annotations
+import base64
 import contextlib
 import datetime
 import io
@@ -224,6 +225,199 @@ class TestBodyCLI(unittest.TestCase):
                 rc = audit_digest.main(["body", missing])
             self.assertEqual(rc, 2)
             self.assertEqual(out.getvalue(), "", "a missing digest prints nothing to stdout, only a stderr error")
+
+
+# ---- the audit-over-audit corroboration read (D-234) ----------------------------------------
+
+def _digest_text(date: str, body: str) -> str:
+    """A sealed-shaped digest file's raw text (frontmatter + body), as the contents API would return it."""
+    return f"---\nschema_version: 1\ngenerated: {date}\nfingerprint: sha256:x\n---\n\n{body}\n"
+
+
+def _fake_gh(store, order, *, commits_status=200, contents_status=200, unreachable=False):
+    """A fake (method, path, body) -> (status, json) transport for the digest-history reader — fakes ONLY
+    the network and runs the real logic. `store` maps sha -> raw digest text; `order` is the commit shas
+    NEWEST-FIRST (the order GitHub's commits API returns them in, which the reader must reverse)."""
+    def transport(method, path, body):
+        if unreachable:
+            raise audit_digest.DegradedReadError("network down")
+        if "/commits?" in path:
+            if commits_status >= 400:
+                return commits_status, None
+            return 200, [{"sha": s} for s in order]
+        if "/contents/" in path:
+            if contents_status >= 400:
+                return contents_status, None
+            sha = path.split("ref=")[1]
+            return 200, {"content": base64.b64encode(store[sha].encode()).decode()}
+        return 404, None
+    return transport
+
+
+class TestPriorDigestsRead(unittest.TestCase):
+    """The audit-over-audit corroboration read: the engine's own recent digests fed oldest→newest, read
+    ONLY as corroboration, degrading honestly to a plain 'nothing to compare against' marker on no history
+    or a read failure — never a silent empty, never a fabricated trend."""
+
+    def test_present_history_is_oldest_to_newest_with_dates(self):
+        store = {"new": _digest_text("2026-06-08", "Module X still inert."),
+                 "old": _digest_text("2026-06-01", "Module X looks inert.")}
+        out = audit_digest.render_prior_digests("you/p", "tok", transport=_fake_gh(store, ["new", "old"]))
+        self.assertLess(out.index("2026-06-01"), out.index("2026-06-08"), "must feed oldest first")
+        self.assertIn("corroboration", out.lower())
+        self.assertIn("2026-06-01", out)
+        self.assertIn("2026-06-08", out)
+
+    def test_feed_frames_corroboration_not_decision(self):
+        # The persona-facing header must say the history corroborates, never decides — the keep/retire call
+        # rests on a fresh check THIS cycle (guardrail 1).
+        store = {"a": _digest_text("2026-06-01", "x")}
+        out = audit_digest.render_prior_digests("you/p", "tok", transport=_fake_gh(store, ["a"]))
+        self.assertIn("THIS cycle", out)
+        self.assertIn("never decide", out.lower())
+
+    def test_in_body_rule_survives_the_string_split(self):
+        # The string-split frontmatter strip must keep an in-body `---` rule (maxsplit=2), like split().
+        store = {"a": _digest_text("2026-06-01", "before\n---\nafter the rule")}
+        out = audit_digest.render_prior_digests("you/p", "tok", transport=_fake_gh(store, ["a"]))
+        self.assertIn("after the rule", out)
+
+    def test_no_history_yet_degrades_to_the_plain_marker(self):
+        out = audit_digest.render_prior_digests("you/p", "tok", transport=_fake_gh({}, []))
+        self.assertEqual(out, audit_digest._PRIOR_NONE_MARKER)
+        self.assertNotIn("PRIOR SELF-REVIEWS —", out)   # not the populated header
+
+    def test_path_never_committed_404_is_no_history_not_an_error(self):
+        out = audit_digest.render_prior_digests("you/p", "tok",
+                                                transport=_fake_gh({}, [], commits_status=404))
+        self.assertEqual(out, audit_digest._PRIOR_NONE_MARKER)
+
+    def test_read_failure_on_commits_degrades_with_a_reason(self):
+        out = audit_digest.render_prior_digests("you/p", "tok",
+                                                transport=_fake_gh({}, [], commits_status=500))
+        self.assertTrue(out.startswith("PRIOR SELF-REVIEWS: none"))
+        self.assertIn("could not be read", out)
+
+    def test_read_failure_on_a_body_degrades_never_silently_short(self):
+        # Commits list OK but a per-digest contents read fails — the WHOLE read degrades honestly, never
+        # feeds a silently-short window as if it were the complete recent history.
+        store = {"a": _digest_text("2026-06-01", "x")}
+        out = audit_digest.render_prior_digests("you/p", "tok",
+                                                transport=_fake_gh(store, ["a"], contents_status=500))
+        self.assertTrue(out.startswith("PRIOR SELF-REVIEWS: none"))
+        self.assertIn("could not be read", out)
+
+    def test_unreachable_network_degrades_not_crashes(self):
+        out = audit_digest.render_prior_digests("you/p", "tok", transport=_fake_gh({}, [], unreachable=True))
+        self.assertTrue(out.startswith("PRIOR SELF-REVIEWS: none"))
+
+    def test_window_is_bounded_and_per_page_clamped_to_100(self):
+        seen = []
+        def t(method, path, body):
+            seen.append(path)
+            return (200, []) if "/commits?" in path else (404, None)
+        audit_digest.render_prior_digests("you/p", "tok", limit=500, transport=t)
+        self.assertIn("per_page=100", seen[0])
+
+    def test_default_window_is_twenty(self):
+        # A deliberate pin: the maintainer's recorded build-spec leaf (N=20). A silent change fails here.
+        self.assertEqual(audit_digest.PRIOR_DIGESTS_DEFAULT_LIMIT, 20)
+        seen = []
+        def t(method, path, body):
+            seen.append(path)
+            return (200, []) if "/commits?" in path else (404, None)
+        audit_digest.render_prior_digests("you/p", "tok", transport=t)
+        self.assertIn("per_page=20", seen[0])
+
+    def test_reads_from_main_so_the_in_flight_digest_is_never_fed_back(self):
+        # The prior digests come from the base branch (main); the in-flight digest this run is producing is
+        # not committed to main yet, so the run is never fed its own output as a prior.
+        seen = []
+        def t(method, path, body):
+            seen.append(path)
+            return (200, []) if "/commits?" in path else (404, None)
+        audit_digest.render_prior_digests("you/p", "tok", transport=t)
+        self.assertIn("sha=main", seen[0])
+
+    def test_a_huge_digest_is_capped_not_unbounded(self):
+        store = {"a": _digest_text("2026-06-01", "Z" * (audit_digest.PRIOR_DIGEST_MAX_CHARS + 5000))}
+        out = audit_digest.render_prior_digests("you/p", "tok", transport=_fake_gh(store, ["a"]))
+        self.assertIn("earlier review truncated", out)
+
+
+class TestSplitText(unittest.TestCase):
+    """The in-memory frontmatter strip the prior read uses (the string analogue of split())."""
+
+    def test_no_frontmatter_is_all_body(self):
+        fm, body = audit_digest._split_text("just prose, no header")
+        self.assertEqual(fm, "")
+        self.assertEqual(body, "just prose, no header")
+
+    def test_generated_of_pulls_the_date(self):
+        fm, _body = audit_digest._split_text(_digest_text("2026-06-01", "x"))
+        self.assertEqual(audit_digest._generated_of(fm), "2026-06-01")
+
+    def test_generated_of_is_none_when_absent(self):
+        self.assertIsNone(audit_digest._generated_of("schema_version: 1\n"))
+
+
+class TestPriorCLI(unittest.TestCase):
+    """The `prior` verb — reads GITHUB_REPOSITORY + GITHUB_TOKEN from the env (the GitHub token, never the
+    Claude token), parses --limit, and prints the corroboration feed; missing env is a usage error, never a
+    silent empty body. The render itself is stubbed here (covered above); this pins the CLI wiring."""
+
+    def _run(self, argv, env, stub="FEED"):
+        old_env = {k: os.environ.get(k) for k in ("GITHUB_REPOSITORY", "GITHUB_TOKEN")}
+        old_render = audit_digest.render_prior_digests
+        calls = {}
+
+        def fake_render(repo, token, *, limit=audit_digest.PRIOR_DIGESTS_DEFAULT_LIMIT, transport=None):
+            calls.update(repo=repo, token=token, limit=limit)
+            return stub
+        try:
+            for k in ("GITHUB_REPOSITORY", "GITHUB_TOKEN"):
+                if env.get(k) is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = env[k]
+            audit_digest.render_prior_digests = fake_render
+            with contextlib.redirect_stdout(io.StringIO()) as out, \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                rc = audit_digest.main(argv)
+            return rc, out.getvalue(), err.getvalue(), calls
+        finally:
+            audit_digest.render_prior_digests = old_render
+            for k, v in old_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_prints_the_feed_and_reads_env(self):
+        rc, out, _err, calls = self._run(["prior"], {"GITHUB_REPOSITORY": "you/p", "GITHUB_TOKEN": "tok"})
+        self.assertEqual(rc, 0)
+        self.assertIn("FEED", out)
+        self.assertEqual(calls["repo"], "you/p")
+        self.assertEqual(calls["limit"], 20)
+
+    def test_limit_flag_overrides_the_window(self):
+        rc, _out, _err, calls = self._run(["prior", "--limit", "5"],
+                                          {"GITHUB_REPOSITORY": "you/p", "GITHUB_TOKEN": "tok"})
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls["limit"], 5)
+
+    def test_missing_env_is_a_usage_error_not_empty_output(self):
+        rc, out, err, calls = self._run(["prior"], {"GITHUB_REPOSITORY": None, "GITHUB_TOKEN": None})
+        self.assertEqual(rc, 2)
+        self.assertEqual(out, "", "missing env prints nothing to stdout, only a stderr usage line")
+        self.assertIn("GITHUB_TOKEN", err)
+        self.assertIn("never the Claude token", err)   # the same token discipline as engine-issues
+        self.assertEqual(calls, {}, "never reaches the network read")
+
+    def test_bad_limit_is_a_usage_error(self):
+        rc, _out, _err, _calls = self._run(["prior", "--limit", "abc"],
+                                           {"GITHUB_REPOSITORY": "you/p", "GITHUB_TOKEN": "tok"})
+        self.assertEqual(rc, 2)
 
 
 if __name__ == "__main__":
