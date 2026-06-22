@@ -3763,7 +3763,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:2f626f5cd489b8e0745ac17ac0dd62a1c16f5474f6ff2ea222c9d27acae992af",
+        "fingerprint": "sha256:0265a10f3daef0130109b3dc5ed666f0dfa6e08b3e55414b5af8a1283f89dcd9",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -4188,7 +4188,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:7c689c97356646c9314b5d3544ec64c6d9a8ba83b0f5d584197dbf8defe35f86",
+        "fingerprint": "sha256:880256fd6c50f6bf74aa23d377fd703e50cd74041295474c54200a22249f91f9",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",

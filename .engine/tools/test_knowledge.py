@@ -402,14 +402,29 @@ class TestGenerateCheckIO(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_generate_then_check_is_in_sync(self):
-        g = knowledge_gen.generate(self.path)
-        self.assertEqual(g["severity"], "note")
-        self.assertIn("Wrote", g["message"])
-        self.assertEqual(knowledge_gen.check(self.path)["severity"], "note")
+        # Freeze ONE live derivation so generate() and the following check() compare the same content
+        # (check() re-derives canonical_graph() internally). Re-deriving per call made this depend on the
+        # live source tree staying byte-stable across the two calls, which flaked under full-suite
+        # discovery (#202); the two-derivations-agree property is the job of TestSourceDeterminismRoundTrip.
+        snapshot = knowledge_gen.canonical_graph()
+        with mock.patch.object(knowledge_gen, "canonical_graph", return_value=snapshot):
+            g = knowledge_gen.generate(self.path)
+            self.assertEqual(g["severity"], "note")
+            self.assertIn("Wrote", g["message"])
+            self.assertEqual(knowledge_gen.check(self.path)["severity"], "note")
 
     def test_generate_is_idempotent(self):
-        knowledge_gen.generate(self.path)
-        again = knowledge_gen.generate(self.path)
+        # Freeze ONE live derivation so the two back-to-back generate() calls compare identical content.
+        # This test is about generate()'s idempotency/round-trip logic (write -> re-read -> "no change"),
+        # not about whether two independent live derivations agree — re-deriving canonical_graph() per call
+        # made it flake under full-suite discovery (#202). The real write/read round-trip still runs on
+        # both calls, so a lossy round-trip is still caught; the determinism property itself is covered by
+        # TestSourceDeterminismRoundTrip (left untouched).
+        snapshot = knowledge_gen.canonical_graph()
+        with mock.patch.object(knowledge_gen, "canonical_graph", return_value=snapshot):
+            first = knowledge_gen.generate(self.path)
+            again = knowledge_gen.generate(self.path)
+        self.assertIn("Wrote", first["message"])
         self.assertIn("already up to date", again["message"])
 
     def test_hand_edit_is_caught_as_drift(self):

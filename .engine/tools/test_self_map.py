@@ -204,17 +204,30 @@ class TestGenerateCheckIO(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_generate_then_check_is_in_sync(self):
-        g = self_map.generate(self.path)
-        self.assertEqual(g["severity"], "note")
-        self.assertIn("Wrote", g["message"])
-        self.assertEqual(self_map.check(self.path)["severity"], "note")
+        # Freeze ONE live derivation so generate() and the following check() compare the same content
+        # (check() re-derives canonical_map() internally). Re-deriving per call made this depend on the
+        # live source tree staying byte-stable across the two calls, which flaked under full-suite
+        # discovery (#202); the two-derivations-agree property is the job of TestSourceDeterminismRoundTrip.
+        snapshot = self_map.canonical_map()
+        with mock.patch.object(self_map, "canonical_map", return_value=snapshot):
+            g = self_map.generate(self.path)
+            self.assertEqual(g["severity"], "note")
+            self.assertIn("Wrote", g["message"])
+            self.assertEqual(self_map.check(self.path)["severity"], "note")
 
     def test_generate_is_idempotent(self):
-        self_map.generate(self.path)
-        first = self_map.read_committed(self.path)
-        second_finding = self_map.generate(self.path)
-        self.assertIn("already up to date", second_finding["message"])
-        self.assertEqual(first, self_map.read_committed(self.path))
+        # Freeze ONE live derivation so the two back-to-back generate() calls compare identical content.
+        # This test is about generate()'s idempotency/round-trip logic, not about whether two independent
+        # live derivations agree — re-deriving canonical_map() per call made it flake under full-suite
+        # discovery (#202). The real write/read round-trip (and the on-disk byte-equality below) still runs
+        # on both calls; the determinism property itself is covered by TestSourceDeterminismRoundTrip.
+        snapshot = self_map.canonical_map()
+        with mock.patch.object(self_map, "canonical_map", return_value=snapshot):
+            self_map.generate(self.path)
+            first = self_map.read_committed(self.path)
+            second_finding = self_map.generate(self.path)
+            self.assertIn("already up to date", second_finding["message"])
+            self.assertEqual(first, self_map.read_committed(self.path))
 
     def test_hand_edit_is_caught(self):
         self_map.generate(self.path)
