@@ -435,10 +435,24 @@ class TestEngineIssuesFeed(unittest.TestCase):
         self.assertIn("2 open", out)            # the count header so the persona knows the backlog size
         self.assertIn("concern #2", out)        # tells the persona what the backlog is for
 
+    def test_nonempty_backlog_attests_it_is_complete_so_the_persona_stops_hedging(self):
+        # #198: given pasted issue data with no provenance, the persona hedged ("couldn't confirm this is the
+        # complete open list"). The populated header now attests the MECHANISM — the COMPLETE set, read by
+        # paging to exhaustion, any read failure surfaced in-band — so the persona treats it as the whole open
+        # backlog rather than a sample. The attestation rides only the populated render; the empty and the
+        # failure renders keep their own distinct lines.
+        fake = FakeGH()
+        fake.issues[183] = {"number": 183, "title": "t", "body": "b", "state": "open"}
+        out = telemetry.render_engine_issue_backlog("you/proj", "tok", transport=fake.transport)
+        self.assertIn("COMPLETE set", out)
+        self.assertIn("exhaustion", out)
+        self.assertNotIn("could not be read", out)   # a healthy read never carries the failure marker
+
     def test_empty_backlog_is_distinct_from_a_failure(self):
         out = telemetry.render_engine_issue_backlog("you/proj", "tok", transport=FakeGH().transport)
         self.assertIn("none are open", out)
         self.assertNotIn("could not be read", out)
+        self.assertNotIn("COMPLETE set", out)   # the completeness attestation must NOT ride an empty backlog
 
     def test_read_failure_surfaces_an_honest_gap_never_silent_empty(self):
         # The decisive invariant: a degraded read must NOT read as 'no issues' (which would silently pass
@@ -447,6 +461,7 @@ class TestEngineIssuesFeed(unittest.TestCase):
         self.assertIn("could not be read", out)
         self.assertIn("unreviewed", out)
         self.assertNotIn("none are open", out)
+        self.assertNotIn("COMPLETE set", out)   # a failed read must NEVER be stamped 'complete'
 
     def test_a_long_body_is_capped(self):
         fake = FakeGH()

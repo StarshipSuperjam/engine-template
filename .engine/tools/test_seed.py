@@ -123,6 +123,17 @@ class TestCiAuthorExempt(unittest.TestCase):
         self.assertIn(self.DISCLOSURE, text)     # disclosed, never a silent green (build-owe #3)
         self.assertNotIn("the kind ran", text)   # the kind was skipped before dispatch
 
+    def test_github_actions_bot_author_is_exempt(self):
+        # The engine's own bot PRs — the scheduled self-review digest and the memory-erasure proposal — are
+        # opened by github-actions[bot] and carry a plain-language body, not the eight-section template; like
+        # dependabot they are an exempted, disclosed not-applicable pass (this is what clears the digest PR's
+        # otherwise-red engine-ci). Proves the engine honors the EXACT bot login, brackets and all.
+        self._install(exempt=("dependabot[bot]", "github-actions[bot]"))
+        rc, text = self._run("CI", {"pr_body": "", "pr_author": "github-actions[bot]"})
+        self.assertEqual(rc, 0)
+        self.assertIn(self.DISCLOSURE, text)
+        self.assertNotIn("the kind ran", text)
+
     def test_nonexempt_author_still_enforced(self):
         self._install()
         rc, text = self._run("CI", {"pr_body": "", "pr_author": "a-human"})
@@ -196,8 +207,12 @@ class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
                          ["id", "target", "kind", "params", "tier", "suites", "message"])
 
     def test_committed_pr_body_rule_declares_and_validates(self):
+        # Two exempt bot authors: dependabot[bot] (its dependency PRs) and github-actions[bot] (the engine's
+        # own bot-opened PRs — the scheduled self-review digest and the memory-erasure proposal — which carry
+        # their own plain-language body, never the eight-section template). A drop of either silently re-breaks
+        # those bot PRs' engine-ci, so pin the exact list.
         rule = validate.load_json(os.path.join(validate.CHECK_DIR, "pr-body-completeness.json"))
-        self.assertEqual(rule.get("ci_author_exempt"), ["dependabot[bot]"])
+        self.assertEqual(rule.get("ci_author_exempt"), ["dependabot[bot]", "github-actions[bot]"])
         errs = list(validate.Draft202012Validator(self._schema()).iter_errors(rule))
         self.assertEqual(errs, [])
 
