@@ -139,9 +139,11 @@ class TestAuditPrepShape(unittest.TestCase):
         # The body verb alone would drop the framing the operator needs: that a where-we-stand snapshot rides
         # along in the same diff, and that the merge attests to the review, not to the auto-derived numbers.
         # A short footer keeps both, so the operator still knows what is in the diff and what they're vouching for.
+        # Assert on footer-UNIQUE phrases — a bare "snapshot" also appears in a step name and a comment, so it
+        # would pass even if the footer sentence were deleted.
         text = self._text()
-        self.assertIn("snapshot", text)
-        self.assertIn("attests to the self-review", text)
+        self.assertIn("snapshot of where the project stands", text)   # the footer names what rides along
+        self.assertIn("attests to the self-review", text)             # …and the merge-attests framing
 
 
 if __name__ == "__main__":

@@ -452,6 +452,7 @@ class TestEngineIssuesFeed(unittest.TestCase):
         out = telemetry.render_engine_issue_backlog("you/proj", "tok", transport=FakeGH().transport)
         self.assertIn("none are open", out)
         self.assertNotIn("could not be read", out)
+        self.assertNotIn("COMPLETE set", out)   # the completeness attestation must NOT ride an empty backlog
 
     def test_read_failure_surfaces_an_honest_gap_never_silent_empty(self):
         # The decisive invariant: a degraded read must NOT read as 'no issues' (which would silently pass
@@ -460,6 +461,7 @@ class TestEngineIssuesFeed(unittest.TestCase):
         self.assertIn("could not be read", out)
         self.assertIn("unreviewed", out)
         self.assertNotIn("none are open", out)
+        self.assertNotIn("COMPLETE set", out)   # a failed read must NEVER be stamped 'complete'
 
     def test_a_long_body_is_capped(self):
         fake = FakeGH()

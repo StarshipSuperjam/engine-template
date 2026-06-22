@@ -3321,7 +3321,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:fc58a9bc5cbd39855d438e4ee283a1f770867a9b0ea6cfec9b3aa349c987ac82",
+        "fingerprint": "sha256:f34714865e1734f92b17ccb2422498bdc92ff9986e44e9663e512a2bd3a45373",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -4290,7 +4290,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:5f8e76a81339de2391286775b831fa78427ac9fd875f74eecccb8315d32f5b0a",
+        "fingerprint": "sha256:1067d857b989a7a5f52aa8698ffbf361351151395a6b2c234abe6a6e3155a21a",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
