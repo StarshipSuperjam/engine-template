@@ -48,7 +48,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
-  - operation: `.engine/operations/boot-session-start.md`, `.engine/operations/build-orchestration.md`, `.engine/operations/close-turn.md`, `.engine/operations/conduct-author.md`, `.engine/operations/control-plane-bootstrap.md`, `.engine/operations/engine-remove.md`, `.engine/operations/engine-upgrade.md`, `.engine/operations/first-run.md`, `.engine/operations/module-add.md`, `.engine/operations/module-remove.md`, `.engine/operations/operating-modes.md`, `.engine/operations/tune-policy.md`
+  - operation: `.engine/operations/boot-session-start.md`, `.engine/operations/build-orchestration.md`, `.engine/operations/close-turn.md`, `.engine/operations/conduct-author.md`, `.engine/operations/control-plane-bootstrap.md`, `.engine/operations/engine-remove.md`, `.engine/operations/engine-upgrade.md`, `.engine/operations/first-run.md`, `.engine/operations/knowledge-impact-check.md`, `.engine/operations/module-add.md`, `.engine/operations/module-remove.md`, `.engine/operations/operating-modes.md`, `.engine/operations/tune-policy.md`
   - policy: `.engine/policies/*.md`
   - provisioning: `.engine/provisioning/first-run-assets.json`, `.engine/provisioning/module-catalog.json`
   - schema: `.engine/schemas/*.json`

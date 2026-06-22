@@ -617,6 +617,7 @@
           "operation:engine-remove",
           "operation:engine-upgrade",
           "operation:first-run",
+          "operation:knowledge-impact-check",
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
@@ -657,6 +658,7 @@
           "operation:engine-remove",
           "operation:engine-upgrade",
           "operation:first-run",
+          "operation:knowledge-impact-check",
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
@@ -1102,7 +1104,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:fe9ddc2071f5b8b710a6b47353c608244a446bc842d9835fffd9c50f5d2f60da",
+        "fingerprint": "sha256:b42f760010abc3c24474f82e379a4b0bb49f9b2a4a9118aed05eccb99067e989",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -1177,7 +1179,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:8b1860c5fd5babd413030f70b6986ea2263edca2700929842a341143eaf4bf40",
+        "fingerprint": "sha256:3b419584fa757e9c16476c150e80daa6ecad058ab4e0b32760613e24148f909b",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -1197,7 +1199,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:060e50b673fec7e5849dcef63528dd3880f8ec27a7efd46ad2dbdbc1a1fae159",
+        "fingerprint": "sha256:269fbe3d44c690612c1f9532f29d8264fad891d69aed477cf008d48f83a726d2",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -1319,6 +1321,26 @@
       "source": {
         "fingerprint": "sha256:269750e1791a743f64dbe1ee077d25708d8ae368edcf443af969245009c59df1",
         "path": ".engine/operations/first-run.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:knowledge-impact-check",
+      "name": ".engine/operations/knowledge-impact-check.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "knowledge-impact-check",
+      "source": {
+        "fingerprint": "sha256:cb2eda222d974abc538e4bde28b1ba985996e5598d4656c97395f9f8e0d01d5b",
+        "path": ".engine/operations/knowledge-impact-check.md"
       },
       "status": "active",
       "type": "operation"
@@ -2186,7 +2208,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:9fd7ab0540adf29592fe91e8b198cbaae4983f0113c3697ac518f980416c7058",
+        "fingerprint": "sha256:94c92a5c590d64d60eb17e8acfbeab1106304805817002cbbc761609a584afaa",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -3274,7 +3296,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:2c45f91bd2623b7295e92e412eb89ac7aaeea2e2833e50e1e5e3b7648dbab5c4",
+        "fingerprint": "sha256:3e65dc39a3fdc1fef2231530db3d86fd5b97d233bc91b9e3b7c031c75323626c",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",

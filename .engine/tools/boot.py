@@ -75,6 +75,21 @@ import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector
 # here without the floor (or vice-versa) breaks the double-fault check, so the two move together.
 PRESENT_MARKER = "Project status"
 
+# The standing, AI-facing advertisement of the knowledge faculty (#92). A cold session — one with no work
+# in hand, where the #37 neighbourhood block (render_neighborhood) is empty — is otherwise told
+# state/stance/attention/findings but NOT that it can query the project's wiring map at all, so it
+# re-derives the wiring by hand. This line names the faculty unconditionally and points at the runbook that
+# says WHEN to reach for it. AI-facing only: assemble_pack places it ABOVE the operator-dashboard divider and
+# it carries no RELAY_MARKER (§12 — the engine's own machinery stays out of operator narration). It is
+# distinct from the in-flow "pull deeper" cue render_neighborhood emits only when a change already reaches
+# into the graph (this one advertises the standing faculty; that one points at a specific neighbourhood).
+KNOWLEDGE_FACULTY_NOTE = (
+    "You can query the project's own wiring map any time — for any part, what it is part of, what depends "
+    "on it, what checks it, what governs it — with the knowledge tools that load every session. Reach for it "
+    "before you change something other parts rely on (an impact check), to orient on something unfamiliar, "
+    "or to trace how two parts connect. When and how: `.engine/operations/knowledge-impact-check.md`."
+)
+
 # The SessionStart sources boot grounds on: the genuine session-START moments. `compact` is DELIBERATELY
 # excluded — a full boot-pack re-render on compaction is a deferred enhancement that must never be
 # depended on (boot/README §Post-compaction grounding); the reliable post-compaction floor is the
@@ -649,6 +664,12 @@ def assemble_pack(session_id: str | None = None) -> str:
     # boot places it). Self-labelled "don't relay" so it stays AI-facing and never enters the operator
     # relay. Always the Explore note: the handler clears the stance to Explore before this pack is built.
     out.append(modes.describe_explore_scope())
+    out.append("")
+    # The standing knowledge-faculty advertisement (#92): unconditional, so a cold session with no work in
+    # hand still learns the wiring map exists and when to reach for it. AI-facing (above the dashboard
+    # divider, no RELAY_MARKER); it complements — does not duplicate — the conditional in-flow cue below,
+    # which fires only when there is a neighbourhood to pull deeper into.
+    out.append(KNOWLEDGE_FACULTY_NOTE)
     out.append("")
     # The focused knowledge read (#37): the structural neighborhood of the work in hand — AI-orientation
     # context, placed in the briefing (not the operator dashboard), and only when there is work in hand.

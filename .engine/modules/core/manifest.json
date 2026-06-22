@@ -16,6 +16,7 @@
       ".engine/operations/engine-remove.md",
       ".engine/operations/engine-upgrade.md",
       ".engine/operations/first-run.md",
+      ".engine/operations/knowledge-impact-check.md",
       ".engine/operations/module-add.md",
       ".engine/operations/module-remove.md",
       ".engine/operations/operating-modes.md",
