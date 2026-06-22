@@ -160,6 +160,15 @@ class TestBuildAndRoutinePermit(unittest.TestCase):
         self.assertTrue(_allow(modes.handler(self._payload("s", "Write"))))
         self.assertTrue(_allow(modes.handler(self._payload("s", "Bash", "gh pr create"))))
 
+    def test_engine_issue_reroute_fires_even_in_build(self):
+        # The reroute is channel-scoped and STANCE-INDEPENDENT — it is checked before the stance short-circuit,
+        # so a non-conforming engine-labelled creation is rerouted in Build too (the body contract is
+        # unconditional), even though every other write is permitted here. An unlabelled issue still files freely.
+        modes.set_stance("s", modes.BUILD)
+        self.assertTrue(_deny(modes.handler(self._payload(
+            "s", "Bash", 'gh issue create --label engine -b "just free text"'))))
+        self.assertTrue(_allow(modes.handler(self._payload("s", "Bash", "gh issue create -b free"))))
+
 
 class TestFailOpenAndChannel(unittest.TestCase):
     """The gate is fail-open, and a deny rides the structured channel (exit 0), never exit-2 block()."""
@@ -232,12 +241,20 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
         # the denied building set is named — and NOT path-scoped (the gate denies edits by tool, any file)
         for denied in ("edit or write any files", "branch", "commit", "pull request"):
             self.assertIn(denied, scope, f"Explore-scope copy must name the DENIED action {denied!r}")
+        # the engine-Issue conformance reroute carve-out is named (the helper to author through + that a
+        # non-conforming engine Issue is rerouted) so the copy stays faithful to the new gate leg
+        for named in ("helper", "reroute"):
+            self.assertIn(named, scope, f"Explore-scope copy must name the reroute carve-out term {named!r}")
         # fidelity to the live gate: what the copy calls "allowed" the gate allows; "denied" it denies
         self.assertTrue(_allow(modes.handler(_explore_payload("Bash", "gh issue create -t x -b y"))))
         self.assertTrue(_allow(modes.handler(_explore_payload("Read"))))
         self.assertTrue(_deny(modes.handler(_explore_payload("Bash", "git commit -m x"))))
         self.assertTrue(_deny(modes.handler(_explore_payload("Bash", "gh pr create"))))
         self.assertTrue(_deny(modes.handler(_explore_payload("Write"))))
+        # an UNLABELLED gh issue files freely (asserted above); an engine-labelled NON-conforming one is
+        # rerouted (denied), exactly the carve-out the copy now names
+        self.assertTrue(_deny(modes.handler(_explore_payload(
+            "Bash", 'gh issue create --label engine -b "just free text"'))))
 
 
 class TestPlanArtifactCarveOut(unittest.TestCase):

@@ -2835,6 +2835,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:issue_gate",
+      "name": ".engine/tools/issue_gate.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "issue_gate",
+      "source": {
+        "fingerprint": "sha256:e1ca0641732777d3867241af2ac615e2c79566b7a609b8aeecc8d24b721fdab4",
+        "path": ".engine/tools/issue_gate.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:knowledge_gen",
       "name": ".engine/tools/knowledge_gen.py",
       "owner": "core",
@@ -2964,7 +2981,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:df2e71da90d39c5c68f0e8748d350082a26c7317ba92ffe903368050d3f1e8f2",
+        "fingerprint": "sha256:f2000cf7c419df459cea807cb936836c757917fde3436e04ed2a140eb63e5458",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -3787,6 +3804,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_issue_gate",
+      "name": ".engine/tools/test_issue_gate.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_issue_gate",
+      "source": {
+        "fingerprint": "sha256:cfc55fb747383fe40d91c58cc50cc98133a1fa4f97b2fa60849ad60c681a0b39",
+        "path": ".engine/tools/test_issue_gate.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_knowledge",
       "name": ".engine/tools/test_knowledge.py",
       "owner": "core",
@@ -3882,7 +3916,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:96b1cc9f0d6b678e362d84fcc06479bb25760bb11261fed2f46b019a0eb1703f",
+        "fingerprint": "sha256:51817a63db95ef6ee72ca958e393efe7a2e4cda0035279d1f20049ec6ad4997e",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",

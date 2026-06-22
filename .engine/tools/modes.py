@@ -63,6 +63,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hooks  # noqa: E402  (run_hook + decide/proceed: the fail-open harness the gate rides)
+import issue_gate  # noqa: E402  (the engine-Issue conformance reroute matcher — modes registers it, below)
 
 
 # ---- the three stances (modes/README §"Operating modes") ------------------------------------
@@ -183,8 +184,12 @@ def describe_explore_scope() -> str:
         "write Claude Code's plan file; and log GitHub issues (`gh issue create`). You may NOT, until the "
         "operator tells you to build: edit or write any files, create a branch, commit, or open a pull "
         "request. So don't switch to Build just to log an issue or read around — those are allowed in "
-        "Explore. (The gate is a strong default, not a wall; the real guarantee is that nothing reaches the "
-        "main branch without a pull-request review.)"
+        "Explore. One carve-out on issue-logging: when you open an `engine`-labelled Issue, author its body "
+        "through the issue-authoring helper (`.engine/tools/issue_author.py` — call render_engine_issue_body) "
+        "so it reads like every engine-authored Issue; a non-conforming `engine`-labelled `gh issue create` is "
+        "rerouted back to that helper (in Build too — the body contract is unconditional), while an unlabelled "
+        "or already-conforming Issue files freely. (The gate is a strong default, not a wall; the real "
+        "guarantee is that nothing reaches the main branch without a pull-request review.)"
     )
 
 
@@ -262,28 +267,35 @@ def is_plan_artifact(tool_name: str, tool_input, permission_mode) -> bool:
 # The plain-language denial — names what was blocked AND the concrete way forward, never a silent
 # refusal (modes/README §"The stance is always operator-legible").
 _DENIAL = ("I didn't make that change — we're exploring, so I won't edit files, commit, create a branch, "
-           "or open a pull request yet. (I can still read, run tests, search, and log GitHub issues while "
-           "we explore — those don't need build.) Tell me to build it and I'll open a pull request — the "
-           "change I submit for your approval.")
+           "or open a pull request yet. (I can still read, run tests, search, and log GitHub issues — "
+           "authoring any engine Issue through the issue helper — while we explore; those don't need build.) "
+           "Tell me to build it and I'll open a pull request — the change I submit for your approval.")
 
 
 # ---- the PreToolUse write-gate handler ------------------------------------------------------
 
 def handler(payload: dict) -> dict:
-    """The Explore write-gate, run on every tool call (broad matcher; the decision logic lives here in
-    one reviewable place, per hooks/README). In Build or Routine it permits the write; in Explore it
-    denies a building action with the plain sentence and allows everything else. The deny rides the
-    structured permissionDecision channel (hooks.decide → exit 0 + hookSpecificOutput), which the
-    platform honors; exit-2 block() would be read as a crash and the deny dropped."""
+    """The PreToolUse gate, run on every tool call (broad matcher). It composes TWO decisions in one
+    reviewable place (per hooks/README): the engine-Issue conformance reroute (matcher in issue_gate, called
+    first because it is channel-scoped and STANCE-INDEPENDENT) and the Explore write-gate (stance-dependent —
+    Build/Routine permit the write; Explore denies a building action and allows everything else). Either deny
+    rides the structured permissionDecision channel (hooks.decide → exit 0 + hookSpecificOutput), which the
+    platform honors AND feeds back to the session as the reason; exit-2 block() would be read as a crash and the
+    deny — and its redirect reason — dropped."""
+    tool_name = payload.get("tool_name", "") if isinstance(payload, dict) else ""
+    tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
+    # The engine-Issue conformance reroute — fires in Explore AND Build (the body contract is unconditional),
+    # so it is checked before the stance short-circuit. issue_gate holds the matcher; here we wrap its reason.
+    reroute = issue_gate.non_conforming_reason(tool_name, tool_input)
+    if reroute is not None:
+        return hooks.decide("deny", reroute)
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     if current_stance(session_id) != EXPLORE:
         return hooks.proceed()                       # Build / Routine permit the write
-    tool_name = payload.get("tool_name", "") if isinstance(payload, dict) else ""
-    tool_input = payload.get("tool_input") if isinstance(payload, dict) else None
     permission_mode = payload.get("permission_mode") if isinstance(payload, dict) else None
     if is_building_action(tool_name, tool_input) and not is_plan_artifact(tool_name, tool_input, permission_mode):
         return hooks.decide("deny", _DENIAL)
-    return hooks.proceed()                # reads, tests, greps, gh issue, subagents, the plan file — allowed
+    return hooks.proceed()      # reads, tests, greps, an unlabelled/conforming gh issue, subagents, the plan file
 
 
 # ---- the plan-acceptance Build-entry trigger (D-179/D-180) ----------------------------------
