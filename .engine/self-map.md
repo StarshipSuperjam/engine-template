@@ -87,5 +87,5 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - depends on: `core`, `validators-core`
 - provides:
   - agent: `.claude/agents/audit.md`
-  - audits: `.engine/audits/concern-list.json`, `.engine/audits/self-review-setup.md`
+  - audits: `.engine/audits/audit-digest.md`, `.engine/audits/concern-list.json`, `.engine/audits/self-review-setup.md`
 - wires: none (this module adds no shared-state edits)
