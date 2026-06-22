@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Set up uv (pinned)
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -99,6 +99,26 @@ jobs:
             printf '%s\n' "OPEN ENGINE-LABELLED ISSUES (the debt register): could not be read this run (the fetch step failed). Treat concern #2 as unreviewed and say so plainly in your digest." \
               > "${RUNNER_TEMP}/engine-issues.md"
           fi
+      - name: Fetch the engine's own recent self-reviews (audit-over-audit corroboration)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Audit-over-audit (D-234): the self-review reads its OWN recent committed digests as over-time
+          # corroboration — a finding that keeps recurring is likely genuine, not a fluke — never as a
+          # decision. The read-only persona never reaches GitHub itself, so the workflow fetches the recent
+          # digests here and the next step feeds them in. This is a same-repo read on the own-repo token:
+          # the last N committed versions of the digest over the GitHub API on the normal shallow checkout,
+          # deliberately NOT an `actions/checkout fetch-depth: 0` deep clone (whose cost would grow with the
+          # repo's whole history just to read one file). The verb degrades in-band to a plain "nothing to
+          # compare against" marker when there is no history yet or the read fails; if the step itself
+          # fails, leave the same honest marker so the persona still degrades to a point-in-time review.
+          if ! uv run --directory .engine --frozen -- python tools/audit_digest.py prior \
+                 > "${RUNNER_TEMP}/prior-digests.md"; then
+            printf '%s\n' "PRIOR SELF-REVIEWS: none are available to compare against this run (the fetch step failed). Review only what you can check now, and say plainly in your digest that you have no earlier reviews to compare against — do not invent a trend." \
+              > "${RUNNER_TEMP}/prior-digests.md"
+          fi
       - name: Run the read-only self-review and capture its plain-language digest
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -114,12 +134,18 @@ jobs:
           # concern #2 — the persona stays read-only and never reaches GitHub itself. The backlog is expanded
           # inside double quotes, so any issue content is passed verbatim and safely (no shell re-parsing).
           backlog="$(cat "${RUNNER_TEMP}/engine-issues.md")"
+          prior="$(cat "${RUNNER_TEMP}/prior-digests.md")"
           prompt="Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble.
 
           For concern #2 (the engine-labelled issue backlog / debt register), you cannot reach GitHub yourself; the COMPLETE set of currently-open engine-labelled issues was fetched for you (read to exhaustion; a read failure would appear in-band, never a silently short list) and follows between the markers. Treat it as the whole open backlog, not a sample, and judge it as part of your review.
           ----- BEGIN OPEN ENGINE-LABELLED ISSUES -----
           ${backlog}
-          ----- END OPEN ENGINE-LABELLED ISSUES -----"
+          ----- END OPEN ENGINE-LABELLED ISSUES -----
+
+          For over-time corroboration, your own most recent self-reviews were fetched for you (you cannot reach GitHub yourself) and follow between the markers. Read them ONLY as corroboration — a finding that keeps recurring is likely genuine, not a one-time blip — never as a decision: every keep-it-or-retire-it call still rests on a fresh check you run THIS cycle, and a quiet stretch is never read as gone. When a finding draws on this history, present the fresh check and the over-time note as two separate things. If the markers say there is nothing to compare against, treat this as a review of only what you can see now and say so plainly — never invent a trend.
+          ----- BEGIN PRIOR SELF-REVIEWS -----
+          ${prior}
+          ----- END PRIOR SELF-REVIEWS -----"
           claude -p \
             --agent audit \
             --model "${AUDIT_MODEL}" \

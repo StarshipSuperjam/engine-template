@@ -364,5 +364,32 @@ class LedgerPathResolutionTests(unittest.TestCase):
         self.assertEqual(os.path.realpath(ledger.ledger_dir(cwd=clone)), clone_ledger)
 
 
+class GenerationStampTests(unittest.TestCase):
+    """The generation stamp + its explicit setter (slice 6b restore). `set_generation` writes the BACKUP's true
+    generation onto a restored ledger — including a BACKWARD move (an older backup) — durably and fail-safe."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._led = os.path.join(self._tmp.name, ledger.LEDGER_FILENAME)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_set_generation_roundtrips(self):
+        ledger.set_generation(7, for_path=self._led)
+        self.assertEqual(ledger.generation(for_path=self._led), 7)
+
+    def test_set_generation_allows_a_backward_move(self):
+        ledger.set_generation(10, for_path=self._led)
+        self.assertEqual(ledger.generation(for_path=self._led), 10)
+        ledger.set_generation(5, for_path=self._led)                # an older backup lands a LOWER generation
+        self.assertEqual(ledger.generation(for_path=self._led), 5)
+
+    def test_set_generation_clamps_a_bad_value_to_zero(self):
+        for bad in (-3, True, "x", None):
+            self.assertEqual(ledger.set_generation(bad, for_path=self._led), 0)
+            self.assertEqual(ledger.generation(for_path=self._led), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@
   "status": "required",
   "provides": {
     "agent": [".claude/agents/audit.md"],
-    "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md"]
+    "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md", ".engine/audits/audit-digest.md"]
   },
   "wires": [],
   "depends": { "core": "", "validators-core": "" }

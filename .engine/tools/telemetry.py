@@ -736,9 +736,12 @@ def render_engine_issue_backlog(repo: str, token: str, *, transport=None) -> str
         body = issue["body"].strip()
         if len(body) > _ISSUE_BODY_CAP:
             body = body[:_ISSUE_BODY_CAP] + "\n…(body truncated)"
-        parts.append(f"#{issue['number']}  {issue['title']}")
+        # Both the title and the body are third-party-authorable text fed BETWEEN the workflow's fence
+        # markers (----- BEGIN/END OPEN ENGINE-LABELLED ISSUES -----); defang any fence-marker shape in
+        # EITHER so a forged marker can neither close the section nor smuggle an instruction past it.
+        parts.append(f"#{issue['number']}  {validate.defang_prompt_fence_markers(issue['title'])}")
         if body:
-            parts.append(body)
+            parts.append(validate.defang_prompt_fence_markers(body))
         parts.append("---")
     return "\n".join(parts)
 

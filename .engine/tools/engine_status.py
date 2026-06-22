@@ -61,6 +61,7 @@ _EXAMPLE_SIGNALS = {
     "stance": "Looking around — reading and planning, not changing anything yet.",
     "strand": None,   # the operator-checkout strand signal (boot slice B); None = the folder is healthy
     "pr_conflict": None,   # the stranded-PR conflict signal (#136); None = no pull request is stuck
+    "restore_offer": None,   # the memory auto-restore offer (slice 6b); None = memory present or no backup configured
     # A representative self-review-has-gone-stale finding (audit-library 3c) so the example also shows the
     # gentle freshness advisory in the attention list. Illustrative wording — the real text comes from
     # audit_digest.staleness(); render_dashboard reads only its severity + message.

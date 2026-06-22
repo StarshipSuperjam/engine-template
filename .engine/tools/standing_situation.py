@@ -153,7 +153,7 @@ def _where_lines(boot, *, live, state) -> list:
                "finding_count": 0, "register": "", "findings_unavailable": False,
                "debt_count": 0, "debt_as_of": None, "att_lines": [], "att_degraded": False,
                "shipped": [], "stance": "Exploring", "strand": None, "pr_conflict": None,
-               "audit_stale": None, "live_standing": live}
+               "restore_offer": None, "audit_stale": None, "live_standing": live}
     lines = boot.render_dashboard(signals).splitlines()
     out = []
     for i, ln in enumerate(lines):
