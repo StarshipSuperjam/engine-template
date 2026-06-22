@@ -6,6 +6,7 @@
     "mode": "catalog",
     "infra_dirs": [
       ".engine/audits/",
+      ".engine/erasures/",
       ".engine/knowledge/",
       ".engine/modules/",
       ".engine/state/",

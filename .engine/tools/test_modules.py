@@ -395,6 +395,20 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md"],
         }, "audit-library owns exactly the persona, the seeded concern-list, and the setup page")
 
+    def test_memory_substrate_owns_tools_and_the_erasure_proposal(self):
+        # memory-substrate-sqlite-fts5 owns its tools (the memory/*.py glob) AND, since slice 4e-iii, the committed
+        # single-purpose erasure proposal the emitter writes + the observer reads — a content-free machine artifact
+        # (a uuid-hex target + a plain-language cost), owned the way audit-library owns its concern-list, under an
+        # "erasures" provides group with .engine/erasures/ carved into catalog-coverage's infra_dirs (it is engine
+        # infrastructure, not an authored surface). Pinning the exact provides locks the new group against drift.
+        manifests = module_coherence.discover_manifests()
+        ms = next((m for _p, m in manifests if m.get("id") == "memory-substrate-sqlite-fts5"), None)
+        self.assertIsNotNone(ms, "memory-substrate-sqlite-fts5 must be a present module")
+        self.assertEqual(ms.get("provides"), {
+            "tool": [".engine/tools/memory/*.py"],
+            "erasures": [".engine/erasures/proposal.json"],
+        }, "memory owns its tools and the committed erasure proposal")
+
     def test_seed_concern_list_conforms_to_its_schema(self):
         # the committed seed concern-list is well-formed against concern-list.v1 — the same schema + dialect
         # the audit-concern-list check validates it with at the merge. Pins the seed (every entry carries its
