@@ -543,15 +543,25 @@ def _hook_demo(_argv: list) -> int:
     status = {"tool_name": "Bash", "tool_input": {"command": "git status"}}
     a_read = {"tool_name": "Read", "tool_input": {"file_path": "x"}}
     print("Which tool calls fire the commit-boundary regen (the PreToolUse hook tests this in-script):")
-    for label, p in (("git add -A && git commit", commit), ("git status", status), ("a Read", a_read)):
-        print(f"    {'FIRES' if _is_git_commit(p) else 'skips'} - {label}")
+    ok = True
+    for label, p, expected in (("git add -A && git commit", commit, True), ("git status", status, False),
+                               ("a Read", a_read, False)):
+        fired = _is_git_commit(p)
+        ok = ok and fired == expected
+        print(f"    {'FIRES' if fired else 'skips'} - {label}")
     with tempfile.TemporaryDirectory() as d:
         scratch = os.path.join(d, "graph.json")
         print("\nWhen it fires it refreshes the graph (shown on a throwaway copy):")
-        print("    " + validate.fmt(generate(scratch)))
+        gen = generate(scratch)
+        print("    " + validate.fmt(gen))
+        ok = ok and (gen.get("message") or "").startswith("Wrote")
     print("\nThe hook ALWAYS proceeds: a commit is never blocked, and on any failure the commit still "
           "goes through (the merge-time fingerprint check catches any staleness). Your real "
           ".engine/knowledge/graph.json was never touched.")
+    if not ok:
+        print("\nDEMO UNEXPECTED: a `git commit` must fire the regen (a status/read must not) and the "
+              "refresh must write the file.", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -562,16 +572,24 @@ def _demo(_argv: list) -> int:
         print("Generating the knowledge graph onto a throwaway copy (your committed file is untouched)...")
         print("    " + validate.fmt(generate(scratch)))
         print("(i) Checking it — should be in sync...")
-        print("    " + validate.fmt(check(scratch)))
+        c1 = check(scratch)
+        print("    " + validate.fmt(c1))
         print("(ii) Now hand-editing the copy to simulate drift...")
         with open(scratch, "a", encoding="utf-8", newline="") as fh:
             fh.write("a hand-edited line the generator would never write\n")
-        print("    " + validate.fmt(check(scratch)))
+        c2 = check(scratch)
+        print("    " + validate.fmt(c2))
         print("(iii) Regenerating to heal it...")
         print("    " + validate.fmt(generate(scratch)))
-        print("    " + validate.fmt(check(scratch)))
+        c3 = check(scratch)
+        print("    " + validate.fmt(c3))
         print("Done — a hand-edit was caught (drift) and regeneration restored the file (in sync). "
               "Your real .engine/knowledge/graph.json was never touched.")
+        ok = c1["severity"] != "hard" and c2["severity"] == "hard" and c3["severity"] != "hard"
+    if not ok:
+        print("\nDEMO UNEXPECTED: expected in-sync, then drift caught, then in-sync after regen.",
+              file=sys.stderr)
+        return 1
     return 0
 
 

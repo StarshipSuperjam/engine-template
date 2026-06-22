@@ -404,7 +404,8 @@ def _demo() -> int:
         )
         print("\n  WITH the engine's memory file (the real code):")
         print(f"    whole entries: {intact} / {expected}     scrambled: {len(result.records) - intact}     corrupted on read: {result.malformed}")
-        print(f"    => {'EVERY entry survived whole.' if intact == expected and result.malformed == 0 else '!!! something was lost'}")
+        t1 = intact == expected and result.malformed == 0
+        print(f"    => {'EVERY entry survived whole.' if t1 else '!!! something was lost'}")
 
     print("\n" + "=" * 78)
     print("TEST 2 — a crash leaves a half-written entry; does the good entry before it survive?")
@@ -417,8 +418,8 @@ def _demo() -> int:
         result = read(path=path)
         print(f"\n  entries read back: {[r['note'] for r in result.records]}")
         print(f"  half-written entry dropped: {result.torn_trailing}")
-        ok = [r["note"] for r in result.records] == ["DO NOT LOSE THIS"] and result.torn_trailing
-        print(f"  => {'The good entry survived; the half-written one was discarded.' if ok else '!!! unexpected'}")
+        t2 = [r["note"] for r in result.records] == ["DO NOT LOSE THIS"] and result.torn_trailing
+        print(f"  => {'The good entry survived; the half-written one was discarded.' if t2 else '!!! unexpected'}")
 
     print("\n" + "=" * 78)
     print("TEST 3 — a single corrupted entry in the middle; do the entries around it survive?")
@@ -432,8 +433,8 @@ def _demo() -> int:
         result = read(path=path)
         print(f"\n  entries read back: {[r['note'] for r in result.records]}")
         print(f"  corrupted entries skipped (and counted): {result.malformed}")
-        ok = [r["note"] for r in result.records] == ["entry before the corruption", "entry after the corruption"]
-        print(f"  => {'Both good entries survived; only the corrupted one was skipped.' if ok else '!!! unexpected'}")
+        t3 = [r["note"] for r in result.records] == ["entry before the corruption", "entry after the corruption"]
+        print(f"  => {'Both good entries survived; only the corrupted one was skipped.' if t3 else '!!! unexpected'}")
 
     print("\n" + "=" * 78)
     print("TEST 4 — a crash tears one entry; does the NEXT entry filed after it survive?")
@@ -469,6 +470,11 @@ def _demo() -> int:
     print("Reminder: this demo proves only the filing cabinet's INTEGRITY — that it keeps what's filed,")
     print("whole, and never scrambles or silently loses it. Saving each turn's notes, tidying them into")
     print("summaries, and searching them are the capture / consolidation / search steps built on top.")
+    ok_all = t1 and t2 and t3 and ok4
+    if not ok_all:
+        print("\nDEMO UNEXPECTED: a ledger-integrity guarantee did not hold (whole concurrent entries, "
+              "torn-tail rejection, mid-file corruption skipped, or post-crash survival).", file=sys.stderr)
+        return 1
     return 0
 
 

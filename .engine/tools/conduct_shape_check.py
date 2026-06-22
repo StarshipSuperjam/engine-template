@@ -86,8 +86,14 @@ def _demo() -> int:
         clean = findings("hard", paths=[gp])
         print(f"A well-formed file — findings: {len(clean)} (expected 0).")
         print("\nA file with a missing section and an orphan section — what the operator would see:\n")
-        for f in findings("hard", paths=[bp]):
+        flagged = findings("hard", paths=[bp])
+        for f in flagged:
             print(f"  - {f.get('message')}")
+    ok = not clean and bool(flagged)
+    if not ok:
+        print("\nDEMO UNEXPECTED: the shape check did not behave as expected — a well-formed file should "
+              "produce no findings and a file with a missing/orphan section should be flagged.", file=sys.stderr)
+        return 1
     return 0
 
 

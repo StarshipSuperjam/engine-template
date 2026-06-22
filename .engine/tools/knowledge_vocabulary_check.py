@@ -150,6 +150,10 @@ def _demo() -> int:
         print(f"  -> the check turns RED: {found[-1]['message']}")
     print("\nThat is the backstop: a stray entity type (like the 'state' bug this fixed) can't quietly "
           "re-enter the graph's vocabulary — the build is blocked until it matches the catalog again.")
+    if not found:
+        print("\nDEMO UNEXPECTED: the guard did not catch the re-introduced retired 'state' type.",
+              file=sys.stderr)
+        return 1
     return 0
 
 

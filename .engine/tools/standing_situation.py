@@ -179,7 +179,8 @@ def _demo() -> int:
         pulls=[{"number": 42, "merged_at": "2026-06-10T00:00:00Z", "body": "Closes #40\n\nthe checkout page"}],
         issues={40: {"number": 40, "title": "Build the checkout page", "labels": [{"name": "engine"}]}}))
     print("1) A project with an active milestone and a recent tracked build:")
-    for ln in _where_lines(boot, live=derive_standing_situation(gh1), state=None):
+    l1 = _where_lines(boot, live=derive_standing_situation(gh1), state=None)
+    for ln in l1:
         print("   " + ln)
     print()
 
@@ -189,7 +190,8 @@ def _demo() -> int:
         pulls=[{"number": 99, "merged_at": "2026-06-13T00:00:00Z", "body": "Closes #80\n\nthe un-stranding fix"}],
         issues={80: {"number": 80, "title": "Operator checkout can silently drift", "labels": [{"name": "engine"}]}}))
     print('2) A project that keeps NO GitHub milestone — "No milestone is open" is a normal state, not an error:')
-    for ln in _where_lines(boot, live=derive_standing_situation(gh2), state=None):
+    l2 = _where_lines(boot, live=derive_standing_situation(gh2), state=None)
+    for ln in l2:
         print("   " + ln)
     print()
 
@@ -219,6 +221,14 @@ def _demo() -> int:
     print("Note: in THIS construction repo the phase line shows a maintainer-framed issue title verbatim")
     print("(e.g. #80's '...silently drift'); in a generated project, build-issue titles are written to read")
     print("cleanly for you. No real GitHub call was made, and your saved status was not modified.")
+    # Self-check: scenario 1 surfaces the live milestone, scenario 2 (no milestone) does not, and an
+    # unreadable GitHub raises rather than reading a confident 'none set' (it falls back to the cached copy).
+    ok = (any("Ship the beta" in ln for ln in l1) and not any("Ship the beta" in ln for ln in l2)
+          and live3 is None)
+    if not ok:
+        print("\nDEMO UNEXPECTED: the live 'where we are' derivation did not behave as expected across the "
+              "milestone / no-milestone / unreadable cases.", file=sys.stderr)
+        return 1
     return 0
 
 

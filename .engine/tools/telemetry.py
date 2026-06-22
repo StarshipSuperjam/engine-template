@@ -649,21 +649,22 @@ def _demo(_argv) -> int:
 
     print("\n(2) It crosses the threshold on the 3rd fire — ONE issue opens:")
     r = run(gh, [benign], cache, th, clock[2])
-    print(f"    fire 3: opened={r.opened} -> open issues now: "
-          f"{sum(1 for i in fake.issues.values() if i['state']=='open')}")
+    open2 = sum(1 for i in fake.issues.values() if i['state'] == 'open')
+    print(f"    fire 3: opened={r.opened} -> open issues now: {open2}")
 
     print("\n(3) The SAME signal fires again 3 more times — the one issue is UPDATED, never duplicated:")
     for k in range(3, 6):
         r = run(gh, [benign], cache, th, clock[k])
         print(f"    re-fire: opened={r.opened} updated={r.updated} -> open issues now: "
               f"{sum(1 for i in fake.issues.values() if i['state']=='open')}  (still one — dedup holds)")
+    open3 = sum(1 for i in fake.issues.values() if i['state'] == 'open')
 
     print("\n(4) A DIFFERENT, trust-critical signal fires once — it opens immediately (no waiting):")
     crit = _rec("check/protection", TRUST_CRITICAL,
                 "A safety check could not run, so the engine may be unable to catch a bad change.")
     r = run(gh, [benign, crit], cache, th, clock[6])
-    print(f"    opened={r.opened} -> open issues now: "
-          f"{sum(1 for i in fake.issues.values() if i['state']=='open')}  (two distinct signals, two issues)")
+    open4 = sum(1 for i in fake.issues.values() if i['state'] == 'open')
+    print(f"    opened={r.opened} -> open issues now: {open4}  (two distinct signals, two issues)")
 
     print("\n(5) The cause is removed — after auto_resolve absent observations the benign issue closes:")
     for k in range(2):
@@ -674,8 +675,8 @@ def _demo(_argv) -> int:
     print("\n(6) GitHub is unreachable — the read FAILS rather than reading 'no issues', and we fall")
     print("    back to the committed offline count with an honest line (never a silent or wrong zero):")
     down = GitHubIssues("you/your-project", "demo-token", transport=_FakeGitHub(fail_status=403).transport)
-    r = run(down, [benign], cache, th, clock[0], state_path=None)
-    print("    " + r.degraded_line)
+    r6 = run(down, [benign], cache, th, clock[0], state_path=None)
+    print("    " + r6.degraded_line)
 
     print("\n(7) A sample of the engine-opened issue, exactly as it appears in your tracker "
           "(read it for jargon):")
@@ -691,6 +692,14 @@ def _demo(_argv) -> int:
         pass
     print("\nDone — no real issues were created; only the network was faked. The triage LOGIC above is "
           "real; that it writes correctly to your REAL GitHub is confirmed the first time it runs live.")
+    # Self-check: ONE issue opens only when the benign signal crosses the threshold (3rd fire), re-fires
+    # never duplicate it, a distinct trust-critical signal opens a 2nd, and an unreachable GitHub degrades
+    # in-band (never a silent or wrong zero).
+    ok = open2 == 1 and open3 == 1 and open4 == 2 and bool(r6.degraded_line)
+    if not ok:
+        print("\nDEMO UNEXPECTED: the triage open/dedup/critical-open counts or the offline degrade line "
+              "did not behave as expected.", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -310,6 +310,12 @@ def _demo() -> int:
           "attention ranking is mostly empty, so step 4 shows the value the engine READS changing, which is\n"
           "the part your tuning controls. Some settings (the background-monitoring ones) only take effect\n"
           "once that monitoring is switched on in a later part of the engine.")
+    # Self-check: the saved value is the value the engine actually reads (step 4 — the load-bearing claim).
+    ok = after.get("budget_orientation") == 0.40
+    if not ok:
+        print("\nDEMO UNEXPECTED: the saved tuning value did not become the value the engine reads "
+              f"(expected budget_orientation 0.40, got {after.get('budget_orientation')}).", file=sys.stderr)
+        return 1
     return 0
 
 
