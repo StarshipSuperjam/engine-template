@@ -116,7 +116,7 @@ jobs:
           backlog="$(cat "${RUNNER_TEMP}/engine-issues.md")"
           prompt="Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble.
 
-          For concern #2 (the engine-labelled issue backlog / debt register), you cannot reach GitHub yourself; the current open engine-labelled issues were fetched for you and follow between the markers. Judge them as part of your review.
+          For concern #2 (the engine-labelled issue backlog / debt register), you cannot reach GitHub yourself; the COMPLETE set of currently-open engine-labelled issues was fetched for you (read to exhaustion; a read failure would appear in-band, never a silently short list) and follows between the markers. Treat it as the whole open backlog, not a sample, and judge it as part of your review.
           ----- BEGIN OPEN ENGINE-LABELLED ISSUES -----
           ${backlog}
           ----- END OPEN ENGINE-LABELLED ISSUES -----"
@@ -159,19 +159,26 @@ jobs:
           fi
           git commit -m "Engine self-review digest (${stamp})"
           git push --set-upstream origin "${branch}"
-          cat > "${RUNNER_TEMP}/pr-body.md" <<'EOF'
-          The engine ran its scheduled self-review. This pull request carries two things:
+          # The pull-request body IS the self-review itself — the digest prose with its sealed front-matter
+          # stripped — so the operator reads the actual review here, not boilerplate. A short footer then
+          # keeps the load-bearing framing: a where-we-stand snapshot rides along, and the merge attests to
+          # the review, not to the auto-derived numbers.
+          uv run --directory .engine --frozen -- python tools/audit_digest.py body audits/audit-digest.md \
+            > "${RUNNER_TEMP}/pr-body.md"
+          cat >> "${RUNNER_TEMP}/pr-body.md" <<'EOF'
 
-          1. The self-review's plain-language summary — what it looked at, what it found, and what it
-             recommends. This is the engine's own account of its own health, for you to read and act on.
+          ---
 
-          2. An automatically-refreshed snapshot of where the project stands (the open-items count and the
-             milestone/phase markers). These are derived mechanically — you are NOT being asked to vouch
-             for these numbers, and they always carry the date they were taken. Your merge attests to the
-             self-review above, not to these auto-derived values.
+          ### About this pull request
 
-          You can merge this to record the self-review, or close it to skip this cycle. Nothing here changes
-          any of your settings.
+          The summary above is the engine's own self-review — what it looked at, what it found, and what it
+          recommends, for you to read and act on. This pull request also carries an automatically-refreshed
+          snapshot of where the project stands (the open-items count and the milestone/phase markers); those
+          numbers are derived mechanically and always carry the date they were taken, so you are NOT being
+          asked to vouch for them — your merge attests to the self-review above, not to the snapshot.
+
+          Merge this to record the self-review, or close it to skip this cycle. Nothing here changes any of
+          your settings.
           EOF
           gh pr create \
             --base main \

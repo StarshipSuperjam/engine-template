@@ -62,6 +62,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
+  - backup: `.engine/memory-backup/pointer.json`
   - erasures: `.engine/erasures/proposal.json`
   - tool: `.engine/tools/memory/*.py`
 - wires: gitignore, hook, mcp
