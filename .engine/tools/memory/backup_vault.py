@@ -472,31 +472,35 @@ def _consent_prompt(vault_name: str, scope: str) -> str:
 
 def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
     """Floor 2: the plain-language README committed into the backup repo on creation. Leads with the engine's
-    self-describing marker (adopt verifies it). The shared variant is multi-project-framed, names the deliberately
-    opaque folder ids so they're never mistaken for clutter, and redirects the dangerous delete-a-folder instinct by
-    naming its cost (engine-planning memory README 295-303)."""
+    self-describing marker (adopt verifies it). The shared variant is multi-project-framed, says accurately what the
+    per-project folder ids are (randomly generated, not derived from the project), and names the consequence of
+    deleting a folder so the reader can make an informed choice (engine-planning memory README 295-303). Peer voice —
+    it informs and states consequences; it does not forbid or talk down."""
     if scope == "shared":
         return (
             f"{_VAULT_README_MARKER}\n"
-            "# Your engine memory vault\n\n"
-            "This private repository holds the AI memory for **all your engine projects** — each project in its own\n"
-            "folder.\n\n"
-            "The folders have **scrambled names like `a3f90c…` on purpose**: the engine uses a private code for each\n"
-            "project instead of its name, so nothing in here reveals what you're working on. Each scrambled folder is\n"
-            "one project's memory; you're not meant to tell which is which by looking. **Nothing here is junk.**\n\n"
-            "**Keep it private. Don't delete or rename a folder, and don't hand-edit the files — deleting a folder\n"
-            "permanently erases that project's saved memory, and the engine cannot bring it back.** To remove or fix\n"
-            "a project's memory, ask the engine. On a new computer, the engine restores each project's memory from\n"
-            "its folder — you don't need to do anything in here.\n")
+            "# Engine memory vault\n\n"
+            "This private repository is the off-site backup of the AI memory the engine keeps for your projects —\n"
+            "one folder per project.\n\n"
+            "Each folder is named by a unique id (randomly generated, not derived from the project name). The ids keep\n"
+            "folder names stable and keep project names out of a repository you might one day share; the matching id is\n"
+            "stored with each project on your machine, so the engine always knows which folder is which.\n\n"
+            "Keep this repository private — it holds your projects' working notes: the decisions, lessons, and plans\n"
+            "the engine remembers.\n\n"
+            "The engine maintains these files for you — backing each project up automatically, and restoring a\n"
+            "project's memory from its folder when you set it up on a new machine. You can browse or manage the\n"
+            "repository yourself; just note that it's the live backup, so deleting a folder or editing its files\n"
+            "changes what gets restored — and if a folder is the only remaining copy, deleting it\n"
+            "loses that project's memory.\n")
     return (
         f"{_VAULT_README_MARKER}\n"
         f"# {project_name} — AI memory backup\n\n"
-        f"This repository is an automatic backup of the AI memory for the **{project_name}** project.\n\n"
-        "**Keep it private.** It holds the project's working notes — the decisions, lessons, and plans the engine\n"
-        "remembers.\n\n"
-        "**Please don't delete it, and don't hand-edit the files.** The engine reads and rewrites them\n"
-        "automatically. If you ever set this project up on a new computer, the engine uses this backup to restore\n"
-        "its memory for you — you don't need to do anything in here.\n")
+        f"This private repository is the off-site backup of the engine's AI memory for the **{project_name}** "
+        "project — the decisions, lessons, and plans it remembers.\n\n"
+        "Keep it private; it holds the project's working notes.\n\n"
+        "The engine maintains these files for you — backing the project up automatically, and restoring its memory\n"
+        "here when you set the project up on a new machine. You can browse or manage the repository yourself; just\n"
+        "note that it's the live backup, so editing or removing files changes what gets restored.\n")
 
 
 _HEADS_UP_PUSH_FAILED = (
