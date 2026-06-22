@@ -4,7 +4,7 @@ title: Getting started with your Engine
 
 ## What this covers
 
-This is for the person whose project now has an Engine — and who does not write code. By the end you will know what the Engine is, how you tell it what to do, and how to find out everything you can ask it for. You do not need to understand the inner workings; you need to know how to direct it, and that is all this explains.
+This is for the person whose project now has an Engine and who directs it in plain language rather than by writing code. By the end you will know what the Engine is, how you tell it what to do, and how to find out everything you can ask it for.
 
 ## What you need to know
 
@@ -12,7 +12,7 @@ Your project has an **Engine**: a system that helps an AI assistant work on your
 
 An AI assistant starts each conversation fresh — it does not remember what happened last time. On its own, that means re-explaining where things stand every time, and hoping it does not quietly forget a decision you made last week. The Engine fixes that. It keeps your project's running state, its memory, the decisions you have made, and a set of safety rules, all written down in your project where the assistant reads them at the start of every session. So instead of starting from nothing, the assistant starts already oriented — it knows where the project stands and what was decided before.
 
-You work with the Engine entirely through your AI assistant, in plain conversation. There is nothing to install and no code to read. You point the assistant at what you want done; the Engine is what keeps it honest, grounded, and consistent while it does it.
+You work with the Engine entirely through your AI assistant, in plain conversation. There is nothing to install. You point the assistant at what you want done; the Engine is what keeps it honest, grounded, and consistent while it does it.
 
 ## How you direct the engine
 
@@ -36,7 +36,7 @@ You never have to memorize anything; the list is always a few keystrokes or one 
 
 From time to time the Engine checks over its own parts and may suggest **retiring** something it no longer needs — a rule, a document, or a piece of its own machinery.
 
-This is normal, healthy upkeep, not a sign that anything is wrong and not the Engine turning against itself. Keeping only what is still useful is part of how it stays trustworthy. When you see such a suggestion, treat it like any other proposed change: it is yours to approve or decline. Nothing is removed without your agreement.
+This is routine upkeep: keeping only what still earns its place is part of how the Engine stays lean and trustworthy. Treat such a suggestion like any other proposed change — it is yours to approve or decline, and nothing is removed without your agreement.
 
 ## Where to go next
 
