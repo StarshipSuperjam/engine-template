@@ -271,8 +271,8 @@ class SharedVaultScopeTests(_Base):
     def test_shared_readme_carries_marker_explains_folders_and_delete_cost(self):
         r = bv._readme_text("anything", "shared")
         self.assertTrue(r.startswith(bv._VAULT_README_MARKER))
-        self.assertIn("scrambled names", r)                               # the opaque ids are explained, not clutter
-        self.assertIn("permanently erases", r)                            # the delete-a-folder cost is named
+        self.assertIn("unique id", r)                                     # the folder ids are stated accurately
+        self.assertIn("loses that project's memory", r)                   # the delete-a-folder cost is named, not forbidden
 
 
 class AdoptTests(_Base):
