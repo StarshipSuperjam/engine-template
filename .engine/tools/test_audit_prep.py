@@ -99,6 +99,26 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("audit-prep/${stamp}-${RUN_ID}-${RUN_ATTEMPT}", text)  # the full collision-proof form
         self.assertNotIn('branch="audit-prep/${stamp}"', text)               # the collision-prone form must not return
 
+    def test_fetches_the_issue_backlog_and_feeds_the_read_only_persona(self):
+        # #183 / Option 1: the persona never reaches GitHub. The workflow grants only `issues: read`, fetches
+        # the engine-labelled backlog through the telemetry boundary, and feeds it into the persona's prompt —
+        # so concern #2 has its data without the read-only persona ever holding a GitHub token.
+        text = self._text()
+        self.assertIn("issues: read", text)                         # the only new scope, read-only
+        self.assertIn("telemetry.py engine-issues", text)           # the workflow fetches the backlog
+        self.assertIn("BEGIN OPEN ENGINE-LABELLED ISSUES", text)    # …and feeds it into the persona's prompt
+
+    def test_persona_step_stays_token_less(self):
+        # The read-only persona must never receive a GitHub token — the fetch/refresh/PR steps are the only
+        # holders. Slice the persona step (its own `claude -p` block) and assert no GitHub token reaches it,
+        # so a future edit can't quietly hand the persona write-capable creds.
+        text = self._text()
+        start = text.index("Run the read-only self-review")
+        persona_step = text[start:text.index("- name:", start)]     # up to the next step (Seal)
+        self.assertIn("claude -p", persona_step)                    # sanity: this is the persona step
+        self.assertNotIn("GITHUB_TOKEN", persona_step)
+        self.assertNotIn("GH_TOKEN", persona_step)
+
 
 if __name__ == "__main__":
     unittest.main()

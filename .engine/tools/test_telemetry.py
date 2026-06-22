@@ -415,6 +415,60 @@ class TestRefreshCLI(unittest.TestCase):
             self.assertEqual(telemetry.main(["refresh"]), 0)
 
 
+class TestEngineIssuesFeed(unittest.TestCase):
+    """The read-only `engine-issues` verb + its render core: the audit-prep workflow fetches the open
+    engine-labelled backlog and feeds it to the read-only self-review persona for concern #2 (the persona
+    never reaches GitHub itself). A successful read lists every open issue for the persona to judge; an EMPTY
+    backlog says so DISTINCTLY; and ANY read failure surfaces a plain 'could not be read' line — never a silent
+    empty that would let concern #2 read as worked."""
+
+    def test_lists_each_open_issue_for_the_persona(self):
+        fake = FakeGH()
+        fake.issues[183] = {"number": 183, "title": "Audit has no GitHub access",
+                            "body": "The persona step has no token.", "state": "open"}
+        fake.issues[180] = {"number": 180, "title": "memory runtime flagged as orphans",
+                            "body": "Local-only.", "state": "open"}
+        out = telemetry.render_engine_issue_backlog("you/proj", "tok", transport=fake.transport)
+        self.assertIn("#183", out)
+        self.assertIn("Audit has no GitHub access", out)
+        self.assertIn("#180", out)
+        self.assertIn("2 open", out)            # the count header so the persona knows the backlog size
+        self.assertIn("concern #2", out)        # tells the persona what the backlog is for
+
+    def test_empty_backlog_is_distinct_from_a_failure(self):
+        out = telemetry.render_engine_issue_backlog("you/proj", "tok", transport=FakeGH().transport)
+        self.assertIn("none are open", out)
+        self.assertNotIn("could not be read", out)
+
+    def test_read_failure_surfaces_an_honest_gap_never_silent_empty(self):
+        # The decisive invariant: a degraded read must NOT read as 'no issues' (which would silently pass
+        # concern #2). It returns a 'could not be read' line that tells the persona to disclose the gap.
+        out = telemetry.render_engine_issue_backlog("you/proj", "tok", transport=FakeGH(fail_read=403).transport)
+        self.assertIn("could not be read", out)
+        self.assertIn("unreviewed", out)
+        self.assertNotIn("none are open", out)
+
+    def test_a_long_body_is_capped(self):
+        fake = FakeGH()
+        fake.issues[1] = {"number": 1, "title": "big", "body": "x" * (telemetry._ISSUE_BODY_CAP + 500),
+                          "state": "open"}
+        out = telemetry.render_engine_issue_backlog("you/proj", "tok", transport=fake.transport)
+        self.assertIn("truncated", out)
+
+    def test_verb_missing_env_is_a_usage_error(self):
+        with mock.patch.dict(os.environ, {}, clear=True), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(telemetry.main(["engine-issues"]), 2)
+
+    def test_verb_forwards_env_and_prints_the_backlog(self):
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "tok"}, clear=True), \
+             mock.patch.object(telemetry, "render_engine_issue_backlog", return_value="BACKLOG") as m, \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = telemetry.main(["engine-issues"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(m.call_args[0][:2], ("o/r", "tok"))   # repo + token forwarded from the env
+        self.assertIn("BACKLOG", out.getvalue())
+
+
 class TestStandingCacheRefresh(unittest.TestCase):
     """The standing-situation offline cache (D-198): telemetry is its sole writer, it is DISJOINT from the
     debt count, it carries an `as_of` provenance, and it rides the same GitHub pass — but a derive failure

@@ -694,6 +694,58 @@ def _demo(_argv) -> int:
     return 0
 
 
+# ---- the engine-issue backlog feed for the scheduled self-review (audit concern #2) ----
+
+# Cap each issue body fed to the persona: the backlog is small, but one pathological issue must not bloat
+# the prompt. An engine issue carries its substance at the head, so a generous cap loses nothing material.
+_ISSUE_BODY_CAP = 2000
+
+
+def render_engine_issue_backlog(repo: str, token: str, *, transport=None) -> str:
+    """Plain text the audit-prep workflow feeds into the read-only self-review persona's prompt so it can work
+    concern #2 (the engine-labelled open issues / debt register). The persona never reaches GitHub itself —
+    the telemetry boundary owns the issue view and the workflow injects the result. Returns a header plus each
+    open engine-labelled issue (number, title, capped body); a plain 'none open' line when the backlog is
+    empty; or — on ANY read failure — a 'could not be read' line (NEVER a silent empty), so the persona
+    discloses the gap rather than presenting concern #2 as worked. `transport` is injectable for tests."""
+    try:
+        issues = GitHubIssues(repo, token, transport=transport).list_open_engine_issues()
+    except Exception as exc:  # noqa: BLE001 — any read failure must surface as an honest gap, never silent empty
+        return ("OPEN ENGINE-LABELLED ISSUES (the debt register): could not be read this run — "
+                f"{exc}. Treat concern #2 as unreviewed and say so plainly in your digest.")
+    if not issues:
+        return ("OPEN ENGINE-LABELLED ISSUES (the debt register): none are open right now — "
+                "concern #2 has nothing to review this run.")
+    parts = [f"OPEN ENGINE-LABELLED ISSUES (the debt register) — {len(issues)} open, fetched for concern #2. "
+             "Judge each against the CURRENT code: does it still reproduce, and is the backlog still honestly "
+             "triageable?", ""]
+    for issue in issues:
+        body = issue["body"].strip()
+        if len(body) > _ISSUE_BODY_CAP:
+            body = body[:_ISSUE_BODY_CAP] + "\n…(body truncated)"
+        parts.append(f"#{issue['number']}  {issue['title']}")
+        if body:
+            parts.append(body)
+        parts.append("---")
+    return "\n".join(parts)
+
+
+def _engine_issues_cli(argv: list) -> int:
+    """The audit-prep workflow's read-only debt-register verb: print the open engine-labelled issues for the
+    self-review persona (which never reaches GitHub itself). Reads GITHUB_REPOSITORY + GITHUB_TOKEN from the
+    environment (the GitHub token, never the Claude OAuth token, which only auths the persona run). Exits 0
+    whenever the env is present — even on a read failure, which it reports in-band so the persona can disclose
+    the gap; a transient GitHub blip must never fail the self-review."""
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    token = os.environ.get("GITHUB_TOKEN")
+    if not repo or not token:
+        print("usage: telemetry.py engine-issues   (needs GITHUB_REPOSITORY and GITHUB_TOKEN in the "
+              "environment; it uses the GitHub token, never the Claude token)", file=sys.stderr)
+        return 2
+    print(render_engine_issue_backlog(repo, token))
+    return 0
+
+
 def _refresh_cli(argv: list) -> int:
     """The audit-prep workflow's offline-cache refresh verb. Reads GITHUB_REPOSITORY + GITHUB_TOKEN from the
     environment (the workflow passes the GitHub token — never the Claude OAuth token, which only auths the
@@ -729,8 +781,10 @@ def main(argv: list) -> int:
             return _demo(argv[1:])
         if argv and argv[0] == "refresh":
             return _refresh_cli(argv[1:])
-        print("usage: telemetry.py {demo|refresh}   (the in-session triage run is driven by boot/build, "
-              "not this CLI)", file=sys.stderr)
+        if argv and argv[0] == "engine-issues":
+            return _engine_issues_cli(argv[1:])
+        print("usage: telemetry.py {demo|refresh|engine-issues}   (the in-session triage run is driven by "
+              "boot/build, not this CLI)", file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 — fail-open is the whole point
         print(json.dumps(validate.finding(

@@ -36,6 +36,11 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Read-only access to the engine-labelled issue backlog (the debt register) so the workflow can fetch it
+  # for the self-review's concern #2 and feed it to the read-only persona. The persona never gets a GitHub
+  # token; this scope serves the workflow's own fetch step (and the offline-cache refresh, which reads the
+  # same open-issue count).
+  issues: read
 
 jobs:
   gate:
@@ -77,6 +82,23 @@ jobs:
         env:
           CLAUDE_CODE_VERSION: "2.1.176"
         run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      - name: Fetch the open engine-labelled issues for the self-review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Concern #2 of the self-review judges the engine-labelled issue backlog (the debt register), which
+          # lives on GitHub, not in the checkout. The read-only persona never reaches GitHub itself, so the
+          # workflow fetches the backlog here (the telemetry boundary owns the issue view) and the next step
+          # feeds it into the persona's prompt. The verb reports a read failure in-band (never a silent
+          # empty); if the fetch step itself fails, leave an honest marker so the persona still discloses the
+          # gap rather than silently skipping concern #2.
+          if ! uv run --directory .engine --frozen -- python tools/telemetry.py engine-issues \
+                 > "${RUNNER_TEMP}/engine-issues.md"; then
+            printf '%s\n' "OPEN ENGINE-LABELLED ISSUES (the debt register): could not be read this run (the fetch step failed). Treat concern #2 as unreviewed and say so plainly in your digest." \
+              > "${RUNNER_TEMP}/engine-issues.md"
+          fi
       - name: Run the read-only self-review and capture its plain-language digest
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -88,10 +110,20 @@ jobs:
           AUDIT_MODEL: ${{ vars.AUDIT_MODEL || 'opus' }}
         run: |
           set -euo pipefail
+          # Feed the fetched engine-issue backlog (prior step) into the persona's prompt so it can work
+          # concern #2 — the persona stays read-only and never reaches GitHub itself. The backlog is expanded
+          # inside double quotes, so any issue content is passed verbatim and safely (no shell re-parsing).
+          backlog="$(cat "${RUNNER_TEMP}/engine-issues.md")"
+          prompt="Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble.
+
+          For concern #2 (the engine-labelled issue backlog / debt register), you cannot reach GitHub yourself; the current open engine-labelled issues were fetched for you and follow between the markers. Judge them as part of your review.
+          ----- BEGIN OPEN ENGINE-LABELLED ISSUES -----
+          ${backlog}
+          ----- END OPEN ENGINE-LABELLED ISSUES -----"
           claude -p \
             --agent audit \
             --model "${AUDIT_MODEL}" \
-            "Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble." \
+            "${prompt}" \
             > "${RUNNER_TEMP}/audit-digest-body.md"
       - name: Seal the digest with its run-date
         run: |
