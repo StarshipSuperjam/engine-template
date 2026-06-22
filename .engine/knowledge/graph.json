@@ -2386,7 +2386,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:eed3084f1b193b24b156f5fbe25ea103515377f18c07f455ce6e7ef257c82b8a",
+        "fingerprint": "sha256:5d182cb96438a1052e34b002a1b0f95983a2d4c60f2c7008ff9cbe079f1017dc",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -3491,7 +3491,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:1cbdf98f30fe712a2338bbf6f87de21c198f0671fcb14abf1132281a754bb89f",
+        "fingerprint": "sha256:9ad89dc3f528603f567b851e58846f38c618bb607dccecdc30774cb7f9eb23ab",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",

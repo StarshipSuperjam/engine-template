@@ -223,12 +223,23 @@ class DirectiveTests(_Base):
         self.assertIn("and 4 more", text)                                  # 12 pending, 8 shown
         self.assertEqual(text.count("s00"), 1)
 
-    def test_is_background_and_after_the_request_for_any_count(self):
+    def test_is_subordinate_to_the_request_but_prompt_this_session(self):
+        # The directive must stay AFTER the operator's request (no first-turn hijack) but it is NOT passive:
+        # the old "can wait turns or whole sessions / do not announce" permission to defer forever is GONE.
         for pending in ([f"s{i}" for i in range(1)], [f"s{i}" for i in range(20)]):
             text = consolidate._consolidation_directive(pending).lower()
-            self.assertIn("after you have served the operator's current request", text)
-            self.assertIn("not to be done before the operator's actual request", text)
-            self.assertIn("can wait", text)
+            self.assertIn("after you have served the operator's current request", text)  # subordinate
+            self.assertIn("never a first-turn hijack", text)                             # subordinate
+            self.assertIn("this session", text)                                          # prompt, not someday
+            self.assertNotIn("can wait", text)                                           # the passivity is gone
+
+    def test_tells_the_operator_a_count_never_the_id_codes(self):
+        # The visible heads-up is content-free toward the operator: it surfaces a COUNT and is instructed to
+        # withhold the raw session ids (which stay in the directive only so the model can read/store them).
+        pending = [f"sess-{i:02d}" for i in range(3)]
+        text = consolidate._consolidation_directive(pending)
+        self.assertIn("3 earlier sessions", text)                          # the operator hears a count
+        self.assertIn("never the id codes", text.lower())                  # …and is told NOT to surface ids
 
 
 class LockTests(_Base):
@@ -275,7 +286,7 @@ class CrashResidualTests(_Base):
 
 
 class HookHandlerTests(_Base):
-    def test_session_start_injects_a_background_directive_when_pending(self):
+    def test_session_start_injects_the_directive_when_pending(self):
         self._delta("old-session", 0, "user", "an untidied note")
         code, out, _err = self._run_hook("SessionStart", consolidate._session_start_handler,
                                          {"session_id": "live-session"})
@@ -284,7 +295,7 @@ class HookHandlerTests(_Base):
         ctx = payload["hookSpecificOutput"]["additionalContext"]
         self.assertEqual(payload["hookSpecificOutput"]["hookEventName"], "SessionStart")
         self.assertIn("old-session", ctx)
-        self.assertIn("Background", ctx)
+        self.assertIn("during this session", ctx.lower())          # visible + prompt: tidy THIS session
         # it must subordinate tidy-up to the operator's request (the no-hijack law)
         self.assertIn("after you have served the operator's current request", ctx.lower())
 
