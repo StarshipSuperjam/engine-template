@@ -29,6 +29,7 @@ Library + CLI (mirrors self_map.py — plain language first):
   uv run --directory .engine -- python tools/audit_digest.py seal <file> [YYYY-MM-DD] [--body-file P]  # stamp + seal
   uv run --directory .engine -- python tools/audit_digest.py check [<file>]            # is the seal intact?
   uv run --directory .engine -- python tools/audit_digest.py staleness [<file>]        # how fresh is it?
+  uv run --directory .engine -- python tools/audit_digest.py body [<file>]             # the review prose, frontmatter stripped
 
 The two CI/audit-prep rules are thin custom/script entries over check()/staleness():
 audit_digest_fingerprint_check.py (the CI seal gate) and audit_digest_staleness_check.py (the report-only
@@ -250,10 +251,22 @@ def main(argv: list) -> int:
         if cmd == "staleness":
             print(validate.fmt(staleness(argv[1] if len(argv) > 1 else None)))
             return 0
+        if cmd == "body":
+            # Print the digest's prose with its YAML frontmatter stripped — what the scheduled run uses as
+            # the digest pull request's body, so the operator reads the actual review rather than
+            # boilerplate. The file must already exist (the seal step runs first); a missing file is a loud
+            # error, never an empty pull-request body.
+            path = argv[1] if len(argv) > 1 else AUDIT_DIGEST_PATH
+            if not os.path.isfile(path):
+                print(f"ERROR: no self-review file at {_display(path)} to read a body from.", file=sys.stderr)
+                return 2
+            _fm, body = split(path)
+            print(body.strip("\n"))
+            return 0
     except Exception as exc:  # a tool error is loud, never a silent pass
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    print(f"unknown command '{cmd}' (expected: seal, check, staleness)", file=sys.stderr)
+    print(f"unknown command '{cmd}' (expected: seal, check, staleness, body)", file=sys.stderr)
     return 2
 
 
