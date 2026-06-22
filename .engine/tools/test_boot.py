@@ -806,6 +806,22 @@ class TestStanceLine(unittest.TestCase):
         # the note stays OUT of the operator's own dashboard view — the operator surface is unchanged.
         self.assertNotIn(note, boot.render_dashboard(_signals()))
 
+    def test_pack_carries_the_standing_knowledge_faculty_note(self):
+        # #92: a cold session must be told the wiring map exists and when to reach for it. _offline() leaves
+        # NO work in hand (boot_slice.read -> None, so render_neighborhood is empty), so this also pins that
+        # the line renders at a genuine cold boot — the actual value case — not piggybacking on the
+        # work-gated #37 neighbourhood block.
+        patchers = _offline()
+        try:
+            pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn(boot.KNOWLEDGE_FACULTY_NOTE, pack)            # present even with no work in hand
+        self.assertIn("knowledge-impact-check.md", pack)           # and it points at the runbook
+        # AI-facing only: it stays OUT of the operator's own dashboard view (§12).
+        self.assertNotIn(boot.KNOWLEDGE_FACULTY_NOTE, boot.render_dashboard(_signals()))
+
     def test_pack_carries_the_status_pull_cue(self):
         # The status verb is operator-typed (non-resident), so the AI's standing cue to run engine_status.py
         # verbatim when the operator asks where things stand must live in the boot pack (D-200/D-201). Pin the
