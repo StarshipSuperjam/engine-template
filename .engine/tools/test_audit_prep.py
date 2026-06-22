@@ -83,6 +83,22 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("seal audits/audit-digest.md", text)
         self.assertNotIn("seal .engine/audits/audit-digest.md", text)
 
+    def test_branch_name_is_collision_proof(self):
+        # Regression (round-2 finding 4): the first real run pushed `audit-prep/<date>`, and a same-day re-run
+        # reused that exact name — the push failed non-fast-forward, so a leftover branch from a failed run
+        # blocked the next run. The branch now carries the unique-per-run id (and attempt), so no leftover
+        # branch can ever collide; uniqueness sidesteps a force-push and the protected-branch deletion guard
+        # (which scopes to the default branch only) entirely. The id/attempt are passed via env (RUN_ID /
+        # RUN_ATTEMPT) rather than interpolated into the shell, so pin both the wiring and the branch form.
+        text = self._text()
+        # Both must be wired in: the run id (unique across distinct runs) AND the run attempt (the only thing
+        # that differs when the SAME run is re-run — which is the original same-day-re-run failure). Dropping
+        # `-${RUN_ATTEMPT}` would silently re-break the re-run case, so pin both and the full branch form.
+        self.assertIn("github.run_id", text)
+        self.assertIn("github.run_attempt", text)
+        self.assertIn("audit-prep/${stamp}-${RUN_ID}-${RUN_ATTEMPT}", text)  # the full collision-proof form
+        self.assertNotIn('branch="audit-prep/${stamp}"', text)               # the collision-prone form must not return
+
 
 if __name__ == "__main__":
     unittest.main()

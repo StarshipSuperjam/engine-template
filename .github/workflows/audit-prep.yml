@@ -107,12 +107,18 @@ jobs:
       - name: Open the digest pull request
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           git config user.name "engine self-review"
           git config user.email "engine-self-review@users.noreply.github.com"
           stamp="$(date -u +%Y-%m-%d)"
-          branch="audit-prep/${stamp}"
+          # Collision-proof branch name (round-2 finding 4): the run id + attempt are unique per run, so a
+          # leftover branch from a failed earlier run can never block this run's push with a non-fast-forward
+          # error. No force-push is needed, and the protected-branch deletion guard (scoped to the default
+          # branch only) is never engaged.
+          branch="audit-prep/${stamp}-${RUN_ID}-${RUN_ATTEMPT}"
           git checkout -b "${branch}"
           git add .engine/audits/audit-digest.md .engine/state/state.json
           if git diff --cached --quiet; then
