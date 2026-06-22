@@ -373,9 +373,16 @@ def render_prior_digests(repo: str, token: str, *, limit: int = PRIOR_DIGESTS_DE
         body = body.strip()
         if len(body) > PRIOR_DIGEST_MAX_CHARS:
             body = body[:PRIOR_DIGEST_MAX_CHARS] + "\n…(earlier review truncated)"
-        parts.append(f"----- prior self-review (run {date or 'date unknown'}) -----")
+        # The run-date is read from the prior digest's own frontmatter; defang it too so an injected value
+        # can't smuggle dash rails into this separator line (a normal ISO date has no 3-dash run, so this is
+        # a no-op for it). The separator's OWN rails are engine-emitted, never untrusted.
+        parts.append(f"----- prior self-review (run {validate.defang_prompt_fence_markers(date or 'date unknown')}) -----")
         if body:
-            parts.append(body)
+            # A prior digest's body is fed BETWEEN the workflow's fence markers (----- BEGIN/END PRIOR
+            # SELF-REVIEWS -----) and between the per-digest separators above. A self-review's prose can
+            # describe this very machinery, so defang any line in it that mimics a fence marker — it cannot
+            # then forge a separator or prematurely close the section in the persona's prompt.
+            parts.append(validate.defang_prompt_fence_markers(body))
     return "\n".join(parts)
 
 

@@ -138,6 +138,36 @@ def read(path: str) -> str:
         return fh.read()
 
 
+# A `----- SECTION MARKER -----` prompt fence is two 3+-dash rails around words. To neutralize a line of
+# UNTRUSTED text that could forge or prematurely close such a fence, look for the give-away: TWO dash rails
+# on ONE line, with a letter present. A linear findall + an alpha scan (no backtracking regex, so no
+# pathological input) catches every variant a line-anchored match would miss — text trailing or leading a
+# rail, no spaces around the rails, a tab indent — while a SINGLE rail (a horizontal rule, `8<----- cut`),
+# a letterless table delimiter row (`| --- | --- |`), an ISO date (`2026-06-01`), or a `--flag` is untouched.
+# The rail class is ASCII hyphen plus the look-alike unicode dashes/bars (en/em dash, horizontal bar, minus,
+# box-drawing) so a visually-identical forgery in another codepoint cannot slip past — a model reads the
+# fence by its shape, not its bytes.
+# ASCII hyphen (leading, so literal in the class), the U+2010–U+2015 dash/bar run, the minus sign, and the
+# light/heavy box-drawing horizontals — the glyphs a forged rail could be drawn from.
+_RAIL_CHARS = "-‐-―−─━"
+_PROMPT_FENCE_RAIL_RE = re.compile("[" + _RAIL_CHARS + "]{3,}")
+
+
+def defang_prompt_fence_markers(text: str) -> str:
+    """Neutralize any line of UNTRUSTED `text` that could forge or prematurely close a `----- SECTION
+    MARKER -----` prompt fence, so content fed between such markers cannot break out of its region. A line
+    carrying TWO-or-more dash rails AND a letter has its dash runs trimmed to two dashes: the words are kept
+    (no information is dropped), but the line can no longer read as a fence delimiter. A line with a single
+    rail (a horizontal rule), no letters (a table delimiter row), or no 3-dash run at all (an ISO date, a
+    `--flag`) is left exactly as it is. Linear in the text length — no regex backtracking."""
+    out = []
+    for line in text.split("\n"):
+        if len(_PROMPT_FENCE_RAIL_RE.findall(line)) >= 2 and any(c.isalpha() for c in line):
+            line = _PROMPT_FENCE_RAIL_RE.sub("--", line)   # trim every rail so the line can't be a fence
+        out.append(line)
+    return "\n".join(out)
+
+
 def load_json(path: str):
     """Parse a JSON file to a data object. Raises (loud) on a missing or malformed
     file — the halt-on-malformed posture: a broken structured file fails loud rather
