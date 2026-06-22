@@ -2182,7 +2182,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:fe33781b9d57ce4ebd4e1f5f21de099a5aef7655eada18e1cbab136baffe3a85",
+        "fingerprint": "sha256:464d17a4d1c35aebd537e61fba5545583b7cb9c1071ac05c7f8141e8b74ee167",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -3253,7 +3253,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:e9380eb461cbc7db4fc9628f241404df2566d965ce52399a78a164e5f3fe5d93",
+        "fingerprint": "sha256:3499cdbf6788acf99078e7fad8bd0e9aa564a47a938bbde3ab5ce315af349a71",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -3321,7 +3321,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:71d653ccea4c5e52264b4bbb9a010e6e1d48974db1d38bb3987a42507ae5a578",
+        "fingerprint": "sha256:0a5b9e2e8a7256c46cb9d9e9959ad8fe2ffc196f9c23a01877b3c565aaa2bb0a",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -4324,7 +4324,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:1067d857b989a7a5f52aa8698ffbf361351151395a6b2c234abe6a6e3155a21a",
+        "fingerprint": "sha256:0628db88a36c74f6b4a48c842e0c4abf9448a57c0ba959cfabac24aa4ec0e1b8",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
@@ -4375,7 +4375,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:ea1a2d5b6c0d30d3aaeb257b8a8ec51239daace61354c01a4f6a9626e406f58c",
+        "fingerprint": "sha256:6b9badd9155c52cfee20d9edd9f7bb530ab583a540d11a9e583cb1192fb90a8f",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -4460,7 +4460,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:2044814ca72257058202a683143037d23640483d70a0774ab8b0d4ea788c17e8",
+        "fingerprint": "sha256:27df30a0206cf79a5fb39dfbc60d576508cf7dfae3d94bbcdea28e59d66f3376",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
