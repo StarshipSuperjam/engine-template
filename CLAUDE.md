@@ -73,6 +73,15 @@ smell to recheck, never a verdict to relay). My adjudication raises confidence; 
   (which would grade prose, against §7) and **no forbidden-word list is kept or created** (a list invites
   list-growth and teaches that word-banning is a writing function — D-225). Whether a render leans on jargon
   is judged by the `audit` prose probe and the per-PR build-conformance review, not a filter.
+- **A behavioral demo is a falsification that can fail, and it has a declared fate — it does not accumulate.**
+  Every committed `demo_*.py` must exercise the real surface and be able to fail (a parallel reimplementation
+  or a happy-path showcase is the alarm), and each must resolve to one of: covered by a permanent regression
+  test, kept as construction evidence walled from travel (the first-run retirement set, so it does not ship
+  into a generated repo), or **promoted by an explicit logged decision** to a standing operator capability —
+  the only state in which a demo travels. The whole construction set retires with the build-conformance
+  harness at v1. This is a reminder; the durable rule's canonical home is upstream — the engine-planning
+  glossary "Behavioral attestation" (referenced by `wbs/build-conformance.md` §6/§10, which itself retires at
+  v1 — D-228) — not duplicated here.
 
 ## The seed (stage 0) and its frozen names
 

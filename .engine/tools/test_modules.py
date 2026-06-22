@@ -430,6 +430,43 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         hard = [f for f in findings if f["severity"] == "hard"]
         self.assertEqual(hard, [], f"unexpected coherence findings: {[f['message'] for f in hard]}")
 
+    def test_inventory_prunes_gitignored_memory_runtime_but_keeps_the_memory_code_package(self):
+        # #180: the ownership inventory must skip the gitignored RUNTIME store `.engine/memory/` (the live
+        # NDJSON ledger / index / capture-state / lock, created when the memory hooks run, never committed)
+        # the same way `.venv`/`.pytest_cache` are skipped — else a working copy on which the engine has run
+        # reports each runtime file as an unowned orphan and the full local suite fails. This is the
+        # DETERMINISTIC guard: test_real_repository_is_coherent is silently green when `.engine/memory/`
+        # happens to be empty (e.g. a fresh CI clone), so it does not by itself lock the carve-out.
+        #
+        # The load-bearing half is the SECOND assertion: the prune is anchored on the exact path
+        # `.engine/memory`, NOT the bare name `memory`, so the committed memory CODE package
+        # `.engine/tools/memory/` (owned via the module's `provides` glob) stays ownership-checked. A
+        # bare-name `"memory"` prune would silently un-own that whole package — this test goes red if a
+        # future change weakens the path-anchor to a name, or removes PRUNE_PATHS entirely.
+        saved_root, saved_engine = validate.ROOT, validate.ENGINE_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                engine = os.path.join(d, ".engine")
+                runtime = os.path.join(engine, "memory")             # gitignored runtime root -> must prune
+                code = os.path.join(engine, "tools", "memory")       # committed code package -> must keep
+                control = os.path.join(engine, "check")              # ordinary engine dir -> must keep
+                for sub in (runtime, code, control):
+                    os.makedirs(sub)
+                open(os.path.join(runtime, "ledger.ndjson"), "w").close()
+                open(os.path.join(code, "forget.py"), "w").close()
+                open(os.path.join(control, "some-rule.json"), "w").close()
+                validate.ROOT, validate.ENGINE_DIR = d, engine
+                inv = module_coherence.engine_file_inventory()
+            self.assertNotIn(".engine/memory/ledger.ndjson", inv,
+                             "the gitignored .engine/memory/ runtime must be pruned (the #180 bug)")
+            self.assertIn(".engine/tools/memory/forget.py", inv,
+                          "the committed .engine/tools/memory/ code package must stay owned "
+                          "(the path-anchor gotcha — a bare-name 'memory' prune would drop it)")
+            self.assertIn(".engine/check/some-rule.json", inv,
+                          "ordinary committed engine files are still inventoried (only runtime is excluded)")
+        finally:
+            validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
+
     def test_real_repository_is_wiring_coherent_and_approval_blind(self):
         # The committed tree's declared wires are ALL applied -> the forward wiring leg is silent.
         # The mcp leg is APPROVAL-BLIND: it reports the engine-knowledge-graph server applied from the
