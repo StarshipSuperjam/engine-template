@@ -1115,7 +1115,7 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:ed9040c6247d36cf1b0f85097bb45962252f6e43bff54b2a43a37865839de517",
+        "fingerprint": "sha256:fa818055f227f079f274ee50f79ab9d01f34d04eba4ec1559b681e40c9b27aa8",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
@@ -3933,7 +3933,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b3c4e33ce14c1ef14e935a2e5e7612f0fdc9d06795271b4b94934097d1cd6120",
+        "fingerprint": "sha256:ff980414e581e925c58685b5a072da854d9853fd3ccf8629cbe5454ad92ea7b2",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
