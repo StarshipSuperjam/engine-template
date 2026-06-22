@@ -129,7 +129,18 @@ OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/conduct/operator.
 # inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts
 # (the uv venv, Python bytecode, the pytest run-cache, and knowledge's derived `.cache/` query index,
 # slice 11). Pruning them keeps the ownership leg from flagging a derived cache as an unowned orphan.
+# Matched by bare directory NAME, because these caches recur at any depth in the tree.
 PRUNE_DIRS = {".venv", "__pycache__", ".cache", ".pytest_cache"}
+
+# Repo-relative directory PATHS (not bare names) that hold gitignored RUNTIME state — never committed,
+# so by the inventory's "every COMMITTED engine file" contract they are not owned files. Distinct
+# justification from PRUNE_DIRS above: this is not a regenerable derivative/cache but the memory
+# substrate's live, non-regenerable per-instance store (the NDJSON ledger, the search index, the
+# capture-state file, the lock) under `.engine/memory/`, created the moment the memory hooks run and
+# gitignored by the memory module's `gitignore` wire. It is excluded by the SAME walk-prune mechanism.
+# Anchored on the exact PATH `.engine/memory`, never the bare name `memory`, so the committed memory
+# CODE package `.engine/tools/memory/` (owned via the module's `provides` glob) stays ownership-checked.
+PRUNE_PATHS = {".engine/memory"}
 
 MODULES_GLOB = ".engine/modules/*/manifest.json"
 
@@ -159,7 +170,11 @@ def engine_file_inventory() -> list:
     exclusively-engine corner where file ownership is well-defined."""
     out = []
     for dirpath, dirs, files in os.walk(validate.ENGINE_DIR):
-        dirs[:] = [d for d in dirs if d not in PRUNE_DIRS]
+        # Prune name-matched caches (PRUNE_DIRS, any depth) and path-matched gitignored runtime roots
+        # (PRUNE_PATHS, the exact repo-relative path) so neither's contents are flagged as orphans.
+        dirs[:] = [d for d in dirs
+                   if d not in PRUNE_DIRS
+                   and _rel(os.path.join(dirpath, d)) not in PRUNE_PATHS]
         out.extend(_rel(os.path.join(dirpath, f)) for f in files)
     return sorted(out)
 
