@@ -5,6 +5,13 @@
     ".engine/tools/test_instantiator.py",
     ".engine/tools/test_security_seed.py",
     ".engine/tools/demo_security_seed.py",
+    ".engine/tools/demo_audit_concern_list.py",
+    ".engine/tools/demo_audit_digest.py",
+    ".engine/tools/demo_boot_slice.py",
+    ".engine/tools/demo_ci_author_exempt.py",
+    ".engine/tools/demo_derived_reconcile.py",
+    ".engine/tools/demo_focus_read.py",
+    ".engine/tools/demo_reverse_adjacency.py",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md"
   ],

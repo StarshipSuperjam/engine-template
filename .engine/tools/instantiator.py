@@ -986,6 +986,19 @@ _FIRST_RUN_ASSET_FILES = (
     # this list (parity-tested) so the closure check can read the retired set without importing the instantiator.
     ".engine/tools/test_security_seed.py",
     ".engine/tools/demo_security_seed.py",
+    # Construction-phase behavioral demos: falsifications over real engine surfaces that are maintainer build
+    # evidence, not operator capability — so they retire here rather than travel into a generated repo
+    # (engine-planning D-228; a construction demo does not travel unless promoted by an explicit logged
+    # decision). Unlike the security-seed pair above, these reference no retiring machinery; they retire only
+    # so the construction set does not ship as a junk drawer. Each is mirrored in first-run-assets.json
+    # (parity-tested). The per-tool `demo` subcommand convention is the promoted standing form, decided upstream.
+    ".engine/tools/demo_audit_concern_list.py",
+    ".engine/tools/demo_audit_digest.py",
+    ".engine/tools/demo_boot_slice.py",
+    ".engine/tools/demo_ci_author_exempt.py",
+    ".engine/tools/demo_derived_reconcile.py",
+    ".engine/tools/demo_focus_read.py",
+    ".engine/tools/demo_reverse_adjacency.py",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
 )
@@ -1075,7 +1088,10 @@ def retire(*, root=None, announce=None) -> dict:
             deleted.append(rel)
         else:
             already.append(rel)
-    _drop_bytecode(base, ("instantiator", "test_instantiator", "test_security_seed", "demo_security_seed"))
+    _drop_bytecode(base, ("instantiator", "test_instantiator", "test_security_seed", "demo_security_seed",
+                          "demo_audit_concern_list", "demo_audit_digest", "demo_boot_slice",
+                          "demo_ci_author_exempt", "demo_derived_reconcile", "demo_focus_read",
+                          "demo_reverse_adjacency"))
     graph_status = "regenerated"
     try:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)  # so the saved information no longer lists the
