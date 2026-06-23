@@ -13,7 +13,8 @@ today and degrades over the ones that do not, then exposes the operator's no-Cla
     id or a SET; each member is walked at depth 1, so proximity is uniform today (the query returns no hop-depth).
   - git/GitHub (the in-flight work-record reader, work_record): open PRs + the working branch become
     `in_flight` candidates, and the files that work touches drive the knowledge focus above (#37). telemetry
-    (the live debt register, slice 18) does NOT exist yet, so it is always in a result's `degraded_inputs`.
+    (the live debt register, slice 18) ships now, but attention deliberately does not read it — boot/telemetry own
+    that live read (above), not attention — so it is always in a result's `degraded_inputs`.
 
 The adapter NARRATES nothing in the result (boot surfaces degradation loudly, at its slice); the CLI prints
 a degrade note to stderr only, for the operator's own demo. `as_of` is the recorded reference time: the live

@@ -63,9 +63,10 @@ something less important. The dials only adjust matters *inside* that fixed fram
 These dials govern only how the engine *prioritises and sizes* what it shows you when it gets its bearings —
 at the start of a session and on each prompt. They decide ordering and room, nothing else: not whether
 something is a tracked problem in the first place (that is the monitoring policy's job), not what is fetched
-or stored, and not the product you are building — only the engine's own attention. They take full effect once
-the start-of-session and per-prompt orientation events ship in later slices; until then they stand as a
-documented, working starting point that the ranking tool already reads.
+or stored, and not the product you are building — only the engine's own attention. They take full effect
+through the start-of-session and per-prompt orientation events, where the ranking tool reads and applies them;
+the numbers themselves stand as deliberate starting values, calibrated against real use rather than proven
+from the outset.
 
 When the engine looks at the parts of the project next to what you are touching, it follows only the
 **structural wiring** between them — who owns a file, which rule governs it, what a check targets, and which
@@ -92,8 +93,8 @@ their numbers as the engine is observed in practice.
 This policy does not itself check or block anything, and nothing is enforced on you by it. The fixed order of
 importance is held by the *structure* of that tool, not by this file: the tool sorts the five kinds into
 their ranked slots before any weight is applied, so the order holds even if a dial is mis-set. The shares,
-weights, and thresholds take real effect only once the start-of-session and per-prompt orientation events
-ship in later slices; today the tool reads them and would apply them, but no orientation event yet surfaces
-the result and nothing blocks work. This policy's whole force is the expectation that these numbers stay
+weights, and thresholds take real effect through the start-of-session and per-prompt orientation events: the
+tool reads them, applies them, and an orientation event surfaces the ranked result — and still nothing blocks
+work. This policy's whole force is the expectation that these numbers stay
 here — legible, calibrated from evidence, and surfaced for review when they change — rather than being
 hidden as fixed constants in code.

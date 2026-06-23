@@ -60,6 +60,7 @@ it never changes or closes the issues you created. And by default a turn is held
 explicitly flagged something this turn — an ordinary turn ends without interruption.
 
 Ambient capture is **memory's** mechanism, not this gate's: closing a turn only *triggers* it and never
-holds the turn on it. The memory store arrives in a later package; until then the trigger is in place and
-simply does nothing. This runbook covers turn close only; submitting the finished work as a pull request is
+holds the turn on it. The memory store has shipped, so the trigger is live: closing a turn relays the turn's
+delta to memory's ledger. It stays best-effort and fail-soft — any fault is a silent no-op and never holds or
+strands the turn. This runbook covers turn close only; submitting the finished work as a pull request is
 the build-orchestration runbook's.
