@@ -90,6 +90,18 @@ def _current_branch(run) -> tuple[str, str | None] | None:
     return name, _z(run(["log", "-1", "--format=%cI"]))  # the tip commit's committer date, ISO-8601 strict
 
 
+def _branch_is_merged(run, default: str) -> bool:
+    """True iff the current HEAD is already contained in the default branch — a merged-but-not-deleted working
+    branch is finished work, not "unmerged work in flight". `git merge-base --is-ancestor HEAD <ref>` exits 0
+    (no stdout -> _run_git returns "", i.e. NOT None) iff HEAD is an ancestor of <ref>; any other exit — not an
+    ancestor, or a missing ref — maps to None. Checks the remote-tracking default (origin/<default>, where a PR
+    merge lands) then the local <default>. Fail-SAFE: on any doubt this returns False, so the branch stays
+    surfaced and real in-flight work is NEVER hidden. (A squash-merge leaves HEAD's commits out of the default,
+    so it reads as still-in-flight — an honest false-positive in the safe, over-surfacing direction.)"""
+    return any(run(["merge-base", "--is-ancestor", "HEAD", ref]) is not None
+               for ref in (f"origin/{default}", default))
+
+
 def _open_prs(gh, *, window: int) -> list[tuple]:
     """The repo's open pull requests via the injected reader, as (number, title, updated_at, head_ref) tuples.
     Raises WorkRecordUnavailable on a read failure (HTTP >= 400 / non-list body) — never read as "no PRs"."""
@@ -135,10 +147,12 @@ def read_in_flight(gh=None, *, run=_run_git, window: int = _PR_WINDOW, cap: int 
         except WorkRecordUnavailable:
             gh_ok = False  # GitHub unreadable -> fall back to the local-git floor (degrade WITHIN git)
 
-    # The working branch — unless an open PR already represents it (no double-listing).
+    # The working branch — unless an open PR already represents it (no double-listing), or it has already MERGED
+    # into the default branch (a merged-but-undeleted branch is finished work, not "unmerged work in flight").
     if current is not None and current[0] not in pr_head_refs:
-        records.append({"id": f"branch:{current[0]}", "category": "in_flight",
-                        "recency": current[1], "title": current[0], "source": "git"})
+        if not _branch_is_merged(run, _default_branch(run)):
+            records.append({"id": f"branch:{current[0]}", "category": "in_flight",
+                            "recency": current[1], "title": current[0], "source": "git"})
 
     if not floor_ok and not gh_ok:
         raise WorkRecordUnavailable("git is not runnable here and no GitHub work-record read succeeded")
@@ -175,9 +189,11 @@ def changed_paths(*, run=_run_git, cap: int = _PATHS_CAP) -> list[str]:
 
 # ---- operator-runnable demo (real read_in_flight + the real boot rendering; only git/network faked) ------
 
-def _fake_run(*, current="claude/my-feature", default="main", tip="2026-06-19T10:00:00Z", in_repo=True):
+def _fake_run(*, current="claude/my-feature", default="main", tip="2026-06-19T10:00:00Z", in_repo=True,
+              merged=False):
     """A fake git runner answering the calls _current_branch / read_in_flight make — lets the demo run the
-    REAL reader fully offline ([[demo-must-exercise-real-logic]]); only the git subprocess is faked."""
+    REAL reader fully offline ([[demo-must-exercise-real-logic]]); only the git subprocess is faked. `merged`
+    answers `merge-base --is-ancestor` the way real git does: "" (exit 0 = HEAD is an ancestor = merged) or None."""
     def run(args):
         if args[:2] == ["rev-parse", "--is-inside-work-tree"]:
             return "true" if in_repo else None
@@ -185,6 +201,8 @@ def _fake_run(*, current="claude/my-feature", default="main", tip="2026-06-19T10
             return f"refs/remotes/origin/{default}"
         if args[:2] == ["rev-parse", "--abbrev-ref"]:
             return current
+        if args[:2] == ["merge-base", "--is-ancestor"]:
+            return "" if merged else None
         if args[:1] == ["log"]:
             return tip
         return None
@@ -249,11 +267,17 @@ def _demo() -> int:
     r4 = read_in_flight(gh4, run=_fake_run(current="claude/my-feature"))
     show("4) GitHub unreachable / auth expired — it degrades to the local-git floor rather than failing:", r4)
 
+    # (5) The current branch already MERGED into the default (its pull request landed) but isn't deleted yet ->
+    #     finished work, NOT "unmerged work in flight": it drops off the list (the false alarm this fix removes).
+    r5 = read_in_flight(None, run=_fake_run(current="claude/already-merged", merged=True))
+    show("5) On a branch whose work already MERGED — it's finished, so it is NOT shown as unmerged work:", r5)
+
     print("No real GitHub call was made and nothing was written. When GitHub can't be read at all and git")
     print("isn't runnable either, the reader reports `git` as a degraded input and boot says so plainly.")
-    # Self-check: online reads the PRs; a branch already covered by a PR isn't double-listed; and both the
-    # offline and the GitHub-failure cases still surface the working branch (the local-git floor).
-    ok = len(r1) >= 2 and len(r2) == 1 and bool(r3) and bool(r4)
+    # Self-check: online reads the PRs; a branch already covered by a PR isn't double-listed; both the offline
+    # and the GitHub-failure cases still surface the working branch (the local-git floor); and a branch that has
+    # already merged is NOT surfaced as in-flight.
+    ok = len(r1) >= 2 and len(r2) == 1 and bool(r3) and bool(r4) and r5 == []
     if not ok:
         print("\nDEMO UNEXPECTED: in-flight reading, the no-double-list rule, or the local-git floor did not "
               "behave as expected.", file=sys.stderr)
