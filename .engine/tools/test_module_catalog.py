@@ -73,9 +73,13 @@ class TestEntries(unittest.TestCase):
             _write(p, json.dumps(["a string", 5, {"verb": "engine-ok", "description": "d"}]))
             self.assertEqual([e["verb"] for e in mc.entries(p)], ["engine-ok"])
 
-    def test_committed_catalog_ships_empty(self):
-        # The default path reads the real committed catalog, which ships as an empty array.
-        self.assertEqual(mc.entries(), [])
+    def test_committed_catalog_relays_the_shipped_optionals(self):
+        # The committed catalog shipped empty until the first optional module was built; it now relays
+        # github-projects-sync as a normalized entry (the default path reads the real committed catalog).
+        board = [e for e in mc.entries() if e["id"] == "github-projects-sync"]
+        self.assertEqual(len(board), 1, "the committed catalog relays the github-projects-sync entry")
+        self.assertEqual(board[0]["verb"], "engine-board-setup")
+        self.assertEqual(board[0]["category"], "Product Management")
 
 
 if __name__ == "__main__":

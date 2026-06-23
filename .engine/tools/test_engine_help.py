@@ -115,7 +115,9 @@ class TestAvailableVerbsRelay(unittest.TestCase):
         # An explicit missing path narrows to nothing.
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(eh.available_verbs(os.path.join(d, "nope.json")), [])
-        # No path = the committed catalog (the shared reader's default), which ships empty in this repo.
+        # No path = the committed catalog (the shared reader's default). It now ships the github-projects-sync
+        # entry, but that module is INSTALLED here, so the installed-module filter excludes it — the available
+        # ("if you install it") list is still empty.
         self.assertEqual(eh.available_verbs(None), [])
 
     def test_present_catalog_relayed_sorted(self):

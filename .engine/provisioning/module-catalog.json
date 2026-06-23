@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "id": "github-projects-sync",
+    "verb": "engine-board-setup",
+    "description": "Show what the engine is building — what's next, what needs your review, and known issues — at a glance on a GitHub Projects board. One-time setup creates a board on your GitHub account and asks for a permission that covers all your GitHub Projects (optional and revocable), plus an optional one-time click in GitHub to turn on auto-add. A board is never required: the engine works the same from your issues and pull requests, and you can delete the board later without losing anything.",
+    "category": "Product Management",
+    "status": "optional"
+  }
+]

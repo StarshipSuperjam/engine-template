@@ -26,11 +26,12 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (5 installed).
+The packages your engine is assembled from, and how they wire together (6 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
 - `core` (no dependencies)
+- `github-projects-sync` → `core`
 - `memory-substrate-sqlite-fts5` → `core`
 - `routine-mode` → `core`
 - `validators-core` → `core`
@@ -57,6 +58,15 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`, `.engine/tools/*.sh`
 - wires: gitignore, hook, mcp
+
+### `github-projects-sync` — version `0.0.0-dev` (optional)
+
+- depends on: `core`
+- provides:
+  - operation: `.engine/operations/projects-sync-setup.md`
+  - skill: `.claude/skills/engine-board-setup/SKILL.md`
+  - tool: `.engine/tools/projects_sync/*.py`
+- wires: gitignore, hook
 
 ### `memory-substrate-sqlite-fts5` — version `0.0.0-dev` (required)
 

@@ -143,7 +143,11 @@ PRUNE_DIRS = {".venv", "__pycache__", ".cache", ".pytest_cache"}
 # gitignored by the memory module's `gitignore` wire. It is excluded by the SAME walk-prune mechanism.
 # Anchored on the exact PATH `.engine/memory`, never the bare name `memory`, so the committed memory
 # CODE package `.engine/tools/memory/` (owned via the module's `provides` glob) stays ownership-checked.
-PRUNE_PATHS = {".engine/memory"}
+# `.engine/projects-sync` is the same shape: the github-projects-sync module's gitignored per-instance
+# board-coordinate config + debounce stamp (its `gitignore` wire keys it out of version control), created
+# the moment that module's sync hook runs. Anchored on the exact path, so the committed CODE package
+# `.engine/tools/projects_sync/` (owned via that module's `provides` glob) stays ownership-checked.
+PRUNE_PATHS = {".engine/memory", ".engine/projects-sync"}
 
 MODULES_GLOB = ".engine/modules/*/manifest.json"
 

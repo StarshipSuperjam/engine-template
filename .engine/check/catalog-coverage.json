@@ -17,6 +17,7 @@
       ".engine/.pytest_cache/",
       ".engine/memory/",
       ".engine/memory-backup/",
+      ".engine/projects-sync/",
       ".claude/worktrees/"
     ]
   },

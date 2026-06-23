@@ -168,7 +168,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:48990ead300d226e9eb78fa3861a3734e06d8ea3674c9c17191b016d365ec6d5",
+        "fingerprint": "sha256:b30ec7473e5a2814257e8e01e9f5f883206d7d12208ef80d9177d066f4acfb4d",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -629,6 +629,7 @@
         "targets": [
           "module:audit-library",
           "module:core",
+          "module:github-projects-sync",
           "module:memory-substrate-sqlite-fts5",
           "module:routine-mode",
           "module:validators-core"
@@ -671,6 +672,7 @@
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
+          "operation:projects-sync-setup",
           "operation:routine-entry",
           "operation:tune-policy"
         ]
@@ -712,6 +714,7 @@
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
+          "operation:projects-sync-setup",
           "operation:routine-entry",
           "operation:tune-policy"
         ]
@@ -930,6 +933,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "skill:engine-board-setup",
           "skill:engine-conduct",
           "skill:engine-help",
           "skill:engine-routine",
@@ -964,6 +968,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "skill:engine-board-setup",
           "skill:engine-conduct",
           "skill:engine-help",
           "skill:engine-routine",
@@ -1158,6 +1163,24 @@
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
+      "id": "module:github-projects-sync",
+      "name": "github-projects-sync",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "github-projects-sync",
+      "source": {
+        "fingerprint": "sha256:d3a0908d8eefb4153447656dabd5f905a56df616db96b2f3edaaa060419d8cbf",
+        "path": ".engine/modules/github-projects-sync/manifest.json"
+      },
+      "status": "optional",
       "type": "module",
       "version": "0.0.0-dev"
     },
@@ -1451,6 +1474,26 @@
       "source": {
         "fingerprint": "sha256:fb3a504f4877e801e2926e5f6eb45fc9ab59a5abc8b8ce750266e0a905a46d16",
         "path": ".engine/operations/operating-modes.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:projects-sync-setup",
+      "name": ".engine/operations/projects-sync-setup.md",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "projects-sync-setup",
+      "source": {
+        "fingerprint": "sha256:21ddea4b7a7ab6f32964f0163ea9ac9e929b8b6bb7cceebbfe05a54816fafd4e",
+        "path": ".engine/operations/projects-sync-setup.md"
       },
       "status": "active",
       "type": "operation"
@@ -1873,6 +1916,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:projects-board.v1",
+      "name": ".engine/schemas/projects-board.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "projects-board.v1",
+      "source": {
+        "fingerprint": "sha256:c9721d21613afe315e72a1e6b7090f41af10ad28bd5644f612c6d7069fc61716",
+        "path": ".engine/schemas/projects-board.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:provisioning-catalog.v1",
       "name": ".engine/schemas/provisioning-catalog.v1.json",
       "owner": "core",
@@ -1990,6 +2050,28 @@
       },
       "status": "active",
       "type": "schema"
+    },
+    {
+      "id": "skill:engine-board-setup",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-board-setup/SKILL.md",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "engine-board-setup",
+      "source": {
+        "fingerprint": "sha256:6eeaa9391faf7a70704081f80e8ef1af3ce47428b8c9dea998cbdcb41ae56f37",
+        "path": ".claude/skills/engine-board-setup/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-board-setup",
+      "type": "skill"
     },
     {
       "id": "skill:engine-conduct",
@@ -2144,23 +2226,6 @@
       "status": "active",
       "title": "engine-tune",
       "type": "skill"
-    },
-    {
-      "id": "tool:__init__",
-      "name": ".engine/tools/memory/__init__.py",
-      "owner": "memory-substrate-sqlite-fts5",
-      "predicates": {
-        "provided_by": [
-          "module:memory-substrate-sqlite-fts5"
-        ]
-      },
-      "slug": "__init__",
-      "source": {
-        "fingerprint": "sha256:f673755c37c92a7e5e8cce7992619155cf7aa0312774060fba340cbae8169fae",
-        "path": ".engine/tools/memory/__init__.py"
-      },
-      "status": "active",
-      "type": "tool"
     },
     {
       "id": "tool:attention",
@@ -2666,7 +2731,7 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:1c5f2a744a14cc878497a41c46ceba660c9bea0d66d8d7ff070df379b9628511",
+        "fingerprint": "sha256:95a97a6b27fc31134aff1a69058ab70efc96afe962b57c53a9ac35d2823c29e8",
         "path": ".engine/tools/engine_help.py"
       },
       "status": "active",
@@ -2785,7 +2850,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:534521bc42fd02b7a976e3add5c16427fb1225a6c2b9669fca749075df87222b",
+        "fingerprint": "sha256:8302afa3b77f151a76a450a4ff8452d4886b91d032eefff38fe620e7cd23e596",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -2904,7 +2969,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:370b16df3fb7efce464f4fbcda9d4311222b35a5705fcd1954742d1e30e004a7",
+        "fingerprint": "sha256:87dff74dc19d2b8008ac266dfe3a71606366b5929d2e00756136da8a78d23390",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -3013,6 +3078,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:memory.__init__",
+      "name": ".engine/tools/memory/__init__.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "memory.__init__",
+      "source": {
+        "fingerprint": "sha256:f673755c37c92a7e5e8cce7992619155cf7aa0312774060fba340cbae8169fae",
+        "path": ".engine/tools/memory/__init__.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:memory_pointer_public_safety_check",
       "name": ".engine/tools/memory_pointer_public_safety_check.py",
       "owner": "core",
@@ -3074,7 +3156,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:40d59700bc821b5c4ff78b1be5602f7741528ad7643a27bb57d2a767b4279f98",
+        "fingerprint": "sha256:ec47ae470b2528984904aad035b270df0258c8410f632584dc29f401fcd232ac",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -3144,6 +3226,40 @@
       "source": {
         "fingerprint": "sha256:2648d4206e969f83ed77579ac56bf825eb2da8c1f6c1eaec1eaf65d6093aa3ba",
         "path": ".engine/tools/pr_reconcile.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:projects_sync",
+      "name": ".engine/tools/projects_sync/projects_sync.py",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "projects_sync",
+      "source": {
+        "fingerprint": "sha256:0fb7fc0b5256efa42a90f715ef5f5bba9ec1122ed9daf8b048582b45f10ce312",
+        "path": ".engine/tools/projects_sync/projects_sync.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:projects_sync.__init__",
+      "name": ".engine/tools/projects_sync/__init__.py",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "projects_sync.__init__",
+      "source": {
+        "fingerprint": "sha256:13caefff97b48ddf9965778f042b12f24a3b4a2cd09fd8bfa288ff62fdf3da68",
+        "path": ".engine/tools/projects_sync/__init__.py"
       },
       "status": "active",
       "type": "tool"
@@ -3669,7 +3785,7 @@
       },
       "slug": "test_engine_help",
       "source": {
-        "fingerprint": "sha256:eb5d15334df755e8976bdc72134961b5c43d9633745ab1c58a6f5cfe3867997e",
+        "fingerprint": "sha256:dfbaefa5aa9a5a11d7473a248907e4ca1febc7873d361ea0f4a5e819f997b6db",
         "path": ".engine/tools/test_engine_help.py"
       },
       "status": "active",
@@ -3788,7 +3904,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:ccefe7db12b79ea4d91be07685458e288c46db362e42a2153aa9e59e296b552d",
+        "fingerprint": "sha256:2f59615b07566388e78040741e61b869412fa92c183a674d74771ba0d2258eb1",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -3839,7 +3955,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:acdad99a15f1d9312c12ba03e7fa60c5f7e7f0ed0d19efaf14cdf73bb2587f80",
+        "fingerprint": "sha256:6f89c43dc4c3189a209275e75704078e1803b6e9c095ca045f3012a5594af444",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -3924,7 +4040,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:0265a10f3daef0130109b3dc5ed666f0dfa6e08b3e55414b5af8a1283f89dcd9",
+        "fingerprint": "sha256:b01a5f499ca8959d4fd236fdefc73cdea33adf5831559dbfbbc5cf4d0fffdf6c",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -4043,7 +4159,7 @@
       },
       "slug": "test_module_catalog",
       "source": {
-        "fingerprint": "sha256:21da24140780b77dec209364861790fc2873c3955418e1c28b8f37cef18f8e47",
+        "fingerprint": "sha256:aa6c1e4a57f0fc8e0950744a50c4e0f9a34dbe968f3fdb28e33a9f3e61564def",
         "path": ".engine/tools/test_module_catalog.py"
       },
       "status": "active",
@@ -4164,6 +4280,23 @@
       "source": {
         "fingerprint": "sha256:b0439235fa5585d61fa31bab1a94c279a721c2145311e67f0f193bb6f8214a1b",
         "path": ".engine/tools/test_pr_reconcile.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_projects_sync",
+      "name": ".engine/tools/projects_sync/test_projects_sync.py",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "test_projects_sync",
+      "source": {
+        "fingerprint": "sha256:b7202bcce34b43f4bd3c80edc8657def804de644275b4262e51ec731e6bcd917",
+        "path": ".engine/tools/projects_sync/test_projects_sync.py"
       },
       "status": "active",
       "type": "tool"

@@ -109,12 +109,17 @@ def _slug(rel_path: str) -> str:
 def _instance_slug(surface_type: str, rel_path: str) -> str:
     """The id suffix for a surface INSTANCE. A skill IS its directory under .claude/skills/ — the file is
     always SKILL.md, so the file stem would collide every skill onto 'SKILL'; its slug is that parent
-    directory's name (e.g. `.claude/skills/engine-help/SKILL.md` -> `engine-help`). Every other surface has a
-    distinct filename, so its slug is the file stem (`_slug`); an agent is `.claude/agents/<name>.md`, whose
-    stem is already its name."""
+    directory's name (e.g. `.claude/skills/engine-help/SKILL.md` -> `engine-help`). A tool PACKAGE marker is
+    always `__init__.py`, so the bare stem would collide every package's marker onto '__init__'; it is
+    qualified by its package directory (e.g. `.engine/tools/memory/__init__.py` -> `memory.__init__`) so two
+    tool packages stay distinct. Every other surface has a distinct filename, so its slug is the file stem
+    (`_slug`); an agent is `.claude/agents/<name>.md`, whose stem is already its name."""
     if surface_type == "skill":
         return os.path.basename(os.path.dirname(rel_path))
-    return _slug(rel_path)
+    stem = _slug(rel_path)
+    if stem == "__init__":
+        return os.path.basename(os.path.dirname(rel_path)) + ".__init__"
+    return stem
 
 
 def _surface_for(rel_path: str, surfaces: dict):

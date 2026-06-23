@@ -57,6 +57,12 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(knowledge_gen._instance_slug("agent", ".claude/agents/reviewer.md"), "reviewer")
         self.assertEqual(knowledge_gen._instance_slug("check", ".engine/check/state-cursor.json"),
                          "state-cursor")
+        # a tool PACKAGE marker is always __init__.py, so the bare stem would collide every package onto
+        # '__init__'; it is qualified by its package directory so two tool packages stay distinct.
+        self.assertEqual(knowledge_gen._instance_slug("tool", ".engine/tools/memory/__init__.py"),
+                         "memory.__init__")
+        self.assertEqual(knowledge_gen._instance_slug("tool", ".engine/tools/projects_sync/__init__.py"),
+                         "projects_sync.__init__")
 
     def test_surface_for_longest_prefix(self):
         surfaces = {"check": {"location": ".engine/check/"}, "schema": {"location": ".engine/schemas/"}}

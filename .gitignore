@@ -34,3 +34,6 @@ __pycache__/
 # BEGIN engine-managed block: memory-substrate-ledger - do not edit inside
 .engine/memory/
 # END engine-managed block: memory-substrate-ledger
+# BEGIN engine-managed block: github-projects-sync-board-config - do not edit inside
+.engine/projects-sync/
+# END engine-managed block: github-projects-sync-board-config
