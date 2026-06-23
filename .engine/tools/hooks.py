@@ -53,10 +53,12 @@ import validate  # noqa: E402
 #             (validation's local nudge + telemetry's ambient capture + modes' plan-acceptance
 #             Build-entry trigger coexist on one event — D-180); SessionEnd is hooks-owned
 #             (cleanup/flush, cannot block); UserPromptSubmit is boot/orientation's per-prompt scent.
-#             SessionStart has TWO owners: boot's orientation pack + memory's consolidation sweep (3b),
-#             which coexist on one event by keyed registration (the PostToolUse multi-owner precedent).
+#             SessionStart has THREE owners: boot's orientation pack + memory's consolidation sweep (3b)
+#             + the optional github-projects-sync board refresh, which coexist on one event by keyed
+#             registration (the PostToolUse multi-owner precedent). The board-sync owner is present only
+#             while that optional module is installed; the entry names every system that may own the event.
 EVENT_INVENTORY = {
-    "SessionStart":     {"owners": ("boot", "memory"),          "blocks": False, "injects": True},
+    "SessionStart":     {"owners": ("boot", "memory", "github-projects-sync"), "blocks": False, "injects": True},
     "PreToolUse":       {"owners": ("invariant-owner",),         "blocks": True,  "injects": True},
     "PostToolUse":      {"owners": ("validation", "telemetry", "modes"), "blocks": False, "injects": False},
     "PreCompact":       {"owners": ("memory",),                  "blocks": False, "injects": False},

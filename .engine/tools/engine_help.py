@@ -87,16 +87,30 @@ def installed_verbs(root: str | None = None) -> list:
     return sorted(verbs, key=lambda v: v["name"])
 
 
+def _installed_module_ids() -> set:
+    """The ids of the modules installed in this engine (the engine manifest's `packages`), or an empty set
+    when it cannot be read — the available list then degrades to listing everything rather than blanking
+    (degrade, never blank). The catalog lists every optional module the engine ships; one that is ALREADY
+    installed is shown under the installed commands, not as something to install, so it is excluded here."""
+    try:
+        engine = validate.load_json(os.path.join(validate.ROOT, ".engine", "engine.json"))
+        return set((engine or {}).get("packages") or {})
+    except Exception:  # noqa: BLE001 — an unreadable manifest degrades to no filter, never blanks the list
+        return set()
+
+
 def available_verbs(catalog_path: str | None = None) -> list:
     """The optional, not-yet-installed commands, RELAYED from the committed module catalog the first-run
     setup maintains — or an empty list when the catalog is absent, empty, or damaged (it narrows the
     listing, never breaks it). Returns each as {name, description}: the command the operator would type
-    once the module is installed, plus its one-line gloss, sorted by the command. This tool only relays;
+    once the module is installed, plus its one-line gloss, sorted by the command. A module that is already
+    installed is EXCLUDED (its command shows under the installed commands instead). This tool only relays;
     provisioning owns the catalog and the shared `module_catalog` reader parses it, so this index and the
     first-run walkthrough cannot drift in how they read it. `catalog_path` is injectable for tests; the
     committed catalog is read by default."""
+    installed = _installed_module_ids()
     return [{"name": e["verb"], "description": e["description"]}
-            for e in module_catalog.entries(catalog_path)]
+            for e in module_catalog.entries(catalog_path) if e["id"] not in installed]
 
 
 def _verb_line(verb: dict) -> str:

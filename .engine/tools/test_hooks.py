@@ -218,6 +218,9 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
                        ".engine/tools/memory/erasure_observer.py session-start",
                        ".engine/tools/memory/erasure_proposer.py session-start",
                        ".engine/tools/memory/backup_vault.py session-start")
+    # github-projects-sync (optional) wires its board refresh on two SessionStart matchers (startup + resume),
+    # the same command, so the SET has one entry while the registration COUNT is two.
+    PROJECTS_SYNC_RELPATHS = (".engine/tools/projects_sync/projects_sync.py session-start",)
 
     def _venv_hook_commands(self, commands):
         return [c for c in commands if ".venv/bin/python" in c]
@@ -229,6 +232,7 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     def test_manifest_and_settings_hook_commands_are_hook_command_output(self):
         expected_core = {hooks.hook_command(r, "posix") for r in self.CORE_RELPATHS}
         expected_memory = {hooks.hook_command(r, "posix") for r in self.MEMORY_RELPATHS}
+        expected_projects = {hooks.hook_command(r, "posix") for r in self.PROJECTS_SYNC_RELPATHS}
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
@@ -243,14 +247,21 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
                                           "erasure-proposer SessionStart sweeps + three backup-vault SessionStart pushes")
         self.assertEqual(set(m_cmds), expected_memory, "every memory manifest hook command is hook_command's output")
 
-        # settings.json registers BOTH modules' hooks: 9 core + 10 memory venv-rooted commands.
+        projects = validate.load_json(
+            os.path.join(validate.ROOT, ".engine/modules/github-projects-sync/manifest.json"))
+        p_cmds = self._hook_cmds(projects)
+        self.assertEqual(len(p_cmds), 2, "the board refresh on two SessionStart matchers (startup + resume)")
+        self.assertEqual(set(p_cmds), expected_projects, "every board-sync manifest hook command is hook_command's output")
+
+        # settings.json registers all installed modules' hooks: 9 core + 13 memory + 2 board-sync venv-rooted.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 22, "the twenty-two venv-rooted hook commands in settings (9 core + 13 memory)")
-        self.assertEqual(set(s_cmds), expected_core | expected_memory,
-                         "settings matches the form (and so both manifests) exactly")
+        self.assertEqual(len(s_cmds), 24,
+                         "the twenty-four venv-rooted hook commands in settings (9 core + 13 memory + 2 board-sync)")
+        self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects,
+                         "settings matches the form (and so all three manifests) exactly")
 
 
 class TestHarnessBlock(unittest.TestCase):

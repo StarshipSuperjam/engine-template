@@ -80,7 +80,13 @@ class TestPresentGather(unittest.TestCase):
             return inst.present_gather(catalog_path=catalog_path)
 
     def test_empty_catalog_shows_the_no_addons_line_and_choices(self):
-        out = self._gather(None)
+        # Inject an explicitly empty catalog so this still tests the no-add-ons path now that the committed
+        # catalog ships an optional module.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "empty.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write("[]")
+            out = self._gather(p)
         self.assertIn(inst._EMPTY_CATALOG_LINE, out)
         self.assertIn("who reviews changes here", out, "the identity choice is presented")
         self.assertIn("will be removed from this project", out, "the destructive-on-confirm outcome is stated")
