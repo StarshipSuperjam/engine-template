@@ -98,7 +98,7 @@
       }
     },
     "degraded_inputs": {
-      "description": "The substrate inputs that were ABSENT for this run, by name and sorted — the substrates the ranking could not consult. Today the live debt register (telemetry) and the git/GitHub work record are not yet built, so they appear here on every run; on an outage any of state, knowledge, telemetry, or git can appear. An empty array means every substrate was available. This is the machine-readable hand-off boot reads and surfaces loudly in plain language; the result itself records the absence and narrates nothing.",
+      "description": "The substrate inputs that were ABSENT for this run, by name and sorted — the substrates the ranking could not consult. Today the ranking does not consult the live debt register (telemetry) — it uses an offline cached count from state and leaves the live read to boot/telemetry — so telemetry appears here on every run; on an outage any of state, knowledge, telemetry, or git can appear. An empty array means every substrate was available. This is the machine-readable hand-off boot reads and surfaces loudly in plain language; the result itself records the absence and narrates nothing.",
       "type": "array",
       "items": {
         "enum": ["state", "knowledge", "telemetry", "git"]
