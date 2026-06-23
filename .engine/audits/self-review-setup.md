@@ -124,9 +124,11 @@ This part is optional. By default the review checks your committed files and the
 **not** your saved memory (the notes the engine keeps about your decisions), because that lives only on your
 computer, outside the project. If you'd like the review to also check whether those saved notes have gone stale
 or started to contradict each other, you can give it read access to them. (If your project is **public**, the
-review still reads your memory but keeps the specific notes out of its committed summary — anyone can read that
-summary — so it reports only that your memory was reviewed; your decisions stay private either way.) It's a
-deliberate, one-time setup, and worth understanding before you do it. Ask me and I'll talk you through each step;
+review still reads your memory and checks it for staleness, but it keeps the specific notes out of its committed
+summary — anyone can read that summary. So there it reports only *how many* of your notes look stale, never
+which ones, and points you to two private ways to see which: ask the engine to review your memory in an ordinary
+chat session, or keep the project private or give it its own private memory vault. Your decisions stay out of
+that public summary either way.) It's a deliberate, one-time setup, and worth understanding before you do it. Ask me and I'll talk you through each step;
 here's what it involves.
 
 **Two things have to be true**, and doing only the first leaves the read switched off:
