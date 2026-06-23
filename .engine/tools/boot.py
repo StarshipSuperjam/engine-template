@@ -106,8 +106,23 @@ PROTECTED_BRANCH = os.environ.get("PROTECTED_BRANCH", "main")
 STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
 
 RECENTLY_SHIPPED_COUNT = 5   # the bounded "what just happened" digest
-NEEDS_ATTENTION_CAP = 4      # render at most this many items per attention category (a bounded view;
-                             #   boot renders a prefix of attention's order — it never re-orders)
+
+# The cold-start orientation event's budget total. Boot owns the event's cost budget; attention owns how it
+# splits across the kinds and flexes (systems/lifecycle/boot/README "Boot owns the event model; attention
+# owns the budget within it"; systems/cognitive/attention/README "their cost budgets … are boot's to
+# define"). This is a count of ITEM-SLOTS to surface — NOT a token/context-window measurement (the engine
+# has none) — split across the five kinds by the attention policy's reviewable shares. Set to 5 kinds × the
+# retired flat per-kind cap of 4, so the total surfacing volume matches what boot showed before, now
+# distributed by the policy's shares instead of a buried flat number. At this total the proportional split
+# seats every kind, so the policy's trim order (the overflow rule) stays INERT here and bites only under a
+# genuinely smaller budget (the demo, or a share re-tune that starves a kind) — never manufactured scarcity.
+# A deliberate starting value, calibrated from use like the policy's other dials, not frozen.
+COLD_START_BUDGET = 20
+# A DEFENSIVE per-category cap, reached only when a ranking result carries no budget_size (a malformed or
+# budget-less result). A normal session always supplies the budget total above, so the policy's per-kind
+# budget_size governs surfacing and this floor is not used; it only keeps a budget-less result from
+# rendering an unbounded list. boot renders a prefix of attention's order — it never re-orders.
+NEEDS_ATTENTION_CAP = 4
 
 
 # ---- the git / gh boundary (best-effort, degrade-loud — never raises to the caller) ---------
@@ -279,7 +294,8 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = 
         # slice as DATA — boot is the LOADING layer; attention merges it per-key (D-167), never reads the file.
         # The work record, by contrast, is a SUBSTRATE attention reads itself (through the gh reader boot hands it).
         result = attention.rank_live(override=operator_overrides.slice_for("attention") or None,
-                                     focus=focus or None, gh=gh, source=source, live_findings=live_findings)
+                                     focus=focus or None, gh=gh, source=source, live_findings=live_findings,
+                                     budget_total=COLD_START_BUDGET)
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
         return [], ["attention"], None
     lines: list = []
@@ -287,7 +303,12 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = 
         if entry.get("category") == "structural_neighbors":
             continue        # the knowledge neighbourhood is the AI pack block (rendered from the richer
                             # neighborhood_of summary below), never an operator action line
-        for member in (entry.get("members") or [])[:NEEDS_ATTENTION_CAP]:
+        # The attention policy's reviewable per-kind budget governs how many items this kind surfaces (the
+        # buried flat cap is retired). budget_size is 0 for a kind the trim order shed under a tight budget —
+        # so it naturally contributes nothing — but at the shipped COLD_START_BUDGET every kind seats, so
+        # nothing is shed here. NEEDS_ATTENTION_CAP is only the defensive floor for a budget-less result.
+        cap = entry.get("budget_size", NEEDS_ATTENTION_CAP)
+        for member in (entry.get("members") or [])[:cap]:
             line = _resolve_member(member.get("id", ""), state)
             if line:                       # skip an id-less member rather than render a blank bullet
                 lines.append(line)

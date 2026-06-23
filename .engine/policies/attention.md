@@ -42,7 +42,8 @@ That order is structural — no single dial can override it — so a genuine blo
 something less important. The dials only adjust matters *inside* that fixed frame:
 
 - **How much room each kind gets** (`budget_*`): each kind's share of the limited space, written as fractions
-  meant to add up to one whole.
+  meant to add up to one whole. That space is a chosen count of items to surface — not a measurement of how
+  much the engine can hold (it has no such gauge); the shares divide it.
 - **The fixed order of importance** (`precedence_*`): the first-to-last ranking of the five kinds, where
   **rank 1 is surfaced first**.
 - **What is dropped first when space runs short** (`trim_*`): where **rank 1 is dropped first**; it starts as
@@ -63,11 +64,14 @@ something less important. The dials only adjust matters *inside* that fixed fram
 These dials govern only how the engine *prioritises and sizes* what it shows you when it gets its bearings —
 at the start of a session and on each prompt. They decide ordering and room, nothing else: not whether
 something is a tracked problem in the first place (that is the monitoring policy's job), not what is fetched
-or stored, and not the product you are building — only the engine's own attention. They take effect at the
-start-of-session orientation event, where the ranking tool reads them and surfaces the ranked
-result; the per-prompt scent uses just one of them — the strong-match threshold — to decide when to surface a
-memory pointer. The numbers themselves stand as deliberate starting values, calibrated against real use rather
-than proven from the outset.
+or stored, and not the product you are building — only the engine's own attention. Most of them take effect at
+the start-of-session orientation event, where the ranking tool reads them and sizes what it surfaces. The
+`trim_*` order is the exception: it is read there too, but only acts as a safety rule when the room cannot
+seat every kind — which at the room the engine ships with, it can — so changing it does not alter a normal
+session; it governs only what is shed first if the room is ever set too tight (the default sheds general
+orientation first and blocking debt last). The per-prompt scent uses just one dial — the strong-match
+threshold — to decide when to surface a memory pointer. The numbers themselves stand as deliberate starting
+values, calibrated against real use rather than proven from the outset.
 
 When the engine looks at the parts of the project next to what you are touching, it follows only the
 **structural wiring** between them — who owns a file, which rule governs it, what a check targets, and which
@@ -94,9 +98,10 @@ their numbers as the engine is observed in practice.
 This policy does not itself check or block anything, and nothing is enforced on you by it. The fixed order of
 importance is held by the *structure* of that tool, not by this file: the tool sorts the five kinds into
 their ranked slots before any weight is applied, so the order holds even if a dial is mis-set. The numbers
-take real effect at the start-of-session orientation event, where the tool reads them and surfaces the
-ranked result; the per-prompt scent reads only the strong-match threshold, to decide when to surface a
-memory pointer. Either way, nothing blocks work. This policy's whole force is the expectation that
-these numbers stay
+take real effect at the start-of-session orientation event, where the tool reads them and sizes what it
+surfaces; the `trim_*` order among them is read there too but stays a dormant safety rule at the room the
+engine ships with — it changes what is shed first only if the room is set too tight to seat every kind. The
+per-prompt scent reads only the strong-match threshold, to decide when to surface a memory pointer. Either
+way, nothing blocks work. This policy's whole force is the expectation that these numbers stay
 here — legible, calibrated from evidence, and surfaced for review when they change — rather than being
 hidden as fixed constants in code.
