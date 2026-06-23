@@ -105,10 +105,15 @@ class TestSetupPageContent(unittest.TestCase):
     def test_names_the_model_knob(self):
         self.assertIn("AUDIT_MODEL", self.text)
 
-    def test_discloses_the_saved_memory_coverage_limit(self):
-        # Honesty line (operator-ratified): the review can't yet read saved working memory (the off-repo
-        # backup is unbuilt), so the page says so up front rather than letting a clean review be over-trusted.
-        self.assertIn("saved working memory", self.text)
+    def test_discloses_the_saved_memory_read_and_its_precondition(self):
+        # The off-repo memory backup is now built, so the review CAN read saved memory — but only once two
+        # things are in place (a backup is set up AND the scheduled run is given access to it). The page says
+        # so honestly: it names the actionable how-to, the access precondition the design fixes, and the honest
+        # fallback (it discloses the gap rather than pretending memory is empty) — so coverage is never over-claimed.
+        self.assertIn("saved memory", self.text)
+        self.assertIn("ask me to set one up", self.text)                  # the actionable how-to
+        self.assertIn("given access to that backup", self.text)          # the access precondition
+        self.assertIn("never pretends your memory is empty", self.text)  # the honest fallback
 
 
 if __name__ == "__main__":

@@ -182,6 +182,29 @@ class TestAuditPrepShape(unittest.TestCase):
         text = self._text()
         self.assertIn("PRIOR SELF-REVIEWS: none are available to compare against this run (the fetch step failed)", text)
 
+    def test_fetches_saved_memory_and_feeds_it_to_the_persona(self):
+        # Concern #1 (saved memory): the workflow reads the project's off-repo memory BACKUP (the `memory` verb)
+        # and feeds it into the read-only persona's prompt between fresh markers — so the persona can review the
+        # saved beliefs without ever reaching the gitignored memory or GitHub itself.
+        text = self._text()
+        self.assertIn("audit_digest.py memory", text)                # the workflow reads the saved-memory backup
+        self.assertIn("BEGIN YOUR SAVED MEMORY", text)               # …and feeds it into the persona's prompt
+        self.assertIn("END YOUR SAVED MEMORY", text)
+
+    def test_saved_memory_feed_frames_concern_one_and_forbids_claiming_empty(self):
+        # The feed wording must point the persona at concern #1 and hold the honesty contract: when the backup
+        # can't be read, disclose the gap and NEVER claim the project has no saved memory — phrased about what
+        # this review could reach, never an absolute.
+        text = self._text()
+        self.assertIn("concern #1", text)
+        self.assertIn("NEVER claim the project has no saved memory", text)
+
+    def test_saved_memory_step_degrades_in_band_when_the_fetch_fails(self):
+        # Mirrors the other feed steps: if the fetch step itself fails, leave an honest marker so the persona
+        # still discloses concern #1's gap rather than the run dying or claiming memory is empty.
+        text = self._text()
+        self.assertIn("YOUR SAVED MEMORY: I couldn't read your saved memory this run (the fetch step failed)", text)
+
 
 if __name__ == "__main__":
     unittest.main()

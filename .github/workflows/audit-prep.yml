@@ -119,6 +119,28 @@ jobs:
             printf '%s\n' "PRIOR SELF-REVIEWS: none are available to compare against this run (the fetch step failed). Review only what you can check now, and say plainly in your digest that you have no earlier reviews to compare against — do not invent a trend." \
               > "${RUNNER_TEMP}/prior-digests.md"
           fi
+      - name: Fetch the project's saved memory (from its backup) for the self-review
+        env:
+          # Only the GitHub token — the repo + namespace come from memory's committed pointer, not the
+          # environment. On the public template the pointer is the unconfigured placeholder, so the verb
+          # short-circuits to the not-configured disclosure with NO network and the token is never used; a
+          # repo configured with vault access reads the backup with whatever token reaches that separate repo.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Concern #1 of the self-review judges stale SAVED MEMORY (the engine's experiential decision/note
+          # records), which is gitignored and so absent from this committed-files-only checkout. The read-only
+          # persona never reaches it itself, so the workflow reads the project's off-repo memory BACKUP here — a
+          # pure read of what memory has committed there (memory owns the read; this verb renders it) — and the
+          # next step feeds it in. When no backup is set up for this run, or it can't be reached or read, the
+          # verb discloses the gap honestly (about what THIS review could reach, never "the project has no
+          # memory"); if the step itself fails, leave an honest marker so the persona still discloses concern
+          # #1's gap rather than silently skipping it or claiming memory is empty.
+          if ! uv run --directory .engine --frozen -- python tools/audit_digest.py memory \
+                 > "${RUNNER_TEMP}/saved-memory.md"; then
+            printf '%s\n' "YOUR SAVED MEMORY: I couldn't read your saved memory this run (the fetch step failed). Treat concern #1 as not reviewed and say so plainly; do not claim the project has no saved memory." \
+              > "${RUNNER_TEMP}/saved-memory.md"
+          fi
       - name: Run the read-only self-review and capture its plain-language digest
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -135,7 +157,13 @@ jobs:
           # inside double quotes, so any issue content is passed verbatim and safely (no shell re-parsing).
           backlog="$(cat "${RUNNER_TEMP}/engine-issues.md")"
           prior="$(cat "${RUNNER_TEMP}/prior-digests.md")"
+          saved="$(cat "${RUNNER_TEMP}/saved-memory.md")"
           prompt="Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble.
+
+          For concern #1 (stale saved memory), you cannot reach your saved memory yourself; it was read from the project's off-repo backup and follows between the markers. These are the project's CURRENT saved beliefs — notes memory has already set aside are not shown here, so do not read their absence as 'nothing to retire'. Review what you are shown as the operator's saved decisions and notes: do any now contradict each other, has anything you can see refuted one, or is a heavily-used note actually obsolete? If the markers say the backup isn't set up, couldn't be reached, or couldn't be read, treat concern #1 as not reviewed and say so plainly in your digest — and NEVER claim the project has no saved memory; you simply couldn't see it this run.
+          ----- BEGIN YOUR SAVED MEMORY -----
+          ${saved}
+          ----- END YOUR SAVED MEMORY -----
 
           For concern #2 (the engine-labelled issue backlog / debt register), you cannot reach GitHub yourself; the COMPLETE set of currently-open engine-labelled issues was fetched for you (read to exhaustion; a read failure would appear in-band, never a silently short list) and follows between the markers. Treat it as the whole open backlog, not a sample, and judge it as part of your review.
           ----- BEGIN OPEN ENGINE-LABELLED ISSUES -----

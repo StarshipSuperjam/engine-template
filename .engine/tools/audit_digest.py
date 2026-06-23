@@ -31,6 +31,7 @@ Library + CLI (mirrors self_map.py — plain language first):
   uv run --directory .engine -- python tools/audit_digest.py staleness [<file>]        # how fresh is it?
   uv run --directory .engine -- python tools/audit_digest.py body [<file>]             # the review prose, frontmatter stripped
   uv run --directory .engine -- python tools/audit_digest.py prior [--limit N]         # the engine's own recent digests, as over-time corroboration
+  uv run --directory .engine -- python tools/audit_digest.py memory                     # the project's own backed-up saved beliefs (concern #1), or an honest disclosure
 
 The two CI/audit-prep rules are thin custom/script entries over check()/staleness():
 audit_digest_fingerprint_check.py (the CI seal gate) and audit_digest_staleness_check.py (the report-only
@@ -386,6 +387,146 @@ def render_prior_digests(repo: str, token: str, *, limit: int = PRIOR_DIGESTS_DE
     return "\n".join(parts)
 
 
+# ---- the saved-memory coverage read: the project's own backed-up beliefs, for concern #1 ----
+#
+# Concern #1 (stale saved-memory beliefs) needs the project's experiential memory, which is gitignored and so
+# absent from any committed-files-only run. The self-review reaches it by reading the operator's off-repo memory
+# BACKUP — a pure read of what memory has committed there. Memory owns the fetch + the durable-belief selection
+# (restore_vault.read_saved_memory); this renders the result for the read-only persona and, when the backup
+# can't be read this run, DISCLOSES the gap honestly — phrased about what THIS REVIEW could reach, never an
+# absolute "the project has no memory" — so the headline check is never silently skipped nor falsely cleared.
+# (On the public template the committed pointer is the unconfigured placeholder, so this always degrades to the
+# not-configured disclosure with no network; the live read fires only in a repo configured with vault access.)
+
+# A generous total-character bound on the rendered beliefs — saved notes are short (~a few hundred chars each)
+# and a mature store holds ~hundreds, so this sits far above any real store and only guards a pathological case.
+SAVED_MEMORY_MAX_CHARS = 64 * 1024
+
+# Persona-facing disclosure markers — instructions, in plain words, for when the saved memory could not be read.
+# Each says what THIS REVIEW could observe (never "you have no memory"), tells the persona to treat concern #1 as
+# not reviewed and say so plainly, and NEVER to claim memory is empty. The not-configured case names the way to
+# turn it on (set up a memory backup); the whole memory-backup UX is conversational, so "ask me to set one up" is
+# the real, findable action (mirrors restore_vault's own _MSG_NOT_CONFIGURED register).
+_SAVED_MEMORY_NOT_CONFIGURED = (
+    "YOUR SAVED MEMORY: I couldn't review your saved decisions this cycle — no memory backup is set up for this "
+    "review to read. Treat concern #1 as not reviewed and say so plainly, and that the way to turn it on is to "
+    "set up a memory backup — the operator can ask the engine to set one up in a chat session. NEVER claim the "
+    "project has no saved memory; you just could not see it this run.")
+_SAVED_MEMORY_UNREACHABLE = (
+    "YOUR SAVED MEMORY: a memory backup is set up, but this review couldn't reach it this cycle (it may not have "
+    "been given access to the backup, or the connection failed). Treat concern #1 as not reviewed and say so "
+    "plainly — note it may clear on the next run, and that the operator can ask the engine to check the "
+    "scheduled review's access to the backup. NEVER claim memory is empty.")
+_SAVED_MEMORY_UNREADABLE = (
+    "YOUR SAVED MEMORY: a memory backup is set up, but I couldn't read a usable copy of your saved memory from it "
+    "this cycle (it may clear on a later run). Treat concern #1 as not reviewed and say so plainly; NEVER claim "
+    "memory is empty.")
+_SAVED_MEMORY_NONE_YET = (
+    "YOUR SAVED MEMORY: your memory backup is set up and I read it, but it holds no saved decisions or notes yet "
+    "to review (as last backed up {as_of}). Concern #1 has nothing to check this cycle — say so plainly; this is "
+    "NOT the same as the backup being missing or unreadable.")
+_SAVED_MEMORY_HEADER = (
+    "YOUR SAVED MEMORY — the saved decisions and notes the engine has kept for you, as last backed up {as_of}. "
+    "Review them for concern #1: do any now contradict each other, has anything you can see refuted one, or is a "
+    "heavily-used note actually obsolete? You are reading these from the backup (you can't reach them yourself); "
+    "treat them as what the engine had saved as of that backup. {n} note(s) follow, most-recently-used first.")
+
+# fetch error code -> the disclosure marker. not-configured = no backup for this run; no-token/unreachable = set
+# up but this run couldn't reach it; the rest = set up + reachable but no usable copy could be read this cycle.
+_SAVED_MEMORY_ERROR_MARKERS = {
+    "not-configured": _SAVED_MEMORY_NOT_CONFIGURED,
+    "no-token": _SAVED_MEMORY_UNREACHABLE,
+    "unreachable": _SAVED_MEMORY_UNREACHABLE,
+    "no-backup-data": _SAVED_MEMORY_UNREADABLE,
+    "namespace-missing": _SAVED_MEMORY_UNREADABLE,
+    "corrupt": _SAVED_MEMORY_UNREADABLE,
+}
+
+# Memory's record `role`/`kind` (backstage vocabulary) -> plain operator words. The render NEVER prints a raw
+# role/kind/"episodic"/"gist" label — only these plain phrases reach the persona's prompt and the digest.
+_ROLE_PLAIN = {
+    "decision": "a decision you made",
+    "rationale/pushback": "a reason or a pushback",
+    "lesson": "a lesson",
+    "dead-end": "a dead end you hit",
+    "preference": "a preference of yours",
+    "intent": "something you meant to do",
+    "observation": "an observation",
+}
+
+
+def _belief_plain_role(kind, role) -> str:
+    if kind == "gist":
+        return "a summary of older notes"
+    return _ROLE_PLAIN.get(role or "", "a note")
+
+
+def _epoch_date(ts):
+    """An epoch int as a stable `YYYY-MM-DD` UTC string, or None — for the plain when-recorded / last-used hint."""
+    if not isinstance(ts, int) or isinstance(ts, bool):
+        return None
+    try:
+        return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).date().isoformat()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _saved_memory_as_of(iso) -> str:
+    """The backup date as a plain `on YYYY-MM-DD` phrase, or a plain unknown-date phrase. The date is VALIDATED
+    as a real ISO date (not just defanged): a forged manifest timestamp that is not a clean date — including a
+    letterless dash-rail run, which the shape-based defang deliberately leaves alone — degrades to the
+    unknown-date phrase, so no untrusted fragment can ride this header line into the persona's prompt."""
+    head = iso[:10] if isinstance(iso, str) and len(iso) >= 10 else ""
+    try:
+        return f"on {datetime.date.fromisoformat(head).isoformat()}"
+    except ValueError:
+        return "at an unknown date"
+
+
+def _render_belief_line(b: dict) -> str:
+    role = _belief_plain_role(b.get("kind"), b.get("role"))
+    text = " ".join((b.get("text") or "").split())   # collapse whitespace so a multi-line note renders as one line
+    recorded, used = _epoch_date(b.get("recorded_ts")), _epoch_date(b.get("last_access_ts"))
+    when = []
+    if recorded:
+        when.append(f"recorded {recorded}")
+    if used and used != recorded:
+        when.append(f"last used {used}")
+    suffix = f"  ({'; '.join(when)})" if when else ""
+    return f"- {role}: {text}{suffix}"
+
+
+def render_saved_memory(transport=None) -> str:
+    """Plain text the audit-prep workflow feeds into the read-only self-review persona's prompt so it can work
+    concern #1 (stale saved-memory beliefs). Memory owns the read + the durable-belief selection
+    (restore_vault.read_saved_memory); this renders the live saved beliefs for the persona, or — when the backup
+    is absent/unreachable/unreadable — returns a plain disclosure marker that says so honestly (about what this
+    review could reach) and NEVER claims memory is empty. `transport` is injectable for tests. Never raises."""
+    try:
+        from memory import restore_vault   # lazy: keep restore_vault->backup_vault->boot off the seal-gate import
+        snap = restore_vault.read_saved_memory(transport=transport)
+    except Exception as exc:  # noqa: BLE001 — any read failure degrades to an honest disclosure, never a raise
+        return _SAVED_MEMORY_UNREADABLE + f"  (the saved memory could not be read this run — {exc})"
+    if not snap.get("ok"):
+        return _SAVED_MEMORY_ERROR_MARKERS.get(snap.get("error") or "", _SAVED_MEMORY_UNREADABLE)
+    beliefs = snap.get("beliefs") or []
+    as_of = _saved_memory_as_of(snap.get("as_of"))
+    if not beliefs:
+        return _SAVED_MEMORY_NONE_YET.format(as_of=as_of)
+    parts = [_SAVED_MEMORY_HEADER.format(as_of=as_of, n=len(beliefs)), ""]
+    total = 0
+    for b in beliefs:
+        line = _render_belief_line(b)
+        total += len(line) + 1
+        if total > SAVED_MEMORY_MAX_CHARS:
+            parts.append("…(further saved notes omitted to keep this readable)")
+            break
+        parts.append(line)
+    # Every belief is the operator's own saved text fed BETWEEN the workflow's ----- BEGIN/END YOUR SAVED MEMORY
+    # ----- markers; defang any line that mimics a fence marker so a saved note can never forge or close it.
+    return validate.defang_prompt_fence_markers("\n".join(parts))
+
+
 # ---- CLI ------------------------------------------------------------------------------------
 
 def _take_body_file(argv: list):
@@ -440,6 +581,17 @@ def _prior_cli(argv: list) -> int:
     return 0
 
 
+def _saved_memory_cli(argv: list) -> int:
+    """The audit-prep workflow's saved-memory verb: print the project's own backed-up saved beliefs for the
+    read-only self-review (concern #1), or — when the backup can't be read — a plain disclosure marker. Unlike
+    `prior`, it takes NO env guard: the default not-configured path has no token and MUST still print a
+    disclosure and exit 0 (the repo + token are resolved one layer down, from memory's committed pointer +
+    boot.gh_token(), inside read_saved_memory — never from GITHUB_REPOSITORY here). A read failure is disclosed
+    in-band, never a non-zero exit; a transient gap must never fail the self-review."""
+    print(render_saved_memory())
+    return 0
+
+
 def main(argv: list) -> int:
     cmd = argv[0] if argv else "check"
     try:
@@ -479,10 +631,15 @@ def main(argv: list) -> int:
             # over the GitHub API (same-repo, own-repo token) and printed oldest→newest for the read-only
             # self-review. Degrades in-band (never raises) when there is no history or the read fails.
             return _prior_cli(argv[1:])
+        if cmd == "memory":
+            # The saved-memory coverage feed (concern #1): the project's own backed-up saved beliefs read
+            # over memory's pure backup-read, printed for the read-only self-review. Degrades in-band to a
+            # plain disclosure (never raises, never non-zero) when the backup is absent/unreachable/unreadable.
+            return _saved_memory_cli(argv[1:])
     except Exception as exc:  # a tool error is loud, never a silent pass
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    print(f"unknown command '{cmd}' (expected: seal, check, staleness, body, prior)", file=sys.stderr)
+    print(f"unknown command '{cmd}' (expected: seal, check, staleness, body, prior, memory)", file=sys.stderr)
     return 2
 
 

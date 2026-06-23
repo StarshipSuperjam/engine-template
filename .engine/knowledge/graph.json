@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:94e6d41302468ead25b17ec23a17b0aac00dcc0c80e83bb6b7ce5e2bc990eb54",
+        "fingerprint": "sha256:961bc73c36ea44c66e806c919a96727eb334cfc00634e4f4d5e3ae5759325517",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -2182,7 +2182,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:464d17a4d1c35aebd537e61fba5545583b7cb9c1071ac05c7f8141e8b74ee167",
+        "fingerprint": "sha256:5fb4de7d4be7bb9b3348d5be1b15a3f530305c952bf9aec8de390a9b7b778b0a",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -2454,7 +2454,7 @@
       },
       "slug": "demo_audit_digest",
       "source": {
-        "fingerprint": "sha256:c2acbd67cf6d9511f581512d1b2682d3a5809a6e88ad3eb00cabcb4b1600e2df",
+        "fingerprint": "sha256:9ad90d5747fb7698cb4f85a9118761651c9614a0258d96658850e6dda0588826",
         "path": ".engine/tools/demo_audit_digest.py"
       },
       "status": "active",
@@ -3151,7 +3151,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:e9bb5f54c14ad3bfaff70fd52d1cb6618a0751351a6aff5efa3c00d564afbd01",
+        "fingerprint": "sha256:e43ffb4322bf6ce068c110e30c5466156db48653c365204f77c08932f4bccc16",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -3372,7 +3372,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:0a5b9e2e8a7256c46cb9d9e9959ad8fe2ffc196f9c23a01877b3c565aaa2bb0a",
+        "fingerprint": "sha256:70abbce69c4dcf552e22ddbb88f196afa3433bf577a070915ef0a09730ae8ba8",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -3389,7 +3389,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:300f47c52912bb0f1d8004b7f08c6f0e66a9100f2abffefb0000977dd1cfdec6",
+        "fingerprint": "sha256:e83922c0d389088ec3262feaabd670c57f0b0dc854d45cf526d59c61b103995e",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -4137,7 +4137,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:7036530b2e4ec55af775e444644f227f091bee6b9e1f1c4cc908d2790d08eaff",
+        "fingerprint": "sha256:9580aabe6435dbe029e032fad9ebca09f8de6ff7a4bb1f5e7b02b72bfa78fe2d",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
@@ -4341,7 +4341,7 @@
       },
       "slug": "test_self_review_setup",
       "source": {
-        "fingerprint": "sha256:4f9bb86f1648acc9fd864941f2bd6a6fd09226143414e2925f74574d6193d1f2",
+        "fingerprint": "sha256:8ee0b2a619b670c48501a6749a75f405482ceece63153cfeaf1183f364348223",
         "path": ".engine/tools/test_self_review_setup.py"
       },
       "status": "active",
