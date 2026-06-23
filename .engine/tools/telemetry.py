@@ -464,7 +464,7 @@ def refresh_cache(state_path: str, repo: str, token: str, *, now: str | None = N
 
 def degraded_readout(count, as_of) -> str:
     """The exact, plain-language degraded line (state/README + telemetry/README wording). Telemetry
-    PRODUCES it; boot renders it (a later slice)."""
+    PRODUCES it; boot renders it."""
     if count is None:
         return ("I couldn't reach GitHub to refresh the engine's self-monitoring backlog, and there "
                 "is no offline count to fall back on — treat the engine's open-problem count as "

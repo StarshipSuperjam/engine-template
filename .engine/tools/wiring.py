@@ -192,9 +192,8 @@ def render_codeowners(existing_text: str, path_set: list, handle: str) -> str:
     engine paths. Greenfield (existing_text == "") yields a block-only file; a re-render replaces the
     block in place (the upgrade re-render with the release's paths). The owner `handle` is the operator's,
     captured at first run as preserved config (provisioning §Identity and tokens) — passed IN here, never
-    read from the network; this renderer is pure. NOTE (core slice 25c PR-3, L3=DEFER): this is the pure
-    primitive; wiring it into the live first-run + upgrade render with the stored handle is owed to the
-    instantiator (slice 27), which owns the handle capture + its config home."""
+    read from the network; this renderer is pure — the primitive only. The instantiator (slice 27) wires
+    it into the live first-run render with the stored handle, and owns the handle capture + its config home."""
     owner = handle.strip()
     if not owner:
         raise WiringError("refused: rendering CODEOWNERS needs a non-empty owner handle.")

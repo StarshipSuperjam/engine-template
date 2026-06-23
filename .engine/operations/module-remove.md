@@ -10,8 +10,9 @@ consistent — while refusing to remove a module another module still needs, and
 thing it deliberately leaves behind. Enter this runbook to understand or perform an ordinary module
 removal. The tool is `tools/module_manager.py`. An ordinary removal needs no special permission and never
 touches the branch-protection setting — it changes only what runs *inside* the engine's existing checks,
-not the checks themselves. (Removing the *entire* engine is a different, larger step a later capability
-owns; this runbook is for removing one module.)
+not the checks themselves. (Removing the *entire* engine is a different, larger step a separate capability
+owns — the `remove-engine` verb and its own `engine-remove.md` runbook; this runbook is for removing one
+module.)
 
 ## Steps
 
@@ -52,7 +53,8 @@ stable required check by which check files are present, so removing a module cha
 that check, not its name — no operator-privileged step is needed. Removing the *entire* engine is different:
 it must also turn off the engine's required-check binding (an operator-privileged step) so a leftover
 binding to a deleted check cannot deadlock the repository's own pull requests. That whole-engine removal,
-and adding a module back (which fetches it from a release), are separate capabilities a later step owns.
+and adding a module back (which fetches it from a release), are separate capabilities with their own
+runbooks — see `engine-remove.md` and `module-add.md`.
 
 **The honest residue.** A bare permission a module added cannot be proven to belong to the engine alone, so
 removal leaves it rather than risk removing one the operator wanted — the accepted cost of never removing

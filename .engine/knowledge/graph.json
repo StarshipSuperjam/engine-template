@@ -1284,7 +1284,7 @@
       },
       "slug": "control-plane-bootstrap",
       "source": {
-        "fingerprint": "sha256:3483da1db477397e2523acef620a8412896959371dff67164e30014fb2f4ff27",
+        "fingerprint": "sha256:0364de2e2935ed53f1f3748f048eb46b3be7e871a86c55ef1570afb024f40e5c",
         "path": ".engine/operations/control-plane-bootstrap.md"
       },
       "status": "active",
@@ -1404,7 +1404,7 @@
       },
       "slug": "module-remove",
       "source": {
-        "fingerprint": "sha256:9c92cc75c99cd361a820f3b032f767b15da3399566b9bfb96acc7b7c9f168d03",
+        "fingerprint": "sha256:38f7160e1891f4b9d5a6466b40d6196900fbda45a0817bc3410164213da8c7f1",
         "path": ".engine/operations/module-remove.md"
       },
       "status": "active",
@@ -3049,7 +3049,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:ff51c4447a86be065d34d4ddb08723966707ea177bb986373bd8e84d645ceb97",
+        "fingerprint": "sha256:26d5912d3a22f469f6923a562b71141ecc76aa59e79564c78f441afaec75a4a9",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -3304,7 +3304,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:3499cdbf6788acf99078e7fad8bd0e9aa564a47a938bbde3ab5ce315af349a71",
+        "fingerprint": "sha256:5d3ea0e932cc7729f9c1a38ae78eaeb18afd342b01b62a27264b009592de1acb",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -4596,7 +4596,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:754feb11ae84b71b36201136513a2cabb8dfd9684a41d442372b20fa0e1aa375",
+        "fingerprint": "sha256:92755484fd12d1b21cc25ee43d644e76e5fba699a899f51f7b7188d0b165434e",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

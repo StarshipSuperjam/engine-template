@@ -4,9 +4,9 @@ over a repo's life (systems/infrastructure/provisioning/README.md §"The module 
 
 Slice 25b shipped **remove** + the **group-scoped uv-sync derivation**. Slice 25c PR-1 added **add**
 (install a module at the current release) + its shared **fetch/overlay** primitive + the **sync-groups**
-fixer. Slice 25c PR-2 (this change) adds the **engine updater** — `upgrade` (the whole-engine vX -> vY
+fixer. Slice 25c PR-2 (this change) added the **engine updater** — `upgrade` (the whole-engine vX -> vY
 version move) and the **migrations** machinery it runs. CODEOWNERS rendering + de-bootstrap +
-clean whole-engine removal land in 25c PR-3.
+clean whole-engine removal shipped in 25c PR-3.
 
 `upgrade` is the engine updater (provisioning §"Upgrading the engine"): fetch the tagged release (reusing
 `_fetch_release_tree`), overlay the engine CODE of the present packages (driven off the present set, so a
@@ -35,7 +35,7 @@ module's declared `wires` (via the wiring library), delete the engine-identified
 re-run coherence. It is **reverse-dependency-aware** — it refuses, in plain language naming the
 dependents, to remove a module another present module still `depends` on — and it declines a
 **required** module (the permanent spine; removing the whole engine is a separate clean-removal
-step a later slice owns). It touches **no** control-plane ruleset: an ordinary remove changes only
+step — remove_engine). It touches **no** control-plane ruleset: an ordinary remove changes only
 what runs INSIDE the stable engine CI check, not the bound check name, so it needs no operator-
 privileged step (provisioning §"The ruleset is the exception"). A `permission` a module added is
 **left in place** and disclosed — a bare permission is not engine-identifiable, so reversal errs
@@ -296,7 +296,7 @@ def remove(module_id: str) -> dict:
 
 
 # ---- fetch / overlay (the shared release machinery: add uses it here; the engine updater reuses
-#      it in a later slice) ----------------------------------------------------------------------
+#      it in `upgrade`) ----------------------------------------------------------------------
 
 def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
                         token: str | None = None) -> str:
