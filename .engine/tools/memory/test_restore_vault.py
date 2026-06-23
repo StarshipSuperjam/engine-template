@@ -282,5 +282,94 @@ class CoexistenceTests(_Base):
         self.assertIn(b"BETAWORD", snap_b["ledger_bytes"])           # both projects coexist in the one vault
 
 
+class SavedMemoryProjectionTests(_Base):
+    """`read_saved_memory` — the audit's PURE read-projection of the backed-up memory into the durable saved
+    beliefs the self-review reviews. The durable-belief SELECTION is single-sourced on memory's own authority:
+    `forget.live_records` (drops markers, crashed-pass orphans, gist-superseded raws, the archived tier) +
+    `records`' kind vocabulary (only episodic + gist are human-content beliefs). This proves the round-trip
+    through the backup decodes and filters correctly — no reimplementation of memory's retirement semantics."""
+
+    def _seed_records(self, records):
+        for r in records:
+            ledger.append(r)
+
+    def test_projects_live_durable_beliefs_excluding_markers_and_superseded(self):
+        import time
+        from memory import records as rec
+        now = int(time.time())
+        b1, b2 = "b1" + "0" * 30, "b2" + "0" * 30      # b1 a consolidation pass, b2 a roll-up pass
+        idA, idB, idC, idG = "a" * 32, "b" * 32, "c" * 32, "g" * 32
+        self._seed_records([
+            # three live episodics, all closed by b1's consolidation marker (so none is an orphan)
+            {"v": 1, "kind": rec.EPISODIC_KIND, rec.RECORD_ID_KEY: idA, "session_id": "S", "ts": now - 10,
+             "role": "decision", "text": "Chose the blue launch plan.", "tags": [rec.DEFAULT_EPISODIC_TAG],
+             rec.BATCH_KEY: b1},
+            {"v": 1, "kind": rec.EPISODIC_KIND, rec.RECORD_ID_KEY: idB, "session_id": "S", "ts": now - 1000,
+             "role": "lesson", "text": "Never deploy on a Friday.", "tags": [rec.DEFAULT_EPISODIC_TAG],
+             rec.BATCH_KEY: b1},
+            {"v": 1, "kind": rec.EPISODIC_KIND, rec.RECORD_ID_KEY: idC, "session_id": "S", "ts": now - 2000,
+             "role": "observation", "text": "Old raw note now living in a gist.",
+             "tags": [rec.DEFAULT_EPISODIC_TAG], rec.BATCH_KEY: b1},
+            {"v": 1, "kind": rec.MARKER_KIND, rec.RECORD_ID_KEY: "m" * 32, "session_id": "S", "ts": now - 5,
+             "tags": [rec.MARKER_TAG], rec.BATCH_KEY: b1},                       # a provenance marker — excluded
+            # a gist that rolled C up, and the markers that close the roll-up (so C is superseded, G is not orphan)
+            {"v": 1, "kind": rec.GIST_KIND, rec.RECORD_ID_KEY: idG, "ts": now - 100, "role": "observation",
+             "text": "Older notes rolled together.", "tags": [rec.GIST_TAG, rec.DEFAULT_EPISODIC_TAG],
+             rec.BATCH_KEY: b2, rec.SOURCE_IDS_KEY: [idC]},
+            {"v": 1, "kind": rec.SUPERSEDED_KIND, rec.RECORD_ID_KEY: "s" * 32, rec.TARGET_KEY: idC,
+             rec.SUPERSEDED_BY_KEY: idG, rec.BATCH_KEY: b2, "ts": now - 100, "tags": []},
+            {"v": 1, "kind": rec.ROLLUP_KIND, rec.RECORD_ID_KEY: "r" * 32, rec.BATCH_KEY: b2, "ts": now - 100,
+             "tags": []},
+            {"kind": rec.REINFORCEMENT_KIND, rec.TARGET_KEY: idA, "ts": now - 5},   # an access marker — excluded
+            # a raw turn-delta: LIVE (recall surfaces it) but NOT a durable belief — only the kind filter drops
+            # it, so it makes that filter load-bearing (a marker has no `text`, so the text-check would drop it).
+            {"kind": "turn-delta", rec.RECORD_ID_KEY: "t" * 32, "role": "observation", "ts": now - 3,
+             "text": "A raw in-the-moment note not yet summarized."},
+        ])
+        fake = bv._FakeVault()
+        self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y").get("ok"))
+        snap = rv.read_saved_memory(transport=fake.transport)
+
+        self.assertTrue(snap["ok"], snap)
+        texts = [b["text"] for b in snap["beliefs"]]
+        self.assertIn("Chose the blue launch plan.", texts)               # a live episodic
+        self.assertIn("Never deploy on a Friday.", texts)                 # a live episodic
+        self.assertIn("Older notes rolled together.", texts)              # the gist (consolidated belief)
+        self.assertNotIn("Old raw note now living in a gist.", texts)     # the superseded raw is dropped
+        self.assertNotIn("A raw in-the-moment note not yet summarized.", texts)   # a live non-belief (kind filter)
+        self.assertEqual(len(snap["beliefs"]), 3)                         # marker + reinforcement + turn-delta excluded
+        self.assertEqual({b["kind"] for b in snap["beliefs"]}, {"episodic", "gist"})
+        self.assertEqual(texts[0], "Chose the blue launch plan.")        # newest-first
+        self.assertIsInstance(snap["as_of"], str)                        # the backup timestamp (point-in-time)
+
+    def test_not_configured_returns_disclosure_without_touching_the_network(self):
+        # No backup set up (no pointer written) -> not-configured BEFORE any transport call, so the audit can
+        # disclose the gap with no network and no token (the default public-template path).
+        def explode(*a, **k):
+            raise AssertionError("the network must not be touched on the not-configured path")
+        snap = rv.read_saved_memory(transport=explode)
+        self.assertFalse(snap["ok"])
+        self.assertEqual(snap["error"], "not-configured")
+        self.assertIsNone(snap["beliefs"])
+        self.assertIsNone(snap["as_of"])
+
+    def test_an_unreachable_backup_degrades_cleanly(self):
+        self.assertTrue(bv.setup(scope="shared", transport=bv._FakeVault().transport, consent="y").get("ok"))
+        snap = rv.read_saved_memory(transport=lambda *a, **k: (None, None))   # configured, but the host is dead
+        self.assertFalse(snap["ok"])
+        self.assertEqual(snap["error"], "unreachable")
+        self.assertIsNone(snap["beliefs"])
+
+    def test_ts_to_epoch_parses_the_backup_time_and_rejects_garbage(self):
+        # The backup `timestamp` -> the `now` the live-set is tiered against (point-in-time honesty). It must
+        # parse a real ISO stamp and reject anything else (so a bad manifest never mis-tiers the beliefs).
+        import calendar
+        import time as _t
+        iso = "2026-06-20T10:00:00Z"
+        self.assertEqual(rv._ts_to_epoch(iso), calendar.timegm(_t.strptime(iso, "%Y-%m-%dT%H:%M:%SZ")))
+        for bad in ("garbage", "", None, 123, "2026-06-20"):
+            self.assertIsNone(rv._ts_to_epoch(bad))
+
+
 if __name__ == "__main__":
     unittest.main()

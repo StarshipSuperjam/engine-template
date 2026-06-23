@@ -13,10 +13,12 @@ REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODI
   - **The mechanism: a `SessionStart` sweep.** Memory's own `SessionStart` hook DETECTS earlier sessions whose
     raw notes were never tidied (have turn-deltas, no consolidation marker, not the live session) and INJECTS
     a directive — the in-context AI, at the first natural pause AFTER the operator's request (so never a
-    first-turn hijack), briefly tells the operator in plain words that it is tidying memory (a COUNT, never the
-    id codes), then reads each session's raw notes (`read`), writes a short labelled summary of each thread,
-    and stores it (`store`). The directive is visible and prompt — done THIS session, not deferred forever (the
-    passivity that left 21 sessions untidied is gone) — but always subordinate to the operator's request.
+    first-turn hijack), reads each session's raw notes (`read`), writes a short labelled summary of each thread,
+    and stores it (`store`). The pass is QUIET: the AI does NOT announce the tidy-up to the operator — UNLESS the
+    backlog has grown past `_BACKLOG_ALARM_THRESHOLD` (a sign the silent tidy has stalled), when it surfaces ONE
+    plain line (a COUNT, never the id codes) so a silent failure can't hide. The directive stays prompt — done
+    THIS session, not deferred forever (the passivity that left 21 sessions untidied is gone) — and always
+    subordinate to the operator's request.
     This unifies the "normal" and "abandoned-session" consolidation into ONE sweep: the locked design's
     abandoned-session predicate already subsumes the normal path, since the previous session is "no longer
     live with no marker" by the next start. The sweep ALSO carries the roll-up backlog (slice 5 PR 3) in the
@@ -66,6 +68,10 @@ ROLES = frozenset(ROLE_VOCABULARY)
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"   # the live session id (the platform var; NOT capture's older name)
 _MAX_DIRECTIVE_IDS = 8                    # cap the directive enumeration; never list thousands of ids
+_BACKLOG_ALARM_THRESHOLD = 5             # build-spec leaf: the tidy-up is a QUIET pass, but the normal backlog is
+                                         # ~1 (the previous session). A pile this deep means the silent tidy has
+                                         # stalled, so the sweep breaks silence with ONE plain line — a silent
+                                         # failure must not hide (the 21-untidied-sessions failure mode, PR #203).
 
 
 # --- Reading the raw notes (what the AI consolidates) -----------------------------------------
@@ -217,23 +223,30 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
 
 def _consolidation_directive(pending: list) -> str:
     """The directive the SessionStart sweep injects when earlier sessions need tidying. It stays SUBORDINATE to
-    the operator's request (memory's operation, not orientation — boot/README: never a first-turn hijack), but
-    it is NOT passive: at the first natural pause the model briefly tells the operator in plain words (a COUNT,
-    never the id codes) that it is tidying memory, and does it THIS session — not "whenever, or never" (that
-    passivity is what left 21 sessions untidied). The ids are listed for the model's `read`/`store` only; the
-    operator hears a count. Memory's own hook composes this prose; the detection leaf above renders nothing."""
+    the operator's request (memory's operation, not orientation — boot/README: never a first-turn hijack) and
+    ACTIVE (done THIS session — not "whenever, or never"; that passivity is what left 21 sessions untidied). It is
+    a QUIET pass: the model does NOT announce the tidy-up to the operator — UNLESS the backlog has grown to
+    `_BACKLOG_ALARM_THRESHOLD` or more (a sign the silent tidy has stalled), when it breaks silence with ONE plain
+    line (a COUNT, never the id codes) so a silent failure can't hide. The ids are listed for the model's
+    `read`/`store` only. Memory's own hook composes this prose; the detection leaf above renders nothing."""
     n = len(pending)
     shown = pending[:_MAX_DIRECTIVE_IDS]
     ids = ", ".join(shown) + (f", and {n - len(shown)} more" if n > len(shown) else "")
     sessions = "1 earlier session" if n == 1 else f"{n} earlier sessions"
     have = "has" if n == 1 else "have"
+    behind = (
+        f" The backlog has fallen behind ({sessions}), which usually means this quiet tidy-up has been getting "
+        "skipped — so this once, break the silence: at the first natural pause, tell the operator in plain words "
+        "that memory upkeep has fallen behind and you're catching it up now. Give them only that COUNT, never "
+        "the id codes or any internal terms."
+    ) if n >= _BACKLOG_ALARM_THRESHOLD else ""
     return (
-        "Memory upkeep — do this DURING this session, but ALWAYS after you have served the operator's current "
-        "request: never before it, never a first-turn hijack. "
+        "Memory upkeep — a QUIET background pass: do it DURING this session, but ALWAYS after you have served the "
+        "operator's current request (never before it, never a first-turn hijack). Do not announce it — say "
+        "nothing to the operator about tidying memory unless they ask (if asked, a count is enough; the session "
+        "ids stay internal)." + behind + " "
         f"{sessions} {have} raw turn-notes that were never tidied into summaries. At the first natural pause, "
-        "once the operator's current request is served: (1) briefly tell the operator, in plain words, that "
-        f"you are tidying up memory from {sessions} — give them only that COUNT, never the id codes or any "
-        "internal terms; then (2) tidy each one. The sessions are: "
+        "once the operator's current request is served, tidy each one. The sessions are: "
         f"{ids}. For each, run "
         "`.engine/.venv/bin/python .engine/tools/memory/consolidate.py read <session-id>` to read its raw "
         "notes, write a short compact summary of each meaningful thread (what was explored; what was decided "
@@ -241,7 +254,7 @@ def _consolidation_directive(pending: list) -> str:
         f"{{{', '.join(ROLE_VOCABULARY)}}}, and store them with "
         "`… consolidate.py store <session-id>` (a JSON array of {\"role\": …, \"text\": …} on stdin). "
         "This is reflection, not re-litigation — be terse. The operator's request always comes first; keep it "
-        "a quiet pass, not an interruption — but do it this session, not someday."
+        "a silent pass, not an interruption — but do it this session, not someday."
     )
 
 
@@ -467,12 +480,19 @@ def _demo_body() -> bool:
     print(f"  Sessions detected as needing tidy-up: {pending}")
     print(f"    -> '{session_d}' (a past session, never tidied) IS listed; the live "
           f"'{session_live}' is NOT.")
-    print("\n  The exact directive the engine would hand the AI at the next session start:\n")
+    print("\n  The directive the engine would hand the AI at the next session start (a SILENT pass — no")
+    print("  announcement; the AI just tidies quietly at a pause):\n")
     for line in _wrap(_consolidation_directive(pending), 76):
         print(f"    | {line}")
+    behind_demo = [f"stalled-{i:02d}" for i in range(_BACKLOG_ALARM_THRESHOLD + 1)]
+    print(f"\n  And the SAME directive once the backlog has stalled past the alarm threshold "
+          f"({_BACKLOG_ALARM_THRESHOLD}+ untidied")
+    print("  sessions) — it breaks silence with ONE plain line so a silent failure can't hide:\n")
+    for line in _wrap(_consolidation_directive(behind_demo), 76):
+        print(f"    | {line}")
     print("\n  => A past, never-tidied session is caught by the same sweep; the AI receives the directive above")
-    print("     and does the tidy-up THIS session, right after your request — and briefly tells you it is doing")
-    print("     so (a count, never the id codes), never before your request, never a hijack. (Whether it then")
+    print("     and does the tidy-up THIS session, right after your request — SILENTLY, unless the backlog has")
+    print("     fallen behind, when it surfaces one plain line (a count, never the id codes). (Whether it then")
     print("     writes a good summary is the part judged live.)")
     # The mechanical invariants this practice run proves (NOT the AI's wording, which is judged live): a
     # summary stored+findable, the label kept out of search text, a tidied session dropping off the backlog,
