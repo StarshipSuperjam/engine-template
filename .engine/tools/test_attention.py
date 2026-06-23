@@ -202,6 +202,73 @@ class TestFlex(unittest.TestCase):
             self.assertAlmostEqual(sum(flexed.values()), 1.0, places=9)
 
 
+class TestBudgetSplit(unittest.TestCase):
+    """The trim order made load-bearing (#246): budget_split apportions the integer budget by the policy's
+    shares, and the trim order decides WHICH kinds are shed when the budget cannot seat them all. It is inert
+    while the budget fits everything and load-bearing only under overflow; blocking_debt is shed last at the
+    shipped (reverse-of-precedence) trim order. FIXTURE_POLICY's shares and trim order match the real defaults."""
+
+    def _applied(self, condition):
+        base = {c: FIXTURE_POLICY[f"budget_{c}"] for c in CATEGORIES}
+        return apply_flex(base, condition, FIXTURE_POLICY)
+
+    def _trim(self, ranks=None):
+        return ranks or {c: FIXTURE_POLICY[f"trim_{c}"] for c in CATEGORIES}
+
+    def test_generous_budget_seats_every_kind_so_trim_is_inert(self):
+        # at the cold-start budget the proportional split fits all five in BOTH session conditions, so the
+        # trim order never fires — exactly its (dormant) state in a normal session.
+        for condition in ("clean", "high_debt"):
+            sizes = budget_split(self._applied(condition), 20, self._trim())
+            self.assertTrue(all(sizes[c] >= 1 for c in CATEGORIES),
+                            f"{condition}: a kind was shed at the cold-start budget: {sizes}")
+            self.assertEqual(sum(sizes.values()), 20)
+
+    def test_tight_budget_sheds_least_important_first_keeping_blocking_debt(self):
+        # trim rank 1 (orientation) sheds first, then rank 2 (structural_neighbors); blocking_debt (rank 5) is
+        # kept. A clean session at 3 slots seats blocking_debt / in_flight / recent_decisions.
+        sizes = budget_split(self._applied("clean"), 3, self._trim())
+        self.assertEqual(sizes["orientation"], 0)            # rank 1 — shed first
+        self.assertEqual(sizes["structural_neighbors"], 0)   # rank 2 — shed next
+        self.assertGreaterEqual(sizes["blocking_debt"], 1)   # rank 5 — kept
+        self.assertEqual(sum(sizes.values()), 3)
+
+    def test_retuned_trim_changes_what_is_shed(self):
+        # THE #246 proof: with the shipped order a tight budget sheds orientation and keeps blocking_debt;
+        # REVERSING the trim order sheds blocking_debt instead. Tuning trim_* demonstrably changes the result.
+        shipped = budget_split(self._applied("clean"), 3, self._trim())
+        reversed_ranks = {c: 6 - FIXTURE_POLICY[f"trim_{c}"] for c in CATEGORIES}
+        flipped = budget_split(self._applied("clean"), 3, self._trim(reversed_ranks))
+        self.assertEqual(shipped["orientation"], 0)
+        self.assertGreaterEqual(shipped["blocking_debt"], 1)
+        self.assertEqual(flipped["blocking_debt"], 0)        # now blocking_debt is least important -> shed
+        self.assertNotEqual(shipped, flipped)                # the dial governs the outcome
+
+    def test_sizes_sum_exactly_to_total_across_budgets(self):
+        for condition in ("clean", "high_debt"):
+            for total in range(0, 41):
+                sizes = budget_split(self._applied(condition), total, self._trim())
+                self.assertEqual(sum(sizes.values()), total, f"{condition} total={total}: {sizes}")
+
+    def test_deterministic(self):
+        a = budget_split(self._applied("high_debt"), 7, self._trim())
+        b = budget_split(self._applied("high_debt"), 7, self._trim())
+        self.assertEqual(a, b)
+
+    def test_at_least_one_kind_always_survives(self):
+        # a budget of 1 seats exactly one kind — blocking_debt (shed last) under the shipped order.
+        sizes = budget_split(self._applied("clean"), 1, self._trim())
+        self.assertEqual(sum(1 for c in CATEGORIES if sizes[c] >= 1), 1)
+        self.assertEqual(sizes["blocking_debt"], 1)
+
+    def test_budget_size_zero_reaches_the_result_through_rank(self):
+        # the public API path: a tight budget_total drives budget_size 0 for the shed kind in the result.
+        result = rank([FEATURE], FIXTURE_POLICY, AS_OF, {"state"}, budget_total=3)
+        sizes = {e["category"]: e["budget_size"] for e in result["partition"]}
+        self.assertEqual(sizes["orientation"], 0)            # shed under the tight budget
+        self.assertGreaterEqual(sizes["blocking_debt"], 1)   # kept
+
+
 class TestDegrade(unittest.TestCase):
     def test_absent_substrates_are_recorded_sorted(self):
         result = rank([FEATURE], FIXTURE_POLICY, AS_OF, {"state"})
