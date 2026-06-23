@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:5e975e073dd9537b464179d32a292be66cb6b4c985d1fa75f8b2238b9b66f62e",
+        "fingerprint": "sha256:f0fc43296bf7b4c7b3f3807afe67b7a0dbc1f180a0233a00dccfb0ab0f5b5d25",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -2272,7 +2272,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:cd3fd60903991fce15b561fbbe4aeb863bd1db2e0c21c4afb5f69127650dc183",
+        "fingerprint": "sha256:bd3fcec07f7a1a0f8bb6d20971bd7dc652e92ca55c6d743bb53834d60b14fcc7",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -2544,7 +2544,7 @@
       },
       "slug": "demo_audit_digest",
       "source": {
-        "fingerprint": "sha256:754c517c53733d02af2233f04432785efda3d72aff84b5acec034e09aadbb368",
+        "fingerprint": "sha256:04c82c90a43020607ed7b4134dd0a246ebed36bc2f3c26f8c9e39f08698c4da0",
         "path": ".engine/tools/demo_audit_digest.py"
       },
       "status": "active",
@@ -3530,7 +3530,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:33e354cad4ff7846e4eb070ba7f3b8a9adbb5032dbbad264c3f7497687c2cfd5",
+        "fingerprint": "sha256:bb609027eb2d6820a2286085f6c3fc1f16708a66788f39be33f410d64a51d017",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",

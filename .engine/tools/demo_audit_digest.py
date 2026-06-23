@@ -125,23 +125,27 @@ def _demo_saved_memory() -> bool:
                            and "A raw in-the-moment note not yet summarized." not in rendered)   # raw non-belief
                 plain = all(w not in rendered for w in ("episodic", "gist", "tier"))        # no backstage labels
 
-                # On a PUBLIC project the specifics are STRUCTURALLY withheld — the digest is committed in the open.
+                # On a PUBLIC project the persona still SEES the notes (it must, to judge which look stale), but the
+                # header instructs it to commit ONLY the count and to offer the two safe levers — never a specific.
                 os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = "public"
                 public = audit_digest.render_saved_memory(transport=fake.transport)
-                print("\n   --- on a PUBLIC project, the specifics are withheld (only the count + why) ---")
-                print("   | " + public[:280])
-                withheld = ("Ship the launch banner in the spring release." not in public      # no belief text…
-                            and "Never deploy on a Friday." not in public
-                            and "withholding" in public)                                        # …but it says why
+                print("\n   --- on a PUBLIC project, the notes are reviewed but only the count may be committed ---")
+                for line in public.splitlines()[:6]:
+                    print("   | " + line)
+                public_ok = ("Ship the launch banner in the spring release." in public          # the notes ARE fed…
+                             and "report ONLY HOW MANY" in public                                # …but commit only the count
+                             and "ordinary chat session" in public                               # lever 1: in-session review
+                             and "its own private memory vault" in public                        # lever 2: private / own vault
+                             and "DELIBERATELY withholding" not in public)                        # the #236 dead-end is gone
             finally:
                 if old_vis is None:
                     os.environ.pop("MEMORY_AUDIT_REPO_VISIBILITY", None)
                 else:
                     os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = old_vis
-            ok = disclosed and read_back and dropped and plain and withheld
+            ok = disclosed and read_back and dropped and plain and public_ok
             print("\n   expected: no backup -> an honest gap (never 'no memory'); a configured PRIVATE backup -> your")
             print("   live beliefs read back (provenance markers + superseded draft dropped); a PUBLIC project ->")
-            print(f"   the specifics structurally withheld, only the count + why -> {ok}")
+            print(f"   the notes reviewed but only the count + levers committable (no specific, no dead-end) -> {ok}")
             return ok
         finally:
             validate.ROOT = old_root
