@@ -60,7 +60,7 @@ def _assert_ai_briefing(t, pack):
 # A complete, valid signals dict for the pure renderers (render_dashboard / present_marker_line / must_push).
 _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integration_debt": {}},
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
-            "findings_unavailable": False, "debt_count": 0, "debt_as_of": None, "att_lines": [],
+            "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": False, "shipped": [], "stance": "Exploring", "strand": None,
             "pr_conflict": None, "restore_offer": None, "audit_stale": None, "live_standing": None,
             "neighborhood": None}
@@ -70,6 +70,33 @@ def _signals(**over):
     s = dict(_SIGNALS)
     s.update(over)
     return s
+
+
+class TestDegradedNotice(unittest.TestCase):
+    """The 'I couldn't reach ... this session' notice fires ONLY on a real read failure (a non-empty degraded
+    set), names the unreachable input(s) in plain words, and is ABSENT on a healthy boot. This is the fix for
+    the permanent false 'couldn't rank by priority' caveat (telemetry was always in degraded_inputs)."""
+
+    def test_healthy_boot_shows_no_degraded_notice(self):
+        # Every substrate available -> no notice at all. The old caveat fired every session; it must not now.
+        dash = boot.render_dashboard(_signals(att_degraded=False)).lower()
+        self.assertNotIn("couldn't reach", dash)
+        self.assertNotIn("couldn't rank", dash)                       # the old permanent wording is gone
+        self.assertNotIn("priority order below may be incomplete", dash)
+        self.assertNotIn("aren't wired up yet", dash)
+
+    def test_unreachable_telemetry_is_named_in_plain_words(self):
+        # A real failure to read the live debt register -> the notice names it concretely, with no jargon.
+        dash = boot.render_dashboard(_signals(att_degraded=["telemetry"]))
+        self.assertIn("I couldn't reach your open-problems list from GitHub this session", dash)
+        self.assertIn("priority order below may be incomplete", dash)
+        for jargon in ("telemetry", "substrate", "degraded_inputs", "ranking inputs"):
+            self.assertNotIn(jargon, dash)
+
+    def test_multiple_unreachable_inputs_join_in_plain_words(self):
+        # degraded_inputs is sorted (git before telemetry); the names join as a readable clause.
+        dash = boot.render_dashboard(_signals(att_degraded=["git", "telemetry"]))
+        self.assertIn("your in-flight branches and pull requests and your open-problems list from GitHub", dash)
 
 
 class TestPresentMarker(unittest.TestCase):
@@ -212,28 +239,38 @@ class TestConsumesAttentionNeverReRanks(unittest.TestCase):
         self.addCleanup(p.stop)
 
     def test_renders_attention_order_verbatim(self):
-        # A partition whose ARRAY order is deliberately NOT precedence order: orientation (precedence 5)
-        # appears before blocking_debt (precedence 1). Boot must render in the GIVEN array order — proving
-        # it consumes attention's ordering and never re-sorts by precedence_rank (relay, not re-rank).
+        # A partition whose ARRAY order is deliberately NOT precedence order: in_flight (precedence 2) appears
+        # before blocking_debt (precedence 1). Boot must render in the GIVEN array order — proving it consumes
+        # attention's ordering and never re-sorts by precedence_rank (relay, not re-rank). Both categories
+        # render as action lines (orientation's standing-situation pointer is deliberately not surfaced —
+        # see test_standing_situation_is_not_surfaced_as_an_action_line — so the order check uses these two).
         result = {"partition": [
-            {"category": "orientation", "precedence_rank": 5,
-             "members": [{"id": "state:standing-situation", "rank": 1}]},
+            {"category": "in_flight", "precedence_rank": 2,
+             "members": [{"id": "pr:99", "rank": 1}]},
             {"category": "blocking_debt", "precedence_rank": 1,
              "members": [{"id": "state:integration-debt", "rank": 1}]},
         ], "degraded_inputs": []}
-        state = {"standing_situation": {"milestone": "M1", "phase": "core"},
-                 "integration_debt": {"open_count": 3}}
         with mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
                 mock.patch.object(boot.attention, "rank_live", return_value=result):
-            lines, degraded, _ = boot.needs_attention(state)
+            lines, degraded, _ = boot.needs_attention({})
         self.assertEqual(degraded, [])
         self.assertEqual(len(lines), 2)
-        # orientation line first (it was first in the array), debt line second — array order preserved.
-        # The orientation nudge is now a NEUTRAL re-ground line (it no longer quotes the committed cursor,
-        # which is only the offline cache — "where we are" is shown live in the facts block).
-        self.assertIn("where the project stands", lines[0].lower())
-        self.assertNotIn("M1", lines[0])     # the stale cached value is not presented as the live to-do
+        # in_flight line first (it was first in the array), debt line second — array order preserved.
+        self.assertIn("99", lines[0])                        # the in_flight pull request
         self.assertIn("integration debt", lines[1].lower())
+
+    def test_standing_situation_is_not_surfaced_as_an_action_line(self):
+        # The orientation standing-situation pointer is ranked (for the budget model) but NOT shown as an
+        # action nudge: the live "Where we are" line (and its own stale-warning) already cover it, so a
+        # separate "confirm where you stand" line would be redundant boilerplate every session.
+        result = {"partition": [
+            {"category": "orientation", "precedence_rank": 5,
+             "members": [{"id": "state:standing-situation", "rank": 1}]},
+        ], "degraded_inputs": []}
+        with mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
+                mock.patch.object(boot.attention, "rank_live", return_value=result):
+            lines, _, _ = boot.needs_attention({})
+        self.assertEqual(lines, [])   # no action line — the orientation pointer is not nagged
 
     def test_caps_members_per_category_without_reordering(self):
         # An ACTION category (recent_decisions) — structural_neighbors are now routed to the pack

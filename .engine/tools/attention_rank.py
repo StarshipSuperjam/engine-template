@@ -35,10 +35,11 @@ RESULT_SCHEMA_VERSION = 1
 # the category vocabulary; the policy supplies the precedence RANKS, budget fractions, and trim ranks over it.
 CATEGORIES = ("blocking_debt", "in_flight", "recent_decisions", "structural_neighbors", "orientation")
 
-# The substrate inputs attention can read. The git/GitHub work-record reader (work_record) feeds in_flight
+# The substrate inputs attention ranks over. The git/GitHub work-record reader (work_record) feeds in_flight
 # candidates, so `git` is available when the work record can be consulted and only degraded when git cannot be
-# read. telemetry's live debt register (slice 18) does not feed attention yet (the offline cached count from
-# state stands in), so `telemetry` is always in a result's degraded_inputs.
+# read. `telemetry` is the live debt register (open engine-labelled Issues): boot reads it once and threads the
+# count into the assembler, so it is available on a successful read and in degraded_inputs ONLY when that read
+# failed (an outage/expired auth) or the offline CLI ran with no reader — the committed state count stands in then.
 SUBSTRATES = ("state", "knowledge", "telemetry", "git")
 
 # The policy value keys this core reads (the drift-guard set; the VALUES themselves live only in the policy).
