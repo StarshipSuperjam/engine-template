@@ -64,7 +64,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
-  - check: `.engine/check/dependency-pinning.json`
+  - check: `.engine/check/dependency-pinning.json`, `.engine/check/dependency-review.json`
   - policy: `.engine/policies/dependency-discipline.md`
   - tool: `.engine/tools/dependency_discipline/*.py`
 - wires: none (this module adds no shared-state edits)

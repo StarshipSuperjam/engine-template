@@ -359,6 +359,33 @@
       "type": "check"
     },
     {
+      "id": "check:dependency-review",
+      "kind": "custom/script",
+      "name": ".engine/check/dependency-review.json",
+      "owner": "dependency-discipline",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:dependency-discipline"
+        ]
+      },
+      "slug": "dependency-review",
+      "source": {
+        "fingerprint": "sha256:f1022051f4c033827557b4da5d93b597008ae0c791a593c9f5859794d88d7191",
+        "path": ".engine/check/dependency-review.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "pre-close",
+        "pre-commit"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:doc-frontmatter",
       "kind": "schema",
       "name": ".engine/check/doc-frontmatter.json",
@@ -1207,7 +1234,7 @@
       },
       "slug": "dependency-discipline",
       "source": {
-        "fingerprint": "sha256:a6998e5de7ee7b48baa748e7b2c1add5b293078540bf53166e0f74753db978e0",
+        "fingerprint": "sha256:441c0184c2d3d1dc8f6059fb3e19298e9dcf59dde31281b67b0ad7f1a32f15d3",
         "path": ".engine/modules/dependency-discipline/manifest.json"
       },
       "status": "optional",
@@ -1642,7 +1669,7 @@
       },
       "slug": "dependency-discipline",
       "source": {
-        "fingerprint": "sha256:0ca27c3855fa83cfc43de193f16982763f0054284a2d50b2750616f47b02241f",
+        "fingerprint": "sha256:c50173ab205fafe254b77f8bbd0169804d69273133d2832dcb69d6e6483cef71",
         "path": ".engine/policies/dependency-discipline.md"
       },
       "status": "active",
@@ -3419,6 +3446,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:review",
+      "name": ".engine/tools/dependency_discipline/review.py",
+      "owner": "dependency-discipline",
+      "predicates": {
+        "provided_by": [
+          "module:dependency-discipline"
+        ]
+      },
+      "slug": "review",
+      "source": {
+        "fingerprint": "sha256:e5a0cd03f5d121dddca939dcd6839f2b6eff190ad893c2ccf5661ea159489565",
+        "path": ".engine/tools/dependency_discipline/review.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:rollup",
       "name": ".engine/tools/memory/rollup.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -4296,7 +4340,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:df3009cd00a39411ccf2d6455bb9c7ad26c19ab2f160fb7e958fc2ae253aa49e",
+        "fingerprint": "sha256:d87e94bb92566f41266bab0f79a9a317069144d59e30f6cc10013e6fbfa8b92b",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -4451,6 +4495,23 @@
       "source": {
         "fingerprint": "sha256:e53366564d3350e5e8b15e1c5a4ece33053b73a4ba2ae78ef4ce0c5bb123157f",
         "path": ".engine/tools/memory/test_restore_vault.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_review",
+      "name": ".engine/tools/dependency_discipline/test_review.py",
+      "owner": "dependency-discipline",
+      "predicates": {
+        "provided_by": [
+          "module:dependency-discipline"
+        ]
+      },
+      "slug": "test_review",
+      "source": {
+        "fingerprint": "sha256:68e300a3417dc2815a000ef6d4453688186841e99338b0e998dc8ac1c8650d33",
+        "path": ".engine/tools/dependency_discipline/test_review.py"
       },
       "status": "active",
       "type": "tool"

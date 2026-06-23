@@ -22,6 +22,8 @@ Left alone, dependencies drift. The same project starts installing different cod
 
 ## Enforcement-tier
 
-- **Posture.** These three expectations are standing rules the engine is trusted to follow and to surface honestly — not, today, an automatic block. No check yet stops a change because a dependency is unreviewed.
-- **Teeth arrive in later steps of this module** — a gentle nudge when a version is left unlocked, and a merge-blocking check when a change adds a dependency with a known vulnerability or an incompatible license. Until those are in place, your protection is that every dependency change appears in the pull request you review and approve — the final human gate nothing merges without.
-- When those checks land, the review step becomes a real merge gate, and this policy will say so plainly rather than implying a guarantee it cannot yet keep.
+- **Posture, with teeth now arriving.** These three expectations are standing rules the engine is trusted to follow and to surface honestly. Two of the checks that back them are now in place; the rest stays posture.
+- **A gentle nudge when a version is left unlocked** — live now, and never blocking: it points out a missing lock file but never stops a merge.
+- **A merge-blocking check when a change adds a dependency with a known security vulnerability** — live now. It blocks the merge and shows you the problem in plain language, with a next step. It has full effect where GitHub provides the data — free on public projects, and on private projects with GitHub's paid code-security feature; where that data isn't available the check says so plainly and explains the cost and benefit, never a silent pass. Checking a dependency's **licence** for conflicts is the part of this step still to come — it arrives in a later step of this module; until then, a license conflict is not checked here, and your protection for that is the pull request you review.
+- **Regular updates stay posture** — the refresh schedule is the engine's always-on practice, not a check of this module.
+- **Your backstop, always:** whatever a check does or doesn't yet cover, every dependency change still appears in the pull request you review and approve — the final human gate nothing merges without.

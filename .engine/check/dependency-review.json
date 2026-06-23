@@ -1,0 +1,9 @@
+{
+  "id": "engine/check/dependency-review",
+  "target": { "context": "product-dependency-changes" },
+  "kind": "custom/script",
+  "params": { "script": ".engine/tools/dependency_discipline/review.py", "pass_token": true },
+  "tier": "hard",
+  "suites": ["CI", "pre-commit", "pre-close"],
+  "message": "Blocks a change that brings in an outside package with a known security problem. When a pull request adds or updates a dependency, this checks the newly added packages against GitHub's public record of known security problems and blocks the merge if one of them is known to be vulnerable — naming the package and the problem in plain language, with a next step. It only reads; it never changes a file. It looks at your project's own dependencies, not the engine's internal tooling. The data is free on public projects and, on private projects, comes with GitHub's paid code-security feature; where that data isn't available the check says so plainly and explains the cost and benefit, so it never passes silently and never blocks you for a reason it can't show. Checking a dependency's software licence for conflicts is a separate step that arrives later in this module."
+}
