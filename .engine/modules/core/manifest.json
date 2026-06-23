@@ -36,7 +36,13 @@
     "state": [".engine/state/*.json"],
     "knowledge": [".engine/knowledge/*.json"],
     "contract": [".engine/contracts/*.md", ".engine/contracts/.gitkeep"],
-    "policy": [".engine/policies/*.md"],
+    "policy": [
+      ".engine/policies/attention.md",
+      ".engine/policies/contract-threshold.md",
+      ".engine/policies/escalation.md",
+      ".engine/policies/finding-disposition.md",
+      ".engine/policies/triage-threshold.md"
+    ],
     "conduct": [".engine/conduct/defaults.md"],
     "template": [".engine/templates/*.md"],
     "foundation": [".engine/suites.json", ".engine/self-map.md"],

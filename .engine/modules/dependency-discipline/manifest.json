@@ -1,0 +1,12 @@
+{
+  "id": "dependency-discipline",
+  "version": "0.0.0-dev",
+  "status": "optional",
+  "provides": {
+    "policy": [".engine/policies/dependency-discipline.md"]
+  },
+  "wires": [],
+  "depends": {
+    "core": ""
+  }
+}
