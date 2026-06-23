@@ -6,7 +6,8 @@
     "memory-substrate-sqlite-fts5": "0.0.0-dev",
     "routine-mode": "0.0.0-dev",
     "audit-library": "0.0.0-dev",
-    "github-projects-sync": "0.0.0-dev"
+    "github-projects-sync": "0.0.0-dev",
+    "dependency-discipline": "0.0.0-dev"
   },
   "identity": "solo"
 }

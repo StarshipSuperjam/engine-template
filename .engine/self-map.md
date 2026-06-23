@@ -26,11 +26,12 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (6 installed).
+The packages your engine is assembled from, and how they wire together (7 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
 - `core` (no dependencies)
+- `dependency-discipline` → `core`
 - `github-projects-sync` → `core`
 - `memory-substrate-sqlite-fts5` → `core`
 - `routine-mode` → `core`
@@ -50,7 +51,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
   - operation: `.engine/operations/boot-session-start.md`, `.engine/operations/build-orchestration.md`, `.engine/operations/close-turn.md`, `.engine/operations/conduct-author.md`, `.engine/operations/control-plane-bootstrap.md`, `.engine/operations/engine-remove.md`, `.engine/operations/engine-upgrade.md`, `.engine/operations/first-run.md`, `.engine/operations/knowledge-impact-check.md`, `.engine/operations/module-add.md`, `.engine/operations/module-remove.md`, `.engine/operations/operating-modes.md`, `.engine/operations/tune-policy.md`
-  - policy: `.engine/policies/*.md`
+  - policy: `.engine/policies/attention.md`, `.engine/policies/contract-threshold.md`, `.engine/policies/escalation.md`, `.engine/policies/finding-disposition.md`, `.engine/policies/triage-threshold.md`
   - provisioning: `.engine/provisioning/first-run-assets.json`, `.engine/provisioning/module-catalog.json`
   - schema: `.engine/schemas/*.json`
   - skill: `.claude/skills/.gitkeep`, `.claude/skills/engine-conduct/SKILL.md`, `.claude/skills/engine-help/SKILL.md`, `.claude/skills/engine-setup/SKILL.md`, `.claude/skills/engine-start/SKILL.md`, `.claude/skills/engine-status/SKILL.md`, `.claude/skills/engine-tune/SKILL.md`
@@ -58,6 +59,13 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`, `.engine/tools/*.sh`
 - wires: gitignore, hook, mcp
+
+### `dependency-discipline` — version `0.0.0-dev` (optional)
+
+- depends on: `core`
+- provides:
+  - policy: `.engine/policies/dependency-discipline.md`
+- wires: none (this module adds no shared-state edits)
 
 ### `github-projects-sync` — version `0.0.0-dev` (optional)
 

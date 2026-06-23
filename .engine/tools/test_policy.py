@@ -50,10 +50,14 @@ EXISTING_SCHEMA_RULES = ("engine-manifest", "interface-declaration", "module-man
 # The four v1-core policies that ship from layer one (modules/core/README.md), non-removable: three
 # trust-model policies plus triage-threshold. The attention cognitive floor (slice 12) contributes a FIFTH
 # policy on the same surface — the tuning values its ranking tool reads — which is NOT one of the foundational
-# four but the attention system's own governed policy (systems/cognitive/attention/README.md). The committed
-# set is their union; growing it here is how a missing/renamed attention policy fails this suite.
+# four but the attention system's own governed policy (systems/cognitive/attention/README.md). An OPTIONAL
+# module may also ship its own policy on this surface: the dependency-discipline module contributes a posture
+# policy stating its pinning/review-gate/cadence expectations (modules/dependency-discipline/README.md), present
+# in this construction repo and removed in a generated repo that opts the module out. The committed set is their
+# union; growing it here is how a missing/renamed/unexpected policy fails this suite.
 FOUNDATIONAL_POLICIES = {"contract-threshold", "finding-disposition", "escalation", "triage-threshold"}
-EXPECTED_POLICIES = FOUNDATIONAL_POLICIES | {"attention"}
+OPTIONAL_MODULE_POLICIES = {"dependency-discipline"}
+EXPECTED_POLICIES = FOUNDATIONAL_POLICIES | {"attention"} | OPTIONAL_MODULE_POLICIES
 
 # A representative, conforming policy frontmatter instance (a foundational policy omits established_by).
 VALID_FM = {"title": "Contract threshold", "status": "accepted", "date": "2026-06-03"}
@@ -218,7 +222,8 @@ class TestPolicyShapeRule(unittest.TestCase):
     def test_the_committed_policies_exist_and_pass_the_live_rule(self):
         slugs = {os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(POLICIES_DIR, "*.md"))}
         self.assertEqual(slugs, EXPECTED_POLICIES,
-                         "the committed policies must be the foundational four plus the attention policy")
+                         "the committed policies must be the foundational four, the attention policy, and the "
+                         "optional dependency-discipline policy")
         passed, found = validate.kind_shape(SHAPE_RULE, {})        # the REAL rule over the REAL policies
         self.assertTrue(passed)
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])
