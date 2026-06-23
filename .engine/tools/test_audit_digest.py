@@ -445,9 +445,15 @@ class TestSavedMemoryRender(unittest.TestCase):
         from memory import restore_vault as rv
         self._rv = rv
         self._orig = rv.read_saved_memory
+        self._orig_vis = os.environ.get("MEMORY_AUDIT_REPO_VISIBILITY")
+        os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = "private"   # default: a private repo, so OK-render shows specifics
 
     def tearDown(self):
         self._rv.read_saved_memory = self._orig
+        if self._orig_vis is None:
+            os.environ.pop("MEMORY_AUDIT_REPO_VISIBILITY", None)
+        else:
+            os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = self._orig_vis
 
     def _stub(self, value):
         self._rv.read_saved_memory = lambda **kw: value
@@ -460,21 +466,33 @@ class TestSavedMemoryRender(unittest.TestCase):
         self.assertIn("not reviewed", out)
         self.assertIn("NEVER claim", out)                      # instruction: never assert memory is empty
 
-    def test_unreachable_is_distinct_and_says_a_backup_is_set_up(self):
+    def test_no_token_is_access_not_granted_and_names_the_vault_secret(self):
+        # The corrected two-part split (#224/D-242): no-token is a STANDING access gap, named distinctly from the
+        # transient unreachable case, with the credential-specific re-arm — and NOT the unrelated claude setup-token.
+        self._stub({"ok": False, "error": "no-token", "beliefs": None, "as_of": None})
+        out = audit_digest.render_saved_memory()
+        self.assertIn("wasn't given access", out)             # names WHICH precondition is unmet (access, not backup)
+        self.assertIn("re-issue", out)
+        self.assertIn("MEMORY_VAULT_TOKEN", out)              # the credential-specific re-arm
+        self.assertIn("claude setup-token", out)              # ... explicitly contrasted with the WRONG token
+        self._stub({"ok": False, "error": "unreachable", "beliefs": None, "as_of": None})
+        self.assertNotEqual(out, audit_digest.render_saved_memory())   # distinct from the transient case
+
+    def test_unreachable_is_distinct_and_transient(self):
         self._stub({"ok": False, "error": "unreachable", "beliefs": None, "as_of": None})
         out = audit_digest.render_saved_memory()
         self.assertIn("a memory backup is set up", out)
-        self.assertIn("couldn't reach it", out)
-        self.assertIn("check the scheduled review's access", out)   # the actionable how-to for the unreachable case
-        # distinct from the not-configured wording — the operator gets a different, accurate picture
-        self.assertNotIn("set up for this review to read", out)
+        self.assertIn("connection failed", out)
+        self.assertIn("may clear on the next run", out)       # transient — no setup change needed yet
+        self.assertNotIn("MEMORY_VAULT_TOKEN", out)           # NOT the credential-gap advice (that's access-not-granted)
+        self.assertNotIn("set up for this review to read", out)   # distinct from not-configured
 
-    def test_each_error_code_maps_to_one_of_the_three_distinct_markers(self):
+    def test_each_error_code_maps_to_one_of_the_four_distinct_markers(self):
         markers = set()
         for err in ("not-configured", "no-token", "unreachable", "no-backup-data", "namespace-missing", "corrupt"):
             self._stub({"ok": False, "error": err, "beliefs": None, "as_of": None})
             markers.add(audit_digest.render_saved_memory())
-        self.assertEqual(len(markers), 3)                      # not-configured / unreachable / unreadable
+        self.assertEqual(len(markers), 4)            # not-configured / access-not-granted / unreachable / unreadable
         self.assertTrue(all(m.startswith("YOUR SAVED MEMORY") for m in markers))
 
     def test_ok_renders_beliefs_in_plain_words_with_no_backstage_labels(self):
@@ -519,6 +537,40 @@ class TestSavedMemoryRender(unittest.TestCase):
         out = audit_digest.render_saved_memory()
         self.assertIn("further saved notes omitted", out)
         self.assertLessEqual(len(out), audit_digest.SAVED_MEMORY_MAX_CHARS + 2000)
+
+    def test_public_repo_withholds_belief_specifics_structurally(self):
+        # Item 5 (#224/D-242): on a public repo the belief TEXT is NEVER built, so it can't reach the committed
+        # digest — only the safe aggregate count + a disclosure of WHY.
+        os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = "public"
+        self._stub({"ok": True, "error": None, "as_of": "2026-06-20T10:00:00Z", "beliefs": [
+            {"text": "Chose the blue launch plan SECRETWORD.", "kind": "episodic", "role": "decision",
+             "recorded_ts": 1750000000, "last_access_ts": None}]})
+        out = audit_digest.render_saved_memory()
+        self.assertNotIn("SECRETWORD", out)                   # the belief text never reaches the (committed) digest
+        self.assertNotIn("blue launch plan", out)
+        self.assertNotIn("a decision you made", out)          # not even the rendered belief line
+        self.assertIn("withholding", out)                     # the structural withhold is disclosed
+        self.assertIn("1 saved", out)                         # the safe aggregate count survives
+
+    def test_unconfirmed_visibility_also_withholds_and_discloses_why(self):
+        # Default-SAFE: an unset/unknown visibility is treated as not-private — withhold, and say why (never silent).
+        os.environ.pop("MEMORY_AUDIT_REPO_VISIBILITY", None)
+        self._stub({"ok": True, "error": None, "as_of": "2026-06-20T10:00:00Z", "beliefs": [
+            {"text": "a saved decision UNIQUEWORD", "kind": "episodic", "role": "decision",
+             "recorded_ts": 1750000000, "last_access_ts": None}]})
+        out = audit_digest.render_saved_memory()
+        self.assertNotIn("UNIQUEWORD", out)
+        self.assertIn("withholding", out)
+        self.assertIn("could not confirm it is private", out)   # discloses the reason honestly
+
+    def test_internal_visibility_is_not_treated_as_private(self):
+        os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = "internal"   # GitHub `internal` is org-visible, not private
+        self._stub({"ok": True, "error": None, "as_of": "2026-06-20T10:00:00Z", "beliefs": [
+            {"text": "an internal-visible decision", "kind": "episodic", "role": "decision",
+             "recorded_ts": 1750000000, "last_access_ts": None}]})
+        out = audit_digest.render_saved_memory()
+        self.assertNotIn("an internal-visible decision", out)
+        self.assertIn("withholding", out)
 
     def test_a_read_that_raises_degrades_to_an_honest_disclosure_never_crashes(self):
         def boom(**kw):
