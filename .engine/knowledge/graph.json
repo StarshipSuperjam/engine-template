@@ -3389,7 +3389,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:e83922c0d389088ec3262feaabd670c57f0b0dc854d45cf526d59c61b103995e",
+        "fingerprint": "sha256:994012186b5d68c195dee109450ec3290ba3fe45062437e31f40731bbda3ffea",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",

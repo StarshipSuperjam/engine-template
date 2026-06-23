@@ -205,6 +205,27 @@ class TestAuditPrepShape(unittest.TestCase):
         text = self._text()
         self.assertIn("YOUR SAVED MEMORY: I couldn't read your saved memory this run (the fetch step failed)", text)
 
+    def test_memory_step_reads_the_vault_with_a_least_privilege_vault_token(self):
+        # Item 2 (#224/D-242): the own-repo GITHUB_TOKEN can't reach the SEPARATE private vault, so the memory
+        # step reads it with MEMORY_VAULT_TOKEN (a contents:read token scoped to the vault). The swap is on the
+        # memory step ONLY — the issue / prior / refresh / PR steps keep the own-repo token.
+        text = self._text()
+        start = text.index("Fetch the project's saved memory")
+        mem_step = text[start:text.index("- name:", start)]
+        self.assertIn("GITHUB_TOKEN: ${{ secrets.MEMORY_VAULT_TOKEN }}", mem_step)
+        self.assertNotIn("secrets.GITHUB_TOKEN", mem_step)           # the own-repo token was swapped out HERE…
+        self.assertIn("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}", text)   # …but the same-repo steps still use it
+
+    def test_visibility_is_detected_with_the_own_repo_token_before_the_memory_read(self):
+        # Item 5 (#224/D-242): the saved-memory privacy gate keys on repo visibility, detected with the OWN-repo
+        # token (the vault token can't read this repo; the `schedule` event payload omits visibility) and handed
+        # to the memory step via the environment — so it MUST run before the memory read.
+        text = self._text()
+        self.assertIn("gh repo view", text)                          # reads its own repo's visibility
+        self.assertIn("MEMORY_AUDIT_REPO_VISIBILITY", text)
+        self.assertIn('>> "${GITHUB_ENV}"', text)                    # …hands it to the later memory step
+        self.assertLess(text.index("MEMORY_AUDIT_REPO_VISIBILITY"), text.index("audit_digest.py memory"))
+
 
 if __name__ == "__main__":
     unittest.main()
