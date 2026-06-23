@@ -14,9 +14,11 @@
 # before validating it (the locked schemas/validation foundation parses "a file or
 # its YAML frontmatter"; the frontmatter reader D-090 deferred now lands here).
 # `default-groups` lists it so
-# every `uv sync`/`uv run` (CI and local) resolves it with no per-command flag —
-# future dep-carrying modules append their group here, no workflow edit needed,
-# until slice 25's module manager derives the selection (the CI uv-group seam).
+# every `uv sync`/`uv run` (CI and local) resolves it with no per-command flag.
+# A future dep-carrying module declares its own group under [dependency-groups]; the
+# module manager derives this default-groups selection from the present module set
+# (`add`/`remove` keep it derived, `sync-groups` is the fixer), and the `uv-group-drift`
+# CI check guards the committed value against drift — no hand-append, no workflow edit.
 [project]
 name = "engine-tools"
 version = "0.0.0"

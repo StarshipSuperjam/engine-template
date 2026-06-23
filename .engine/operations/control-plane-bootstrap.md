@@ -35,9 +35,9 @@ model.
    flows complete without saving it). If it still isn't present, degrade loudly (step 5).
 3. **Apply the protection floor.** Create the engine's own named ruleset carrying the floor, or repair it in
    place if it already exists. The floor is *augmented, never weakened* — applying never removes or loosens
-   a product's existing protection rules. (In-place augment of a pre-existing *product* ruleset, and the
-   reverse — de-bootstrapping the engine's binding on clean removal — are owned by later slices, named in
-   the tool's header.)
+   a product's existing protection rules. (The reverse — de-bootstrapping the
+   engine's binding on clean removal — shipped in core slice 25c; in-place augment of a pre-existing
+   *product* ruleset is owned by a later brownfield slice. Both are named in the tool's header.)
 4. **Verify.** Re-read the evaluated rules and confirm the floor is now actually in force — never assume the
    write took. Then ensure the engine-domain label exists (inheriting the first producer's minimal ensure;
    the engine never makes the operator hand-create a label).
