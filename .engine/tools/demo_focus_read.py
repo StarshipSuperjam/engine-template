@@ -86,8 +86,8 @@ def main(argv: list | None = None) -> int:
 
     print("Only the 'which files changed' git read was faked; the entity mapping, the neighbor walk, and the")
     print("rendering are the engine's real logic over the real committed knowledge graph. No network, no token,")
-    print("nothing written. The block is AI-orientation context (it names plain components, never raw ids), and")
-    print("it does NOT remove the 'couldn't rank your work' notice — that persists until telemetry is wired.")
+    print("nothing written. The block is AI-orientation context (it names plain components, never raw ids); it")
+    print("is separate from the work-priority ranking and does not change that ranking's degraded notice.")
 
     # Self-check: scenario 1 produced a focus (the mapped files are real surfaces) and a jargon-free block.
     rendered = "\n".join(boot.render_neighborhood(nb))

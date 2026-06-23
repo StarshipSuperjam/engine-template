@@ -4,17 +4,21 @@
 The core ranks a candidate-set it is handed. THIS module assembles that set from the substrates that exist
 today and degrades over the ones that do not, then exposes the operator's no-Claude-Desktop CLI. The reads:
   - state  (.engine/state/state.json via validate.load_json): the standing-situation pointers become an
-    `orientation` candidate; the offline integration-debt count — carried with its as-of marker — stands in
-    for the live register (attention/README.md:73-76) as a single `blocking_debt` candidate when non-zero.
-    The `register` pointer is deliberately ignored: boot/telemetry own the live read, not attention.
+    `orientation` candidate; the committed integration-debt count is the OFFLINE STAND-IN for the live
+    telemetry register (attention/README.md:73-76), surfaced as a single `blocking_debt` candidate only when
+    the live register could not be read this session (state's count is a derived convenience, never authoritative).
   - knowledge (knowledge_query.neighbors): each neighbour of the focus becomes a `structural_neighbors`
     candidate. The focus is the "work in hand" — given explicitly (the CLI `--focus`) or DERIVED from the
     in-flight work record (`derive_focus`, the orientation default boot uses). A focus may be a single entity
     id or a SET; each member is walked at depth 1, so proximity is uniform today (the query returns no hop-depth).
   - git/GitHub (the in-flight work-record reader, work_record): open PRs + the working branch become
-    `in_flight` candidates, and the files that work touches drive the knowledge focus above (#37). telemetry
-    (the live debt register, slice 18) ships now, but attention deliberately does not read it — boot/telemetry own
-    that live read (above), not attention — so it is always in a result's `degraded_inputs`.
+    `in_flight` candidates, and the files that work touches drive the knowledge focus above (#37).
+  - telemetry (the live debt register — open engine-labelled Issues): the canonical debt source attention
+    ranks (attention/README.md:24-27,:70). Boot performs the single live read (open_findings) and threads its
+    count in as `live_findings`, so the ranking and the card header read ONE number (they cannot disagree) and
+    the SessionStart path makes no second GitHub call; the committed state count above is the stand-in when
+    that read fails. telemetry is in `degraded_inputs` ONLY when the live read failed (an outage/expired auth)
+    or the offline CLI ran with no reader — never as standing scaffolding.
 
 The adapter NARRATES nothing in the result (boot surfaces degradation loudly, at its slice); the CLI prints
 a degrade note to stderr only, for the operator's own demo. `as_of` is the recorded reference time: the live
@@ -137,13 +141,21 @@ def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP, with_total: bool = 
 
 def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
                         focus: "str | list[str] | None" = None,
-                        edge_filter=None, depth: int = 1, gh=None, source=None):
+                        edge_filter=None, depth: int = 1, gh=None, source=None,
+                        live_findings: int | None = None):
     """Assemble the candidate-set from the substrates present today, reporting which were available and the
     cursor's as-of marker. Returns (candidates, available_inputs:set, cursor_as_of:str|None). Narrates nothing.
 
     `gh` is the GitHub reader for the in-flight work-record read (None -> the local-git floor only; boot
     passes a real reader, the CLI passes None). Like state/knowledge, the work record is read HERE — the only
     boot-loaded input is the operator override (config, not a substrate).
+
+    `live_findings` is the live telemetry debt-register count (open engine-labelled Issues) — the canonical
+    debt source attention ranks. Boot performs the one live read (open_findings) and threads the count here, so
+    the ranking and the card header read ONE number and the SessionStart path makes no second GitHub call. An
+    int (0 included) means the register WAS read: telemetry is marked available and any open debt is the live
+    blocking-debt candidate. None means it was not read this session (the offline CLI, or a failed read):
+    telemetry stays in degraded_inputs and the committed state count stands in (its derived-convenience role).
 
     `source` (opt-in; default off -> the `knowledge_query` module, so the CLI's `rank` is bit-for-bit
     unchanged): boot passes its rung-1 boot-slice read-shim (#37) so the structural-neighbours walk reads the
@@ -162,15 +174,34 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
                                "recency": None, "source": "state"})
         debt = state.get("integration_debt") or {}
         cursor_as_of = debt.get("as_of")
-        if (debt.get("open_count") or 0) > 0:
-            # The offline cached count stands in for the live register while telemetry is absent. Severity
-            # is unknown offline, so the floor is surfaced AS blocking (severity = the policy bar) rather
-            # than hidden — the safe degraded posture; telemetry refines it per-item when it lands.
+        if live_findings is None and (debt.get("open_count") or 0) > 0:
+            # OFFLINE/DEGRADED path only (the live register was not read this session): state's committed
+            # count is the stand-in. Severity is unknown offline, so the floor is surfaced AS blocking
+            # (severity = the policy bar) rather than hidden — the safe degraded posture. telemetry stays in
+            # degraded_inputs (it is NOT added to `available` below), so boot raises the loud "couldn't reach"
+            # notice; the live path just below supersedes this whenever the register WAS read.
             candidates.append({"id": "state:integration-debt", "category": "blocking_debt",
                                "severity": policy_values.get("debt_blocking_threshold", 0),
                                "recency": cursor_as_of, "source": "state"})
     except Exception:
         pass  # state absent or malformed -> degrade over it (it stays out of available_inputs)
+
+    # The telemetry debt register (the live view over open engine-labelled Issues) is the canonical debt
+    # source attention ranks (attention/README "It reads; it never owns"); state's committed count above is
+    # only its offline stand-in. `live_findings` is that register's count, read ONCE by boot (open_findings)
+    # and threaded in — so the ranking and the card header agree by construction and the hot path makes no
+    # second GitHub call. A number (0 included) means the read SUCCEEDED: telemetry is available (no degraded
+    # notice), and any open debt becomes the single blocking-debt candidate at the policy floor (the live
+    # register carries no per-issue severity — telemetry owns promotion, not a per-Issue grade — so the same
+    # safe-as-blocking posture as the offline path applies). `as_of` stays the committed cursor's marker (the
+    # only deterministic time source; the live read carries no timestamp). None -> not read -> telemetry stays
+    # degraded and the committed stand-in above carried the count.
+    if live_findings is not None:
+        available.add("telemetry")
+        if live_findings > 0:
+            candidates.append({"id": "state:integration-debt", "category": "blocking_debt",
+                               "severity": policy_values.get("debt_blocking_threshold", 0),
+                               "recency": cursor_as_of, "source": "telemetry"})
 
     src = source or knowledge_query
     if focus and src is not None:
@@ -290,7 +321,7 @@ def _now_z() -> str:
 def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None,
               focus: "str | list[str] | None" = None,
               depth: int = 1, budget_total: int | None = None, as_of: str | None = None,
-              apply_precedence: bool = True, gh=None, source=None) -> dict:
+              apply_precedence: bool = True, gh=None, source=None, live_findings: int | None = None) -> dict:
     """The live ranking path over the substrates present today, returning the attention-result.v1 dict
     (whose own `degraded_inputs` records the absent substrates). This is the ONE assembler the CLI (`rank`)
     and boot's SessionStart pack both call, so boot CONSUMES the partition it is handed — in the locked
@@ -303,10 +334,13 @@ def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None,
     static-input determinism — attention never reads the override FILE itself. `gh` is the GitHub reader for
     the in-flight work-record read (boot builds + passes it; the CLI leaves it None -> the local-git floor).
     `source` (opt-in, default off -> `knowledge_query`) is boot's rung-1 boot-slice read-shim, threaded to
-    assemble_candidates so the structural-neighbours walk reads the cache, not the SQLite index (#37)."""
+    assemble_candidates so the structural-neighbours walk reads the cache, not the SQLite index (#37).
+    `live_findings` is the live telemetry-register count boot already read (open_findings): an int (0 included)
+    marks the register read -> telemetry is available and the live count drives the blocking-debt candidate;
+    None (the offline CLI, or a failed live read) -> telemetry degrades and the committed state count stands in."""
     policy_values = load_policy_values(policy_path, override)
     candidates, available, cursor_as_of = assemble_candidates(policy_values, focus=focus, depth=depth, gh=gh,
-                                                              source=source)
+                                                              source=source, live_findings=live_findings)
     resolved_as_of = as_of or cursor_as_of
     as_of_is_wallclock = False
     if resolved_as_of is None:

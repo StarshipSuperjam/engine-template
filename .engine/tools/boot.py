@@ -212,11 +212,12 @@ def _resolve_member(member_id: str, state: dict | None) -> str:
     """Resolve one attention member id (a reference, not content) to a plain-language line. Boot
     resolves; it does not re-rank. Unknown ids fall back to the id itself so nothing is silently lost."""
     if member_id == "state:standing-situation":
-        # A neutral re-ground nudge — NOT a quote of the committed cursor. "Where we are" is now shown live
-        # in the facts block above (derived fresh each session); the committed copy is only the offline cache,
-        # so quoting it here as "pick up where you left off" would present a possibly-stale value as the live
-        # to-do (the conflation the card-rendering law forbids). Point back to the live line instead.
-        return "Confirm where the project stands before building on it."
+        # NOT surfaced as an action line. The card already shows "Where we are" live in the facts block above
+        # (fresh each session), and when that live read fails it carries its own stale-warning right there — so
+        # a separate "confirm where you stand" nudge would be redundant in the fresh case and a duplicate of
+        # that stale-warning in the failure case. Attention still ranks this orientation pointer for the budget
+        # model; boot just doesn't nag with it. Returning "" -> needs_attention skips it (no blank bullet).
+        return ""
     if member_id == "state:integration-debt":
         # No count here: the card header already renders the authoritative open-problem figure (live
         # when reachable, else the offline shadow marked loud-if-stale). Restating a second, possibly-
@@ -238,7 +239,18 @@ def _slug(member_id: str) -> str:
     return member_id.split(":", 1)[-1] if member_id else ""
 
 
-def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | None]:
+def _and_list(items: list) -> str:
+    """Join plain phrases into a readable clause: '' / 'a' / 'a and b' / 'a, b and c'. For the degraded
+    notice, so it reads as a sentence ('I couldn't reach a and b') rather than a comma-joined dump."""
+    items = [i for i in items if i]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = None) -> tuple[list, list, dict | None]:
     """Consume attention.rank_live and SPLIT its ranked partition into (1) operator ACTION lines, rendered in
     the GIVEN precedence order as plain language (a bounded prefix per category — boot renders, never
     re-orders), and (2) the knowledge NEIGHBORHOOD of the work in hand. The neighborhood is AI-orientation
@@ -248,9 +260,10 @@ def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | 
     The focus is DERIVED here from the in-flight work record (#37): the files the work touches -> their owning
     entities -> a focused knowledge read. `gh` is the GitHub reader boot built from the live repo/token;
     attention reads the work record (open PRs + the working branch) through it, and the focus from the local
-    git floor (no token needed). telemetry-as-register is still absent, so degraded_inputs stays non-empty
-    (boot's routine degraded notice) — and the focused read does NOT clear it: `knowledge` merely leaves
-    degraded_inputs on a focused session; the "couldn't rank" notice persists until telemetry wires."""
+    git floor (no token needed). `live_findings` is the live debt-register count boot already read
+    (open_findings), threaded through to the assembler so the ranking and the card header read ONE number and no
+    second GitHub read happens; when it is None (no reader / a failed read) telemetry degrades and the committed
+    count stands in, so degraded_inputs carries `telemetry` and boot raises the loud 'couldn't reach' notice."""
     # Boot's RUNG-1 knowledge read (#37): a fresh boot slice is read once and threaded into every knowledge
     # read below, so orientation reads the gitignored cache instead of the SQLite index. `read()` fail-opens to
     # None (a missing/stale/broken slice, or knowledge unavailable) — then the reads run on `knowledge_query`
@@ -266,7 +279,7 @@ def needs_attention(state: dict | None, *, gh=None) -> tuple[list, list, dict | 
         # slice as DATA — boot is the LOADING layer; attention merges it per-key (D-167), never reads the file.
         # The work record, by contrast, is a SUBSTRATE attention reads itself (through the gh reader boot hands it).
         result = attention.rank_live(override=operator_overrides.slice_for("attention") or None,
-                                     focus=focus or None, gh=gh, source=source)
+                                     focus=focus or None, gh=gh, source=source, live_findings=live_findings)
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
         return [], ["attention"], None
     lines: list = []
@@ -401,7 +414,11 @@ def gather_signals(session_id: str | None = None) -> dict:
     # The GitHub reader for attention's in-flight work-record read (open PRs). None without a repo/token ->
     # attention falls back to the local-git floor (the working branch). Construction does no I/O (telemetry.py).
     gh = telemetry.GitHubIssues(repo, token) if repo and token else None
-    att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh)
+    # Thread the live debt-register count boot ALREADY read (open_findings, above) into the ranking, so the
+    # ranking and the "Open problems" header read ONE number (they cannot disagree) and the SessionStart path
+    # makes no second GitHub call. None (no repo/token, or a failed read) -> telemetry degrades and the
+    # committed count stands in -> boot raises the loud 'couldn't reach' notice.
+    att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh, live_findings=finding_count)
     try:
         # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
         # low-stakes (a stranded local checkout cannot reach the protected branch), so it degrades QUIETLY
@@ -449,8 +466,6 @@ def gather_signals(session_id: str | None = None) -> dict:
         "state": state, "refused": refused,
         "gate": gate, "reason": reason,
         "finding_count": finding_count, "register": register,
-        # an online-looking session that couldn't reach the live register -> a degraded notice, not silence
-        "findings_unavailable": finding_count is None and bool(repo) and token is None,
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
         # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
@@ -494,8 +509,10 @@ def render_dashboard(s: dict) -> str:
         pinned.append(
             f"⚠️ **{s['finding_count']} open engine finding(s)** about the engine's own health need "
             f"review: {s['register']}")
-    elif s["findings_unavailable"]:
-        degraded.append("I couldn't check the engine's open findings (no GitHub access from here).")
+    # When the live register could NOT be read (finding_count is None), the consolidated degraded notice below
+    # names it ("I couldn't reach your open-problems list from GitHub ...") — that notice is driven by attention's
+    # degraded set (telemetry, the same live register), so there is no separate "couldn't check findings" line
+    # to duplicate it. The header above falls back to the loud-if-stale shadow count in that case.
 
     # A stranded operator checkout — surfaced read-only, pinned AFTER the governance alarms (open-findings
     # tier; a stranded local checkout cannot reach the protected branch). boot OFFERS the fix here; the
@@ -566,13 +583,22 @@ def render_dashboard(s: dict) -> str:
     out.append(f"**Stance:** {s['stance']}")
 
     if s["att_degraded"]:
-        # Phrased about ranking DEPTH, not raw substrate names: those names ("telemetry"...) would
-        # collide with the live, authoritative figures rendered above and make the operator doubt a
-        # number that is in fact current.
+        # Name the actual input(s) the ranking couldn't reach this session, in plain words — so this notice
+        # fires ONLY on a real read failure (an outage / no GitHub access), never as standing scaffolding, and
+        # tells the operator WHAT was unreachable rather than an internal name. With the live debt register now
+        # read each session, a healthy boot leaves this empty (the old "expected on a new engine" framing is
+        # gone — it would be false here). EVERY value att_degraded can carry must map to a plain phrase: the
+        # four substrate names AND "attention" (needs_attention reports ["attention"] when the ranker itself
+        # failed), so no internal noun ever reaches operator copy (the §12 leak guard).
+        _UNREACHABLE = {"telemetry": "your open-problems list from GitHub",
+                        "git": "your in-flight branches and pull requests",
+                        "knowledge": "your project map",
+                        "state": "your saved project state",
+                        "attention": "your work-priority ranking"}
+        missing = _and_list([_UNREACHABLE.get(name, name) for name in s["att_degraded"]])
         degraded.append(
-            "I couldn't rank your work by priority this session — some of the ranking inputs aren't "
-            "wired up yet, so the list below may be thin. (Expected on a new engine; it doesn't mean "
-            "anything is wrong with your project.)")
+            f"I couldn't reach {missing} this session, so the priority order below may be incomplete — "
+            f"re-ground before you rely on it.")
 
     if degraded:
         out.append("")
