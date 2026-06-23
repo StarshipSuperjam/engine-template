@@ -38,10 +38,12 @@ a single-purpose erasure pull request. The marker is RETAINED (the idempotency t
 target is already gone is a clean no-op), and a marker missing its merge SHA is inert — a READ-side fail-safe floor,
 NOT consent verification (the merged-not-closed / immutable-merge-tree binding is the cross-session observer's job,
 slice ii). The AUTONOMOUS fold can never reach erasure: no routine mints a marker, and the SOLE minter
-(`enact_erasure`) has no caller in this slice but the test + demo — so until the observer ships, the removal set is
-always empty and this pass stays the Layer-1 no-op-shaped tidy. (Resurrection of an erased record via a restore /
+(`enact_erasure`) is reached only from the cross-session observer (slice ii) plus the test + demo, never from an
+autonomous routine — so the removal set is non-empty only after that observer has minted a marker from a merged
+erasure PR, and absent such a marker this pass is the Layer-1 no-op-shaped tidy. (Resurrection of an erased record via a restore /
 migration-revert is SURFACED through boot's open-findings via the generation stamp this pass bumps — the consumer is
-slice 6; no wired backup/restore round-trip exists yet.)
+the restore round-trip's resurrection guard (`restore_vault.surface_resurrection`), which declines an
+older-generation restore and surfaces it rather than silently resurrecting erased records.)
 
 **The live AUTO-trigger (slice 5, PR 3).** `maybe_compact` gates `compact` on `reclaimable_waste` — the count of
 foldable markers (reinforcement + CLOSED-batch supersessions) — reaching `_COMPACT_WASTE_THRESHOLD`, and rides
@@ -120,8 +122,8 @@ def _is_erasure_marker(record) -> bool:
 def _erasure_targets(raw_records) -> set:
     """The set of stable record ids that VALID erasure markers target — the Layer-2 removal set, derived from the
     already-materialized raw ledger (no extra disk pass). Empty whenever no valid marker is present, so the
-    autonomous fold is a pure no-op until the cross-session observer (slice ii) starts writing markers from merged
-    erasure PRs."""
+    autonomous fold is a pure no-op on a ledger holding no valid marker — the cross-session observer writes those
+    markers from merged erasure PRs."""
     return {r.get(records.TARGET_KEY) for r in raw_records if _is_erasure_marker(r)}
 
 
@@ -314,11 +316,11 @@ def maybe_compact(path: "str | None" = None) -> dict:
 
 
 # --- Layer-2 enactment: minting the merge-gated erasure marker (slice 4e PR i) ----------------------------
-# `enact_erasure` is the SOLE minter of an `operator-adjudicated-erasure` marker. In this slice it has NO caller
-# but the test + the throwaway-cabinet demo: there is DELIBERATELY no `erase` CLI verb on the real ledger, because
-# the only design-sanctioned producer is the cross-session observer (slice ii), which mints a marker ONLY after
-# reading a MERGED single-purpose erasure PR. So in normal operation no marker is ever minted, the removal set is
-# always empty, and `compact` stays the Layer-1 no-op-shaped tidy.
+# `enact_erasure` is the SOLE minter of an `operator-adjudicated-erasure` marker. Its only live caller is the
+# cross-session observer (slice ii, `erasure_observer.enact_from_merged_prs`); there is DELIBERATELY no `erase`
+# CLI verb on the real ledger, because that observer is the only design-sanctioned producer, and it mints a
+# marker ONLY after reading a MERGED single-purpose erasure PR. So a marker appears only when the operator has
+# merged such a PR; until then the removal set stays empty and `compact` stays the Layer-1 no-op-shaped tidy.
 
 def enact_erasure(target_id: str, merge_sha: str, *, path: "str | None" = None, now: "int | None" = None):
     """Append an `operator-adjudicated-erasure` marker authorising the NEXT compaction to physically remove the

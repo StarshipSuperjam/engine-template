@@ -2301,7 +2301,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:337481045835bd986123ea71b1d65d7594b39864bc6462629d4762c4a2c8927c",
+        "fingerprint": "sha256:dfeaba5464fbb502d41b11f42f5b82e9665d633fe106b161f8de1c0b1d70306d",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -2352,7 +2352,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:8577ddd0c85ad23b68b1aa754bdbbcfd38ab7e46d73b74f5259e2564118c776f",
+        "fingerprint": "sha256:a8ad9883769771ebd2f648c7948c98e38f6ad8066675ba102335fc1acd8f898d",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -2403,7 +2403,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:6227737928042d80cfce5edc707a88e41639220c01f87f7fc74b2375db95a73c",
+        "fingerprint": "sha256:524623ead37f99ece6b88b1115ab50463fe8a91480b62c8f6e4bc5ae2cf841ae",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -2811,7 +2811,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:9f5c6afb9dc3df1ab4daed7cd965612f3a213ecfd5641a006f703615adee2038",
+        "fingerprint": "sha256:16c0d4d6684e1cdaf42f9c57f92b80e3ec765925d82dfd459ecf6ab3cd936367",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -2879,7 +2879,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:41f273a5f35620d23497a447b9f4ca1f34aede00c97bbcb05704f1d98adc6c5d",
+        "fingerprint": "sha256:370b16df3fb7efce464f4fbcda9d4311222b35a5705fcd1954742d1e30e004a7",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -3525,7 +3525,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:f02a9779c728775c23cb5a77ad89d792f5f1f9c79034502b8d59454275970714",
+        "fingerprint": "sha256:b85e4f5cc3af53d4f1f0a5c51ae3cefc819deba58516f2734a100bb6bc2afb9c",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
