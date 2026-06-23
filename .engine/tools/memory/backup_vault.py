@@ -103,6 +103,9 @@ def _mint_namespace() -> str:
 # A fixed, content-free commit message for every backup push (NEVER derived from ledger content — D-007 leak guard).
 _COMMIT_MESSAGE = "Update memory backup (engine)"
 _REPO_DESCRIPTION = "Private AI-memory backup created and maintained by the engine. Keep it private; don't hand-edit."
+# The commit that records WHERE the backup lives, into the PROJECT repo, so a CI checkout can locate the vault
+# (the scheduled self-audit's saved-memory read). Coordinates only — the pointer never carries ledger content.
+_POINTER_COMMIT_MESSAGE = "Record memory-backup location (engine)"
 
 # The tightened per-call network timeout (seconds). telemetry's shared `_http` hardcodes 30s; a SessionStart push must
 # be bounded much tighter so a flaky host cannot stall session start. Matches boot._run's 10s CLI budget.
@@ -592,6 +595,33 @@ def _seed_readme(gh, owner: str, repo: str, branch: str, project_name: str, scop
     return status in (200, 201)
 
 
+def commit_pointer_to_project(gh, project_owner: str, project_repo: str, pointer: dict) -> dict:
+    """Record the configured pointer IN the project repo so a CI checkout can locate the vault — the scheduled
+    self-audit's saved-memory read sees only committed files (topology-law-5 config-not-data carve-out). A pure
+    GitHub Contents-API write over the SAME boundary `setup()` already holds — NEVER local git (no branch switch,
+    no push hang; the erasure-proposer/`_seed_readme` posture). The committed placeholder ships with the template,
+    so this is an UPDATE needing the existing blob sha. Coordinates only (owner/repo/branch/namespace) — never
+    ledger content. Best-effort and NEVER raises: returns {ok, error}; on a protected default branch or any write
+    refusal the local pointer still stands and `setup()` discloses the one residual step. error in
+    {no-default-branch, write-refused}."""
+    base = f"/repos/{project_owner}/{project_repo}"
+    repo_obj = _get(gh, base)
+    branch = repo_obj.get("default_branch") if isinstance(repo_obj, dict) else None
+    if not (isinstance(branch, str) and branch):
+        return {"ok": False, "error": "no-default-branch"}
+    existing = _get(gh, f"{base}/contents/{POINTER_REL}?ref={branch}")   # the shipped placeholder -> its blob sha
+    sha = existing.get("sha") if isinstance(existing, dict) else None
+    content = (json.dumps(pointer, indent=2) + "\n").encode("utf-8")     # byte-identical to write_pointer's file
+    body = {"message": _POINTER_COMMIT_MESSAGE, "branch": branch,
+            "content": base64.b64encode(content).decode("ascii")}
+    if isinstance(sha, str) and sha:
+        body["sha"] = sha
+    status, _ = _send(gh, "PUT", f"{base}/contents/{POINTER_REL}", body)
+    if status in (200, 201):
+        return {"ok": True, "error": None}
+    return {"ok": False, "error": "write-refused", "status": status}     # protected branch / refusal -> disclose
+
+
 def _ask_consent(vault_name: str, scope: str) -> str:
     try:
         return input(_consent_prompt(vault_name, scope))
@@ -704,15 +734,21 @@ def setup(*, scope: "str | None" = None, transport=None, consent: "str | None" =
     owner, repo, branch, created = bind["owner"], bind["repo"], bind["branch"], bind["created"]
 
     namespace = _mint_namespace()                               # a fresh id, even on adopt (never a discovered one)
-    write_pointer(owner, repo, branch, namespace, now=when)
+    pointer = write_pointer(owner, repo, branch, namespace, now=when)
+    pointer_commit = commit_pointer_to_project(gh, project.split("/")[0], project_name, pointer)
     result = push_now(transport=transport, now=when)
     _record_state(now=when, success=result.get("ok", False), privacy_ok=result.get("error") != "public")
     msg = _setup_done_msg(owner, repo)
     if not result.get("ok"):
         msg += " (The first copy will finish on the next backup.)"
+    if not pointer_commit.get("ok"):                            # the local pointer stands; name the one residual step
+        msg += (" One more step to let the scheduled review find your backup: I saved its location on this "
+                "computer but couldn't record it in this project automatically, so commit "
+                f"{POINTER_REL} (its branch is protected, or the write was refused).")
     return {"ok": True, "created": created, "adopted": not created, "owner": owner, "repo": repo,
             "namespace": namespace, "readme_seeded": bind.get("readme_seeded"),
-            "first_push": result.get("ok", False), "message": msg}
+            "first_push": result.get("ok", False), "pointer_committed": pointer_commit.get("ok", False),
+            "message": msg}
 
 
 # ============================================================================================================
@@ -830,11 +866,12 @@ class _FakeVault:
     (the large-file guard: it must go via Git Data blobs)."""
 
     def __init__(self, *, private: bool = True, fail_blob: bool = False, no_scope: bool = False,
-                 owner: str = "demo-user"):
+                 owner: str = "demo-user", refuse_pointer_put: bool = False):
         self.private = private
         self.fail_blob = fail_blob
         self.no_scope = no_scope
         self.owner = owner
+        self.refuse_pointer_put = refuse_pointer_put      # simulate a protected project branch refusing the pointer write
         self.repos: dict = {}
         self.blobs: dict = {}
         self.commits: dict = {}
@@ -958,6 +995,8 @@ class _FakeVault:
             if method == "PUT":
                 if fpath.endswith("ledger.ndjson"):
                     self.pushed_ledger_via_contents = True   # the guard: the ledger must NEVER go via Contents
+                if self.refuse_pointer_put and fpath == POINTER_REL:
+                    return 409, None                         # a protected default branch refuses a direct commit
                 sha = self._next("b")
                 self.blobs[sha] = body["content"]
                 self.contents[f"{slug}@{fpath}"] = sha
