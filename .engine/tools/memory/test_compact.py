@@ -197,8 +197,9 @@ class IdAndPruneTests(_Base):
 class NeverDropsRecallContentTests(_Base):
     """The Layer-1 guarantee: an UNMARKED compaction (no operator-adjudicated-erasure marker present) drops NO
     recall content — every turn-delta / episodic / gist survives the fold, even when archived or crash-retired.
-    This is the partial-build safety net too: until the observer (slice ii) writes a marker, the removal set is
-    always empty, so the half-built system erases nothing. (The MARKED case is Layer2ErasureTests, below.)"""
+    This is the no-marker floor too: when no operator-adjudicated-erasure marker is present (as in these tests,
+    which mint none), the removal set is empty, so compaction erases nothing. (The MARKED case is
+    Layer2ErasureTests, below.)"""
 
     def test_every_content_record_survives_compaction(self):
         a = self._episodic("the manifest note")

@@ -859,7 +859,7 @@ def _apply_substrates(say, copy=None) -> dict:
     run before any step that could rewrite that line with operator identity; none does today (the only identity
     renderer, _apply_codeowners, touches CODEOWNERS only), so STEP 5 is safe — a forward-defensive invariant. The
     graph path is bound at import (knowledge_gen), so the demo redirects it AND we pass it explicitly — a redirected
-    run never rewrites the real graph. Memory-backup setup is owed to the memory module (not yet built)."""
+    run never rewrites the real graph. Memory-backup setup is owed to the memory module (backup_vault), not done here."""
     result = {"step": "substrates", "status": "done"}
     try:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)

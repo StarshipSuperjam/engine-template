@@ -1,40 +1,37 @@
 ---
 schema_version: 1
-generated: 2026-06-22
-fingerprint: sha256:ecca80b37aa5af97c7f08ce926455f155e59ad2f8d4014365a86569ed301f098
+generated: 2026-06-23
+fingerprint: sha256:6f6b487b92271cc209a89e956512958f2e43f6b7998ad972be203b8bac94915d
 ---
 
-I have what I need. Here is the review.
-
----
-
-## Self-review digest — 2026-06-22
+## Self-review digest — 2026-06-23
 
 ### What I looked at
-- **The engine's own state**, read fresh: its module list, the knowledge map (230 entries), the running state file, the pending-erasure slot, and the operator's personal conduct file.
-- **Which parts are even mine to act on.** Every one of the 230 catalogued parts is owned by an installed engine module — meaning it's replaced wholesale on each engine update and can't be locally retired. Your *local, update-surviving* surfaces — custom rules, contracts, your own operations or skills — are all still empty or untouched: the contracts folder holds only a placeholder, your conduct file is the empty starter, and no in-progress work exists. This is a fresh engine.
-- **Your saved memory** — couldn't read it. No memory store exists yet on this engine, and the review can't read working memory anyway on this version (a known limitation, honestly flagged in your setup guide). Nothing to check there this cycle.
-- **The engine's own to-do list** (the 3 open self-health issues you passed me), each re-checked against the actual code.
-- **A cold spot-read** for drift: I picked two operator-facing guides — the getting-started page and the self-review setup guide — and checked that every command, file, and setting they name still exists and still says the right thing.
+- **The engine's own running state, read fresh:** the installed-module list and each module's manifest, the engine state file, the pending-erasure slot (empty — none proposed), the memory-backup pointer, and the operator's personal conduct file.
+- **Which surfaces are even mine to act on.** I separated the two kinds mechanically, from the module manifests. Every substantive thing in the engine's corners right now — all 13 operation guides, the five policies, the conduct defaults, the knowledge and state files, the interfaces, *and the self-review's own concern checklist* — is owned by an installed module's manifest, meaning it's replaced wholesale on each engine update and can't be locally retired. Your **local, update-surviving** surfaces are all still empty starters: the contracts folder holds only its placeholder, your personal conduct file is the untouched seed (no codes added), and there are no custom operations, skills, or agents. So locally, this is still a near-fresh engine — just with more machinery installed than before.
+- **Your saved memory — couldn't review it this cycle.** No memory backup is set up for this review to read (the project's backup pointer is switched off), so concern #1 is genuinely **not reviewed**, not cleared. I'm not saying your project has no saved memory — only that I couldn't see it from here.
+- **The engine's own to-do list** — all four open engine-labelled issues you handed me (#224, #221, #212, #145), each re-checked against the current code.
+- **A cold read for drift:** I picked the scheduled-self-review setup guide and read it with no prior context — checking that every file, secret name, workflow, and setting it names still exists and still says the right thing, and weighing its tone and clarity against the plain-language standard.
 
 ### What I found
-- **One self-health issue is out of date and understates real progress — #171 (the "demo clutter" item).** It says only *one* leftover test-demo gets cleaned out when someone creates a project from this template. In the current code, **eight** are now cleaned out. **Five** still remain uncleaned (`demo_actionlint`, `demo_first_run_reference_closure`, `demo_pr_reconcile`, `demo_secret_scan`, `demo_security_floor`). So the problem is mostly addressed, not untouched — but the issue still reads as if nothing's been done. Left as-is, you'd over-estimate this debt every time you triage it.
-- **Issue #92 (a cold session isn't told it has a knowledge map) leans on one detail that's now stale.** It claims no operation file mentions the knowledge map; two now do — but only in passing, not in the "here's when to reach for it" sense the issue is really about. The underlying gap is real and is correctly parked until your M1 milestone. Only its supporting evidence has drifted.
-- **Issue #145 (raw shell text shown after a hook runs) still genuinely can't be fixed by you here.** I confirmed the launcher it describes exists and the situation is unchanged; it remains correctly parked, waiting on an Anthropic-side fix. No action.
-- **The cold-read guides are healthy.** Both speak to you as a capable adult, avoid jargon, and every reference resolves — the setup guide's cron schedule, token names, and workflow file all match the real files. No drift.
-- **Nothing local earns retirement this cycle** — see the honest scrutiny of that claim below.
+- **The setup guide is healthy and well-written.** It speaks to you as a capable adult, leans on no jargon, and every reference resolves — `audit-prep.yml`, the cron lines, the token and variable names, the agent file it points the cloud option at. It's honest about its own limits (it flags plainly that the cloud path hasn't been run end-to-end yet). No drift, no talking-down.
+- **That cold read did corroborate issue #224, though.** The guide tells you to "ask me to set up a backup" and then "ask me to give the review access to it" — but #224 records that this access step isn't actually built or written down, and that a scheduled run's token can't reach the separate place a backup lives. Read together: the doc promises a walk-through that doesn't yet finish the job. My fresh check this run agrees — the backup is switched off, and the read half still has no working way to run. (Separately, as over-time context: #224 is the one substantive open item and it concerns engine machinery, so any fix is an engine-side change, not something to patch in your repo.)
+- **#212 (the ~200 `D-###` design citations) still reproduces and is still correctly parked.** The citations are all present across the engine's tools and schemas, and the contracts folder is still empty — meaning the eADR distillation that's meant to trigger this cleanup hasn't happened yet. Nothing to do until that trigger lands.
+- **#221 (stale local session worktrees/branches) and #145 (raw shell text shown after a hook runs) are both calm standing lines — nothing changed.** Both are blocked on an outside Claude Code fix, both still describe a real condition, and each carries its own stop-gap or wait. I did **not** independently check whether the upstream fixes have shipped — that's yours to judge by following the links in those issues. Nothing about either looks stale or ready to retire this run, so there's no new action to recommend.
+- **No optional module to question.** All five installed modules are marked required — there's no optional, possibly-inert module to put an "is this still earning its place?" question to you about, and no recurring friction I can see that an uninstalled module would serve.
+- **Nothing local earns retirement this cycle** — scrutinised below.
 
 ### Scrutinising my own "nothing to retire" claim
-My bias is to retire, so I pushed on this. The reason there's no retirement candidate isn't that everything's earning its keep — it's that **nothing local has accumulated yet**: no custom rules, contracts, operations, skills, memory, or in-progress state. The only things present are engine machinery (replaced on update, not mine to retire) and the construction-time demos — and those are already governed by issue #171 and by an upstream plan that retires the whole set at your v1. Manufacturing a retirement nomination here would be a false positive. The four standing checklist items I review against all still describe judgment calls no automatic check could make, so none of *them* is stale either.
+My standing bias is to retire, so I pushed on it. The reason there's no candidate isn't that everything's pulling its weight — it's that **nothing local has accumulated to retire.** Your update-surviving surfaces are all still empty seeds. Everything substantial is engine machinery, which is overlaid on each update and isn't mine to retire locally — if a piece of it were stale, the move is to flag it upstream, not remove it here. I also re-read the self-review's own five-item checklist as retire candidates: each still names a fresh content judgment no automatic check could make, and the fifth (outside-blocked stop-gaps) actively matches #221 and #145 — so none of them is stale either. Manufacturing a nomination here would be a false positive.
 
 ### What I recommend
-1. **Refresh issue #171 so it reflects reality: 8 of 13 demos now cleaned out, 5 remaining.** Cost of acting: a few minutes editing the issue. Cost of ignoring: this debt keeps reading as bigger and less-touched than it is, and the 5 genuine leftovers stay blurred together with the 8 already handled. *Keep-it path:* leave it — it's not wrong about the remaining work, just outdated on the progress. I can post the corrected status as a comment on request.
-2. **Leave #92 and #145 as they are.** Both are correctly parked. For #92, you may optionally drop a one-line note that its "no operation mentions it" detail has drifted, so a future reader doesn't trust it blindly.
-3. **Stand up the scheduled self-review when you're ready** (the standing start-up notice). Until then this review only runs when you ask, as now.
+1. **Treat #224 as the one real open question and decide its complete fix when you're ready.** This run confirms its core: the self-review can read your saved memory's *backup* in principle, but there's no working way to actually turn that on, so concern #1 stays unreviewed every cycle until it's built. It's an engine-side fix, already tracked — no action forced, but it's the item with the most behind it. *Cost of leaving it:* the review keeps honestly telling you it couldn't check your saved decisions, every run.
+2. **If you'd like the review to start covering your saved memory, ask the engine to set up a memory backup.** That's the switch that turns concern #1 from "not reviewed" into something I can actually check. It's entirely optional and declining is a real choice — I'll just keep saying plainly each run that I couldn't see it. (I'm re-stating this calmly, not pressing it.)
+3. **Leave #212, #221, and #145 as they are** — parked correctly, nothing changed.
 
-### Gaps I want to be honest about
-- I have **no direct GitHub access** this session, so I judged the issue backlog only from the three you handed me — I couldn't confirm that's the complete open list, and **couldn't verify your `main` branch is protected**. Confirm protection before any consequential merge.
-- I **couldn't read saved memory** (none exists, and this version can't read it regardless), so concern #1 is genuinely unreviewed, not cleared.
-- On **module fit**, this engine has no usage history yet, so I can't honestly call any installed module "inert" — that judgment needs lived use I don't have.
+### Gaps I'm being honest about
+- **Saved memory (concern #1): not reviewed** — no backup is set up for this review to read. Not "empty," just unseen from here.
+- **Module fit (concern #3):** this was a cold run with no lived usage history, so I can't honestly call any installed module inert — that judgment needs real use I don't have. All installed modules are required, so there's nothing optional to question regardless.
+- The engine's own status cache still reads "3 open problems" and names a now-closed item (#183) as the current situation; the live backlog is the four issues above. That cache simply couldn't refresh without network access this run — it's a self-disclosing staleness, not drift for me to fix.
 
 No changes were made and nothing was filed — this is report-only, yours to act on or decline.

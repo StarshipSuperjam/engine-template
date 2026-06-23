@@ -25,5 +25,5 @@ The point is simple: no concern the AI raises should quietly disappear into a ch
 ## Enforcement-tier
 
 - **Posture** — the disposition habit itself is an expectation the AI is trusted to follow on every concern it raises.
-- **Hard-fail (a later slice's, not this policy's)** — the end-of-session ritual is designed to push back until every concern raised has been given a disposition, and to hand the operator a plain-language summary instead of leaving them to scour the transcript. That ritual is built in a later slice; until then this rule stands as posture.
+- **Hard-fail (the close gate's, not this policy's)** — the end-of-session ritual pushes back until every concern raised has been given a disposition, and hands the operator a plain-language summary instead of leaving them to scour the transcript. That ritual is built as the turn-close `Stop` hook; this policy doc itself stays posture, while the gate enforces a strong local block over the findings that were recorded.
 - The durable, unbypassable backstop is the human review at the protected-branch merge — not any local check. Even a concern that slips every step above is still caught there.

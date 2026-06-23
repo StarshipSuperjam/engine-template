@@ -21,8 +21,8 @@ without a regenerate. The gate runs in CI as the `coverage`-kind rule engine/che
 (mode: fingerprint), which RELAYS to check() here — knowledge owns the detection, the rule relays it.
 
 DERIVED, NOT THE QUERY LAYER: the derived query index and the graph-query MCP server are separate,
-regenerable, gitignored layers (slice 11a); the prioritized boot slice is a further gitignored layer,
-DEFERRED — its producer awaits its consumer (boot), so it is not yet produced. This committed file is
+regenerable, gitignored layers (slice 11a); the prioritized boot slice (#37) is a further gitignored
+layer — a never-committed cache rebuilt on demand, read live by boot. This committed file is
 the source of truth and the offline cold-start readout. Reverse traversal (who governs/enforces/provides
 me) is the derived index's job — entities store OUTGOING edges only.
 
@@ -63,7 +63,7 @@ import module_coherence  # noqa: E402
 import hooks             # noqa: E402  (the run_hook harness for the commit-boundary regen hook)
 
 # The committed graph's home: a directory (slice 11a's gitignored index lives alongside under .cache/;
-# the gitignored boot slice is a deferred layer, not yet produced), owned by core's provides.knowledge
+# the gitignored boot slice is its rung-1 cache, built on demand into the same .cache/), owned by core's provides.knowledge
 # so the ownership leg does not flag it an orphan. NOT a catalogued
 # surface (the knowledge map is derived-observational, excluded from the catalog by design), so it
 # never becomes an entity of itself.

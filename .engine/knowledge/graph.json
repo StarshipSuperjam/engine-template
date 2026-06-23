@@ -1244,7 +1244,7 @@
       },
       "slug": "close-turn",
       "source": {
-        "fingerprint": "sha256:deaa1557ef0c94fc67bf3748d56bb01ff0ae686f3af753c53846c7c20f71d558",
+        "fingerprint": "sha256:2fcab34c784f836cd2a8ea3d1115cd9f9fdc5388b7cbffb29fa6a03b664f8b67",
         "path": ".engine/operations/close-turn.md"
       },
       "status": "active",
@@ -1484,7 +1484,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:4cfde6dbea07e1a06a2b2a7671576d96ff50c9f39fa530909cfc20ca96d213f2",
+        "fingerprint": "sha256:99efb6d415c2cc0ba9afd6f31db99a44c6e0e85ab3c4c453e33f5c3c6b1bfebb",
         "path": ".engine/policies/attention.md"
       },
       "status": "active",
@@ -1547,7 +1547,7 @@
       },
       "slug": "finding-disposition",
       "source": {
-        "fingerprint": "sha256:d8d86b37bbb8d1ce88163000984ee6199f6a5d7efcf7a0072ab380ff4bd7df48",
+        "fingerprint": "sha256:59ae156cf215f1ab51c892b5e7ee3f19f79ec3436563aab1b8aca8cdbd46ae85",
         "path": ".engine/policies/finding-disposition.md"
       },
       "status": "active",
@@ -1620,7 +1620,7 @@
       },
       "slug": "attention-result.v1",
       "source": {
-        "fingerprint": "sha256:abb061bc0dc53f39f2a19c04b3debafb9ddfdf1ed74b8ee203f57759c1229f1d",
+        "fingerprint": "sha256:239d2c0f0354629f8430b4cef09f3ffaf75c60f0a6f692ee3eeaf1b9c9d2cbe9",
         "path": ".engine/schemas/attention-result.v1.json"
       },
       "status": "active",
@@ -2148,7 +2148,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:f3cdf319725028f19046cf60c70b7c6cd82073241af31b342a215cb685958058",
+        "fingerprint": "sha256:7118f2ff66384be53601ba3f27db4976b325f728a86e871bb9347d9190f1f7f3",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -2165,7 +2165,7 @@
       },
       "slug": "attention_rank",
       "source": {
-        "fingerprint": "sha256:59844c131a87985a3c578931fae39f6a899776210f099e94029d4587b0c46ea5",
+        "fingerprint": "sha256:4d53d349d157b78a5c35031bdfc444623dc0819d627869494e116fc7797f75e9",
         "path": ".engine/tools/attention_rank.py"
       },
       "status": "active",
@@ -2301,7 +2301,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:337481045835bd986123ea71b1d65d7594b39864bc6462629d4762c4a2c8927c",
+        "fingerprint": "sha256:dfeaba5464fbb502d41b11f42f5b82e9665d633fe106b161f8de1c0b1d70306d",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -2352,7 +2352,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:8577ddd0c85ad23b68b1aa754bdbbcfd38ab7e46d73b74f5259e2564118c776f",
+        "fingerprint": "sha256:a8ad9883769771ebd2f648c7948c98e38f6ad8066675ba102335fc1acd8f898d",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -2403,7 +2403,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:6227737928042d80cfce5edc707a88e41639220c01f87f7fc74b2375db95a73c",
+        "fingerprint": "sha256:524623ead37f99ece6b88b1115ab50463fe8a91480b62c8f6e4bc5ae2cf841ae",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -2811,7 +2811,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:9f5c6afb9dc3df1ab4daed7cd965612f3a213ecfd5641a006f703615adee2038",
+        "fingerprint": "sha256:16c0d4d6684e1cdaf42f9c57f92b80e3ec765925d82dfd459ecf6ab3cd936367",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -2879,7 +2879,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:41f273a5f35620d23497a447b9f4ca1f34aede00c97bbcb05704f1d98adc6c5d",
+        "fingerprint": "sha256:370b16df3fb7efce464f4fbcda9d4311222b35a5705fcd1954742d1e30e004a7",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -3525,7 +3525,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:f02a9779c728775c23cb5a77ad89d792f5f1f9c79034502b8d59454275970714",
+        "fingerprint": "sha256:b85e4f5cc3af53d4f1f0a5c51ae3cefc819deba58516f2734a100bb6bc2afb9c",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",

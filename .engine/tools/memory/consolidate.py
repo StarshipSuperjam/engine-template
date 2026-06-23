@@ -293,9 +293,9 @@ def _pre_compact_handler(payload) -> dict:
     the "tolerable moment, never the hot path" the design names for the expensive step (memory/README) and, IF
     enough reclaimable waste has piled up, folds-and-prunes it (slice 5 PR 3). `maybe_compact` is fail-open (never
     raises); the compaction it rides folds Layer-1 bookkeeping AND, since slice 4e, physically removes any record an
-    `operator-adjudicated-erasure` marker targets (Layer-2) — but NO such marker is ever minted automatically (the
-    sole minter, `compact.enact_erasure`, has no live caller until the cross-session observer ships), so in normal
-    operation it still erases nothing. This handler ALWAYS proceeds — PreCompact must never block the squash."""
+    `operator-adjudicated-erasure` marker targets (Layer-2) — and the sole minter, `compact.enact_erasure`, is now
+    fired only by the cross-session erasure observer, and only for a target the operator authorised by merging a
+    single-purpose `engine-erasure` PR, so absent such a merge it still erases nothing. This handler ALWAYS proceeds — PreCompact must never block the squash."""
     from memory import compact   # lazy: keep compaction's import graph off the SessionStart load path
     compact.maybe_compact()       # gated on reclaimable waste; report dropped (a leaf renders no prose); fail-open
     return hooks.proceed()
