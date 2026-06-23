@@ -123,8 +123,11 @@ Unlike the schedule, this setting is remembered across engine updates.
 This part is optional. By default the review checks your committed files and the engine's open issues — but
 **not** your saved memory (the notes the engine keeps about your decisions), because that lives only on your
 computer, outside the project. If you'd like the review to also check whether those saved notes have gone stale
-or started to contradict each other, you can give it read access to them. It's a deliberate, one-time setup, and
-worth understanding before you do it. Ask me and I'll talk you through each step; here's what it involves.
+or started to contradict each other, you can give it read access to them. (If your project is **public**, the
+review still reads your memory but keeps the specific notes out of its committed summary — anyone can read that
+summary — so it reports only that your memory was reviewed; your decisions stay private either way.) It's a
+deliberate, one-time setup, and worth understanding before you do it. Ask me and I'll talk you through each step;
+here's what it involves.
 
 **Two things have to be true**, and doing only the first leaves the read switched off:
 
@@ -135,10 +138,12 @@ worth understanding before you do it. Ask me and I'll talk you through each step
    vault is a separate, private repository, so the review needs its own read-only key to reach it — steps A–C
    below.
 
-**A — make a read-only key for the vault.** On GitHub, create a **fine-grained personal access token** —
-GitHub's name for a narrow key you can lock to a single repository and a single kind of access. Scope it to
-**only your memory-vault repository**, and give it **just "Contents → Read"** (permission to *read* files and
-nothing else — no writing, no deleting, no other repository).
+**A — make a read-only key for the vault.** On GitHub, go to your **account's Settings → Developer settings →
+Personal access tokens → Fine-grained tokens → Generate new token**, then create a
+**fine-grained personal access token** — GitHub's name for a narrow key you can lock to a single repository and a
+single kind of access. Under **Repository access** choose **only your memory-vault repository**, and under
+**Permissions** give it **just "Contents → Read"** (permission to *read* files and nothing else — no writing, no
+deleting, no other repository).
 
 - **Make it not expire, where GitHub lets you.** On a **personal** account you can set the expiry to **"No
   expiration"** — choose that, so the review doesn't silently stop a year later. If your vault lives in an
@@ -155,7 +160,9 @@ MEMORY_VAULT_TOKEN
 ```
 
 Paste the key from step A as its value. The name has to match exactly — a typo here makes the read fail with no
-error you'd notice (the review's summary will say it wasn't given access).
+error you'd notice (the review's summary will say it wasn't given access). GitHub keeps the key encrypted and
+never shows it again, and only this project's scheduled review can use it — and all it can do is *read* your
+memory-vault repository.
 
 - **Worth knowing before you paste:** if you keep **one shared vault for all your projects** (the default), this
   one key lets *this* project's scheduled review read **every** project's saved memory in that shared vault — not

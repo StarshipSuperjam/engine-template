@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:163f447f604849197082af3bf8f425607f027ef207ef87187a495c73ca2a489e",
+        "fingerprint": "sha256:5e975e073dd9537b464179d32a292be66cb6b4c985d1fa75f8b2238b9b66f62e",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
