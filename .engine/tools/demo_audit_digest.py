@@ -14,9 +14,12 @@ It works entirely on a THROWAWAY copy in a temp folder; your real repo is never 
 same logic the real rules run. Vary it yourself: change the sample text, change the dates, and re-run — the
 verdicts follow. The sample below is also a fair picture of what a real self-review file reads like.
 
-The last step also shows the audit-over-audit corroboration read: each run, the self-review is handed its
-OWN recent reviews to read as corroboration only — never as the decision — and degrades honestly when there
-is nothing to compare against. That read is faked here (no network, no token), running the real logic.
+Two later steps also show the read-only persona's other two inputs, both faked here (no network, no token),
+running the real logic: the audit-over-audit corroboration read (the self-review is handed its OWN recent
+reviews to read as corroboration only, degrading honestly when there is nothing to compare against), and the
+saved-memory coverage read (it reads the project's saved beliefs from their off-repo backup to review concern
+#1 — markers and superseded drafts dropped — or discloses the gap plainly when there is no backup to read,
+never claiming memory is empty).
 """
 from __future__ import annotations
 import datetime
@@ -49,6 +52,84 @@ Nothing here changes anything on its own — each item above is a suggestion you
 
 def _verdict(f: dict) -> str:
     return {"hard": "RED", "soft": "FLAGGED", "note": "clear"}.get(f["severity"], f["severity"])
+
+
+def _demo_saved_memory() -> bool:
+    """Concern #1 — saved memory, a REAL round-trip with only the network faked. Plant saved notes into a
+    throwaway memory cabinet, back them up to a FAKE vault, and prove the self-review reads back the durable
+    beliefs (the provenance markers and a superseded draft dropped by memory's OWN recall authority) — and that
+    with no backup it discloses the gap, never claiming memory is empty. Mirrors restore_vault's offline harness;
+    the real ledger and pointer are never touched."""
+    import json as _json
+    import time
+    from memory import backup_vault as bv
+    from memory import ledger
+    from memory import records as rec
+    old_root, old_engine, old_slug = validate.ROOT, getattr(validate, "ENGINE_DIR", None), bv._project_slug
+    with tempfile.TemporaryDirectory() as cabinet, tempfile.TemporaryDirectory() as root:
+        os.environ["ENGINE_MEMORY_DIR"] = cabinet
+        validate.ROOT = root
+        validate.ENGINE_DIR = os.path.join(root, ".engine")
+        os.makedirs(validate.ENGINE_DIR, exist_ok=True)
+        with open(os.path.join(validate.ENGINE_DIR, "engine.json"), "w", encoding="utf-8") as fh:
+            _json.dump({"engine_release": "0.0.0-dev"}, fh)
+        bv._project_slug = lambda: "demo-org/demo-project"
+        try:
+            # (a) No backup configured yet -> an honest disclosure, never "no memory exists".
+            no_backup = audit_digest.render_saved_memory()
+            print("   --- with NO memory backup set up, what the review says ---")
+            print("   | " + no_backup[:280])
+            disclosed = "isn't set up for this review" in no_backup and "NEVER claim" in no_backup
+
+            # (b) Plant real saved memory: two live notes, a gist, a superseded draft, and provenance markers.
+            now = int(time.time())
+            b1, b2 = "b1" + "0" * 30, "b2" + "0" * 30
+            idC, idG = "c" * 32, "g" * 32
+            for r in [
+                {"v": 1, "kind": rec.EPISODIC_KIND, rec.RECORD_ID_KEY: "a" * 32, "session_id": "S", "ts": now - 10,
+                 "role": "decision", "text": "Ship the launch banner in the spring release.",
+                 "tags": [rec.DEFAULT_EPISODIC_TAG], rec.BATCH_KEY: b1},
+                {"v": 1, "kind": rec.EPISODIC_KIND, rec.RECORD_ID_KEY: "d" * 32, "session_id": "S", "ts": now - 500,
+                 "role": "lesson", "text": "Never deploy on a Friday.", "tags": [rec.DEFAULT_EPISODIC_TAG],
+                 rec.BATCH_KEY: b1},
+                {"v": 1, "kind": rec.EPISODIC_KIND, rec.RECORD_ID_KEY: idC, "session_id": "S", "ts": now - 2000,
+                 "role": "observation", "text": "An old draft note now folded into a summary.",
+                 "tags": [rec.DEFAULT_EPISODIC_TAG], rec.BATCH_KEY: b1},
+                {"v": 1, "kind": rec.MARKER_KIND, rec.RECORD_ID_KEY: "m" * 32, "session_id": "S", "ts": now - 5,
+                 "tags": [rec.MARKER_TAG], rec.BATCH_KEY: b1},
+                {"v": 1, "kind": rec.GIST_KIND, rec.RECORD_ID_KEY: idG, "ts": now - 100, "role": "observation",
+                 "text": "A summary of several older notes.", "tags": [rec.GIST_TAG, rec.DEFAULT_EPISODIC_TAG],
+                 rec.BATCH_KEY: b2, rec.SOURCE_IDS_KEY: [idC]},
+                {"v": 1, "kind": rec.SUPERSEDED_KIND, rec.RECORD_ID_KEY: "s" * 32, rec.TARGET_KEY: idC,
+                 rec.SUPERSEDED_BY_KEY: idG, rec.BATCH_KEY: b2, "ts": now - 100, "tags": []},
+                {"v": 1, "kind": rec.ROLLUP_KIND, rec.RECORD_ID_KEY: "r" * 32, rec.BATCH_KEY: b2, "ts": now - 100,
+                 "tags": []},
+                {"kind": "turn-delta", rec.RECORD_ID_KEY: "t" * 32, "role": "observation", "ts": now - 3,
+                 "text": "A raw in-the-moment note not yet summarized."},   # live, but not a durable belief
+            ]:
+                ledger.append(r)
+            fake = bv._FakeVault()
+            bv.setup(scope="shared", transport=fake.transport, consent="y")
+            rendered = audit_digest.render_saved_memory(transport=fake.transport)
+            print("\n   --- with a backup set up, the review reads your saved beliefs back ---")
+            for line in rendered.splitlines():
+                print("   | " + line)
+            read_back = ("Ship the launch banner in the spring release." in rendered
+                         and "Never deploy on a Friday." in rendered
+                         and "A summary of several older notes." in rendered)            # the gist is kept
+            dropped = ("An old draft note now folded into a summary." not in rendered          # superseded raw
+                       and "A raw in-the-moment note not yet summarized." not in rendered)     # raw non-belief
+            plain = all(w not in rendered for w in ("episodic", "gist", "tier"))          # no backstage labels
+            ok = disclosed and read_back and dropped and plain
+            print("\n   expected: no backup -> an honest gap (never 'no memory'); a configured backup -> your live")
+            print(f"   beliefs read back, with the provenance markers and the superseded draft dropped -> {ok}")
+            return ok
+        finally:
+            validate.ROOT = old_root
+            if old_engine is not None:
+                validate.ENGINE_DIR = old_engine
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+            bv._project_slug = old_slug
 
 
 def main() -> int:
@@ -180,12 +261,22 @@ def main() -> int:
         print(f"   read degrade to an honest 'nothing to compare against' -> {step7}")
         ok = ok and step7
 
+        print("\n[8] Concern #1 — saved memory: the review can't see your gitignored memory directly, so it")
+        print("    reads it from your off-repo BACKUP. This plants real saved notes, backs them up to a FAKE")
+        print("    vault (no network), and shows the review reads back your durable beliefs — or, with no")
+        print("    backup, discloses the gap without ever claiming your memory is empty.")
+        print("-" * 78)
+        step8 = _demo_saved_memory()
+        ok = ok and step8
+
         print("\n" + BANNER)
         print("In plain words: the seal rule passes on a freshly-written file and goes RED the moment the")
         print("file is hand-edited; the freshness rule stays quiet while the self-review is recent and")
-        print("speaks up when it hasn't run in a while (or at all); and the self-review reads its own recent")
-        print("reviews as corroboration, degrading honestly when there is nothing to compare against. Every")
-        print("step read a throwaway copy or a faked read and changed nothing. Your real repo was never touched.")
+        print("speaks up when it hasn't run in a while (or at all); the self-review reads its own recent")
+        print("reviews as corroboration, degrading honestly when there is nothing to compare against; and it")
+        print("reads your saved memory from its backup to review your saved decisions — disclosing the gap")
+        print("honestly when there's no backup to read, never pretending your memory is empty. Every step read")
+        print("a throwaway copy or a faked read and changed nothing. Your real repo was never touched.")
         print(f"DEMO {'OK' if ok else 'FAILED'}")
         print(BANNER)
     return 0 if ok else 1
