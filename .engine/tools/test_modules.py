@@ -319,6 +319,13 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # The files stay under .engine/check/ — ownership is a `provides` claim, not a location. This
         # test pins that exact split so a future wildcard re-introduction (which would double-claim the
         # corpus) cannot pass silently.
+        # An OPTIONAL module may additionally own a *domain* check — one that inspects the operator's
+        # PRODUCT, not the engine itself — categorically distinct from core's two engine guards and from
+        # validators-core's engine-self-validation corpus. dependency-discipline is the first: it owns the
+        # dependency-pinning rule (engine-template Slice 2), the module being "the content" over core's
+        # check engine. The partition below therefore admits a third owner; the real boundary this test
+        # pins is unchanged — each check is owned by exactly ONE module, core stays frozen at its two §15
+        # guards, and no wildcard may re-claim the corpus.
         manifests = module_coherence.discover_manifests()
         ids = {m.get("id") for _path, m in manifests}
         self.assertIn("validators-core", ids, "validators-core must be a present module")
@@ -373,11 +380,18 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/state-cursor.json",
             ".engine/check/uv-group-drift.json",
         ], "validators-core owns exactly the 35 corpus rules")
+        # the first optional-module-owned DOMAIN check: dependency-discipline inspects the product's
+        # dependencies, not the engine — outside both core's guards and validators-core's self-validation corpus.
+        dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])
+        self.assertEqual(dd_checks, [
+            ".engine/check/dependency-pinning.json",
+        ], "dependency-discipline owns exactly its pinning check")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
-        self.assertEqual(sorted(core_checks + vc_checks), all_checks,
-                         "every .engine/check/*.json is claimed by exactly one of core / validators-core")
+        self.assertEqual(sorted(core_checks + vc_checks + dd_checks), all_checks,
+                         "every .engine/check/*.json is claimed by exactly one of "
+                         "core / validators-core / dependency-discipline")
         # validators-core depends on core (presence assertion, any version)
         vc = next(m for _p, m in manifests if m.get("id") == "validators-core")
         self.assertEqual(vc.get("depends"), {"core": ""})
