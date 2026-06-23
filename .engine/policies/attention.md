@@ -63,10 +63,11 @@ something less important. The dials only adjust matters *inside* that fixed fram
 These dials govern only how the engine *prioritises and sizes* what it shows you when it gets its bearings —
 at the start of a session and on each prompt. They decide ordering and room, nothing else: not whether
 something is a tracked problem in the first place (that is the monitoring policy's job), not what is fetched
-or stored, and not the product you are building — only the engine's own attention. They take full effect
-through the start-of-session and per-prompt orientation events, where the ranking tool reads and applies them;
-the numbers themselves stand as deliberate starting values, calibrated against real use rather than proven
-from the outset.
+or stored, and not the product you are building — only the engine's own attention. They take effect at the
+start-of-session orientation event, where the ranking tool reads them and surfaces the ranked
+result; the per-prompt scent uses just one of them — the strong-match threshold — to decide when to surface a
+memory pointer. The numbers themselves stand as deliberate starting values, calibrated against real use rather
+than proven from the outset.
 
 When the engine looks at the parts of the project next to what you are touching, it follows only the
 **structural wiring** between them — who owns a file, which rule governs it, what a check targets, and which
@@ -92,9 +93,10 @@ their numbers as the engine is observed in practice.
 **Posture.** These values are simply read — by the ranking tool that orders what you see and sizes each kind.
 This policy does not itself check or block anything, and nothing is enforced on you by it. The fixed order of
 importance is held by the *structure* of that tool, not by this file: the tool sorts the five kinds into
-their ranked slots before any weight is applied, so the order holds even if a dial is mis-set. The shares,
-weights, and thresholds take real effect through the start-of-session and per-prompt orientation events: the
-tool reads them, applies them, and an orientation event surfaces the ranked result — and still nothing blocks
-work. This policy's whole force is the expectation that these numbers stay
+their ranked slots before any weight is applied, so the order holds even if a dial is mis-set. The numbers
+take real effect at the start-of-session orientation event, where the tool reads them and surfaces the
+ranked result; the per-prompt scent reads only the strong-match threshold, to decide when to surface a
+memory pointer. Either way, nothing blocks work. This policy's whole force is the expectation that
+these numbers stay
 here — legible, calibrated from evidence, and surfaced for review when they change — rather than being
 hidden as fixed constants in code.
