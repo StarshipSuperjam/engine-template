@@ -141,17 +141,56 @@ def apply_flex(base_fractions: dict, condition: str, policy_values: dict) -> dic
     return {c: f[c] / total for c in CATEGORIES} if total else {c: f[c] for c in CATEGORIES}
 
 
-def budget_split(fractions: dict, budget_total: int) -> dict:
-    """Apportion an integer total budget across the categories by their fractions, summing EXACTLY to the
-    total (largest-remainder method; the leftover from flooring goes to the largest fractional remainders,
-    ties broken by the locked CATEGORIES order — deterministic, no rounding drift)."""
-    raw = {c: fractions[c] * budget_total for c in CATEGORIES}
-    floors = {c: int(raw[c]) for c in CATEGORIES}
+def _largest_remainder(fractions: dict, budget_total: int, members: tuple) -> dict:
+    """Apportion budget_total across `members` by their (already-renormalized) fractions, summing EXACTLY
+    to the total: floor each share, then hand the flooring leftover to the largest fractional remainders,
+    ties broken by the locked CATEGORIES order — deterministic, no rounding drift. The proportional core
+    budget_split runs over its surviving categories."""
+    raw = {c: fractions[c] * budget_total for c in members}
+    floors = {c: int(raw[c]) for c in members}
     leftover = budget_total - sum(floors.values())
-    order = sorted(CATEGORIES, key=lambda c: (-(raw[c] - floors[c]), CATEGORIES.index(c)))
+    order = sorted(members, key=lambda c: (-(raw[c] - floors[c]), CATEGORIES.index(c)))
     for c in order[:max(0, leftover)]:
         floors[c] += 1
     return floors
+
+
+def budget_split(fractions: dict, budget_total: int, trim_ranks: dict) -> dict:
+    """Apportion an integer total budget across the five categories by their fractions, summing EXACTLY to
+    the total — with the TRIM ORDER deciding what is shed when the budget cannot seat them all.
+
+    The proportional largest-remainder split (_largest_remainder) seats every category whenever the budget
+    can fit one slot for each — which, at a generous total, it does, so budget_split returns the plain
+    proportional split UNCHANGED. `trim_ranks` (a permutation of 1..5; rank 1 sheds FIRST — the policy's
+    reverse-of-precedence default, attention.md) is the OVERFLOW rule: it changes only WHICH categories
+    take the zeros when 'space runs short'. Rather than letting whichever category lost the largest-
+    remainder race fall to zero, the least-important category (trim rank 1) is shed first, its share handed
+    to the survivors and the split re-apportioned over them — repeating until every survivor seats (>=1) or
+    one category remains. So trim is INERT while the budget fits everything and load-bearing only under
+    genuine overflow; it is the realization of "what is dropped first when space runs short".
+
+    blocking_debt carries the highest default trim rank (shed LAST), so at the shipped trim order it is
+    never dropped — but that is a property of the shipped VALUES, not a structural law: a different trim
+    order sheds it sooner (the demo flips the order to prove the dial is live). Deterministic: trim_ranks
+    is a total order and the largest-remainder tiebreak is the locked CATEGORIES order, so the same
+    (fractions, budget_total, trim_ranks) yield a byte-identical result."""
+    survivors = list(CATEGORIES)
+    shed_order = sorted(CATEGORIES, key=lambda c: trim_ranks[c])  # trim rank 1 (least important) sheds first
+    shed_i = 0
+    sizes: dict = {c: 0 for c in CATEGORIES}
+    while True:
+        share_total = sum(fractions[c] for c in survivors) or 1.0
+        renorm = {c: fractions[c] / share_total for c in survivors}
+        sizes = _largest_remainder(renorm, budget_total, tuple(survivors))
+        if len(survivors) == 1 or all(sizes[c] >= 1 for c in survivors):
+            break
+        while shed_i < len(shed_order) and shed_order[shed_i] not in survivors:
+            shed_i += 1
+        if shed_i >= len(shed_order):
+            break
+        survivors.remove(shed_order[shed_i])
+        shed_i += 1
+    return {c: sizes.get(c, 0) for c in CATEGORIES}
 
 
 def _signals(candidate: dict) -> dict:
@@ -187,7 +226,8 @@ def rank(candidates: list, policy_values: dict, as_of: str, available_inputs,
     condition = session_condition(candidates, policy_values)
     base = {c: policy_values[f"budget_{c}"] for c in CATEGORIES}
     applied = apply_flex(base, condition, policy_values)
-    sizes = budget_split(applied, budget_total) if budget_total is not None else None
+    trim_ranks = {c: policy_values[f"trim_{c}"] for c in CATEGORIES}
+    sizes = budget_split(applied, budget_total, trim_ranks) if budget_total is not None else None
 
     ranks = {c: precedence_rank(c, policy_values, apply_precedence) for c in CATEGORIES}
     best = {c: (-intra_weight(ordered[c][0], policy_values, as_of) if ordered[c] else float("inf"))

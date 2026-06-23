@@ -430,6 +430,14 @@ def _lead_id(result: dict) -> str:
     return "(none)"
 
 
+def _dropped(result: dict, trim_ranks: dict | None = None) -> list:
+    """The categories the trim order shed under this run's budget — those allotted zero slots (budget_size 0).
+    Empty when the budget seated every kind (trim inert). With `trim_ranks`, returned in SHED order (least
+    important first), so the list reads in the order they were dropped; otherwise in partition order."""
+    dropped = [e["category"] for e in result["partition"] if e.get("budget_size") == 0]
+    return sorted(dropped, key=lambda c: trim_ranks[c]) if trim_ranks is not None else dropped
+
+
 def _cmd_demo(rest: list) -> int:
     """Scripted fail->pass the operator can read without JSON, and VARY with one flag. Ranks the built-in
     fixture WITH precedence, with precedence REMOVED, then RESTORED, printing the lead each time. The flag
@@ -456,11 +464,38 @@ def _cmd_demo(rest: list) -> int:
     print("  Try it yourself (no file editing needed): re-run with the feature's weight cranked far higher —")
     print("      uv run --directory .engine -- python tools/attention.py demo --feature-proximity 1000")
     print("  WITH precedence the blocking debt STILL leads. The guarantee is structural, not out-tunable.")
-    # the self-check asserts only the structural invariant (debt leads WITH precedence, and again once restored);
-    # whether the feature floats up when precedence is removed depends on the weight the operator chose.
-    ok = _lead_id(with_p) == "debt:payment-overdue" and _lead_id(restored) == "debt:payment-overdue"
-    if not ok:
-        print("DEMO UNEXPECTED: the structural guarantee did not hold on the built-in fixture.", file=sys.stderr)
+
+    # --- trim (the overflow rule): what is shed first when the budget can't seat every kind ---
+    # The budget splits a fixed number of item-slots across the five kinds by the policy's shares. When the
+    # budget is too small to give every kind a slot, the TRIM ORDER decides what is shed first. Here we hold
+    # the candidates fixed and vary only the budget, then flip the trim order — proving trim_* is live.
+    shipped_trim = {c: policy_values[f"trim_{c}"] for c in CATEGORIES}
+    reversed_trim = {c: 6 - policy_values[f"trim_{c}"] for c in CATEGORIES}  # invert the 1..5 permutation
+    reversed_policy = {**policy_values, **{f"trim_{c}": reversed_trim[c] for c in CATEGORIES}}
+    generous = rank(candidates, policy_values, DEMO_AS_OF, avail, budget_total=20)
+    tight = rank(candidates, policy_values, DEMO_AS_OF, avail, budget_total=3)
+    tight_reversed = rank(candidates, reversed_policy, DEMO_AS_OF, avail, budget_total=3)
+    print("Attention budget — trim (overflow) demonstration")
+    print("  The budget is a chosen count of item-slots to surface (not a measurement of context), split")
+    print("  across the five kinds by the policy's shares. When it can't seat them all, trim sheds first.")
+    print(f"  Generous budget (20 slots — the cold-start default): shed nothing -> {_dropped(generous) or 'none'}")
+    print("      Every kind seats, so trim is INERT here — exactly its state in a normal session.")
+    print(f"  Tight budget (3 slots), shipped trim order: shed (in order) -> {_dropped(tight, shipped_trim)}")
+    print("      The least-important kinds go first (general orientation, then structural neighbours);")
+    print("      blocking debt is kept — last in the shipped trim order.")
+    print(f"  Tight budget (3 slots), trim order REVERSED: shed (in order) -> {_dropped(tight_reversed, reversed_trim)}")
+    print("      Now blocking debt is shed instead — proving the dial is live: changing trim_* changes")
+    print("      what is dropped. (In normal use blocking debt is never trimmed — it is shed last.)")
+    # the self-check asserts BOTH structural invariants: (1) precedence — debt leads WITH precedence and again
+    # once restored; (2) trim — at a tight budget the shipped order sheds orientation and keeps blocking debt,
+    # and reversing the trim order sheds blocking debt instead (so trim_* demonstrably governs the outcome).
+    ok_precedence = _lead_id(with_p) == "debt:payment-overdue" and _lead_id(restored) == "debt:payment-overdue"
+    ok_trim = (not _dropped(generous)
+               and "orientation" in _dropped(tight) and "blocking_debt" not in _dropped(tight)
+               and "blocking_debt" in _dropped(tight_reversed))
+    if not (ok_precedence and ok_trim):
+        print("DEMO UNEXPECTED: a structural guarantee did not hold on the built-in fixture "
+              f"(precedence_ok={ok_precedence}, trim_ok={ok_trim}).", file=sys.stderr)
         return 1
     return 0
 

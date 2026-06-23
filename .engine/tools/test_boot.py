@@ -293,6 +293,24 @@ class TestConsumesAttentionNeverReRanks(unittest.TestCase):
         self.assertIn("0 (k)", lines[0])                        # member 0 first (the prefix, in order)
         self.assertIn(f"{boot.NEEDS_ATTENTION_CAP - 1} (k)", lines[-1])  # ...through member CAP-1
 
+    def test_budget_size_governs_the_per_category_cap(self):
+        # In a normal session boot passes a budget total, so each kind carries a budget_size — the policy's
+        # reviewable share governs how many items it surfaces (the buried flat cap is retired). A kind whose
+        # share the trim order shed under a tight budget carries budget_size 0 and so surfaces nothing.
+        members = [{"id": f"k:{i}", "rank": i} for i in range(10)]
+        result = {"partition": [
+            {"category": "recent_decisions", "precedence_rank": 3, "budget_size": 2, "members": members},
+            {"category": "in_flight", "precedence_rank": 2, "budget_size": 0,
+             "members": [{"id": "pr:7", "rank": 1}]},
+        ], "degraded_inputs": []}
+        with mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
+                mock.patch.object(boot.attention, "rank_live", return_value=result):
+            lines, _, _ = boot.needs_attention({})
+        self.assertEqual(len(lines), 2)                  # only the 2 budgeted recent_decisions items
+        self.assertIn("0 (k)", lines[0])
+        self.assertIn("1 (k)", lines[1])
+        self.assertFalse(any("7" in ln for ln in lines))  # the budget_size-0 in_flight kind surfaces nothing
+
 
 class TestFocusedNeighborhood(unittest.TestCase):
     """The orientation-time focused knowledge read (#37, D-224): a focus derived from the work in hand drives
