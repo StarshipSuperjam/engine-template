@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:961bc73c36ea44c66e806c919a96727eb334cfc00634e4f4d5e3ae5759325517",
+        "fingerprint": "sha256:163f447f604849197082af3bf8f425607f027ef207ef87187a495c73ca2a489e",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -4341,7 +4341,7 @@
       },
       "slug": "test_self_review_setup",
       "source": {
-        "fingerprint": "sha256:8ee0b2a619b670c48501a6749a75f405482ceece63153cfeaf1183f364348223",
+        "fingerprint": "sha256:041a54300a7907d6a2f4711cd1782d8ba98323d67e8184bd631b0450b2556b08",
         "path": ".engine/tools/test_self_review_setup.py"
       },
       "status": "active",
