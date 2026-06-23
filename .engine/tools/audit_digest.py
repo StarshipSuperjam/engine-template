@@ -430,13 +430,21 @@ _SAVED_MEMORY_NONE_YET = (
     "YOUR SAVED MEMORY: your memory backup is set up and I read it, but it holds no saved decisions or notes yet "
     "to review (as last backed up {as_of}). Concern #1 has nothing to check this cycle — say so plainly; this is "
     "NOT the same as the backup being missing or unreadable.")
-_SAVED_MEMORY_PUBLIC_WITHHELD = (
-    "YOUR SAVED MEMORY: your backup is set up and I read it — it holds {n} saved decision(s)/note(s) as last "
-    "backed up {as_of} — but I am DELIBERATELY withholding their specifics this run. This review's summary is "
-    "committed into the project, and either this project is public or I could not confirm it is private, so naming "
-    "your saved decisions could expose them publicly. For concern #1, report only that your saved memory exists "
-    "and was read but its specifics were withheld here for that reason, and say so plainly; do NOT ask for, guess "
-    "at, or reconstruct the withheld notes, and NEVER claim memory is empty.")
+_SAVED_MEMORY_PUBLIC_AGGREGATE_HEADER = (
+    "YOUR SAVED MEMORY — the saved decisions and notes the engine has kept for you, as last backed up {as_of}. "
+    "Review them HERE, IN THIS RUN, for concern #1: do any now contradict each other, has anything you can see "
+    "refuted one, or is a heavily-used note actually obsolete? You are reading these from the backup (you can't "
+    "reach them yourself); treat them as what the engine had saved as of that backup. IMPORTANT — this project is "
+    "public, or its visibility could not be confirmed private, and your summary is committed where anyone could "
+    "read it. So in that committed summary report ONLY HOW MANY of these {n} look stale (for example: \"N of your "
+    "{n} saved notes look stale\"). NEVER name, quote, or paraphrase any specific note, decision, or its content "
+    "— the stale count and your concern about it are all that may leave this run. Then tell the operator, plainly, "
+    "the two safe ways to see WHICH notes are stale: (1) ask the engine to review your saved memory in an ordinary "
+    "chat session — there it reads your own copy on your computer and nothing is committed or published, so it can "
+    "name the specific notes safely; (2) keep this project private, or give it its own private memory vault (just "
+    "ask the engine to set one up) — then this review can name them here. Do NOT ask for, guess at, or reconstruct "
+    "anything beyond what is given below, and NEVER claim memory is empty. {n} note(s) follow, most-recently-used "
+    "first.")
 _SAVED_MEMORY_HEADER = (
     "YOUR SAVED MEMORY — the saved decisions and notes the engine has kept for you, as last backed up {as_of}. "
     "Review them for concern #1: do any now contradict each other, has anything you can see refuted one, or is a "
@@ -477,13 +485,20 @@ def _belief_plain_role(kind, role) -> str:
 
 
 def _project_repo_is_private() -> bool:
-    """The structural privacy gate's input (#224/D-242): is the project repo private? Read from the workflow env
-    `MEMORY_AUDIT_REPO_VISIBILITY`, set by audit-prep's own-repo-token detection step (the vault token is scoped to
-    the vault and cannot read the project repo; the `schedule` trigger's event payload omits visibility — so the
-    value is detected on a dedicated step, never inferred here). DEFAULT-SAFE: ONLY an explicit `private` opens
-    belief specifics; anything else — `public`, `internal`, empty, unset, or a non-Actions/local run where it can't
-    be confirmed — is treated as not-private, so the digest withholds specifics rather than risk committing them
-    where they could be public. The withhold case discloses WHY (it could not confirm private), never silent."""
+    """Selects the committed-digest OUTPUT MODE for the saved-memory review (#224/D-242; D-243). Read from the
+    workflow env `MEMORY_AUDIT_REPO_VISIBILITY`, set by audit-prep's own-repo-token detection step (the vault
+    token is scoped to the vault and cannot read the project repo; the `schedule` trigger's event payload omits
+    visibility — so the value is detected on a dedicated step, never inferred here).
+
+    On a confirmed-private repo the digest may NAME specific saved notes; on a public-or-unconfirmed repo it runs
+    in aggregate-only mode — the persona reviews the same notes in-run, but its committed summary may report ONLY
+    the stale COUNT plus the two safe levers, never a specific (D-243: the belief text reaches the persona's
+    ephemeral prompt in BOTH modes via `render_saved_memory`; this gate governs only what may be COMMITTED, by
+    selecting which instruction header leads that feed). DEFAULT-SAFE and load-bearing: ONLY an explicit `private`
+    opens the naming mode; anything else — `public`, `internal`, empty, unset, or a non-Actions/local run where it
+    can't be confirmed — is treated as not-private, so the digest stays aggregate-only rather than risk committing
+    a specific where it could be public. Keep this an exact `== "private"` test; never relax it to an `in (...)`
+    allow-list, which would silently widen the naming mode."""
     return os.environ.get("MEMORY_AUDIT_REPO_VISIBILITY", "").strip().lower() == "private"
 
 
@@ -539,11 +554,12 @@ def render_saved_memory(transport=None) -> str:
     as_of = _saved_memory_as_of(snap.get("as_of"))
     if not beliefs:
         return _SAVED_MEMORY_NONE_YET.format(as_of=as_of)
-    if not _project_repo_is_private():
-        # Structural privacy gate (#224/D-242): on a public/unconfirmed repo the belief TEXT is NEVER built, so it
-        # cannot reach the persona's prompt or the committed digest — only the safe aggregate count + a disclosure.
-        return _SAVED_MEMORY_PUBLIC_WITHHELD.format(n=len(beliefs), as_of=as_of)
-    parts = [_SAVED_MEMORY_HEADER.format(as_of=as_of, n=len(beliefs)), ""]
+    # Visibility gate (#224/D-242; D-243): the SAME belief lines feed the persona in both modes — it needs to SEE
+    # the notes to judge which look stale (a semantic call, not a stored field). The gate selects only the
+    # instruction header, i.e. what the persona may COMMIT: on a confirmed-private repo it may name specifics; on a
+    # public/unconfirmed repo it reports only the stale count + the two safe levers (never a specific). Default-safe.
+    header = _SAVED_MEMORY_HEADER if _project_repo_is_private() else _SAVED_MEMORY_PUBLIC_AGGREGATE_HEADER
+    parts = [header.format(as_of=as_of, n=len(beliefs)), ""]
     total = 0
     for b in beliefs:
         line = _render_belief_line(b)
