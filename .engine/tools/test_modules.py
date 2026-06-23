@@ -322,10 +322,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # An OPTIONAL module may additionally own a *domain* check — one that inspects the operator's
         # PRODUCT, not the engine itself — categorically distinct from core's two engine guards and from
         # validators-core's engine-self-validation corpus. dependency-discipline is the first: it owns the
-        # dependency-pinning rule (engine-template Slice 2), the module being "the content" over core's
-        # check engine. The partition below therefore admits a third owner; the real boundary this test
-        # pins is unchanged — each check is owned by exactly ONE module, core stays frozen at its two §15
-        # guards, and no wildcard may re-claim the corpus.
+        # dependency-pinning rule (Slice 2) and the dependency-review gate (Slice 3), the module being "the
+        # content" over core's check engine. The partition below therefore admits a third owner; the real
+        # boundary this test pins is unchanged — each check is owned by exactly ONE module, core stays frozen
+        # at its two §15 guards, and no wildcard may re-claim the corpus.
         manifests = module_coherence.discover_manifests()
         ids = {m.get("id") for _path, m in manifests}
         self.assertIn("validators-core", ids, "validators-core must be a present module")
@@ -380,12 +380,13 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/state-cursor.json",
             ".engine/check/uv-group-drift.json",
         ], "validators-core owns exactly the 35 corpus rules")
-        # the first optional-module-owned DOMAIN check: dependency-discipline inspects the product's
-        # dependencies, not the engine — outside both core's guards and validators-core's self-validation corpus.
+        # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
+        # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])
         self.assertEqual(dd_checks, [
             ".engine/check/dependency-pinning.json",
-        ], "dependency-discipline owns exactly its pinning check")
+            ".engine/check/dependency-review.json",
+        ], "dependency-discipline owns exactly its pinning and review checks")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
