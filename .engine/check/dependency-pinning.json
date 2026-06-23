@@ -1,0 +1,9 @@
+{
+  "id": "engine/check/dependency-pinning",
+  "target": { "context": "product-dependencies" },
+  "kind": "custom/script",
+  "params": { "script": ".engine/tools/dependency_discipline/pinning.py" },
+  "tier": "soft",
+  "suites": ["CI", "pre-commit", "pre-close"],
+  "message": "Checks that your project's outside dependencies are locked to exact versions. It detects your project's ecosystem from the dependency file at the repository root — package.json, pyproject.toml, requirements.txt, Cargo.toml, go.mod, Gemfile, or composer.json — and, when one is present without a lock file committed alongside it, raises a gentle, non-blocking nudge to commit a lock file so every install pulls the same code. When no dependency file is present yet, it says so plainly (not yet applicable — it starts watching once your project adds dependencies) rather than passing silently. It looks only at the repository root and only for a lock file's presence — it does not read individual version numbers or scan subfolders — so it is a hygiene nudge, not a guarantee. It never blocks a merge and never changes a file. To clear a nudge, commit the lock file your ecosystem produces (for example package-lock.json, uv.lock, Cargo.lock, go.sum, Gemfile.lock, or composer.lock)."
+}

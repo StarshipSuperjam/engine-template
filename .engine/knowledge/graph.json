@@ -332,6 +332,33 @@
       "type": "check"
     },
     {
+      "id": "check:dependency-pinning",
+      "kind": "custom/script",
+      "name": ".engine/check/dependency-pinning.json",
+      "owner": "dependency-discipline",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:dependency-discipline"
+        ]
+      },
+      "slug": "dependency-pinning",
+      "source": {
+        "fingerprint": "sha256:fcf7984ee7e5a928ccbfd9c92ffc8ceaf8acf12509897f8b3cffb081fb310295",
+        "path": ".engine/check/dependency-pinning.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "pre-close",
+        "pre-commit"
+      ],
+      "tier": "soft",
+      "type": "check"
+    },
+    {
       "id": "check:doc-frontmatter",
       "kind": "schema",
       "name": ".engine/check/doc-frontmatter.json",
@@ -1180,7 +1207,7 @@
       },
       "slug": "dependency-discipline",
       "source": {
-        "fingerprint": "sha256:514ef035515f687885f9d7a2e7cc0ddd9920c3e1d4fe33fde6f3b4a1d4fe8ed1",
+        "fingerprint": "sha256:a6998e5de7ee7b48baa748e7b2c1add5b293078540bf53166e0f74753db978e0",
         "path": ".engine/modules/dependency-discipline/manifest.json"
       },
       "status": "optional",
@@ -2763,6 +2790,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:dependency_discipline.__init__",
+      "name": ".engine/tools/dependency_discipline/__init__.py",
+      "owner": "dependency-discipline",
+      "predicates": {
+        "provided_by": [
+          "module:dependency-discipline"
+        ]
+      },
+      "slug": "dependency_discipline.__init__",
+      "source": {
+        "fingerprint": "sha256:d7ed4238b6b5d6d02322e3054f8086f7025cae357b8f0fbea05fe302329feb07",
+        "path": ".engine/tools/dependency_discipline/__init__.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:engine_help",
       "name": ".engine/tools/engine_help.py",
       "owner": "core",
@@ -3234,6 +3278,23 @@
       "source": {
         "fingerprint": "sha256:35aec0dc9d4bff00a18a398417196ba4877d5a121381855482a22282f3f7d165",
         "path": ".engine/tools/operator_overrides.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:pinning",
+      "name": ".engine/tools/dependency_discipline/pinning.py",
+      "owner": "dependency-discipline",
+      "predicates": {
+        "provided_by": [
+          "module:dependency-discipline"
+        ]
+      },
+      "slug": "pinning",
+      "source": {
+        "fingerprint": "sha256:365156059668a3ac3fa67befd4bb9704cd7b3d493c29c213a40e776c01abbd3f",
+        "path": ".engine/tools/dependency_discipline/pinning.py"
       },
       "status": "active",
       "type": "tool"
@@ -4235,7 +4296,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:de78e8828f74676e1386b4baefc1c42cd68855fa888f14214d67fb12d8306972",
+        "fingerprint": "sha256:df3009cd00a39411ccf2d6455bb9c7ad26c19ab2f160fb7e958fc2ae253aa49e",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -4271,6 +4332,23 @@
       "source": {
         "fingerprint": "sha256:014877759311a7d4ef50c46400ac04e44aaa3eac8103af1d6d7e2abedc6c5bf1",
         "path": ".engine/tools/test_operator_overrides.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_pinning",
+      "name": ".engine/tools/dependency_discipline/test_pinning.py",
+      "owner": "dependency-discipline",
+      "predicates": {
+        "provided_by": [
+          "module:dependency-discipline"
+        ]
+      },
+      "slug": "test_pinning",
+      "source": {
+        "fingerprint": "sha256:8668e86b87823992867b8257b81c78e7a1c9feb3e5721aca4c1f3e6bef034307",
+        "path": ".engine/tools/dependency_discipline/test_pinning.py"
       },
       "status": "active",
       "type": "tool"

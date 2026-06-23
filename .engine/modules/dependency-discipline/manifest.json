@@ -3,7 +3,9 @@
   "version": "0.0.0-dev",
   "status": "optional",
   "provides": {
-    "policy": [".engine/policies/dependency-discipline.md"]
+    "policy": [".engine/policies/dependency-discipline.md"],
+    "check": [".engine/check/dependency-pinning.json"],
+    "tool": [".engine/tools/dependency_discipline/*.py"]
   },
   "wires": [],
   "depends": {
