@@ -25,9 +25,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import work_record as wr  # noqa: E402
 
 
-def _run(*, in_repo=True, current="claude/my-feature", default="main", tip="2026-06-19T10:00:00Z"):
+def _run(*, in_repo=True, current="claude/my-feature", default="main", tip="2026-06-19T10:00:00Z", merged=False):
     """A fake git runner answering exactly the reads the floor makes. `current` may be 'HEAD' (detached),
-    the default branch name, or None (rev-parse fails). `in_repo=False` makes the floor itself unavailable."""
+    the default branch name, or None (rev-parse fails). `in_repo=False` makes the floor itself unavailable.
+    `merged` answers `merge-base --is-ancestor` the way real git does: "" (exit 0 = HEAD is an ancestor of the
+    default = merged) when True, else None (exit != 0 = not an ancestor)."""
     def run(args):
         if args[:2] == ["rev-parse", "--is-inside-work-tree"]:
             return "true" if in_repo else None
@@ -35,6 +37,8 @@ def _run(*, in_repo=True, current="claude/my-feature", default="main", tip="2026
             return f"refs/remotes/origin/{default}" if default else None
         if args[:2] == ["rev-parse", "--abbrev-ref"]:
             return current
+        if args[:2] == ["merge-base", "--is-ancestor"]:
+            return "" if merged else None
         if args[:1] == ["log"]:
             return tip
         return None
@@ -86,6 +90,26 @@ class TestFloorAndDegrade(unittest.TestCase):
     def test_offline_floor_is_the_working_branch(self):
         recs = wr.read_in_flight(None, run=_run(current="claude/my-feature"))
         self.assertEqual([r["id"] for r in recs], ["branch:claude/my-feature"])
+
+    def test_a_merged_branch_is_not_surfaced_as_in_flight(self):
+        # A merged-but-not-deleted working branch is FINISHED work, not "unmerged work in flight": boot must not
+        # tell the operator they have unmerged work on a branch whose pull request already landed.
+        recs = wr.read_in_flight(None, run=_run(current="claude/already-merged", merged=True))
+        self.assertEqual(recs, [])
+
+    def test_an_unmerged_branch_is_still_surfaced_the_paired_control(self):
+        # The control for the test above: the SAME path with merged=False MUST still surface the branch, so real
+        # in-flight work is never hidden (and a future fake-default flip to merged can't silently start hiding it).
+        recs = wr.read_in_flight(None, run=_run(current="claude/still-working", merged=False))
+        self.assertEqual([r["id"] for r in recs], ["branch:claude/still-working"])
+
+    def test_a_merged_branch_drops_but_other_open_prs_remain(self):
+        # Online: a merged current branch (with no PR of its own) drops, while open PRs for OTHER branches stay.
+        recs = wr.read_in_flight(_gh(_prs(_pr(161, head="claude/other"))),
+                                 run=_run(current="claude/already-merged", merged=True))
+        ids = [r["id"] for r in recs]
+        self.assertIn("pr:161", ids)
+        self.assertNotIn("branch:claude/already-merged", ids)
 
     def test_on_default_branch_offline_is_empty_but_available(self):
         # On the default branch with no reader: nothing in flight, but git WAS consulted -> [] (not a raise).

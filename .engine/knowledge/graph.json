@@ -4511,7 +4511,7 @@
       },
       "slug": "test_work_record",
       "source": {
-        "fingerprint": "sha256:0122ff8aca70b710fdc423b1fc9c5c807b31250fd1718d45890abe3830a68358",
+        "fingerprint": "sha256:be30d7f03028056cb6f34be2ffdb3d34dec733c7f35491bd94a37fcd1d3c6446",
         "path": ".engine/tools/test_work_record.py"
       },
       "status": "active",
@@ -4613,7 +4613,7 @@
       },
       "slug": "work_record",
       "source": {
-        "fingerprint": "sha256:23bd2fa617c0ab13673e99449a09a53aff125dec3f1fd582391b6035f58bd3a6",
+        "fingerprint": "sha256:6a89837975f1fe0fd57cf54a092323328002f6181ee31ef97369518ac6c174a7",
         "path": ".engine/tools/work_record.py"
       },
       "status": "active",
