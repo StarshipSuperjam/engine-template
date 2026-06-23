@@ -612,5 +612,40 @@ class TestRenderCodeowners(unittest.TestCase):
         self.assertEqual(wiring.fence_reverse(out, "codeowners").strip(), "")
 
 
+class TestApplyCodeowners(unittest.TestCase):
+    """The render-and-write CODEOWNERS mutator wrapper — the ONE write home both first-run instantiation
+    and an engine upgrade's re-render call, so the ownership wall renders one way."""
+
+    PATHS = [".engine/engine.json", ".github/CODEOWNERS"]
+
+    def test_writes_then_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            co = os.path.join(d, "sub", ".github", "CODEOWNERS")   # nested: the wrapper must makedirs
+            first = wiring.apply_codeowners(co, self.PATHS, "@me")
+            self.assertEqual(first["status"], "written")
+            self.assertEqual(first["owner"], "@me")
+            self.assertEqual(first["paths"], len(self.PATHS))
+            self.assertIn("/.engine/engine.json @me", validate.read(co))
+            second = wiring.apply_codeowners(co, self.PATHS, "@me")
+            self.assertEqual(second["status"], "already")          # write-iff-changed: no rewrite
+
+    def test_preserves_operator_lines(self):
+        with tempfile.TemporaryDirectory() as d:
+            co = os.path.join(d, "CODEOWNERS")
+            with open(co, "w", encoding="utf-8") as fh:
+                fh.write("# mine\n/src/ @team\n")
+            self.assertEqual(wiring.apply_codeowners(co, self.PATHS, "@me")["status"], "written")
+            text = validate.read(co)
+            self.assertIn("/src/ @team", text)                     # the operator's own line is untouched
+            self.assertIn("engine-managed block: codeowners", text)
+
+    def test_bad_handle_raises_for_the_caller_to_degrade(self):
+        with tempfile.TemporaryDirectory() as d:
+            co = os.path.join(d, "CODEOWNERS")
+            with self.assertRaises(wiring.WiringError):
+                wiring.apply_codeowners(co, self.PATHS, "   ")
+            self.assertFalse(os.path.exists(co))                   # nothing written on refusal
+
+
 if __name__ == "__main__":
     unittest.main()

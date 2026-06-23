@@ -495,6 +495,66 @@ class TestUpgradeSafety(unittest.TestCase):
             self.assertTrue(res["refused"])
             self.assertIn("outside the engine", res["reason"])
 
+    def test_upgrade_refreshes_codeowners_with_new_engine_files_keeping_operator_rules(self):
+        # The design's upgrade re-render (provisioning §Token substitution; engine.json `handle`): a release
+        # whose `base` ADDS an engine file must land in the CODEOWNERS wall so the new file still routes to
+        # the operator — and an operator's OWN rule must survive (fence-scoped).
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = os.path.join(d, "release")
+            os.makedirs(os.path.join(release, ".engine", "modules", "base"))
+            os.makedirs(os.path.join(release, ".engine", "tools"))
+            module_manager._write_json(
+                os.path.join(release, ".engine", "modules", "base", "manifest.json"),
+                {"id": "base", "version": "0.2.0", "status": "required",
+                 "provides": {"tool": [".engine/tools/base_tool.py", ".engine/tools/base_helper.py"]},
+                 "depends": {}, "migrations": {}})
+            for rel, txt in ((".engine/tools/base_tool.py", "# base v2\n"),
+                             (".engine/tools/base_helper.py", "# a NEW engine file shipped in v2\n")):
+                with open(os.path.join(release, rel), "w") as fh:
+                    fh.write(txt)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                eng = module_coherence.load_engine_manifest()
+                eng["handle"] = "@me"            # the preserved-identity owner first-run would have recorded
+                module_manager._write_json(os.path.join(live, ".engine", "engine.json"), eng)
+                co_path = os.path.join(live, ".github", "CODEOWNERS")
+                os.makedirs(os.path.dirname(co_path), exist_ok=True)
+                # seed an operator's OWN rule + the OLD engine block (pre-upgrade path set, no base_helper)
+                with open(co_path, "w") as fh:
+                    fh.write(wiring.render_codeowners("# mine\n/src/ @me\n",
+                                                      module_coherence.codeowners_path_set(), "@me"))
+                self.assertNotIn("base_helper.py", module_manager.validate.read(co_path))   # not engine-owned yet
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: {"number": 1})
+                after = module_manager.validate.read(co_path)
+            self.assertFalse(res["refused"])
+            self.assertEqual(res["codeowners"], "written")
+            self.assertIn("/.engine/tools/base_helper.py @me", after)   # the new file now routes for review
+            self.assertIn("/src/ @me", after)                           # the operator's own rule survived
+
+    def test_upgrade_without_a_handle_degrades_codeowners_leaving_it_unchanged(self):
+        # No operator handle on record (the construction repo / a pre-handle manifest) -> the re-render
+        # DEGRADES: nothing written, no crash, the operator's CODEOWNERS left exactly as it was.
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)              # engine.json carries NO handle
+                co_path = os.path.join(live, ".github", "CODEOWNERS")
+                os.makedirs(os.path.dirname(co_path), exist_ok=True)
+                with open(co_path, "w") as fh:
+                    fh.write("# operator only\n/src/ @me\n")
+                before = module_manager.validate.read(co_path)
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: {"number": 1}, backup=lambda *a: {"ok": 1})
+                after = module_manager.validate.read(co_path)
+            self.assertFalse(res["refused"])
+            self.assertEqual(res["codeowners"], "degraded")
+            self.assertEqual(after, before)                             # untouched on degrade
+
 
 class TestFrozenCheckNames(unittest.TestCase):
     """The engine CI check names are a FROZEN contract across versions — an upgrade/migration may never
@@ -545,6 +605,19 @@ class TestFoundationInfra(unittest.TestCase):
                 self.assertIn("CLAUDE.md", paths)                         # a non-.engine foundation member
                 # no glob literal leaks in — paths are concrete
                 self.assertFalse(any("*" in p for p in paths))
+
+    def test_codeowners_path_set_adds_self_only_in_the_codeowners_helper(self):
+        # codeowners_path_set = engine_owned_paths + the CODEOWNERS self-add; the self-add lives ONLY here,
+        # never in engine_owned_paths (whose other consumers must not carry CODEOWNERS' self-ownership).
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                module_manager._build_fixture(d)
+                base_paths = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
+                co_paths = module_coherence.codeowners_path_set()
+                self.assertNotIn(".github/CODEOWNERS", base_paths)        # NOT in the bare engine set
+                self.assertIn(".github/CODEOWNERS", co_paths)             # self-owned in the CODEOWNERS set
+                self.assertIn(".engine/tools/base_tool.py", co_paths)     # still unions the provides set
+                self.assertEqual(co_paths, sorted(set(base_paths) | {".github/CODEOWNERS"}))
 
 
 class TestIssueTemplateOverlay(unittest.TestCase):
