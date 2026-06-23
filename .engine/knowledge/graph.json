@@ -629,6 +629,7 @@
         "targets": [
           "module:audit-library",
           "module:core",
+          "module:dependency-discipline",
           "module:github-projects-sync",
           "module:memory-substrate-sqlite-fts5",
           "module:routine-mode",
@@ -746,6 +747,7 @@
         "targets": [
           "policy:attention",
           "policy:contract-threshold",
+          "policy:dependency-discipline",
           "policy:escalation",
           "policy:finding-disposition",
           "policy:triage-threshold"
@@ -803,6 +805,7 @@
         "targets": [
           "policy:attention",
           "policy:contract-threshold",
+          "policy:dependency-discipline",
           "policy:escalation",
           "policy:finding-disposition",
           "policy:triage-threshold"
@@ -1159,10 +1162,28 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:b42f760010abc3c24474f82e379a4b0bb49f9b2a4a9118aed05eccb99067e989",
+        "fingerprint": "sha256:7dec85edb501c547b470f3ed5e0cf88d3a33a0361e50ec9c32e6b1549953c2a0",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
+      "id": "module:dependency-discipline",
+      "name": "dependency-discipline",
+      "owner": "dependency-discipline",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "dependency-discipline",
+      "source": {
+        "fingerprint": "sha256:514ef035515f687885f9d7a2e7cc0ddd9920c3e1d4fe33fde6f3b4a1d4fe8ed1",
+        "path": ".engine/modules/dependency-discipline/manifest.json"
+      },
+      "status": "optional",
       "type": "module",
       "version": "0.0.0-dev"
     },
@@ -1578,6 +1599,27 @@
       },
       "status": "active",
       "title": "Contract threshold",
+      "type": "policy"
+    },
+    {
+      "id": "policy:dependency-discipline",
+      "name": ".engine/policies/dependency-discipline.md",
+      "owner": "dependency-discipline",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:dependency-discipline"
+        ]
+      },
+      "slug": "dependency-discipline",
+      "source": {
+        "fingerprint": "sha256:0ca27c3855fa83cfc43de193f16982763f0054284a2d50b2750616f47b02241f",
+        "path": ".engine/policies/dependency-discipline.md"
+      },
+      "status": "active",
+      "title": "Dependency discipline",
       "type": "policy"
     },
     {
@@ -4244,7 +4286,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:c00c16a934e453673f5007e55f608879811140c35f9d09c8dc181935db9cd5df",
+        "fingerprint": "sha256:ca23e5f8d9f333577e2228fd8b9917dd3beb9587d17228ad96cc9a73154bfc18",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
