@@ -74,9 +74,11 @@ ENGINE_MANIFEST_REL = ".engine/engine.json"
 # engine's self-review; the PR template, the issue templates, and CODEOWNERS
 # itself). This is the foundation infrastructure-artifact set of repository-topology/README.md +
 # module-system/README.md §Coherence — the high-trust files a bare `provides`-union would leave
-# unowned. It is the SINGLE SOURCE for three derived consumers, so they cannot drift apart:
+# unowned. It is the SINGLE SOURCE for four derived consumers, so they cannot drift apart:
 #   - NAMED_INFRA (below) — the .engine/-only subset, the ownership-walk carve-out.
 #   - engine_owned_paths()/foundation_infra_paths() — the CODEOWNERS engine-owned path set.
+#   - codeowners_path_set() — engine_owned_paths + the CODEOWNERS self-add, the one path set BOTH the
+#     first-run render and the upgrade re-render use, so the two render sites cannot drift.
 #   - module_manager.FOUNDATION_CODE — the upgrade overlay-replace set (minus the manifest, which is
 #     version-bumped in place, and CODEOWNERS, which is rendered locally, not fetched from a release).
 # A member may be a glob (.github/ISSUE_TEMPLATE/*.md); consumers that need concrete paths expand it
@@ -220,6 +222,22 @@ def engine_owned_paths(manifests: list) -> list:
     paths = set(provides_claims(manifests).keys())
     paths.update(foundation_infra_paths())
     return sorted(paths)
+
+
+def codeowners_path_set() -> list:
+    """The exact path set the CODEOWNERS ownership block renders against: engine_owned_paths over the
+    live present set, plus `.github/CODEOWNERS` itself. SINGLE-SOURCED here so the two render sites — the
+    first-run instantiation and an engine upgrade's re-render (provisioning §Identity and tokens; the
+    engine.json `handle` field) — cannot drift; both call this. The self-add lives ONLY here, never in
+    engine_owned_paths(): CODEOWNERS must own its own routing rule (or a product line could shadow it),
+    but engine_owned_paths' other consumers — module_manager.FOUNDATION_CODE and remove_engine's
+    outside-set / shadow-collision detector — must NOT carry that self-ownership. Read live, so after an
+    overlay it reflects the new release's engine files."""
+    co_rel = ".github/CODEOWNERS"
+    path_set = engine_owned_paths(discover_manifests())
+    if co_rel not in path_set:
+        path_set = sorted(set(path_set) | {co_rel})
+    return path_set
 
 
 # The shared target file each seam's wire lands in — a plain-language LABEL for the wiring leg's

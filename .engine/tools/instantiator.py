@@ -500,32 +500,22 @@ def _apply_delete_unselected(manifest: dict, say) -> dict:
 def _apply_codeowners(handle, say, copy) -> dict:
     """STEP 2 — render the engine's code-ownership block so any change to the engine's own files routes to
     the operator for review. The owner is the stored handle; with no handle the renderer refuses, so the step
-    DEGRADES (announce + skip), never crashes (Q7). Write-iff-changed (idempotent)."""
+    DEGRADES (announce + skip), never crashes (Q7). Write-iff-changed (idempotent). Delegates the path set
+    (module_coherence.codeowners_path_set — which self-adds CODEOWNERS so the block owns its own routing
+    rule from the first render) and the render-and-write (wiring.apply_codeowners) to the shared home an
+    engine upgrade's re-render also uses, so the two render sites cannot drift."""
     if not handle:
         say(copy["codeowners-degraded"])
         return {"step": "codeowners", "status": "degraded", "detail": "no operator handle available"}
-    path_set = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
-    # CODEOWNERS is itself a foundation infrastructure artifact (it must be engine-owned, or a product rule
-    # could shadow it), but the shared path-set is file-precise over EXISTING files and this step is the one
-    # that CREATES it — so on a greenfield first pass it would be absent from its own block, complete only on
-    # a re-render. Include it explicitly so the block owns itself from the first render and a resume is a true
-    # no-op (the engine/product wall covers the highest-trust file immediately).
-    co_rel = ".github/CODEOWNERS"
-    if co_rel not in path_set:
-        path_set = sorted(set(path_set) | {co_rel})
-    co_path = _codeowners_path()
-    existing = validate.read(co_path) if os.path.isfile(co_path) else ""
     try:
-        new_text = wiring.render_codeowners(existing, path_set, handle)
+        outcome = wiring.apply_codeowners(_codeowners_path(),
+                                          module_coherence.codeowners_path_set(), handle)
     except wiring.WiringError:
         say(copy["codeowners-degraded"])
         return {"step": "codeowners", "status": "degraded", "detail": "could not render ownership"}
-    if new_text == existing:
+    if outcome["status"] == "already":
         return {"step": "codeowners", "status": "already", "owner": handle}
-    os.makedirs(os.path.dirname(co_path), exist_ok=True)
-    with open(co_path, "w", encoding="utf-8") as fh:
-        fh.write(new_text)
-    return {"step": "codeowners", "status": "written", "owner": handle, "paths": len(path_set)}
+    return {"step": "codeowners", "status": "written", "owner": handle, "paths": outcome["paths"]}
 
 
 def _apply_plan_mode(home_reader, settings_path, consent, say, copy) -> dict:

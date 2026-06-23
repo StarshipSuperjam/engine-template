@@ -190,10 +190,12 @@ def render_codeowners(existing_text: str, path_set: list, handle: str) -> str:
     CODEOWNERS lines are never touched. The block is APPENDED after any existing content: CODEOWNERS is
     last-match-wins, so the engine block placed last defeats shadowing by earlier product rules over
     engine paths. Greenfield (existing_text == "") yields a block-only file; a re-render replaces the
-    block in place (the upgrade re-render with the release's paths). The owner `handle` is the operator's,
-    captured at first run as preserved config (provisioning §Identity and tokens) — passed IN here, never
-    read from the network; this renderer is pure — the primitive only. The instantiator (slice 27) wires
-    it into the live first-run render with the stored handle, and owns the handle capture + its config home."""
+    block in place. The mutator wrapper apply_codeowners() (below) drives this at BOTH render sites — the
+    first-run instantiation and an engine upgrade, which re-renders with the new release's engine paths so
+    the wall stays complete. The owner `handle` is the operator's, captured at first run as preserved
+    config (provisioning §Identity and tokens) — passed IN here, never read from the network; this
+    renderer is pure — the primitive only. The instantiator (slice 27) wires it into the live first-run
+    render with the stored handle, and owns the handle capture + its config home."""
     owner = handle.strip()
     if not owner:
         raise WiringError("refused: rendering CODEOWNERS needs a non-empty owner handle.")
@@ -201,6 +203,23 @@ def render_codeowners(existing_text: str, path_set: list, handle: str) -> str:
         owner = "@" + owner
     body = [f"/{p.lstrip('/')} {owner}" for p in path_set]
     return fence_apply(existing_text, CODEOWNERS_FENCE, body)
+
+
+def apply_codeowners(co_path: str, path_set: list, handle: str) -> dict:
+    """Render the engine ownership block for (`path_set` × `handle`) into the CODEOWNERS at `co_path` and
+    write iff changed; returns {"status": "written"|"already", "owner": handle, "paths": len(path_set)}.
+    The operator's own CODEOWNERS lines (outside the engine fence) are never touched — render_codeowners
+    routes through fence_apply, which replaces only the engine block. Raises WiringError on a bad handle:
+    the CALLER owns the degrade + its own operator copy (the pure-primitive posture, mirroring the way
+    the gitignore seam's callers own their messaging). This is the ONE render-and-write home both
+    first-run instantiation and an engine upgrade call (via module_coherence.codeowners_path_set), so the
+    ownership wall renders one way and the two sites cannot drift. Idempotent (write-iff-changed)."""
+    existing = _read_text(co_path)
+    new_text = render_codeowners(existing, path_set, handle)
+    if new_text == existing:
+        return {"status": "already", "owner": handle, "paths": len(path_set)}
+    _write_text(co_path, new_text)
+    return {"status": "written", "owner": handle, "paths": len(path_set)}
 
 
 # ---- tolerant IO (the mutator posture: fail open, never clobber, never crash) -----------------

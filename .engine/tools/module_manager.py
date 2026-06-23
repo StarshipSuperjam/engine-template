@@ -11,8 +11,9 @@ clean whole-engine removal shipped in 25c PR-3.
 `upgrade` is the engine updater (provisioning §"Upgrading the engine"): fetch the tagged release (reusing
 `_fetch_release_tree`), overlay the engine CODE of the present packages (driven off the present set, so a
 deselected module is never resurrected; operator config + gitignored data preserved; `_within_root` fails a
-containment escape closed BEFORE any write), apply/reverse wiring deltas, re-sync the tool-runtime, run the
-packages' `migrations` in dependency order, run coherence, and land the change as a reviewed pull request.
+containment escape closed BEFORE any write), apply/reverse wiring deltas, re-render the CODEOWNERS ownership
+wall for the new release's engine paths (the design's upgrade re-render — `_refresh_codeowners`), re-sync the
+tool-runtime, run the packages' `migrations` in dependency order, run coherence, and land it as a reviewed PR.
 A `data` migration is **backup-first**: it is refused (pre-flight, before any overlay) unless a backup seam
 is available (memory owns the mechanism — INERT until memory-substrate ships, owes -> memory-substrate), so
 the engine never changes un-backed-up data. It DEGRADES to the current version on an unreachable release
@@ -514,8 +515,9 @@ _UNSET = object()   # sentinel: "no GitHub boundary passed (resolve close._githu
 # Engine CODE owned by no module's `provides` but replaced wholesale on upgrade (provisioning L289/L356).
 # DERIVED from module_coherence.FOUNDATION_INFRA (the single source of the foundation-artifact set) minus
 # the two members the overlay must NOT fetch-and-replace: the engine manifest (engine.json — operator
-# config whose package versions upgrade bumps in place, identity preserved) and CODEOWNERS (rendered
-# locally from the engine path set, never fetched from a release). Gitignored data and the deployment's
+# config whose package versions upgrade bumps in place, identity preserved) and CODEOWNERS (re-rendered
+# locally from the post-overlay engine path set by upgrade step (2d) / `_refresh_codeowners`, never
+# fetched from a release — a release's block would carry the wrong owner + paths). Gitignored data and the deployment's
 # per-instance eADR stream are in no `provides`/FOUNDATION_CODE, so the overlay leaves them untouched
 # (config + data preserved). A member may be a glob (the issue templates); the overlay loop below expands
 # it against the release tree, so the issue templates are now refreshed on update (they were silently
@@ -773,6 +775,13 @@ def _upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -
     ran = result.get("migrations", {}).get("ran") or []
     if ran:
         lines += ["", "Data/settings updates that ran:"] + [f"- {r}" for r in ran]
+    co = result.get("codeowners")
+    if co == "written":
+        lines += ["", "Refreshed the list of engine files that route to you for review, so this version's "
+                  "new files are covered. Any review rules you added yourself are untouched."]
+    elif co == "degraded":
+        lines += ["", "Could not refresh the engine-file review list (no account handle on record); your "
+                  "existing CODEOWNERS file was left unchanged."]
     lines += ["", "The engine's own consistency check passed. Merging this is your review and consent; "
               "reverting this pull request undoes the update."]
     return "\n".join(lines)
@@ -805,11 +814,29 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
         return _json.loads(resp.read())
 
 
+def _refresh_codeowners(handle) -> str:
+    """Re-render the CODEOWNERS ownership wall for the POST-overlay engine path set, so a release that
+    adds/removes engine files keeps the wall complete and every engine file still routes to the operator
+    for review — the design's upgrade re-render (provisioning §Identity and tokens; the engine.json
+    `handle` field). Operator-added rules are preserved (fence-scoped). Single-sources the path set +
+    render with first-run via module_coherence.codeowners_path_set + wiring.apply_codeowners, so the two
+    render sites can't drift. Returns 'written' | 'already' | 'degraded'. DEGRADES (no change) when no
+    operator handle is on record (the construction repo / a pre-handle manifest) or the render refuses —
+    never crashes (Q7)."""
+    if not handle:
+        return "degraded"
+    co_path = os.path.join(validate.ROOT, ".github", "CODEOWNERS")
+    try:
+        return wiring.apply_codeowners(co_path, module_coherence.codeowners_path_set(), handle)["status"]
+    except wiring.WiringError:
+        return "degraded"
+
+
 def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None, backup=None) -> dict:
-    """Upgrade the whole engine vX -> vY (provisioning §"Upgrading the engine"). Six steps: fetch the
-    tagged release, overlay engine code (operator config + gitignored data preserved), re-sync the
-    tool-runtime, run migrations in dependency order, run coherence, and land the change as a reviewed
-    pull request.
+    """Upgrade the whole engine vX -> vY (provisioning §"Upgrading the engine"). Steps: fetch the tagged
+    release, overlay engine code and re-render the CODEOWNERS ownership wall for the new release's engine
+    files (operator config + gitignored data preserved), re-sync the tool-runtime, run migrations in
+    dependency order, run coherence, and land the change as a reviewed pull request.
 
     Injectable boundaries (so tests + the demo run the REAL overlay/runner/coherence and never touch the
     network or open a real PR): `release_tree` injects a local extracted release AND marks a practice run
@@ -824,7 +851,7 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
     injected = release_tree is not None
     result = {"refused": False, "applied": False, "reason": None, "from": None, "to": None,
               "copied": [], "wiring": [], "synced": None, "migrations": {"ran": [], "refused": []},
-              "findings": [], "pr": None, "notes": []}
+              "findings": [], "pr": None, "notes": [], "codeowners": None}
     tmp = None
     try:
         engine = module_coherence.load_engine_manifest() or {"packages": {}}
@@ -883,6 +910,11 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # (2b) wiring deltas, (2c) bump the engine manifest (preserve identity)
         result["wiring"] = _apply_wiring_deltas(old_by_id, candidates)
         _bump_engine_manifest(target_versions, target_ref)
+        # (2d) RE-RENDER the CODEOWNERS ownership wall against the new release's engine path set (the
+        # design's upgrade re-render). Runs AFTER the overlay (so the path set sees the release's files)
+        # and the manifest bump, BEFORE coherence/PR (so the landed diff carries a complete wall). The
+        # handle is the preserved-identity owner from the engine manifest; absent -> degrade (no change).
+        result["codeowners"] = _refresh_codeowners(engine.get("handle"))
         # (3) RE-SYNC the tool-runtime (real path only; the injected/practice run skips it — no real venv).
         # Migrations are Python that runs IN the runtime, so a FAILED re-sync ABORTS before step 4 rather
         # than run migrations against a stale runtime — staged but not opened, no saved data touched.
@@ -1128,6 +1160,13 @@ def _render_upgrade(result: dict) -> None:
         print(f"  - replaced {rel}")
     if len(copied) > 8:
         print(f"  - … and {len(copied) - 8} more engine file(s)")
+    co = result.get("codeowners")
+    if co == "written":
+        print("  - refreshed the list of engine files that route to you for review "
+              "(this version's new files are covered; your own rules untouched)")
+    elif co == "degraded":
+        print("  - could not refresh the engine-file review list (no account handle on record); "
+              "left it unchanged")
     for r in result.get("migrations", {}).get("ran", []):
         print(f"  - ran update: {r}")
     for r in result.get("migrations", {}).get("refused", []):
@@ -1595,8 +1634,41 @@ def upgrade_demo() -> bool:
                 print(f"    [{'ok' if good else 'FAIL'}] {label}")
                 ok = ok and good
 
+    print("\nPart K — the update RE-RENDERS the code-ownership wall for the new version's engine files, so "
+          "a file the new release adds still routes to the operator for review — and the operator's OWN "
+          "rules are kept (the design's upgrade re-render):")
+    with tempfile.TemporaryDirectory() as d:
+        live = os.path.join(d, "live")
+        os.makedirs(live)
+        release = _build_upgrade_release(os.path.join(d, "release"))   # v0.2.0 ADDS migration .py files
+        with _redirect_root(live):
+            _build_upgrade_fixture(live)
+            eng = module_coherence.load_engine_manifest()
+            eng["handle"] = "@operator"        # the preserved-identity owner first-run records
+            _write_json(os.path.join(live, ".engine", "engine.json"), eng)
+            co_path = os.path.join(live, ".github", "CODEOWNERS")
+            os.makedirs(os.path.dirname(co_path), exist_ok=True)
+            with open(co_path, "w", encoding="utf-8") as fh:        # an operator rule + the OLD wall
+                fh.write(wiring.render_codeowners("# my rules\n/src/ @team\n",
+                                                  module_coherence.codeowners_path_set(), "@operator"))
+            new_file = "/.engine/modules/base/migrations/config_010.py @operator"
+            covered_before = new_file in validate.read(co_path)
+            res = upgrade(ref="v0.2.0", release_tree=release,
+                          opener=lambda **k: {"number": 0}, backup=lambda *a: {"ok": 1})
+            co_after = validate.read(co_path)
+            co_checks = {
+                "the wall did NOT cover the new file before the update": not covered_before,
+                "the update re-rendered the wall": res.get("codeowners") == "written",
+                "the new version's engine file now routes for review": new_file in co_after,
+                "the operator's own rule survived untouched": "/src/ @team" in co_after,
+            }
+            for label, good in co_checks.items():
+                print(f"    [{'ok' if good else 'FAIL'}] {label}")
+                ok = ok and good
+
     print("\n" + ("UPGRADE DEMO PASSED: an unreachable release degraded, a data update with no backup was "
-                  "refused, and a backed-up update overlaid + migrated + opened a pull request cleanly."
+                  "refused, a backed-up update overlaid + migrated + opened a pull request cleanly, and the "
+                  "update re-rendered the code-ownership wall for the new files while keeping operator rules."
                   if ok else "UPGRADE DEMO DID NOT BEHAVE AS EXPECTED — see above."))
     return ok
 
