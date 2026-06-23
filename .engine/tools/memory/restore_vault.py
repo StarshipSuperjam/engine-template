@@ -18,7 +18,7 @@ FOREGROUND, consent-gated command (it OVERWRITES local memory, so it must never 
 LOCAL-ONLY (no network) so it adds nothing to session-start cost. The swap is crash-safe and serialized behind the
 single-writer lock; the canonical ledger is untouched until the atomic rename.
 
-CLI: restore | status | demo [--live]. Run the demo (fully offline):
+CLI: restore | status | test-read | demo [--live]. Run the demo (fully offline):
     uv run --directory .engine --frozen -- python tools/memory/restore_vault.py demo
 """
 
@@ -120,6 +120,44 @@ def fetch_snapshot(*, transport=None) -> dict:
                 "owner": owner, "repo": repo, "namespace": namespace}
     except Exception:  # noqa: BLE001 — any transport fault degrades to a clean failure, never a raise
         return {"ok": False, "error": "unreachable"}
+
+
+# ============================================================================================================
+# The engine-run test read — the positive correlate that ends provisioning's saved-memory turn-on (#224, D-242).
+# ============================================================================================================
+# A plain-language fault->fix map (Floor 4): one message per fetch_snapshot code, each naming the exact fault AND
+# the one fix, NEVER a git/HTTP error. POINTER_REL is named so a missing-pointer fault points at the exact file.
+_TEST_READ_MESSAGES = {
+    "ok": "Success — the scheduled review can reach your saved memory from its backup.",
+    "not-configured": ("The backup location isn't recorded in this project yet. Set up the backup first, then "
+                       f"commit {bv.POINTER_REL} so a scheduled run can find it."),
+    "no-token": ("No access token reached this test. Paste your read-only backup token and try again — and for the "
+                 "scheduled review, set it as the MEMORY_VAULT_TOKEN secret."),
+    "unreachable": ("I reached for your backup but couldn't open it. The token is most likely scoped to the wrong "
+                    "repository or has the wrong permission — re-issue it as a read-only (contents read) token on "
+                    "the backup repository only."),
+    "no-backup-data": ("I opened your backup repository, but nothing has been backed up to it yet. Run a backup "
+                       "first, then try this again."),
+    "namespace-missing": ("I opened your backup, but this project's saved memory is no longer in it (its folder is "
+                          "gone). Check the backup repository, then try again."),
+    "corrupt": ("I opened your backup, but couldn't read a usable copy of your saved memory from it. Try again "
+                "later; if it persists, the backup may need re-pushing."),
+}
+
+
+def test_read(*, transport=None) -> dict:
+    """The engine-run test read that ENDS provisioning's saved-memory turn-on — a one-shot read of the vault with
+    the credential just set, exercising BOTH the committed pointer (read by `fetch_snapshot` via `bv.read_pointer`)
+    AND the access token (via `bv._gh` -> `boot.gh_token`), so a missing-pointer fault is caught HERE, not on the
+    next scheduled run. A pure §16 consumer read that changes nothing and NEVER raises. Returns {ok, error,
+    message}: `message` is plain operator language naming the exact fault and the one fix (Floor 4), never a
+    git/HTTP error. It proves the token's SCOPE / REPO / PERMISSION (the dominant failure modes); the one residual
+    it cannot prove — that the secret is set under the right NAME in CI — only the first scheduled run exercises,
+    which the turn-on copy discloses honestly."""
+    snap = fetch_snapshot(transport=transport)
+    code = "ok" if snap.get("ok") else snap.get("error")
+    message = _TEST_READ_MESSAGES.get(code or "", _TEST_READ_MESSAGES["corrupt"])
+    return {"ok": bool(snap.get("ok")), "error": snap.get("error"), "message": message}
 
 
 # ============================================================================================================
@@ -464,9 +502,13 @@ def main(argv: list) -> int:
         return _restore_cli()
     if cmd == "status":
         return status()
+    if cmd == "test-read":
+        print(test_read()["message"])
+        return 0                                          # a diagnostic never fails red — it REPORTS the fault
     if cmd == "demo":
         return _demo_live() if "--live" in argv[1:] else _demo()
-    print(f"usage: restore_vault.py [restore|status|demo [--live]]\nunknown command {cmd!r}", file=sys.stderr)
+    print(f"usage: restore_vault.py [restore|status|test-read|demo [--live]]\nunknown command {cmd!r}",
+          file=sys.stderr)
     return 2
 
 

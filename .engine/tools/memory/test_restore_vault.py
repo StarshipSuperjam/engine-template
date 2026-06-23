@@ -227,6 +227,56 @@ class DemoSelfCheckTests(_Base):
         self.assertEqual(rc, 0)
 
 
+class TestReadDiagnostic(_Base):
+    """Item 3 (#224): the engine-run test read that ENDS provisioning's turn-on. One message per fetch_snapshot
+    code, each naming the exact fault + the one fix in plain words (Floor 4), never a git/HTTP error. It exercises
+    the SAME fetch path the scheduled run uses, so a green result proves the committed pointer AND the token."""
+
+    def test_ok_when_the_backup_is_readable(self):
+        fake = self._seed_and_backup(["a decision I made"])
+        out = rv.test_read(transport=fake.transport)
+        self.assertTrue(out["ok"])
+        self.assertIsNone(out["error"])
+        self.assertIn("Success", out["message"])
+
+    def test_not_configured_names_the_pointer_file(self):
+        out = rv.test_read(transport=bv._FakeVault().transport)         # no pointer written
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["error"], "not-configured")
+        self.assertIn(bv.POINTER_REL, out["message"])                  # points at the exact file to commit
+
+    def test_no_token_names_the_secret_to_set(self):
+        self._seed_and_backup(["a note"])                              # a configured pointer is in place
+        saved = bv._gh
+        bv._gh = lambda transport=None: None                           # no access token resolves
+        try:
+            out = rv.test_read()
+        finally:
+            bv._gh = saved
+        self.assertEqual(out["error"], "no-token")
+        self.assertIn("MEMORY_VAULT_TOKEN", out["message"])            # names the secret to set
+
+    def test_unreachable_steers_to_token_scope_and_repo(self):
+        self._seed_and_backup(["a note"])
+        out = rv.test_read(transport=lambda *a, **k: (None, None))     # configured, but the read can't open it
+        self.assertEqual(out["error"], "unreachable")
+        for cue in ("repository", "permission"):                       # the dominant fault: wrong scope/repo/perm
+            self.assertIn(cue, out["message"].lower())
+
+    def test_a_missing_project_folder_is_named_distinctly(self):
+        fake = self._seed_and_backup(["a note"])
+        p = bv.read_pointer()
+        bv.write_pointer(p["owner"], p["repo"], p["branch"], "0" * 32)  # repoint at a folder that was never pushed
+        out = rv.test_read(transport=fake.transport)
+        self.assertEqual(out["error"], "namespace-missing")
+        self.assertIn("no longer in it", out["message"])
+
+    def test_no_diagnostic_message_leaks_a_git_or_http_error(self):
+        for code, msg in rv._TEST_READ_MESSAGES.items():
+            for banned in ("http", "404", "403", "git ", "exception", "traceback"):
+                self.assertNotIn(banned, msg.lower(), f"{code} message leaked {banned!r}")
+
+
 class NamespaceMissingTests(_Base):
     def test_a_now_missing_folder_in_a_populated_vault_is_a_distinct_finding(self):
         fake = self._seed_and_backup(["a note"])                       # project A's folder IS in the vault
