@@ -408,19 +408,19 @@ SAVED_MEMORY_MAX_CHARS = 64 * 1024
 # turn it on (set up a memory backup); the whole memory-backup UX is conversational, so "ask me to set one up" is
 # the real, findable action (mirrors restore_vault's own _MSG_NOT_CONFIGURED register).
 _SAVED_MEMORY_NOT_CONFIGURED = (
-    "YOUR SAVED MEMORY: I couldn't review your saved decisions this cycle — this review found no memory backup "
-    "set up for it to read (the backup that lets it see your saved memory isn't set up for this review). Treat "
-    "concern #1 as not reviewed and say so plainly, and that the way to turn it on is to set up a memory backup — "
-    "the operator can simply ask you to set one up. NEVER claim the project has no saved memory; you just could "
-    "not see it this run.")
+    "YOUR SAVED MEMORY: I couldn't review your saved decisions this cycle — no memory backup is set up for this "
+    "review to read. Treat concern #1 as not reviewed and say so plainly, and that the way to turn it on is to "
+    "set up a memory backup — the operator can ask the engine to set one up in a chat session. NEVER claim the "
+    "project has no saved memory; you just could not see it this run.")
 _SAVED_MEMORY_UNREACHABLE = (
     "YOUR SAVED MEMORY: a memory backup is set up, but this review couldn't reach it this cycle (it may not have "
     "been given access to the backup, or the connection failed). Treat concern #1 as not reviewed and say so "
-    "plainly — note it may clear on the next run, and that the scheduled review may need to be given access to "
-    "the backup. NEVER claim memory is empty.")
+    "plainly — note it may clear on the next run, and that the operator can ask the engine to check the "
+    "scheduled review's access to the backup. NEVER claim memory is empty.")
 _SAVED_MEMORY_UNREADABLE = (
     "YOUR SAVED MEMORY: a memory backup is set up, but I couldn't read a usable copy of your saved memory from it "
-    "this cycle. Treat concern #1 as not reviewed and say so plainly; NEVER claim memory is empty.")
+    "this cycle (it may clear on a later run). Treat concern #1 as not reviewed and say so plainly; NEVER claim "
+    "memory is empty.")
 _SAVED_MEMORY_NONE_YET = (
     "YOUR SAVED MEMORY: your memory backup is set up and I read it, but it holds no saved decisions or notes yet "
     "to review (as last backed up {as_of}). Concern #1 has nothing to check this cycle — say so plainly; this is "
@@ -472,10 +472,15 @@ def _epoch_date(ts):
 
 
 def _saved_memory_as_of(iso) -> str:
-    """The backup date as a plain `on YYYY-MM-DD` phrase (defanged — a forged manifest can't smuggle a fence
-    rail through it), or a plain unknown-date phrase."""
-    date = iso[:10] if isinstance(iso, str) and len(iso) >= 10 else None
-    return f"on {validate.defang_prompt_fence_markers(date)}" if date else "at an unknown date"
+    """The backup date as a plain `on YYYY-MM-DD` phrase, or a plain unknown-date phrase. The date is VALIDATED
+    as a real ISO date (not just defanged): a forged manifest timestamp that is not a clean date — including a
+    letterless dash-rail run, which the shape-based defang deliberately leaves alone — degrades to the
+    unknown-date phrase, so no untrusted fragment can ride this header line into the persona's prompt."""
+    head = iso[:10] if isinstance(iso, str) and len(iso) >= 10 else ""
+    try:
+        return f"on {datetime.date.fromisoformat(head).isoformat()}"
+    except ValueError:
+        return "at an unknown date"
 
 
 def _render_belief_line(b: dict) -> str:

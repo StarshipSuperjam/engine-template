@@ -160,7 +160,7 @@ jobs:
           saved="$(cat "${RUNNER_TEMP}/saved-memory.md")"
           prompt="Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble.
 
-          For concern #1 (stale saved memory), you cannot reach your saved memory yourself; it was read from the project's off-repo backup and follows between the markers. Review it as the operator's saved decisions and notes: do any now contradict each other, has anything you can see refuted one, or is a heavily-used note actually obsolete? If the markers say the backup isn't set up, couldn't be reached, or couldn't be read, treat concern #1 as not reviewed and say so plainly in your digest — and NEVER claim the project has no saved memory; you simply couldn't see it this run.
+          For concern #1 (stale saved memory), you cannot reach your saved memory yourself; it was read from the project's off-repo backup and follows between the markers. These are the project's CURRENT saved beliefs — notes memory has already set aside are not shown here, so do not read their absence as 'nothing to retire'. Review what you are shown as the operator's saved decisions and notes: do any now contradict each other, has anything you can see refuted one, or is a heavily-used note actually obsolete? If the markers say the backup isn't set up, couldn't be reached, or couldn't be read, treat concern #1 as not reviewed and say so plainly in your digest — and NEVER claim the project has no saved memory; you simply couldn't see it this run.
           ----- BEGIN YOUR SAVED MEMORY -----
           ${saved}
           ----- END YOUR SAVED MEMORY -----

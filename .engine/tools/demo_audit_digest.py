@@ -79,7 +79,7 @@ def _demo_saved_memory() -> bool:
             no_backup = audit_digest.render_saved_memory()
             print("   --- with NO memory backup set up, what the review says ---")
             print("   | " + no_backup[:280])
-            disclosed = "isn't set up for this review" in no_backup and "NEVER claim" in no_backup
+            disclosed = "for this review to read" in no_backup and "NEVER claim" in no_backup
 
             # (b) Plant real saved memory: two live notes, a gist, a superseded draft, and provenance markers.
             now = int(time.time())

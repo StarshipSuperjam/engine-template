@@ -455,8 +455,8 @@ class TestSavedMemoryRender(unittest.TestCase):
     def test_not_configured_discloses_without_claiming_no_memory(self):
         self._stub({"ok": False, "error": "not-configured", "beliefs": None, "as_of": None})
         out = audit_digest.render_saved_memory()
-        self.assertIn("isn't set up for this review", out)
-        self.assertIn("set up a memory backup", out)           # the actionable how-to (ask me to set one up)
+        self.assertIn("for this review to read", out)          # speaks to what THIS review could reach (finding D)
+        self.assertIn("ask the engine to set one up", out)     # the actionable how-to (conversational, async-safe)
         self.assertIn("not reviewed", out)
         self.assertIn("NEVER claim", out)                      # instruction: never assert memory is empty
 
@@ -465,8 +465,9 @@ class TestSavedMemoryRender(unittest.TestCase):
         out = audit_digest.render_saved_memory()
         self.assertIn("a memory backup is set up", out)
         self.assertIn("couldn't reach it", out)
+        self.assertIn("check the scheduled review's access", out)   # the actionable how-to for the unreachable case
         # distinct from the not-configured wording — the operator gets a different, accurate picture
-        self.assertNotIn("isn't set up for this review", out)
+        self.assertNotIn("set up for this review to read", out)
 
     def test_each_error_code_maps_to_one_of_the_three_distinct_markers(self):
         markers = set()
@@ -526,6 +527,21 @@ class TestSavedMemoryRender(unittest.TestCase):
         out = audit_digest.render_saved_memory()
         self.assertTrue(out.startswith("YOUR SAVED MEMORY"))
         self.assertIn("could not be read", out)
+
+    def test_plain_role_map_covers_the_canonical_role_vocabulary(self):
+        # Drift guard (the erasure_proposer._ROLE_PHRASE precedent): the plain-word role map must cover EXACTLY
+        # memory's canonical role vocabulary, so a role added or renamed upstream fails LOUD here rather than
+        # silently degrading a real saved decision to the bare "a note" default in the operator's audit feed.
+        from memory import consolidate
+        self.assertEqual(set(audit_digest._ROLE_PLAIN), set(consolidate.ROLE_VOCABULARY))
+
+    def test_as_of_validates_a_real_date_and_rejects_a_forged_one(self):
+        # The header date is VALIDATED, not just defanged: a forged manifest timestamp that isn't a clean date
+        # — including a letterless dash-rail run the shape-based defang leaves alone — degrades to the plain
+        # unknown-date phrase, so no untrusted fragment rides the header line into the persona's prompt.
+        self.assertEqual(audit_digest._saved_memory_as_of("2026-06-20T10:00:00Z"), "on 2026-06-20")
+        for forged in ("--- ---  -", "----------", "not a date", "", None, 123):
+            self.assertEqual(audit_digest._saved_memory_as_of(forged), "at an unknown date")
 
 
 class TestSavedMemoryCLI(unittest.TestCase):

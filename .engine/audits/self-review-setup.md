@@ -17,8 +17,9 @@ the **open issues the engine has filed about its own health** (the running list 
 
 Saved memory lives only on your computer and isn't part of the project's files, so the review can see it only
 when two things are in place: you've set up a **backup** of your saved memory (just **ask me to set one up**),
-and this scheduled review has been **given access to that backup**. That access is a deliberate step, because
-the review normally reaches only *this* project, while your memory backup is kept in a separate, private place.
+and this scheduled review has been **given access to that backup** (ask me and I'll walk you through it). That
+access is a deliberate step, because the review normally reaches only *this* project, while your memory backup
+is kept in a separate, private place.
 If you keep one shared backup for all your projects, giving the review access covers them together; if you'd
 rather keep this project's memory to itself, set it up with its own private backup. Until both are in place, the
 review simply tells you in its summary that it couldn't review your saved decisions this time and how to turn it

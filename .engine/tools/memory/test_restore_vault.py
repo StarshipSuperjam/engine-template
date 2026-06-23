@@ -360,6 +360,16 @@ class SavedMemoryProjectionTests(_Base):
         self.assertEqual(snap["error"], "unreachable")
         self.assertIsNone(snap["beliefs"])
 
+    def test_ts_to_epoch_parses_the_backup_time_and_rejects_garbage(self):
+        # The backup `timestamp` -> the `now` the live-set is tiered against (point-in-time honesty). It must
+        # parse a real ISO stamp and reject anything else (so a bad manifest never mis-tiers the beliefs).
+        import calendar
+        import time as _t
+        iso = "2026-06-20T10:00:00Z"
+        self.assertEqual(rv._ts_to_epoch(iso), calendar.timegm(_t.strptime(iso, "%Y-%m-%dT%H:%M:%SZ")))
+        for bad in ("garbage", "", None, 123, "2026-06-20"):
+            self.assertIsNone(rv._ts_to_epoch(bad))
+
 
 if __name__ == "__main__":
     unittest.main()
