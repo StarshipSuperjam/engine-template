@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:961bc73c36ea44c66e806c919a96727eb334cfc00634e4f4d5e3ae5759325517",
+        "fingerprint": "sha256:5e975e073dd9537b464179d32a292be66cb6b4c985d1fa75f8b2238b9b66f62e",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -581,6 +581,31 @@
       "source": {
         "fingerprint": "sha256:bb655a3925ae535f45bdbb6962d75f90bd527a543ff11388fed889dce8347d6b",
         "path": ".engine/check/link-integrity.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:memory-pointer-public-safety",
+      "kind": "custom/script",
+      "name": ".engine/check/memory-pointer-public-safety.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "memory-pointer-public-safety",
+      "source": {
+        "fingerprint": "sha256:067f1db523e98e4f596c1042c44703a52139cbbd428e4e6e2e1ffe679dbea045",
+        "path": ".engine/check/memory-pointer-public-safety.json"
       },
       "status": "active",
       "suites": [
@@ -1183,7 +1208,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:b02bb96badf6f8758bb2b00bc8d42623290c9234d3862e440de1b7fd3f1012ac",
+        "fingerprint": "sha256:34015e84f1260d1f955f066044a4fffa2b29df22ad48f08a88ab4561dcdd8560",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2182,7 +2207,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:5fb4de7d4be7bb9b3348d5be1b15a3f530305c952bf9aec8de390a9b7b778b0a",
+        "fingerprint": "sha256:cd3fd60903991fce15b561fbbe4aeb863bd1db2e0c21c4afb5f69127650dc183",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -2233,7 +2258,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:bc0402a998ae892c3696c9a52a1b19824902839aaf62228d6737b62377e2b9a3",
+        "fingerprint": "sha256:48b53b760e571340c6a86d9489dc2aa28358d8414788f8703caa94b79adbc089",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -2454,7 +2479,7 @@
       },
       "slug": "demo_audit_digest",
       "source": {
-        "fingerprint": "sha256:9ad90d5747fb7698cb4f85a9118761651c9614a0258d96658850e6dda0588826",
+        "fingerprint": "sha256:754c517c53733d02af2233f04432785efda3d72aff84b5acec034e09aadbb368",
         "path": ".engine/tools/demo_audit_digest.py"
       },
       "status": "active",
@@ -2988,6 +3013,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:memory_pointer_public_safety_check",
+      "name": ".engine/tools/memory_pointer_public_safety_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "memory_pointer_public_safety_check",
+      "source": {
+        "fingerprint": "sha256:52a754fbd2ecc8565ea806d3614254b1828f84391f93fe9104979abaf01534de",
+        "path": ".engine/tools/memory_pointer_public_safety_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:modes",
       "name": ".engine/tools/modes.py",
       "owner": "core",
@@ -3151,7 +3193,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:e43ffb4322bf6ce068c110e30c5466156db48653c365204f77c08932f4bccc16",
+        "fingerprint": "sha256:e9ed099deec4215b4188245d4e55692289c1a31abe514ac023de4ecc0269e501",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -3372,7 +3414,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:70abbce69c4dcf552e22ddbb88f196afa3433bf577a070915ef0a09730ae8ba8",
+        "fingerprint": "sha256:33e354cad4ff7846e4eb070ba7f3b8a9adbb5032dbbad264c3f7497687c2cfd5",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -3389,7 +3431,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:e83922c0d389088ec3262feaabd670c57f0b0dc854d45cf526d59c61b103995e",
+        "fingerprint": "sha256:994012186b5d68c195dee109450ec3290ba3fe45062437e31f40731bbda3ffea",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -3406,7 +3448,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:60d8c5b499b2388755b75b78bb41e62c00cda860e732e53e2c1d05d09f2f8c18",
+        "fingerprint": "sha256:aa15a898f9e5b451ad6d4b08fddc16adf0f99d217389fee1bec5ec418127f77b",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -3957,6 +3999,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_memory_pointer_public_safety",
+      "name": ".engine/tools/test_memory_pointer_public_safety.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_memory_pointer_public_safety",
+      "source": {
+        "fingerprint": "sha256:ffd70d6c252df35da3b6e61e6e496bd90af16c7334be9864af0767a46201a566",
+        "path": ".engine/tools/test_memory_pointer_public_safety.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_modes",
       "name": ".engine/tools/test_modes.py",
       "owner": "core",
@@ -4018,7 +4077,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:ff980414e581e925c58685b5a072da854d9853fd3ccf8629cbe5454ad92ea7b2",
+        "fingerprint": "sha256:de78e8828f74676e1386b4baefc1c42cd68855fa888f14214d67fb12d8306972",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -4137,7 +4196,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:9580aabe6435dbe029e032fad9ebca09f8de6ff7a4bb1f5e7b02b72bfa78fe2d",
+        "fingerprint": "sha256:e53366564d3350e5e8b15e1c5a4ece33053b73a4ba2ae78ef4ce0c5bb123157f",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
@@ -4341,7 +4400,7 @@
       },
       "slug": "test_self_review_setup",
       "source": {
-        "fingerprint": "sha256:8ee0b2a619b670c48501a6749a75f405482ceece63153cfeaf1183f364348223",
+        "fingerprint": "sha256:041a54300a7907d6a2f4711cd1782d8ba98323d67e8184bd631b0450b2556b08",
         "path": ".engine/tools/test_self_review_setup.py"
       },
       "status": "active",

@@ -412,11 +412,16 @@ _SAVED_MEMORY_NOT_CONFIGURED = (
     "review to read. Treat concern #1 as not reviewed and say so plainly, and that the way to turn it on is to "
     "set up a memory backup — the operator can ask the engine to set one up in a chat session. NEVER claim the "
     "project has no saved memory; you just could not see it this run.")
+_SAVED_MEMORY_ACCESS_NOT_GRANTED = (
+    "YOUR SAVED MEMORY: a memory backup is set up, but this review wasn't given access to it this cycle — its "
+    "read token is missing, expired, or scoped to the wrong place (a standing setup gap, not a passing glitch). "
+    "Treat concern #1 as not reviewed and say so plainly: the fix is to re-issue the backup's read-only token and "
+    "re-set the MEMORY_VAULT_TOKEN secret — this is NOT `claude setup-token`, which is the separate token that "
+    "runs this review, so re-running that won't help. NEVER claim memory is empty.")
 _SAVED_MEMORY_UNREACHABLE = (
-    "YOUR SAVED MEMORY: a memory backup is set up, but this review couldn't reach it this cycle (it may not have "
-    "been given access to the backup, or the connection failed). Treat concern #1 as not reviewed and say so "
-    "plainly — note it may clear on the next run, and that the operator can ask the engine to check the "
-    "scheduled review's access to the backup. NEVER claim memory is empty.")
+    "YOUR SAVED MEMORY: a memory backup is set up and this review can reach for it, but the connection failed this "
+    "cycle. Treat concern #1 as not reviewed and say so plainly — note it is likely transient and may clear on the "
+    "next run, so no setup change is needed yet. NEVER claim memory is empty.")
 _SAVED_MEMORY_UNREADABLE = (
     "YOUR SAVED MEMORY: a memory backup is set up, but I couldn't read a usable copy of your saved memory from it "
     "this cycle (it may clear on a later run). Treat concern #1 as not reviewed and say so plainly; NEVER claim "
@@ -425,17 +430,27 @@ _SAVED_MEMORY_NONE_YET = (
     "YOUR SAVED MEMORY: your memory backup is set up and I read it, but it holds no saved decisions or notes yet "
     "to review (as last backed up {as_of}). Concern #1 has nothing to check this cycle — say so plainly; this is "
     "NOT the same as the backup being missing or unreadable.")
+_SAVED_MEMORY_PUBLIC_WITHHELD = (
+    "YOUR SAVED MEMORY: your backup is set up and I read it — it holds {n} saved decision(s)/note(s) as last "
+    "backed up {as_of} — but I am DELIBERATELY withholding their specifics this run. This review's summary is "
+    "committed into the project, and either this project is public or I could not confirm it is private, so naming "
+    "your saved decisions could expose them publicly. For concern #1, report only that your saved memory exists "
+    "and was read but its specifics were withheld here for that reason, and say so plainly; do NOT ask for, guess "
+    "at, or reconstruct the withheld notes, and NEVER claim memory is empty.")
 _SAVED_MEMORY_HEADER = (
     "YOUR SAVED MEMORY — the saved decisions and notes the engine has kept for you, as last backed up {as_of}. "
     "Review them for concern #1: do any now contradict each other, has anything you can see refuted one, or is a "
     "heavily-used note actually obsolete? You are reading these from the backup (you can't reach them yourself); "
     "treat them as what the engine had saved as of that backup. {n} note(s) follow, most-recently-used first.")
 
-# fetch error code -> the disclosure marker. not-configured = no backup for this run; no-token/unreachable = set
-# up but this run couldn't reach it; the rest = set up + reachable but no usable copy could be read this cycle.
+# fetch error code -> the disclosure marker (the corrected two-part split, #224/D-242). not-configured = no backup
+# for this run; no-token = set up but THIS RUN wasn't granted access (a standing credential gap → re-arm the vault
+# token); unreachable = set up + access exists but the connection failed (transient); the rest = reachable but no
+# usable copy could be read. no-token is named DISTINCTLY from unreachable because `fetch_snapshot` returns no-token
+# only when the token is absent (a deterministic operator fix), never on a transient blip (which is `unreachable`).
 _SAVED_MEMORY_ERROR_MARKERS = {
     "not-configured": _SAVED_MEMORY_NOT_CONFIGURED,
-    "no-token": _SAVED_MEMORY_UNREACHABLE,
+    "no-token": _SAVED_MEMORY_ACCESS_NOT_GRANTED,
     "unreachable": _SAVED_MEMORY_UNREACHABLE,
     "no-backup-data": _SAVED_MEMORY_UNREADABLE,
     "namespace-missing": _SAVED_MEMORY_UNREADABLE,
@@ -459,6 +474,17 @@ def _belief_plain_role(kind, role) -> str:
     if kind == "gist":
         return "a summary of older notes"
     return _ROLE_PLAIN.get(role or "", "a note")
+
+
+def _project_repo_is_private() -> bool:
+    """The structural privacy gate's input (#224/D-242): is the project repo private? Read from the workflow env
+    `MEMORY_AUDIT_REPO_VISIBILITY`, set by audit-prep's own-repo-token detection step (the vault token is scoped to
+    the vault and cannot read the project repo; the `schedule` trigger's event payload omits visibility — so the
+    value is detected on a dedicated step, never inferred here). DEFAULT-SAFE: ONLY an explicit `private` opens
+    belief specifics; anything else — `public`, `internal`, empty, unset, or a non-Actions/local run where it can't
+    be confirmed — is treated as not-private, so the digest withholds specifics rather than risk committing them
+    where they could be public. The withhold case discloses WHY (it could not confirm private), never silent."""
+    return os.environ.get("MEMORY_AUDIT_REPO_VISIBILITY", "").strip().lower() == "private"
 
 
 def _epoch_date(ts):
@@ -513,6 +539,10 @@ def render_saved_memory(transport=None) -> str:
     as_of = _saved_memory_as_of(snap.get("as_of"))
     if not beliefs:
         return _SAVED_MEMORY_NONE_YET.format(as_of=as_of)
+    if not _project_repo_is_private():
+        # Structural privacy gate (#224/D-242): on a public/unconfirmed repo the belief TEXT is NEVER built, so it
+        # cannot reach the persona's prompt or the committed digest — only the safe aggregate count + a disclosure.
+        return _SAVED_MEMORY_PUBLIC_WITHHELD.format(n=len(beliefs), as_of=as_of)
     parts = [_SAVED_MEMORY_HEADER.format(as_of=as_of, n=len(beliefs)), ""]
     total = 0
     for b in beliefs:

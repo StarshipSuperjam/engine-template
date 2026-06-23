@@ -25,6 +25,7 @@
       ".engine/check/knowledge-coverage.json",
       ".engine/check/knowledge-vocabulary.json",
       ".engine/check/link-integrity.json",
+      ".engine/check/memory-pointer-public-safety.json",
       ".engine/check/module-manifest.json",
       ".engine/check/operation-frontmatter.json",
       ".engine/check/operation-shape.json",

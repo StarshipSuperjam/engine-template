@@ -16,14 +16,12 @@ the **open issues the engine has filed about its own health** (the running list 
 — once you turn it on — your **saved memory**, the notes the engine keeps about your decisions as you work.
 
 Saved memory lives only on your computer and isn't part of the project's files, so the review can see it only
-when two things are in place: you've set up a **backup** of your saved memory (just **ask me to set one up**),
-and this scheduled review has been **given access to that backup** (ask me and I'll walk you through it). That
-access is a deliberate step, because the review normally reaches only *this* project, while your memory backup
-is kept in a separate, private place.
-If you keep one shared backup for all your projects, giving the review access covers them together; if you'd
-rather keep this project's memory to itself, set it up with its own private backup. Until both are in place, the
-review simply tells you in its summary that it couldn't review your saved decisions this time and how to turn it
-on — it never pretends your memory is empty.
+when two things are in place: you've set up a **backup** of your saved memory, and this scheduled review has
+been **given read access** to that backup. Both are a deliberate, optional setup — the review normally reaches
+only *this* project, while your memory backup is kept in a separate, private place — and **"Optional: let the
+review read your saved memory"** below walks you through it. Until both are in place, the review simply tells you
+in its summary that it couldn't review your saved decisions this time, and which of the two is missing and how
+to fix it — it never pretends your memory is empty.
 
 ## Turn it on
 
@@ -79,6 +77,11 @@ names the one thing to do, so you're never left guessing:
 
 - **The sign-in token expires after a year.** When it lapses, the review stops. Run `claude setup-token` again
   and update the `CLAUDE_CODE_OAUTH_TOKEN` secret (Step 2) with the new value.
+- **The memory-vault read key can lapse too** — only if you've set up the saved-memory read (above) and either
+  gave the key an expiry or your organization caps it. When it does, the review keeps running but stops reading
+  your saved memory, and its summary says so. The fix is specific to *that* key: make a new read-only key and
+  update the **`MEMORY_VAULT_TOKEN`** secret (steps A–B above). This is **not** `claude setup-token` — that's the
+  separate sign-in token that runs the review itself, and re-running it won't restore the memory read.
 - **Running it very often uses your subscription, like any other Claude usage.** A too-frequent schedule can run
   into your plan's usage limits and pause the review until they reset — so the fix is to run it *less* often, not
   more (see below).
@@ -114,6 +117,74 @@ different model — for example a newer one when it's released — by adding a r
 model's name. Two things worth knowing: a cheaper or weaker model gives you a less trustworthy review, and a
 misspelled name makes the run fail the same quiet way a mistyped token does — so change this deliberately.
 Unlike the schedule, this setting is remembered across engine updates.
+
+## Optional: let the review read your saved memory
+
+This part is optional. By default the review checks your committed files and the engine's open issues — but
+**not** your saved memory (the notes the engine keeps about your decisions), because that lives only on your
+computer, outside the project. If you'd like the review to also check whether those saved notes have gone stale
+or started to contradict each other, you can give it read access to them. (If your project is **public**, the
+review still reads your memory but keeps the specific notes out of its committed summary — anyone can read that
+summary — so it reports only that your memory was reviewed; your decisions stay private either way.) It's a
+deliberate, one-time setup, and worth understanding before you do it. Ask me and I'll talk you through each step;
+here's what it involves.
+
+**Two things have to be true**, and doing only the first leaves the read switched off:
+
+1. **A backup of your saved memory exists.** Your saved memory is backed up to a small, private GitHub
+   repository — your *memory vault*. If you haven't set one up, just **ask me to set one up** and I'll create it
+   with your consent.
+2. **This review is given read access to that vault.** The review normally reaches only *this* project; your
+   vault is a separate, private repository, so the review needs its own read-only key to reach it — steps A–C
+   below.
+
+**A — make a read-only key for the vault.** On GitHub, go to your **account's Settings → Developer settings →
+Personal access tokens → Fine-grained tokens → Generate new token**, then create a
+**fine-grained personal access token** — GitHub's name for a narrow key you can lock to a single repository and a
+single kind of access. Under **Repository access** choose **only your memory-vault repository**, and under
+**Permissions** give it **just "Contents → Read"** (permission to *read* files and nothing else — no writing, no
+deleting, no other repository).
+
+- **Make it not expire, where GitHub lets you.** On a **personal** account you can set the expiry to **"No
+  expiration"** — choose that, so the review doesn't silently stop a year later. If your vault lives in an
+  **organization** that caps how long a key can live, "No expiration" won't be offered; the key will lapse on
+  the organization's limit, and the review will tell you when it does so you can renew it (see *Keeping it
+  running*).
+
+**B — give the key to this project as a named secret.** On GitHub, open this project's **Settings → Secrets and
+variables → Actions** and add a new repository **secret** (a private value GitHub stores and never shows again)
+named **exactly**:
+
+```
+MEMORY_VAULT_TOKEN
+```
+
+Paste the key from step A as its value. The name has to match exactly — a typo here makes the read fail with no
+error you'd notice (the review's summary will say it wasn't given access). GitHub keeps the key encrypted and
+never shows it again, and only this project's scheduled review can use it — and all it can do is *read* your
+memory-vault repository.
+
+- **Worth knowing before you paste:** if you keep **one shared vault for all your projects** (the default), this
+  one key lets *this* project's scheduled review read **every** project's saved memory in that shared vault — not
+  only this project's. For your own private projects that's usually fine, but if one project's memory is
+  sensitive and you'd rather wall it off, set *that* project up with its **own private vault** — that's the way
+  to keep it out of the shared key's reach. Ask me and I'll help you choose.
+
+**C — test it.** When the secret is set, **ask me to test the read** — I'll do a one-shot read of your vault with
+that key and tell you, in plain words, that it worked or the exact thing to fix (the key is scoped to the wrong
+repository, has the wrong permission, the secret name doesn't match, or the vault's location isn't recorded in
+this project yet). That way you learn it works now, not a week later when the review next runs.
+
+- One honest limit: that test reads the vault with the key *you hand me*, which proves the key itself is good. It
+  can't confirm that GitHub will hand the *same* key to the scheduled run under the right secret name — only the
+  first real scheduled run does that. If that first run reports it wasn't given access, the fix is in *Keeping it
+  running*.
+
+**Honest about maturity:** this cross-project read — a scheduled review reaching a *separate* private vault — is
+**new in this version of the engine and hasn't been run end-to-end while building it**. The pieces are tested in
+isolation and the test read above exercises the real read path, but the full scheduled cross-repository read is
+written from the design, not yet proven in a live run here. Treat it as a capability to try, with the test read
+as your check that it's working.
 
 ## Optional: run it in the cloud instead
 

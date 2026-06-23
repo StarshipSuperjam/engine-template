@@ -119,13 +119,31 @@ jobs:
             printf '%s\n' "PRIOR SELF-REVIEWS: none are available to compare against this run (the fetch step failed). Review only what you can check now, and say plainly in your digest that you have no earlier reviews to compare against — do not invent a trend." \
               > "${RUNNER_TEMP}/prior-digests.md"
           fi
+      - name: Detect this repository's visibility (for the saved-memory privacy gate)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          # The saved-memory privacy gate (#224/D-242) withholds belief specifics from a digest committed to a
+          # PUBLIC repo. Visibility is read HERE with the OWN-repo token — the vault read token on the next step is
+          # scoped to the vault and cannot read this repo, and the `schedule` trigger's event payload omits
+          # visibility — and handed to the memory step via the environment. Best-effort and never fails the run:
+          # on any failure the value is left empty, and the renderer treats anything but an explicit `private` as
+          # not-private (default-safe withhold), so a detection miss withholds the specifics rather than leak them.
+          vis="$(gh repo view "${GITHUB_REPOSITORY}" --json visibility -q .visibility 2>/dev/null || true)"
+          printf 'MEMORY_AUDIT_REPO_VISIBILITY=%s\n' "${vis}" >> "${GITHUB_ENV}"
       - name: Fetch the project's saved memory (from its backup) for the self-review
         env:
-          # Only the GitHub token — the repo + namespace come from memory's committed pointer, not the
-          # environment. On the public template the pointer is the unconfigured placeholder, so the verb
-          # short-circuits to the not-configured disclosure with NO network and the token is never used; a
-          # repo configured with vault access reads the backup with whatever token reaches that separate repo.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The VAULT read token (#224/D-242), NOT the own-repo token: the saved-memory backup lives in a SEPARATE
+          # private repo, which the own-repo GITHUB_TOKEN provably cannot reach. MEMORY_VAULT_TOKEN is a least-
+          # privilege, read-only (contents:read) token scoped to just the vault repo, set as a secret during the
+          # turn-on; boot.gh_token() prefers env GITHUB_TOKEN, so passing it here routes the read through it with
+          # no read-code change. The repo + namespace still come from memory's COMMITTED pointer (a CI checkout
+          # sees only committed files). On the public template the pointer is the unconfigured placeholder AND the
+          # secret is unset (-> empty -> falsy), so the verb short-circuits to the not-configured disclosure with
+          # NO network. (MEMORY_AUDIT_REPO_VISIBILITY, set by the step above, also reaches this verb from the
+          # environment, gating belief specifics to a private repo.)
+          GITHUB_TOKEN: ${{ secrets.MEMORY_VAULT_TOKEN }}
         run: |
           set -euo pipefail
           # Concern #1 of the self-review judges stale SAVED MEMORY (the engine's experiential decision/note

@@ -106,14 +106,37 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertIn("AUDIT_MODEL", self.text)
 
     def test_discloses_the_saved_memory_read_and_its_precondition(self):
-        # The off-repo memory backup is now built, so the review CAN read saved memory — but only once two
-        # things are in place (a backup is set up AND the scheduled run is given access to it). The page says
-        # so honestly: it names the actionable how-to, the access precondition the design fixes, and the honest
-        # fallback (it discloses the gap rather than pretending memory is empty) — so coverage is never over-claimed.
+        # The off-repo memory backup is built, so the review CAN read saved memory — but only once two things are
+        # in place (a backup is set up AND the scheduled run is given read access to it). The page says so
+        # honestly: the actionable how-to, the two-part access precondition, and the honest fallback (it discloses
+        # the gap rather than pretending memory is empty) — so coverage is never over-claimed.
         self.assertIn("saved memory", self.text)
-        self.assertIn("ask me to set one up", self.text)                  # the actionable how-to
-        self.assertIn("given access to that backup", self.text)          # the access precondition
+        self.assertIn("ask me to set one up", self.text)                  # the actionable how-to for the backup
+        self.assertIn("given read access", self.text)                    # the two-part access precondition
         self.assertIn("never pretends your memory is empty", self.text)  # the honest fallback
+
+    def test_walks_through_the_saved_memory_read_turn_on(self):
+        # Item 3 (#224/D-242): the heavy-consent turn-on must be a real, followable walkthrough — not the
+        # dead-end "ask me" #224 was filed to fix. It names the secret, pre-translates the platform terms, lands
+        # the shared-vault blast-radius disclosure at the paste with the per-project escape, steers to a no-expiry
+        # key with the org-cap fallback, and ends with the engine-run test read.
+        t = self.text
+        self.assertIn("MEMORY_VAULT_TOKEN", t)                          # names the secret exactly
+        self.assertIn("fine-grained personal access token", t)         # pre-translates the platform term
+        self.assertIn("Contents → Read", t)                            # the read-only scope, in plain words
+        self.assertIn("No expiration", t)                              # the no-expiry steer…
+        self.assertIn("organization", t)                               # …with the org-cap fallback
+        self.assertIn("every** project's saved memory", t)             # R31 blast-radius, at the paste moment
+        self.assertIn("own private vault", t)                          # …with the per-project escape
+        self.assertIn("ask me to test the read", t)                    # ends with the engine-run test read
+        self.assertIn("hasn't been run end-to-end while building it", t)  # honest un-exercised-at-v1 disclosure
+
+    def test_vault_read_key_rearm_is_credential_specific_not_the_oauth_token(self):
+        # The corrected re-arm copy (item 4 owner): the vault key's recovery is specific to THAT key (re-make it +
+        # re-set MEMORY_VAULT_TOKEN), explicitly NOT `claude setup-token` (the unrelated sign-in token).
+        t = self.text
+        self.assertIn("memory-vault read key can lapse", t)
+        self.assertIn("not** `claude setup-token`", t)                 # the explicit contrast against the wrong fix
 
 
 if __name__ == "__main__":

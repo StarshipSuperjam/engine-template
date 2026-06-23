@@ -8,6 +8,7 @@ committed pointer is ever touched.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -104,6 +105,50 @@ class SetupTests(_Base):
         self.assertIsNone(bv.read_pointer())
         for banned in ("http", "git", "status", "404", "403"):
             self.assertNotIn(banned, res["message"].lower())            # never a git/HTTP error
+
+
+class PointerCommitTests(_Base):
+    """Item 1 (#224): setup records the configured pointer IN the project repo (pure GitHub API; topology-law-5
+    config-not-data carve-out) so a CI checkout can locate the vault — and soft-degrades, never raises, when the
+    write is refused."""
+
+    def _seed_project_repo(self, fake):
+        slug = "test-org/test-project"                              # matches the hermetic _project_slug stub
+        fake.repos[slug] = {"default_branch": "main"}
+        sha = fake._next("b")                                       # the shipped committed placeholder -> a blob sha
+        fake.blobs[sha] = base64.b64encode(b'{"schema_version": 1, "configured": false}\n').decode("ascii")
+        fake.contents[f"{slug}@{bv.POINTER_REL}"] = sha
+
+    def test_setup_records_the_configured_pointer_in_the_project_repo(self):
+        fake = bv._FakeVault()
+        self._seed_project_repo(fake)
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["pointer_committed"])
+        key = f"test-org/test-project@{bv.POINTER_REL}"
+        self.assertIn(key, fake.contents)                          # the pointer was PUT to the PROJECT repo
+        committed = json.loads(base64.b64decode(fake.blobs[fake.contents[key]]))
+        self.assertEqual(committed["namespace"], res["namespace"])  # coordinates, the real minted namespace
+        self.assertEqual(set(committed), {"schema_version", "owner", "repo", "branch", "namespace", "created_at"})
+        for leaky in ("text", "kind", "role", "summary"):          # coordinates ONLY — never any ledger content
+            self.assertNotIn(leaky, committed)
+
+    def test_setup_soft_degrades_when_the_pointer_write_is_refused(self):
+        fake = bv._FakeVault(refuse_pointer_put=True)              # e.g. a protected project default branch (409)
+        self._seed_project_repo(fake)
+        res = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertTrue(res["ok"])                                  # setup still succeeds — the vault IS set up
+        self.assertFalse(res["pointer_committed"])
+        self.assertIn(bv.POINTER_REL, res["message"])              # names the one residual step in plain words
+        self.assertIsNotNone(bv.read_pointer())                    # the LOCAL pointer still stands
+
+    def test_commit_pointer_degrades_when_project_repo_unreachable(self):
+        fake = bv._FakeVault()                                      # project repo NOT seeded -> GET 404
+        out = bv.commit_pointer_to_project(bv._Boundary(fake.transport), "test-org", "test-project",
+                                           {"schema_version": 1, "owner": "o", "repo": "r", "branch": "main",
+                                            "namespace": "n", "created_at": "t"})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["error"], "no-default-branch")        # degraded cleanly, never raised
 
 
 class PushTests(_Base):
