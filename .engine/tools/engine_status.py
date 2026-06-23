@@ -52,7 +52,6 @@ _EXAMPLE_SIGNALS = {
     "reason": "branch protection not detected",
     "finding_count": 1,
     "register": "https://github.com/your-org/your-project/issues?q=is:open+label:engine",
-    "findings_unavailable": False,
     "debt_count": 0,
     "debt_as_of": None,
     "att_lines": ["Turn branch protection back on so unreviewed changes can't reach your main branch."],

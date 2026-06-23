@@ -223,6 +223,54 @@ class TestDegrade(unittest.TestCase):
             self.assertNotIn(forbidden, result)
 
 
+class TestLiveDebtRegister(unittest.TestCase):
+    """assemble_candidates ranks the LIVE telemetry debt register threaded in by boot (`live_findings`): an int
+    marks telemetry AVAILABLE and the live count drives the single blocking-debt candidate; None (the offline
+    CLI / a failed read) leaves telemetry degraded and the committed state count stands in. This is the fix for
+    the permanent false 'couldn't rank by priority' caveat (telemetry was previously always degraded)."""
+
+    _STATE = {"standing_situation": {"phase": "x"},
+              "integration_debt": {"open_count": 2, "as_of": "2026-01-01T00:00:00Z"}}
+
+    def _assemble(self, *, live_findings):
+        with mock.patch.object(attention.validate, "load_json", return_value=dict(self._STATE)), \
+                mock.patch.object(attention.work_record, "read_in_flight", return_value=[]):
+            return attention.assemble_candidates(FIXTURE_POLICY, live_findings=live_findings)
+
+    def _debt(self, cands):
+        return [c for c in cands if c["category"] == "blocking_debt"]
+
+    def test_live_read_marks_telemetry_available_and_drives_the_blocking_candidate(self):
+        cands, available, _ = self._assemble(live_findings=5)
+        self.assertIn("telemetry", available)             # the register WAS read -> no degraded caveat
+        debt = self._debt(cands)
+        self.assertEqual(len(debt), 1)                    # exactly one (NOT doubled with the committed branch)
+        self.assertEqual(debt[0]["source"], "telemetry")  # sourced from the live register, not the shadow
+        self.assertEqual(debt[0]["severity"], FIXTURE_POLICY["debt_blocking_threshold"])  # the safe floor
+        self.assertEqual(debt[0]["recency"], "2026-01-01T00:00:00Z")  # as_of stays the committed cursor marker
+
+    def test_live_read_of_zero_supersedes_the_committed_count_and_emits_no_debt(self):
+        # The register was read and is EMPTY (0), even though the committed shadow says 2 -> no blocking debt.
+        cands, available, _ = self._assemble(live_findings=0)
+        self.assertIn("telemetry", available)             # 0 still means the read succeeded
+        self.assertEqual(self._debt(cands), [])           # the live 0 supersedes the stale committed 2
+
+    def test_no_live_read_leaves_telemetry_degraded_and_uses_the_committed_count(self):
+        # The offline CLI / a failed read: live_findings is None -> telemetry degraded, committed count stands in.
+        cands, available, _ = self._assemble(live_findings=None)
+        self.assertNotIn("telemetry", available)          # telemetry stays degraded -> boot raises the notice
+        debt = self._debt(cands)
+        self.assertEqual(len(debt), 1)                    # the committed shadow stands in (open_count=2 > 0)
+        self.assertEqual(debt[0]["source"], "state")      # sourced from the committed cursor, not the register
+
+    def test_live_assembly_is_deterministic(self):
+        # The same inputs (a fixed committed as_of + a live count) yield byte-identical candidates: the as_of is
+        # the committed cursor's, never the clock, so no derive-twice flake (the live read supplies only count).
+        a, _, _ = self._assemble(live_findings=3)
+        b, _, _ = self._assemble(live_findings=3)
+        self.assertEqual(a, b)
+
+
 class TestResultSchema(unittest.TestCase):
     def test_result_schema_is_well_formed(self):
         # the ONLY well-formedness lock on attention-result.v1 — no live rule targets .engine/schemas/*.json
