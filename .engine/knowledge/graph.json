@@ -590,6 +590,31 @@
       "type": "check"
     },
     {
+      "id": "check:memory-pointer-public-safety",
+      "kind": "custom/script",
+      "name": ".engine/check/memory-pointer-public-safety.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "memory-pointer-public-safety",
+      "source": {
+        "fingerprint": "sha256:067f1db523e98e4f596c1042c44703a52139cbbd428e4e6e2e1ffe679dbea045",
+        "path": ".engine/check/memory-pointer-public-safety.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:module-manifest",
       "kind": "schema",
       "name": ".engine/check/module-manifest.json",
@@ -1183,7 +1208,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:b02bb96badf6f8758bb2b00bc8d42623290c9234d3862e440de1b7fd3f1012ac",
+        "fingerprint": "sha256:34015e84f1260d1f955f066044a4fffa2b29df22ad48f08a88ab4561dcdd8560",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2454,7 +2479,7 @@
       },
       "slug": "demo_audit_digest",
       "source": {
-        "fingerprint": "sha256:9ad90d5747fb7698cb4f85a9118761651c9614a0258d96658850e6dda0588826",
+        "fingerprint": "sha256:754c517c53733d02af2233f04432785efda3d72aff84b5acec034e09aadbb368",
         "path": ".engine/tools/demo_audit_digest.py"
       },
       "status": "active",
@@ -2983,6 +3008,23 @@
       "source": {
         "fingerprint": "sha256:2a0420c406b6855a0499fef13181d1d7cd09a4831ebc5cdd6cc971a759cf6b72",
         "path": ".engine/tools/memory/mcp_server.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:memory_pointer_public_safety_check",
+      "name": ".engine/tools/memory_pointer_public_safety_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "memory_pointer_public_safety_check",
+      "source": {
+        "fingerprint": "sha256:52a754fbd2ecc8565ea806d3614254b1828f84391f93fe9104979abaf01534de",
+        "path": ".engine/tools/memory_pointer_public_safety_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -3957,6 +3999,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_memory_pointer_public_safety",
+      "name": ".engine/tools/test_memory_pointer_public_safety.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_memory_pointer_public_safety",
+      "source": {
+        "fingerprint": "sha256:ffd70d6c252df35da3b6e61e6e496bd90af16c7334be9864af0767a46201a566",
+        "path": ".engine/tools/test_memory_pointer_public_safety.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_modes",
       "name": ".engine/tools/test_modes.py",
       "owner": "core",
@@ -4018,7 +4077,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:ff980414e581e925c58685b5a072da854d9853fd3ccf8629cbe5454ad92ea7b2",
+        "fingerprint": "sha256:de78e8828f74676e1386b4baefc1c42cd68855fa888f14214d67fb12d8306972",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

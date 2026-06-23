@@ -110,19 +110,38 @@ def _demo_saved_memory() -> bool:
                 ledger.append(r)
             fake = bv._FakeVault()
             bv.setup(scope="shared", transport=fake.transport, consent="y")
-            rendered = audit_digest.render_saved_memory(transport=fake.transport)
-            print("\n   --- with a backup set up, the review reads your saved beliefs back ---")
-            for line in rendered.splitlines():
-                print("   | " + line)
-            read_back = ("Ship the launch banner in the spring release." in rendered
-                         and "Never deploy on a Friday." in rendered
-                         and "A summary of several older notes." in rendered)            # the gist is kept
-            dropped = ("An old draft note now folded into a summary." not in rendered          # superseded raw
-                       and "A raw in-the-moment note not yet summarized." not in rendered)     # raw non-belief
-            plain = all(w not in rendered for w in ("episodic", "gist", "tier"))          # no backstage labels
-            ok = disclosed and read_back and dropped and plain
-            print("\n   expected: no backup -> an honest gap (never 'no memory'); a configured backup -> your live")
-            print(f"   beliefs read back, with the provenance markers and the superseded draft dropped -> {ok}")
+            old_vis = os.environ.get("MEMORY_AUDIT_REPO_VISIBILITY")
+            try:
+                # On a PRIVATE project the review may read your saved beliefs back by name.
+                os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = "private"
+                rendered = audit_digest.render_saved_memory(transport=fake.transport)
+                print("\n   --- on a PRIVATE project, the review reads your saved beliefs back ---")
+                for line in rendered.splitlines():
+                    print("   | " + line)
+                read_back = ("Ship the launch banner in the spring release." in rendered
+                             and "Never deploy on a Friday." in rendered
+                             and "A summary of several older notes." in rendered)          # the gist is kept
+                dropped = ("An old draft note now folded into a summary." not in rendered        # superseded raw
+                           and "A raw in-the-moment note not yet summarized." not in rendered)   # raw non-belief
+                plain = all(w not in rendered for w in ("episodic", "gist", "tier"))        # no backstage labels
+
+                # On a PUBLIC project the specifics are STRUCTURALLY withheld — the digest is committed in the open.
+                os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = "public"
+                public = audit_digest.render_saved_memory(transport=fake.transport)
+                print("\n   --- on a PUBLIC project, the specifics are withheld (only the count + why) ---")
+                print("   | " + public[:280])
+                withheld = ("Ship the launch banner in the spring release." not in public      # no belief text…
+                            and "Never deploy on a Friday." not in public
+                            and "withholding" in public)                                        # …but it says why
+            finally:
+                if old_vis is None:
+                    os.environ.pop("MEMORY_AUDIT_REPO_VISIBILITY", None)
+                else:
+                    os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = old_vis
+            ok = disclosed and read_back and dropped and plain and withheld
+            print("\n   expected: no backup -> an honest gap (never 'no memory'); a configured PRIVATE backup -> your")
+            print("   live beliefs read back (provenance markers + superseded draft dropped); a PUBLIC project ->")
+            print(f"   the specifics structurally withheld, only the count + why -> {ok}")
             return ok
         finally:
             validate.ROOT = old_root
