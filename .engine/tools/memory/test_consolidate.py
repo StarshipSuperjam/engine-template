@@ -224,8 +224,9 @@ class DirectiveTests(_Base):
         self.assertEqual(text.count("s00"), 1)
 
     def test_is_subordinate_to_the_request_but_prompt_this_session(self):
-        # The directive must stay AFTER the operator's request (no first-turn hijack) but it is NOT passive:
-        # the old "can wait turns or whole sessions / do not announce" permission to defer forever is GONE.
+        # The directive must stay AFTER the operator's request (no first-turn hijack) and stay ACTIVE — done THIS
+        # session, never deferred ("can wait" is gone). Silence (do-not-announce) is now DECOUPLED from passivity:
+        # the pass is quiet but still prompt. Holds for a normal backlog (1) and a stalled one (20).
         for pending in ([f"s{i}" for i in range(1)], [f"s{i}" for i in range(20)]):
             text = consolidate._consolidation_directive(pending).lower()
             self.assertIn("after you have served the operator's current request", text)  # subordinate
@@ -233,13 +234,34 @@ class DirectiveTests(_Base):
             self.assertIn("this session", text)                                          # prompt, not someday
             self.assertNotIn("can wait", text)                                           # the passivity is gone
 
-    def test_tells_the_operator_a_count_never_the_id_codes(self):
-        # The visible heads-up is content-free toward the operator: it surfaces a COUNT and is instructed to
-        # withhold the raw session ids (which stay in the directive only so the model can read/store them).
-        pending = [f"sess-{i:02d}" for i in range(3)]
+    def test_is_a_silent_pass_when_the_backlog_is_normal(self):
+        # The routine case is QUIET: a normal-size backlog tidies silently, with NO announcement to the operator
+        # (the play-by-play they didn't want). It stays answerable on demand ("unless they ask").
+        pending = [f"sess-{i:02d}" for i in range(3)]                       # 3 < _BACKLOG_ALARM_THRESHOLD
+        self.assertLess(len(pending), consolidate._BACKLOG_ALARM_THRESHOLD)
         text = consolidate._consolidation_directive(pending)
-        self.assertIn("3 earlier sessions", text)                          # the operator hears a count
-        self.assertIn("never the id codes", text.lower())                  # …and is told NOT to surface ids
+        self.assertIn("do not announce it", text.lower())                  # silent by default
+        self.assertIn("unless they ask", text.lower())                     # …but answerable if the operator asks
+        self.assertNotIn("tell the operator", text.lower())                # no proactive announcement
+        self.assertNotIn("fallen behind", text.lower())                    # the tripwire stays silent here
+
+    def test_breaks_silence_once_when_the_backlog_has_stalled(self):
+        # A backlog past the threshold means the silent tidy has stalled (the 21-untidied-sessions failure mode):
+        # the directive breaks silence with ONE plain line — a COUNT, never the raw session ids.
+        pending = [f"sess-{i:02d}" for i in range(consolidate._BACKLOG_ALARM_THRESHOLD + 2)]
+        text = consolidate._consolidation_directive(pending)
+        self.assertIn("fallen behind", text.lower())                       # the tripwire fires
+        self.assertIn("tell the operator", text.lower())                   # …surfacing it to the operator
+        self.assertIn(f"{len(pending)} earlier sessions", text)            # as a COUNT
+        self.assertIn("never the id codes", text.lower())                  # …still never the raw ids
+
+    def test_tripwire_boundary_is_inclusive_at_the_threshold(self):
+        # Pin the >= comparison against an off-by-one: exactly AT the threshold fires; one below stays silent.
+        thr = consolidate._BACKLOG_ALARM_THRESHOLD
+        at = consolidate._consolidation_directive([f"s{i}" for i in range(thr)]).lower()
+        below = consolidate._consolidation_directive([f"s{i}" for i in range(thr - 1)]).lower()
+        self.assertIn("fallen behind", at)                                 # n == threshold -> breaks silence
+        self.assertNotIn("fallen behind", below)                           # n == threshold - 1 -> still silent
 
 
 class LockTests(_Base):
