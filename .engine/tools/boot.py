@@ -585,13 +585,16 @@ def render_dashboard(s: dict) -> str:
     if s["att_degraded"]:
         # Name the actual input(s) the ranking couldn't reach this session, in plain words — so this notice
         # fires ONLY on a real read failure (an outage / no GitHub access), never as standing scaffolding, and
-        # tells the operator WHAT was unreachable rather than an internal substrate name. With the live debt
-        # register now read each session, a healthy boot leaves this empty (the old "expected on a new engine"
-        # framing is gone — it would be false here). Any name without a plain phrase falls through verbatim.
+        # tells the operator WHAT was unreachable rather than an internal name. With the live debt register now
+        # read each session, a healthy boot leaves this empty (the old "expected on a new engine" framing is
+        # gone — it would be false here). EVERY value att_degraded can carry must map to a plain phrase: the
+        # four substrate names AND "attention" (needs_attention reports ["attention"] when the ranker itself
+        # failed), so no internal noun ever reaches operator copy (the §12 leak guard).
         _UNREACHABLE = {"telemetry": "your open-problems list from GitHub",
                         "git": "your in-flight branches and pull requests",
                         "knowledge": "your project map",
-                        "state": "your saved project state"}
+                        "state": "your saved project state",
+                        "attention": "your work-priority ranking"}
         missing = _and_list([_UNREACHABLE.get(name, name) for name in s["att_degraded"]])
         degraded.append(
             f"I couldn't reach {missing} this session, so the priority order below may be incomplete — "

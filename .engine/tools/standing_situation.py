@@ -151,7 +151,7 @@ def _where_lines(boot, *, live, state) -> list:
     operator sees the actual card text, not a Python structure."""
     signals = {"state": state, "refused": False, "gate": "on", "reason": None,
                "finding_count": 0, "register": "",
-               "debt_count": 0, "debt_as_of": None, "att_lines": [], "att_degraded": False,
+               "debt_count": 0, "debt_as_of": None, "att_lines": [], "att_degraded": [],
                "shipped": [], "stance": "Exploring", "strand": None, "pr_conflict": None,
                "restore_offer": None, "audit_stale": None, "live_standing": live}
     lines = boot.render_dashboard(signals).splitlines()

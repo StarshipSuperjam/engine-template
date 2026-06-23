@@ -2275,7 +2275,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:05e10a60bf900e582ca0f1ecbccebcdbd1799105cc8de90ea4dc2d498f4ebf07",
+        "fingerprint": "sha256:f3b3efc267374dfcae176d99e6ad67b2c8b293aa4cd2dede9d7c26ad373631dc",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -2564,7 +2564,7 @@
       },
       "slug": "demo_focus_read",
       "source": {
-        "fingerprint": "sha256:a7a5cf4eefba8f6910d482bd81d299fdcd519e3852d6914648e817ce76b1d1a8",
+        "fingerprint": "sha256:4e94b123da6ea6a3ffb321026d1529a64a4a85ad66500b7bbe6bec7c2cd5379e",
         "path": ".engine/tools/demo_focus_read.py"
       },
       "status": "active",
@@ -3329,7 +3329,7 @@
       },
       "slug": "standing_situation",
       "source": {
-        "fingerprint": "sha256:f25de045c2b58fa3aaac186e1a5fe556b88ded76b45271b718a5a69a1f0351a7",
+        "fingerprint": "sha256:53897bc106d09184ff13ef71e9499de9194bb98d351a73f05d60258812ecfd0c",
         "path": ".engine/tools/standing_situation.py"
       },
       "status": "active",
@@ -3465,7 +3465,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:468882d4da77da55a1ddae7b375e198866bc6958d631b1bbf16a660914fc95f8",
+        "fingerprint": "sha256:0a554fbcd960b9dfeafc1920e26edc0ef0d65bec4fca12f5731e404ae74a7fff",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",

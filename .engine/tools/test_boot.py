@@ -61,7 +61,7 @@ def _assert_ai_briefing(t, pack):
 _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integration_debt": {}},
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "debt_count": 0, "debt_as_of": None, "att_lines": [],
-            "att_degraded": False, "shipped": [], "stance": "Exploring", "strand": None,
+            "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
             "pr_conflict": None, "restore_offer": None, "audit_stale": None, "live_standing": None,
             "neighborhood": None}
 
@@ -97,6 +97,13 @@ class TestDegradedNotice(unittest.TestCase):
         # degraded_inputs is sorted (git before telemetry); the names join as a readable clause.
         dash = boot.render_dashboard(_signals(att_degraded=["git", "telemetry"]))
         self.assertIn("your in-flight branches and pull requests and your open-problems list from GitHub", dash)
+
+    def test_ranker_failure_does_not_leak_the_internal_name(self):
+        # needs_attention reports ["attention"] when the ranker itself failed; the notice must name it in plain
+        # words ("your work-priority ranking"), never leak the internal token "attention" into operator copy.
+        dash = boot.render_dashboard(_signals(att_degraded=["attention"]))
+        self.assertIn("I couldn't reach your work-priority ranking this session", dash)
+        self.assertNotIn("I couldn't reach attention", dash)   # the internal noun must not reach the operator
 
 
 class TestPresentMarker(unittest.TestCase):
