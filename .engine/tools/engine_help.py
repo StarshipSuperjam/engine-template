@@ -104,13 +104,15 @@ def available_verbs(catalog_path: str | None = None) -> list:
     setup maintains — or an empty list when the catalog is absent, empty, or damaged (it narrows the
     listing, never breaks it). Returns each as {name, description}: the command the operator would type
     once the module is installed, plus its one-line gloss, sorted by the command. A module that is already
-    installed is EXCLUDED (its command shows under the installed commands instead). This tool only relays;
-    provisioning owns the catalog and the shared `module_catalog` reader parses it, so this index and the
-    first-run walkthrough cannot drift in how they read it. `catalog_path` is injectable for tests; the
+    installed is EXCLUDED (its command shows under the installed commands instead). A command-less optional
+    module (one with no `verb`) is also EXCLUDED here: this index lists things to type, and that module has
+    nothing to type — it is still offered in the first-run walkthrough by its description. This tool only
+    relays; provisioning owns the catalog and the shared `module_catalog` reader parses it, so this index and
+    the first-run walkthrough cannot drift in how they read it. `catalog_path` is injectable for tests; the
     committed catalog is read by default."""
     installed = _installed_module_ids()
     return [{"name": e["verb"], "description": e["description"]}
-            for e in module_catalog.entries(catalog_path) if e["id"] not in installed]
+            for e in module_catalog.entries(catalog_path) if e["id"] not in installed and e["verb"]]
 
 
 def _verb_line(verb: dict) -> str:

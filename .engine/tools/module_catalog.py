@@ -13,8 +13,10 @@ This is the shared skill/command-discovery helper the `/engine-help` slice (26b)
 second reader appeared — that second reader is the instantiator, so it lands here. The reader DEGRADES and
 never raises (`§14`/`§16`, degrade-to-git-native): a missing, unreadable, malformed, or wrong-shaped catalog
 narrows the relay to nothing rather than breaking either caller. It only relays — it decides nothing about
-what is installed, and validates nothing (the shape is governed by `provisioning-catalog.v1.json`); a future
-catalog `presence`/`schema` check is the place to enforce the shape, not this read path.
+what is installed, and validates nothing (the shape is governed by `provisioning-catalog.v1.json`, enforced
+by the `engine/check/provisioning-catalog` schema check, not this read path). Every well-formed entry is
+relayed, including a command-less optional module (one with no `verb`): the setup walkthrough offers it by
+its description, while `/engine-help` — which lists only typeable commands — filters it out at that reader.
 """
 from __future__ import annotations
 import json
@@ -27,24 +29,24 @@ import validate  # noqa: E402
 CATALOG_PATH = os.path.join(validate.ENGINE_DIR, "provisioning", "module-catalog.json")
 
 # The fields a relayed entry carries. `verb` + `description` feed /engine-help; `category` + `status` feed
-# the setup walkthrough's grouping. An entry with no `verb` is unusable to either caller and is dropped.
+# the setup walkthrough's grouping. A command-less module simply carries an empty `verb`: the walkthrough
+# still offers it (by its description), and /engine-help filters it out where a typeable command is required.
 _FIELDS = ("id", "verb", "description", "category", "status")
 
 
-def _normalize(entry: dict) -> dict | None:
-    """One catalog record coerced to the relayed shape, or None when it carries no command (`verb`) and so
-    is unusable to either reader. Missing optional fields become empty strings; nothing raises."""
-    verb = str(entry.get("verb") or "")
-    if not verb:
-        return None
+def _normalize(entry: dict) -> dict:
+    """One catalog record coerced to the relayed shape. Missing fields (including `verb`, which a command-less
+    module legitimately omits) become empty strings; nothing raises. The reader relays every well-formed entry
+    and decides nothing — the shape is enforced by the `engine/check/provisioning-catalog` schema check."""
     return {field: str(entry.get(field) or "") for field in _FIELDS}
 
 
 def entries(path: str | None = None) -> list:
     """The optional-module catalog as a list of normalized records (each a dict with `id`, `verb`,
-    `description`, `category`, `status`), sorted by `verb`. Returns `[]` when there is no catalog or it
-    cannot be read as the expected top-level array — a missing or damaged catalog narrows the relay, never
-    raises. `path` is injectable for tests/demo; the committed catalog is read by default."""
+    `description`, `category`, `status`), sorted by `verb` then `id` (the secondary key keeps command-less
+    entries, which all share an empty `verb`, in a deterministic order). Returns `[]` when there is no catalog
+    or it cannot be read as the expected top-level array — a missing or damaged catalog narrows the relay,
+    never raises. `path` is injectable for tests/demo; the committed catalog is read by default."""
     target = path or CATALOG_PATH
     if not os.path.isfile(target):
         return []
@@ -55,10 +57,5 @@ def entries(path: str | None = None) -> list:
         return []
     if not isinstance(data, list):
         return []
-    out = []
-    for entry in data:
-        if isinstance(entry, dict):
-            record = _normalize(entry)
-            if record is not None:
-                out.append(record)
-    return sorted(out, key=lambda e: e["verb"])
+    out = [_normalize(entry) for entry in data if isinstance(entry, dict)]
+    return sorted(out, key=lambda e: (e["verb"], e["id"]))

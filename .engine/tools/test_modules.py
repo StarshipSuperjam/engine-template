@@ -295,10 +295,12 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
-    def test_check_corpus_split_core_two_guards_validators_core_thirtyfour(self):
+    def test_check_corpus_split_core_two_guards_validators_core_thirtysix(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
-        # the self-validation corpus is validators-core's (35 rules: the memory-backup pointer public-safety
+        # the self-validation corpus is validators-core's (36 rules: the optional-module catalog schema gate
+        # (engine-template #254 — keeps the first-run catalog matching provisioning-catalog.v1.json now that a
+        # command-less optional module is offerable) atop the memory-backup pointer public-safety
         # guard (engine-template #224; D-242 — keeps a configured vault pointer from shipping in the public
         # template) atop the in-tool demo failure-path floor
         # (engine-template #171; D-231/D-232) and the 31 prior plus the two
@@ -373,13 +375,14 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/policy-override-stale.json",
             ".engine/check/policy-shape.json",
             ".engine/check/pr-body-completeness.json",
+            ".engine/check/provisioning-catalog.json",
             ".engine/check/self-map-drift.json",
             ".engine/check/skill-coherence.json",
             ".engine/check/skill-frontmatter.json",
             ".engine/check/skill-shape.json",
             ".engine/check/state-cursor.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 35 corpus rules")
+        ], "validators-core owns exactly the 36 corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])

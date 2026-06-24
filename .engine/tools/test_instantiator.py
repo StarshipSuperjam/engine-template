@@ -73,6 +73,15 @@ class TestSelectable(unittest.TestCase):
         self.assertIn("Made Up", keys, "an unexpected category is kept, never silently dropped")
         self.assertEqual(keys[-1], "Made Up", "an unexpected category sorts after the recognized ones")
 
+    def test_command_less_entry_is_grouped_not_dropped(self):
+        # A command-less optional module (no verb) is still a real choice — it groups under its discipline
+        # for the setup menu rather than vanishing (#254).
+        entries = [{"id": "lens", "description": "x", "category": "Verification & Validation"}]
+        grouped = inst.selectable(entries)
+        self.assertEqual(list(grouped.keys()), ["Verification & Validation"])
+        self.assertEqual(grouped["Verification & Validation"][0]["id"], "lens",
+                         "a command-less entry is grouped, not dropped")
+
 
 class TestPresentGather(unittest.TestCase):
     def _gather(self, catalog_path=None):
@@ -100,6 +109,19 @@ class TestPresentGather(unittest.TestCase):
             out = self._gather(p)
             self.assertIn("engine-x — Does x.", out)
             self.assertIn("Product Management", out)
+
+    def test_command_less_module_listed_by_description_not_a_fake_command(self):
+        # A command-less optional module (no verb) is offered by its plain description — never an empty "• —"
+        # handle, and never its raw module id shown as a command a non-engineer can't actually type (#254).
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "c.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump([{"id": "design-review", "description": "Reviews your plans before you build.",
+                            "category": "Verification & Validation"}], fh)
+            out = self._gather(p)
+            self.assertIn("• Reviews your plans before you build.", out, "offered by its description")
+            self.assertNotIn("• —", out, "no empty command handle")
+            self.assertNotIn("design-review", out, "the raw module id is never shown as a command")
 
 
 class TestConfirm(unittest.TestCase):
@@ -178,6 +200,22 @@ class TestCatalogSchemaConformance(unittest.TestCase):
         schema = self._schema()
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate([{"id": "x", "verb": "engine-x"}], schema)  # no description/category
+
+    def test_command_less_entry_validates_without_a_verb(self):
+        # verb is optional now (#254): a command-less optional module omits it and still validates.
+        import jsonschema
+        schema = self._schema()
+        jsonschema.validate([{"id": "design-review", "description": "Reviews plans.",
+                              "category": "Verification & Validation"}], schema)
+
+    def test_explicit_empty_verb_is_rejected(self):
+        # A command-less module must OMIT verb, not set it to "" — a present-but-empty verb violates the
+        # command pattern and is caught (the schema check fails loud rather than relaying a malformed entry).
+        import jsonschema
+        schema = self._schema()
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate([{"id": "x", "description": "d", "category": "Product Management",
+                                  "verb": ""}], schema)
 
 
 class TestCLI(unittest.TestCase):

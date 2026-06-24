@@ -302,7 +302,7 @@ def selectable(catalog_entries: list) -> dict:
     # Drop empty recognized groups, keep any non-empty (including an unexpected category), category order first.
     ordered = [c for c in _CATEGORY_ORDER if grouped.get(c)]
     extra = sorted(c for c in grouped if c not in _CATEGORY_ORDER and grouped.get(c))
-    return {c: sorted(grouped[c], key=lambda e: e.get("verb", "")) for c in ordered + extra}
+    return {c: sorted(grouped[c], key=lambda e: (e.get("verb", ""), e.get("id", ""))) for c in ordered + extra}
 
 
 def present_gather(root: str | None = None, catalog_path: str | None = None) -> str:
@@ -332,7 +332,13 @@ def present_gather(root: str | None = None, catalog_path: str | None = None) -> 
             gloss = _CATEGORY_GLOSS.get(category, "")
             lines.append(f"  {category}" + (f" — {gloss}:" if gloss else ":"))
             for entry in entries:
-                lines.append(f"    • {entry['verb']} — {entry['description']}")
+                # A command-bearing module leads with its command; a command-less one (no verb — fired by a
+                # gate, never typed) leads with its plain-language description, so the menu never shows a
+                # command-shaped token an operator can't actually type.
+                if entry["verb"]:
+                    lines.append(f"    • {entry['verb']} — {entry['description']}")
+                else:
+                    lines.append(f"    • {entry['description']}")
             lines.append("")
     lines.append(_DESELECT_PREFACE)
     return "\n".join(lines)
