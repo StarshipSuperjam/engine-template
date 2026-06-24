@@ -1009,6 +1009,7 @@
           "policy:contract-threshold",
           "policy:dependency-discipline",
           "policy:escalation",
+          "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
           "policy:triage-threshold"
@@ -1068,6 +1069,7 @@
           "policy:contract-threshold",
           "policy:dependency-discipline",
           "policy:escalation",
+          "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
           "policy:triage-threshold"
@@ -1528,7 +1530,7 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:200cd985bcf7cb17adf5fc5dd8585a2a18579e082bdebb9a71a78f95779e3369",
+        "fingerprint": "sha256:0cf2af03bd173206acfdebcd2a5832c1ba72d781f4ae57ed2aa46645663a18d2",
         "path": ".engine/modules/external-contribution/manifest.json"
       },
       "status": "optional",
@@ -2045,6 +2047,27 @@
       },
       "status": "active",
       "title": "Escalation",
+      "type": "policy"
+    },
+    {
+      "id": "policy:external-contribution",
+      "name": ".engine/policies/external-contribution.md",
+      "owner": "external-contribution",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "external-contribution",
+      "source": {
+        "fingerprint": "sha256:754208b013aa93a2a2623eceb2e650d45b7864c87b4038ced081340bcaf3d406",
+        "path": ".engine/policies/external-contribution.md"
+      },
+      "status": "active",
+      "title": "Upstream contribution honesty",
       "type": "policy"
     },
     {
@@ -4864,7 +4887,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:b8a26475fdeeb0543bb8dd1fb52493120d58c64edb39f27d68f21015b9560604",
+        "fingerprint": "sha256:1fe74a60e96ee305eaf4f870c06149711f863f7bc3b6ae522e5832c4fbc3a39f",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",

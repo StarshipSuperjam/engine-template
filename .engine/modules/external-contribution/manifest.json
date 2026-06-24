@@ -3,6 +3,7 @@
   "version": "0.0.0-dev",
   "status": "optional",
   "provides": {
+    "policy": [".engine/policies/external-contribution.md"],
     "check": [".engine/check/upstream-clean.json"],
     "tool": [".engine/tools/external_contribution/*.py"],
     "operation": [".engine/operations/external-contribution-submit.md"]

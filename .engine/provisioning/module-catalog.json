@@ -29,5 +29,11 @@
     "description": "This add-on adds an automatic check on the outside code your project depends on — the third-party libraries it pulls in — that can block the merge when a change brings in a risky one. When a dependency is added or updated, the check reviews it and stops the change from going in if the library has a known security hole, or comes with a license that could force you to publish your own source code in return. It also gives gentler, non-blocking nudges to use exact versions of your libraries instead of open-ended ranges. Nothing is ever a dead end: a genuinely unavoidable case can be let through with a deliberate, recorded decision, and you can leave this add-on out altogether — either way, nothing merges without your say-so.",
     "category": "Software Configuration Management",
     "status": "optional"
+  },
+  {
+    "id": "external-contribution",
+    "description": "Lets the engine offer your changes to a project you don't own — an open-source project you've forked, or any upstream you contribute to — as a pull request from your fork, carrying only your project's files and never the engine's own. It does the mechanical git a non-engineer shouldn't have to, and opening the pull request is always your call. Two things to weigh before you opt in. First, whether a change is accepted is the upstream project's decision — not yours, and not the engine's. Second, this cross-project path has not yet been run from end to end against a live project: the final step that opens the real pull request has never run for real, so your first contribution would be the first time it runs anywhere — the rest is built and checked, but you would be the one proving that last step in practice. Once it's added, you use it by asking the engine to offer a change upstream; there's no command to remember. You can leave this add-on out, and nothing else changes if you do.",
+    "category": "Software Configuration Management",
+    "status": "optional"
   }
 ]
