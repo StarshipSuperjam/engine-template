@@ -1,0 +1,12 @@
+{
+  "id": "migration-discipline",
+  "version": "0.0.0-dev",
+  "status": "optional",
+  "provides": {
+    "policy": [".engine/policies/migration-discipline.md"]
+  },
+  "wires": [],
+  "depends": {
+    "core": ""
+  }
+}

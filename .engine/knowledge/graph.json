@@ -787,6 +787,7 @@
           "module:design-review",
           "module:github-projects-sync",
           "module:memory-substrate-sqlite-fts5",
+          "module:migration-discipline",
           "module:routine-mode",
           "module:validators-core"
         ]
@@ -905,6 +906,7 @@
           "policy:dependency-discipline",
           "policy:escalation",
           "policy:finding-disposition",
+          "policy:migration-discipline",
           "policy:triage-threshold"
         ]
       },
@@ -963,6 +965,7 @@
           "policy:dependency-discipline",
           "policy:escalation",
           "policy:finding-disposition",
+          "policy:migration-discipline",
           "policy:triage-threshold"
         ]
       },
@@ -1422,6 +1425,24 @@
       "version": "0.0.0-dev"
     },
     {
+      "id": "module:migration-discipline",
+      "name": "migration-discipline",
+      "owner": "migration-discipline",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "migration-discipline",
+      "source": {
+        "fingerprint": "sha256:a5792c36d4157b5a793438b7ea2adfcddfe5d32cf7839bc548f41ad2c16a5c17",
+        "path": ".engine/modules/migration-discipline/manifest.json"
+      },
+      "status": "optional",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
       "id": "module:routine-mode",
       "name": "routine-mode",
       "owner": "routine-mode",
@@ -1860,6 +1881,27 @@
       },
       "status": "active",
       "title": "Finding disposition",
+      "type": "policy"
+    },
+    {
+      "id": "policy:migration-discipline",
+      "name": ".engine/policies/migration-discipline.md",
+      "owner": "migration-discipline",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:migration-discipline"
+        ]
+      },
+      "slug": "migration-discipline",
+      "source": {
+        "fingerprint": "sha256:03744195978c86660577e64f03270b01264d82e801d63f7267801defb9d6dc91",
+        "path": ".engine/policies/migration-discipline.md"
+      },
+      "status": "active",
+      "title": "Migration discipline",
       "type": "policy"
     },
     {
@@ -4586,7 +4628,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:ca23e5f8d9f333577e2228fd8b9917dd3beb9587d17228ad96cc9a73154bfc18",
+        "fingerprint": "sha256:b8a26475fdeeb0543bb8dd1fb52493120d58c64edb39f27d68f21015b9560604",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
