@@ -168,7 +168,7 @@ def describe_stance(stance: str) -> str:
 def describe_explore_scope() -> str:
     """The ASSISTANT-FACING scope of the Explore write-gate — what it ALLOWS and DENIES, in plain words, so
     a session knows its own structure and does not over-restrict itself (e.g. switch to Build merely to log
-    a GitHub issue, which Explore already allows). This is for the MODEL's grounding, NOT the operator: boot
+    a GitHub issue or tidy its saved memory, which Explore already allows). This is for the MODEL's grounding, NOT the operator: boot
     places it in the AI-facing briefing, never the operator dashboard, and it is self-labelled "don't relay
     this" so it cannot leak into the operator-presentation relay.
 
@@ -181,10 +181,18 @@ def describe_explore_scope() -> str:
         "How your Explore stance actually works (for you — don't relay this; it's about how your own "
         "session is wired, not a status update for the operator). Right now, WITHOUT entering Build, you "
         "may: read files; run tests and other read-only commands; search the codebase; spawn subagents; "
+        "tidy the engine's own saved memory (its consolidation CLI — `consolidate.py read`/`store`); "
         "write Claude Code's plan file; and log GitHub issues (`gh issue create`). You may NOT, until the "
         "operator tells you to build: edit or write any files, create a branch, commit, or open a pull "
-        "request. So don't switch to Build just to log an issue or read around — those are allowed in "
-        "Explore. One carve-out on issue-logging: when you open an `engine`-labelled Issue, author its body "
+        "request. So don't switch to Build just to log an issue, tidy memory, or read around — those are "
+        "allowed in Explore. The block is by tool, not by file: the file-editing tools (Write/Edit) plus "
+        "the branch/commit/pull-request verbs are what's denied, on any path — a command-line tool that "
+        "isn't one of those still runs, which is why the memory tidy-up above is fine: it records through "
+        "its own CLI, which keeps the store consistent. Never write to `.engine/memory/` by hand — not with "
+        "the Write/Edit tools, and not by a shell redirect or append (`>`, `>>`, `tee`); those bypass the "
+        "store's one-writer-at-a-time safety and can corrupt it. Always go through the CLI. One carve-out on "
+        "issue-logging: when you open an `engine`-labelled "
+        "Issue, author its body "
         "through the issue-authoring helper (`.engine/tools/issue_author.py` — call render_engine_issue_body) "
         "so it reads like every engine-authored Issue; a non-conforming `engine`-labelled `gh issue create` is "
         "rerouted back to that helper (in Build too — the body contract is unconditional), while an unlabelled "

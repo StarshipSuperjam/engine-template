@@ -236,7 +236,7 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
         # self-labelled assistant-facing: it must NOT be relayed into the operator-presentation channel
         self.assertIn("don't relay", scope)
         # every allowed carve-out the gate actually permits in Explore is named (no thin list)
-        for allowed in ("read", "test", "search", "subagent", "plan file", "gh issue"):
+        for allowed in ("read", "test", "search", "subagent", "plan file", "gh issue", "memory"):
             self.assertIn(allowed, scope, f"Explore-scope copy must name the ALLOWED action {allowed!r}")
         # the denied building set is named — and NOT path-scoped (the gate denies edits by tool, any file)
         for denied in ("edit or write any files", "branch", "commit", "pull request"):
@@ -248,6 +248,9 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
         # fidelity to the live gate: what the copy calls "allowed" the gate allows; "denied" it denies
         self.assertTrue(_allow(modes.handler(_explore_payload("Bash", "gh issue create -t x -b y"))))
         self.assertTrue(_allow(modes.handler(_explore_payload("Read"))))
+        # the engine's own saved-memory upkeep is a Bash CLI, not a Write/Edit tool → the gate allows it
+        self.assertTrue(_allow(modes.handler(_explore_payload(
+            "Bash", ".engine/.venv/bin/python .engine/tools/memory/consolidate.py store sid"))))
         self.assertTrue(_deny(modes.handler(_explore_payload("Bash", "git commit -m x"))))
         self.assertTrue(_deny(modes.handler(_explore_payload("Bash", "gh pr create"))))
         self.assertTrue(_deny(modes.handler(_explore_payload("Write"))))
