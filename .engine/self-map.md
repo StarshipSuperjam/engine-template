@@ -86,6 +86,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - provides:
   - check: `.engine/check/upstream-clean.json`
   - operation: `.engine/operations/external-contribution-submit.md`
+  - policy: `.engine/policies/external-contribution.md`
   - tool: `.engine/tools/external_contribution/*.py`
 - wires: none (this module adds no shared-state edits)
 
