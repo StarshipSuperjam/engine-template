@@ -20,8 +20,10 @@ silent green. The one mechanical hook is the pull-request **Review** section's p
 completeness check over `.github/pull_request_template.md`); everything else is a deliberate-effort nudge
 whose only wall is the protected-branch merge.
 
-1. **Plan — open the claim and propose coverage.** Open a **draft pull request**. Plan the change as an
-   ordered commit sequence; when the work will be distributed across unattended sessions, record that
+1. **Plan — open the claim and propose coverage.** Open a **draft pull request**, and keep it a draft for
+   its whole working life. The checks run on a draft exactly as on a ready one (so there is never a reason to
+   open it ready just to make CI run), and a draft **cannot be merged** — which is what keeps an in-progress
+   change from being merged before its review gate finishes. Plan the change as an ordered commit sequence; when the work will be distributed across unattended sessions, record that
    sequence as the build Issue's checklist (the format below). Then **relay the risk assessment to the
    operator in chat** (it reaches them only as what the assistant types — no hook channel renders to their
    screen) — the plan-gate consent surface, filled from the `risk-assessment` template (`.engine/templates/risk-assessment.md`):
@@ -51,10 +53,13 @@ whose only wall is the protected-branch merge.
    then the installed pre-submission passes run cold-context and findings are dispositioned. Validation
    reruns on every change including post-audit fixes; the cold review runs once at the agreed depth and does
    **not** rerun on those fixes unless the operator asks — the Review record states that delta.
-6. **Submit — fill the contract and hand to the human gate.** Confirm validation green, fill the
-   pull-request contract including the **Review** section (below), and submit the pull request for the
-   operator's merge. A build session is **done when the pull request is submitted**; merge-and-walk leaves
-   nothing dangling.
+6. **Submit — mark the draft ready and hand to the human gate.** Confirm validation is green and fill the
+   pull-request contract including the **Review** section (below), then **mark the pull request ready**
+   (`gh pr ready`) — the act that submits it. Mark it ready **only once** validation is green, the
+   pre-submission review is clean (no unresolved `blocking` or `serious` finding), and every post-review fix
+   is pushed; until then it stays a **draft**, which cannot be merged. Marking it ready is the operator-facing
+   signal that the change is ready to merge. A build session is **done when the pull request is submitted**
+   (marked ready); merge-and-walk leaves nothing dangling.
 
 **Regenerating the engine's internal index files is part of integrate.** As the single writer, the
 orchestrator reconciles the pull request's base against the default branch, then regenerates the engine's
@@ -101,7 +106,8 @@ carrying the engine-domain label.
 A draft pull request was opened as the claim; the plan and result were reviewed to the operator-approved
 depth (or disclosed as un-reviewed where no pack is installed); the orchestrator authored the cohesive
 final commits; validation is green; the pull-request contract, Review section included, is filled in plain
-language; and the pull request is submitted for the operator's merge. The forward plan, where one was
+language; and the pull request — a draft until its gate came back clean — is marked ready (`gh pr ready`)
+and so submitted for the operator's merge. The forward plan, where one was
 written, is the build Issue, closing as its commits land.
 
 ## Notes
