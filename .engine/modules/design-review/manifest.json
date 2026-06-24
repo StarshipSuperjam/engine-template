@@ -1,0 +1,15 @@
+{
+  "id": "design-review",
+  "version": "0.0.0-dev",
+  "status": "optional",
+  "provides": {
+    "agent": [
+      ".claude/agents/design-review-product-intent.md",
+      ".claude/agents/design-review-architecture.md",
+      ".claude/agents/design-review-feasibility.md",
+      ".claude/agents/design-review-risk-governance.md"
+    ]
+  },
+  "wires": [],
+  "depends": { "core": "" }
+}
