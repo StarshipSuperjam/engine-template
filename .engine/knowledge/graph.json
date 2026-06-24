@@ -131,7 +131,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:f6b8a48ce72b1ebe9e2d9790c8f0052f10bb2775e4441acf594263d978cb617d",
+        "fingerprint": "sha256:96f3bc9a1abb1a4408c4bb96dc7bccd92814093560d63b589ad59817affd14a6",
         "path": ".claude/agents/qa-review-security-governance.md"
       },
       "status": "active",
@@ -154,7 +154,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:6f65cc33bcd43f47ed5f4723ce3c29b3f6b5ea8a06c71e74980a39aab60ae047",
+        "fingerprint": "sha256:a736d080d68e203dca9bac25a14277ccfe5cb6e3f552d6ce895c4f90b33149b9",
         "path": ".claude/agents/qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -177,7 +177,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:c5ff75d3d1f311162a5f76dc5aa11c1ae0b1de907f5313e439c970b3b374e2b8",
+        "fingerprint": "sha256:368a71e9af51e45ad4dda808ff08e271ffbc4ca03d0625cda1e21a6f59df3722",
         "path": ".claude/agents/qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -200,7 +200,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-usability",
       "source": {
-        "fingerprint": "sha256:11adac48ee6ec7cd07755a84d4f5dadb6dc2111a6c75a845acf35f5756891553",
+        "fingerprint": "sha256:e69ca7908add179d339121cbd41ecaccb9c7c19e2d4448a7769c3b40fdd209f2",
         "path": ".claude/agents/qa-review-usability.md"
       },
       "status": "active",
