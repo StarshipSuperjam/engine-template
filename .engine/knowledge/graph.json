@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "design-review-architecture",
       "source": {
-        "fingerprint": "sha256:bb912824f52bb9e14b9db9c138a6d3226d9f327f5a0c5fd9203563a9df8a5bfe",
+        "fingerprint": "sha256:06b6aac9310c00d83b4eacc787e1217e0b42820ebc3eb7b2caac0a524ff9c64a",
         "path": ".claude/agents/design-review-architecture.md"
       },
       "status": "active",
@@ -62,7 +62,7 @@
       "role": "plan-review",
       "slug": "design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:1e63328bc42a144eed558fb6a754f4c6d9ab59567909e9fe5bf23a069d8622c1",
+        "fingerprint": "sha256:6e2125cffb602cae1116bd82b7258c5b1da0be9957a624f06c7e9f0ad50a2181",
         "path": ".claude/agents/design-review-feasibility.md"
       },
       "status": "active",
@@ -85,7 +85,7 @@
       "role": "plan-review",
       "slug": "design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:162233fd2bedee79764f15b92c3792a94cb2a9890e86d6271950ffd549c356b9",
+        "fingerprint": "sha256:0d99d51abcf1092807d0776ae5e3e53d6577e3b09050436847d5df9437a8653d",
         "path": ".claude/agents/design-review-product-intent.md"
       },
       "status": "active",
@@ -108,7 +108,7 @@
       "role": "plan-review",
       "slug": "design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:d58451648baa6a3d5e3428c202873d6524da6b58c70ca8f9efaf07d7539e8bf3",
+        "fingerprint": "sha256:82b05b887e1aa56704d40c5d78d9c4de46652e3515f936d9ef1329ee05f50290",
         "path": ".claude/agents/design-review-risk-governance.md"
       },
       "status": "active",
