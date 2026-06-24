@@ -390,12 +390,21 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/dependency-pinning.json",
             ".engine/check/dependency-review.json",
         ], "dependency-discipline owns exactly its pinning and review checks")
+        # external-contribution (an optional module) owns the upstream-clean nudge — a check that inspects an
+        # OUTGOING cross-fork contribution diff for engine-owned paths. Like dependency-discipline's domain
+        # checks it is an optional-module-owned check, neither core's §15 guard nor validators-core's
+        # self-validation corpus; the partition must admit it. The real boundary is unchanged — exactly one
+        # owner per check, core frozen at its two guards, no wildcard re-claiming the corpus.
+        ec_checks = sorted(r for r, o in check_owner.items() if o == ["external-contribution"])
+        self.assertEqual(ec_checks, [
+            ".engine/check/upstream-clean.json",
+        ], "external-contribution owns exactly the upstream-clean nudge")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
-        self.assertEqual(sorted(core_checks + vc_checks + dd_checks), all_checks,
+        self.assertEqual(sorted(core_checks + vc_checks + dd_checks + ec_checks), all_checks,
                          "every .engine/check/*.json is claimed by exactly one of "
-                         "core / validators-core / dependency-discipline")
+                         "core / validators-core / dependency-discipline / external-contribution")
         # validators-core depends on core (presence assertion, any version)
         vc = next(m for _p, m in manifests if m.get("id") == "validators-core")
         self.assertEqual(vc.get("depends"), {"core": ""})
