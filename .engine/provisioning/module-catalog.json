@@ -11,5 +11,11 @@
     "description": "Before a change you've asked for gets built, a fresh set of reviewers checks the plan first — whether it solves the right problem, whether the design is sound, whether it can actually be built and run, and whether it could be unsafe or break a rule it must follow. They only advise; you decide, and you merge.",
     "category": "Verification & Validation",
     "status": "optional"
+  },
+  {
+    "id": "qa-review",
+    "description": "After a change you've asked for is built — before it's submitted — a fresh set of reviewers checks the finished work: whether it does what was asked, whether it's pleasant to use, whether it's soundly built, and whether it's safe to release. They only advise; you decide, and you merge.",
+    "category": "Verification & Validation",
+    "status": "optional"
   }
 ]
