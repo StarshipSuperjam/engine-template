@@ -115,6 +115,98 @@
       "type": "agent"
     },
     {
+      "id": "agent:qa-review-security-governance",
+      "lens": "security-governance",
+      "model-tier": "judgment",
+      "name": ".claude/agents/qa-review-security-governance.md",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "role": "pre-submission-review",
+      "slug": "qa-review-security-governance",
+      "source": {
+        "fingerprint": "sha256:f6b8a48ce72b1ebe9e2d9790c8f0052f10bb2775e4441acf594263d978cb617d",
+        "path": ".claude/agents/qa-review-security-governance.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
+      "id": "agent:qa-review-spec-conformance",
+      "lens": "spec-conformance",
+      "model-tier": "judgment",
+      "name": ".claude/agents/qa-review-spec-conformance.md",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "role": "pre-submission-review",
+      "slug": "qa-review-spec-conformance",
+      "source": {
+        "fingerprint": "sha256:6f65cc33bcd43f47ed5f4723ce3c29b3f6b5ea8a06c71e74980a39aab60ae047",
+        "path": ".claude/agents/qa-review-spec-conformance.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
+      "id": "agent:qa-review-technical-integrity",
+      "lens": "technical-integrity",
+      "model-tier": "judgment",
+      "name": ".claude/agents/qa-review-technical-integrity.md",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "role": "pre-submission-review",
+      "slug": "qa-review-technical-integrity",
+      "source": {
+        "fingerprint": "sha256:c5ff75d3d1f311162a5f76dc5aa11c1ae0b1de907f5313e439c970b3b374e2b8",
+        "path": ".claude/agents/qa-review-technical-integrity.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
+      "id": "agent:qa-review-usability",
+      "lens": "usability",
+      "model-tier": "judgment",
+      "name": ".claude/agents/qa-review-usability.md",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "role": "pre-submission-review",
+      "slug": "qa-review-usability",
+      "source": {
+        "fingerprint": "sha256:11adac48ee6ec7cd07755a84d4f5dadb6dc2111a6c75a845acf35f5756891553",
+        "path": ".claude/agents/qa-review-usability.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
       "id": "check:agent-frontmatter",
       "kind": "schema",
       "name": ".engine/check/agent-frontmatter.json",
@@ -131,7 +223,11 @@
           "agent:design-review-architecture",
           "agent:design-review-feasibility",
           "agent:design-review-product-intent",
-          "agent:design-review-risk-governance"
+          "agent:design-review-risk-governance",
+          "agent:qa-review-security-governance",
+          "agent:qa-review-spec-conformance",
+          "agent:qa-review-technical-integrity",
+          "agent:qa-review-usability"
         ]
       },
       "slug": "agent-frontmatter",
@@ -163,7 +259,11 @@
           "agent:design-review-architecture",
           "agent:design-review-feasibility",
           "agent:design-review-product-intent",
-          "agent:design-review-risk-governance"
+          "agent:design-review-risk-governance",
+          "agent:qa-review-security-governance",
+          "agent:qa-review-spec-conformance",
+          "agent:qa-review-technical-integrity",
+          "agent:qa-review-usability"
         ]
       },
       "slug": "agent-shape",
@@ -787,6 +887,7 @@
           "module:design-review",
           "module:github-projects-sync",
           "module:memory-substrate-sqlite-fts5",
+          "module:qa-review",
           "module:routine-mode",
           "module:validators-core"
         ]
@@ -1418,6 +1519,24 @@
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
+      "id": "module:qa-review",
+      "name": "qa-review",
+      "owner": "qa-review",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "qa-review",
+      "source": {
+        "fingerprint": "sha256:2f4c6ec3006c2f8af45801ebbee72f63f41d7a4821b7f94f3d23532a411c0a62",
+        "path": ".engine/modules/qa-review/manifest.json"
+      },
+      "status": "optional",
       "type": "module",
       "version": "0.0.0-dev"
     },
@@ -2168,6 +2287,23 @@
       "source": {
         "fingerprint": "sha256:c98f652b7414a370de0bac63e618f6f56a3de59252c2d48deeec31061592506a",
         "path": ".engine/schemas/policy.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:pre-submission-review-finding.v1",
+      "name": ".engine/schemas/pre-submission-review-finding.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "pre-submission-review-finding.v1",
+      "source": {
+        "fingerprint": "sha256:e17b7d2993a0b5e287435bba08d48d9452e6d4d875569b48c572f7f81ecc51a7",
+        "path": ".engine/schemas/pre-submission-review-finding.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -4639,6 +4775,23 @@
       "source": {
         "fingerprint": "sha256:b7202bcce34b43f4bd3c80edc8657def804de644275b4262e51ec731e6bcd917",
         "path": ".engine/tools/projects_sync/test_projects_sync.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_qa_review",
+      "name": ".engine/tools/test_qa_review.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_qa_review",
+      "source": {
+        "fingerprint": "sha256:91f12cd9f37fcea9a8da006b7cf33b4155896562ae93856da2f7ca1b10e4ce3f",
+        "path": ".engine/tools/test_qa_review.py"
       },
       "status": "active",
       "type": "tool"

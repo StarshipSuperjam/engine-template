@@ -26,7 +26,7 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (8 installed).
+The packages your engine is assembled from, and how they wire together (9 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
@@ -35,6 +35,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `design-review` → `core`
 - `github-projects-sync` → `core`
 - `memory-substrate-sqlite-fts5` → `core`
+- `qa-review` → `core`
 - `routine-mode` → `core`
 - `validators-core` → `core`
 - `audit-library` → `core`, `validators-core`
@@ -94,6 +95,13 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - erasures: `.engine/erasures/proposal.json`
   - tool: `.engine/tools/memory/*.py`
 - wires: gitignore, hook, mcp
+
+### `qa-review` — version `0.0.0-dev` (optional)
+
+- depends on: `core`
+- provides:
+  - agent: `.claude/agents/qa-review-security-governance.md`, `.claude/agents/qa-review-spec-conformance.md`, `.claude/agents/qa-review-technical-integrity.md`, `.claude/agents/qa-review-usability.md`
+- wires: none (this module adds no shared-state edits)
 
 ### `routine-mode` — version `0.0.0-dev` (required)
 

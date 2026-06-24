@@ -1,0 +1,15 @@
+{
+  "id": "qa-review",
+  "version": "0.0.0-dev",
+  "status": "optional",
+  "provides": {
+    "agent": [
+      ".claude/agents/qa-review-spec-conformance.md",
+      ".claude/agents/qa-review-usability.md",
+      ".claude/agents/qa-review-technical-integrity.md",
+      ".claude/agents/qa-review-security-governance.md"
+    ]
+  },
+  "wires": [],
+  "depends": { "core": "" }
+}
