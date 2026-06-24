@@ -20,11 +20,10 @@ silent green. The one mechanical hook is the pull-request **Review** section's p
 completeness check over `.github/pull_request_template.md`); everything else is a deliberate-effort nudge
 whose only wall is the protected-branch merge.
 
-1. **Plan — open the claim and propose coverage.** Open a **draft pull request** — and keep it a draft for
-   its whole working life: the checks run on a draft exactly as on a ready one (so there is never a reason to
-   open it ready just to make CI run), and a draft **cannot be merged**, which is what keeps an in-progress
-   change from being merged before its review gate finishes. Plan the change as an
-   ordered commit sequence; when the work will be distributed across unattended sessions, record that
+1. **Plan — open the claim and propose coverage.** Open a **draft pull request**, and keep it a draft for
+   its whole working life. The checks run on a draft exactly as on a ready one (so there is never a reason to
+   open it ready just to make CI run), and a draft **cannot be merged** — which is what keeps an in-progress
+   change from being merged before its review gate finishes. Plan the change as an ordered commit sequence; when the work will be distributed across unattended sessions, record that
    sequence as the build Issue's checklist (the format below). Then **relay the risk assessment to the
    operator in chat** (it reaches them only as what the assistant types — no hook channel renders to their
    screen) — the plan-gate consent surface, filled from the `risk-assessment` template (`.engine/templates/risk-assessment.md`):
