@@ -1,0 +1,11 @@
+{
+  "id": "external-contribution",
+  "version": "0.0.0-dev",
+  "status": "optional",
+  "provides": {
+    "check": [".engine/check/upstream-clean.json"],
+    "tool": [".engine/tools/external_contribution/*.py"]
+  },
+  "wires": [],
+  "depends": { "core": "" }
+}

@@ -785,6 +785,7 @@
           "module:core",
           "module:dependency-discipline",
           "module:design-review",
+          "module:external-contribution",
           "module:github-projects-sync",
           "module:memory-substrate-sqlite-fts5",
           "module:routine-mode",
@@ -1199,6 +1200,31 @@
       "type": "check"
     },
     {
+      "id": "check:upstream-clean",
+      "kind": "custom/script",
+      "name": ".engine/check/upstream-clean.json",
+      "owner": "external-contribution",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "upstream-clean",
+      "source": {
+        "fingerprint": "sha256:e8349cf402f142cdc2610762673d7aa40b2c5bb82c50bde80232665dce5cea97",
+        "path": ".engine/check/upstream-clean.json"
+      },
+      "status": "active",
+      "suites": [
+        "pre-close"
+      ],
+      "tier": "soft",
+      "type": "check"
+    },
+    {
       "id": "check:uv-group-drift",
       "kind": "custom/script",
       "name": ".engine/check/uv-group-drift.json",
@@ -1380,6 +1406,24 @@
       "source": {
         "fingerprint": "sha256:fc1f5b2e1112261ddf4ec5e0e288da7e7189fa073da72b93ae68886dc19e95e7",
         "path": ".engine/modules/design-review/manifest.json"
+      },
+      "status": "optional",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
+      "id": "module:external-contribution",
+      "name": "external-contribution",
+      "owner": "external-contribution",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "external-contribution",
+      "source": {
+        "fingerprint": "sha256:93fd1bde1bcc955ae0bc3d824ad28bf9cbd476bbf07ce3e968512c4ea41fd21e",
+        "path": ".engine/modules/external-contribution/manifest.json"
       },
       "status": "optional",
       "type": "module",
@@ -3063,6 +3107,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:external_contribution.__init__",
+      "name": ".engine/tools/external_contribution/__init__.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "external_contribution.__init__",
+      "source": {
+        "fingerprint": "sha256:286492cd34c976c9359cc521af6e10e088ea9761196e6a49346564353703124e",
+        "path": ".engine/tools/external_contribution/__init__.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:first_run_reference_closure_check",
       "name": ".engine/tools/first_run_reference_closure_check.py",
       "owner": "core",
@@ -4518,7 +4579,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b338a5f20683e52578ee6f4d7bf4d65852e19be9f02f816408354034532fe002",
+        "fingerprint": "sha256:7d6bf560dd4c3d43fe7c5e9e562abc75d1940bf2d975d1bf7eda67c32559d5ec",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -5001,6 +5062,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_upstream_clean",
+      "name": ".engine/tools/external_contribution/test_upstream_clean.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "test_upstream_clean",
+      "source": {
+        "fingerprint": "sha256:e890e072cf02093b4b79972a3c9478fa73264abcdd12c32526f198055770351d",
+        "path": ".engine/tools/external_contribution/test_upstream_clean.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_uv_group_drift",
       "name": ".engine/tools/test_uv_group_drift.py",
       "owner": "core",
@@ -5081,6 +5159,23 @@
       "source": {
         "fingerprint": "sha256:96ace52fb4ab922fc695f211f57b4468a841fc81450c8276f87e8568d709590b",
         "path": ".engine/tools/tune.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:upstream_clean_check",
+      "name": ".engine/tools/external_contribution/upstream_clean_check.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "upstream_clean_check",
+      "source": {
+        "fingerprint": "sha256:6e77f91cb3faa887683d3f2ee5c28b1a5898097ce8898bc34fbaf8a260e5d162",
+        "path": ".engine/tools/external_contribution/upstream_clean_check.py"
       },
       "status": "active",
       "type": "tool"
