@@ -220,8 +220,9 @@ def _leak_narration(upstream_repo: str, offending: list) -> str:
         f"that belong to the Engine, not to the project you're contributing to: {files}. The Engine's files "
         "shouldn't ride along into a repository that isn't yours — they've most likely slipped in by accident. "
         "Take them off this branch (your fork keeps its copy, nothing is lost), then tell me and I'll prepare "
-        "the contribution again. I've held the submission here rather than send them along — opening a pull "
-        "request on a project you don't own is a one-way action, so it's your call."
+        "the contribution again. I've held the submission here rather than send them along — unlike a "
+        "heads-up you can wave past, opening a pull request on a project you don't own can't be undone, so "
+        "it's your call."
     )
 
 
@@ -363,8 +364,11 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
 
     # 4. Open the pull request (the one un-exercised-at-v1 boundary). Degrade to a draft on any failure.
     gh = gh_run or _run_gh
-    rc, out, err = gh(["pr", "create", "--repo", upstream_repo, "--base", base,
-                       "--head", head, "--title", title, "--body", body])
+    try:
+        rc, out, err = gh(["pr", "create", "--repo", upstream_repo, "--base", base,
+                           "--head", head, "--title", title, "--body", body])
+    except Exception as exc:  # noqa: BLE001 — a misbehaving transport degrades like an unreachable upstream
+        rc, out, err = 1, "", str(exc)
     if rc == 0 and out:
         return {"status": "submitted", "url": out, "pr": pr,
                 "narration": _submitted_narration(upstream_repo)}
@@ -420,6 +424,8 @@ def demo() -> int:
         return 1, "", "could not resolve host github.com"
 
     failures = []
+    print("(This is a dry run against a pretend project — no real repository is touched and nothing is "
+          "sent. It shows what the engine would say and do at each point.)\n")
     try:
         # Case 1 — a leaked engine path halts before submit, fires telemetry-on-fire, never opens a PR.
         r1 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",

@@ -140,11 +140,18 @@ class TestSubmitFlow(unittest.TestCase):
     BASE = dict(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
                 title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z")
 
+    def setUp(self):
+        # An empty template root injected into every flow call, so template detection never reads the real
+        # working tree — the suite stays fully offline regardless of what is on disk.
+        self.root = tempfile.mkdtemp(prefix="engine-submit-flow-empty-")
+        self.addCleanup(__import__("shutil").rmtree, self.root, True)
+
     def test_leak_halts_before_submit_and_fires_telemetry(self):
         opened = []
         rec = {}
         r = submit.submit(**self.BASE, run=_run(["src/app.py", ".engine/check/upstream-clean.json"]),
-                          owned=OWNED, gh_run=_gh_ok(rec), github=_fake_github(opened), confirm=True)
+                          owned=OWNED, root=self.root, gh_run=_gh_ok(rec), github=_fake_github(opened),
+                          confirm=True)
         self.assertEqual(r["status"], "halted-unclean")
         self.assertNotIn("args", rec)                    # gh pr create was NOT reached
         self.assertEqual(r["promoted"], 99)              # telemetry-on-fire promoted the leak
@@ -153,7 +160,7 @@ class TestSubmitFlow(unittest.TestCase):
 
     def test_clean_without_confirm_is_prepared_not_opened(self):
         rec = {}
-        r = submit.submit(**self.BASE, run=_run(["src/app.py", "README.md"]), owned=OWNED,
+        r = submit.submit(**self.BASE, run=_run(["src/app.py", "README.md"]), owned=OWNED, root=self.root,
                           gh_run=_gh_ok(rec), github=None, confirm=False)
         self.assertEqual(r["status"], "prepared")
         self.assertNotIn("args", rec)                    # the human gate: nothing opened without a decision
@@ -176,7 +183,7 @@ class TestSubmitFlow(unittest.TestCase):
         self.assertIn("## Upstream Description", r["pr"]["body"])
 
     def test_unreachable_upstream_degrades_to_a_drafted_submission(self):
-        r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED,
+        r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED, root=self.root,
                           gh_run=_gh_fail, github=None, confirm=True)
         self.assertEqual(r["status"], "degraded-draft")
         self.assertIn("engine opened this item itself", r["draft"])    # the engine-Issue body contract
@@ -185,7 +192,7 @@ class TestSubmitFlow(unittest.TestCase):
     def test_submitted_narration_does_not_assert_review_categorically(self):
         # Honest across the governed/ungoverned spectrum (RISK-S1): never a bare "maintainers WILL review".
         rec = {}
-        r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED,
+        r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED, root=self.root,
                           gh_run=_gh_ok(rec), github=None, confirm=True)
         self.assertIn("if the project reviews contributions", r["narration"])
 

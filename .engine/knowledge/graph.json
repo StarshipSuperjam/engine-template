@@ -4031,7 +4031,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:06762a7609d727650ceb27a162d5fe687f1d9bce089c69c6ce63b2b1de5711c1",
+        "fingerprint": "sha256:26bf8f92ad17ec007a8ef7ea7631affa130b10ef3a387e172104421378bba845",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -5272,7 +5272,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:482fb6f0b7289d5b26686f56aa51f7b09d1111023d205d7e0b167e6acb37d8f7",
+        "fingerprint": "sha256:1857b69c578a462f81e8b7a7f59a10e15ab4b0c35d020ad3dbf8a05eddb973fd",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
