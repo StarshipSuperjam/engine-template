@@ -26,12 +26,13 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (7 installed).
+The packages your engine is assembled from, and how they wire together (8 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
 - `core` (no dependencies)
 - `dependency-discipline` → `core`
+- `design-review` → `core`
 - `github-projects-sync` → `core`
 - `memory-substrate-sqlite-fts5` → `core`
 - `routine-mode` → `core`
@@ -67,6 +68,13 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - check: `.engine/check/dependency-pinning.json`, `.engine/check/dependency-review.json`
   - policy: `.engine/policies/dependency-discipline.md`
   - tool: `.engine/tools/dependency_discipline/*.py`
+- wires: none (this module adds no shared-state edits)
+
+### `design-review` — version `0.0.0-dev` (optional)
+
+- depends on: `core`
+- provides:
+  - agent: `.claude/agents/design-review-architecture.md`, `.claude/agents/design-review-feasibility.md`, `.claude/agents/design-review-product-intent.md`, `.claude/agents/design-review-risk-governance.md`
 - wires: none (this module adds no shared-state edits)
 
 ### `github-projects-sync` — version `0.0.0-dev` (optional)
