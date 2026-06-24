@@ -249,58 +249,131 @@ def _license_base(token: str) -> str:
     return t
 
 
-def _spdx_operands(raw: str) -> list:
-    """The license identifiers in an SPDX expression, conservatively: replace parentheses with spaces, drop the
-    AND/OR operators, and drop each `WITH <exception>` clause (an exception narrows but does not remove the base
-    license, so the base still governs). A best-effort identifier extractor, NOT a full SPDX parser (the
-    documented v1 limitation) — anything it can't make sense of yields no operands, which the caller treats as
-    'unknown' (block-leaning). Never raises."""
-    if not isinstance(raw, str):
-        return []
-    tokens = raw.replace("(", " ").replace(")", " ").split()
-    operands, i = [], 0
-    while i < len(tokens):
-        up = tokens[i].upper()
-        if up in ("AND", "OR"):
-            i += 1
+class _ParseError(Exception):
+    """The SPDX expression could not be parsed (unbalanced parens, a stray operator). The caller falls back to
+    a conservative flat scan that leans toward blocking — never toward letting an un-accepted copyleft through."""
+
+
+def _tokenize_spdx(raw: str) -> list:
+    """Tokens of an SPDX expression: '(' / ')' / 'AND' / 'OR' / ('LIC', id). A `WITH <exception>` clause keeps
+    the base license and drops the exception (the exception narrows the license; the base still governs).
+    Never raises."""
+    parts = raw.replace("(", " ( ").replace(")", " ) ").split()
+    tokens, k = [], 0
+    while k < len(parts):
+        p, up = parts[k], parts[k].upper()
+        if p in ("(", ")"):
+            tokens.append(p)
+        elif up in ("AND", "OR"):
+            tokens.append(up)
         elif up == "WITH":
-            i += 2                                        # skip WITH and its exception identifier
+            k += 1                                        # skip the exception identifier that follows
         else:
-            operands.append(tokens[i])
-            i += 1
-    return operands
+            tokens.append(("LIC", p))
+        k += 1
+    return tokens
 
 
-def _has_or(raw: str) -> bool:
-    return any(t.upper() == "OR" for t in raw.replace("(", " ").replace(")", " ").split())
+def _parse_spdx(tokens: list):
+    """Parse SPDX tokens into a tree — ('lic', id) / ('and', a, b) / ('or', a, b) — with OR lower-precedence
+    than AND (`A AND B OR C` == `(A AND B) OR C`). Raises _ParseError on a malformed expression."""
+    pos = 0
+
+    def peek():
+        return tokens[pos] if pos < len(tokens) else None
+
+    def expr():
+        nonlocal pos
+        node = term()
+        while peek() == "OR":
+            pos += 1
+            node = ("or", node, term())
+        return node
+
+    def term():
+        nonlocal pos
+        node = factor()
+        while peek() == "AND":
+            pos += 1
+            node = ("and", node, factor())
+        return node
+
+    def factor():
+        nonlocal pos
+        t = peek()
+        if t == "(":
+            pos += 1
+            node = expr()
+            if peek() != ")":
+                raise _ParseError("unbalanced parentheses")
+            pos += 1
+            return node
+        if isinstance(t, tuple) and t[0] == "LIC":
+            pos += 1
+            return ("lic", t[1])
+        raise _ParseError(f"unexpected token {t!r}")
+
+    tree = expr()
+    if pos != len(tokens):
+        raise _ParseError("trailing tokens")
+    return tree
+
+
+def _eval_blocking(node, allow) -> set:
+    """The set of un-escapable, un-accepted copyleft license ids in `node` (empty = not copyleft-blocked). A
+    license blocks iff its base is in the deny-set and it is NOT on `allow`. AND = union (you must satisfy
+    both, so either side's obligation binds); OR = clean if EITHER side is clean (the licensee may pick the
+    clean option), else the union. This honors the real meaning of an SPDX expression, so copyleft inside a
+    required AND branch cannot be hidden behind a permissive OR elsewhere."""
+    if node[0] == "lic":
+        lic = node[1]
+        if _license_base(lic) in _COPYLEFT_BASE and _normalize_license_id(lic) not in allow:
+            return {lic}
+        return set()
+    left = _eval_blocking(node[1], allow)
+    right = _eval_blocking(node[2], allow)
+    if node[0] == "and":
+        return left | right
+    return set() if (not left or not right) else (left | right)   # OR: a clean branch clears it
 
 
 def _license_status(expr, allow_licenses) -> tuple:
     """Classify a change's `license` field for gating. Returns `(status, ids)` where status is one of
-    `clean` / `copyleft` / `unknown` / `accepted`, and `ids` is the tuple of operator-facing license tokens
-    that drove a copyleft/accepted result (for the message). NEVER raises.
+    `clean` / `copyleft` / `unknown` / `accepted`, and `ids` is the operator-facing license tokens that drove a
+    copyleft/accepted result (for the message). NEVER raises.
 
-      • `unknown`  — no license string, or 'NOASSERTION', or an expression we can't read → no operands.
-      • `accepted` — the only copyleft operands are all on `allow_licenses` (normalized) → waved through.
-      • `clean`    — no copyleft operand, OR an OR-expression that offers a non-copyleft choice the licensee
-                     can take (e.g. 'MIT OR GPL-3.0').
-      • `copyleft` — an un-accepted strong-copyleft/SSPL operand with no permissive escape.
-    `allow_licenses` is a set of normalized identifiers."""
+      • `unknown`  — no license string, 'NOASSERTION', or no license identifier at all → block-leaning.
+      • `copyleft` — a strong-copyleft/SSPL obligation the licensee can't escape and hasn't accepted.
+      • `accepted` — the only thing that would block is on `allow_licenses` → waved through (a soft note).
+      • `clean`    — no copyleft obligation, or one the licensee can escape via a permissive OR-choice.
+    AND/OR structure is evaluated, so copyleft in a required AND branch blocks even with a permissive OR
+    elsewhere. `allow_licenses` is a set of normalized identifiers. A malformed expression falls back to a
+    conservative flat scan that leans toward blocking."""
     raw = expr.strip() if isinstance(expr, str) else ""
     if not raw or raw.upper() == "NOASSERTION":
         return "unknown", ()
-    operands = _spdx_operands(raw)
-    if not operands:
+    tokens = _tokenize_spdx(raw)
+    lic_ids = [t[1] for t in tokens if isinstance(t, tuple)]
+    if not lic_ids:
         return "unknown", ()
-    copyleft_ops = [o for o in operands if _license_base(o) in _COPYLEFT_BASE]
-    if not copyleft_ops:
-        return "clean", ()
-    unaccepted = [o for o in copyleft_ops if _normalize_license_id(o) not in allow_licenses]
-    if not unaccepted:
-        return "accepted", tuple(copyleft_ops)
-    if _has_or(raw) and any(_license_base(o) not in _COPYLEFT_BASE for o in operands):
-        return "clean", ()
-    return "copyleft", tuple(unaccepted)
+    try:
+        tree = _parse_spdx(tokens)
+    except _ParseError:                                   # malformed → conservative flat scan (block-leaning)
+        copyleft = [c for c in lic_ids if _license_base(c) in _COPYLEFT_BASE]
+        unaccepted = [c for c in copyleft if _normalize_license_id(c) not in allow_licenses]
+        if unaccepted:
+            return "copyleft", tuple(sorted(set(unaccepted)))
+        if copyleft:
+            return "accepted", tuple(sorted({c for c in copyleft if _normalize_license_id(c) in allow_licenses}))
+        return "unknown", ()
+    net = _eval_blocking(tree, allow_licenses)
+    if net:
+        return "copyleft", tuple(sorted(net))
+    raw_block = _eval_blocking(tree, frozenset())
+    if raw_block:                                         # copyleft present, but the allow-list cleared it
+        accepted = sorted({c for c in raw_block if _normalize_license_id(c) in allow_licenses})
+        return ("accepted", tuple(accepted)) if accepted else ("clean", ())
+    return "clean", ()
 
 
 def _filter_vulns(vulns, allow_ghsas) -> tuple:
@@ -434,8 +507,8 @@ def _accepted_ghsas_note(ids: list) -> str:
     return (
         f"For your awareness: this check passed a security advisory you have formally accepted as an allowed "
         f"exception ({listed}). It isn't blocking because it's on this check's accepted-exceptions list — a "
-        f"deliberate, acknowledged choice, not a silent pass. If you no longer want to accept it, remove it "
-        f"from the list."
+        f"deliberate, acknowledged choice, not a silent pass. If you no longer want to accept it, your engine "
+        f"can remove it from that list for you and bring the change back for your approval."
     )
 
 
@@ -445,8 +518,8 @@ def _accepted_licenses_note(ids: list) -> str:
     return (
         f"For your awareness: this check passed a dependency license you have formally accepted as an allowed "
         f"exception ({listed}). It isn't blocking because it's on this check's accepted-exceptions list — a "
-        f"deliberate, acknowledged choice, not a silent pass. If you no longer want to accept it, remove it "
-        f"from the list."
+        f"deliberate, acknowledged choice, not a silent pass. If you no longer want to accept it, your engine "
+        f"can remove it from that list for you and bring the change back for your approval."
     )
 
 
@@ -596,6 +669,8 @@ def demo() -> int:
                        "version": "0.9.0", "license": "MIT", "vulnerabilities": [adv]}  # base side of a bump
         copyleft = {"change_type": "added", "manifest": "package.json", "name": "gpl-pkg",
                     "version": "2.0.0", "license": "GPL-3.0-or-later", "vulnerabilities": []}
+        copyleft_nested = dict(copyleft, name="nested-pkg",         # copyleft in a required AND branch
+                               license="(MIT OR Apache-2.0) AND GPL-3.0")
         unknown_lic = {"change_type": "added", "manifest": "package.json", "name": "mystery-pkg",
                        "version": "1.0.0", "license": "NOASSERTION", "vulnerabilities": []}
 
@@ -624,6 +699,9 @@ def demo() -> int:
              lambda fs: one_hard(fs) and "copyleft" in fs[0]["message"]),
             ("a copyleft license on an INTERNAL repo earns one hard block",
              lambda: run(_Canned([copyleft], visibility="internal")), one_hard),
+            ("copyleft hidden in a mandatory AND branch still blocks on a private repo",
+             lambda: run(_Canned([copyleft_nested], visibility="private")),
+             lambda fs: one_hard(fs) and "copyleft" in fs[0]["message"]),
             ("a copyleft license on a PUBLIC repo discloses a soft heads-up, never silent",
              lambda: run(_Canned([copyleft], visibility="public")),
              lambda fs: one_soft(fs, "public")),

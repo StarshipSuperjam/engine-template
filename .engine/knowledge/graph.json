@@ -3481,7 +3481,7 @@
       },
       "slug": "review",
       "source": {
-        "fingerprint": "sha256:2d5c59a54dbd8a1f86f8b22e1aded615f5da159cc1c22b97990f872c4b1035a9",
+        "fingerprint": "sha256:c7e7d7e4f95baca06f55ca2a7409cc5861d647f5a9e3c0d1b655778e14e2e9e6",
         "path": ".engine/tools/dependency_discipline/review.py"
       },
       "status": "active",
@@ -4535,7 +4535,7 @@
       },
       "slug": "test_review",
       "source": {
-        "fingerprint": "sha256:73c992f5cc6c57fa817e66ddffcbeee320bd52d01b221ba86133a4ce7f07ca00",
+        "fingerprint": "sha256:42e8e2770841d67bd12008c65e850ff825d65bad6a26d9ebf9ac16cbebff2676",
         "path": ".engine/tools/dependency_discipline/test_review.py"
       },
       "status": "active",

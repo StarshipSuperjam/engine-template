@@ -257,7 +257,11 @@ class ReviewGateTests(unittest.TestCase):
             "AGPL-3.0-only": "copyleft",
             "SSPL-1.0": "copyleft",                    # source-available, in the deny-set
             "GPL-3.0 AND MIT": "copyleft",             # AND: the combined work is encumbered
+            "(MIT OR Apache-2.0) AND GPL-3.0": "copyleft",   # nested: GPL is a mandatory AND branch
+            "GPL-3.0 AND (MIT OR BSD-3-Clause)": "copyleft",  # the permissive OR can't escape the AND'd GPL
+            "MIT OR (GPL-3.0 AND Apache-2.0)": "clean",      # but here the licensee can pick the MIT branch
             "GPL-3.0-only WITH Classpath-exception-2.0": "copyleft",  # over-block (safe; accept-clearable)
+            "Apache-2.0 WITH LLVM-exception": "clean",       # a permissive base with an exception stays clean
             "GPL-3.0 OR": "copyleft",                  # degenerate expression → block-leaning
             "": "unknown",
             "NOASSERTION": "unknown",
@@ -275,6 +279,19 @@ class ReviewGateTests(unittest.TestCase):
         status, ids = review._license_status("GPL-3.0-or-later", {"GPL-3.0-OR-LATER"})
         self.assertEqual(status, "accepted")
         self.assertIn("GPL-3.0-or-later", ids)
+
+    def test_license_status_accept_clears_a_mandatory_and_branch(self):
+        # the un-escapable GPL in an AND branch is what blocks; accepting it clears the whole expression
+        status, ids = review._license_status("(MIT OR Apache-2.0) AND GPL-3.0", {"GPL-3.0"})
+        self.assertEqual(status, "accepted")
+        self.assertIn("GPL-3.0", ids)
+
+    def test_copyleft_in_a_mandatory_and_branch_blocks_on_private(self):
+        # regression: a permissive OR-group must NOT hide copyleft sitting in a required AND branch
+        nested = dict(_COPYLEFT_CHANGE, license="(MIT OR Apache-2.0) AND GPL-3.0")
+        fs = self._find(_Canned([nested], visibility="private"))
+        self.assertEqual(len(fs), 1)
+        self.assertEqual(fs[0]["severity"], "hard", "un-escapable copyleft in an AND branch must block")
 
     # --- the allow-lists are read from the check's own committed params (fail-safe) ---------------
     def test_read_check_params_reads_the_real_committed_file(self):
