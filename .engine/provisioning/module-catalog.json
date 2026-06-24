@@ -17,5 +17,11 @@
     "description": "After a change you've asked for is built — before it's submitted — a fresh set of reviewers checks the finished work: whether it does what was asked, whether it's pleasant to use, whether it's soundly built, and whether it's safe to release. They only advise; you decide, and you merge.",
     "category": "Verification & Validation",
     "status": "optional"
+  },
+  {
+    "id": "migration-discipline",
+    "description": "A standing rule for your project's database migrations — the scripts that change your database's shape or move its data. Before a change that could lose data or can't be undone, the engine is set to stop and bring you in — pausing to ask when you're working with it, and holding the work for you to see when it's running unattended — in plain language and with a safer option, instead of pressing ahead on its own. It's a habit the engine follows, backed by the pull request you review and approve, not an automatic scanner — and it never runs a migration for you. Optional, and removable anytime.",
+    "category": "Software Configuration Management",
+    "status": "optional"
   }
 ]

@@ -52,11 +52,13 @@ EXISTING_SCHEMA_RULES = ("engine-manifest", "interface-declaration", "module-man
 # policy on the same surface — the tuning values its ranking tool reads — which is NOT one of the foundational
 # four but the attention system's own governed policy (systems/cognitive/attention/README.md). An OPTIONAL
 # module may also ship its own policy on this surface: the dependency-discipline module contributes a posture
-# policy stating its pinning/review-gate/cadence expectations (modules/dependency-discipline/README.md), present
-# in this construction repo and removed in a generated repo that opts the module out. The committed set is their
-# union; growing it here is how a missing/renamed/unexpected policy fails this suite.
+# policy stating its pinning/review-gate/cadence expectations (modules/dependency-discipline/README.md), and the
+# migration-discipline module a posture policy for the product's own schema migrations
+# (modules/migration-discipline/README.md) — each present in this construction repo and removed in a generated
+# repo that opts the module out. The committed set is their union; growing it here is how a missing/renamed/
+# unexpected policy fails this suite.
 FOUNDATIONAL_POLICIES = {"contract-threshold", "finding-disposition", "escalation", "triage-threshold"}
-OPTIONAL_MODULE_POLICIES = {"dependency-discipline"}
+OPTIONAL_MODULE_POLICIES = {"dependency-discipline", "migration-discipline"}
 EXPECTED_POLICIES = FOUNDATIONAL_POLICIES | {"attention"} | OPTIONAL_MODULE_POLICIES
 
 # A representative, conforming policy frontmatter instance (a foundational policy omits established_by).

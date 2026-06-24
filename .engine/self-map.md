@@ -26,7 +26,7 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (10 installed).
+The packages your engine is assembled from, and how they wire together (11 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
@@ -36,6 +36,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `external-contribution` → `core`
 - `github-projects-sync` → `core`
 - `memory-substrate-sqlite-fts5` → `core`
+- `migration-discipline` → `core`
 - `qa-review` → `core`
 - `routine-mode` → `core`
 - `validators-core` → `core`
@@ -104,6 +105,13 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - erasures: `.engine/erasures/proposal.json`
   - tool: `.engine/tools/memory/*.py`
 - wires: gitignore, hook, mcp
+
+### `migration-discipline` — version `0.0.0-dev` (optional)
+
+- depends on: `core`
+- provides:
+  - policy: `.engine/policies/migration-discipline.md`
+- wires: none (this module adds no shared-state edits)
 
 ### `qa-review` — version `0.0.0-dev` (optional)
 
