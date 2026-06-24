@@ -357,8 +357,10 @@ def _license_status(expr, allow_licenses) -> tuple:
     if not lic_ids:
         return "unknown", ()
     try:
+        if len(tokens) > 100:                             # pathological size — skip the deep recursive parse
+            raise _ParseError("expression too large")
         tree = _parse_spdx(tokens)
-    except _ParseError:                                   # malformed → conservative flat scan (block-leaning)
+    except (_ParseError, RecursionError):                 # malformed/pathological → conservative flat scan
         copyleft = [c for c in lic_ids if _license_base(c) in _COPYLEFT_BASE]
         unaccepted = [c for c in copyleft if _normalize_license_id(c) not in allow_licenses]
         if unaccepted:

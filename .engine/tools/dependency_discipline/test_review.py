@@ -275,6 +275,14 @@ class ReviewGateTests(unittest.TestCase):
             status, _ = review._license_status(bad, set())
             self.assertIn(status, ("unknown", "clean", "copyleft"))  # the contract: a value, never an exception
 
+    def test_license_status_handles_pathological_nesting_without_raising(self):
+        # deeply-nested parens must not blow the parser's stack (the "never raises" contract); the copyleft case
+        # still fails safe (blocks), the clean case degrades in-band — neither raises into the fail-closed path
+        deep_gpl = "(" * 500 + "GPL-3.0" + ")" * 500
+        deep_mit = "(" * 500 + "MIT" + ")" * 500
+        self.assertEqual(review._license_status(deep_gpl, set())[0], "copyleft")
+        self.assertIn(review._license_status(deep_mit, set())[0], ("clean", "unknown"))
+
     def test_license_status_accepts_normalized_allow_entry(self):
         status, ids = review._license_status("GPL-3.0-or-later", {"GPL-3.0-OR-LATER"})
         self.assertEqual(status, "accepted")
@@ -399,6 +407,24 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(sorted(rule["suites"]), ["CI", "pre-close", "pre-commit"])
         self.assertEqual(rule["params"]["allow-ghsas"], [], "ships an empty accept-list (loosens nothing)")
         self.assertEqual(rule["params"]["allow-licenses"], [])
+
+    # --- the module is offered at first-run via a verb-less catalog entry --------------------------
+    def test_catalog_entry_is_valid_and_verb_less(self):
+        # dependency-discipline adds no operator command — it is offered at setup by its plain description
+        # alone. The whole catalog must validate, and this module must appear exactly once, verb-less, under
+        # its design-named SCM category, with the merge-block disclosure the design requires (README:120).
+        catalog = validate.load_json(os.path.join(validate.ENGINE_DIR, "provisioning", "module-catalog.json"))
+        schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "provisioning-catalog.v1.json"))
+        self.assertEqual(list(validate.Draft202012Validator(schema).iter_errors(catalog)), [],
+                         "the whole catalog must validate against provisioning-catalog.v1.json")
+        entries = [e for e in catalog if e["id"] == "dependency-discipline"]
+        self.assertEqual(len(entries), 1, "dependency-discipline must be offered exactly once at setup")
+        entry = entries[0]
+        self.assertNotIn("verb", entry,
+                         "dependency-discipline adds no command — its catalog entry must be verb-less")
+        self.assertEqual(entry["category"], "Software Configuration Management")
+        self.assertIn("block the merge", entry["description"],
+                      "the setup card must disclose that the check can block a merge (informed consent)")
 
 
 if __name__ == "__main__":

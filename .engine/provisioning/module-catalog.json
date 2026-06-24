@@ -23,5 +23,11 @@
     "description": "A standing rule for your project's database migrations — the scripts that change your database's shape or move its data. Before a change that could lose data or can't be undone, the engine is set to stop and bring you in — pausing to ask when you're working with it, and holding the work for you to see when it's running unattended — in plain language and with a safer option, instead of pressing ahead on its own. It's a habit the engine follows, backed by the pull request you review and approve, not an automatic scanner — and it never runs a migration for you. Optional, and removable anytime.",
     "category": "Software Configuration Management",
     "status": "optional"
+  },
+  {
+    "id": "dependency-discipline",
+    "description": "This add-on adds an automatic check on the outside code your project depends on — the third-party libraries it pulls in — that can block the merge when a change brings in a risky one. When a dependency is added or updated, the check reviews it and stops the change from going in if the library has a known security hole, or comes with a license that could force you to publish your own source code in return. It also gives gentler, non-blocking nudges to use exact versions of your libraries instead of open-ended ranges. Nothing is ever a dead end: a genuinely unavoidable case can be let through with a deliberate, recorded decision, and you can leave this add-on out altogether — either way, nothing merges without your say-so.",
+    "category": "Software Configuration Management",
+    "status": "optional"
   }
 ]
