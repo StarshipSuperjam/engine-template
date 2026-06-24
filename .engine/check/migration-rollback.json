@@ -1,0 +1,9 @@
+{
+  "id": "engine/check/migration-rollback",
+  "target": { "context": "product-migrations" },
+  "kind": "custom/script",
+  "params": { "script": ".engine/tools/migration_discipline/rollback.py" },
+  "tier": "soft",
+  "suites": ["CI", "pre-commit", "pre-close"],
+  "message": "Checks whether your project's database migrations come with a rollback script — a separate file that undoes the change if it goes wrong. It looks in the usual places (a migrations/ folder, db/migrate/, supabase/migrations/, prisma/migrations/, and similar) for the separate up/down rollback convention (for example 0001_x.up.sql paired with 0001_x.down.sql) and raises a gentle, non-blocking nudge for a migration that has no matching rollback. When your migration tool is forward-only (such as Supabase or Prisma) or keeps each rollback inside the migration file (such as Rails, Django, or Alembic), it says so plainly rather than passing silently, and when no migrations exist yet it says that too. It looks only at whether a separate rollback file is present: it does not read your SQL, does not judge whether a migration is safe or destructive, and does not check whether a schema change has a migration at all — your pull-request review and the engine's standing migration posture cover those. It is a hygiene nudge, not a guarantee: it never blocks a merge and never changes a file. The active nudge fires for the separate up/down rollback convention; for forward-only or in-file tools the check is disclosure-only, and your real protection there is the standing posture plus the pull request you review and approve."
+}

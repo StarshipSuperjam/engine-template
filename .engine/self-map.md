@@ -112,7 +112,9 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
+  - check: `.engine/check/migration-rollback.json`
   - policy: `.engine/policies/migration-discipline.md`
+  - tool: `.engine/tools/migration_discipline/*.py`
 - wires: none (this module adds no shared-state edits)
 
 ### `qa-review` — version `0.0.0-dev` (optional)

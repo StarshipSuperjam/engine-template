@@ -869,6 +869,33 @@
       "type": "check"
     },
     {
+      "id": "check:migration-rollback",
+      "kind": "custom/script",
+      "name": ".engine/check/migration-rollback.json",
+      "owner": "migration-discipline",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:migration-discipline"
+        ]
+      },
+      "slug": "migration-rollback",
+      "source": {
+        "fingerprint": "sha256:99cf615c1b3e87578d39f53f51b348db4627e998868c3d5784435304cdf2a506",
+        "path": ".engine/check/migration-rollback.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "pre-close",
+        "pre-commit"
+      ],
+      "tier": "soft",
+      "type": "check"
+    },
+    {
       "id": "check:module-manifest",
       "kind": "schema",
       "name": ".engine/check/module-manifest.json",
@@ -1584,7 +1611,7 @@
       },
       "slug": "migration-discipline",
       "source": {
-        "fingerprint": "sha256:a5792c36d4157b5a793438b7ea2adfcddfe5d32cf7839bc548f41ad2c16a5c17",
+        "fingerprint": "sha256:db06e7d733306264ae696044d3569c5bedc209f71a0c14110a1ae301e4c8ac61",
         "path": ".engine/modules/migration-discipline/manifest.json"
       },
       "status": "optional",
@@ -3670,6 +3697,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:migration_discipline.__init__",
+      "name": ".engine/tools/migration_discipline/__init__.py",
+      "owner": "migration-discipline",
+      "predicates": {
+        "provided_by": [
+          "module:migration-discipline"
+        ]
+      },
+      "slug": "migration_discipline.__init__",
+      "source": {
+        "fingerprint": "sha256:1123fefcdc591f28998893531719eb31038a490fe6989a78c23f88530efc7557",
+        "path": ".engine/tools/migration_discipline/__init__.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:modes",
       "name": ".engine/tools/modes.py",
       "owner": "core",
@@ -3903,6 +3947,23 @@
       "source": {
         "fingerprint": "sha256:a613a3030cc3a1b3c845d924fd8483e5eb13dc3c208563d7b479016d4255f87a",
         "path": ".engine/tools/dependency_discipline/review.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:rollback",
+      "name": ".engine/tools/migration_discipline/rollback.py",
+      "owner": "migration-discipline",
+      "predicates": {
+        "provided_by": [
+          "module:migration-discipline"
+        ]
+      },
+      "slug": "rollback",
+      "source": {
+        "fingerprint": "sha256:32f6a6ad88da866066f52d98dec85c634aa57513d990c4b2c1b3fd726f3544ee",
+        "path": ".engine/tools/migration_discipline/rollback.py"
       },
       "status": "active",
       "type": "tool"
@@ -4819,7 +4880,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:7d6bf560dd4c3d43fe7c5e9e562abc75d1940bf2d975d1bf7eda67c32559d5ec",
+        "fingerprint": "sha256:66684241014de0fbc60e6660b190da83e543d20b26b13e4b511d9dbbefa73cc7",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -5008,6 +5069,23 @@
       "source": {
         "fingerprint": "sha256:26f438dcc09dbb497b164ac51d89bc5c6121294960e66bc9ba7170631206bfd9",
         "path": ".engine/tools/dependency_discipline/test_review.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_rollback",
+      "name": ".engine/tools/migration_discipline/test_rollback.py",
+      "owner": "migration-discipline",
+      "predicates": {
+        "provided_by": [
+          "module:migration-discipline"
+        ]
+      },
+      "slug": "test_rollback",
+      "source": {
+        "fingerprint": "sha256:1018cede1d81041fcf0f00384342483f95fd5a1ab7404f3bb61224b37a7a0245",
+        "path": ".engine/tools/migration_discipline/test_rollback.py"
       },
       "status": "active",
       "type": "tool"
