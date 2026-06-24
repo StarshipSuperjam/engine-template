@@ -473,7 +473,7 @@
       },
       "slug": "dependency-review",
       "source": {
-        "fingerprint": "sha256:f1022051f4c033827557b4da5d93b597008ae0c791a593c9f5859794d88d7191",
+        "fingerprint": "sha256:af31490e488b4ff074d46d8d63823cf1c7d8faf989efa33c1b8d003a0c2cb076",
         "path": ".engine/check/dependency-review.json"
       },
       "status": "active",
@@ -1813,7 +1813,7 @@
       },
       "slug": "dependency-discipline",
       "source": {
-        "fingerprint": "sha256:c50173ab205fafe254b77f8bbd0169804d69273133d2832dcb69d6e6483cef71",
+        "fingerprint": "sha256:0105cd58cd5c448cad066b44c1cb3051bf5a95fc6d3cd3fbb8fa96edae3d7eb6",
         "path": ".engine/policies/dependency-discipline.md"
       },
       "status": "active",
@@ -3617,7 +3617,7 @@
       },
       "slug": "review",
       "source": {
-        "fingerprint": "sha256:e5a0cd03f5d121dddca939dcd6839f2b6eff190ad893c2ccf5661ea159489565",
+        "fingerprint": "sha256:c7e7d7e4f95baca06f55ca2a7409cc5861d647f5a9e3c0d1b655778e14e2e9e6",
         "path": ".engine/tools/dependency_discipline/review.py"
       },
       "status": "active",
@@ -4688,7 +4688,7 @@
       },
       "slug": "test_review",
       "source": {
-        "fingerprint": "sha256:68e300a3417dc2815a000ef6d4453688186841e99338b0e998dc8ac1c8650d33",
+        "fingerprint": "sha256:42e8e2770841d67bd12008c65e850ff825d65bad6a26d9ebf9ac16cbebff2676",
         "path": ".engine/tools/dependency_discipline/test_review.py"
       },
       "status": "active",
