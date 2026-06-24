@@ -26,16 +26,18 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (9 installed).
+The packages your engine is assembled from, and how they wire together (11 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
 - `core` (no dependencies)
 - `dependency-discipline` → `core`
 - `design-review` → `core`
+- `external-contribution` → `core`
 - `github-projects-sync` → `core`
 - `memory-substrate-sqlite-fts5` → `core`
 - `migration-discipline` → `core`
+- `qa-review` → `core`
 - `routine-mode` → `core`
 - `validators-core` → `core`
 - `audit-library` → `core`, `validators-core`
@@ -78,6 +80,14 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - agent: `.claude/agents/design-review-architecture.md`, `.claude/agents/design-review-feasibility.md`, `.claude/agents/design-review-product-intent.md`, `.claude/agents/design-review-risk-governance.md`
 - wires: none (this module adds no shared-state edits)
 
+### `external-contribution` — version `0.0.0-dev` (optional)
+
+- depends on: `core`
+- provides:
+  - check: `.engine/check/upstream-clean.json`
+  - tool: `.engine/tools/external_contribution/*.py`
+- wires: none (this module adds no shared-state edits)
+
 ### `github-projects-sync` — version `0.0.0-dev` (optional)
 
 - depends on: `core`
@@ -101,6 +111,13 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - depends on: `core`
 - provides:
   - policy: `.engine/policies/migration-discipline.md`
+- wires: none (this module adds no shared-state edits)
+
+### `qa-review` — version `0.0.0-dev` (optional)
+
+- depends on: `core`
+- provides:
+  - agent: `.claude/agents/qa-review-security-governance.md`, `.claude/agents/qa-review-spec-conformance.md`, `.claude/agents/qa-review-technical-integrity.md`, `.claude/agents/qa-review-usability.md`
 - wires: none (this module adds no shared-state edits)
 
 ### `routine-mode` — version `0.0.0-dev` (required)

@@ -115,6 +115,98 @@
       "type": "agent"
     },
     {
+      "id": "agent:qa-review-security-governance",
+      "lens": "security-governance",
+      "model-tier": "judgment",
+      "name": ".claude/agents/qa-review-security-governance.md",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "role": "pre-submission-review",
+      "slug": "qa-review-security-governance",
+      "source": {
+        "fingerprint": "sha256:96f3bc9a1abb1a4408c4bb96dc7bccd92814093560d63b589ad59817affd14a6",
+        "path": ".claude/agents/qa-review-security-governance.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
+      "id": "agent:qa-review-spec-conformance",
+      "lens": "spec-conformance",
+      "model-tier": "judgment",
+      "name": ".claude/agents/qa-review-spec-conformance.md",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "role": "pre-submission-review",
+      "slug": "qa-review-spec-conformance",
+      "source": {
+        "fingerprint": "sha256:a736d080d68e203dca9bac25a14277ccfe5cb6e3f552d6ce895c4f90b33149b9",
+        "path": ".claude/agents/qa-review-spec-conformance.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
+      "id": "agent:qa-review-technical-integrity",
+      "lens": "technical-integrity",
+      "model-tier": "judgment",
+      "name": ".claude/agents/qa-review-technical-integrity.md",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "role": "pre-submission-review",
+      "slug": "qa-review-technical-integrity",
+      "source": {
+        "fingerprint": "sha256:368a71e9af51e45ad4dda808ff08e271ffbc4ca03d0625cda1e21a6f59df3722",
+        "path": ".claude/agents/qa-review-technical-integrity.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
+      "id": "agent:qa-review-usability",
+      "lens": "usability",
+      "model-tier": "judgment",
+      "name": ".claude/agents/qa-review-usability.md",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "role": "pre-submission-review",
+      "slug": "qa-review-usability",
+      "source": {
+        "fingerprint": "sha256:e69ca7908add179d339121cbd41ecaccb9c7c19e2d4448a7769c3b40fdd209f2",
+        "path": ".claude/agents/qa-review-usability.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
       "id": "check:agent-frontmatter",
       "kind": "schema",
       "name": ".engine/check/agent-frontmatter.json",
@@ -131,7 +223,11 @@
           "agent:design-review-architecture",
           "agent:design-review-feasibility",
           "agent:design-review-product-intent",
-          "agent:design-review-risk-governance"
+          "agent:design-review-risk-governance",
+          "agent:qa-review-security-governance",
+          "agent:qa-review-spec-conformance",
+          "agent:qa-review-technical-integrity",
+          "agent:qa-review-usability"
         ]
       },
       "slug": "agent-frontmatter",
@@ -163,7 +259,11 @@
           "agent:design-review-architecture",
           "agent:design-review-feasibility",
           "agent:design-review-product-intent",
-          "agent:design-review-risk-governance"
+          "agent:design-review-risk-governance",
+          "agent:qa-review-security-governance",
+          "agent:qa-review-spec-conformance",
+          "agent:qa-review-technical-integrity",
+          "agent:qa-review-usability"
         ]
       },
       "slug": "agent-shape",
@@ -785,9 +885,11 @@
           "module:core",
           "module:dependency-discipline",
           "module:design-review",
+          "module:external-contribution",
           "module:github-projects-sync",
           "module:memory-substrate-sqlite-fts5",
           "module:migration-discipline",
+          "module:qa-review",
           "module:routine-mode",
           "module:validators-core"
         ]
@@ -1202,6 +1304,31 @@
       "type": "check"
     },
     {
+      "id": "check:upstream-clean",
+      "kind": "custom/script",
+      "name": ".engine/check/upstream-clean.json",
+      "owner": "external-contribution",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "upstream-clean",
+      "source": {
+        "fingerprint": "sha256:e8349cf402f142cdc2610762673d7aa40b2c5bb82c50bde80232665dce5cea97",
+        "path": ".engine/check/upstream-clean.json"
+      },
+      "status": "active",
+      "suites": [
+        "pre-close"
+      ],
+      "tier": "soft",
+      "type": "check"
+    },
+    {
       "id": "check:uv-group-drift",
       "kind": "custom/script",
       "name": ".engine/check/uv-group-drift.json",
@@ -1389,6 +1516,24 @@
       "version": "0.0.0-dev"
     },
     {
+      "id": "module:external-contribution",
+      "name": "external-contribution",
+      "owner": "external-contribution",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "external-contribution",
+      "source": {
+        "fingerprint": "sha256:93fd1bde1bcc955ae0bc3d824ad28bf9cbd476bbf07ce3e968512c4ea41fd21e",
+        "path": ".engine/modules/external-contribution/manifest.json"
+      },
+      "status": "optional",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
       "id": "module:github-projects-sync",
       "name": "github-projects-sync",
       "owner": "github-projects-sync",
@@ -1437,6 +1582,24 @@
       "source": {
         "fingerprint": "sha256:a5792c36d4157b5a793438b7ea2adfcddfe5d32cf7839bc548f41ad2c16a5c17",
         "path": ".engine/modules/migration-discipline/manifest.json"
+      },
+      "status": "optional",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
+      "id": "module:qa-review",
+      "name": "qa-review",
+      "owner": "qa-review",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "qa-review",
+      "source": {
+        "fingerprint": "sha256:2f4c6ec3006c2f8af45801ebbee72f63f41d7a4821b7f94f3d23532a411c0a62",
+        "path": ".engine/modules/qa-review/manifest.json"
       },
       "status": "optional",
       "type": "module",
@@ -2210,6 +2373,23 @@
       "source": {
         "fingerprint": "sha256:c98f652b7414a370de0bac63e618f6f56a3de59252c2d48deeec31061592506a",
         "path": ".engine/schemas/policy.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:pre-submission-review-finding.v1",
+      "name": ".engine/schemas/pre-submission-review-finding.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "pre-submission-review-finding.v1",
+      "source": {
+        "fingerprint": "sha256:e17b7d2993a0b5e287435bba08d48d9452e6d4d875569b48c572f7f81ecc51a7",
+        "path": ".engine/schemas/pre-submission-review-finding.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -3100,6 +3280,23 @@
       "source": {
         "fingerprint": "sha256:9601fd03b50cc02d9ed7007dea3bbbc1962dc8a0859b1673c2bda5917e108b05",
         "path": ".engine/tools/memory/erasure_proposer.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:external_contribution.__init__",
+      "name": ".engine/tools/external_contribution/__init__.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "external_contribution.__init__",
+      "source": {
+        "fingerprint": "sha256:286492cd34c976c9359cc521af6e10e088ea9761196e6a49346564353703124e",
+        "path": ".engine/tools/external_contribution/__init__.py"
       },
       "status": "active",
       "type": "tool"
@@ -4560,7 +4757,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b338a5f20683e52578ee6f4d7bf4d65852e19be9f02f816408354034532fe002",
+        "fingerprint": "sha256:7d6bf560dd4c3d43fe7c5e9e562abc75d1940bf2d975d1bf7eda67c32559d5ec",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -4681,6 +4878,23 @@
       "source": {
         "fingerprint": "sha256:b7202bcce34b43f4bd3c80edc8657def804de644275b4262e51ec731e6bcd917",
         "path": ".engine/tools/projects_sync/test_projects_sync.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_qa_review",
+      "name": ".engine/tools/test_qa_review.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_qa_review",
+      "source": {
+        "fingerprint": "sha256:91f12cd9f37fcea9a8da006b7cf33b4155896562ae93856da2f7ca1b10e4ce3f",
+        "path": ".engine/tools/test_qa_review.py"
       },
       "status": "active",
       "type": "tool"
@@ -5043,6 +5257,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_upstream_clean",
+      "name": ".engine/tools/external_contribution/test_upstream_clean.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "test_upstream_clean",
+      "source": {
+        "fingerprint": "sha256:e890e072cf02093b4b79972a3c9478fa73264abcdd12c32526f198055770351d",
+        "path": ".engine/tools/external_contribution/test_upstream_clean.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_uv_group_drift",
       "name": ".engine/tools/test_uv_group_drift.py",
       "owner": "core",
@@ -5123,6 +5354,23 @@
       "source": {
         "fingerprint": "sha256:96ace52fb4ab922fc695f211f57b4468a841fc81450c8276f87e8568d709590b",
         "path": ".engine/tools/tune.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:upstream_clean_check",
+      "name": ".engine/tools/external_contribution/upstream_clean_check.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "upstream_clean_check",
+      "source": {
+        "fingerprint": "sha256:6e77f91cb3faa887683d3f2ee5c28b1a5898097ce8898bc34fbaf8a260e5d162",
+        "path": ".engine/tools/external_contribution/upstream_clean_check.py"
       },
       "status": "active",
       "type": "tool"

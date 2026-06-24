@@ -9,6 +9,8 @@
     "github-projects-sync": "0.0.0-dev",
     "dependency-discipline": "0.0.0-dev",
     "design-review": "0.0.0-dev",
+    "external-contribution": "0.0.0-dev",
+    "qa-review": "0.0.0-dev",
     "migration-discipline": "0.0.0-dev"
   },
   "identity": "solo"

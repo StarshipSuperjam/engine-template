@@ -1,0 +1,9 @@
+{
+  "id": "engine/check/upstream-clean",
+  "target": { "context": "outgoing-contribution" },
+  "kind": "custom/script",
+  "params": { "script": ".engine/tools/external_contribution/upstream_clean_check.py" },
+  "tier": "soft",
+  "suites": ["pre-close"],
+  "message": "Checks that a contribution you're sending to another project — an upstream repository you don't own — carries only that project's files, not the Engine's own internal files. When the outgoing change touches a file that belongs to the Engine (its .engine/ tooling, the engine workflows, CLAUDE.md, or other engine-owned paths), it raises a gentle, non-blocking heads-up that names those files, so you can take them off the branch before you submit. It never blocks a merge and never changes a file; where the upstream project reviews pull requests, that review remains the real gate. This runs only as a local pre-submission check, never in the merge gate, because the Engine's files legitimately live alongside your work in your own repository — it is only when contributing outward to a repository you don't own that they must not ride along. To clear a nudge, remove the named engine-owned files from the contribution branch; your own repository keeps them."
+}
