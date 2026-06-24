@@ -926,6 +926,7 @@
           "operation:control-plane-bootstrap",
           "operation:engine-remove",
           "operation:engine-upgrade",
+          "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
           "operation:module-add",
@@ -968,6 +969,7 @@
           "operation:control-plane-bootstrap",
           "operation:engine-remove",
           "operation:engine-upgrade",
+          "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
           "operation:module-add",
@@ -1526,7 +1528,7 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:93fd1bde1bcc955ae0bc3d824ad28bf9cbd476bbf07ce3e968512c4ea41fd21e",
+        "fingerprint": "sha256:200cd985bcf7cb17adf5fc5dd8585a2a18579e082bdebb9a71a78f95779e3369",
         "path": ".engine/modules/external-contribution/manifest.json"
       },
       "status": "optional",
@@ -1777,6 +1779,26 @@
       "source": {
         "fingerprint": "sha256:e794e33ab33d278cb3c1fa5c6a583fc011dfa39a9ef01d647d6d05e8ea912726",
         "path": ".engine/operations/engine-upgrade.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:external-contribution-submit",
+      "name": ".engine/operations/external-contribution-submit.md",
+      "owner": "external-contribution",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "external-contribution-submit",
+      "source": {
+        "fingerprint": "sha256:61ee6964bf55e44612ad037f4d89ae5a2a5d9f021dd708e88c2a16cc2e4a9bdc",
+        "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
       "type": "operation"
@@ -3999,6 +4021,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:submit",
+      "name": ".engine/tools/external_contribution/submit.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "submit",
+      "source": {
+        "fingerprint": "sha256:06762a7609d727650ceb27a162d5fe687f1d9bce089c69c6ce63b2b1de5711c1",
+        "path": ".engine/tools/external_contribution/submit.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:telemetry",
       "name": ".engine/tools/telemetry.py",
       "owner": "core",
@@ -5218,6 +5257,23 @@
       "source": {
         "fingerprint": "sha256:7334321977f42593f294097215adb1d937f940d26fcc1fe0add5725fcacdaafd",
         "path": ".engine/tools/test_state.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_submit",
+      "name": ".engine/tools/external_contribution/test_submit.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "test_submit",
+      "source": {
+        "fingerprint": "sha256:482fb6f0b7289d5b26686f56aa51f7b09d1111023d205d7e0b167e6acb37d8f7",
+        "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
       "type": "tool"

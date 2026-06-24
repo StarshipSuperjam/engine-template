@@ -4,7 +4,8 @@
   "status": "optional",
   "provides": {
     "check": [".engine/check/upstream-clean.json"],
-    "tool": [".engine/tools/external_contribution/*.py"]
+    "tool": [".engine/tools/external_contribution/*.py"],
+    "operation": [".engine/operations/external-contribution-submit.md"]
   },
   "wires": [],
   "depends": { "core": "" }
