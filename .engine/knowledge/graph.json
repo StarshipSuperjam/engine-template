@@ -23,6 +23,98 @@
       "type": "agent"
     },
     {
+      "id": "agent:design-review-architecture",
+      "lens": "architecture",
+      "model-tier": "judgment",
+      "name": ".claude/agents/design-review-architecture.md",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "role": "plan-review",
+      "slug": "design-review-architecture",
+      "source": {
+        "fingerprint": "sha256:bb912824f52bb9e14b9db9c138a6d3226d9f327f5a0c5fd9203563a9df8a5bfe",
+        "path": ".claude/agents/design-review-architecture.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
+      "id": "agent:design-review-feasibility",
+      "lens": "feasibility",
+      "model-tier": "judgment",
+      "name": ".claude/agents/design-review-feasibility.md",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "role": "plan-review",
+      "slug": "design-review-feasibility",
+      "source": {
+        "fingerprint": "sha256:1e63328bc42a144eed558fb6a754f4c6d9ab59567909e9fe5bf23a069d8622c1",
+        "path": ".claude/agents/design-review-feasibility.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
+      "id": "agent:design-review-product-intent",
+      "lens": "product-intent",
+      "model-tier": "judgment",
+      "name": ".claude/agents/design-review-product-intent.md",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "role": "plan-review",
+      "slug": "design-review-product-intent",
+      "source": {
+        "fingerprint": "sha256:162233fd2bedee79764f15b92c3792a94cb2a9890e86d6271950ffd549c356b9",
+        "path": ".claude/agents/design-review-product-intent.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
+      "id": "agent:design-review-risk-governance",
+      "lens": "risk-governance",
+      "model-tier": "judgment",
+      "name": ".claude/agents/design-review-risk-governance.md",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "role": "plan-review",
+      "slug": "design-review-risk-governance",
+      "source": {
+        "fingerprint": "sha256:d58451648baa6a3d5e3428c202873d6524da6b58c70ca8f9efaf07d7539e8bf3",
+        "path": ".claude/agents/design-review-risk-governance.md"
+      },
+      "status": "active",
+      "type": "agent"
+    },
+    {
       "id": "check:agent-frontmatter",
       "kind": "schema",
       "name": ".engine/check/agent-frontmatter.json",
@@ -35,7 +127,11 @@
           "module:validators-core"
         ],
         "targets": [
-          "agent:audit"
+          "agent:audit",
+          "agent:design-review-architecture",
+          "agent:design-review-feasibility",
+          "agent:design-review-product-intent",
+          "agent:design-review-risk-governance"
         ]
       },
       "slug": "agent-frontmatter",
@@ -63,7 +159,11 @@
           "module:validators-core"
         ],
         "targets": [
-          "agent:audit"
+          "agent:audit",
+          "agent:design-review-architecture",
+          "agent:design-review-feasibility",
+          "agent:design-review-product-intent",
+          "agent:design-review-risk-governance"
         ]
       },
       "slug": "agent-shape",
@@ -373,7 +473,7 @@
       },
       "slug": "dependency-review",
       "source": {
-        "fingerprint": "sha256:f1022051f4c033827557b4da5d93b597008ae0c791a593c9f5859794d88d7191",
+        "fingerprint": "sha256:af31490e488b4ff074d46d8d63823cf1c7d8faf989efa33c1b8d003a0c2cb076",
         "path": ".engine/check/dependency-review.json"
       },
       "status": "active",
@@ -684,6 +784,7 @@
           "module:audit-library",
           "module:core",
           "module:dependency-discipline",
+          "module:design-review",
           "module:github-projects-sync",
           "module:memory-substrate-sqlite-fts5",
           "module:routine-mode",
@@ -1267,6 +1368,24 @@
       "version": "0.0.0-dev"
     },
     {
+      "id": "module:design-review",
+      "name": "design-review",
+      "owner": "design-review",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "design-review",
+      "source": {
+        "fingerprint": "sha256:fc1f5b2e1112261ddf4ec5e0e288da7e7189fa073da72b93ae68886dc19e95e7",
+        "path": ".engine/modules/design-review/manifest.json"
+      },
+      "status": "optional",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
       "id": "module:github-projects-sync",
       "name": "github-projects-sync",
       "owner": "github-projects-sync",
@@ -1694,7 +1813,7 @@
       },
       "slug": "dependency-discipline",
       "source": {
-        "fingerprint": "sha256:c50173ab205fafe254b77f8bbd0169804d69273133d2832dcb69d6e6483cef71",
+        "fingerprint": "sha256:0105cd58cd5c448cad066b44c1cb3051bf5a95fc6d3cd3fbb8fa96edae3d7eb6",
         "path": ".engine/policies/dependency-discipline.md"
       },
       "status": "active",
@@ -2015,6 +2134,23 @@
       "source": {
         "fingerprint": "sha256:7a2a7130a5e7ad3ffc9796f2ddca6cba7eb2bc501db2f81d4f712b2703671278",
         "path": ".engine/schemas/operation.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:plan-review-finding.v1",
+      "name": ".engine/schemas/plan-review-finding.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "plan-review-finding.v1",
+      "source": {
+        "fingerprint": "sha256:1a56fd9df0ecdfac16f25919e21d6549b6e00a1dbdecdc36379d05283acaa8d7",
+        "path": ".engine/schemas/plan-review-finding.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -3481,7 +3617,7 @@
       },
       "slug": "review",
       "source": {
-        "fingerprint": "sha256:e5a0cd03f5d121dddca939dcd6839f2b6eff190ad893c2ccf5661ea159489565",
+        "fingerprint": "sha256:c7e7d7e4f95baca06f55ca2a7409cc5861d647f5a9e3c0d1b655778e14e2e9e6",
         "path": ".engine/tools/dependency_discipline/review.py"
       },
       "status": "active",
@@ -3925,6 +4061,23 @@
       "source": {
         "fingerprint": "sha256:e85fb93f9fb4b39aedf4267012f53f7f772d5597e0b62e8cdefe30c5a4170583",
         "path": ".engine/tools/test_contract.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_design_review",
+      "name": ".engine/tools/test_design_review.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_design_review",
+      "source": {
+        "fingerprint": "sha256:fcc60559b6778072ec86b4fab520e215ea1219375680ef031d2c14b7c97f3a08",
+        "path": ".engine/tools/test_design_review.py"
       },
       "status": "active",
       "type": "tool"
@@ -4535,7 +4688,7 @@
       },
       "slug": "test_review",
       "source": {
-        "fingerprint": "sha256:68e300a3417dc2815a000ef6d4453688186841e99338b0e998dc8ac1c8650d33",
+        "fingerprint": "sha256:42e8e2770841d67bd12008c65e850ff825d65bad6a26d9ebf9ac16cbebff2676",
         "path": ".engine/tools/dependency_discipline/test_review.py"
       },
       "status": "active",
