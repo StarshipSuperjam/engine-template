@@ -928,6 +928,31 @@
       "type": "check"
     },
     {
+      "id": "check:provisioning-catalog",
+      "kind": "schema",
+      "name": ".engine/check/provisioning-catalog.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "provisioning-catalog",
+      "source": {
+        "fingerprint": "sha256:cd298c97fe8d8cd5e18b78538fb667f11839ff4d3fb121330c78abee595f4b5b",
+        "path": ".engine/check/provisioning-catalog.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:self-map-drift",
       "kind": "custom/script",
       "name": ".engine/check/self-map-drift.json",
@@ -1306,7 +1331,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:34015e84f1260d1f955f066044a4fffa2b29df22ad48f08a88ab4561dcdd8560",
+        "fingerprint": "sha256:192dbd02d866f8d0c777f54594c55f7909acc0de610d27c63448e82ba783a575",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2039,7 +2064,7 @@
       },
       "slug": "provisioning-catalog.v1",
       "source": {
-        "fingerprint": "sha256:10351c9b64fa2155c455c44dc9d72e662829f04b591968c06c005eca50a61b5f",
+        "fingerprint": "sha256:eaf34b0ccd5adeab660d6b703853fb36b670a46c520f5c2f1f96554058428009",
         "path": ".engine/schemas/provisioning-catalog.v1.json"
       },
       "status": "active",
@@ -2844,7 +2869,7 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:95a97a6b27fc31134aff1a69058ab70efc96afe962b57c53a9ac35d2823c29e8",
+        "fingerprint": "sha256:b56968e1c01534776dc3b73e6efc1e5000027ff97a8fe56fd2108883d071efd7",
         "path": ".engine/tools/engine_help.py"
       },
       "status": "active",
@@ -3014,7 +3039,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:7ae0ce08114369e63c723e31bd4250d71cec49712090c1972381ab679354bb73",
+        "fingerprint": "sha256:a452fe14088f35eecc781804633a3688c8b7ddea64dd104d3dad5515b384fd3e",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -3252,7 +3277,7 @@
       },
       "slug": "module_catalog",
       "source": {
-        "fingerprint": "sha256:3a50aaf9fd17fc9a0a114002fb52445bc0edef5f91a71222a295cd68d3841f8e",
+        "fingerprint": "sha256:ad9d0f212613d2121dcd482d54b9ac66a141afd2428b731a7b383fe954dc1321",
         "path": ".engine/tools/module_catalog.py"
       },
       "status": "active",
@@ -3932,7 +3957,7 @@
       },
       "slug": "test_engine_help",
       "source": {
-        "fingerprint": "sha256:dfbaefa5aa9a5a11d7473a248907e4ca1febc7873d361ea0f4a5e819f997b6db",
+        "fingerprint": "sha256:932b470f57ccab5a389cd0aa3db4c1fc7bd6fd5c423862ffce3719bd8b106e81",
         "path": ".engine/tools/test_engine_help.py"
       },
       "status": "active",
@@ -4102,7 +4127,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:6f89c43dc4c3189a209275e75704078e1803b6e9c095ca045f3012a5594af444",
+        "fingerprint": "sha256:f061a5ce0266b6ab49fa5f6fa519340cc221059e56190639e7e4c27c39b20bd2",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -4306,7 +4331,7 @@
       },
       "slug": "test_module_catalog",
       "source": {
-        "fingerprint": "sha256:aa6c1e4a57f0fc8e0950744a50c4e0f9a34dbe968f3fdb28e33a9f3e61564def",
+        "fingerprint": "sha256:fb481234ba3d3e825e0142827c15c4a0462b1d70dbb016cf341a1a3e9afbfa65",
         "path": ".engine/tools/test_module_catalog.py"
       },
       "status": "active",
@@ -4340,7 +4365,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:d87e94bb92566f41266bab0f79a9a317069144d59e30f6cc10013e6fbfa8b92b",
+        "fingerprint": "sha256:b338a5f20683e52578ee6f4d7bf4d65852e19be9f02f816408354034532fe002",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

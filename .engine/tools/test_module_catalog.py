@@ -1,9 +1,10 @@
 """Tests for the shared optional-module catalog reader (core slice 27a).
 
 Verifies the single parse path both readers (the /engine-help index and the first-run walkthrough) share:
-a normalized record per entry sorted by command; degrade-to-empty on absent / unreadable / malformed /
-wrong-shaped input (never raises); an entry with no command dropped; non-dict items skipped; missing
-optional fields coerced; and the committed catalog (the default path) read as the empty array it ships.
+a normalized record per entry sorted by command then id; degrade-to-empty on absent / unreadable / malformed /
+wrong-shaped input (never raises); a command-less entry (no verb) RELAYED with an empty verb, not dropped
+(#254); non-dict items skipped; missing optional fields coerced; and the committed catalog (the default path)
+read as the empty array it ships.
 """
 import json
 import os
@@ -59,13 +60,31 @@ class TestEntries(unittest.TestCase):
                                       "category": "Verification & Validation", "status": ""},
                              "missing optional fields coerce to empty string; all fields present")
 
-    def test_entry_without_verb_is_dropped(self):
+    def test_entry_without_verb_is_kept(self):
+        # A command-less optional module (no verb) is RELAYED with an empty verb — the setup walkthrough
+        # offers it by description; /engine-help filters it out at that reader, not here (#254). It sorts
+        # first because an empty verb precedes any command.
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "c.json")
-            _write(p, json.dumps([{"id": "no-verb", "description": "has no command"},
-                                  {"verb": "engine-keep", "description": "kept"}]))
-            self.assertEqual([e["verb"] for e in mc.entries(p)], ["engine-keep"],
-                             "an entry with no command is unusable to either reader and is dropped")
+            _write(p, json.dumps([{"id": "no-verb", "description": "has no command",
+                                   "category": "Verification & Validation"},
+                                  {"id": "has-cmd", "verb": "engine-keep", "description": "kept",
+                                   "category": "Product Management"}]))
+            got = mc.entries(p)
+            self.assertEqual([e["verb"] for e in got], ["", "engine-keep"],
+                             "a command-less entry is kept (empty verb), not dropped, and sorts first")
+            self.assertEqual(got[0], {"id": "no-verb", "verb": "", "description": "has no command",
+                                      "category": "Verification & Validation", "status": ""},
+                             "the command-less entry is fully relayed, verb coerced to empty string")
+
+    def test_command_less_entries_sort_by_id(self):
+        # Multiple command-less entries all share an empty verb; the id secondary key keeps them deterministic.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "c.json")
+            _write(p, json.dumps([{"id": "zeta", "description": "Z.", "category": "Verification & Validation"},
+                                  {"id": "alpha", "description": "A.", "category": "Verification & Validation"}]))
+            self.assertEqual([e["id"] for e in mc.entries(p)], ["alpha", "zeta"],
+                             "command-less entries order by id when verbs tie on empty")
 
     def test_non_dict_items_skipped(self):
         with tempfile.TemporaryDirectory() as d:

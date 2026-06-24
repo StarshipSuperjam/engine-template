@@ -141,6 +141,20 @@ class TestAvailableVerbsRelay(unittest.TestCase):
                 fh.write("{not valid json")
             self.assertEqual(eh.available_verbs(p), [], "a broken catalog narrows, never breaks")
 
+    def test_command_less_module_is_excluded(self):
+        # A command-less optional module (no verb) reaches the shared reader now (#254), but /engine-help lists
+        # things to type — so available_verbs filters it out HERE, while the verb-bearing module is still shown.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "catalog.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump([{"id": "lens-mod", "description": "A review lens, fired by the gate.",
+                            "category": "Verification & Validation"},
+                           {"id": "cmd-mod", "verb": "engine-do", "description": "Has a command.",
+                            "category": "Product Management"}], fh)
+            got = eh.available_verbs(p)
+            self.assertEqual([v["name"] for v in got], ["engine-do"],
+                             "the command-less module is excluded from /engine-help; the command-bearing one stays")
+
 
 class TestRender(unittest.TestCase):
     def test_render_carries_the_pointer(self):
