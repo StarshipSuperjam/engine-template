@@ -496,6 +496,49 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             "backup": [".engine/memory-backup/pointer.json"],
         }, "memory owns its tools, the committed erasure proposal, and the committed backup-vault pointer")
 
+    def test_product_design_owns_its_front_door(self):
+        # product-design (optional, Slice 2) grows from one read-only check (Slice 1) to the operator-facing
+        # front door: the engine-design skill (the typed command), the product-intake operation (the ceremony
+        # runbook), the operator orientation doc, and the spec-authoring scaffold the operation writes a
+        # docs/spec/ tree from. The scaffold is committed product-authoring template files (the maintainer's
+        # Slice-2 decision), homed beside the manifest under .engine/modules/ — NOT a catalogued surface
+        # location, so it is owned (via this `scaffold` group) without being entitized into the knowledge
+        # graph. Pinning the exact provides locks the expanded footprint against drift; Slices 3/4 extend it
+        # (a lock-integrity check, then a coverage check + build-plan), and each must update this list.
+        manifests = module_coherence.discover_manifests()
+        pd = next((m for _p, m in manifests if m.get("id") == "product-design"), None)
+        self.assertIsNotNone(pd, "product-design must be a present module")
+        self.assertEqual(pd.get("status"), "optional")
+        self.assertEqual(pd.get("wires"), [])
+        self.assertEqual(pd.get("depends"), {"core": ""})
+        self.assertEqual(pd.get("provides"), {
+            "check": [".engine/check/product-spec-form.json"],
+            "tool": [".engine/tools/product_design/*.py"],
+            "operation": [".engine/operations/product-intake.md"],
+            "skill": [".claude/skills/engine-design/SKILL.md"],
+            "doc": [".engine/docs/product-design.md"],
+            "scaffold": [".engine/modules/product-design/scaffold/*.md"],
+        }, "product-design owns its front door: the spec-form check + tool, the intake operation, the "
+           "engine-design skill, the orientation doc, and the spec-authoring scaffold")
+
+    def test_doc_ownership_is_partitioned_core_and_product_design(self):
+        # The orientation doc lives under .engine/docs/, which core used to claim by a whole-surface glob
+        # (.engine/docs/*.md). product-design now owns one doc there, so core's glob was narrowed to an
+        # explicit list — a Python glob cannot carve out a sibling's file, and a doubly-claimed file is a HARD
+        # ownership finding caught by test_real_repository_is_coherent. This pins the resulting split, so a
+        # future re-widening of core's doc glob (which would re-double-claim product-design.md, or silently
+        # re-grab a new product doc) is caught precisely here — not only as a coherence red with a vaguer
+        # message. Defense-in-depth over the already-hard coherence leg.
+        claims = module_coherence.provides_claims(module_coherence.discover_manifests())
+        doc_owner = {rel: owners for rel, owners in claims.items()
+                     if rel.startswith(".engine/docs/") and rel.endswith(".md")}
+        for rel, owners in doc_owner.items():
+            self.assertEqual(len(owners), 1, f"{rel} must have exactly one owner, got {owners}")
+        self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["core"]),
+                         [".engine/docs/getting-started.md"], "core owns exactly the getting-started doc")
+        self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["product-design"]),
+                         [".engine/docs/product-design.md"], "product-design owns exactly its orientation doc")
+
     def test_seed_concern_list_conforms_to_its_schema(self):
         # the committed seed concern-list is well-formed against concern-list.v1 — the same schema + dialect
         # the audit-concern-list check validates it with at the merge. Pins the seed (every entry carries its

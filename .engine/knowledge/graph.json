@@ -598,7 +598,8 @@
           "module:validators-core"
         ],
         "targets": [
-          "doc:getting-started"
+          "doc:getting-started",
+          "doc:product-design"
         ]
       },
       "slug": "doc-frontmatter",
@@ -626,7 +627,8 @@
           "module:validators-core"
         ],
         "targets": [
-          "doc:getting-started"
+          "doc:getting-started",
+          "doc:product-design"
         ]
       },
       "slug": "doc-shape",
@@ -960,6 +962,7 @@
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
+          "operation:product-intake",
           "operation:projects-sync-setup",
           "operation:routine-entry",
           "operation:tune-policy"
@@ -1003,6 +1006,7 @@
           "operation:module-add",
           "operation:module-remove",
           "operation:operating-modes",
+          "operation:product-intake",
           "operation:projects-sync-setup",
           "operation:routine-entry",
           "operation:tune-policy"
@@ -1282,6 +1286,7 @@
         "targets": [
           "skill:engine-board-setup",
           "skill:engine-conduct",
+          "skill:engine-design",
           "skill:engine-help",
           "skill:engine-routine",
           "skill:engine-setup",
@@ -1317,6 +1322,7 @@
         "targets": [
           "skill:engine-board-setup",
           "skill:engine-conduct",
+          "skill:engine-design",
           "skill:engine-help",
           "skill:engine-routine",
           "skill:engine-setup",
@@ -1453,6 +1459,26 @@
       "type": "doc"
     },
     {
+      "id": "doc:product-design",
+      "name": ".engine/docs/product-design.md",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "product-design",
+      "source": {
+        "fingerprint": "sha256:d13d4fde2f4780571ce188dc19fc81dffda90efadcec4c60c1e0c87b9ee85fc4",
+        "path": ".engine/docs/product-design.md"
+      },
+      "status": "active",
+      "type": "doc"
+    },
+    {
       "fallback": "engine-knowledge-graph",
       "id": "interface:knowledge-retrieval",
       "name": ".engine/interfaces/knowledge-retrieval.json",
@@ -1531,7 +1557,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:7dec85edb501c547b470f3ed5e0cf88d3a33a0361e50ec9c32e6b1549953c2a0",
+        "fingerprint": "sha256:189d50a41f12ac61f8f21553011fa448a896ab6050dcf0e17c49473bd851f0ff",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -1657,7 +1683,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:175823cfc2c3e46ac3fc77dcc1bb33fa8dda735749e16de0147bdd210d0306e3",
+        "fingerprint": "sha256:c32a979395a795ee280da0a088e1dfbbe12e75419562e3827764caf897211699",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
@@ -1974,6 +2000,26 @@
       "source": {
         "fingerprint": "sha256:b7ffe2215b3ea334f8c8a5ae32b4f98e02b63fd48c4d0939c85816baa51c893c",
         "path": ".engine/operations/operating-modes.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:product-intake",
+      "name": ".engine/operations/product-intake.md",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "product-intake",
+      "source": {
+        "fingerprint": "sha256:f7de9defe506eb423c410aa9a0409e357a89cd32eb1bf2d335e422d21cf7e061",
+        "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
       "type": "operation"
@@ -2690,6 +2736,28 @@
       },
       "status": "active",
       "title": "engine-conduct",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-design",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-design/SKILL.md",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "engine-design",
+      "source": {
+        "fingerprint": "sha256:bc8c42bf487520e4ea4910026d43fa0bf40c7e93467b1801fc32accb3b9fbb22",
+        "path": ".claude/skills/engine-design/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-design",
       "type": "skill"
     },
     {
@@ -4977,7 +5045,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b6014c3c472b66878fb3e90e68dd2f61f269c664e138d179e31e5fa145c91445",
+        "fingerprint": "sha256:0e61f3a78cc5d60318cb089f5ac0b664e55b89812828a4a3c08cd7e8fb858f6e",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -5217,6 +5285,23 @@
       "source": {
         "fingerprint": "sha256:9b884c318e7af1c93f2ae35e1a35c67e8207348bf80b628824ccde9f45f99805",
         "path": ".engine/tools/memory/test_rollup_sweep.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_scaffold",
+      "name": ".engine/tools/product_design/test_scaffold.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "test_scaffold",
+      "source": {
+        "fingerprint": "sha256:4a65cba260f09d5465ed51eecb9f72a71511f6b613162cc9b278830d1fb3614a",
+        "path": ".engine/tools/product_design/test_scaffold.py"
       },
       "status": "active",
       "type": "tool"

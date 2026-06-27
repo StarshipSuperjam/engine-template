@@ -32,7 +32,7 @@
       ".claude/skills/.gitkeep"
     ],
     "agent": [".claude/agents/.gitkeep"],
-    "doc": [".engine/docs/*.md"],
+    "doc": [".engine/docs/getting-started.md"],
     "state": [".engine/state/*.json"],
     "knowledge": [".engine/knowledge/*.json"],
     "contract": [".engine/contracts/*.md", ".engine/contracts/.gitkeep"],

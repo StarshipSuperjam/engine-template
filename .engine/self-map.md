@@ -51,7 +51,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - check: `.engine/check/guardrail-weakening.json`, `.engine/check/protection.json`
   - conduct: `.engine/conduct/defaults.md`
   - contract: `.engine/contracts/*.md`, `.engine/contracts/.gitkeep`
-  - doc: `.engine/docs/*.md`
+  - doc: `.engine/docs/getting-started.md`
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
@@ -123,6 +123,10 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - depends on: `core`
 - provides:
   - check: `.engine/check/product-spec-form.json`
+  - doc: `.engine/docs/product-design.md`
+  - operation: `.engine/operations/product-intake.md`
+  - scaffold: `.engine/modules/product-design/scaffold/*.md`
+  - skill: `.claude/skills/engine-design/SKILL.md`
   - tool: `.engine/tools/product_design/*.py`
 - wires: none (this module adds no shared-state edits)
 
