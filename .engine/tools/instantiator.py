@@ -995,6 +995,7 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_derived_reconcile.py",
     ".engine/tools/demo_focus_read.py",
     ".engine/tools/demo_reverse_adjacency.py",
+    ".engine/tools/demo_remember_this.py",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
 )
@@ -1087,7 +1088,7 @@ def retire(*, root=None, announce=None) -> dict:
     _drop_bytecode(base, ("instantiator", "test_instantiator", "test_security_seed", "demo_security_seed",
                           "demo_audit_concern_list", "demo_audit_digest", "demo_boot_slice",
                           "demo_ci_author_exempt", "demo_derived_reconcile", "demo_focus_read",
-                          "demo_reverse_adjacency"))
+                          "demo_reverse_adjacency", "demo_remember_this"))
     graph_status = "regenerated"
     try:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)  # so the saved information no longer lists the
