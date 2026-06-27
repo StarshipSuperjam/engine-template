@@ -26,3 +26,7 @@ only its own fields in step and never touches your Status or card moves. You can
 engine works the same from your issues and pull requests — and you can delete the board later without
 losing anything. Removing the board or the permission is something you do on GitHub yourself; the engine
 cannot reach back out to undo those.
+
+At the link step, name the operator's login and the repo explicitly (`--owner <login> --repo <repo>`), not
+`@me`: `@me` works as the owner in the create/field steps, but linking also resolves a repository and `@me`
+fails there ("Could not resolve to a Repository"). The runbook's step 3 carries the working form.
