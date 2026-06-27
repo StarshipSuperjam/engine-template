@@ -11,17 +11,19 @@ all reads/writes happen inside the called functions — so the import itself can
 live session's turn. Callers reach the ledger/index primitives explicitly with ``from memory import
 ledger`` / ``from memory import index``.
 
-Shipped so far: the ledger (``memory.ledger``), the derived index + plain-scan fallback
-(``memory.index``), turn-delta capture (``memory.capture`` / ``memory.capture_turn_delta``), AI-judged
-episodic consolidation — the closed role vocabulary + the abandoned-session ``SessionStart`` sweep
-(``memory.consolidate``), and active forgetting (Layer 1): logical retirement + scored demotion
-(``memory.forget``), crash-safe ledger compaction (``memory.compact``), and gist roll-up
-(``memory.rollup``). The public search interface + MCP server (with the live recall/reinforcement caller and
-the live maintenance triggers) land in later slices, as does backup/restore (with its resurrection-surfacing).
-Layer-2 audit-gated physical erasure has shipped its enactment core (the gated removal + sole minter in
-``memory.compact``, slice 4e-i) and its cross-session observer (``memory.erasure_observer``, slice 4e-ii).
+Shipped: the ledger (``memory.ledger``), the derived index + plain-scan fallback (``memory.index``),
+turn-delta capture (``memory.capture`` / ``memory.capture_turn_delta``), AI-judged episodic consolidation —
+the closed role vocabulary + the abandoned-session ``SessionStart`` sweep (``memory.consolidate``), active
+forgetting (Layer 1): logical retirement + scored demotion (``memory.forget``), crash-safe ledger compaction
+(``memory.compact``), gist roll-up (``memory.rollup``), the public search interface + MCP server, the
+backup/restore vault with its resurrection-surfacing (``memory.backup_vault`` / ``memory.restore_vault``),
+and the pre-migration backup seam the module manager consumes (``memory.snapshot_for_migration``). Layer-2
+audit-gated physical erasure has shipped its enactment core (the gated removal + sole minter in
+``memory.compact``) and its cross-session observer (``memory.erasure_observer``).
 """
 
 from memory.capture import capture_turn_delta  # noqa: F401 — the public capture entry close's relay calls
+from memory.backup_vault import migration_backup_available  # noqa: F401 — the migration pre-flight readiness probe
+from memory.backup_vault import snapshot_for_migration  # noqa: F401 — the pre-migration backup seam module_manager calls
 
-__all__ = ["capture_turn_delta"]
+__all__ = ["capture_turn_delta", "migration_backup_available", "snapshot_for_migration"]

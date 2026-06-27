@@ -745,5 +745,33 @@ class TestRemoveEngine(unittest.TestCase):
             self.assertTrue(module_manager.remove_engine_demo())
 
 
+class TestBackupSeamResolution(unittest.TestCase):
+    """_resolve_backup_seam: now that memory ships the seam, "a backup is available" means the mechanism is
+    installed AND a vault is configured — so memory-installed-but-no-vault resolves to None (refuse the data
+    migration cleanly) rather than handing back a seam that fails mid-snapshot. An injected backup always wins."""
+
+    def test_no_vault_configured_resolves_to_no_seam(self):
+        import memory
+        orig = memory.migration_backup_available
+        memory.migration_backup_available = lambda: False
+        try:
+            self.assertIsNone(module_manager._resolve_backup_seam(None))
+        finally:
+            memory.migration_backup_available = orig
+
+    def test_vault_configured_resolves_to_the_live_seam(self):
+        import memory
+        orig = memory.migration_backup_available
+        memory.migration_backup_available = lambda: True
+        try:
+            self.assertIs(module_manager._resolve_backup_seam(None), memory.snapshot_for_migration)
+        finally:
+            memory.migration_backup_available = orig
+
+    def test_an_injected_backup_wins_over_resolution(self):
+        sentinel = lambda store, ver: {"ok": True}
+        self.assertIs(module_manager._resolve_backup_seam(sentinel), sentinel)
+
+
 if __name__ == "__main__":
     unittest.main()

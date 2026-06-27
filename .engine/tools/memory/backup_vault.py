@@ -208,18 +208,20 @@ def _engine_version() -> str:
         return "unknown"
 
 
-def build_manifest(*, ledger_path: "str | None" = None, now: "int | None" = None) -> dict:
+def build_manifest(*, ledger_path: "str | None" = None, now: "int | None" = None,
+                   engine_version: "str | None" = None) -> dict:
     """The snapshot manifest committed beside the ledger copy — EXACTLY the four locked keys (README §Backup):
     ledger-version, ledger-generation, timestamp, engine-version. The generation is read LIVE from the ledger's
-    sidecar (`ledger.generation`), so the field is genuinely populated now — restore (slice 6b) reads it to surface a
+    sidecar (`ledger.generation`), so the field is genuinely populated now — restore reads it to surface a
     resurrecting restore, and inherits no manifest format change. `ledger_path` lets a throwaway store read ITS own
-    generation."""
+    generation. `engine_version` overrides the stamped engine version (used by the pre-migration snapshot seam so the
+    manifest carries the MIGRATION-time version, not whatever `engine.json` happens to read); None reads it live."""
     when = int(time.time()) if now is None else int(now)
     return {
         "ledger-version": ledger.LEDGER_FORMAT_VERSION,
         "ledger-generation": ledger.generation(for_path=ledger_path),
         "timestamp": _iso_utc(when),
-        "engine-version": _engine_version(),
+        "engine-version": engine_version if engine_version else _engine_version(),
     }
 
 
@@ -374,27 +376,30 @@ def _push_files(gh, owner: str, repo: str, branch: str, files: dict, *, retry: b
     return False
 
 
-def push_now(*, transport=None, now: "int | None" = None) -> dict:
+def push_now(*, transport=None, now: "int | None" = None, engine_version: "str | None" = None) -> dict:
     """Push the latest ledger + snapshot manifest to the configured vault. Requires setup (a pointer). CHEAP-PROBE
     FIRST: a single repo GET re-verifies the repo is still PRIVATE (and confirms reachability) before any blob work —
     so a public flip or a dead host costs one bounded call, never the full sequence. On a public flip it DECLINES to
     push (never sends new memory to a public repo). Fail-SAFE: returns a structured result, never raises.
+    `engine_version` overrides the manifest's stamped engine version (the pre-migration snapshot seam passes the
+    migration-time version); None stamps the live `engine.json` value.
 
-    Result: {ok, error, pushed}. error in {None, not-configured, no-token, unreachable, public, push-failed}."""
+    Result: {ok, error, pushed, namespace}. error in {None, not-configured, no-token, unreachable, public,
+    push-failed}; namespace is the vault path the snapshot landed under (None on failure)."""
     when = int(time.time()) if now is None else int(now)
     pointer = read_pointer()
     if pointer is None:
-        return {"ok": False, "error": "not-configured", "pushed": False}
+        return {"ok": False, "error": "not-configured", "pushed": False, "namespace": None}
     gh = _gh(transport)
     if gh is None:
-        return {"ok": False, "error": "no-token", "pushed": False}
+        return {"ok": False, "error": "no-token", "pushed": False, "namespace": None}
     owner, repo, branch, namespace = pointer["owner"], pointer["repo"], pointer["branch"], pointer["namespace"]
 
     repo_obj = _get(gh, f"/repos/{owner}/{repo}")           # cheap probe: privacy re-verify + reachability
     if repo_obj is None:
-        return {"ok": False, "error": "unreachable", "pushed": False}
+        return {"ok": False, "error": "unreachable", "pushed": False, "namespace": None}
     if repo_obj.get("private") is not True:
-        return {"ok": False, "error": "public", "pushed": False}
+        return {"ok": False, "error": "public", "pushed": False, "namespace": None}
 
     lpath = ledger.ledger_path()
     try:
@@ -402,11 +407,48 @@ def push_now(*, transport=None, now: "int | None" = None) -> dict:
             ledger_bytes = fh.read()
     except FileNotFoundError:
         ledger_bytes = b""                                  # the substrate ships empty — a valid empty backup
-    manifest_bytes = (json.dumps(build_manifest(ledger_path=lpath, now=when), indent=2) + "\n").encode("utf-8")
+    manifest_bytes = (json.dumps(build_manifest(ledger_path=lpath, now=when, engine_version=engine_version),
+                                 indent=2) + "\n").encode("utf-8")
     files = {f"{namespace}/ledger.ndjson": ledger_bytes, f"{namespace}/manifest.json": manifest_bytes}
     if not _push_files(gh, owner, repo, branch, files):
-        return {"ok": False, "error": "push-failed", "pushed": False}
-    return {"ok": True, "error": None, "pushed": True}
+        return {"ok": False, "error": "push-failed", "pushed": False, "namespace": None}
+    return {"ok": True, "error": None, "pushed": True, "namespace": namespace}
+
+
+def snapshot_for_migration(store, engine_version, *, transport=None, now: "int | None" = None):
+    """The pre-migration backup seam the module manager consumes via `getattr(memory, "snapshot_for_migration")`
+    (module_manager._resolve_backup_seam). A `data` migration calls this BEFORE mutating its store; the engine
+    refuses the migration unless it returns a truthy handle, so un-backed-up data is never silently reshaped.
+
+    It reuses memory's ONE backup mechanism + restore contract — an immediate, unconditional off-repo push of the
+    current (pre-migration) ledger + a manifest stamped with the migration-time `engine_version` — and never widens
+    it (the restore side stays `restore_vault`). Returns a truthy snapshot handle on success, or **None** when no
+    backup is available (vault not configured / no token / unreachable / public-flipped / push failed) so the
+    no-backup guard refuses the migration. NOTE: `push_now` returns a *truthy* {"ok": False} dict on failure, so we
+    branch on `ok` and return None on any failure — a non-None return must mean a real backup was taken.
+
+    `store` is a caller-supplied label (advisory); v1 memory has one physical store, so the snapshot is always taken
+    of the live ledger (`ledger.ledger_path()`, which honors ENGINE_MEMORY_DIR) — the migrating store. The
+    point-in-time durability of this snapshot against a later rolling auto-backup is the open design question tracked
+    in the issue referenced from `module_manager._resolve_backup_seam`."""
+    result = push_now(transport=transport, now=now, engine_version=engine_version)
+    if not result.get("ok"):
+        return None
+    return {"backed-up": True, "engine-version": engine_version, "namespace": result.get("namespace")}
+
+
+def migration_backup_available() -> bool:
+    """Cheap readiness probe the migration pre-flight consumes (module_manager._resolve_backup_seam): True iff a
+    backup destination is CONFIGURED (a committed pointer exists), so a pre-migration snapshot can be taken. This
+    is what makes the no-backup guard mean "a backup can actually be taken", not merely "the seam callable
+    exists" — so a repo with memory installed but no vault set up refuses a data migration (degrade loud) instead
+    of running it and failing mid-snapshot. No network: reachability/privacy are re-checked at push time
+    (`push_now`'s cheap probe), and a configured-but-transiently-unreachable vault makes the snapshot itself
+    return None, so the migration still refuses before mutating. Never raises."""
+    try:
+        return read_pointer() is not None
+    except Exception:  # noqa: BLE001 — any fault reading the pointer -> treat as no backup available
+        return False
 
 
 # ============================================================================================================

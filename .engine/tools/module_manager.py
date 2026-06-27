@@ -15,10 +15,11 @@ containment escape closed BEFORE any write), apply/reverse wiring deltas, re-ren
 wall for the new release's engine paths (the design's upgrade re-render — `_refresh_codeowners`), re-sync the
 tool-runtime, run the packages' `migrations` in dependency order, run coherence, and land it as a reviewed PR.
 A `data` migration is **backup-first**: it is refused (pre-flight, before any overlay) unless a backup seam
-is available (memory owns the mechanism — INERT until memory-substrate ships, owes -> memory-substrate), so
-the engine never changes un-backed-up data. It DEGRADES to the current version on an unreachable release
-(§5 / R7). FIXTURE-DEMOED: the real release fetch, the `uv sync` re-sync, the git/PR open, and a real data
-migration never run in the construction repo (no releases; memory is post-core) — the named inductive gaps.
+is available (memory owns the mechanism, live via `memory.snapshot_for_migration`), so the engine never
+changes un-backed-up data. It DEGRADES to the current version on an unreachable release (§5 / R7).
+FIXTURE-DEMOED: the real release fetch, the `uv sync` re-sync, the git/PR open, and a real data migration
+are exercised by fixtures, not by a live release in this template repo (which cuts no releases of itself)
+— the named inductive gaps.
 
 `add` is the mirror of `remove` (provisioning §"The module manager: add"): fetch the module's files from
 the tagged release, copy its `provides` into their surface homes, copy in its manifest, apply its `wires`,
@@ -506,7 +507,8 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
 # ---- engine upgrade + migrations (the engine updater: provisioning §"Upgrading the engine" +
 #      §"Migration and reversibility"). FIXTURE-DEMOED — four boundaries never run in the construction
 #      repo: (1) the real release FETCH (no releases), (2) the `uv sync` RE-SYNC from the overlaid lock,
-#      (3) the git/PR OPEN, (4) a real DATA migration + its backup (memory's seam is post-core). Each is
+#      (3) the git/PR OPEN, (4) a real DATA migration + its backup (the live `memory.snapshot_for_migration`
+#      seam). Each is
 #      injectable/skipped so tests + the demo run the REAL overlay / runner / coherence logic; "works on
 #      the fixture ⇒ works for a real adopter" is the inductive step the fixture cannot discharge. ------
 
@@ -536,22 +538,32 @@ class _UpgradeRefused(Exception):
         self.reason = reason
 
 
-# ---- migrations: the backup seam (INERT), the loader, the runner, the version-stamp check -----
+# ---- migrations: the backup seam, the loader, the runner, the version-stamp check -----
 
 def _resolve_backup_seam(backup):
     """The pre-migration backup seam a `data` migration uses. An injected callable (tests/demo) wins;
-    otherwise MEMORY's snapshot mechanism if memory-substrate is installed, else None. The seam is a
-    callable `seam(store, engine_version) -> a truthy snapshot handle`; **None means NO backup is
-    available**, so the no-backup guard refuses every data migration (degrade loud, never silently mutate
-    un-backed-up data). DORMANT until memory ships (post-core / ~M1): memory owns the mechanism AND the
-    restore contract and may not be widened here (owes -> memory-substrate). This reads ONLY present/absent
-    — the handle's concrete shape is memory's leaf (the close._trigger_ambient_capture precedent)."""
+    otherwise MEMORY's snapshot mechanism if memory-substrate is installed AND a backup destination is
+    configured, else None. The seam is a callable `seam(store, engine_version) -> a truthy snapshot
+    handle`; **None means NO backup is available**, so the no-backup guard refuses every data migration
+    (degrade loud, never silently mutate un-backed-up data). "Available" means a backup can actually be
+    taken (mechanism installed + a vault set up) — NOT merely that the callable exists — so a repo with
+    memory installed but no vault refuses cleanly instead of running a migration that fails mid-snapshot.
+    Live via `memory.snapshot_for_migration` (+ `memory.migration_backup_available`): memory owns the
+    mechanism AND the restore contract and may not be widened here. The handle's concrete shape is memory's
+    leaf (the close._trigger_ambient_capture precedent). The snapshot lands in the single rolling vault;
+    whether memory should retain a distinct point-in-time migration snapshot (so a later routine backup
+    cannot overwrite it) is the open design decision tracked in #287."""
     if backup is not None:
         return backup
     try:
-        import memory  # noqa: F401 — absent until memory-substrate ships; ImportError -> no seam
+        import memory  # noqa: F401 — ImportError (memory not installed) -> no seam
         fn = getattr(memory, "snapshot_for_migration", None)
-        return fn if callable(fn) else None
+        if not callable(fn):
+            return None
+        available = getattr(memory, "migration_backup_available", None)
+        if callable(available) and not available():
+            return None        # mechanism installed but no backup destination configured -> no backup available
+        return fn
     except Exception:  # noqa: BLE001 — any failure obtaining the seam -> treat as "no backup available"
         return None
 
@@ -1556,8 +1568,9 @@ def upgrade_demo() -> bool:
     migration runner / coherence logic runs against a throwaway fixture; ALL FOUR side-effect boundaries
     are faked — the release fetch (injected release tree), the tool-runtime rebuild (skipped on a practice
     run), the git/PR open (injected fake opener), and the data backup (injected fake seam). Honest limit:
-    none of those four ever runs for real in the construction repo (no releases; memory is post-core), so
-    "works on the fixture ⇒ works for a real adopter" is the inductive step the fixture cannot discharge."""
+    none of those four ever runs against a live release in this template repo (which cuts no releases of
+    itself), so "works on the fixture ⇒ works for a real adopter" is the inductive step the fixture cannot
+    discharge."""
     ok = True
     print("Part G — updating the whole engine on a throwaway fixture. FAKED: the release fetch, the "
           "tool-runtime rebuild, the pull-request open, and the data backup. REAL: the overlay, the "
