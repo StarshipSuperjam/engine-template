@@ -370,6 +370,26 @@ class TestRunMigrations(unittest.TestCase):
             with open(marker) as fh:
                 self.assertEqual(fh.read(), "v2")              # the migration stamped the engine version
 
+    def test_data_migration_whose_backup_fails_at_runtime_refuses_cleanly_without_mutating(self):
+        # A seam resolved LIVE but that returns a falsy handle at call time (a vault reachable at pre-flight,
+        # gone at the snapshot): the migration's backup-first assert fires; run_migrations must DEGRADE LOUD
+        # (a refusal, not a raw traceback) and the body must not have mutated.
+        with tempfile.TemporaryDirectory() as d:
+            marker = os.path.join(d, "out.txt")
+            mdir = self._module_dir(d, "dd.py",
+                                    "def migrate(context):\n"
+                                    "    handle = context['backup']('store', context['engine_version'])\n"
+                                    "    assert handle, 'backup-first: a data migration must snapshot before mutating'\n"
+                                    f"    open({marker!r}, 'w').write('RAN')\n")
+            sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
+            failing = lambda store, ver: None                  # the backup fails at the moment of the snapshot
+            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=failing)
+            self.assertEqual(res["ran"], [])                   # not counted as run
+            self.assertEqual(len(res["refused"]), 1)
+            self.assertIn("backup could not be completed", res["refused"][0])
+            self.assertIn("Ask me to", res["refused"][0])      # carries a recovery action
+            self.assertFalse(os.path.exists(marker))           # the body bailed before mutating
+
 
 class TestVersionStamp(unittest.TestCase):
     """The post-revert version-stamp check: pure detection + the read-only promote_finding surfacing."""
@@ -475,6 +495,26 @@ class TestUpgradeSafety(unittest.TestCase):
             self.assertIn("data", res["reason"])
             self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.0.0")   # NOT bumped
             self.assertIn("v0", tool)        # base tool NOT overlaid: the pre-flight refuses before any write
+
+    def test_data_migration_whose_backup_fails_at_runtime_is_declined_not_crashed(self):
+        # A backup available at pre-flight but that fails at the snapshot must NOT crash upgrade() with a raw
+        # traceback: the migration refuses (degrade loud), upgrade declines to open the change for review, and
+        # nothing is merged. (opener must never fire.)
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                res = module_manager.upgrade(
+                    ref="v0.2.0", release_tree=release,
+                    opener=lambda **k: opened.append(k) or {"number": 1},
+                    backup=lambda *a: None)                    # resolved live, but the snapshot fails at run time
+        self.assertFalse(res.get("refused"))                   # not a pre-flight refusal — it got past the overlay
+        self.assertIn("backup did not succeed", res["reason"])
+        self.assertIn("NOT opened for review", res["reason"])
+        self.assertEqual(opened, [])                           # the change was never opened for review
 
     def test_escaping_provides_in_a_release_is_refused_before_any_write(self):
         with tempfile.TemporaryDirectory() as d:
@@ -743,6 +783,34 @@ class TestRemoveEngine(unittest.TestCase):
     def test_remove_engine_demo_passes(self):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(module_manager.remove_engine_demo())
+
+
+class TestBackupSeamResolution(unittest.TestCase):
+    """_resolve_backup_seam: now that memory ships the seam, "a backup is available" means the mechanism is
+    installed AND a vault is configured — so memory-installed-but-no-vault resolves to None (refuse the data
+    migration cleanly) rather than handing back a seam that fails mid-snapshot. An injected backup always wins."""
+
+    def test_no_vault_configured_resolves_to_no_seam(self):
+        import memory
+        orig = memory.migration_backup_available
+        memory.migration_backup_available = lambda: False
+        try:
+            self.assertIsNone(module_manager._resolve_backup_seam(None))
+        finally:
+            memory.migration_backup_available = orig
+
+    def test_vault_configured_resolves_to_the_live_seam(self):
+        import memory
+        orig = memory.migration_backup_available
+        memory.migration_backup_available = lambda: True
+        try:
+            self.assertIs(module_manager._resolve_backup_seam(None), memory.snapshot_for_migration)
+        finally:
+            memory.migration_backup_available = orig
+
+    def test_an_injected_backup_wins_over_resolution(self):
+        sentinel = lambda store, ver: {"ok": True}
+        self.assertIs(module_manager._resolve_backup_seam(sentinel), sentinel)
 
 
 if __name__ == "__main__":

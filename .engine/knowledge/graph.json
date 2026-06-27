@@ -2988,7 +2988,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:48b53b760e571340c6a86d9489dc2aa28358d8414788f8703caa94b79adbc089",
+        "fingerprint": "sha256:493c35748905b04ac6f20240b97f9e03b3ba3707d0efad095b05eed392ffa282",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -3804,7 +3804,7 @@
       },
       "slug": "memory.__init__",
       "source": {
-        "fingerprint": "sha256:f673755c37c92a7e5e8cce7992619155cf7aa0312774060fba340cbae8169fae",
+        "fingerprint": "sha256:a1e73b40df913be7d3d205fb764d9f0c1d122725677e96aecda83bb8c766b0cf",
         "path": ".engine/tools/memory/__init__.py"
       },
       "status": "active",
@@ -3906,7 +3906,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:aba75a5559afae40f65dd50280c8132e2d3f2ff9bf94f45e3218942b8bf52521",
+        "fingerprint": "sha256:0415788ccebe91fdc22dffc054717b69362d6c2c892efd3e84388869d6c4053c",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -4399,7 +4399,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:aa15a898f9e5b451ad6d4b08fddc16adf0f99d217389fee1bec5ec418127f77b",
+        "fingerprint": "sha256:c63233879d744d598f5ff86c4f9220995e14211610654476ae040176fbb9231e",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -5028,7 +5028,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:447e3023709b4773989fbed71ac77b642ad1be6cf7d271f61ae2fd9196e6b5e7",
+        "fingerprint": "sha256:72bd78e27072ccf5c3b168c57b9f01f844bcdaa984b3e8a4bf19df6080e9485e",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

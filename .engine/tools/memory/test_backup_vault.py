@@ -388,5 +388,105 @@ class AdoptTests(_Base):
         self.assertIsNone(bv.read_pointer())                              # never blind-create a possible duplicate
 
 
+class ManifestVersionOverrideTests(_Base):
+    """`engine_version` override on build_manifest — the snapshot seam stamps the migration-time version, not
+    whatever `engine.json` happens to read; no override reads it live (no regression to existing callers)."""
+
+    def test_build_manifest_stamps_the_override_and_falls_back_without_it(self):
+        ledger.append({"kind": "turn-delta", "text": "x"})
+        lp = ledger.ledger_path()
+        self.assertEqual(bv.build_manifest(ledger_path=lp)["engine-version"], "1.2.3")              # engine.json
+        self.assertEqual(bv.build_manifest(ledger_path=lp, engine_version="v7")["engine-version"], "v7")
+        # the four locked keys are unchanged by the override (a non-widening extension)
+        self.assertEqual(set(bv.build_manifest(ledger_path=lp, engine_version="v7")),
+                         {"ledger-version", "ledger-generation", "timestamp", "engine-version"})
+
+
+class MigrationSnapshotTests(_Base):
+    """The pre-migration backup seam module_manager consumes: it reuses the vault push, returns a truthy
+    handle ONLY when a real backup was taken, and None on every no-backup path so the no-backup guard refuses
+    the migration. Guards the {"ok": False}-is-truthy trap (a failed push must read as None, not success)."""
+
+    def _setup_vault(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        return fake
+
+    @staticmethod
+    def _pushed_manifests(fake):
+        out = []
+        for content in fake.blobs.values():
+            try:
+                d = json.loads(base64.b64decode(content))
+            except Exception:                                   # noqa: BLE001 — the ledger blob is NDJSON, skip it
+                continue
+            if isinstance(d, dict) and "engine-version" in d:
+                out.append(d)
+        return out
+
+    def test_successful_snapshot_returns_a_handle_stamped_with_the_passed_version(self):
+        fake = self._setup_vault()
+        ledger.append({"kind": "turn-delta", "text": "pre-migration state"})
+        handle = bv.snapshot_for_migration("recall-ledger", "v9.9.9", transport=fake.transport)
+        self.assertTrue(handle)                                  # truthy -> the migration may proceed
+        self.assertEqual(handle["engine-version"], "v9.9.9")    # the MIGRATION-time version, not engine.json's 1.2.3
+        self.assertTrue(handle["namespace"])
+        # end-to-end: the manifest actually pushed to the vault carries the passed version (push_now threads it)
+        self.assertTrue(any(m.get("engine-version") == "v9.9.9" for m in self._pushed_manifests(fake)))
+
+    def test_returns_none_when_the_vault_is_not_configured(self):
+        self.assertIsNone(                                       # no setup -> no pointer -> not-configured
+            bv.snapshot_for_migration("recall-ledger", "v1", transport=bv._FakeVault().transport))
+
+    def test_returns_none_on_a_public_flip(self):
+        fake = self._setup_vault()
+        fake.private = False                                     # the vault went public -> never push, no backup
+        self.assertIsNone(bv.snapshot_for_migration("recall-ledger", "v1", transport=fake.transport))
+
+    def test_returns_none_on_a_push_failure(self):
+        fake = self._setup_vault()
+        fake.fail_blob = True                                    # the blob upload fails -> push-failed
+        self.assertIsNone(bv.snapshot_for_migration("recall-ledger", "v1", transport=fake.transport))
+
+    def test_returns_none_when_the_repo_is_unreachable(self):
+        fake = self._setup_vault()
+        fake.hide_next_probe(bv.read_pointer()["repo"])         # the privacy re-probe 404s -> unreachable
+        self.assertIsNone(bv.snapshot_for_migration("recall-ledger", "v1", transport=fake.transport))
+
+    def test_returns_none_when_no_token_resolves(self):
+        self._setup_vault()
+        orig = bv._gh
+        bv._gh = lambda transport=None: None                    # a non-None transport short-circuits _gh, so force it
+        try:
+            self.assertIsNone(bv.snapshot_for_migration("recall-ledger", "v1"))
+        finally:
+            bv._gh = orig
+
+    def test_a_failed_backup_is_falsy_not_a_truthy_result_dict(self):
+        # the {"ok": False}-is-truthy trap: push_now returns a truthy dict on failure; the seam MUST return None,
+        # else module_manager's no-backup guard would read a failed backup as success and run the migration.
+        fake = self._setup_vault()
+        fake.fail_blob = True
+        self.assertFalse(bv.snapshot_for_migration("recall-ledger", "v1", transport=fake.transport))
+
+
+class ImportInvariantTests(unittest.TestCase):
+    """`import memory` exposes the seam and does NO filesystem work (the package docstring's invariant — now
+    that __init__ also binds backup_vault). Run in a fresh interpreter against a fresh empty cabinet."""
+
+    def test_importing_memory_exposes_the_seam_and_writes_nothing(self):
+        import subprocess
+        tools = os.path.dirname(os.path.dirname(os.path.abspath(bv.__file__)))   # .engine/tools
+        with tempfile.TemporaryDirectory() as cab:
+            env = dict(os.environ)
+            env["ENGINE_MEMORY_DIR"] = cab
+            code = (f"import sys; sys.path.insert(0, {tools!r}); import memory; "
+                    "assert callable(memory.snapshot_for_migration); "
+                    "assert callable(memory.capture_turn_delta)")
+            r = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(os.listdir(cab), [])               # importing the package created nothing on disk
+
+
 if __name__ == "__main__":
     unittest.main()
