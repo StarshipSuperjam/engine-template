@@ -614,11 +614,14 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
     resolves the real one. Returns {ran:[...], refused:[...]}.
 
     `config` migration -> runs directly (a reverted upgrade restores a committed file on its own).
-    `data` migration  -> the NO-BACKUP GUARD: with no backup seam available it is REFUSED (degrade loud,
+    `data` migration  -> the NO-BACKUP GUARD: with no backup available it is REFUSED (degrade loud,
     nothing run); else the seam is handed to the migration in `context` so it snapshots its OWN store
     BEFORE mutating + stamps it with `engine_version` (backup-first reversibility). The guard is
     belt-and-suspenders with upgrade()'s pre-flight (which refuses the whole upgrade before overlaying if a
-    data migration has no seam), so run_migrations is also safe to call on its own."""
+    data migration has no backup available), so run_migrations is also safe to call on its own. A data
+    migration whose backup FAILS at run time (the seam returns a falsy handle, so its backup-first assert
+    fires) is also caught and recorded as a refusal — never a raw traceback; upgrade() then declines to
+    open the change for review (see the refused-result check there)."""
     if module_dir is None:
         module_dir = _modules_dir
     seam = _resolve_backup_seam(backup)
@@ -628,12 +631,28 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
         if kind == "data" and seam is None:
             result["refused"].append(
                 f"Did not update stored data for '{mid}' to {ver}: no data backup is set up yet, and the "
-                f"engine never changes stored data it can't first back up. Nothing was changed.")
+                f"engine never changes stored data it can't first back up. Nothing was changed. Ask me to "
+                f"set up a backup, then update again.")
             continue
         ctx = {"module_id": mid, "from_version": from_versions.get(mid), "to_version": ver,
                "engine_version": engine_version, "kind": kind,
                "backup": seam if kind == "data" else None}
-        _load_migration(module_dir(mid), item["run"])(ctx)
+        if kind == "data":
+            # A data migration snapshots BEFORE mutating; if that backup can't be taken at run time (the seam
+            # returns a falsy handle, so the migration's own backup-first assert fires) it must DEGRADE LOUD —
+            # a clean refusal, never a raw traceback to the operator. The pre-flight + readiness probe catch
+            # the common "no vault configured" case earlier; this catches a backup that fails at the moment of
+            # the snapshot (a vault that went unreachable/public between pre-flight and run).
+            try:
+                _load_migration(module_dir(mid), item["run"])(ctx)
+            except Exception:  # noqa: BLE001 — backup-first means the failure is before mutating; degrade loud
+                result["refused"].append(
+                    f"Did not finish updating stored data for '{mid}' to {ver}: its backup could not be "
+                    f"completed, so the update was stopped. Ask me to set up or check your backup, then "
+                    f"update again.")
+                continue
+        else:
+            _load_migration(module_dir(mid), item["run"])(ctx)
         result["ran"].append(f"{mid} -> {ver} ({kind})")
     return result
 
@@ -912,8 +931,8 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
             return {**result, "refused": True,
                     "reason": f"This update needs to change stored data for {', '.join(data_no_seam)}, but "
                               f"no data backup is set up yet — and the engine never changes stored data it "
-                              f"can't first back up. The engine is unchanged. Set up a backup, then update "
-                              f"again."}
+                              f"can't first back up. The engine is unchanged. Ask me to set up a backup, then "
+                              f"update again."}
         # (2) OVERLAY engine code (driven off the present set; containment fail-closed)
         try:
             result["copied"], candidates = _overlay_engine_code(release_tree, present_ids)
@@ -944,6 +963,16 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                 return result
         # (4) RUN migrations (selected, dependency-ordered; the no-backup guard already pre-flighted)
         result["migrations"] = run_migrations(selected, from_versions, target_ref, backup=seam)
+        # A data migration whose backup FAILED at run time (vault reachable at pre-flight, gone at snapshot)
+        # comes back as a refusal, not a crash — decline to open the change for review (nothing is merged),
+        # the same degrade-loud pattern as a failed re-sync / a coherence break below.
+        if result["migrations"].get("refused"):
+            result["applied"] = True
+            result["reason"] = ("The update was applied to the working copy but a stored-data update could "
+                                "not be completed (its backup did not succeed), so it was NOT opened for "
+                                "review and nothing was merged. Ask me to set up or check your backup, then "
+                                "update again.")
+            return result
         # (5) COHERENCE — a hard finding pauses (the change is staged in the working copy, not landed)
         result["applied"] = True
         result["findings"] = module_coherence.check_coherence()
