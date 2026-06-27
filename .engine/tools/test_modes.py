@@ -314,6 +314,67 @@ class TestPlanArtifactCarveOut(unittest.TestCase):
         self.assertFalse(modes.is_plan_artifact("Bash", {"command": "x"}, "plan"))  # not a file-mutating tool
 
 
+class TestMemoryTargetDenial(unittest.TestCase):
+    """#257 (D-251): a blocked Write/Edit to a MEMORY store keeps the DECISION (deny) but earns a
+    memory-specific RELAY — a competent "noted" with a correlate the operator can exercise, never the
+    build-set "open a pull request" line and never the two-store seam. Message choice only; path
+    recognition is safe here precisely because the write is denied either way."""
+
+    def _payload(self, tool_name, file_path=None):
+        # session_id=None -> current_stance is Explore (the gated default); no signal file needed.
+        ti = {"file_path": file_path} if file_path else {}
+        return {"session_id": None, "tool_name": tool_name, "tool_input": ti}
+
+    def test_engine_memory_write_is_denied_with_the_memory_relay(self):
+        d = modes.handler(self._payload("Write", ".engine/memory/ledger.ndjson"))
+        self.assertTrue(_deny(d))
+        self.assertEqual(d["reason"], modes._MEMORY_DENIAL)
+
+    def test_harness_auto_memory_write_is_denied_with_the_memory_relay(self):
+        # the harness notebook default shape: a `memory` dir nested under a `.claude` dir.
+        d = modes.handler(self._payload("Write", "/Users/x/.claude/projects/slug/memory/MEMORY.md"))
+        self.assertTrue(_deny(d))
+        self.assertEqual(d["reason"], modes._MEMORY_DENIAL)
+
+    def test_memory_relay_confirms_noted_and_names_a_real_correlate(self):
+        r = modes._MEMORY_DENIAL.lower()
+        self.assertIn("noted", r)                 # a competent "noted", not a refusal
+        self.assertIn("read it back", r)          # a correlate the operator can exercise (the AI recalls)
+
+    def test_memory_relay_does_not_mishear_remember_as_a_code_change(self):
+        r = modes._MEMORY_DENIAL.lower()
+        self.assertNotIn("pull request", r)       # never the build-set line for a "remember this"
+        self.assertNotIn("build it", r)
+
+    def test_memory_relay_does_not_leak_the_two_store_seam(self):
+        r = modes._MEMORY_DENIAL.lower()
+        self.assertNotIn("harness", r)            # §12 vocabulary-leak: no "harness vs engine memory" tour
+        self.assertNotIn("orientation", r)        # the dropped false correlate must not creep back in
+
+    def test_non_memory_engine_source_write_keeps_the_generic_denial(self):
+        # the .engine/tools/memory/ SOURCE dir is not the store; it earns the generic build-set denial —
+        # including via the ABSOLUTE worktree path (…/.claude/worktrees/<wt>/.engine/tools/memory/…), which
+        # carries both a `.claude` and a `memory` segment and must NOT be mistaken for the harness notebook.
+        for path in (".engine/tools/x.py", ".engine/tools/memory/index.py", "README.md",
+                     "/Users/x/.claude/worktrees/wt/.engine/tools/memory/consolidate.py"):
+            d = modes.handler(self._payload("Write", path))
+            self.assertTrue(_deny(d))
+            self.assertEqual(d["reason"], modes._DENIAL, f"{path} must keep the generic denial")
+
+    def test_is_memory_target_predicate(self):
+        self.assertTrue(modes.is_memory_target("Write", {"file_path": ".engine/memory/ledger.ndjson"}))
+        self.assertTrue(modes.is_memory_target("Write", {"file_path": "/Users/x/.engine/memory/ledger.ndjson"}))
+        self.assertTrue(modes.is_memory_target("Edit", {"file_path": "~/.claude/projects/s/memory/x.md"}))
+        self.assertTrue(modes.is_memory_target("NotebookEdit", {"notebook_path": ".engine/memory/n.ipynb"}))
+        self.assertFalse(modes.is_memory_target("Write", {"file_path": ".engine/tools/memory/index.py"}))
+        # the worktree case: engine source under a `.claude/worktrees/…` path is NOT a memory store.
+        self.assertFalse(modes.is_memory_target(
+            "Write", {"file_path": "/Users/x/.claude/worktrees/wt/.engine/tools/memory/consolidate.py"}))
+        self.assertFalse(modes.is_memory_target("Write", {"file_path": ".engine/tools/x.py"}))
+        self.assertFalse(modes.is_memory_target("Write", {}))                 # no path -> not classifiable
+        self.assertFalse(modes.is_memory_target("Bash", {"command": "x"}))    # not a file-mutating tool
+
+
 class TestPlanAcceptanceBuildEntry(unittest.TestCase):
     """#67 (D-179/D-180): a PostToolUse on the plan-exit completion (`ExitPlanMode`) flips the stance to
     Build; every other completion leaves it untouched; the handler ALWAYS proceeds and emits no text; and

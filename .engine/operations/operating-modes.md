@@ -25,7 +25,11 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
    creating a branch, committing, and opening a pull request (via `gh pr create` or the GitHub MCP
    create-pull-request tool) — with a plain sentence that names what was blocked and the way forward. That
    denial rides the platform's `PreToolUse` reason channel, which does not reliably reach the operator's
-   screen, so the assistant relays it to the operator in plain words — never a silent refusal. It
+   screen, so the assistant relays it to the operator in plain words — never a silent refusal. One denial
+   carries a memory-specific relay: a hand-edit of a memory store (the engine's own `.engine/memory/` or
+   the harness auto-memory notebook) is most often the operator asking to be remembered, so instead of the
+   build-set "open a pull request" line it confirms a competent "noted" and that the engine records it
+   automatically — readable back on request — never a code-change refusal (D-251 / #257). It
    allows reading, running read-only commands and tests, greps, spawning subagents, and logging issues.
    It also allows Claude Code's own plan file — that is planning, not building — recognized by the
    platform's plan-mode marker, not a path, so it holds even if the plan folder is moved into the repo; a

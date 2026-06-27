@@ -1426,7 +1426,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:5261e6bea3344f9bc0aaf15fbcbce3e5ec9137e18df86ba1a9755b9fd13e6704",
+        "fingerprint": "sha256:93e4971cdbb9a4f6dfd9e174cc4f3808aaaa67498c0184ee5273d80ec8f47e21",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
@@ -1972,7 +1972,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:fb3a504f4877e801e2926e5f6eb45fc9ab59a5abc8b8ce750266e0a905a46d16",
+        "fingerprint": "sha256:b7ffe2215b3ea334f8c8a5ae32b4f98e02b63fd48c4d0939c85816baa51c893c",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -3090,7 +3090,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:524623ead37f99ece6b88b1115ab50463fe8a91480b62c8f6e4bc5ae2cf841ae",
+        "fingerprint": "sha256:744f1ccc456f64bbe536a606f1f735cf2ef094e905e02dba7c719f239baf4d6b",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -3245,6 +3245,23 @@
       "source": {
         "fingerprint": "sha256:1456b8d222daf757799fcd60766221cf3095053b14d931e873bcdf668548e306",
         "path": ".engine/tools/demo_pr_reconcile.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_remember_this",
+      "name": ".engine/tools/demo_remember_this.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_remember_this",
+      "source": {
+        "fingerprint": "sha256:af1ccd35378884bec2576774a6ce74fc27854aaa0abfff28c83b0a7a7a53a6a4",
+        "path": ".engine/tools/demo_remember_this.py"
       },
       "status": "active",
       "type": "tool"
@@ -3532,7 +3549,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:a452fe14088f35eecc781804633a3688c8b7ddea64dd104d3dad5515b384fd3e",
+        "fingerprint": "sha256:ebfb138255ffdc66567007b937183dbe2d093ab47fdc85b3d26a9caff7ab1b68",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -3770,7 +3787,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:3bb4513b166cc0c6343194d67c767103215395371cc8ee1122871b97baada45f",
+        "fingerprint": "sha256:82d93ab7384c5a94c74acb1291f5aaa9eef67c6ab542f0e4db6215a58cdd1127",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -4484,7 +4501,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:361929635df6b203eead2f54f2cd14ec236bd35d92c6026c87d8bd33efda768b",
+        "fingerprint": "sha256:79743669b65d9c608180676d05a4df2c390f6d4bd6b507d7cc3b08aa9ffe6887",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
@@ -4909,7 +4926,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:fb78574b17906544fda07648d2e6ffed413960808a2c55cddd0d81076e622383",
+        "fingerprint": "sha256:e61a4b23a19d82092eb143e78d2332c3daf2707e28bcae7b91a35dd1758681c7",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
