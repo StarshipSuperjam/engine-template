@@ -273,6 +273,48 @@ class DirectiveTests(_Base):
         self.assertIn("never dropped", text.replace("\n", " "))            # the strong-preservation clause
         self.assertIn("preference", consolidate.ROLE_VOCABULARY)           # the role it points at really exists
 
+    def test_directive_spawns_a_subagent_off_the_main_transcript(self):
+        # #280: the mechanics must run in a spawned subagent so the read/store tool calls + raw JSON stay OFF
+        # the operator's main transcript (only a brief task card shows) — the structural fix, not a louder
+        # "please be quiet" instruction.
+        text = consolidate._consolidation_directive(["s0"]).lower()
+        self.assertIn("spawn a subagent", text)                            # the mechanism is a subagent
+        self.assertIn("main transcript", text)                            # …whose work stays off the main transcript
+        self.assertIn("task card", text)                                  # only a brief card is acknowledged to show
+
+    def test_directive_forbids_relaying_the_subagent_result(self):
+        # #280 crux (plan-gate blocking): the parent loop's default after a tool returns is to narrate the
+        # result — which would RE-create the announcement the fix removes. The directive must forbid relaying
+        # the subagent's result. Holds for a NORMAL backlog (no proactive announcement at all).
+        text = consolidate._consolidation_directive(["s0"]).lower()
+        self.assertIn("relay nothing", text)                              # the no-relay clause is present
+        self.assertIn("do not summarize", text)                           # …named concretely
+        self.assertNotIn("tell the operator", text)                       # normal case: no operator-facing line
+
+    def test_subagent_prompt_is_complete_carrying_ids_roles_and_the_cli(self):
+        # Reliability (plan-gate serious): spawning from prose is heavier than "run this command", so the
+        # directive must hand the subagent a COMPLETE prompt — the ids, the read/store CLI, and the role set —
+        # not gesture at it.
+        pending = ["alpha-sess", "beta-sess"]
+        text = consolidate._consolidation_directive(pending)
+        for sid in pending:
+            self.assertIn(sid, text)                                       # the exact session ids are handed over
+        self.assertIn("consolidate.py read <session-id>", text)            # the read verb
+        self.assertIn("consolidate.py store <session-id>", text)           # the store verb
+        for role in consolidate.ROLE_VOCABULARY:
+            self.assertIn(role, text)                                      # the closed label set travels with it
+
+    def test_the_stalled_backlog_alarm_is_the_main_loops_job(self):
+        # Plan-gate serious: the suppressed subagent's output is not shown to the operator, so the one
+        # break-silence line MUST be spoken by the MAIN loop (deterministic on the count), or a silently
+        # stalled sweep could hide — exactly the failure the tripwire exists to catch (#203).
+        pending = [f"s{i:02d}" for i in range(consolidate._BACKLOG_ALARM_THRESHOLD + 1)]
+        text = consolidate._consolidation_directive(pending).lower()
+        self.assertIn("you (the main loop) must", text)                    # the alarm is anchored to the main loop
+        self.assertIn("tell the operator", text)                          # …which is the one thing it does say
+        # …and the no-relay clause names that alarm as its sole exception, so the two don't contradict.
+        self.assertIn("the stalled-backlog line above", text)
+
 
 class LockTests(_Base):
     def test_lock_miss_is_a_clean_noop(self):

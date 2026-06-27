@@ -3044,7 +3044,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:744f1ccc456f64bbe536a606f1f735cf2ef094e905e02dba7c719f239baf4d6b",
+        "fingerprint": "sha256:1bac56ff5d75b38d1595393a503863ed39512063eb41433967626684df3b14e5",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -3996,7 +3996,7 @@
       },
       "slug": "rollup",
       "source": {
-        "fingerprint": "sha256:d7852d1cd8f0a78db4eb89cf5916a3d5cca982b042a683960161aae7712f40a2",
+        "fingerprint": "sha256:f921cb9251da2fb7e191b598c1ad494b90ad481e1647f925f9d427b784325b3a",
         "path": ".engine/tools/memory/rollup.py"
       },
       "status": "active",
@@ -4421,7 +4421,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:79743669b65d9c608180676d05a4df2c390f6d4bd6b507d7cc3b08aa9ffe6887",
+        "fingerprint": "sha256:6008600533696993eacb0f8bbd3143ff15b7f309b9d547c5bb1d6bdbcfdc512d",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
@@ -5118,7 +5118,7 @@
       },
       "slug": "test_rollup",
       "source": {
-        "fingerprint": "sha256:0b5aa419f997810c779d5df932ba305bbc17ea789c66e96877aef35413a05dea",
+        "fingerprint": "sha256:76bf9851ba8a0b25d028a290f14b3e4d58b6ad0468bdf8c20763dc3fa20467c4",
         "path": ".engine/tools/memory/test_rollup.py"
       },
       "status": "active",

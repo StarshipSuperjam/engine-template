@@ -391,5 +391,32 @@ class DetectTests(_Base):
             self.assertNotIn(aged_gist, {r[records.RECORD_ID_KEY] for r in recs})
 
 
+class DirectiveTests(_Base):
+    # #280: the roll-up directive shares the SessionStart handler with consolidation and shipped the same
+    # JSON-dumping read/store CLI, so it flooded the operator's chat identically. It must use the same
+    # spawn-a-subagent + no-relay mechanism — but it has NO stalled-backlog alarm (the lower-priority path).
+    def test_directive_spawns_a_subagent_and_forbids_relay(self):
+        text = rollup.rollup_directive({"sess-a": [], "sess-b": []})
+        low = text.lower()
+        self.assertIn("spawn a subagent", low)                              # the mechanics move into a subagent
+        self.assertIn("main transcript", low)                              # …off the operator's main transcript
+        self.assertIn("relay nothing", low)                                # …and the result is not relayed back
+
+    def test_directive_hands_the_subagent_a_complete_prompt(self):
+        groups = {"alpha-sess": [], "beta-sess": []}
+        text = rollup.rollup_directive(groups)
+        for sid in groups:
+            self.assertIn(sid, text)                                        # the exact ids travel with the prompt
+        self.assertIn("rollup.py read <session-id>", text)                  # the read verb
+        self.assertIn("rollup.py store <session-id>", text)                 # the store verb
+        self.assertIn("source_ids", text)                                  # roll-up's distinct contract is kept
+
+    def test_directive_has_no_stalled_backlog_alarm(self):
+        # Roll-up is the "can wait" path: it must never proactively surface a line to the operator.
+        text = rollup.rollup_directive({f"s{i}": [] for i in range(20)}).lower()
+        self.assertNotIn("tell the operator", text)
+        self.assertNotIn("fallen behind", text)
+
+
 if __name__ == "__main__":
     unittest.main()
