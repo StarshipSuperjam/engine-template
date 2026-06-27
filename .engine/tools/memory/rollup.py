@@ -257,11 +257,14 @@ def store_gist(session_id: str, gists, *, cwd=None, _crash_after: "str | None" =
 def rollup_directive(groups: dict) -> str:
     """The BACKGROUND directive the SessionStart sweep injects when sessions have a cluster of old, unused
     episodes ready to roll up. Like the consolidation directive it stays SUBORDINATE to the operator's request
-    (memory's operation, not orientation — boot/README): never a first-turn hijack. The detect leaf renders
-    nothing; this composes the prose. DISTINCT from `consolidate._consolidation_directive` in two ways the AI must
-    honor: (1) it folds OLD episodic summaries, not raw turn-notes; (2) each gist must name its `source_ids` — the
-    exact note ids it rolls up — which `rollup.py read` returns so the AI can. Reuses the closed role vocabulary
-    so the prose can never drift from `_validate`'s accepted set."""
+    (memory's operation, not orientation — boot/README): never a first-turn hijack, and its mechanics run OFF the
+    operator's main transcript — the main loop SPAWNS A SUBAGENT to do the read/store and relays nothing about it
+    when the subagent returns (#280; roll-up has no stalled-backlog alarm — it is the lower-priority "can wait"
+    path). The detect leaf renders nothing; this composes the prose. DISTINCT from
+    `consolidate._consolidation_directive` in two ways the subagent must honor: (1) it folds OLD episodic
+    summaries, not raw turn-notes; (2) each gist must name its `source_ids` — the exact note ids it rolls up —
+    which `rollup.py read` returns so the subagent can. Reuses the closed role vocabulary so the prose can never
+    drift from `_validate`'s accepted set."""
     from memory import consolidate  # lazy: reuse the closed role vocabulary (3b) without an import cycle
     ids = sorted(groups)
     n = len(ids)
@@ -271,13 +274,16 @@ def rollup_directive(groups: dict) -> str:
     return (
         "Background memory upkeep — older notes ready to summarize. NOT urgent, and NOT to be done before the "
         f"operator's actual request. {sessions} a cluster of old, unused notes ({listed}) that can be rolled into "
-        "one short summary each. At a natural pause, AFTER you have served the operator's current request, tidy "
-        "each one: run `.engine/.venv/bin/python .engine/tools/memory/rollup.py read <session-id>` to read that "
-        "session's old notes (each carries its id), decide which genuinely cohere, write ONE compact summary of the "
-        "cluster, choose ONE label from "
+        "one short summary each. At a natural pause, AFTER you have served the operator's current request, SPAWN "
+        "A SUBAGENT (the Task tool) to do the read/store so its tool calls and output stay off the operator's "
+        "main transcript — only a brief task card may show; when it returns, relay NOTHING to the operator about "
+        f"it. Hand the subagent these session ids: {listed}, and this instruction: for each id, run "
+        "`.engine/.venv/bin/python .engine/tools/memory/rollup.py read <session-id>` to read that session's old "
+        "notes (each carries its id), decide which genuinely cohere, write ONE compact summary of the cluster, "
+        "choose ONE label from "
         f"{{{', '.join(consolidate.ROLE_VOCABULARY)}}}, and store it with `… rollup.py store <session-id>` — a JSON "
         "array of {\"role\": …, \"text\": …, \"source_ids\": [the ids of the exact notes this summary replaces]} on "
-        "stdin. Name only the ids you actually read and are folding in; the originals are filed away, never erased. "
+        "stdin. Name only the ids actually read and folded in; the originals are filed away, never erased. "
         "The operator's request always comes first; this can wait turns or whole sessions. Do not announce it "
         "unless asked."
     )
@@ -457,11 +463,13 @@ def _demo() -> int:
     print("single summary and file the originals away — they no longer turn up in a search (only the summary")
     print("does), but they are still saved. A power-cut in the middle never loses a note and never files an")
     print("original away without its summary in place; a later tidy keeps the original→summary link and erases")
-    print("nothing. The engine now reminds the AI to do this on its own — in the background, AFTER your request,")
-    print("only when a session has a cluster of old, unused notes (the `demo-sweep` walkthrough shows that")
-    print("reminder, and shows it stay silent when there's nothing old enough). That was a PRACTICE cabinet,")
-    print("thrown away when the demo ended; like all memory, private, local, and deletable. Vary it: edit the")
-    print("notes, the age, and the crash-point near the top and re-run.")
+    print("nothing. The engine now reminds the AI to do this on its own — in a spawned subagent so the")
+    print("read/store mechanics stay off your chat (only a brief task card may show; whether the spawn keeps")
+    print("them off your transcript is a property of the live runtime, seen on a real session), AFTER your")
+    print("request, only when a session has a cluster of old, unused notes (the `demo-sweep` walkthrough shows")
+    print("that reminder, and shows it stay silent when there's nothing old enough). That was a PRACTICE")
+    print("cabinet, thrown away when the demo ended; like all memory, private, local, and deletable. Vary it:")
+    print("edit the notes, the age, and the crash-point near the top and re-run.")
     return 0 if ok else 1
 
 

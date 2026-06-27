@@ -10,15 +10,18 @@ REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODI
     *later* turn reads, or by blocking — it can NEVER make the model generate. So consolidation cannot run
     inside a `PreCompact`/close hook; the model is not in that loop.
 
-  - **The mechanism: a `SessionStart` sweep.** Memory's own `SessionStart` hook DETECTS earlier sessions whose
-    raw notes were never tidied (have turn-deltas, no consolidation marker, not the live session) and INJECTS
-    a directive — the in-context AI, at the first natural pause AFTER the operator's request (so never a
-    first-turn hijack), reads each session's raw notes (`read`), writes a short labelled summary of each thread,
-    and stores it (`store`). The pass is QUIET: the AI does NOT announce the tidy-up to the operator — UNLESS the
-    backlog has grown past `_BACKLOG_ALARM_THRESHOLD` (a sign the silent tidy has stalled), when it surfaces ONE
-    plain line (a COUNT, never the id codes) so a silent failure can't hide. The directive stays prompt — done
-    THIS session, not deferred forever (the passivity that left 21 sessions untidied is gone) — and always
-    subordinate to the operator's request.
+  - **The mechanism: a `SessionStart` sweep, run in a subagent.** Memory's own `SessionStart` hook DETECTS
+    earlier sessions whose raw notes were never tidied (have turn-deltas, no consolidation marker, not the live
+    session) and INJECTS a directive — the in-context AI, at the first natural pause AFTER the operator's request
+    (so never a first-turn hijack), SPAWNS A SUBAGENT that reads each session's raw notes (`read`), writes a
+    short labelled summary of each thread, and stores it (`store`). The mechanics run OFF the operator's main
+    transcript: the subagent's tool calls and raw JSON stay in its own context (only the runtime's brief task
+    card may show), and the main loop relays NOTHING about the tidy-up when the subagent returns — so a routine
+    chore no longer floods the operator's chat (#280). The ONE exception: if the backlog has grown past
+    `_BACKLOG_ALARM_THRESHOLD` (a sign the tidy has stalled), the MAIN loop itself surfaces ONE plain line (a
+    COUNT, never the id codes) so a silent failure can't hide. The directive stays prompt — done THIS session,
+    not deferred forever (the passivity that left 21 sessions untidied is gone) — and always subordinate to the
+    operator's request.
     This unifies the "normal" and "abandoned-session" consolidation into ONE sweep: the locked design's
     abandoned-session predicate already subsumes the normal path, since the previous session is "no longer
     live with no marker" by the next start. The sweep ALSO carries the roll-up backlog (slice 5 PR 3) in the
@@ -68,10 +71,11 @@ ROLES = frozenset(ROLE_VOCABULARY)
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"   # the live session id (the platform var; NOT capture's older name)
 _MAX_DIRECTIVE_IDS = 8                    # cap the directive enumeration; never list thousands of ids
-_BACKLOG_ALARM_THRESHOLD = 5             # build-spec leaf: the tidy-up is a QUIET pass, but the normal backlog is
-                                         # ~1 (the previous session). A pile this deep means the silent tidy has
-                                         # stalled, so the sweep breaks silence with ONE plain line — a silent
-                                         # failure must not hide (the 21-untidied-sessions failure mode, PR #203).
+_BACKLOG_ALARM_THRESHOLD = 5             # build-spec leaf: the tidy-up runs off the operator's chat (in a
+                                         # subagent), but the normal backlog is ~1 (the previous session). A pile
+                                         # this deep means the tidy has stalled, so the MAIN loop breaks silence
+                                         # with ONE plain line — a silent failure must not hide (the
+                                         # 21-untidied-sessions failure mode, PR #203).
 
 
 # --- Reading the raw notes (what the AI consolidates) -----------------------------------------
@@ -224,40 +228,48 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
 def _consolidation_directive(pending: list) -> str:
     """The directive the SessionStart sweep injects when earlier sessions need tidying. It stays SUBORDINATE to
     the operator's request (memory's operation, not orientation — boot/README: never a first-turn hijack) and
-    ACTIVE (done THIS session — not "whenever, or never"; that passivity is what left 21 sessions untidied). It is
-    a QUIET pass: the model does NOT announce the tidy-up to the operator — UNLESS the backlog has grown to
-    `_BACKLOG_ALARM_THRESHOLD` or more (a sign the silent tidy has stalled), when it breaks silence with ONE plain
-    line (a COUNT, never the id codes) so a silent failure can't hide. The ids are listed for the model's
-    `read`/`store` only. Memory's own hook composes this prose; the detection leaf above renders nothing."""
+    ACTIVE (done THIS session — not "whenever, or never"; that passivity is what left 21 sessions untidied). The
+    mechanics run OFF the operator's main transcript: the main loop SPAWNS A SUBAGENT to do the read/store, and
+    when it returns the main loop relays nothing about the tidy-up (only the runtime's own brief task card may
+    show). The ONE exception is a stalled backlog (>= `_BACKLOG_ALARM_THRESHOLD`): then the MAIN loop itself
+    speaks ONE plain line (a COUNT, never the id codes) so a silent failure can't hide — that alarm is the main
+    loop's job, never the suppressed subagent's. The ids are listed for the subagent's `read`/`store` only.
+    Memory's own hook composes this prose; the detection leaf above renders nothing."""
     n = len(pending)
     shown = pending[:_MAX_DIRECTIVE_IDS]
     ids = ", ".join(shown) + (f", and {n - len(shown)} more" if n > len(shown) else "")
     sessions = "1 earlier session" if n == 1 else f"{n} earlier sessions"
     have = "has" if n == 1 else "have"
     behind = (
-        f" The backlog has fallen behind ({sessions}), which usually means this quiet tidy-up has been getting "
-        "skipped — so this once, break the silence: at the first natural pause, tell the operator in plain words "
+        f" The backlog has fallen behind ({sessions}), which usually means this background tidy-up has been "
+        "getting skipped. Because the subagent's work is not shown to the operator, YOU (the main loop) must "
+        "this once break the silence yourself: at the first natural pause, tell the operator in plain words "
         "that memory upkeep has fallen behind and you're catching it up now. Give them only that COUNT, never "
         "the id codes or any internal terms."
     ) if n >= _BACKLOG_ALARM_THRESHOLD else ""
     return (
-        "Memory upkeep — a QUIET background pass: do it DURING this session, but ALWAYS after you have served the "
-        "operator's current request (never before it, never a first-turn hijack). Do not announce it — say "
-        "nothing to the operator about tidying memory unless they ask (if asked, a count is enough; the session "
-        "ids stay internal)." + behind + " "
+        "Memory upkeep — a background pass that must NOT clutter the operator's chat. Do it DURING this "
+        "session, but ALWAYS after you have served the operator's current request (never before it, never a "
+        "first-turn hijack). Do not announce it — say nothing to the operator about tidying memory unless "
+        "they ask (if asked, a count is enough; the session ids stay internal)." + behind + " "
         f"{sessions} {have} raw turn-notes that were never tidied into summaries. At the first natural pause, "
-        "once the operator's current request is served, tidy each one. The sessions are: "
-        f"{ids}. For each, run "
+        "once the operator's current request is served, SPAWN A SUBAGENT (the Task tool) to do the read/store "
+        "so its tool calls and output stay off the operator's main transcript — only a brief task card may "
+        "show. When the subagent returns, relay NOTHING to the operator about the tidy-up: do not summarize "
+        "it, do not report a count, do not say \"done\" — its result stays internal (the stalled-backlog line "
+        "above, if present, is the only thing you ever say). Hand the subagent this full instruction and these "
+        f"session ids: {ids}. Tell it: for each id, run "
         "`.engine/.venv/bin/python .engine/tools/memory/consolidate.py read <session-id>` to read its raw "
         "notes, write a short compact summary of each meaningful thread (what was explored; what was decided "
         "or rejected, and why; what the operator prefers or learned), choose ONE label per summary from "
         f"{{{', '.join(ROLE_VOCABULARY)}}}. "
-        "If the operator explicitly asked you to remember something (\"remember X\", \"always do Y\"), "
-        "preserve THAT as its own summary typed `preference` — a durable operator instruction, never folded "
-        "into another thread's summary and never dropped as a passing note. Store the summaries with "
-        "`… consolidate.py store <session-id>` (a JSON array of {\"role\": …, \"text\": …} on stdin). "
-        "This is reflection, not re-litigation — be terse. The operator's request always comes first; keep it "
-        "a silent pass, not an interruption — but do it this session, not someday."
+        "If the operator explicitly asked to remember something (\"remember X\", \"always do Y\"), the "
+        "subagent must preserve THAT as its own summary typed `preference` — a durable operator instruction, "
+        "never folded into another thread's summary and never dropped as a passing note. The subagent then "
+        "stores the summaries with `… consolidate.py store <session-id>` (a JSON array of "
+        "{\"role\": …, \"text\": …} on stdin). This is reflection, not re-litigation — be terse. The "
+        "operator's request always comes first; the subagent keeps the mechanics off the main transcript — "
+        "but do it this session, not someday."
     )
 
 
@@ -483,8 +495,9 @@ def _demo_body() -> bool:
     print(f"  Sessions detected as needing tidy-up: {pending}")
     print(f"    -> '{session_d}' (a past session, never tidied) IS listed; the live "
           f"'{session_live}' is NOT.")
-    print("\n  The directive the engine would hand the AI at the next session start (a SILENT pass — no")
-    print("  announcement; the AI just tidies quietly at a pause):\n")
+    print("\n  The directive the engine would hand the AI at the next session start (the AI spawns a subagent")
+    print("  to do this at a pause, so the read/store mechanics stay off your main transcript — only a brief")
+    print("  task card may show):\n")
     for line in _wrap(_consolidation_directive(pending), 76):
         print(f"    | {line}")
     behind_demo = [f"stalled-{i:02d}" for i in range(_BACKLOG_ALARM_THRESHOLD + 1)]
@@ -494,9 +507,11 @@ def _demo_body() -> bool:
     for line in _wrap(_consolidation_directive(behind_demo), 76):
         print(f"    | {line}")
     print("\n  => A past, never-tidied session is caught by the same sweep; the AI receives the directive above")
-    print("     and does the tidy-up THIS session, right after your request — SILENTLY, unless the backlog has")
-    print("     fallen behind, when it surfaces one plain line (a count, never the id codes). (Whether it then")
-    print("     writes a good summary is the part judged live.)")
+    print("     and spawns a subagent to do the tidy-up THIS session, right after your request — keeping the")
+    print("     mechanics off your chat, unless the backlog has fallen behind, when the main loop surfaces one")
+    print("     plain line (a count, never the id codes). (Whether the spawn actually keeps the mechanics off")
+    print("     your transcript is a property of the live runtime, proven on the next real session; whether it")
+    print("     then writes a good summary is also judged live.)")
     # The mechanical invariants this practice run proves (NOT the AI's wording, which is judged live): a
     # summary stored+findable, the label kept out of search text, a tidied session dropping off the backlog,
     # and a past untidied session detected while the live one is not.
