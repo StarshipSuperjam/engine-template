@@ -4,7 +4,11 @@
   "status": "optional",
   "provides": {
     "check": [".engine/check/product-spec-form.json"],
-    "tool": [".engine/tools/product_design/*.py"]
+    "tool": [".engine/tools/product_design/*.py"],
+    "operation": [".engine/operations/product-intake.md"],
+    "skill": [".claude/skills/engine-design/SKILL.md"],
+    "doc": [".engine/docs/product-design.md"],
+    "scaffold": [".engine/modules/product-design/scaffold/*.md"]
   },
   "wires": [],
   "depends": {

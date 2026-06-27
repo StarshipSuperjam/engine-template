@@ -35,5 +35,12 @@
     "description": "Lets the engine offer your changes to a project you don't own — an open-source project you've forked, or any upstream you contribute to — as a pull request from your fork, carrying only your project's files and never the engine's own. It does the mechanical git a non-engineer shouldn't have to, and opening the pull request is always your call. Two things to weigh before you opt in. First, whether a change is accepted is the upstream project's decision — not yours, and not the engine's. Second, this cross-project path has not yet been run from end to end against a live project. The final step that opens the real pull request has never run for real, so your first contribution would be the first time it runs anywhere; the rest is built and checked, but you would be the one proving that last step in practice. Once it's added, you use it by asking the engine to offer a change upstream; there's no command to remember. You can leave this add-on out, and nothing else changes if you do.",
     "category": "Software Configuration Management",
     "status": "optional"
+  },
+  {
+    "id": "product-design",
+    "verb": "engine-design",
+    "description": "Describe what you want to build, in plain words, and the engine helps you write it down clearly — laying out the pieces, walking you through each one, and checking that nothing is missing or malformed — then keeps it as readable files in your own project and settles it as the description to build from, once you've accepted it. It checks that your description is complete and well-formed, never whether the idea itself is a good one — that stays your call. You choose how much detail to capture, nothing is treated as settled without your say-so, and a settled description can be reopened later. Optional, and removable anytime.",
+    "category": "Product Management",
+    "status": "optional"
   }
 ]
