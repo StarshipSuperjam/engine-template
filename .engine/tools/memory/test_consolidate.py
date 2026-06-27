@@ -263,6 +263,16 @@ class DirectiveTests(_Base):
         self.assertIn("fallen behind", at)                                 # n == threshold -> breaks silence
         self.assertNotIn("fallen behind", below)                           # n == threshold - 1 -> still silent
 
+    def test_operator_remember_directive_is_typed_preference(self):
+        # #258 (D-251): the sweep MUST type an explicit operator "remember X" as its own `preference`
+        # summary — never folded into a thread summary, never dropped. This is the falsifiable artifact
+        # for #258's durable-capture guarantee (the directive is unenforceable AI prose otherwise).
+        text = consolidate._consolidation_directive(["s0"]).lower()
+        self.assertIn("remember", text)                                    # the trigger is named
+        self.assertIn("preference", text)                                  # …and typed to the preference role
+        self.assertIn("never dropped", text.replace("\n", " "))            # the strong-preservation clause
+        self.assertIn("preference", consolidate.ROLE_VOCABULARY)           # the role it points at really exists
+
 
 class LockTests(_Base):
     def test_lock_miss_is_a_clean_noop(self):

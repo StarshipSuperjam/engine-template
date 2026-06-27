@@ -279,6 +279,48 @@ _DENIAL = ("I didn't make that change — we're exploring, so I won't edit files
            "authoring any engine Issue through the issue helper — while we explore; those don't need build.) "
            "Tell me to build it and I'll open a pull request — the change I submit for your approval.")
 
+# The MEMORY-specific denial relay (D-251 / #257). A blocked Write/Edit to a memory store is NOT a code
+# change the operator must "build" — most often it is the operator asking to be REMEMBERED. The generic
+# _DENIAL ("…open a pull request…") reads as the engine mishearing "remember this" as a code change, which
+# is corrosive to a non-engineer's trust at the exact moment they asked to be remembered. So the message
+# (NEVER the decision — the write stays denied) becomes memory-specific: it (a) confirms a competent
+# "noted", never a pull request; (b) names a correlate the operator can actually exercise ("ask me … and
+# I'll read it back" — the assistant performs the recall on request); (c) does not leak the two-store seam
+# (principles §12) — "this project's memory", never "harness vs engine memory". The durable capture itself
+# rides automatic memory upkeep (the Stop-hook + the consolidation sweep), which already passes the gate.
+_MEMORY_DENIAL = ("Noted — I've kept that in mind, and it's saved to this project's memory so it carries "
+                  "across our sessions. Ask me anytime what I've remembered and I'll read it back.")
+
+
+def is_memory_target(tool_name: str, tool_input) -> bool:
+    """True iff this file-mutating call targets a MEMORY store — the engine's own `.engine/memory/` or the
+    harness auto-memory notebook (the `~/.claude/.../memory/` default shape). MESSAGE-CHOICE ONLY: it never
+    changes the gate's decision (a memory write stays denied either way), it only selects the memory-specific
+    denial relay (#257/D-251). D-251 blessed path recognition *for message choice* — the allow-exemption
+    hazard it rejected does not apply, so a relocated `autoMemoryDirectory` this misses simply falls back to
+    the generic denial (cosmetic). It never hardcodes a platform-owned basename: it matches the engine store
+    deterministically (`.engine/memory/`, NOT the `.engine/tools/memory/` source dir) and the harness store
+    by path SHAPE (a `memory` directory nested under a `.claude` directory)."""
+    if tool_name not in _MUTATING_TOOLS:
+        return False
+    path = ""
+    if isinstance(tool_input, dict):
+        path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+    if not isinstance(path, str) or not path:
+        return False
+    norm = path.replace("\\", "/")
+    if ".engine/memory/" in norm:                 # the engine's own substrate (excludes .engine/tools/memory/)
+        return True
+    if ".engine/" in norm:                        # any OTHER engine repo file is source/data, never a store —
+        return False                              #   guards the worktree case (…/.claude/worktrees/<wt>/.engine/…)
+    seen_claude = False                           # the harness auto-memory default shape: a `memory` dir
+    for seg in (p for p in norm.split("/") if p): #   nested somewhere under a `.claude` dir (outside the repo)
+        if seg == ".claude":
+            seen_claude = True
+        elif seg == "memory" and seen_claude:
+            return True
+    return False
+
 
 # ---- the PreToolUse write-gate handler ------------------------------------------------------
 
@@ -302,7 +344,10 @@ def handler(payload: dict) -> dict:
         return hooks.proceed()                       # Build / Routine permit the write
     permission_mode = payload.get("permission_mode") if isinstance(payload, dict) else None
     if is_building_action(tool_name, tool_input) and not is_plan_artifact(tool_name, tool_input, permission_mode):
-        return hooks.decide("deny", _DENIAL)
+        # Same DECISION (deny) regardless; only the relayed reason differs — a memory write earns the
+        # memory-specific "noted" line (#257/D-251), every other write the generic build-set denial.
+        reason = _MEMORY_DENIAL if is_memory_target(tool_name, tool_input) else _DENIAL
+        return hooks.decide("deny", reason)
     return hooks.proceed()      # reads, tests, greps, an unlabelled/conforming gh issue, subagents, the plan file
 
 
