@@ -463,11 +463,13 @@ def _demo() -> int:
     print("single summary and file the originals away — they no longer turn up in a search (only the summary")
     print("does), but they are still saved. A power-cut in the middle never loses a note and never files an")
     print("original away without its summary in place; a later tidy keeps the original→summary link and erases")
-    print("nothing. The engine now reminds the AI to do this on its own — in a spawned subagent kept off your")
-    print("chat, AFTER your request, only when a session has a cluster of old, unused notes (the `demo-sweep`")
-    print("walkthrough shows that reminder, and shows it stay silent when there's nothing old enough). That was")
-    print("a PRACTICE cabinet, thrown away when the demo ended; like all memory, private, local, and deletable.")
-    print("Vary it: edit the notes, the age, and the crash-point near the top and re-run.")
+    print("nothing. The engine now reminds the AI to do this on its own — in a spawned subagent so the")
+    print("read/store mechanics stay off your chat (only a brief task card may show; whether the spawn keeps")
+    print("them off your transcript is a property of the live runtime, seen on a real session), AFTER your")
+    print("request, only when a session has a cluster of old, unused notes (the `demo-sweep` walkthrough shows")
+    print("that reminder, and shows it stay silent when there's nothing old enough). That was a PRACTICE")
+    print("cabinet, thrown away when the demo ended; like all memory, private, local, and deletable. Vary it:")
+    print("edit the notes, the age, and the crash-point near the top and re-run.")
     return 0 if ok else 1
 
 

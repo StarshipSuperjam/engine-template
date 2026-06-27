@@ -3996,7 +3996,7 @@
       },
       "slug": "rollup",
       "source": {
-        "fingerprint": "sha256:f921cb9251da2fb7e191b598c1ad494b90ad481e1647f925f9d427b784325b3a",
+        "fingerprint": "sha256:42b03a64d9c0b282d96606c1294e41b292e3ebf9d4a68159bb6a661272e95464",
         "path": ".engine/tools/memory/rollup.py"
       },
       "status": "active",
