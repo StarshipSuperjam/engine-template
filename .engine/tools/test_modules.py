@@ -409,13 +409,26 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(md_checks, [
             ".engine/check/migration-rollback.json",
         ], "migration-discipline owns exactly the rollback-presence nudge")
+        # product-design (an optional module) owns the spec-form check — a check that inspects the PRODUCT's
+        # own committed docs/spec/ tree for well-formed structure (required sections, a well-formed
+        # acceptance-criteria table, every doc reachable from the index). Like dependency-discipline's,
+        # external-contribution's, and migration-discipline's domain checks it is an optional-module-owned
+        # check, neither core's §15 guard nor validators-core's self-validation corpus; the partition must
+        # admit it. The real boundary is unchanged — exactly one owner per check, core frozen at its two
+        # guards, no wildcard re-claiming the corpus. (Slices 3/4 extend this exact list as the lock-integrity
+        # and acceptance-criteria-coverage checks land.)
+        pd_checks = sorted(r for r, o in check_owner.items() if o == ["product-design"])
+        self.assertEqual(pd_checks, [
+            ".engine/check/product-spec-form.json",
+        ], "product-design owns exactly the spec-form check")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
-        self.assertEqual(sorted(core_checks + vc_checks + dd_checks + ec_checks + md_checks), all_checks,
-                         "every .engine/check/*.json is claimed by exactly one of "
-                         "core / validators-core / dependency-discipline / external-contribution / "
-                         "migration-discipline")
+        self.assertEqual(
+            sorted(core_checks + vc_checks + dd_checks + ec_checks + md_checks + pd_checks), all_checks,
+            "every .engine/check/*.json is claimed by exactly one of "
+            "core / validators-core / dependency-discipline / external-contribution / "
+            "migration-discipline / product-design")
         # validators-core depends on core (presence assertion, any version)
         vc = next(m for _p, m in manifests if m.get("id") == "validators-core")
         self.assertEqual(vc.get("depends"), {"core": ""})

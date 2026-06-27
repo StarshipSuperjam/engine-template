@@ -916,6 +916,7 @@
           "module:github-projects-sync",
           "module:memory-substrate-sqlite-fts5",
           "module:migration-discipline",
+          "module:product-design",
           "module:qa-review",
           "module:routine-mode",
           "module:validators-core"
@@ -1135,6 +1136,33 @@
       "status": "active",
       "suites": [
         "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:product-spec-form",
+      "kind": "custom/script",
+      "name": ".engine/check/product-spec-form.json",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "product-spec-form",
+      "source": {
+        "fingerprint": "sha256:36d047a18ae1a2652b6d5190b56a061ca23836fb8041a0c6594939d0a2a7cac1",
+        "path": ".engine/check/product-spec-form.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "pre-close",
+        "pre-commit"
       ],
       "tier": "hard",
       "type": "check"
@@ -1613,6 +1641,24 @@
       "source": {
         "fingerprint": "sha256:db06e7d733306264ae696044d3569c5bedc209f71a0c14110a1ae301e4c8ac61",
         "path": ".engine/modules/migration-discipline/manifest.json"
+      },
+      "status": "optional",
+      "type": "module",
+      "version": "0.0.0-dev"
+    },
+    {
+      "id": "module:product-design",
+      "name": "product-design",
+      "owner": "product-design",
+      "predicates": {
+        "depends_on": [
+          "module:core"
+        ]
+      },
+      "slug": "product-design",
+      "source": {
+        "fingerprint": "sha256:175823cfc2c3e46ac3fc77dcc1bb33fa8dda735749e16de0147bdd210d0306e3",
+        "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
       "type": "module",
@@ -3867,6 +3913,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:product_design.__init__",
+      "name": ".engine/tools/product_design/__init__.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "product_design.__init__",
+      "source": {
+        "fingerprint": "sha256:3cff78357773321d7d08a957656e7b72e20838941d2020c8967d063aca10d4d5",
+        "path": ".engine/tools/product_design/__init__.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:projects_sync",
       "name": ".engine/tools/projects_sync/projects_sync.py",
       "owner": "github-projects-sync",
@@ -4100,6 +4163,23 @@
       "source": {
         "fingerprint": "sha256:81a1f0ac98a5a6a709d0227ad25345b67a81bcc4b3f8b686c826f53215aafa4b",
         "path": ".engine/tools/skill_coherence_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:spec_form",
+      "name": ".engine/tools/product_design/spec_form.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "spec_form",
+      "source": {
+        "fingerprint": "sha256:ee122238cfe06b3c8c34aba28fe303634f98f8864d7be4339b5822bf58cff967",
+        "path": ".engine/tools/product_design/spec_form.py"
       },
       "status": "active",
       "type": "tool"
@@ -4897,7 +4977,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:66684241014de0fbc60e6660b190da83e543d20b26b13e4b511d9dbbefa73cc7",
+        "fingerprint": "sha256:b6014c3c472b66878fb3e90e68dd2f61f269c664e138d179e31e5fa145c91445",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -5341,6 +5421,23 @@
       "source": {
         "fingerprint": "sha256:9ec1ac11d4732d3f81c8ae89fe232bd233a6ed3a51f1ae46f4487d7fee1598fe",
         "path": ".engine/tools/test_skill_coherence_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_spec_form",
+      "name": ".engine/tools/product_design/test_spec_form.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "test_spec_form",
+      "source": {
+        "fingerprint": "sha256:f3d84059e9f53ee4a244474f8be94507cc357127b9fa5bedaad00ab9c014f482",
+        "path": ".engine/tools/product_design/test_spec_form.py"
       },
       "status": "active",
       "type": "tool"

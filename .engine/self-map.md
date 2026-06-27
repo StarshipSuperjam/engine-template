@@ -26,7 +26,7 @@ Every kind of file the engine governs — its home and authority, and the schema
 
 ## Modules
 
-The packages your engine is assembled from, and how they wire together (11 installed).
+The packages your engine is assembled from, and how they wire together (12 installed).
 
 The dependency graph — each module is listed after the ones it builds on (`→` means "depends on"):
 
@@ -37,6 +37,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `github-projects-sync` → `core`
 - `memory-substrate-sqlite-fts5` → `core`
 - `migration-discipline` → `core`
+- `product-design` → `core`
 - `qa-review` → `core`
 - `routine-mode` → `core`
 - `validators-core` → `core`
@@ -115,6 +116,14 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - check: `.engine/check/migration-rollback.json`
   - policy: `.engine/policies/migration-discipline.md`
   - tool: `.engine/tools/migration_discipline/*.py`
+- wires: none (this module adds no shared-state edits)
+
+### `product-design` — version `0.0.0-dev` (optional)
+
+- depends on: `core`
+- provides:
+  - check: `.engine/check/product-spec-form.json`
+  - tool: `.engine/tools/product_design/*.py`
 - wires: none (this module adds no shared-state edits)
 
 ### `qa-review` — version `0.0.0-dev` (optional)
