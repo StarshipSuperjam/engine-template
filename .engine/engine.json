@@ -11,7 +11,8 @@
     "design-review": "0.0.0-dev",
     "external-contribution": "0.0.0-dev",
     "qa-review": "0.0.0-dev",
-    "migration-discipline": "0.0.0-dev"
+    "migration-discipline": "0.0.0-dev",
+    "product-design": "0.0.0-dev"
   },
   "identity": "solo"
 }
