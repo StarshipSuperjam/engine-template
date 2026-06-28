@@ -80,8 +80,10 @@ your rule's other settings are exactly as you had them.
 ## When I added my checks but one floor piece is yours to decide
 
 Your main branch was already protected by your own rule, so I added my two checks to it (and any missing
-force-push/deletion/pull-request protection). One part of the safety floor I can't turn on without changing a
-rule you set yourself, so I've left it as you have it — here's what's still open for you to decide
+force-push/deletion/pull-request protection). One part of the safety floor I couldn't turn on without changing
+a rule you set yourself, so I left it exactly as you have it: {gaps}. You can switch that on yourself in your
+branch's rules if you want it — leaving it as is means a change can still reach your main branch under that
+rule's current terms.
 
 ## When you have more than one rule covering main
 

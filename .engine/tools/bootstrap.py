@@ -270,16 +270,25 @@ def _strip_engine_additions(rules: list, added: dict) -> list:
     return out
 
 
+def _is_submap(small: dict, big: dict) -> bool:
+    """Every key/value in `small` is present, with the same value, in `big`. Tolerates keys `big` adds —
+    GitHub normalizes a rule on write by echoing back its default parameters — while still catching a
+    parameter the operator set that was REMOVED or CHANGED (its (key, value) would be absent from `big`)."""
+    return all(big.get(k) == v for k, v in (small or {}).items())
+
+
 def _product_preserved(pre: dict, post: dict, added: dict) -> bool:
     """VERIFY (not trust) that the augment was additive: every operator-owned piece in `pre` (the projected
     product ruleset before the write) survives in `post` (the projection re-read after the write). The
     engine's own additions are ignored; anything of the operator's that changed or vanished fails the check
-    (fail-closed). bypass_actors and conditions must be byte-identical; every product rule must be present
-    unchanged — except the required_status_checks rule, where the engine may have unioned contexts, so the
-    product's contexts must remain a subset and its other parameters unchanged."""
-    if pre.get("bypass_actors") != post.get("bypass_actors"):
-        return False
-    if pre.get("conditions") != post.get("conditions"):
+    (fail-closed). The comparison is by sub-mapping rather than byte-equality so GitHub's server-side
+    parameter normalization (echoing default params it filled in) does not false-alarm — but a removed or
+    changed operator parameter, a dropped rule type, a dropped check, or a removed bypass actor all fail it.
+    Every operator bypass actor must survive (order-insensitive); conditions must survive."""
+    for b in (pre.get("bypass_actors") or []):
+        if b not in (post.get("bypass_actors") or []):
+            return False
+    if not _is_submap(pre.get("conditions") or {}, post.get("conditions") or {}):
         return False
     post_by_type: dict = {}
     for r in post.get("rules", []):
@@ -287,20 +296,20 @@ def _product_preserved(pre: dict, post: dict, added: dict) -> bool:
     for pr in pre.get("rules", []):
         t = pr.get("type")
         cands = post_by_type.get(t, [])
+        if not cands:
+            return False                      # a whole product rule type vanished
+        post_rule = cands[0]
         if t == "required_status_checks":
-            post_rsc = cands[0] if cands else None
-            if post_rsc is None:
-                return False
             pre_ctx = {c.get("context") for c in (pr.get("parameters") or {}).get("required_status_checks", [])}
-            post_ctx = {c.get("context") for c in (post_rsc.get("parameters") or {}).get("required_status_checks", [])}
+            post_ctx = {c.get("context") for c in (post_rule.get("parameters") or {}).get("required_status_checks", [])}
             if not pre_ctx.issubset(post_ctx):
-                return False
+                return False                  # a product check vanished
             pre_p = {k: v for k, v in (pr.get("parameters") or {}).items() if k != "required_status_checks"}
-            post_p = {k: v for k, v in (post_rsc.get("parameters") or {}).items() if k != "required_status_checks"}
-            if pre_p != post_p:
-                return False
-        elif pr not in cands:
-            return False
+            post_p = {k: v for k, v in (post_rule.get("parameters") or {}).items() if k != "required_status_checks"}
+            if not _is_submap(pre_p, post_p):
+                return False                  # an operator parameter changed/vanished
+        elif not _is_submap(pr.get("parameters") or {}, post_rule.get("parameters") or {}):
+            return False                      # an operator parameter changed/vanished
     return True
 
 
@@ -373,9 +382,10 @@ FALLBACK_COPY = {
     ),
     "applied-augmented-partial": (
         "Your main branch was already protected by your own rule, so I added my two checks to it (and any "
-        "missing force-push/deletion/pull-request protection). One part of the safety floor I can't turn on "
-        "without changing a rule you set yourself, so I've left it as you have it — here's what's still open "
-        "for you to decide"
+        "missing force-push/deletion/pull-request protection). One part of the safety floor I couldn't turn "
+        "on without changing a rule you set yourself, so I left it exactly as you have it: {gaps}. You can "
+        "switch that on yourself in your branch's rules if you want it — leaving it as is means a change can "
+        "still reach your main branch under that rule's current terms."
     ),
     "augment-ambiguous": (
         "Your project has more than one rule covering your main branch, so I didn't change any of them — I "
@@ -579,19 +589,22 @@ class ControlPlane:
                 return r
         return None
 
-    def product_rulesets(self, branch: str) -> list:
+    def product_rulesets(self, branch: str, own_id="__resolve__") -> list:
         """The ids of the repository's OWN branch rulesets that ACTUALLY apply to the branch (and bite),
         excluding the engine's own. Resolved from the evaluated per-branch endpoint — each evaluated rule
         carries the `ruleset_id` and `ruleset_source_type` it came from — so detection is exact and needs no
         ref-condition parsing, and rules in evaluate/disabled mode (which do not protect) are naturally
         excluded. Organization-level rulesets are skipped: they are not the repository's to edit here.
-        Raises BootstrapError on an unreadable response (fail-closed — never guess the set)."""
+        `own_id` is the engine's own ruleset id when the caller already resolved it (apply does), to skip a
+        redundant rulesets list; it is resolved here when not supplied. Raises BootstrapError on an
+        unreadable response (fail-closed — never guess the set)."""
         status, data, _ = self._transport(
             "GET", f"/repos/{self.repo}/rules/branches/{branch}", None)
         if status >= 400 or not isinstance(data, list):
             raise BootstrapError(f"could not read evaluated branch rules (status {status})")
-        own = self.engine_ruleset()
-        own_id = own.get("id") if own else None
+        if own_id == "__resolve__":
+            own = self.engine_ruleset()
+            own_id = own.get("id") if own else None
         ids: list = []
         for r in data:
             rid = r.get("ruleset_id")
@@ -690,7 +703,7 @@ class ControlPlane:
             own = None
         if own is None:
             try:
-                prod_ids = self.product_rulesets(branch)
+                prod_ids = self.product_rulesets(branch, own_id=None)  # own already resolved as absent
             except BootstrapError:
                 prod_ids = []
             if len(prod_ids) == 1:
@@ -754,6 +767,7 @@ class ControlPlane:
                 # de-bootstrap still strips them (and never deadlocks); leave added rule-types empty (safe).
                 added = {"checks": [c for c in protection_guard.REQUIRED_CHECKS
                                     if c in _bound_checks(pre["rules"])], "rules": []}
+                post = pre
                 break
             status, body, _ = self._transport("PUT", f"/repos/{self.repo}/rulesets/{rid}", payload)
             if status in (401, 403):
@@ -785,6 +799,15 @@ class ControlPlane:
 
         labels_ok = self.ensure_labels()
         marker = {"ruleset_mode": "augmented", "augmented_ruleset_id": rid, "added": added}
+        # Verify the floor against what is ACTUALLY in force now (the re-read object), never the pre-write
+        # payload — a server can accept the PUT but silently drop a rule type it disallows (an org policy or
+        # plan tier), and the engine must not then claim that protection is on. `residual` is the floor pieces
+        # the engine deliberately LEFT to the operator (gaps in their own rules it won't modify); anything
+        # missing BEYOND that is something the engine tried to add but the server didn't apply.
+        actual_missing = protection_guard.missing_floor(post["rules"], protection_guard.REQUIRED_CHECKS)
+        unexpected = [m for m in actual_missing if m not in residual]
+        if unexpected:
+            return Result("degraded", branch, actual_missing, "verify-failed", labels_ok, mode="augmented")
         if residual:   # a floor piece the product's own rule leaves open — disclosed, not modified
             return Result("applied", branch, residual, None, labels_ok, mode="augmented-partial",
                           marker=marker)
@@ -890,8 +913,8 @@ def render(result: Result, copy: dict | None = None) -> str:
     if result.status == "applied" and result.mode == "augmented":
         msg = copy["applied-augmented"]
     elif result.status == "applied" and result.mode == "augmented-partial":
-        detail = (": " + "; ".join(result.missing)) if result.missing else ""
-        msg = copy["applied-augmented-partial"] + detail + "."
+        gaps = "; ".join(result.missing) if result.missing else "the missing piece"
+        msg = copy["applied-augmented-partial"].replace("{gaps}", gaps)
     elif result.status == "applied":
         msg = copy["applied"]
     elif result.status == "already":

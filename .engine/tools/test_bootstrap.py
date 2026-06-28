@@ -264,12 +264,16 @@ class TestLabelsAndDisclosure(unittest.TestCase):
 class TestCopySurface(unittest.TestCase):
     def test_template_carries_every_copy_section(self):
         # The template SURFACE must hold every heading the tool renders -> no silent drift to fallbacks.
-        copy = bootstrap.load_copy(bootstrap.TEMPLATE_PATH)
-        for key in bootstrap.COPY_HEADINGS:
-            self.assertTrue(copy[key].strip(), f"copy section {key!r} missing from the template")
-        # And the template body, not the built-in fallback, is what was read.
-        self.assertNotEqual(copy["before-you-approve"], "")
-        self.assertIn("repo", copy["before-you-approve"])          # the literal is pre-translated
+        # Parse the template DIRECTLY (not load_copy, which substitutes the fallback for a missing section and
+        # would make a dropped heading read as present — the very drift this guards). Assert each heading is a
+        # real section in the template file with a non-empty body.
+        with open(bootstrap.TEMPLATE_PATH, encoding="utf-8") as fh:
+            sections = bootstrap._parse_sections(fh.read())
+        for key, heading in bootstrap.COPY_HEADINGS.items():
+            self.assertIn(heading, sections, f"copy section {key!r} ({heading!r}) missing from the template")
+            self.assertTrue(sections[heading].strip(), f"copy section {key!r} is empty in the template")
+        # And the template body, not the built-in fallback, is what load_copy returns.
+        self.assertIn("repo", bootstrap.load_copy(bootstrap.TEMPLATE_PATH)["before-you-approve"])
 
     def test_missing_template_falls_back_not_crashes(self):
         copy = bootstrap.load_copy("/no/such/template.md")
@@ -437,13 +441,17 @@ class AugmentGitHub:
     `classic` is a list of in-force rules with NO ruleset_id (classic branch protection)."""
 
     def __init__(self, products=None, scopes="repo", drop_writes=0, mangle_on_put=False,
-                 detail_partial=False, classic=None):
+                 detail_partial=False, classic=None, drop_rule_types=None, normalize=False,
+                 change_param=False):
         self.rulesets = {p["id"]: p for p in (products or [])}
         self.scopes = scopes
         self.drop_writes = drop_writes
         self.mangle_on_put = mangle_on_put
         self.detail_partial = detail_partial
         self.classic = classic or []
+        self.drop_rule_types = set(drop_rule_types or [])   # server silently rejects these rule types
+        self.normalize = normalize                          # server echoes back a default param (GitHub does)
+        self.change_param = change_param                    # server alters an operator param (a violation)
         self.calls: list = []
         self._next_id = 900
 
@@ -477,8 +485,20 @@ class AugmentGitHub:
                 self.drop_writes -= 1
                 return 200, {"id": rid}, headers          # accepted but NOT applied (someone else won)
             stored = {**self.rulesets.get(rid, {}), **body, "id": rid}
+            rules = [dict(r) for r in stored.get("rules", [])]
+            if self.drop_rule_types:                       # server rejects a rule type (org policy / tier)
+                rules = [r for r in rules if r.get("type") not in self.drop_rule_types]
+            for r in rules:                                # server-side parameter behaviors
+                if r.get("type") == "pull_request":
+                    p = dict(r.get("parameters") or {})
+                    if self.normalize:                     # echoes back a default param it filled in
+                        p.setdefault("dismiss_stale_reviews_on_push", False)
+                    if self.change_param and "required_approving_review_count" in p:
+                        p["required_approving_review_count"] = 0   # alters an operator setting (a violation)
+                    r["parameters"] = p
             if self.mangle_on_put:
-                stored["rules"] = [r for r in stored.get("rules", []) if r.get("type") != "pull_request"]
+                rules = [r for r in rules if r.get("type") != "pull_request"]
+            stored["rules"] = rules
             self.rulesets[rid] = stored
             return 200, {"id": rid}, headers
         if method == "POST" and path == f"/repos/{REPO}/rulesets":
@@ -597,6 +617,29 @@ class TestApplyAugmentsProductRuleset(unittest.TestCase):
         self.assertEqual(res.status, "degraded")
         self.assertEqual(res.cause, "preserve-failed")
 
+    def test_server_dropping_an_added_floor_rule_does_not_claim_applied(self):
+        # The engine adds non_fast_forward, but the server (an org policy / plan tier) silently rejects it.
+        # The engine must NOT report the floor as on — it verifies against the re-read object, not its payload.
+        fake = AugmentGitHub(products=[product_ruleset(with_nff=False)], drop_rule_types=["non_fast_forward"])
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "degraded")
+        self.assertEqual(res.cause, "verify-failed")
+        self.assertTrue(any("force-push" in m for m in res.missing))   # the unmet piece is named
+
+    def test_preservation_tolerates_server_parameter_normalization(self):
+        # GitHub echoes back default params it fills in; the additive write must NOT false-alarm on that.
+        fake = AugmentGitHub(products=[product_ruleset()], normalize=True)
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "applied")
+        self.assertEqual(res.mode, "augmented")
+
+    def test_preservation_catches_a_changed_operator_parameter(self):
+        # If the server (or anything) alters an operator-set parameter, that IS a weakening — fail closed.
+        fake = AugmentGitHub(products=[product_ruleset()], change_param=True)   # drops approvals 1 -> 0
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "degraded")
+        self.assertEqual(res.cause, "preserve-failed")
+
     def test_concurrent_overwrite_retries_once_then_succeeds(self):
         fake = AugmentGitHub(products=[product_ruleset()], drop_writes=1)
         res = self._cp(fake).apply(branch="main", announce=quiet)
@@ -641,11 +684,14 @@ class TestApplyAugmentsProductRuleset(unittest.TestCase):
 
 
 class TestDeBootstrapAugmented(unittest.TestCase):
+    # The fixtures here represent the POST-augment state: the product ruleset as it stands AFTER arrival
+    # augmented it (the engine's checks unioned in, and — per AUG.added.rules — a non_fast_forward rule the
+    # engine added because the product lacked one). The marker records exactly that, so removal reverses it.
     AUG = {"ruleset_mode": "augmented", "augmented_ruleset_id": 9,
            "added": {"checks": list(protection_guard.REQUIRED_CHECKS), "rules": ["non_fast_forward"]}}
 
     def test_reverses_exactly_the_marked_additions_never_deletes(self):
-        prod = product_ruleset(checks=("product-ci", *ENGINE))   # engine checks were unioned in at arrival
+        prod = product_ruleset(checks=("product-ci", *ENGINE))   # post-augment: engine checks + (nff) present
         fake = AugmentGitHub(products=[prod])
         r = cp(fake).de_bootstrap(marker=self.AUG, announce=quiet)
         self.assertEqual(r["status"], "unaugmented")
