@@ -421,7 +421,13 @@ def restore_pre_migration(*, tag: str, transport=None, consent: "str | None" = N
     if not (isinstance(tag, str) and tag.strip()):
         return {"ok": False, "error": "snapshot-missing", "restored": False, "message": _MSG_SNAPSHOT_MISSING}
     fetch = fetch_snapshot(transport=transport, ref=("tags", tag))
-    return _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github)
+    result = _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github)
+    if result.get("ok"):
+        # The store now holds the pre-update copy, so it is no longer ahead of the code — clear the reversibility
+        # stamp so the code-older-than-data offer self-clears. Scoped to the migration-revert mode ONLY: a rolling
+        # `restore_now` must not clear a migration stamp (it restores the live head, not a pre-update floor).
+        bv.clear_migration_stamp()
+    return result
 
 
 def _restore_from_fetch(fetch: dict, *, consent: "str | None" = None, override: bool = False,
@@ -520,6 +526,52 @@ def detect_restore_offer() -> "dict | None":
         if not bv._setup_done() or not _local_structurally_empty():
             return None
         return {"configured": True}
+    except Exception:  # noqa: BLE001 — a detector fault degrades to no-offer, never breaks the boot pack
+        return None
+
+
+# ============================================================================================================
+# Floor (a) — the code-older-than-data detector (D-264 #303): is the local store AHEAD of the engine code?
+# OFFLINE detection (the migration stamp records what no other local file does — the migrated version);
+# boot relays the one-action restore offer, and when online the durable tracked Issue is promoted too.
+# ============================================================================================================
+
+_MIGRATION_REVERT_HANDLE = "ask me to restore the copy saved before the last update"
+
+
+def detect_migration_revert(*, github=_UNSET, now: "int | None" = None) -> "dict | None":
+    """OFFLINE, READ-ONLY (D-264 floor a): after a reverted/half-applied engine update, is the gitignored memory store
+    AHEAD of the running engine code? The version that migrated the store is recorded nowhere else locally
+    (engine.json reverts WITH the code), so this reads memory's own migration stamp (`bv.read_migration_stamp`,
+    written at the upgrade's batch floor) and compares its `migrated_by_version` against the running engine version
+    (`bv._engine_version`). On `running < migrated_by_version` it returns an offer dict
+    `{store_label, stamped, running, tag}` — the `tag` is OPAQUE executor payload (boot renders the plain handle, never
+    the tag); else None. ALSO promotes the ONE durable tracked Issue via `module_manager.surface_stamp_mismatch` when
+    `github` resolves (boot.open_findings renders it); offline (github=None) the in-session offer still stands. Any
+    fault → None (no false 'behind'); a non-version-shaped running version → None (it would compare as (0,))."""
+    try:
+        stamp = bv.read_migration_stamp()
+        if stamp is None:
+            return None
+        stamped, running = stamp.get("migrated_by_version"), bv._engine_version()
+        if not bv._is_version_shaped(running):                # unreadable engine.json → "unknown" → (0,); never false-fire
+            return None
+        import validate  # noqa: E402 — lazy: the shared version comparator (same one stamp_mismatch_finding uses)
+        if validate._ver_tuple(running) >= validate._ver_tuple(stamped):
+            return None                                       # code is at/ahead of the data — no mismatch
+        offer = {"store_label": stamp.get("store_label"), "stamped": stamped, "running": running,
+                 "tag": stamp.get("snapshot_tag")}
+        # Durable tracked Issue (the live caller that retires the orphaned primitive). Lazy import: a top-level
+        # restore_vault -> module_manager -> bootstrap -> boot edge would close an import cycle (restore_vault ->
+        # backup_vault -> boot is already a lazy back-edge). Best-effort + quiet: surfacing never breaks detection.
+        try:
+            import module_manager  # noqa: E402 — function-local to avoid the import cycle named above
+            now_iso = bv._iso_utc(int(time.time()) if now is None else now)
+            module_manager.surface_stamp_mismatch(stamp.get("store_label") or "your saved memory", stamped, running,
+                                                  _MIGRATION_REVERT_HANDLE, now_iso, github=github)
+        except Exception:  # noqa: BLE001 — the durable-Issue path is additive; its failure never suppresses the offer
+            pass
+        return offer
     except Exception:  # noqa: BLE001 — a detector fault degrades to no-offer, never breaks the boot pack
         return None
 
@@ -727,11 +779,51 @@ def _demo_body() -> bool:
     part7 = part7a and part7b and part7c
     print(f"  => {'a reverted update can be undone to the true pre-update memory.' if part7 else '!!! the migration-revert restore failed'}")
 
-    ok = part1 and part2 and part3 and part4 and part5 and part6 and part7
+    # --- PART 8 — the engine DETECTS the store is ahead of the code and OFFERS the whole-update undo (floor a, #303) -
+    print("\nPART 8 — the engine notices your memory is ahead of your code after a reverted update, and offers the undo")
+    print("-" * 96)
+    import boot       # noqa: E402 — lazy: only the demo renders the boot offer (boot -> restore_vault is a lazy back-edge)
+    import validate   # noqa: E402 — the throwaway repo root the demo wrote engine.json under
+    engine_json = os.path.join(validate.ROOT, ".engine", "engine.json")
+
+    def _set_running(v):
+        with open(engine_json, "w", encoding="utf-8") as fh:
+            json.dump({"engine_release": v}, fh)
+
+    # A clean pre-update state; the FIRST migration of the upgrade is the reversibility floor (stamped), then two more
+    # migrations of the SAME multi-step update reshape the store (#303 — "undo the update" must reach before ALL of them).
+    os.remove(ledger.ledger_path()); _quiet_remove(ledger.meta_path())
+    bv._demo_plant("Pre-update note: the roadmap is locked — SNORGLE.")
+    ledger.set_generation(4)
+    pre_upgrade = _read_bytes(ledger.ledger_path())
+    _set_running("2.0.0")                                          # the engine version that RUNS the update
+    floor = bv.snapshot_for_migration("recall-ledger", "2.0.0", migration_id="demo@1.0.0",
+                                      reversibility_floor=True, transport=fake.transport)
+    floor_tag = (floor or {}).get("tag")
+    bv._demo_plant("Migration A reshaped the store — FROOBLE.")
+    bv.snapshot_for_migration("recall-ledger", "2.0.0", migration_id="demo@1.1.0", transport=fake.transport)
+    bv._demo_plant("Migration B reshaped the store — BAZZLE.")
+    bv.snapshot_for_migration("recall-ledger", "2.0.0", migration_id="demo@1.2.0", transport=fake.transport)
+    _set_running("1.0.0")                                         # the update is UNDONE: code drops back, the store does not
+    offer = detect_migration_revert(github=None)
+    cites_floor = bool(offer) and offer.get("tag") == floor_tag   # cites the WHOLE-update floor, not the last step
+    marker = boot.present_marker_line({"gate": "on", "refused": False, "finding_count": 0, "strand": None,
+                                       "pr_conflict": None, "migration_revert": offer, "restore_offer": None})
+    leak_free = bool(floor_tag) and floor_tag not in marker and "engine-snapshot/" not in marker
+    print(f"  the engine detects it and offers the undo by plain handle, never the raw backup name: {cites_floor and leak_free}")
+    undo = restore_pre_migration(tag=offer["tag"], transport=fake.transport, consent="y", github=None) if offer else {}
+    back = _read_bytes(ledger.ledger_path())
+    cleared = bv.read_migration_stamp() is None and detect_migration_revert(github=None) is None
+    print(f"  restoring brings back the memory from before the WHOLE update, byte-identical: {back == pre_upgrade}")
+    print(f"  and the offer then self-clears (the store matches the code again): {cleared}")
+    part8 = (cites_floor and leak_free and undo.get("ok") is True and back == pre_upgrade and cleared)
+    print(f"  => {'the engine detects code-older-than-data and offers a clean whole-update undo.' if part8 else '!!! the detector/offer failed'}")
+
+    ok = part1 and part2 and part3 and part4 and part5 and part6 and part7 and part8
     if not ok:
         print("\nDEMO UNEXPECTED: a restore guarantee did not hold (the round trip, the resurrection guard, the "
-              "override, the offer, the consent text, degrade-and-disclose, or the migration-revert restore).",
-              file=sys.stderr)
+              "override, the offer, the consent text, degrade-and-disclose, the migration-revert restore, or the "
+              "code-older-than-data detection + whole-update undo).", file=sys.stderr)
     return bool(ok)
 
 

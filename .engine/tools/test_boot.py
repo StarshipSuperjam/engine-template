@@ -74,8 +74,8 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
-            "pr_conflict": None, "restore_offer": None, "audit_stale": None, "live_standing": None,
-            "neighborhood": None}
+            "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
+            "live_standing": None, "neighborhood": None}
 
 
 def _signals(**over):
@@ -667,6 +667,59 @@ class TestRestoreOfferSurfacing(unittest.TestCase):
                 p.stop()
         self.assertEqual(relayed["restore_offer"], self._OFFER)   # the local detector's signal is relayed verbatim
         self.assertIsNone(failed["restore_offer"])                # a detector/import failure degrades quietly to None
+
+
+class TestMigrationRevertOffer(unittest.TestCase):
+    """Slice 3 (D-264 floor a, #303): boot RELAYS memory's code-older-than-data detector as a one-action recovery
+    OFFER, by plain handle (never the raw tag the signal carries), pinned below the governance alarms, carried on the
+    present-marker, and NOT in must_push. boot OFFERS; the assistant runs memory.restore_pre_migration on consent."""
+    _OFFER = {"store_label": "recall-ledger", "stamped": "2.0.0", "running": "1.0.0",
+              "tag": "engine-snapshot/abc123/core-2.0.0"}
+
+    def test_render_surfaces_the_offer_by_plain_handle_never_the_tag(self):
+        offered = boot.render_dashboard(_signals(migration_revert=self._OFFER))
+        self.assertIn("the copy saved before that update", offered.lower())
+        self.assertIn("restore my memory from before the update", offered.lower())
+        self.assertIn("until you say so", offered.lower())            # the consent-first reassurance
+        # floor (a) / D-265 S1: the raw tag is opaque executor payload, never rendered to the operator
+        self.assertNotIn("engine-snapshot/", offered)
+        self.assertNotIn(self._OFFER["tag"], offered)
+        self.assertNotIn("the copy saved before that update",
+                         boot.render_dashboard(_signals(migration_revert=None)).lower())
+
+    def test_offer_pins_below_the_governance_alarm(self):
+        pack = boot.render_dashboard(_signals(gate="off", reason="x", migration_revert=self._OFFER))
+        lines = pack.splitlines()
+        gate = next(i for i, ln in enumerate(lines) if "safety gate is off" in ln.lower())
+        offer = next(i for i, ln in enumerate(lines) if "before that update" in ln.lower())
+        self.assertLess(gate, offer, "the governance alarm must pin above the recovery offer")
+
+    def test_present_marker_reflects_the_offer_but_alarms_outrank_and_carries_no_tag(self):
+        marker = boot.present_marker_line(_signals(migration_revert=self._OFFER))
+        self.assertIn("ahead of the engine", marker)
+        self.assertIn("restore my memory from before the update", marker)
+        self.assertNotIn("engine-snapshot/", marker)                  # no raw tag on the marker either
+        self.assertEqual(boot.present_marker_line(_signals(migration_revert=None)),
+                         f"{boot.PRESENT_MARKER}: all clear")
+        self.assertEqual(boot.present_marker_line(_signals(gate="off", migration_revert=self._OFFER)),
+                         "⚠ Protected branch is off")                 # a governance alarm outranks the offer
+
+    def test_offer_is_not_in_the_must_push_set(self):
+        self.assertEqual(boot.must_push(_signals(migration_revert=self._OFFER)), [])
+
+    def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            from memory import restore_vault
+            with mock.patch.object(restore_vault, "detect_migration_revert", return_value=self._OFFER):
+                relayed = boot.gather_signals()
+            with mock.patch.object(restore_vault, "detect_migration_revert", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["migration_revert"], self._OFFER)    # the detector's signal is relayed verbatim
+        self.assertIsNone(failed["migration_revert"])                 # a detector/import failure degrades quietly to None
 
 
 class TestAuditStaleness(unittest.TestCase):
