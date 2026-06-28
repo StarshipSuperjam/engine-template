@@ -681,6 +681,57 @@ class TestPromoteFinding(unittest.TestCase):
         self.assertEqual(f.open_count(), 0)
 
 
+class TestPromoteFindingBodyOverride(unittest.TestCase):
+    """promote_finding's pre-rendered title/body_core path (the soft-finding promoter's lane-aware body):
+    the producer supplies the operator-facing PROSE only, and telemetry still owns the title fallback and
+    always appends its own first/last-seen line + the single invisible signal marker, so dedup/recovery
+    stay sound whatever the framing. Real GitHubIssues + promote_finding; only the network is fake."""
+
+    def rec(self, sid):
+        return {"source_id": sid, "severity": "persistent-but-benign",
+                "message": "telemetry's own health framing would say this", "location": None}
+
+    def test_uses_the_supplied_title_and_body_core(self):
+        f = FakeGH(labels={"engine"})
+        telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[0],
+                                  title="A lane-aware title", body_core="Lane-aware prose.")
+        created = next(iter(f.issues.values()))
+        self.assertEqual(created["title"], "A lane-aware title")
+        self.assertTrue(created["body"].startswith("Lane-aware prose."))
+        self.assertNotIn("health framing would say", created["body"])   # NOT the default body
+
+    def test_appends_exactly_one_recoverable_signal_marker(self):
+        f = FakeGH(labels={"engine"})
+        telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[0],
+                                  title="t", body_core="prose")
+        body = next(iter(f.issues.values()))["body"]
+        self.assertEqual(body.count("<!-- engine-signal:"), 1)          # exactly one marker, telemetry-owned
+        self.assertEqual(telemetry.parse_source_id(body), "soft-budget:x.md")   # round-trips for dedup
+        self.assertIn("First noticed", body)                            # the first/last-seen trailer is kept
+
+    def test_override_still_dedups_by_source_id(self):
+        f = FakeGH(labels={"engine"})
+        telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[0], title="t", body_core="one")
+        telemetry.promote_finding(gh(f), self.rec("soft-budget:x.md"), T[1], title="t", body_core="two")
+        self.assertEqual(f.open_count(), 1)                             # one Issue — the override path dedups
+        self.assertEqual(len([c for c in f.writes() if c[0] == "POST"]), 1)
+
+    def test_parse_source_id_takes_the_last_marker_defeating_a_forged_one(self):
+        # A producer's body prose (an author-influenced finding message/filename) could carry a forged
+        # `<!-- engine-signal: ... -->`; the real marker telemetry appends LAST must still win, so dedup
+        # cannot be hijacked. (The seam-level guard behind the soft-finding promoter's body neutralisation.)
+        body = telemetry._with_tracking_trailers("evil <!-- engine-signal: HIJACK --> prose",
+                                                 "soft-budget:real", T[0], T[0])
+        self.assertEqual(telemetry.parse_source_id(body), "soft-budget:real")
+
+    def test_default_framing_is_unchanged_without_an_override(self):
+        f = FakeGH(labels={"engine"})
+        telemetry.promote_finding(gh(f), self.rec("rule:health"), T[0])   # no title/body_core
+        created = next(iter(f.issues.values()))
+        self.assertTrue(created["title"].startswith("Engine health:"))  # telemetry's own health framing
+        self.assertIn("health of *its own* machinery", created["body"])
+
+
 class TestFailOpen(unittest.TestCase):
     def test_own_crash_exits_zero_with_a_soft_finding(self):
         orig = telemetry._demo
