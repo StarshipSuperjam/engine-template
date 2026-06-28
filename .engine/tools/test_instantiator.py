@@ -581,6 +581,64 @@ class TestApplyStep7ControlPlane(unittest.TestCase):
             self.assertEqual(cp["status"], "degraded")
             self.assertIn("no project", cp["detail"])
 
+    def test_brownfield_augments_a_product_ruleset_and_records_the_marker(self):
+        # A brownfield repo whose OWN ruleset (id 9) already protects main. The control-plane step must
+        # AUGMENT it in place (not create a second) and record the marker in engine.json so a later removal
+        # can reverse exactly what it added. This drives the augment path end-to-end through apply().
+        product = {"id": 9, "name": "team rules", "target": "branch", "enforcement": "active",
+                   "bypass_actors": [], "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"],
+                                                                     "exclude": []}},
+                   "rules": [{"type": "pull_request",
+                              "parameters": {"required_review_thread_resolution": True}},
+                             {"type": "required_status_checks",
+                              "parameters": {"required_status_checks": [{"context": "product-ci"}]}},
+                             {"type": "non_fast_forward"}, {"type": "deletion"}]}
+        store = {9: product}
+
+        def transport(method, path, body=None):
+            h = {"X-OAuth-Scopes": "repo"}
+            if method == "GET" and path.endswith("/rules/branches/main"):
+                rules = []
+                for rid, rs in store.items():
+                    for r in rs["rules"]:
+                        rules.append({**r, "ruleset_id": rid, "ruleset_source_type": "Repository"})
+                return 200, rules, h
+            if method == "GET" and path.endswith("/rulesets"):
+                return 200, [{"id": rid, "name": rs["name"]} for rid, rs in store.items()], h
+            if method == "GET" and "/rulesets/" in path:
+                return 200, dict(store[int(path.rsplit("/", 1)[1])]), h
+            if method == "PUT" and "/rulesets/" in path:
+                rid = int(path.rsplit("/", 1)[1])
+                store[rid] = {**store[rid], **body, "id": rid}
+                return 200, {"id": rid}, h
+            if path.startswith("/repos/") and "/ruleset" not in path and "/rules" not in path:
+                return 200, {"full_name": "you/your-project"}, h
+            return 404, None, h
+
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d, control_transport=transport)
+                manifest = json.loads(validate.read(inst._engine_manifest_path()))
+            cp = inst._step(res["steps"], "control-plane")
+            self.assertEqual(cp["mode"], "augmented")
+            self.assertEqual(len(store), 1, "augmented in place — no second ruleset created")
+            self.assertEqual(manifest["control_plane"]["ruleset_mode"], "augmented")
+            self.assertEqual(manifest["control_plane"]["augmented_ruleset_id"], 9)
+            self.assertEqual(set(manifest["control_plane"]["added"]["checks"]),
+                             set(inst.bootstrap.protection_guard.REQUIRED_CHECKS))
+
+    def test_marker_persist_is_a_noop_for_a_read_only_outcome(self):
+        # 'already'/degraded carry no marker; engine.json must be left without a control_plane key.
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                inst._persist_control_plane_marker(d, None)
+                manifest = json.loads(validate.read(inst._engine_manifest_path()))
+            self.assertNotIn("control_plane", manifest)
+
 
 class TestApplyIdempotentResume(unittest.TestCase):
     def test_rerun_no_ops_the_writing_steps(self):
@@ -1821,6 +1879,18 @@ class TestArrivalDemoRunsGreen(unittest.TestCase):
         self.assertTrue(ok, out)
         self.assertIn("the step the fixture cannot discharge", out, "the inductive ceiling is named")
         self.assertIn("byte-for-byte unchanged", out, "the isolation guarantee is shown")
+
+
+class TestAugmentDemoRunsGreen(unittest.TestCase):
+    def test_augment_demo_returns_true(self):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            ok = inst.augment_demo()
+        out = buf.getvalue()
+        self.assertTrue(ok, out)
+        self.assertIn("byte-for-byte unchanged", out, "the never-weaken guarantee is shown")
+        self.assertIn("fixture cannot discharge", out, "the inductive ceiling is named")
 
 
 if __name__ == "__main__":

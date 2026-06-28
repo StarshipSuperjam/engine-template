@@ -61,6 +61,14 @@ re-flag them — the overlap check is the single place overlaps are reported.
 and no LICENSE, and leaves any the project has untouched. A security-contact file is added only if the project
 has none.
 
+**Your branch protection is added to, never replaced.** If the project already protects its main branch with
+its own rule, the engine adds its checks to that rule in place — and adds any missing force-push, deletion, or
+pull-request protection — rather than creating a second rule, and it leaves everything else of the rule exactly
+as it was. Anything it cannot add without changing a setting the owner chose is reported, not overwritten. The
+exact additions are recorded, so a later clean removal takes back exactly what was added. If the project has
+more than one rule covering main, or protects it a different way, the engine adds its own rule alongside and
+says so.
+
 **Reviewed, reversible, and re-enterable.** The arrival lands as a pull request behind the project's review gate,
 so it is approved and can be undone by reverting it. If the arrival stops at an overlap, running it again picks
 up from the overlap step — nothing shared was changed.

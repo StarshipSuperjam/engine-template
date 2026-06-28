@@ -69,3 +69,37 @@ protected. To turn protection back on later, run the engine setup again.
 ## When there was no engine safety rule
 
 There was no engine safety rule on your main branch to remove — nothing to change here.
+
+## When your own rule was there — I added my checks to it
+
+Your main branch was already protected by your own rule, so I added my two checks to that rule rather than
+creating a second one — and where your rule was missing a piece of the safety floor (blocking force-pushes,
+blocking branch deletion, or requiring a pull request), I added that too. I changed nothing else of yours:
+your rule's other settings are exactly as you had them.
+
+## When I added my checks but one floor piece is yours to decide
+
+Your main branch was already protected by your own rule, so I added my two checks to it (and any missing
+force-push/deletion/pull-request protection). One part of the safety floor I couldn't turn on without changing
+a rule you set yourself, so I left it exactly as you have it: {gaps}. You can switch that on yourself in your
+branch's rules if you want it — leaving it as is means a change can still reach your main branch under that
+rule's current terms.
+
+## When you have more than one rule covering main
+
+Your project has more than one rule covering your main branch, so I didn't change any of them — I couldn't be
+sure which one to add my checks to without risking your setup. Instead I added my own rule with my two checks,
+alongside yours. Your branch is protected by both; if you'd rather have my checks in one of your existing
+rules, tell me which and I'll move them.
+
+## When your main branch was already protected your own way
+
+Your main branch is already protected by your own settings, so I added my two checks in my own rule alongside
+what you have — I didn't touch your existing protection. Your branch is now covered by both; nothing of yours
+changed.
+
+## When the rule was yours — I only removed what I added
+
+I took my two checks — and any force-push/deletion/pull-request protection I had added — back out of your own
+branch-protection rule, and left the rest of that rule exactly as it was. There's no keep-or-remove choice
+here because the rule is yours, not one I created; I only added to it, so I only removed what I added.
