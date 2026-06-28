@@ -34,6 +34,11 @@ Tiers / blocking: a real structural problem in an in-progress or settled spec is
 (`hard`, so it blocks the merge — a malformed committed spec is mechanically decidable structural hygiene).
 The disclosed-no-op is always `soft`, so a project with no spec is never blocked. Read-only throughout.
 
+Shared spec-grammar home: besides being the form-check entry, this module is the de-facto shared library for the
+product_design package — `lock_integrity.py` and `coverage.py` import its readers (`_frontmatter_status`, the
+pipe-table and link parsers) and its path constants (`_SPEC_DIR`, `_INDEX_REL`, `_BUILD_PLAN_REL`). Keeping the
+spec grammar in one place is deliberate (no duplication across the package's checks).
+
 Contract: invoked by the validator with NO arguments, it prints a finding.v1 JSON array to stdout and exits
 0. A separate `demo` subcommand runs a falsifiable self-check.
 """
@@ -55,6 +60,12 @@ import validate  # noqa: E402 — ROOT (test-redirectable) + the finding.v1 help
 _SPEC_DIR = os.path.join("docs", "spec")
 _INDEX_NAME = "index.md"
 _INDEX_REL = os.path.join(_SPEC_DIR, _INDEX_NAME)
+# The committed build-plan doc (the build order) — a separate artifact under docs/spec/, NOT a capability and
+# NOT subject to the lock (no lock gravity). It is excluded from the capability walk by exact path, exactly as
+# the index is, and is the input the acceptance-criteria coverage check (coverage.py) reads. lock_integrity
+# needs no exclusion: the build-plan carries no `locked` status, so its content filter already skips it.
+_BUILD_PLAN_NAME = "build-plan.md"
+_BUILD_PLAN_REL = os.path.join(_SPEC_DIR, _BUILD_PLAN_NAME)
 
 # The lifecycle ladder is engine-internal; operator-facing prose renders it plainly, NEVER the raw token
 # (D-120 / the operator-communication law). These plain renders are the only stage words a finding shows.
@@ -86,8 +97,10 @@ def _spec_root(root: str) -> str:
 
 
 def _capability_doc_rels(root: str) -> list:
-    """Repo-root-relative paths of every `*.md` under `docs/spec/` EXCEPT the master index, sorted.
-    Symlinks are not followed (the safe default); dot-directories are skipped."""
+    """Repo-root-relative paths of every `*.md` under `docs/spec/` EXCEPT the two non-capability files — the
+    master index and the build-plan doc (both excluded by exact top-level path, so a nested doc that happens to
+    share either name stays an ordinary capability), sorted. Symlinks are not followed (the safe default);
+    dot-directories are skipped."""
     spec_root = _spec_root(root)
     out = []
     for dirpath, dirnames, filenames in os.walk(spec_root):  # followlinks=False (default)
@@ -96,7 +109,7 @@ def _capability_doc_rels(root: str) -> list:
             if not name.endswith(".md"):
                 continue
             rel = os.path.relpath(os.path.join(dirpath, name), root)
-            if rel == _INDEX_REL:
+            if rel in (_INDEX_REL, _BUILD_PLAN_REL):
                 continue
             out.append(rel)
     return sorted(out)
