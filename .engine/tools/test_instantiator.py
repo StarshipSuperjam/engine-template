@@ -1496,8 +1496,8 @@ class TestCollisionDemoRunsGreen(unittest.TestCase):
             rc = inst.main(["collision-demo"])
         out = buf.getvalue()
         self.assertEqual(rc, 0, out)
-        self.assertIn("no live trigger", out.lower(),
-                      "the no-live-caller disclosure is printed (docstrings are code the operator can't read)")
+        self.assertIn("live first step", out.lower(),
+                      "the now-live-trigger disclosure is printed (docstrings are code the operator can't read)")
         self.assertIn("byte-for-byte unchanged", out, "the isolation guarantee is shown")
         self.assertIn("naming it, not hiding it", out, "the honest-ceiling banner leads the demo")
 
@@ -1511,6 +1511,316 @@ class TestCollisionCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("workshop", buf.getvalue().lower(),
                       "the bare verb short-circuits read-only here, never self-flagging the engine's own files")
+
+
+class TestSharedStateClaudeFenceAware(unittest.TestCase):
+    """The CLAUDE.md branch of _shared_state is fence-aware (#234 6b): an already-present engine floor is a
+    'resume' (no flag), a pre-existing project guide is 'additive'."""
+    def _state(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "CLAUDE.md")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            return inst._shared_state("CLAUDE.md", p)
+
+    def test_floor_fence_present_is_resume(self):
+        import wiring
+        fenced = wiring.fence_apply("# Our guide\n", inst._FLOOR_FENCE, ["Project status block."],
+                                    style=wiring.MD_FENCE)
+        self.assertEqual(self._state(fenced), "resume")
+
+    def test_operator_guide_without_fence_is_additive(self):
+        self.assertEqual(self._state("# Our own project guide\nBuild with make.\n"), "additive")
+
+    def test_empty_is_empty(self):
+        self.assertEqual(self._state("   \n"), "empty")
+
+    def test_unreadable_is_unreadable(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "CLAUDE.md")
+            with open(p, "wb") as fh:
+                fh.write(b"\xff\xfe\x00bad")
+            self.assertEqual(inst._shared_state("CLAUDE.md", p), "unreadable")
+
+
+class TestCollisionClaudeFenceAware(unittest.TestCase):
+    """Through the live collision_check: a brownfield CLAUDE.md already carrying the engine floor is a resume
+    (not surfaced); an operator guide with no floor is surfaced as a class-2 additive overlap."""
+    def test_existing_engine_floor_is_not_surfaced(self):
+        import wiring
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=True)
+            fenced = wiring.fence_apply("# Our guide\n", inst._FLOOR_FENCE, ["Project status."],
+                                        style=wiring.MD_FENCE)
+            with open(os.path.join(d, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+                fh.write(fenced)
+            res = inst.collision_check(root=d, engine_paths=_COLLISION_ENGINE_PATHS)
+            shared = {p for c in res["collisions"] if c["klass"] == 2 for p in c["paths"]}
+            self.assertNotIn("CLAUDE.md", shared)
+
+    def test_operator_guide_is_surfaced_additive(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_collision_fixture(d, populated=True)   # plants an unfenced product CLAUDE.md
+            res = inst.collision_check(root=d, engine_paths=_COLLISION_ENGINE_PATHS)
+            shared = {p for c in res["collisions"] if c["klass"] == 2 for p in c["paths"]}
+            self.assertIn("CLAUDE.md", shared)
+
+
+class TestDetectTeam(unittest.TestCase):
+    """Brownfield team detection: read-only, any one signal recommends team, degrades to not-detected when gh
+    can't answer (never a false positive)."""
+    def _codeowners(self, d, text):
+        os.makedirs(os.path.join(d, ".github"), exist_ok=True)
+        with open(os.path.join(d, ".github", "CODEOWNERS"), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_multi_owner_codeowners_is_a_local_signal(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._codeowners(d, "* @org/alice @org/bob\n")
+            res = inst.detect_team(root=d, gh_api=lambda path: None)
+            self.assertTrue(res["detected"])
+            self.assertTrue(res["reason"])
+
+    def test_single_owner_no_gh_is_not_detected(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._codeowners(d, "* @solo\n")
+            res = inst.detect_team(root=d, gh_api=lambda path: None)
+            self.assertFalse(res["detected"])
+
+    def test_organization_owner_signals_team(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._codeowners(d, "* @solo\n")
+            gh = lambda path: {"owner": {"type": "Organization"}} if "required_pull_request_reviews" not in path \
+                else None
+            with mock.patch.object(inst.boot, "repo_slug", return_value="acme/widgets"):
+                res = inst.detect_team(root=d, gh_api=gh)
+            self.assertTrue(res["detected"])
+
+    def test_existing_required_reviews_signals_team(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._codeowners(d, "* @solo\n")
+            gh = lambda path: {"required_approving_review_count": 1} \
+                if "required_pull_request_reviews" in path else {"owner": {"type": "User"}}
+            with mock.patch.object(inst.boot, "repo_slug", return_value="solo/widgets"):
+                res = inst.detect_team(root=d, gh_api=gh)
+            self.assertTrue(res["detected"])
+
+    def test_gh_failure_degrades_to_not_detected(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._codeowners(d, "* @solo\n")
+            with mock.patch.object(inst.boot, "repo_slug", return_value="solo/widgets"):
+                res = inst.detect_team(root=d, gh_api=lambda path: None)   # every gh read unavailable
+            self.assertFalse(res["detected"])
+
+
+class TestGatherTeamRecommendation(unittest.TestCase):
+    def test_recommendation_shown_when_a_team_is_detected(self):
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(inst.boot, "repo_slug", return_value="acme/widgets"):
+            with inst._redirect_root(d):
+                text = inst.present_gather(root=d, team={"detected": True, "reason": "x", "signals": ["x"]})
+        self.assertIn("already has a team", text)
+
+    def test_recommendation_absent_when_solo(self):
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(inst.boot, "repo_slug", return_value="solo/widgets"):
+            with inst._redirect_root(d):
+                text = inst.present_gather(root=d, team={"detected": False, "reason": None, "signals": []})
+        self.assertNotIn("already has a team", text)
+
+
+class TestInsertFloor(unittest.TestCase):
+    """The INSERT-on-arrival floor: append-when-absent, never a duplicate, sourced from the release."""
+    def _release_with_floor(self, d):
+        with open(os.path.join(d, inst._DEPLOYED_FLOOR_REL), "w", encoding="utf-8") as fh:
+            fh.write("# Your project runs on an Engine\n\nProject status block.\n")
+
+    def test_inserts_into_operator_guide_keeping_content(self):
+        import wiring
+        with tempfile.TemporaryDirectory() as d:
+            rel, tgt = os.path.join(d, "rel"), os.path.join(d, "tgt")
+            os.makedirs(rel); os.makedirs(tgt)
+            self._release_with_floor(rel)
+            with open(os.path.join(tgt, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+                fh.write("# Our guide\n\nHow we work.\n")
+            with inst._redirect_root(tgt):
+                self.assertEqual(inst._insert_floor(rel), "inserted")
+                after = inst._read_text_or(os.path.join(tgt, "CLAUDE.md"), "")
+            self.assertIn("How we work.", after)                              # operator content kept
+            self.assertEqual(after.count(wiring._MD_FENCE_BEGIN_TOKEN), 1)    # exactly one floor fence
+
+    def test_present_floor_is_not_duplicated(self):
+        import wiring
+        with tempfile.TemporaryDirectory() as d:
+            rel, tgt = os.path.join(d, "rel"), os.path.join(d, "tgt")
+            os.makedirs(rel); os.makedirs(tgt)
+            self._release_with_floor(rel)
+            fenced = wiring.fence_apply("# Our guide\n", inst._FLOOR_FENCE, ["old floor"], style=wiring.MD_FENCE)
+            with open(os.path.join(tgt, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+                fh.write(fenced)
+            with inst._redirect_root(tgt):
+                self.assertEqual(inst._insert_floor(rel), "present")
+                after = inst._read_text_or(os.path.join(tgt, "CLAUDE.md"), "")
+            self.assertEqual(after.count(wiring._MD_FENCE_BEGIN_TOKEN), 1)    # still exactly one
+
+    def test_no_release_floor_is_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            rel, tgt = os.path.join(d, "rel"), os.path.join(d, "tgt")
+            os.makedirs(rel); os.makedirs(tgt)
+            with inst._redirect_root(tgt):
+                self.assertEqual(inst._insert_floor(rel), "skipped")
+
+    def test_malformed_local_fence_degrades(self):
+        with tempfile.TemporaryDirectory() as d:
+            rel, tgt = os.path.join(d, "rel"), os.path.join(d, "tgt")
+            os.makedirs(rel); os.makedirs(tgt)
+            self._release_with_floor(rel)
+            import wiring
+            with open(os.path.join(tgt, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+                fh.write(wiring.MD_FENCE_BEGIN.format(id=inst._FLOOR_FENCE) + "\nunterminated\n")  # no END
+            with inst._redirect_root(tgt):
+                self.assertEqual(inst._insert_floor(rel), "degraded")
+
+
+def _arrive_fakes():
+    """Every external boundary arrive() threads into apply/detect_team faked, so the REAL arrival runs with
+    nothing real touched (mirrors _finish_apply) — including the GitHub team-detection read (gh_api)."""
+    return dict(home_reader=lambda: {}, uv_present=lambda: None, uv_installer=lambda: "uv",
+                uv_runner=lambda uv, g: True, consent=lambda kind: True,
+                control_transport=inst._approve_transport(), gh_refresh=lambda s: True,
+                control_issues=inst._FakeIssues(), gh_api=lambda path: None,
+                control_repo="you/your-project", control_token="demo-token")
+
+
+class TestArrive(unittest.TestCase):
+    def test_surface_only_writes_nothing_even_with_no_overlaps(self):
+        # The BLOCKING case: a clean project with no overlaps must NOT be installed by the read-only step.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(os.path.join(target, "src"))
+            with open(os.path.join(target, "src", "app.py"), "w") as fh:
+                fh.write("x = 1\n")                                   # a clean project: nothing in the way
+            inst._build_fixture(release)
+            prs = []
+            res = inst.arrive(target_root=target, release_tree=release, announce=lambda t: None,
+                              opener=lambda **k: prs.append(k), **_arrive_fakes())  # apply_changes defaults False
+            self.assertTrue(res["surfaced"])
+            self.assertFalse(res["proceeded"])
+            self.assertEqual(res["collisions"], [])
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))   # nothing written
+            self.assertEqual(prs, [])
+
+    def test_surface_only_with_overlaps_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            snap = {p: inst._read_text_or(os.path.join(target, p), "")
+                    for p in ("CLAUDE.md", ".gitignore", ".github/CODEOWNERS")}
+            prs = []
+            res = inst.arrive(target_root=target, release_tree=release, announce=lambda t: None,
+                              opener=lambda **k: prs.append(k), **_arrive_fakes())  # surface-only
+            self.assertTrue(res["surfaced"])
+            self.assertFalse(res["proceeded"])
+            self.assertTrue(res["collisions"])
+            self.assertEqual({p: inst._read_text_or(os.path.join(target, p), "") for p in snap}, snap)
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))
+            self.assertEqual(prs, [])
+
+    def test_abort_at_an_overlap_writes_nothing_and_opens_no_pr(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            snap = {p: inst._read_text_or(os.path.join(target, p), "")
+                    for p in ("CLAUDE.md", ".gitignore", ".github/CODEOWNERS")}
+            prs = []
+            res = inst.arrive(target_root=target, release_tree=release, decide=lambda c: "abort",
+                              apply_changes=True, announce=lambda t: None,
+                              opener=lambda **k: prs.append(k), **_arrive_fakes())
+            self.assertFalse(res["proceeded"])
+            self.assertEqual({p: inst._read_text_or(os.path.join(target, p), "") for p in snap}, snap)
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))
+            self.assertEqual(prs, [])
+
+    def test_empty_release_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); os.makedirs(release)  # release has no modules
+            res = inst.arrive(target_root=target, release_tree=release, apply_changes=True,
+                              decide=lambda c: "accept", announce=lambda t: None,
+                              opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertEqual(res["stopped_on"], "release")
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))
+
+    def test_accept_proceeds_inserts_one_floor_and_opens_one_pr_for_the_target(self):
+        import wiring
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="team",
+                              handle="you", decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None,
+                              opener=lambda **k: prs.append(k) or {"number": 1}, **_arrive_fakes())
+            guide = inst._read_text_or(os.path.join(target, "CLAUDE.md"), "")
+            self.assertTrue(res["proceeded"])
+            self.assertEqual(guide.count(wiring._MD_FENCE_BEGIN_TOKEN), 1)
+            self.assertIn("How we work here.", guide)                 # operator content preserved
+            self.assertNotIn("construction governance", guide)        # the release's construction file never overlaid
+            self.assertTrue(os.path.isfile(os.path.join(target, ".engine", "modules", "core", "manifest.json")))
+            self.assertEqual(len(prs), 1)
+            self.assertEqual(prs[0].get("repo"), "you/your-project")  # the PR is aimed at the TARGET's slug
+
+    def test_live_writes_target_the_derived_slug_not_the_cwd(self):
+        # No control_repo injected: the slug must be read from the TARGET's own git remote, not the process cwd.
+        import subprocess
+        fakes = _arrive_fakes(); fakes.pop("control_repo")
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            for args in (["git", "-C", target, "init", "-q"],
+                         ["git", "-C", target, "remote", "add", "origin",
+                          "https://github.com/acme/their-product.git"]):
+                subprocess.run(args, check=True, capture_output=True)
+            prs = []
+            inst.arrive(target_root=target, release_tree=release, tier="solo", handle="you",
+                        decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                        opener=lambda **k: prs.append(k) or {"number": 1}, **fakes)
+            self.assertEqual(prs[0].get("repo"), "acme/their-product")   # the target's remote, not cwd's
+
+    def test_brownfield_seeding_leaves_owner_files_as_they_are(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            inst.arrive(target_root=target, release_tree=release, tier="team", handle="you",
+                        decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                        opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertIn("security@ourproduct.example", inst._read_text_or(os.path.join(target, "SECURITY.md"), ""))
+            self.assertIn("Our Product Inc.", inst._read_text_or(os.path.join(target, "LICENSE"), ""))
+            self.assertNotIn(inst._MARKETING_SEED_MARKER, inst._read_text_or(os.path.join(target, "README.md"), ""))
+
+    def test_does_not_touch_the_real_tree(self):
+        snap = inst._snapshot_real_files()
+        root_before = validate.ROOT
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            inst.arrive(target_root=target, release_tree=release, tier="team", handle="you",
+                        decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                        opener=lambda **k: {"number": 1}, **_arrive_fakes())
+        self.assertTrue(inst._assert_real_files_unchanged(snap))
+        self.assertEqual(validate.ROOT, root_before)   # ROOT restored after arrive's redirect
+
+
+class TestArrivalDemoRunsGreen(unittest.TestCase):
+    def test_arrival_demo_returns_true(self):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            ok = inst.arrival_demo()
+        out = buf.getvalue()
+        self.assertTrue(ok, out)
+        self.assertIn("the step the fixture cannot discharge", out, "the inductive ceiling is named")
+        self.assertIn("byte-for-byte unchanged", out, "the isolation guarantee is shown")
 
 
 if __name__ == "__main__":

@@ -954,6 +954,7 @@
           "operation:close-turn",
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
+          "operation:engine-arrival",
           "operation:engine-remove",
           "operation:engine-upgrade",
           "operation:external-contribution-submit",
@@ -998,6 +999,7 @@
           "operation:close-turn",
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
+          "operation:engine-arrival",
           "operation:engine-remove",
           "operation:engine-upgrade",
           "operation:external-contribution-submit",
@@ -1609,7 +1611,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:189d50a41f12ac61f8f21553011fa448a896ab6050dcf0e17c49473bd851f0ff",
+        "fingerprint": "sha256:12081f0b490e3af442057b7f9aba10904a887af90488cf10b471df9b1ce358ce",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -1892,6 +1894,26 @@
       "source": {
         "fingerprint": "sha256:0364de2e2935ed53f1f3748f048eb46b3be7e871a86c55ef1570afb024f40e5c",
         "path": ".engine/operations/control-plane-bootstrap.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:engine-arrival",
+      "name": ".engine/operations/engine-arrival.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-arrival",
+      "source": {
+        "fingerprint": "sha256:96ddbfb15124e43a3f1f102198da5831e22dc40770d8dd56ba306b8ddb7654c0",
+        "path": ".engine/operations/engine-arrival.md"
       },
       "status": "active",
       "type": "operation"
@@ -3686,7 +3708,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:b502bd3343693a28a28b779f7225c9b41dcc8a1dea850b31ba184c94755a34d1",
+        "fingerprint": "sha256:fd53cddc52c75b21d91a1b79af0c48b881c5956b9793b9bcf5176034ee0c5772",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -4009,7 +4031,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:8eec2bcddad95f024fc1b6fa546c97595d7a80e91d74dd829b3a9f1ea0da5cc7",
+        "fingerprint": "sha256:969ccd58ae03ed9cf26f559b5f58c17cfa952312b683a2b489f65bc5535b4301",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -4927,7 +4949,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:97e22beb53bf1b0731ed3921ed0dfe508320c5913b35e37058fe8ae1f751b378",
+        "fingerprint": "sha256:d9ee211dda9dfd755a7f7a311ffc96ec8314803e5fa04340edb9c4e5eb5fc739",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -5182,7 +5204,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:63352141d6469878db1422c7083cc5f55736a16b039f0f4326badb6857ccc349",
+        "fingerprint": "sha256:fcbf89432d5a9a4a4d47c45812ccc6e40e6366846972cb6009a432fe1e79c673",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

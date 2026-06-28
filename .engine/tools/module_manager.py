@@ -728,14 +728,18 @@ def surface_stamp_mismatch(store_label: str, stamped_version: str, running_versi
 
 # ---- upgrade: overlay (off the PRESENT set) + wiring deltas + re-sync + migrations + coherence + PR ----
 
-def _overlay_engine_code(release_tree: str, present_ids: list) -> tuple:
+def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> tuple:
     """Overlay the engine CODE of the PRESENT packages from `release_tree`: each present module's
     `provides` files + its manifest, plus the FOUNDATION_CODE infra the release ships. Driven off the
     PRESENT set (never the release tree's modules/*), so a deselected module is NEVER resurrected
     (provisioning L352-356). Operator config (engine.json identity, the policy-override) and gitignored
     data + the per-instance eADR stream are in no `provides`/FOUNDATION_CODE, so they are untouched.
     CONTAINMENT GUARD (the topology wall): every destination must resolve INSIDE ROOT — fail closed BEFORE
-    any write (the PR-1 pattern). Returns (copied_relpaths, {module_id: release_manifest})."""
+    any write (the PR-1 pattern). `exclude` (a set of repo-relative paths) is NOT overwritten — the brownfield
+    arrival passes the engine-exclusive paths an operator chose to keep ('leave-as-is', a class-1 collision),
+    so the engine coexists around them rather than replacing them. Returns (copied_relpaths,
+    {module_id: release_manifest})."""
+    skip = set(exclude or ())
     to_copy: dict = {}   # rel -> src (dedup; a manifest also matched by a glob resolves to one entry)
     candidates: dict = {}
     for mid in present_ids:
@@ -765,6 +769,8 @@ def _overlay_engine_code(release_tree: str, present_ids: list) -> tuple:
                               f"({shown}); nothing was changed.")
     copied = []
     for rel, src in sorted(to_copy.items()):
+        if rel in skip:                      # an operator file the arrival is keeping (class-1 leave-as-is)
+            continue
         dst = os.path.join(validate.ROOT, rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copyfile(src, dst)
