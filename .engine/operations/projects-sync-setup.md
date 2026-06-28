@@ -27,7 +27,12 @@ is ever stored in the repo.**
    exactly as before.
 2. **Create the board.** `gh project create --owner @me --title "<your project> — engine"`. Note the board
    **number** and **id** it prints (use `--format json` to capture the id).
-3. **Link it to this repo.** `gh project link <number> --owner @me`.
+3. **Link it to this repo.** Run `gh project link <number> --owner <your-login> --repo <repo-name>` — name
+   your login and the repo explicitly, not `@me`. (`gh api user --jq .login` prints your login;
+   `gh repo view --json name --jq .name`, run from inside this repo, prints the repo name.) `@me` works as
+   the owner in the steps above, but linking also resolves a *repository*, and `@me` fails at that step with
+   *"Could not resolve to a Repository"* — so name them explicitly here. This is the form `gh`'s own docs use
+   (`gh project link 1 --owner monalisa --repo my_repo`).
 4. **Create the engine's five fields.** The engine writes only into fields it owns, so create them once (any
    names work, but these are what it looks for): for each of **What's being built**, **What's next**,
    **Needs your review**, **Known issues**, and **Last synced**, run

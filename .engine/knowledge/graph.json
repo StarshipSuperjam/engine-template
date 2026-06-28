@@ -2063,7 +2063,7 @@
       },
       "slug": "projects-sync-setup",
       "source": {
-        "fingerprint": "sha256:21ddea4b7a7ab6f32964f0163ea9ac9e929b8b6bb7cceebbfe05a54816fafd4e",
+        "fingerprint": "sha256:f76599d61e1376ad8beb491dfe3fb45788adcfa6c215459dcbffd7a1fa0fce6b",
         "path": ".engine/operations/projects-sync-setup.md"
       },
       "status": "active",
@@ -2734,7 +2734,7 @@
       },
       "slug": "engine-board-setup",
       "source": {
-        "fingerprint": "sha256:6eeaa9391faf7a70704081f80e8ef1af3ce47428b8c9dea998cbdcb41ae56f37",
+        "fingerprint": "sha256:5bebb34edb33bc2fc0b2f3c62f3deace1930eb082fbadef0e019554de7a03519",
         "path": ".claude/skills/engine-board-setup/SKILL.md"
       },
       "status": "active",
