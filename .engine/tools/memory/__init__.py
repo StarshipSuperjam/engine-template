@@ -17,7 +17,8 @@ the closed role vocabulary + the abandoned-session ``SessionStart`` sweep (``mem
 forgetting (Layer 1): logical retirement + scored demotion (``memory.forget``), crash-safe ledger compaction
 (``memory.compact``), gist roll-up (``memory.rollup``), the public search interface + MCP server, the
 backup/restore vault with its resurrection-surfacing (``memory.backup_vault`` / ``memory.restore_vault``),
-and the pre-migration backup seam the module manager consumes (``memory.snapshot_for_migration``). Layer-2
+the pre-migration backup seam the module manager consumes (``memory.snapshot_for_migration``) and the
+migration-revert restore that brings a pre-migration snapshot tag back (``memory.restore_pre_migration``). Layer-2
 audit-gated physical erasure has shipped its enactment core (the gated removal + sole minter in
 ``memory.compact``) and its cross-session observer (``memory.erasure_observer``).
 """
@@ -25,5 +26,6 @@ audit-gated physical erasure has shipped its enactment core (the gated removal +
 from memory.capture import capture_turn_delta  # noqa: F401 — the public capture entry close's relay calls
 from memory.backup_vault import migration_backup_available  # noqa: F401 — the migration pre-flight readiness probe
 from memory.backup_vault import snapshot_for_migration  # noqa: F401 — the pre-migration backup seam module_manager calls
+from memory.restore_vault import restore_pre_migration  # noqa: F401 — the migration-revert restore Slice 3's detector calls
 
-__all__ = ["capture_turn_delta", "migration_backup_available", "snapshot_for_migration"]
+__all__ = ["capture_turn_delta", "migration_backup_available", "snapshot_for_migration", "restore_pre_migration"]
