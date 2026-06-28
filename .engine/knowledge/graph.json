@@ -4162,7 +4162,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:b6a3535aa13c38774f95054e0c463ca65210fa50ccab5a1d1db4b5112361601a",
+        "fingerprint": "sha256:0b7b3287e28e897ab571e9a590a39dedba0bdcb9202a1ce85ec67cdeb6518a4f",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",

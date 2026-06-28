@@ -337,14 +337,15 @@ _MSG_NAMESPACE_MISSING = ("Your project's saved-memory folder is no longer in th
                           "here, ask me to set up the backup again and I'll rebuild it from this computer. If this "
                           "computer is empty too and the memory isn't saved on another machine, that backed-up copy "
                           "is gone for good.")
-# The migration-revert distinct miss (D-264 law 5 / floor d): the CITED pre-update snapshot is gone (a hand-deletion
-# in the operator's own vault). The recovery action is DELIBERATELY NOT _MSG_NAMESPACE_MISSING's "set up the backup
-# again" — that would re-push the RESHAPED store and destroy the right copy's addressability. Per the locked floor
-# (memory README §migration-revert) the honest action is re-run the update / ask for help, never a silent no-restore.
-_MSG_SNAPSHOT_MISSING = ("The saved copy of your memory from before the last update isn't in your backup anymore — it "
-                         "looks like it was removed by hand. Nothing on this computer changed. The one-step undo isn't "
-                         "available, so I can re-run the update to get things working again, or you can ask me for "
-                         "help.")
+# The migration-revert distinct miss (D-264 law 5 / floor d): the CITED pre-update snapshot is gone. The floor names
+# the CONSEQUENCE + one honest recovery action, not the cause — so this does NOT assert "removed by hand" (it could
+# also be the engine's own retention prune, the open reversibility-unit question, #303). The recovery action is
+# DELIBERATELY NOT _MSG_NAMESPACE_MISSING's "set up the backup again" — that would re-push the RESHAPED store and
+# destroy the right copy's addressability. The honest action is re-run the update / ask for help, never a silent
+# no-restore.
+_MSG_SNAPSHOT_MISSING = ("The saved copy of your memory from before the last update isn't in your backup anymore. "
+                         "Nothing on this computer changed. The one-step undo isn't available, so I can re-run the "
+                         "update to get things working again, or you can ask me for help.")
 _MSG_CORRUPT = ("I couldn't read a complete copy of your memory from the backup, so I did NOT change anything on "
                 "this computer — better to keep what you have than risk a half copy. Try the restore again in a "
                 "little while.")
@@ -596,8 +597,9 @@ def _demo() -> int:
     print("What this just proved: after a backup, the engine can WIPE the local memory and bring it back identical")
     print("and searchable — so a dead disk or a new laptop no longer loses 'how did I get here'. It will NOT silently")
     print("overwrite newer memory with an older backup (it surfaces that and refuses), it tells you plainly what will")
-    print("be replaced before it does anything, a failed fetch changes nothing, and a bad engine update can be UNDONE")
-    print("to the exact memory saved before it (the retained pre-update snapshot). That was a PRACTICE run, thrown")
+    print("be replaced before it does anything, and a failed fetch changes nothing. It also proves the mechanism that")
+    print("undoes a bad engine update — bringing back the exact memory saved before it — which the engine will offer")
+    print("on its own when it later detects your memory is ahead of your code. That was a PRACTICE run, thrown")
     print("away. To prove it end-to-end on your REAL GitHub — a throwaway private repo created, backed up to, restored")
     print("from, and deleted — run this command with --live.")
     return 0 if ok else 1
