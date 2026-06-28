@@ -107,6 +107,18 @@ _REPO_DESCRIPTION = "Private AI-memory backup created and maintained by the engi
 # (the scheduled self-audit's saved-memory read). Coordinates only — the pointer never carries ledger content.
 _POINTER_COMMIT_MESSAGE = "Record memory-backup location (engine)"
 
+# The retained pre-migration snapshot (D-264): a distinct refs/tags ref the routine rolling backup never overwrites.
+# Its own content-free commit message (the D-007 leak guard, like the rolling one) distinguishes it in vault history.
+_SNAPSHOT_COMMIT_MESSAGE = "Pre-migration memory snapshot (engine)"
+# refs/tags/engine-snapshot/<namespace>/<migration-id> — namespace-scoped (so a shared vault's projects never collide)
+# and named collision-free by the migration id (the primary discriminator: one upgrade runs several migrations at one
+# engine-version). DETERMINISTIC per migration, so a replay collides and is refused rather than silently duplicating.
+_SNAPSHOT_TAG_PREFIX = "engine-snapshot"
+# Retention cap (D-264 law 5 build-spec leaf, recorded): keep at most this many snapshots per namespace. The MOST-
+# RECENT is never pruned (the citation-bound floor — a code-older-than-data mismatch cites it); only superseded ones
+# beyond the cap are deleted. 2 leaves a one-step safety margin beyond the single citable snapshot.
+_SNAPSHOT_RETENTION_CAP = 2
+
 # The tightened per-call network timeout (seconds). telemetry's shared `_http` hardcodes 30s; a SessionStart push must
 # be bounded much tighter so a flaky host cannot stall session start. Matches boot._run's 10s CLI budget.
 _TIMEOUT = 10
@@ -339,41 +351,155 @@ def _create_blob(gh, base: str, content: bytes) -> "str | None":
     return sha if isinstance(sha, str) and sha else None
 
 
-def _push_files(gh, owner: str, repo: str, branch: str, files: dict, *, retry: bool = True) -> bool:
-    """Commit `files` (path -> bytes) onto `branch` via the Git Data API — handles a multi-MB ledger the Contents API
-    cannot. base_tree preserves the seeded README + any other namespace. On a 409/422 (non-fast-forward: a concurrent
-    push moved the tip — the README's branch-per-namespace / retry-on-reject case) re-read and retry ONCE; otherwise
-    decline (fail-SAFE: the local ledger is canonical). Returns True iff the ref advanced. Never raises."""
+def _build_commit(gh, owner: str, repo: str, branch: str, files: dict, *, message: str) -> "str | None":
+    """Build a commit carrying `files` (path -> bytes) on top of `branch`'s current tip, preserving every other path
+    via base_tree — the shared blob -> tree -> commit machinery. Returns the new commit sha, NOT yet referenced by any
+    ref, or None on any failure. The rolling push then advances refs/heads to it; the retained pre-migration snapshot
+    instead points a refs/tags tag at it (one mechanism, two refs). Never raises."""
     base = f"/repos/{owner}/{repo}"
     ref = _get(gh, f"{base}/git/ref/heads/{branch}")
     base_sha = (ref or {}).get("object", {}).get("sha")
     if not (isinstance(base_sha, str) and base_sha):
-        return False
+        return None
     commit = _get(gh, f"{base}/git/commits/{base_sha}")
     base_tree = (commit or {}).get("tree", {}).get("sha")
     if not (isinstance(base_tree, str) and base_tree):
-        return False
+        return None
     tree = []
     for path, content in files.items():
         blob_sha = _create_blob(gh, base, content)
         if blob_sha is None:
-            return False
+            return None
         tree.append({"path": path, "mode": "100644", "type": "blob", "sha": blob_sha})
     status, new_tree = _send(gh, "POST", f"{base}/git/trees", {"base_tree": base_tree, "tree": tree})
     new_tree_sha = (new_tree or {}).get("sha") if status in (200, 201) else None
     if not (isinstance(new_tree_sha, str) and new_tree_sha):
-        return False
+        return None
     status, new_commit = _send(gh, "POST", f"{base}/git/commits",
-                               {"message": _COMMIT_MESSAGE, "tree": new_tree_sha, "parents": [base_sha]})
+                               {"message": message, "tree": new_tree_sha, "parents": [base_sha]})
     commit_sha = (new_commit or {}).get("sha") if status in (200, 201) else None
-    if not (isinstance(commit_sha, str) and commit_sha):
+    return commit_sha if isinstance(commit_sha, str) and commit_sha else None
+
+
+def _push_files(gh, owner: str, repo: str, branch: str, files: dict, *, retry: bool = True) -> bool:
+    """Commit `files` onto `branch` (the ROLLING slot) via the Git Data API — handles a multi-MB ledger the Contents
+    API cannot. On a 409/422 (the tip moved between read and write — a concurrent push) re-read and retry ONCE;
+    otherwise decline (fail-SAFE: the local ledger is canonical). Returns True iff the ref advanced. Never raises."""
+    commit_sha = _build_commit(gh, owner, repo, branch, files, message=_COMMIT_MESSAGE)
+    if commit_sha is None:
         return False
-    status, _ = _send(gh, "PATCH", f"{base}/git/refs/heads/{branch}", {"sha": commit_sha, "force": False})
+    status, _ = _send(gh, "PATCH", f"/repos/{owner}/{repo}/git/refs/heads/{branch}",
+                      {"sha": commit_sha, "force": False})
     if status in (200, 201):
         return True
     if status in (409, 422) and retry:               # tip moved -> re-read + retry once
         return _push_files(gh, owner, repo, branch, files, retry=False)
     return False
+
+
+# ============================================================================================================
+# Retained pre-migration snapshot tags (D-264): a distinct refs/tags ref the routine rolling backup never
+# overwrites. Distinctness — a different ref — is the tier-independent guarantee; platform tag-immutability is
+# paid-tier-only optional hardening (probed, degrade-and-disclosed). The tag points at its OWN commit and never
+# advances the rolling branch head, so the two consumers share one push mechanism but never the same ref.
+# ============================================================================================================
+
+def _sanitize_ref_component(s: str) -> str:
+    """Reduce `s` to a safe single git-ref path component: keep [A-Za-z0-9._-], collapse every other run to '-', trim
+    leading/trailing '-'/'.'. A ref name cannot contain spaces, '~^:?*[\\', '..', or end in '.lock'; this conservative
+    whitelist avoids all of them, so a namespace / module id / version is always a legal tag component."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", s or "").strip("-.") or "x"
+
+
+def _snapshot_tag_name(namespace: str, migration_id: str) -> str:
+    """The collision-free-by-construction snapshot tag short-name (D-264 law 3): the namespace + the migration id as
+    the primary discriminator. DETERMINISTIC per migration, so a replay of the SAME migration collides with its own
+    prior tag and is refused, never silently overwritten or duplicated. (Sanitization is many-to-one in principle, so
+    two genuinely-distinct ids could in theory collapse to one name — but the real id grammar is `slug@dotted.version`
+    and any such collision folds into the SAME refuse-on-collision path, never a silent overwrite.)"""
+    return f"{_SNAPSHOT_TAG_PREFIX}/{_sanitize_ref_component(namespace)}/{_sanitize_ref_component(migration_id)}"
+
+
+def _create_tag(gh, owner: str, repo: str, tag_name: str, commit_sha: str) -> "int | None":
+    """Create refs/tags/<tag_name> -> commit_sha via the Git Data API. Returns the HTTP status: 200/201 created;
+    409/422 a name COLLISION (a ref by that name already exists); anything else a failure. The caller treats a
+    collision as a REFUSAL (never an overwrite) — the snapshot's distinctness law. Never raises (-> None)."""
+    status, _ = _send(gh, "POST", f"/repos/{owner}/{repo}/git/refs",
+                      {"ref": f"refs/tags/{tag_name}", "sha": commit_sha})
+    return status
+
+
+def _list_snapshot_tags(gh, owner: str, repo: str, namespace: str) -> list:
+    """The snapshot tags for `namespace`, via matching-refs (read-only). Returns [{name, sha}], or [] on any failure
+    (a prune that cannot enumerate prunes NOTHING — fail-safe, never deletes blind)."""
+    prefix = f"{_SNAPSHOT_TAG_PREFIX}/{_sanitize_ref_component(namespace)}/"
+    # `per_page=100` is defense-in-depth: the cap self-limits a namespace to <=cap+1 tags and this is the only
+    # writer, so a single page always suffices — but an explicit page size means a prune never orders against a
+    # silently-truncated first page if that invariant were ever broken externally.
+    data = _get(gh, f"/repos/{owner}/{repo}/git/matching-refs/tags/{prefix}?per_page=100")
+    out = []
+    for r in (data or []):
+        ref = r.get("ref") if isinstance(r, dict) else None
+        sha = (r.get("object") or {}).get("sha") if isinstance(r, dict) else None
+        if isinstance(ref, str) and ref.startswith("refs/tags/"):
+            out.append({"name": ref[len("refs/tags/"):], "sha": sha})
+    return out
+
+
+def _delete_tag(gh, owner: str, repo: str, tag_name: str) -> bool:
+    """Delete refs/tags/<tag_name>. True iff deleted (200/204). Never raises."""
+    status, _ = _send(gh, "DELETE", f"/repos/{owner}/{repo}/git/refs/tags/{tag_name}")
+    return status in (200, 204)
+
+
+def _commit_date(gh, owner: str, repo: str, sha: str) -> str:
+    """The committer date of `sha` (a lexically-sortable string — ISO 8601 from GitHub; the prune path needs only a
+    consistent recency ORDER, not date parsing) for ordering at prune time, or '' on any doubt. One cheap GET; avoids
+    reading each snapshot's tree/manifest just to order them."""
+    c = _get(gh, f"/repos/{owner}/{repo}/git/commits/{sha}")
+    d = ((c or {}).get("committer") or {}).get("date") if isinstance(c, dict) else None
+    return d if isinstance(d, str) else ""
+
+
+def _tag_protection_present(gh, owner: str, repo: str) -> bool:
+    """OPTIONAL hardening probe: is a tag-targeting ruleset present (so the platform makes the tag harder to delete)?
+    Paid-tier-only on a free private repo, so this returns False there — and the snapshot's guarantee stays
+    distinctness (a different ref), never claiming immutability (D-264). Read-only; False on any doubt."""
+    data = _get(gh, f"/repos/{owner}/{repo}/rulesets?targets=tag")
+    return isinstance(data, list) and len(data) > 0
+
+
+def _prune_snapshots(gh, owner: str, repo: str, namespace: str, keep_name: str) -> list:
+    """Citation-bound retention (D-264 law 5): keep the MOST-RECENT snapshot for `namespace` always (a code-older-
+    than-data mismatch cites it) plus up to the cap; delete older superseded snapshots. `keep_name` (the just-created
+    snapshot) is always kept. Orders by commit date; on ANY ordering doubt it prunes NOTHING — fail-safe, never
+    deletes a snapshot it cannot prove is superseded below the bound. Returns the pruned tag names."""
+    tags = _list_snapshot_tags(gh, owner, repo, namespace)
+    if len(tags) <= _SNAPSHOT_RETENTION_CAP:
+        return []
+    dated = []
+    for t in tags:
+        d = _commit_date(gh, owner, repo, t.get("sha") or "")
+        if not d:
+            return []                                    # cannot order confidently -> prune nothing (fail-safe)
+        dated.append((d, t["name"]))
+    dated.sort(reverse=True)                             # most-recent first
+    keep = {keep_name} | {name for _d, name in dated[:_SNAPSHOT_RETENTION_CAP]}
+    pruned = []
+    for _d, name in dated:
+        if name not in keep and _delete_tag(gh, owner, repo, name):
+            pruned.append(name)
+    return pruned
+
+
+def _migration_manifest(*, ledger_path, now, engine_version, migration_id) -> dict:
+    """The migration-snapshot manifest: the rolling four-key manifest PLUS `migration-id` and a `kind` marker, so the
+    restore + the code-older-than-data detector (later slices) read the snapshot's identity from a STABLE format in
+    the manifest, never by parsing the operator-deletable tag name. The rolling four-key manifest stays frozen."""
+    m = build_manifest(ledger_path=ledger_path, now=now, engine_version=engine_version)
+    m["migration-id"] = migration_id
+    m["kind"] = "migration-snapshot"
+    return m
 
 
 def push_now(*, transport=None, now: "int | None" = None, engine_version: "str | None" = None) -> dict:
@@ -415,26 +541,60 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
     return {"ok": True, "error": None, "pushed": True, "namespace": namespace}
 
 
-def snapshot_for_migration(store, engine_version, *, transport=None, now: "int | None" = None):
+def snapshot_for_migration(store, engine_version, *, migration_id=None, transport=None,
+                           now: "int | None" = None):
     """The pre-migration backup seam the module manager consumes via `getattr(memory, "snapshot_for_migration")`
     (module_manager._resolve_backup_seam). A `data` migration calls this BEFORE mutating its store; the engine
     refuses the migration unless it returns a truthy handle, so un-backed-up data is never silently reshaped.
 
-    It reuses memory's ONE backup mechanism + restore contract — an immediate, unconditional off-repo push of the
-    current (pre-migration) ledger + a manifest stamped with the migration-time `engine_version` — and never widens
-    it (the restore side stays `restore_vault`). Returns a truthy snapshot handle on success, or **None** when no
-    backup is available (vault not configured / no token / unreachable / public-flipped / push failed) so the
-    no-backup guard refuses the migration. NOTE: `push_now` returns a *truthy* {"ok": False} dict on failure, so we
-    branch on `ok` and return None on any failure — a non-None return must mean a real backup was taken.
+    The snapshot lands as a DISTINCT, retained `refs/tags` ref the routine rolling backup never overwrites (D-264):
+    its OWN pre-migration-ledger commit, tagged collision-free by the namespace + migration id, with the rolling
+    branch head left untouched. A name COLLISION (a replay of the same migration) is REFUSED, never an overwrite. The
+    tag survives the routine backup because it is a different ref — distinctness is the tier-independent guarantee;
+    platform tag-immutability is optional paid-tier hardening, probed and reported (`hardened`), never promised. After
+    a successful snapshot, older superseded snapshots for the same store are pruned to the retention cap, never below
+    the citation bound (the most-recent is always kept).
 
-    `store` is a caller-supplied label (advisory); v1 memory has one physical store, so the snapshot is always taken
-    of the live ledger (`ledger.ledger_path()`, which honors ENGINE_MEMORY_DIR) — the migrating store. The
-    point-in-time durability of this snapshot against a later rolling auto-backup is the open design question tracked
-    in the issue referenced from `module_manager._resolve_backup_seam`."""
-    result = push_now(transport=transport, now=now, engine_version=engine_version)
-    if not result.get("ok"):
+    Returns a truthy handle on success, or **None** when no backup could be taken (vault not configured / no token /
+    unreachable / public-flipped / commit or tag-create failed / a name collision) — a non-None return MUST mean a
+    real, addressable, retained snapshot exists, so the no-backup guard refuses the migration on None. `store` is a
+    caller-supplied label (advisory); v1 memory has one physical store — the live ledger (`ledger.ledger_path()`,
+    which honors ENGINE_MEMORY_DIR). `migration_id` (injected by `run_migrations`) is the snapshot's primary
+    discriminator; absent, it falls back to the engine version + ledger generation."""
+    when = int(time.time()) if now is None else int(now)
+    pointer = read_pointer()
+    if pointer is None:
         return None
-    return {"backed-up": True, "engine-version": engine_version, "namespace": result.get("namespace")}
+    gh = _gh(transport)
+    if gh is None:
+        return None
+    owner, repo, branch, namespace = pointer["owner"], pointer["repo"], pointer["branch"], pointer["namespace"]
+    repo_obj = _get(gh, f"/repos/{owner}/{repo}")            # cheap probe: privacy re-verify + reachability
+    if repo_obj is None or repo_obj.get("private") is not True:
+        return None                                          # unreachable or public-flipped -> never snapshot to it
+
+    lpath = ledger.ledger_path()
+    try:
+        with open(lpath, "rb") as fh:
+            ledger_bytes = fh.read()
+    except FileNotFoundError:
+        ledger_bytes = b""                                   # the substrate ships empty — a valid empty snapshot
+    disc = migration_id if migration_id else f"{engine_version or 'unknown'}-g{ledger.generation(for_path=lpath)}"
+    manifest = _migration_manifest(ledger_path=lpath, now=when, engine_version=engine_version, migration_id=disc)
+    manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
+    files = {f"{namespace}/ledger.ndjson": ledger_bytes, f"{namespace}/manifest.json": manifest_bytes}
+
+    commit_sha = _build_commit(gh, owner, repo, branch, files, message=_SNAPSHOT_COMMIT_MESSAGE)
+    if commit_sha is None:
+        return None
+    tag_name = _snapshot_tag_name(namespace, disc)
+    status = _create_tag(gh, owner, repo, tag_name, commit_sha)
+    if status not in (200, 201):
+        return None                                          # collision (409/422) or failure -> refuse the migration
+    hardened = _tag_protection_present(gh, owner, repo)
+    _prune_snapshots(gh, owner, repo, namespace, keep_name=tag_name)
+    return {"backed-up": True, "engine-version": engine_version, "namespace": namespace,
+            "tag": tag_name, "hardened": hardened}
 
 
 def migration_backup_available() -> bool:
@@ -519,8 +679,10 @@ def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
     """Floor 2: the plain-language README committed into the backup repo on creation. Leads with the engine's
     self-describing marker (adopt verifies it). The shared variant is multi-project-framed, says accurately what the
     per-project folder ids are (randomly generated, not derived from the project), and names the consequence of
-    deleting a folder so the reader can make an informed choice (engine-planning memory README 295-303). Peer voice —
-    it informs and states consequences; it does not forbid or talk down."""
+    deleting a folder so the reader can make an informed choice (engine-planning memory README 295-303). It also
+    redirects the operator's delete-instinct away from the retained restore points (the pre-migration snapshots,
+    D-264 floor (2)) — in folder/items terms, never naming a git tag (D-265 S2). Peer voice — it informs and states
+    consequences, then points to the engine; it does not forbid blindly or talk down."""
     if scope == "shared":
         return (
             f"{_VAULT_README_MARKER}\n"
@@ -532,20 +694,22 @@ def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
             "stored with each project on your machine, so the engine always knows which folder is which.\n\n"
             "Keep this repository private — it holds your projects' working notes: the decisions, lessons, and plans\n"
             "the engine remembers.\n\n"
-            "The engine maintains these files for you — backing each project up automatically, and restoring a\n"
-            "project's memory from its folder when you set it up on a new machine. You can browse or manage the\n"
-            "repository yourself; just note that it's the live backup, so deleting a folder or editing its files\n"
-            "changes what gets restored — and if a folder is the only remaining copy, deleting it\n"
-            "loses that project's memory.\n")
+            "The engine maintains everything in here for you — backing each project up automatically, and restoring a\n"
+            "project's memory when you set it up on a new machine. You can browse it, but please don't delete or\n"
+            "hand-edit anything here — even items that look old or unused are saved restore points the engine may need\n"
+            "to undo a bad update. To remove or fix a project's memory, ask the engine; deleting a folder that is the\n"
+            "only remaining copy loses that project's memory.\n")
     return (
         f"{_VAULT_README_MARKER}\n"
         f"# {project_name} — AI memory backup\n\n"
         f"This private repository is the off-site backup of the engine's AI memory for the **{project_name}** "
         "project — the decisions, lessons, and plans it remembers.\n\n"
         "Keep it private; it holds the project's working notes.\n\n"
-        "The engine maintains these files for you — backing the project up automatically, and restoring its memory\n"
-        "here when you set the project up on a new machine. You can browse or manage the repository yourself; just\n"
-        "note that it's the live backup, so editing or removing files changes what gets restored.\n")
+        "The engine maintains everything in here for you — backing the project up automatically, and restoring its\n"
+        "memory when you set the project up on a new machine. You can browse it, but please don't delete or hand-edit\n"
+        "anything here — even items that look old or unused are saved restore points the engine may need to undo a\n"
+        "bad update. To remove or fix this project's memory, ask the engine; this is the off-site copy, so deleting\n"
+        "from it changes what can be restored, and it may be the only copy of some of this project's memory.\n")
 
 
 _HEADS_UP_PUSH_FAILED = (
@@ -919,8 +1083,11 @@ class _FakeVault:
         self.commits: dict = {}
         self.trees: dict = {}
         self.refs: dict = {}
+        self.tags: dict = {}                              # "<slug>@<tag-short-name>" -> commit sha (the retained snapshots)
+        self.tag_protection: list = []                    # a tag-targeting ruleset present? (paid-tier; empty = free tier)
         self.contents: dict = {}
         self.deleted: list = []
+        self.deleted_tags: list = []                      # snapshot tags the prune path removed (asserted by tests)
         self.created: list = []
         self.pushed_ledger_via_contents = False
         self._hidden_probes: set = set()
@@ -1024,12 +1191,49 @@ class _FakeVault:
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/commits$", path)
         if m and method == "POST":
             sha = self._next("c")
-            self.commits[sha] = {"sha": sha, "tree": {"sha": body["tree"]}}
+            # A strictly-monotonic, lexically-sortable fake commit date (NOT real ISO — the prune path only needs a
+            # consistent recency order; each new commit gets a later one so the most-recent snapshot is identifiable).
+            self.commits[sha] = {"sha": sha, "tree": {"sha": body["tree"]}, "committer": {"date": f"{self._n:036d}"}}
             return 201, {"sha": sha}
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/refs/heads/(.+)$", path)
         if m and method == "PATCH":
             self.refs[f"{m.group(1)}/{m.group(2)}@{m.group(3)}"] = body["sha"]
             return 200, {}
+        # ---- retained snapshot tags (refs/tags): create (collision-aware), list, read, delete; + the ruleset probe.
+        m = re.match(r"^/repos/([^/]+)/([^/]+)/git/refs$", path)
+        if m and method == "POST":                       # create a ref; refs/tags/<name> is the snapshot tag
+            slug = f"{m.group(1)}/{m.group(2)}"
+            ref = body.get("ref", "")
+            if ref.startswith("refs/tags/"):
+                name = ref[len("refs/tags/"):]
+                key = f"{slug}@{name}"
+                if key in self.tags:                     # the ref already exists -> 422 (the real collision signal)
+                    return 422, None
+                self.tags[key] = body["sha"]
+                return 201, {"ref": ref, "object": {"sha": body["sha"]}}
+            return 422, None                             # only tag creates are modelled here
+        m = re.match(r"^/repos/([^/]+)/([^/]+)/git/matching-refs/tags/([^?]*)", path)
+        if m and method == "GET":                        # list refs/tags/<prefix>* (the prune enumeration)
+            slug, prefix = f"{m.group(1)}/{m.group(2)}", m.group(3)
+            out = [{"ref": f"refs/tags/{n}", "object": {"sha": s}}
+                   for (k, s) in self.tags.items() if k.startswith(f"{slug}@")
+                   for n in [k.split("@", 1)[1]] if n.startswith(prefix)]
+            return 200, out
+        m = re.match(r"^/repos/([^/]+)/([^/]+)/git/ref/tags/(.+)$", path)
+        if m and method == "GET":                        # read one tag ref (the restore read side, slice 2)
+            sha = self.tags.get(f"{m.group(1)}/{m.group(2)}@{m.group(3)}")
+            return (200, {"object": {"sha": sha}}) if sha else (404, None)
+        m = re.match(r"^/repos/([^/]+)/([^/]+)/git/refs/tags/(.+)$", path)
+        if m and method == "DELETE":                     # prune one snapshot tag
+            key = f"{m.group(1)}/{m.group(2)}@{m.group(3)}"
+            if key in self.tags:
+                self.tags.pop(key, None)
+                self.deleted_tags.append(m.group(3))
+                return 204, None
+            return 404, None
+        m = re.match(r"^/repos/([^/]+)/([^/]+)/rulesets", path)
+        if m and method == "GET":                        # the optional tag-protection probe (empty = free tier)
+            return 200, list(self.tag_protection)
         m = re.match(r"^/repos/([^/]+)/([^/]+)/contents/([^?]+)", path)
         if m:
             slug = f"{m.group(1)}/{m.group(2)}"
@@ -1241,6 +1445,63 @@ def _demo_live() -> int:
         print(f"  Safety: the repo name didn't look disposable, so I did NOT delete it. Remove it yourself if you "
               f"wish:\n      gh repo delete {owner}/{repo} --yes")
     return 0
+
+
+def snapshot_demo() -> bool:
+    """Construction evidence (fail-then-pass) for the retained pre-migration snapshot (D-264), returning True iff
+    every check holds. It drives the REAL `snapshot_for_migration` against the offline `_FakeVault` and proves the
+    one claim the #287 fix exists to make: the pre-migration snapshot lands as a DISTINCT tag that a later ROUTINE
+    rolling backup CANNOT overwrite — and a replay of the same migration is refused, never silently duplicated. The
+    real GitHub tag push never runs here (no vault) — the named inductive gap, the same bound #233 carried. This is
+    internal evidence, NOT operator narration; the operator-facing surfacing is Slice 3's boot render."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as cabinet, tempfile.TemporaryDirectory() as root:
+        import validate
+        old_root = validate.ROOT
+        os.environ["ENGINE_MEMORY_DIR"] = cabinet
+        validate.ROOT = root
+        os.makedirs(os.path.join(root, ".engine"), exist_ok=True)
+        with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            json.dump({"engine_release": "1.0.0"}, fh)
+        try:
+            print("Part S — the pre-migration snapshot is a retained tag a routine backup can't overwrite (D-264).")
+            fake = _FakeVault()
+            setup(scope="shared", transport=fake.transport, consent="y")
+            ptr = read_pointer()
+            slug = f"{ptr['owner']}/{ptr['repo']}"
+            ledger.append({"kind": "turn-delta", "text": "state BEFORE the migration reshapes it"})
+
+            rolling_before = fake.refs.get(f"{slug}@{ptr['branch']}")
+            handle = snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.2.0",
+                                            transport=fake.transport)
+            snap_commit = fake.tags.get(f"{slug}@{handle['tag']}") if handle else None
+            rolling_after_snapshot = fake.refs.get(f"{slug}@{ptr['branch']}")    # the snapshot must NOT advance it
+            # a later ROUTINE rolling backup (advances the branch head) — must NOT touch the snapshot tag
+            ledger.append({"kind": "turn-delta", "text": "state the migration would have written"})
+            push_now(transport=fake.transport)
+            rolling_after_backup = fake.refs.get(f"{slug}@{ptr['branch']}")
+            snap_commit_after = fake.tags.get(f"{slug}@{handle['tag']}") if handle else None
+            # a replay of the SAME migration collides on the deterministic tag name -> refused, nothing overwritten
+            replay = snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.2.0",
+                                            transport=fake.transport)
+
+            checks = {
+                "the snapshot returned a real handle (the migration may proceed)": bool(handle),
+                "it created a distinct snapshot tag": bool(snap_commit),
+                "the snapshot did NOT advance the rolling backup head": rolling_before == rolling_after_snapshot,
+                "a routine rolling backup advanced the rolling head": rolling_after_backup != rolling_after_snapshot,
+                "the snapshot tag SURVIVED the routine backup, still pinning its own commit":
+                    snap_commit_after == snap_commit and snap_commit is not None,
+                "a replay of the same migration was REFUSED (no silent overwrite)": replay is None,
+            }
+            ok = True
+            for label, passed in checks.items():
+                print(f"    [{'ok' if passed else 'FAIL'}] {label}")
+                ok = ok and passed
+            return ok
+        finally:
+            validate.ROOT = old_root
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
 
 
 if __name__ == "__main__":

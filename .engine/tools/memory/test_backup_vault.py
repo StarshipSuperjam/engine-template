@@ -284,6 +284,14 @@ class DemoSelfCheckTests(unittest.TestCase):
             rc = bv._demo()
         self.assertEqual(rc, 0)
 
+    def test_snapshot_demo_self_check_passes(self):
+        # the retained-snapshot construction demo's every [ok]/[FAIL] check must hold (its declared fate: covered
+        # by this permanent regression test — D-264 retained snapshot survives a routine backup).
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(bv.snapshot_demo())
+
 
 class SharedVaultScopeTests(_Base):
     def test_shared_is_the_default_and_names_the_one_vault(self):
@@ -403,9 +411,11 @@ class ManifestVersionOverrideTests(_Base):
 
 
 class MigrationSnapshotTests(_Base):
-    """The pre-migration backup seam module_manager consumes: it reuses the vault push, returns a truthy
-    handle ONLY when a real backup was taken, and None on every no-backup path so the no-backup guard refuses
-    the migration. Guards the {"ok": False}-is-truthy trap (a failed push must read as None, not success)."""
+    """The pre-migration backup seam module_manager consumes (D-264): it lands a DISTINCT, retained `refs/tags`
+    snapshot the routine rolling backup never overwrites, refuses a name collision (a replay) rather than
+    overwriting, prunes superseded snapshots to the cap without ever cutting the most-recent (citable) one, and
+    returns a truthy handle ONLY when a real, addressable snapshot exists — None on every no-backup path so the
+    no-backup guard refuses the migration (the {"ok": False}-is-truthy trap)."""
 
     def _setup_vault(self):
         fake = bv._FakeVault()
@@ -424,15 +434,71 @@ class MigrationSnapshotTests(_Base):
                 out.append(d)
         return out
 
-    def test_successful_snapshot_returns_a_handle_stamped_with_the_passed_version(self):
+    def test_successful_snapshot_creates_a_retained_tag_and_leaves_the_rolling_head(self):
         fake = self._setup_vault()
         ledger.append({"kind": "turn-delta", "text": "pre-migration state"})
-        handle = bv.snapshot_for_migration("recall-ledger", "v9.9.9", transport=fake.transport)
+        rolling_before = dict(fake.refs)                         # the rolling branch tip before the snapshot
+        handle = bv.snapshot_for_migration("recall-ledger", "v9.9.9", migration_id="core@0.2.0",
+                                           transport=fake.transport)
         self.assertTrue(handle)                                  # truthy -> the migration may proceed
         self.assertEqual(handle["engine-version"], "v9.9.9")    # the MIGRATION-time version, not engine.json's 1.2.3
-        self.assertTrue(handle["namespace"])
-        # end-to-end: the manifest actually pushed to the vault carries the passed version (push_now threads it)
-        self.assertTrue(any(m.get("engine-version") == "v9.9.9" for m in self._pushed_manifests(fake)))
+        ns = bv.read_pointer()["namespace"]
+        # a DISTINCT retained tag was created, named by namespace + migration id ...
+        self.assertEqual(handle["tag"], bv._snapshot_tag_name(ns, "core@0.2.0"))
+        self.assertIn(handle["tag"], {k.split("@", 1)[1] for k in fake.tags})
+        # ... and the ROLLING backup head was NOT advanced (the snapshot is a sibling ref, not the rolling slot)
+        self.assertEqual(fake.refs, rolling_before)
+        # the snapshot manifest carries the migration identity for the later restore + code-older-than-data detector
+        snap = [m for m in self._pushed_manifests(fake) if m.get("kind") == "migration-snapshot"]
+        self.assertEqual(len(snap), 1)
+        self.assertEqual(snap[0]["engine-version"], "v9.9.9")
+        self.assertEqual(snap[0]["migration-id"], "core@0.2.0")
+
+    def test_a_name_collision_refuses_the_migration_and_never_overwrites(self):
+        fake = self._setup_vault()
+        first = bv.snapshot_for_migration("recall-ledger", "v1", migration_id="core@0.2.0", transport=fake.transport)
+        self.assertTrue(first)
+        tags_after_first = dict(fake.tags)
+        # a REPLAY of the same migration (same id) -> same tag name -> a collision -> REFUSED, nothing overwritten
+        replay = bv.snapshot_for_migration("recall-ledger", "v1", migration_id="core@0.2.0", transport=fake.transport)
+        self.assertIsNone(replay)
+        self.assertEqual(fake.tags, tags_after_first)           # the existing snapshot is untouched
+
+    def test_hardened_reflects_the_tag_protection_probe(self):
+        fake = self._setup_vault()
+        self.assertFalse(bv.snapshot_for_migration("recall-ledger", "v1", migration_id="m@1",
+                                                   transport=fake.transport)["hardened"])
+        fake.tag_protection = [{"id": 1}]                       # a tag-targeting ruleset present (paid tier)
+        self.assertTrue(bv.snapshot_for_migration("recall-ledger", "v1", migration_id="m@2",
+                                                  transport=fake.transport)["hardened"])
+
+    def test_prune_keeps_the_cap_and_never_the_most_recent(self):
+        fake = self._setup_vault()
+        names = []                                               # CAP+1 snapshots of the same store; prune runs per snapshot
+        for i in range(bv._SNAPSHOT_RETENTION_CAP + 1):
+            h = bv.snapshot_for_migration("recall-ledger", f"v{i}", migration_id=f"core@0.{i}.0",
+                                          transport=fake.transport)
+            names.append(h["tag"])
+        remaining = {k.split("@", 1)[1] for k in fake.tags}
+        self.assertEqual(len(remaining), bv._SNAPSHOT_RETENTION_CAP)   # capped
+        self.assertIn(names[-1], remaining)                            # the MOST-RECENT (citable) is never pruned
+        self.assertIn(names[0], fake.deleted_tags)                     # the oldest superseded one was pruned
+
+    def test_prune_fail_safe_prunes_nothing_when_recency_cannot_be_ordered(self):
+        # the law-5 citation-bound floor: if a snapshot's recency cannot be established, prune deletes NOTHING
+        # (never deletes blind / never risks cutting a still-citable snapshot).
+        fake = self._setup_vault()
+        for i in range(bv._SNAPSHOT_RETENTION_CAP):
+            bv.snapshot_for_migration("recall-ledger", f"v{i}", migration_id=f"core@0.{i}.0", transport=fake.transport)
+        ptr = bv.read_pointer()
+        slug, ns = f"{ptr['owner']}/{ptr['repo']}", ptr["namespace"]
+        # inject an extra snapshot tag whose commit object is absent -> its date is unknown -> ordering is impossible
+        fake.tags[f"{slug}@{bv._SNAPSHOT_TAG_PREFIX}/{ns}/orphan"] = "sha-with-no-commit-object"
+        before = dict(fake.tags)
+        pruned = bv._prune_snapshots(bv._gh(fake.transport), ptr["owner"], ptr["repo"], ns, keep_name="anything")
+        self.assertEqual(pruned, [])                                    # ordering doubt -> prune nothing
+        self.assertEqual(fake.tags, before)                            # not one tag deleted
+        self.assertEqual(fake.deleted_tags, [])
 
     def test_returns_none_when_the_vault_is_not_configured(self):
         self.assertIsNone(                                       # no setup -> no pointer -> not-configured
@@ -440,12 +506,12 @@ class MigrationSnapshotTests(_Base):
 
     def test_returns_none_on_a_public_flip(self):
         fake = self._setup_vault()
-        fake.private = False                                     # the vault went public -> never push, no backup
+        fake.private = False                                     # the vault went public -> never snapshot to it
         self.assertIsNone(bv.snapshot_for_migration("recall-ledger", "v1", transport=fake.transport))
 
-    def test_returns_none_on_a_push_failure(self):
+    def test_returns_none_on_a_commit_failure(self):
         fake = self._setup_vault()
-        fake.fail_blob = True                                    # the blob upload fails -> push-failed
+        fake.fail_blob = True                                    # the blob upload fails -> no commit -> refuse
         self.assertIsNone(bv.snapshot_for_migration("recall-ledger", "v1", transport=fake.transport))
 
     def test_returns_none_when_the_repo_is_unreachable(self):
@@ -463,8 +529,8 @@ class MigrationSnapshotTests(_Base):
             bv._gh = orig
 
     def test_a_failed_backup_is_falsy_not_a_truthy_result_dict(self):
-        # the {"ok": False}-is-truthy trap: push_now returns a truthy dict on failure; the seam MUST return None,
-        # else module_manager's no-backup guard would read a failed backup as success and run the migration.
+        # a failed snapshot MUST return None, else module_manager's no-backup guard would read it as success and
+        # run the migration against an un-backed-up store.
         fake = self._setup_vault()
         fake.fail_blob = True
         self.assertFalse(bv.snapshot_for_migration("recall-ledger", "v1", transport=fake.transport))

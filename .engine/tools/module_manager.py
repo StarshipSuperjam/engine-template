@@ -550,9 +550,9 @@ def _resolve_backup_seam(backup):
     memory installed but no vault refuses cleanly instead of running a migration that fails mid-snapshot.
     Live via `memory.snapshot_for_migration` (+ `memory.migration_backup_available`): memory owns the
     mechanism AND the restore contract and may not be widened here. The handle's concrete shape is memory's
-    leaf (the close._trigger_ambient_capture precedent). The snapshot lands in the single rolling vault;
-    whether memory should retain a distinct point-in-time migration snapshot (so a later routine backup
-    cannot overwrite it) is the open design decision tracked in #287."""
+    leaf (the close._trigger_ambient_capture precedent). The snapshot lands as a distinct, retained git tag the
+    routine backup never overwrites — memory's point-in-time pre-migration snapshot (D-264/D-265, resolving #287);
+    the restore command targets that tag. This consumer widens nothing of that mechanism."""
     if backup is not None:
         return backup
     try:
@@ -606,6 +606,21 @@ def select_migrations(from_versions: dict, target_versions: dict, manifests: lis
     return out
 
 
+def _bind_migration_id(seam, module_id: str, version: str):
+    """Bind the migration's identity into the backup seam so memory names the pre-migration snapshot collision-free
+    by it (the retained-tag mechanism, D-264 law 3). The migration calls `context['backup'](store, engine_version)`
+    exactly as before — the migration id rides along, so migration authors need not know about it and module_manager
+    stays a pure consumer that knows nothing of the snapshot's tag mechanism. Passing migration_id is forward-
+    compatible: a seam that ignores it still works (memory falls back to engine-version + generation)."""
+    if seam is None:
+        return None
+    migration_id = f"{module_id}@{version}"
+
+    def _seam(store, engine_version):
+        return seam(store, engine_version, migration_id=migration_id)
+    return _seam
+
+
 def run_migrations(selected: list, from_versions: dict, engine_version: str,
                    module_dir=None, backup=None) -> dict:
     """Run the SELECTED migrations (from select_migrations) in order. `module_dir(module_id)` returns that
@@ -636,7 +651,7 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
             continue
         ctx = {"module_id": mid, "from_version": from_versions.get(mid), "to_version": ver,
                "engine_version": engine_version, "kind": kind,
-               "backup": seam if kind == "data" else None}
+               "backup": _bind_migration_id(seam, mid, ver) if kind == "data" else None}
         if kind == "data":
             # A data migration snapshots BEFORE mutating; if that backup can't be taken at run time (the seam
             # returns a falsy handle, so the migration's own backup-first assert fires) it must DEGRADE LOUD —
@@ -1609,7 +1624,7 @@ def upgrade_demo() -> bool:
         pulls.append({"branch": branch, "title": title})
         return {"number": 0, "title": title}
     snapshots = []
-    def fake_backup(store, engine_version):
+    def fake_backup(store, engine_version, **kw):                # **kw absorbs the migration_id run_migrations binds in
         snapshots.append((store, engine_version))
         return {"store": store, "engine_version": engine_version}
 
@@ -1696,7 +1711,7 @@ def upgrade_demo() -> bool:
             new_file = "/.engine/modules/base/migrations/config_010.py @operator"
             covered_before = new_file in validate.read(co_path)
             res = upgrade(ref="v0.2.0", release_tree=release,
-                          opener=lambda **k: {"number": 0}, backup=lambda *a: {"ok": 1})
+                          opener=lambda **k: {"number": 0}, backup=lambda *a, **k: {"ok": 1})
             co_after = validate.read(co_path)
             co_checks = {
                 "the wall did NOT cover the new file before the update": not covered_before,
