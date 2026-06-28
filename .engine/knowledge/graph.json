@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:f0fc43296bf7b4c7b3f3807afe67b7a0dbc1f180a0233a00dccfb0ab0f5b5d25",
+        "fingerprint": "sha256:db61752875aee85771221c9ec343f6f1e4e4d96193ad389be6b166320763c514",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -268,12 +268,13 @@
       },
       "slug": "agent-shape",
       "source": {
-        "fingerprint": "sha256:5a5c16c28664d3fd8260f4d386c6d9cdddde4ce741583578ba3d5006e17b6c73",
+        "fingerprint": "sha256:76af43ed5a8c5d615c90dc2fc9ed19a6b64dfe52f81916632f02f9c8bc3dbf71",
         "path": ".engine/check/agent-shape.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "audit-prep"
       ],
       "tier": "hard",
       "type": "check"
@@ -496,12 +497,13 @@
       },
       "slug": "contract-shape",
       "source": {
-        "fingerprint": "sha256:0f15d1bb80f20a1d9a1b7acccca57e51e3a18cc3c7b02773f0d778945e06d91b",
+        "fingerprint": "sha256:5167c387c838642894507aaabe0b45aa96146009ff08f31e913e82638deae59c",
         "path": ".engine/check/contract-shape.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "audit-prep"
       ],
       "tier": "hard",
       "type": "check"
@@ -633,12 +635,13 @@
       },
       "slug": "doc-shape",
       "source": {
-        "fingerprint": "sha256:20da81d7decf69eed2067aa9d03515539189227793c92cb68f00663efbebc856",
+        "fingerprint": "sha256:fbc68fb92b396fb8cff058e0eb96c3fc0efbc7f2d2b04103ab73d04be2b87a7a",
         "path": ".engine/check/doc-shape.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "audit-prep"
       ],
       "tier": "hard",
       "type": "check"
@@ -1016,12 +1019,13 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:1091c66ef8966c87b98f6945c43040a453cebf78bd6fe02d2c23f90eb2543f32",
+        "fingerprint": "sha256:2998ca489977e14ab0b2de74ffd4a9b95bce436da2d5821aafec38cb0e246163",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "audit-prep"
       ],
       "tier": "hard",
       "type": "check"
@@ -1111,12 +1115,13 @@
       },
       "slug": "policy-shape",
       "source": {
-        "fingerprint": "sha256:673b23c493a3dc9f634d2f5447782f3643c809807b963ccf01c85e2e6aed1a3b",
+        "fingerprint": "sha256:4cfb2c350bdf4d2d5325811183d2ac9a94c4e333b5f3d795fcd36cf1784bc018",
         "path": ".engine/check/policy-shape.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "audit-prep"
       ],
       "tier": "hard",
       "type": "check"
@@ -1387,12 +1392,13 @@
       },
       "slug": "skill-shape",
       "source": {
-        "fingerprint": "sha256:6d400181b8ebce2ec7ae7d886053b27e623dd8352353742d4ecb60853787b40e",
+        "fingerprint": "sha256:53c732be981ed5583ec746fbdeb6f9fe191ffc5f7083f567be2765b3f81d6ed8",
         "path": ".engine/check/skill-shape.json"
       },
       "status": "active",
       "suites": [
-        "CI"
+        "CI",
+        "audit-prep"
       ],
       "tier": "hard",
       "type": "check"
@@ -3052,6 +3058,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:audit_soft_findings",
+      "name": ".engine/tools/audit_soft_findings.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "audit_soft_findings",
+      "source": {
+        "fingerprint": "sha256:c1a61ef165cab0fca83933805b4a09c85d9f787d9718b27c8eff70fb44f0c192",
+        "path": ".engine/tools/audit_soft_findings.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:backup_vault",
       "name": ".engine/tools/memory/backup_vault.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -3302,6 +3325,23 @@
       "source": {
         "fingerprint": "sha256:04c82c90a43020607ed7b4134dd0a246ebed36bc2f3c26f8c9e39f08698c4da0",
         "path": ".engine/tools/demo_audit_digest.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_audit_soft_findings",
+      "name": ".engine/tools/demo_audit_soft_findings.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_audit_soft_findings",
+      "source": {
+        "fingerprint": "sha256:9f21ca05b4b426582fde412fc1ee22f1cd6b337ef415f8eaafa245b3bcf1ae3d",
+        "path": ".engine/tools/demo_audit_soft_findings.py"
       },
       "status": "active",
       "type": "tool"
@@ -4524,8 +4564,25 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:994012186b5d68c195dee109450ec3290ba3fe45062437e31f40731bbda3ffea",
+        "fingerprint": "sha256:2207d6bcf47da39e2f461caa5178ec64fdd450dcbe864fe253bf746bd0c17010",
         "path": ".engine/tools/test_audit_prep.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_audit_soft_findings",
+      "name": ".engine/tools/test_audit_soft_findings.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_audit_soft_findings",
+      "source": {
+        "fingerprint": "sha256:874924a2957cedca632e010dcf6a52f801e1f2a86d81c2e47274ce0cdd32fb96",
+        "path": ".engine/tools/test_audit_soft_findings.py"
       },
       "status": "active",
       "type": "tool"
@@ -5969,7 +6026,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:5a4ece5ce0e9051e0095654f236f3360fabe2fee0f3c854686372f00f0d1ccde",
+        "fingerprint": "sha256:02e62631e8efa7c827b8ceb39a13b14cf7985cfe78d2efbb9cfd31587dcf09ac",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

@@ -1213,23 +1213,11 @@ def get_pr_author() -> str | None:
     return None
 
 
-def run(suite: str, ctx: dict) -> int:
-    try:
-        suites = load_suites()
-    except Exception as exc:  # a broken suites.json/schema halts loudly (config error)
-        print(f"\nCONFIG ERROR: cannot load the suite declarations: {exc}", file=sys.stderr)
-        return 2
-    decl = suites.get(suite)
-    if decl is None:
-        print(f"\nCONFIG ERROR: suite '{suite}' is not declared in .engine/suites.json "
-              f"(declared: {', '.join(sorted(suites))}).", file=sys.stderr)
-        return 2
-    gates = decl.get("context") == "blocking-gate"  # only a blocking-gate context can fail the run
-    try:
-        rules = load_rules()
-    except Exception as exc:  # a broken check rule file halts loudly (config error), in plain language
-        print(f"\nCONFIG ERROR: cannot load the check rules: {exc}", file=sys.stderr)
-        return 2
+def _evaluate(rules: list, suite: str, gates: bool, ctx: dict) -> list:
+    """Dispatch every rule that joins `suite` through its kind and return the collected
+    findings. The shared core behind both run() (which prints + computes an exit code) and
+    collect() (which returns the data). `gates` is the suite's blocking-gate context — it
+    decides only where ci_author_exempt waives, never what is collected."""
     findings = []
     for rule in [r for r in rules if suite in r.get("suites", [])]:
         # Honor ci_author_exempt at the engine layer — before any check-kind runs, so the
@@ -1261,6 +1249,43 @@ def run(suite: str, ctx: dict) -> int:
                             f"'{kind}') errored and could not evaluate: {exc}"))
             continue
         findings.extend(found)
+    return findings
+
+
+def collect(suite: str, ctx: dict) -> list:
+    """The machine-readable seam behind run(): evaluate `suite` and RETURN its findings
+    (each {severity, message, location}) as data, rather than printing a human report. A
+    programmatic consumer — the audit soft-findings feed — reads the report-only findings
+    here instead of scraping run()'s stdout. RAISES (ValueError / the loader's exception)
+    on a config error (undeclared suite, unloadable suites/rules); the caller decides how
+    to surface it (run() turns it into the loud exit-2 path, the feed into an honest marker)."""
+    suites = load_suites()
+    decl = suites.get(suite)
+    if decl is None:
+        raise ValueError(f"suite '{suite}' is not declared in .engine/suites.json "
+                         f"(declared: {', '.join(sorted(suites))}).")
+    gates = decl.get("context") == "blocking-gate"
+    return _evaluate(load_rules(), suite, gates, ctx)
+
+
+def run(suite: str, ctx: dict) -> int:
+    try:
+        suites = load_suites()
+    except Exception as exc:  # a broken suites.json/schema halts loudly (config error)
+        print(f"\nCONFIG ERROR: cannot load the suite declarations: {exc}", file=sys.stderr)
+        return 2
+    decl = suites.get(suite)
+    if decl is None:
+        print(f"\nCONFIG ERROR: suite '{suite}' is not declared in .engine/suites.json "
+              f"(declared: {', '.join(sorted(suites))}).", file=sys.stderr)
+        return 2
+    gates = decl.get("context") == "blocking-gate"  # only a blocking-gate context can fail the run
+    try:
+        rules = load_rules()
+    except Exception as exc:  # a broken check rule file halts loudly (config error), in plain language
+        print(f"\nCONFIG ERROR: cannot load the check rules: {exc}", file=sys.stderr)
+        return 2
+    findings = _evaluate(rules, suite, gates, ctx)
     report(suite, findings, gates)
     # Gate on the authoritative signal — any hard-severity finding — but only where
     # the suite's context is a blocking-gate. A callable's verdict flag is advisory;
