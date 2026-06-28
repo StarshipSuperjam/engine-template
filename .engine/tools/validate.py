@@ -131,6 +131,12 @@ def loc(path: str, line: int | None = None) -> dict:
     return {"file": os.path.relpath(path, ROOT), "line": line}
 
 
+def _is_pos_int(v) -> bool:
+    """A positive integer, excluding bool (a Python int subclass) so True/False can
+    never pass as a budget or count."""
+    return isinstance(v, int) and not isinstance(v, bool) and v > 0
+
+
 # ---- shared helpers --------------------------------------------------------
 
 def read(path: str) -> str:
@@ -413,10 +419,11 @@ def kind_shape(rule, ctx):
     the template.v1 grammar; reading it from a template file's frontmatter arrives
     with the first authored template (a later slice; it needs frontmatter parsing).
     An optional params.length_budget_overrides {rel: {budget, why}} carries a recorded,
-    ack-gated higher ceiling for one named operation (the override lives in this guarded
+    consented higher ceiling for one named operation (the override lives in this guarded
     rule, not the operation's own unguarded frontmatter, so raising a budget stays a
-    deliberate consented act); a key naming no targeted file fails at the rule's tier so
-    a stale override cannot rot into a silent grant."""
+    deliberate act needing the operator's sign-off); an entry that is malformed (no integer
+    budget, no recorded why) or names no targeted file fails at the rule's tier, so a stale
+    or unexplained override cannot rot into a silent grant."""
     tier = rule["tier"]
     params = rule.get("params") or {}
     required = params.get("required_sections", [])
@@ -447,26 +454,33 @@ def kind_shape(rule, ctx):
                 findings.append(finding(tier, f"'{rel}' has section '## {name}', which the "
                                 f"template does not allow. {rule['message']}", loc(path)))
         # length budget — a soft nudge only, regardless of the rule's tier. A per-file
-        # override (a recorded, ack-gated higher ceiling for one named operation) replaces
-        # the rule-wide budget for that file; absent one, the rule-wide budget applies.
+        # override (a recorded, consented higher ceiling for one named operation) replaces
+        # the rule-wide budget for its file; absent or malformed, the rule-wide budget
+        # applies (a malformed override is caught as a hard finding below).
         ov = overrides.get(rel)
-        file_budget = ov.get("budget") if isinstance(ov, dict) else ov
-        if file_budget is None:
-            file_budget = budget
+        ov_budget = ov.get("budget") if isinstance(ov, dict) else None
+        file_budget = ov_budget if _is_pos_int(ov_budget) else budget
         if file_budget is not None:
             lines = len(body.splitlines())
             if lines > file_budget:
                 findings.append(finding("soft", f"'{rel}' is {lines} lines, over its "
                                 f"{file_budget}-line budget — a nudge to trim, never a block.", loc(path)))
-    # Every override key must name an operation this rule actually targets — a stale or
-    # mistyped key (e.g. left behind by a rename) would otherwise sit as inert, ack-blessed
-    # config that silently grants nothing while looking like a live budget. Fail it at the
-    # rule's tier so a dead override cannot accumulate unnoticed.
-    for key in overrides:
+    # Each override must be well-formed and live: an integer `budget` (the line ceiling) and a
+    # recorded `why` (#273's recorded-rationale, made mechanical so a budget cannot be raised
+    # without a stated reason), keyed to an operation this rule targets. A malformed or stale
+    # entry would otherwise sit as inert, consented config that grants nothing while looking
+    # like a live budget. Each failure is the rule's hard tier so a dead grant cannot accumulate.
+    for key, ov in overrides.items():
+        ov_budget = ov.get("budget") if isinstance(ov, dict) else None
+        ov_why = ov.get("why") if isinstance(ov, dict) else None
+        if not _is_pos_int(ov_budget) or not (isinstance(ov_why, str) and ov_why.strip()):
+            findings.append(finding(tier, f"the length-budget override for '{key}' is incomplete — "
+                            f"every override must give an integer 'budget' (the line ceiling) and a "
+                            f"'why' (the recorded reason for the raise). Add both before merging.", None))
         if key not in covered:
-            findings.append(finding(tier, f"the length-budget override names '{key}', which is "
-                            f"not an operation this rule targets — a stale or mistyped override key; "
-                            f"remove it or repoint it. {rule['message']}", None))
+            findings.append(finding(tier, f"the length-budget override names '{key}', which is not an "
+                            f"operation this rule targets — a stale or mistyped key. Update "
+                            f"length_budget_overrides in this rule: remove the entry or repoint it.", None))
     return (not any(f["severity"] == "hard" for f in findings)), findings
 
 

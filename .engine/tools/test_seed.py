@@ -647,26 +647,28 @@ class TestShapeKind(unittest.TestCase):
     # A long body (over the default budget) plus a recorded per-file override.
     _OVER = "## Decision\n" + "\n".join(["line"] * 12) + "\n## Rationale\ny\n## Status\nz\n"
 
+    _OK_OVERRIDE = {"budget": 99, "why": "a recorded reason"}
+
     def test_per_file_override_raises_budget(self):
-        # The overridden file is over the default 6 but under its own 99 ceiling -> no nudge.
+        # The overridden file is over the default 6 but under its own 99 ceiling -> no finding at all.
         with tempfile.TemporaryDirectory() as d:
             p = _write(d, "x.md", self._OVER)
             key = os.path.relpath(p, validate.ROOT)
-            params = dict(self.PARAMS, length_budget_overrides={key: {"budget": 99}})
+            params = dict(self.PARAMS, length_budget_overrides={key: self._OK_OVERRIDE})
             rule = _rule(kind="shape", tier="hard", target={"path": "x"}, params=params)
             passed, found = _run_kind(validate.kind_shape, rule, [p])
             self.assertTrue(passed)
-            self.assertFalse(any("budget" in f["message"] for f in found))  # under its 99 override
+            self.assertEqual(found, [])  # well-formed body, under its 99 override -> nothing
 
     def test_override_applies_only_to_its_file(self):
         # An override for a.md must not lift b.md, which still nudges at the default 6.
         with tempfile.TemporaryDirectory() as d:
             a, b = _write(d, "a.md", self._OVER), _write(d, "b.md", self._OVER)
             params = dict(self.PARAMS,
-                          length_budget_overrides={os.path.relpath(a, validate.ROOT): {"budget": 99}})
+                          length_budget_overrides={os.path.relpath(a, validate.ROOT): self._OK_OVERRIDE})
             rule = _rule(kind="shape", tier="hard", target={"path": "x"}, params=params)
             passed, found = _run_kind(validate.kind_shape, rule, [a, b])
-            over = [f for f in found if "budget" in f["message"]]
+            over = [f for f in found if f["severity"] == "soft" and "over its" in f["message"]]
             self.assertTrue(any("b.md" in f["message"] for f in over))      # default still bites b
             self.assertFalse(any("a.md" in f["message"] for f in over))     # override lifts a
 
@@ -674,12 +676,26 @@ class TestShapeKind(unittest.TestCase):
         # A key naming no targeted operation is the rule's hard tier — a dead grant can't accumulate.
         with tempfile.TemporaryDirectory() as d:
             p = _write(d, "x.md", "## Decision\nx\n## Rationale\ny\n## Status\nz\n")  # well-formed, in-budget
-            params = dict(self.PARAMS, length_budget_overrides={"no/such/operation.md": {"budget": 99}})
+            params = dict(self.PARAMS, length_budget_overrides={"no/such/operation.md": self._OK_OVERRIDE})
             rule = _rule(kind="shape", tier="hard", target={"path": "x"}, params=params)
             passed, found = _run_kind(validate.kind_shape, rule, [p])
             self.assertFalse(passed)
             self.assertTrue(any("not an operation this rule targets" in f["message"]
                                 and f["severity"] == "hard" for f in found))
+
+    def test_override_without_recorded_reason_is_hard(self):
+        # An override must carry both an integer budget AND a recorded why (#273, made mechanical).
+        # A budget-only entry, a non-int budget, and a bare value each fail at the hard tier.
+        for bad in ({"budget": 99}, {"budget": "lots", "why": "r"}, 99):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as d:
+                p = _write(d, "x.md", "## Decision\nx\n## Rationale\ny\n## Status\nz\n")
+                key = os.path.relpath(p, validate.ROOT)
+                params = dict(self.PARAMS, length_budget_overrides={key: bad})
+                rule = _rule(kind="shape", tier="hard", target={"path": "x"}, params=params)
+                passed, found = _run_kind(validate.kind_shape, rule, [p])
+                self.assertFalse(passed)
+                self.assertTrue(any("is incomplete" in f["message"]
+                                    and f["severity"] == "hard" for f in found))
 
 
 class TestSuiteContextGating(unittest.TestCase):
