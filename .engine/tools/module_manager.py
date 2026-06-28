@@ -1109,6 +1109,10 @@ def _remove_engine_pr_body(result: dict) -> str:
                      "from it.")
     elif db.get("status") == "dropped":
         lines.append("- Removes the safety rule on your main branch entirely (you chose to remove it).")
+    elif db.get("status") == "unaugmented":
+        lines.append("- Takes the engine's checks — and any force-push/deletion/pull-request protection the "
+                     "engine had added — back out of your own branch-protection rule, leaving the rest of "
+                     "that rule exactly as it was. (The rule is yours, so it is not removed.)")
     lines += ["", "Reviewed and reversible: reverting this pull request restores the engine's files. The "
               "main-branch safety rule is turned back on by running the engine setup again.", "",
               "Merging this is your review and consent."]
@@ -1151,8 +1155,13 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
     slug = repo or boot.repo_slug()
     tok = token if token is not None else boot.gh_token()
     cp = bootstrap.ControlPlane(slug or "", tok or "", transport=transport)
+    # The control-plane marker the arrival recorded — whether the engine created its OWN ruleset or AUGMENTED
+    # a pre-existing PRODUCT one, and the exact pieces it added — so de-bootstrap reverses precisely that and
+    # nothing of the operator's. Absent on an older install or when none was recorded; de_bootstrap then falls
+    # back to a bounded, name-only strip that still never deletes a product rule.
+    marker = (module_coherence.load_engine_manifest() or {}).get("control_plane")
     try:
-        result["de_bootstrap"] = cp.de_bootstrap(choice=choice, announce=say)
+        result["de_bootstrap"] = cp.de_bootstrap(choice=choice, marker=marker, announce=say)
     except bootstrap.BootstrapError as exc:
         return {**result, "refused": True,
                 "reason": f"Couldn't reach GitHub to remove the engine's branch protection ({exc}); "
@@ -1975,11 +1984,80 @@ def remove_engine_demo() -> bool:
         print(f"    [{'ok' if m_ok else 'FAIL'}] the safety rule was removed entirely (a delete was issued)")
         ok = ok and m_ok
 
+    print("\nPart N — clean removal on a BROWNFIELD repo whose OWN rule the engine augmented:")
+    # The arrival added the engine's two checks (and a non_fast_forward rule) INTO the product's own ruleset
+    # and recorded that in engine.json. Removal must reverse EXACTLY that and leave the product's rule —
+    # never delete it, and never offer a keep/drop choice (the rule is the operator's, not the engine's).
+    product_detail = {
+        "id": 9, "name": "team protections", "target": "branch", "enforcement": "active",
+        "node_id": "RRS_x", "_links": {"self": {"href": "x"}}, "created_at": "2026-01-01T00:00:00Z",
+        "source": "owner/repo", "source_type": "Repository", "current_user_can_bypass": "always",
+        "bypass_actors": [{"actor_id": 5, "actor_type": "Team", "bypass_mode": "always"}],
+        "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+        "rules": [
+            {"type": "pull_request", "parameters": {"required_approving_review_count": 1},
+             "ruleset_source_type": "Repository", "ruleset_id": 9},
+            {"type": "required_status_checks", "parameters": {
+                "required_status_checks": [{"context": "product-ci"}, {"context": "engine-ci"},
+                                           {"context": "engine-guard"}],
+                "strict_required_status_checks_policy": False}, "ruleset_id": 9},
+            {"type": "non_fast_forward", "ruleset_id": 9},   # engine-added (recorded in the marker)
+        ],
+    }
+    n_puts, n_deletes = [], []
+
+    def aug_transport(method, path, body=None):
+        if method == "GET" and path.endswith("/rulesets"):
+            return (200, [{"id": 9, "name": "team protections"}], {})   # NO engine-named ruleset present
+        if method == "GET" and path.endswith("/rulesets/9"):
+            return (200, product_detail, {})
+        if method == "PUT" and path.endswith("/rulesets/9"):
+            n_puts.append(body)
+            return (200, {"id": 9}, {})
+        if method == "DELETE":
+            n_deletes.append(path)
+            return (204, None, {})
+        return (200, None, {})
+
+    with tempfile.TemporaryDirectory() as d:
+        with _redirect_root(d):
+            _build_remove_fixture(d)
+            # Record the augment marker the arrival would have written.
+            eng_path = os.path.join(d, ".engine", "engine.json")
+            eng = json.loads(validate.read(eng_path))
+            eng["control_plane"] = {"ruleset_mode": "augmented", "augmented_ruleset_id": 9,
+                                    "added": {"checks": ["engine-ci", "engine-guard"],
+                                              "rules": ["non_fast_forward"]}}
+            _write_json(eng_path, eng)
+            rN = remove_engine(opener=fake_opener, transport=aug_transport, choice="keep",
+                               announce=lambda m: None)
+        put_body = n_puts[-1] if n_puts else {}
+        put_rules = put_body.get("rules", [])
+        put_types = {r.get("type") for r in put_rules}
+        put_checks = bootstrap._bound_checks(put_rules)
+        n_checks = {
+            "the engine's checks were taken out of the product's rule (status 'unaugmented')":
+                (rN["de_bootstrap"] or {}).get("status") == "unaugmented",
+            "the product's rule was NOT deleted (it is the operator's)": not n_deletes,
+            "exactly one update was written back to the product's rule": len(n_puts) == 1,
+            "the engine checks are gone, the product's own check remains":
+                put_checks == {"product-ci"},
+            "the engine-added force-push rule was removed": "non_fast_forward" not in put_types,
+            "the product's own pull-request rule was left untouched":
+                {"type": "pull_request", "parameters": {"required_approving_review_count": 1}} in put_rules,
+            "the operator's bypass list was preserved verbatim":
+                put_body.get("bypass_actors") == product_detail["bypass_actors"],
+        }
+        for label, good in n_checks.items():
+            print(f"    [{'ok' if good else 'FAIL'}] {label}")
+            ok = ok and good
+
     print("\n" + ("REMOVAL DEMO PASSED: the ownership block rendered file-precisely, and the engine removed\n"
                   "itself cleanly on the fixture — it took its checks off the safety rule first, undid its\n"
-                  "shared-file edits, deleted its files, and opened a reviewed pull request — for BOTH the\n"
-                  "keep and remove choices. The four real boundaries named above are the inductive gap a\n"
-                  "fixture cannot discharge."
+                  "shared-file edits, deleted its files, and opened a reviewed pull request — for the engine's\n"
+                  "own keep AND remove choices, AND for a brownfield repo whose own rule it had only augmented\n"
+                  "(reversing exactly what it added, never deleting the operator's rule). The four real\n"
+                  "boundaries named above are the inductive gap a fixture cannot discharge."
                   if ok else "REMOVAL DEMO DID NOT BEHAVE AS EXPECTED — see above."))
     return ok
 

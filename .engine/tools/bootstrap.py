@@ -26,11 +26,20 @@ inverse of apply, removing the engine's required checks from its own safety rule
 drop the rule) so a clean removal can delete the engine workflows without deadlocking on checks that no longer
 run. Operator-privileged; called by module_manager.remove_engine (the whole-engine removal entry).
 
+Extended for the brownfield arrival (in-place ruleset augment): when the engine arrives on a project that
+already protects its main branch with its OWN ruleset, `apply` AUGMENTS that rule in place — a fail-closed,
+whitelist-projected read-modify-write that UNIONs the engine's required checks into it and ADDs any
+wholly-missing floor protection, preserving everything of the operator's (bypass_actors, conditions, and
+every existing rule, verified byte-identical after the write) and disclosing any floor piece it can't add
+without modifying a rule the operator set themselves. The exact pieces added are recorded in engine.json so
+`de_bootstrap` reverses precisely them on clean removal, never deleting a rule the engine did not create
+("the ruleset is augmented, never weakened" — provisioning README §"CODEOWNERS and the ruleset"). Greenfield
+(no product ruleset) is unchanged: the engine creates and owns its own ruleset.
+
 Scope OUT of this slice (named, deferred):
   - module manager add/remove + group-scoped uv-sync derivation + the orphan-wire reverse coherence leg -> 25b
   - engine updater/upgrade + migrations -> 25c (module_manager); CODEOWNERS renderer -> 25c (wiring), with its
     live first-run/upgrade wire owed to the instantiator (slice 27, which captures the operator handle)
-  - in-place augment of a pre-existing PRODUCT ruleset (brownfield coexistence) -> a brownfield slice
   - the operator verb + boot's one-click-fix copy update -> 26
   - the second engine-scheme (spec-marker) label -> post-core product-design (core ensures only the
     engine-domain label here)
@@ -46,6 +55,7 @@ Scope OUT of this slice (named, deferred):
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import subprocess
@@ -134,6 +144,166 @@ def remainder_ruleset(name: str = ENGINE_RULESET_NAME) -> dict:
     return rs
 
 
+# ---- augmenting a pre-existing PRODUCT ruleset in place (brownfield) ----------------------------
+#
+# When the engine arrives on a project that already protects its main branch with its OWN ruleset, it
+# adds its checks (and any wholly-missing floor protection) INTO that rule rather than standing up a
+# second one — "the ruleset is augmented, never weakened" (provisioning README §"CODEOWNERS and the
+# ruleset", L498-507). Because the GitHub rulesets API replaces a ruleset object WHOLESALE on PUT, the
+# augment is a read-modify-write computed entirely client-side. These helpers keep it strictly ADDITIVE:
+# the operator's bypass_actors, conditions, and every existing rule are preserved verbatim; the engine
+# only UNIONs its required checks and ADDs floor rule types the product's ruleset lacks. An existing
+# product rule's parameters are NEVER modified (that would alter the operator's own protection) — a
+# residual gap that could only be closed by such a modification is disclosed, not acted on. The exact
+# pieces added are recorded so a later de-bootstrap reverses precisely them and nothing else.
+
+
+def _floor_rule_templates() -> dict:
+    """{rule_type: rule_dict} for every floor rule, sourced from floor_ruleset() so the shapes the engine
+    ADDs on augment never drift from the floor the engine creates on greenfield (single source)."""
+    return {r["type"]: r for r in floor_ruleset()["rules"]}
+
+
+def _project_rule(rule: dict) -> dict:
+    """A ruleset rule reduced to the fields a PUT accepts — `type` (+ `parameters`). The GET echoes
+    read-only per-rule metadata (`ruleset_source_type` / `ruleset_id`) that a PUT does not accept, so it
+    is dropped rather than echoed back."""
+    out = {"type": rule.get("type")}
+    if rule.get("parameters") is not None:
+        out["parameters"] = copy.deepcopy(rule["parameters"])   # deep-copy: augment must never mutate input
+    return out
+
+
+def _project_ruleset(full: dict) -> dict:
+    """A full ruleset object (from GET /rulesets/{id}) reduced to the writable PUT body — name, target,
+    enforcement, bypass_actors, conditions, rules — preserving the operator's bypass_actors and conditions
+    VERBATIM and dropping the read-only/metadata fields a PUT rejects (id, node_id, _links, source,
+    source_type, created_at, updated_at, current_user_can_bypass). Echoing those back is what 422s or
+    silently drops an operator's deploy-bot bypass, so the projection is a whitelist, never a verbatim echo."""
+    return {
+        "name": full.get("name"),
+        "target": full.get("target", "branch"),
+        "enforcement": full.get("enforcement", "active"),
+        "bypass_actors": full.get("bypass_actors", []),
+        "conditions": full.get("conditions", {}),
+        "rules": [_project_rule(r) for r in (full.get("rules") or [])],
+    }
+
+
+def _bound_checks(rules: list) -> set:
+    """The status-check contexts bound by the required_status_checks rule in `rules` (empty if none)."""
+    for r in rules:
+        if r.get("type") == "required_status_checks":
+            p = r.get("parameters") or {}
+            return {c.get("context") for c in p.get("required_status_checks", []) if c.get("context")}
+    return set()
+
+
+def augment_payload(product_full: dict, required_checks: list | None = None) -> tuple:
+    """Pure read-modify of a product ruleset object into the PUT body that ADDS the engine's protection
+    without touching anything of the operator's. Returns (payload, added, residual_gaps):
+
+    - payload: the writable projection (bypass_actors / conditions / existing rules preserved verbatim) with
+      the engine's required checks UNIONed into the required_status_checks rule (the rule created if absent)
+      and any WHOLLY-MISSING floor rule type ADDed. An existing product rule's parameters are never changed.
+    - added: {"checks": [...], "rules": [...]} — the exact pieces the engine added (engine check contexts
+      added to a pre-existing checks rule; floor rule types added wholesale, incl. "required_status_checks"
+      when the engine created that rule). Recorded so de-bootstrap reverses precisely this set.
+    - residual_gaps: floor pieces still unmet AFTER the additive merge (e.g. the product's own pull_request
+      rule allows merging with unresolved comments) — disclosed to the operator, never fixed by modifying
+      their rule. Computed by protection_guard.missing_floor (the single floor home), never re-derived here."""
+    required_checks = required_checks if required_checks is not None else protection_guard.REQUIRED_CHECKS
+    payload = _project_ruleset(product_full)
+    rules = payload["rules"]
+    templates = _floor_rule_templates()
+    added_checks: list = []
+    added_rules: list = []
+
+    # 1. Union the engine's required checks into the required_status_checks rule (create it if absent).
+    rsc = next((r for r in rules if r.get("type") == "required_status_checks"), None)
+    created_rsc = rsc is None
+    if created_rsc:
+        rsc = {"type": "required_status_checks",
+               "parameters": {"required_status_checks": [],
+                              "strict_required_status_checks_policy": False,
+                              "do_not_enforce_on_create": False}}
+        rules.append(rsc)
+        added_rules.append("required_status_checks")
+    rsc.setdefault("parameters", {}).setdefault("required_status_checks", [])
+    bound = {c.get("context") for c in rsc["parameters"]["required_status_checks"] if c.get("context")}
+    for name in required_checks:
+        if name not in bound:
+            rsc["parameters"]["required_status_checks"].append({"context": name})
+            if not created_rsc:  # when the engine created the rule, its removal covers these checks
+                added_checks.append(name)
+
+    # 2. Add any WHOLLY-MISSING floor rule type (strengthen-to-floor) — never modify an existing one.
+    present_types = {r.get("type") for r in rules}
+    for rtype in ("pull_request", "non_fast_forward", "deletion"):
+        if rtype not in present_types and rtype in templates:
+            rules.append(_project_rule(templates[rtype]))
+            added_rules.append(rtype)
+
+    added = {"checks": added_checks, "rules": added_rules}
+    residual_gaps = protection_guard.missing_floor(rules, required_checks)
+    return payload, added, residual_gaps
+
+
+def _strip_engine_additions(rules: list, added: dict) -> list:
+    """The inverse of augment's additions: drop every rule type the engine added wholesale and remove the
+    engine's added check contexts from a pre-existing required_status_checks rule — leaving every other
+    product rule, and every product check, exactly as it was. Never empties or deletes a product rule it
+    did not add."""
+    add_checks = set((added or {}).get("checks") or [])
+    add_rules = set((added or {}).get("rules") or [])
+    out: list = []
+    for r in rules:
+        t = r.get("type")
+        if t in add_rules:
+            continue
+        if t == "required_status_checks" and add_checks:
+            p = dict(r.get("parameters") or {})
+            p["required_status_checks"] = [c for c in p.get("required_status_checks", [])
+                                           if c.get("context") not in add_checks]
+            r = {**r, "parameters": p}
+        out.append(r)
+    return out
+
+
+def _product_preserved(pre: dict, post: dict, added: dict) -> bool:
+    """VERIFY (not trust) that the augment was additive: every operator-owned piece in `pre` (the projected
+    product ruleset before the write) survives in `post` (the projection re-read after the write). The
+    engine's own additions are ignored; anything of the operator's that changed or vanished fails the check
+    (fail-closed). bypass_actors and conditions must be byte-identical; every product rule must be present
+    unchanged — except the required_status_checks rule, where the engine may have unioned contexts, so the
+    product's contexts must remain a subset and its other parameters unchanged."""
+    if pre.get("bypass_actors") != post.get("bypass_actors"):
+        return False
+    if pre.get("conditions") != post.get("conditions"):
+        return False
+    post_by_type: dict = {}
+    for r in post.get("rules", []):
+        post_by_type.setdefault(r.get("type"), []).append(r)
+    for pr in pre.get("rules", []):
+        t = pr.get("type")
+        cands = post_by_type.get(t, [])
+        if t == "required_status_checks":
+            post_rsc = cands[0] if cands else None
+            if post_rsc is None:
+                return False
+            pre_ctx = {c.get("context") for c in (pr.get("parameters") or {}).get("required_status_checks", [])}
+            post_ctx = {c.get("context") for c in (post_rsc.get("parameters") or {}).get("required_status_checks", [])}
+            if not pre_ctx.issubset(post_ctx):
+                return False
+            pre_p = {k: v for k, v in (pr.get("parameters") or {}).items() if k != "required_status_checks"}
+            post_p = {k: v for k, v in (post_rsc.get("parameters") or {}).items() if k != "required_status_checks"}
+            if pre_p != post_p:
+                return False
+        elif pr not in cands:
+            return False
+    return True
+
+
 # ---- operator-facing copy (the template SURFACE is primary; built-in fallbacks keep the #1 trust
 #      tool working even if the template is absent/damaged — degrade-loud, never crash) -----------
 
@@ -194,6 +364,36 @@ FALLBACK_COPY = {
     "debootstrap-none": (
         "There was no engine safety rule on your main branch to remove — nothing to change here."
     ),
+    # -- brownfield augment (the engine adds its checks INTO your existing rule, not a second rule) --
+    "applied-augmented": (
+        "Your main branch was already protected by your own rule, so I added my two checks to that rule "
+        "rather than creating a second one — and where your rule was missing a piece of the safety floor "
+        "(blocking force-pushes, blocking branch deletion, or requiring a pull request), I added that too. "
+        "I changed nothing else of yours: your rule's other settings are exactly as you had them."
+    ),
+    "applied-augmented-partial": (
+        "Your main branch was already protected by your own rule, so I added my two checks to it (and any "
+        "missing force-push/deletion/pull-request protection). One part of the safety floor I can't turn on "
+        "without changing a rule you set yourself, so I've left it as you have it — here's what's still open "
+        "for you to decide"
+    ),
+    "augment-ambiguous": (
+        "Your project has more than one rule covering your main branch, so I didn't change any of them — I "
+        "couldn't be sure which one to add my checks to without risking your setup. Instead I added my own "
+        "rule with my two checks, alongside yours. Your branch is protected by both; if you'd rather have my "
+        "checks in one of your existing rules, tell me which and I'll move them."
+    ),
+    "augment-classic": (
+        "Your main branch is already protected by your own settings, so I added my two checks in my own rule "
+        "alongside what you have — I didn't touch your existing protection. Your branch is now covered by "
+        "both; nothing of yours changed."
+    ),
+    "debootstrap-product": (
+        "I took my two checks — and any force-push/deletion/pull-request protection I had added — back out "
+        "of your own branch-protection rule, and left the rest of that rule exactly as it was. There's no "
+        "keep-or-remove choice here because the rule is yours, not one I created; I only added to it, so I "
+        "only removed what I added."
+    ),
 }
 
 # Maps each copy key to its `##` heading in the template surface.
@@ -209,6 +409,11 @@ COPY_HEADINGS = {
     "debootstrap-kept": "When the safety rule is kept",
     "debootstrap-dropped": "When the safety rule is removed",
     "debootstrap-none": "When there was no engine safety rule",
+    "applied-augmented": "When your own rule was there — I added my checks to it",
+    "applied-augmented-partial": "When I added my checks but one floor piece is yours to decide",
+    "augment-ambiguous": "When you have more than one rule covering main",
+    "augment-classic": "When your main branch was already protected your own way",
+    "debootstrap-product": "When the rule was yours — I only removed what I added",
 }
 
 
@@ -268,12 +473,22 @@ class Result:
     """The outcome of an apply attempt, plain-language-renderable for the operator."""
 
     def __init__(self, status: str, branch: str, missing: list, cause: str | None,
-                 labels_ok: bool = True):
-        self.status = status          # "applied" | "already" | "degraded"
+                 labels_ok: bool = True, mode: str = "created", marker: dict | None = None):
+        self.status = status          # "applied" | "already" | "degraded" | "unverified"
         self.branch = branch
-        self.missing = missing        # floor pieces still not in force (for a degraded result)
-        self.cause = cause            # "not-admin" | "org-policy" | "didnt-save" | "verify-failed" | None
+        self.missing = missing        # floor pieces still not in force (degraded) or disclosed (partial)
+        self.cause = cause            # "not-admin" | "org-policy" | "didnt-save" | "verify-failed" |
+        #                               "preserve-failed" | None
         self.labels_ok = labels_ok
+        # How the floor was put in force, for the right operator copy: "created" (the engine's own ruleset,
+        # greenfield), "repaired" (the engine's own ruleset already existed), "augmented" (the engine added
+        # its checks into a pre-existing PRODUCT ruleset), "augmented-partial" (augmented, but a floor piece
+        # is left to the operator), "already".
+        self.mode = mode
+        # The control-plane state the arrival persists into engine.json so a later clean removal reverses
+        # exactly what the engine did: {"ruleset_mode": "created"|"augmented", "augmented_ruleset_id": id|None,
+        # "added": {"checks": [...], "rules": [...]}|None}. None for a read-only/degraded outcome.
+        self.marker = marker
 
     def is_protected(self) -> bool:
         return self.status in ("applied", "already")
@@ -364,6 +579,38 @@ class ControlPlane:
                 return r
         return None
 
+    def product_rulesets(self, branch: str) -> list:
+        """The ids of the repository's OWN branch rulesets that ACTUALLY apply to the branch (and bite),
+        excluding the engine's own. Resolved from the evaluated per-branch endpoint — each evaluated rule
+        carries the `ruleset_id` and `ruleset_source_type` it came from — so detection is exact and needs no
+        ref-condition parsing, and rules in evaluate/disabled mode (which do not protect) are naturally
+        excluded. Organization-level rulesets are skipped: they are not the repository's to edit here.
+        Raises BootstrapError on an unreadable response (fail-closed — never guess the set)."""
+        status, data, _ = self._transport(
+            "GET", f"/repos/{self.repo}/rules/branches/{branch}", None)
+        if status >= 400 or not isinstance(data, list):
+            raise BootstrapError(f"could not read evaluated branch rules (status {status})")
+        own = self.engine_ruleset()
+        own_id = own.get("id") if own else None
+        ids: list = []
+        for r in data:
+            rid = r.get("ruleset_id")
+            if rid is None or rid == own_id or rid in ids:
+                continue
+            if r.get("ruleset_source_type") not in (None, "Repository"):
+                continue  # an org/enterprise ruleset is not ours to augment
+            ids.append(rid)
+        return ids
+
+    def ruleset_detail(self, rid: int) -> dict:
+        """The FULL ruleset object (incl. its `rules` array, which the list endpoint omits). Raises
+        BootstrapError on any non-200 or malformed body — the read-modify-write must NEVER PUT on a doubtful
+        read, or a partial GET would silently drop the operator's rules."""
+        status, data, _ = self._transport("GET", f"/repos/{self.repo}/rulesets/{rid}", None)
+        if status >= 400 or not isinstance(data, dict) or not isinstance(data.get("rules"), list):
+            raise BootstrapError(f"could not read ruleset {rid} (status {status})")
+        return data
+
     # -- writes -----------------------------------------------------------------------------------
 
     def _write_floor(self, existing: dict | None):
@@ -429,25 +676,45 @@ class ControlPlane:
                 labels_ok = self.ensure_labels()
                 return Result("degraded", branch, missing or [], "didnt-save", labels_ok)
 
-        # 3. Apply: create the engine ruleset, or repair it in place.
+        # 3. Apply. Three paths, in order of decisiveness:
+        #    (a) the engine's OWN ruleset already exists -> repair it in place (greenfield re-run / a prior
+        #        install). The engine owns it, so a later removal offers keep/drop.
+        #    (b) no engine ruleset, but exactly ONE product ruleset protects the branch -> AUGMENT it in
+        #        place (add our checks + any wholly-missing floor protection), preserving everything of
+        #        theirs, and record what we added so removal can reverse exactly it.
+        #    (c) otherwise (no product ruleset, or more than one) -> create the engine's OWN ruleset, and
+        #        disclose any pre-existing protection it now sits alongside (the residual two-rule state).
         try:
-            existing = self.engine_ruleset()
+            own = self.engine_ruleset()
         except BootstrapError:
-            existing = None
-        status, body = self._write_floor(existing)
+            own = None
+        if own is None:
+            try:
+                prod_ids = self.product_rulesets(branch)
+            except BootstrapError:
+                prod_ids = []
+            if len(prod_ids) == 1:
+                return self._augment_ruleset(prod_ids[0], branch, missing, say, copy)
+            if len(prod_ids) > 1:
+                say(copy["augment-ambiguous"])
+            elif self._pre_existing_protection(missing):
+                say(copy["augment-classic"])
+
+        mode = "repaired" if own is not None else "created"
+        status, body = self._write_floor(own)
         if status in (401, 403):
             # A fine-grained token without admin shows no classic scope; the write is the real probe.
             say(copy["before-you-approve"])
             self._refresh(RULESET_SCOPE)
             try:
-                existing = self.engine_ruleset()   # re-resolve: if the first attempt landed, repair it
+                own = self.engine_ruleset()   # re-resolve: if the first attempt landed, repair it
             except BootstrapError:
                 pass
-            status, body = self._write_floor(existing)
+            status, body = self._write_floor(own)
         if status >= 400:
             labels_ok = self.ensure_labels()
             cause = self._forbidden_cause(body) if status in (401, 403) else "verify-failed"
-            return Result("degraded", branch, missing or [], cause, labels_ok)
+            return Result("degraded", branch, missing or [], cause, labels_ok, mode=mode)
 
         # 4. Verify the floor is now actually in force (never assume the write took). An UNREADABLE
         #    verify is NOT success — it degrades to 'unverified', never a false 'applied'.
@@ -456,49 +723,163 @@ class ControlPlane:
         except BootstrapError:
             still_missing = None
         labels_ok = self.ensure_labels()
+        marker = {"ruleset_mode": "created", "augmented_ruleset_id": None, "added": None}
         if still_missing is None:
-            return Result("unverified", branch, [], "verify-unreadable", labels_ok)
+            return Result("unverified", branch, [], "verify-unreadable", labels_ok, mode=mode)
         if still_missing:
-            return Result("degraded", branch, still_missing, "verify-failed", labels_ok)
-        return Result("applied", branch, [], None, labels_ok)
+            return Result("degraded", branch, still_missing, "verify-failed", labels_ok, mode=mode)
+        return Result("applied", branch, [], None, labels_ok, mode=mode, marker=marker)
+
+    def _augment_ruleset(self, rid: int, branch: str, missing, say, copy) -> Result:
+        """AUGMENT a single pre-existing PRODUCT ruleset in place: add the engine's required checks and any
+        wholly-missing floor protection, preserving everything of the operator's. A fail-closed
+        read-modify-write VERIFIED against the ruleset object (immediately consistent, unlike the lagging
+        evaluated endpoint), with a bounded re-read if a concurrent overwrite lands in the read-write window.
+        Returns a Result carrying the de-bootstrap marker so a later removal reverses EXACTLY what was added."""
+        attempts = 0
+        added: dict = {"checks": [], "rules": []}
+        residual: list = []
+        while True:
+            attempts += 1
+            try:
+                pre_full = self.ruleset_detail(rid)       # complete-or-BootstrapError: never PUT on doubt
+            except BootstrapError:
+                labels_ok = self.ensure_labels()
+                return Result("unverified", branch, missing or [], "verify-unreadable", labels_ok,
+                              mode="augmented")
+            pre = _project_ruleset(pre_full)
+            payload, added, residual = augment_payload(pre_full)
+            if not added["checks"] and not added["rules"]:
+                # Already augmented — a verified no-op. Record the engine checks in force so a later
+                # de-bootstrap still strips them (and never deadlocks); leave added rule-types empty (safe).
+                added = {"checks": [c for c in protection_guard.REQUIRED_CHECKS
+                                    if c in _bound_checks(pre["rules"])], "rules": []}
+                break
+            status, body, _ = self._transport("PUT", f"/repos/{self.repo}/rulesets/{rid}", payload)
+            if status in (401, 403):
+                say(copy["before-you-approve"])
+                self._refresh(RULESET_SCOPE)
+                status, body, _ = self._transport("PUT", f"/repos/{self.repo}/rulesets/{rid}", payload)
+            if status >= 400:
+                labels_ok = self.ensure_labels()
+                cause = self._forbidden_cause(body) if status in (401, 403) else "verify-failed"
+                return Result("degraded", branch, missing or [], cause, labels_ok, mode="augmented")
+            try:
+                post = _project_ruleset(self.ruleset_detail(rid))   # immediately consistent with the PUT
+            except BootstrapError:
+                labels_ok = self.ensure_labels()
+                return Result("unverified", branch, missing or [], "verify-unreadable", labels_ok,
+                              mode="augmented")
+            if not _product_preserved(pre, post, added):
+                # The wholesale PUT altered something of the operator's — fail closed, never a false 'applied'.
+                labels_ok = self.ensure_labels()
+                return Result("degraded", branch, missing or [], "preserve-failed", labels_ok,
+                              mode="augmented")
+            if all(c in _bound_checks(post["rules"]) for c in protection_guard.REQUIRED_CHECKS):
+                break                                     # our checks are in force
+            if attempts < 2:
+                continue                                  # a concurrent overwrite landed — re-read, retry once
+            labels_ok = self.ensure_labels()
+            return Result("unverified", branch, missing or [], "verify-unreadable", labels_ok,
+                          mode="augmented")
+
+        labels_ok = self.ensure_labels()
+        marker = {"ruleset_mode": "augmented", "augmented_ruleset_id": rid, "added": added}
+        if residual:   # a floor piece the product's own rule leaves open — disclosed, not modified
+            return Result("applied", branch, residual, None, labels_ok, mode="augmented-partial",
+                          marker=marker)
+        return Result("applied", branch, [], None, labels_ok, mode="augmented", marker=marker)
+
+    @staticmethod
+    def _pre_existing_protection(missing) -> bool:
+        """True if the branch already had SOME protection in force (a PROPER subset of the floor was missing)
+        — classic branch protection, or a ruleset the engine didn't augment — so creating the engine's own
+        ruleset leaves the operator with their protection plus the engine's, worth disclosing."""
+        if not missing:
+            return False
+        baseline = set(protection_guard.missing_floor([], protection_guard.REQUIRED_CHECKS))
+        return set(missing) < baseline   # proper subset => something was already in force
 
     # -- de-bootstrap (the inverse of apply — operator-privileged, for clean removal) -------------
 
-    def de_bootstrap(self, choice: str | None = None, announce=None) -> dict:
-        """Remove the engine's required checks from its OWN protected-branch safety rule — the inverse of
-        apply(), an operator-privileged step on clean removal. ALWAYS drops the engine checks first: a
-        required check whose workflow is being deleted would otherwise 'wait forever' and deadlock every
-        pull request (provisioning L332-335), so this must run BEFORE the removal pull request that deletes
-        the engine workflows. Then, because the engine CREATED this rule, it discloses and lets the
-        operator choose — `keep` (default) PUTs the checkless protection-floor remainder so the main branch
-        STAYS protected (never auto-deleting it); `drop` DELETEs the engine rule entirely. `choice` is
-        injected (the removal runbook captures the operator's keep/drop decision); `announce(text)` surfaces
-        the outcome copy. Returns a structured result.
+    def de_bootstrap(self, choice: str | None = None, announce=None, marker: dict | None = None) -> dict:
+        """Take the engine's protection back off the branch — the inverse of apply(), operator-privileged, on
+        clean removal. It ALWAYS removes the engine's checks first: a required check whose workflow is being
+        deleted would otherwise 'wait forever' and deadlock every pull request (provisioning L332-335), so
+        this must run BEFORE the removal pull request that deletes the engine workflows. Two shapes, told
+        apart WITHOUT guessing by whether the engine's OWN named ruleset exists:
 
-        As-built model: the engine maintains its OWN named ruleset (ENGINE_RULESET_NAME), which holds only
-        the engine's checks — so the spec's 'remove only the engine-namespaced names, write the remainder'
-        (provisioning L297-298) reduces to dropping the required-checks rule and keeping the floor
-        remainder. The merge-into-a-pre-existing-PRODUCT-rule arm is a brownfield slice, not this model."""
+        - Engine CREATED its own ruleset (greenfield) -> disclose and let the operator choose: `keep`
+          (default) PUTs the checkless protection-floor remainder so the branch STAYS protected (never
+          auto-deleted); `drop` DELETEs the engine rule entirely.
+        - Engine AUGMENTED a pre-existing PRODUCT ruleset (brownfield) -> reverse EXACTLY what was added,
+          per the `marker` the arrival recorded (engine checks + any floor rules the engine added), leaving
+          the rest of the operator's rule untouched. The product rule is NEVER deleted — it's theirs, not
+          ours; there is no keep/drop choice. If the marker is absent/stale, fall back to stripping only the
+          frozen engine check names (bounded), never deleting, and disclose.
+
+        `choice` (keep/drop) applies only to the engine-created shape; `marker` is read by the caller from
+        engine.json; `announce(text)` surfaces the outcome copy. Returns a structured result."""
         copy = load_copy()
         say = announce if announce is not None else (lambda text: print(text))
         existing = self.engine_ruleset()
-        if existing is None:
-            say(copy["debootstrap-none"])
-            return {"status": "no-rule", "ruleset_existed": False, "choice": None, "deleted": False}
-        rid = existing.get("id")
-        # Default / None / anything other than an explicit "drop" => keep. Protection is NEVER auto-deleted.
-        if choice == "drop":
-            status, _body, _ = self._transport("DELETE", f"/repos/{self.repo}/rulesets/{rid}", None)
+        if existing is not None:
+            rid = existing.get("id")
+            # Default / None / anything other than explicit "drop" => keep. Protection is NEVER auto-deleted.
+            if choice == "drop":
+                status, _body, _ = self._transport("DELETE", f"/repos/{self.repo}/rulesets/{rid}", None)
+                if status >= 400:
+                    raise BootstrapError(f"could not remove the engine safety rule (status {status})")
+                say(copy["debootstrap-dropped"])
+                return {"status": "dropped", "ruleset_existed": True, "choice": "drop", "deleted": True}
+            status, _body, _ = self._transport(
+                "PUT", f"/repos/{self.repo}/rulesets/{rid}", remainder_ruleset())
             if status >= 400:
-                raise BootstrapError(f"could not remove the engine safety rule (status {status})")
-            say(copy["debootstrap-dropped"])
-            return {"status": "dropped", "ruleset_existed": True, "choice": "drop", "deleted": True}
-        status, _body, _ = self._transport(
-            "PUT", f"/repos/{self.repo}/rulesets/{rid}", remainder_ruleset())
+                raise BootstrapError(f"could not update the engine safety rule (status {status})")
+            say(copy["debootstrap-kept"])
+            return {"status": "kept", "ruleset_existed": True, "choice": "keep", "deleted": False}
+
+        # No engine-owned ruleset: the brownfield AUGMENTED shape. Reverse exactly what was recorded.
+        mk = marker if isinstance(marker, dict) else {}
+        if mk.get("ruleset_mode") == "augmented" and mk.get("augmented_ruleset_id") is not None:
+            rid = mk["augmented_ruleset_id"]
+            added = mk.get("added") or {"checks": [], "rules": []}
+            try:
+                full = self.ruleset_detail(rid)
+            except BootstrapError:
+                say(copy["debootstrap-none"])   # the product rule is already gone — nothing to reverse
+                return {"status": "no-rule", "ruleset_existed": False, "choice": None, "deleted": False}
+            return self._strip_product(rid, full, added, say, copy)
+
+        # Marker absent/stale: don't guess authorship. Strip ONLY the frozen engine check names from any
+        # product ruleset that carries them (bounded, never a product's own rules), never delete, disclose.
+        # This is deadlock-prevention first: the engine's checks must come off before its workflows vanish.
+        try:
+            prod_ids = self.product_rulesets(branch=boot.PROTECTED_BRANCH)
+        except BootstrapError:
+            prod_ids = []
+        for rid in prod_ids:
+            try:
+                full = self.ruleset_detail(rid)
+            except BootstrapError:
+                continue
+            if any(c in _bound_checks(full.get("rules") or []) for c in protection_guard.REQUIRED_CHECKS):
+                return self._strip_product(
+                    rid, full, {"checks": list(protection_guard.REQUIRED_CHECKS), "rules": []}, say, copy)
+        say(copy["debootstrap-none"])
+        return {"status": "no-rule", "ruleset_existed": False, "choice": None, "deleted": False}
+
+    def _strip_product(self, rid: int, full: dict, added: dict, say, copy) -> dict:
+        """Remove exactly the engine's `added` pieces from a product ruleset and write the remainder back,
+        preserving everything else of the operator's (bypass_actors / conditions / their rules). Never
+        DELETEs the ruleset — it is the operator's, not the engine's."""
+        payload = _project_ruleset(full)
+        payload["rules"] = _strip_engine_additions(payload["rules"], added)
+        status, _body, _ = self._transport("PUT", f"/repos/{self.repo}/rulesets/{rid}", payload)
         if status >= 400:
-            raise BootstrapError(f"could not update the engine safety rule (status {status})")
-        say(copy["debootstrap-kept"])
-        return {"status": "kept", "ruleset_existed": True, "choice": "keep", "deleted": False}
+            raise BootstrapError(f"could not update your branch-protection rule (status {status})")
+        say(copy["debootstrap-product"])
+        return {"status": "unaugmented", "ruleset_existed": True, "choice": None, "deleted": False}
 
 
 # ---- rendering an outcome for the operator ------------------------------------------------------
@@ -506,12 +887,23 @@ class ControlPlane:
 def render(result: Result, copy: dict | None = None) -> str:
     """Plain-language rendering of an apply outcome for the operator."""
     copy = copy or load_copy()
-    if result.status == "applied":
+    if result.status == "applied" and result.mode == "augmented":
+        msg = copy["applied-augmented"]
+    elif result.status == "applied" and result.mode == "augmented-partial":
+        detail = (": " + "; ".join(result.missing)) if result.missing else ""
+        msg = copy["applied-augmented-partial"] + detail + "."
+    elif result.status == "applied":
         msg = copy["applied"]
     elif result.status == "already":
         msg = copy["already"]
     elif result.status == "unverified":
         msg = copy["unverified"]
+    elif result.cause == "preserve-failed":
+        # The wholesale PUT changed something of the operator's — say so plainly, never a false 'applied'.
+        msg = ("I tried to add my checks to your existing branch-protection rule, but couldn't confirm I "
+               "left the rest of your rule exactly as it was, so I've stopped rather than risk changing "
+               "your protection. Nothing of yours should have changed — please check your repository's "
+               "rules, and tell me if anything looks off.")
     elif result.cause == "verify-failed":
         # The write reported success but the gate still isn't fully in force — honest, not "not-admin".
         detail = (": " + "; ".join(result.missing)) if result.missing else ""
