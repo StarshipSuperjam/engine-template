@@ -644,6 +644,43 @@ class TestShapeKind(unittest.TestCase):
         self.assertTrue(all(f["severity"] == "soft" for f in over))
         self.assertFalse(any(f["severity"] == "hard" for f in found))  # length never the hard tier
 
+    # A long body (over the default budget) plus a recorded per-file override.
+    _OVER = "## Decision\n" + "\n".join(["line"] * 12) + "\n## Rationale\ny\n## Status\nz\n"
+
+    def test_per_file_override_raises_budget(self):
+        # The overridden file is over the default 6 but under its own 99 ceiling -> no nudge.
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(d, "x.md", self._OVER)
+            key = os.path.relpath(p, validate.ROOT)
+            params = dict(self.PARAMS, length_budget_overrides={key: {"budget": 99}})
+            rule = _rule(kind="shape", tier="hard", target={"path": "x"}, params=params)
+            passed, found = _run_kind(validate.kind_shape, rule, [p])
+            self.assertTrue(passed)
+            self.assertFalse(any("budget" in f["message"] for f in found))  # under its 99 override
+
+    def test_override_applies_only_to_its_file(self):
+        # An override for a.md must not lift b.md, which still nudges at the default 6.
+        with tempfile.TemporaryDirectory() as d:
+            a, b = _write(d, "a.md", self._OVER), _write(d, "b.md", self._OVER)
+            params = dict(self.PARAMS,
+                          length_budget_overrides={os.path.relpath(a, validate.ROOT): {"budget": 99}})
+            rule = _rule(kind="shape", tier="hard", target={"path": "x"}, params=params)
+            passed, found = _run_kind(validate.kind_shape, rule, [a, b])
+            over = [f for f in found if "budget" in f["message"]]
+            self.assertTrue(any("b.md" in f["message"] for f in over))      # default still bites b
+            self.assertFalse(any("a.md" in f["message"] for f in over))     # override lifts a
+
+    def test_stale_override_key_is_hard(self):
+        # A key naming no targeted operation is the rule's hard tier — a dead grant can't accumulate.
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(d, "x.md", "## Decision\nx\n## Rationale\ny\n## Status\nz\n")  # well-formed, in-budget
+            params = dict(self.PARAMS, length_budget_overrides={"no/such/operation.md": {"budget": 99}})
+            rule = _rule(kind="shape", tier="hard", target={"path": "x"}, params=params)
+            passed, found = _run_kind(validate.kind_shape, rule, [p])
+            self.assertFalse(passed)
+            self.assertTrue(any("not an operation this rule targets" in f["message"]
+                                and f["severity"] == "hard" for f in found))
+
 
 class TestSuiteContextGating(unittest.TestCase):
     """The locked tier-vs-context law: a hard finding fails the run ONLY in a

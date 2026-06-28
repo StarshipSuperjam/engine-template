@@ -411,15 +411,23 @@ def kind_shape(rule, ctx):
     the budget is always SOFT, never the rule's hard tier (templates/README.md). The
     shape-spec is read from params (required_sections, allowed_sections, length_budget),
     the template.v1 grammar; reading it from a template file's frontmatter arrives
-    with the first authored template (a later slice; it needs frontmatter parsing)."""
+    with the first authored template (a later slice; it needs frontmatter parsing).
+    An optional params.length_budget_overrides {rel: {budget, why}} carries a recorded,
+    ack-gated higher ceiling for one named operation (the override lives in this guarded
+    rule, not the operation's own unguarded frontmatter, so raising a budget stays a
+    deliberate consented act); a key naming no targeted file fails at the rule's tier so
+    a stale override cannot rot into a silent grant."""
     tier = rule["tier"]
     params = rule.get("params") or {}
     required = params.get("required_sections", [])
     allowed = set(required) | set(params.get("allowed_sections", []))
     budget = params.get("length_budget")
+    overrides = params.get("length_budget_overrides") or {}
+    covered = set()
     findings = []
     for path in target_files(rule):
         rel = os.path.relpath(path, ROOT)
+        covered.add(rel)
         body = read(path)
         present = section_order(body)
         present_set = set(present)
@@ -438,12 +446,27 @@ def kind_shape(rule, ctx):
             if name not in allowed:
                 findings.append(finding(tier, f"'{rel}' has section '## {name}', which the "
                                 f"template does not allow. {rule['message']}", loc(path)))
-        # length budget — a soft nudge only, regardless of the rule's tier
-        if budget is not None:
+        # length budget — a soft nudge only, regardless of the rule's tier. A per-file
+        # override (a recorded, ack-gated higher ceiling for one named operation) replaces
+        # the rule-wide budget for that file; absent one, the rule-wide budget applies.
+        ov = overrides.get(rel)
+        file_budget = ov.get("budget") if isinstance(ov, dict) else ov
+        if file_budget is None:
+            file_budget = budget
+        if file_budget is not None:
             lines = len(body.splitlines())
-            if lines > budget:
+            if lines > file_budget:
                 findings.append(finding("soft", f"'{rel}' is {lines} lines, over its "
-                                f"{budget}-line budget — a nudge to trim, never a block.", loc(path)))
+                                f"{file_budget}-line budget — a nudge to trim, never a block.", loc(path)))
+    # Every override key must name an operation this rule actually targets — a stale or
+    # mistyped key (e.g. left behind by a rename) would otherwise sit as inert, ack-blessed
+    # config that silently grants nothing while looking like a live budget. Fail it at the
+    # rule's tier so a dead override cannot accumulate unnoticed.
+    for key in overrides:
+        if key not in covered:
+            findings.append(finding(tier, f"the length-budget override names '{key}', which is "
+                            f"not an operation this rule targets — a stale or mistyped override key; "
+                            f"remove it or repoint it. {rule['message']}", None))
     return (not any(f["severity"] == "hard" for f in findings)), findings
 
 

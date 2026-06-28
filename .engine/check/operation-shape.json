@@ -5,9 +5,15 @@
   "params": {
     "required_sections": ["Purpose", "Steps", "Done when"],
     "allowed_sections": ["Notes"],
-    "length_budget": 120
+    "length_budget": 120,
+    "length_budget_overrides": {
+      ".engine/operations/build-orchestration.md": {
+        "budget": 200,
+        "why": "The convergence runbook: where every other system's build work is actually carried out. The 120-line operations nudge starves the one runbook that legitimately spans every gate (plan, review, integrate, submit, routine, reconcile). A recorded, ack-gated raise per #273 — not silently living over budget."
+      }
+    }
   },
   "tier": "hard",
   "suites": ["CI"],
-  "message": "An operation (a runbook under .engine/operations/) must contain, as level-2 headings in this order, Purpose, then Steps, then Done when, and it may also contain a Notes section, and no others. These sections are what make a runbook followable — what it is for, the ordered steps, and how to know it is done — so an operation that omits a required one is structurally incomplete. This check catches a broken SHAPE only: that the required sections are present, correctly ordered, and that no stray section appears. It cannot judge whether a section's content is substantive — an empty or hand-wavy section passes here and is caught instead by the operator reviewing the committed change, and whether the runbook actually tells a cold operator how to perform the procedure is the audits layer's judgment, not this check's. Length over the 120-line budget is only a soft nudge to trim, never a block. Add or reorder the flagged sections to match the operation template (.engine/templates/operation.md) before merging."
+  "message": "An operation (a runbook under .engine/operations/) must contain, as level-2 headings in this order, Purpose, then Steps, then Done when, and it may also contain a Notes section, and no others. These sections are what make a runbook followable — what it is for, the ordered steps, and how to know it is done — so an operation that omits a required one is structurally incomplete. This check catches a broken SHAPE only: that the required sections are present, correctly ordered, and that no stray section appears. It cannot judge whether a section's content is substantive — an empty or hand-wavy section passes here and is caught instead by the operator reviewing the committed change, and whether the runbook actually tells a cold operator how to perform the procedure is the audits layer's judgment, not this check's. Length over an operation's line budget — 120 by default, or a higher value a specific operation carries in length_budget_overrides with a recorded reason — is only a soft nudge to trim, never a block; a stale override key (one naming no operation) is the rule's hard tier so a dead budget grant cannot accumulate. Add or reorder the flagged sections to match the operation template (.engine/templates/operation.md) before merging."
 }
