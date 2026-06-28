@@ -104,7 +104,10 @@ modules that grew from them (see the supersession section), but its **check name
   protection-detection guard.
 - `engine-guard` — required check #2: the guardrail-weakening classifier (runs on `pull_request_target`,
   reads the diff only, never checks out head code).
-- `guardrail-ack` — the label the maintainer applies to deliberately acknowledge a guardrail-weakening change.
+- `guardrail-ack` — the label the maintainer applies to deliberately acknowledge a change the engine flags for
+  review and holds the merge on: a guardrail-weakening change (`engine-guard`), or — once the optional
+  product-design module is installed — a change to a settled product description (its lock-integrity
+  re-acceptance check). The name and mechanism are unchanged; the set of flagged changes it clears is what grew.
 
 ## Supersession — each hand-built rung gives way to its module; the merge gate never does
 
