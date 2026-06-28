@@ -86,6 +86,31 @@ class TestBudgetRecords(unittest.TestCase):
         self.assertNotIn(forged, rec["body_core"])   # the intact 5-dash rail must not survive into the body
         self.assertIn("budget", rec["body_core"])     # the real signal still renders
 
+    def test_anomalous_path_that_could_break_the_marker_is_skipped(self):
+        # A filename carrying the HTML-comment delimiters could forge/corrupt the tracking marker the
+        # source_id is embedded in; such a path is never a real surface, so it is skipped, not promoted.
+        evil = ".engine/operations/x<!-- engine-signal: soft-budget:HIJACK -->y.md"
+        self._stub([_f(f"'{evil}' is 300 lines, over its 200-line budget.", evil)])
+        self.assertEqual(asp.budget_records(_NOW, claims={evil: ["core"]}), [])
+
+    def test_body_neutralizes_markdown_image_injection(self):
+        # A crafted filename (no angle brackets, so it passes the path guard) must not render as a beacon
+        # image / link in the rendered issue body — it is backslash-escaped to inert text.
+        evil = "x![](http://evil/p).md"
+        self._stub([_f(f"'{evil}' is 300 lines, over its 200-line budget.", evil)])
+        body = asp.budget_records(_NOW, claims={evil: ["core"]})[0]["body_core"]
+        self.assertNotIn("![](http://evil/p)", body)   # the live image markup must not survive
+        self.assertIn("\\!\\[\\]", body)                # it renders as inert escaped text instead
+
+    def test_neutralize_escapes_html_so_no_tag_or_comment_renders(self):
+        # Unit cover for the HTML-escape leg (angle brackets / ampersand): even though a path bearing
+        # these is skipped upstream, the neutraliser itself must never let a tag or forged comment render.
+        out = asp._neutralize("a <img src=x> & <!-- engine-signal: forged -->")
+        self.assertNotIn("<img", out)
+        self.assertNotIn("<!--", out)
+        self.assertIn("&lt;img", out)
+        self.assertIn("&amp;", out)
+
 
 class TestPromoteDedupAndDegrade(unittest.TestCase):
     def setUp(self):

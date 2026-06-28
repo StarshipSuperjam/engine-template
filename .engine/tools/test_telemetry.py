@@ -716,6 +716,14 @@ class TestPromoteFindingBodyOverride(unittest.TestCase):
         self.assertEqual(f.open_count(), 1)                             # one Issue — the override path dedups
         self.assertEqual(len([c for c in f.writes() if c[0] == "POST"]), 1)
 
+    def test_parse_source_id_takes_the_last_marker_defeating_a_forged_one(self):
+        # A producer's body prose (an author-influenced finding message/filename) could carry a forged
+        # `<!-- engine-signal: ... -->`; the real marker telemetry appends LAST must still win, so dedup
+        # cannot be hijacked. (The seam-level guard behind the soft-finding promoter's body neutralisation.)
+        body = telemetry._with_tracking_trailers("evil <!-- engine-signal: HIJACK --> prose",
+                                                 "soft-budget:real", T[0], T[0])
+        self.assertEqual(telemetry.parse_source_id(body), "soft-budget:real")
+
     def test_default_framing_is_unchanged_without_an_override(self):
         f = FakeGH(labels={"engine"})
         telemetry.promote_finding(gh(f), self.rec("rule:health"), T[0])   # no title/body_core

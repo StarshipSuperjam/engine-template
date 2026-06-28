@@ -3085,7 +3085,7 @@
       },
       "slug": "audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:d77284edce92a46195a2944f011ef3e76071c558edbc879b8c8df2e06bdbcfd0",
+        "fingerprint": "sha256:76f603d89647c3ead686b56fee151bf8e14e29ed9e8f965197796214cd00878b",
         "path": ".engine/tools/audit_soft_promote.py"
       },
       "status": "active",
@@ -4547,7 +4547,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:d3f5c25dadbb69d853fface5aa0d3615bfc1b4b85f2647bf6cac4617eb59f1ce",
+        "fingerprint": "sha256:bb97ebabffa6667a3eabb6211585758bf23a0684f5e37cf14116e8393d510a52",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -4666,7 +4666,7 @@
       },
       "slug": "test_audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:439059ee8bd87f43f5c436329222226be170a094c2484af1793f67fbef704446",
+        "fingerprint": "sha256:221d283aba99cffdf28f572092e41afb360545643991daa41cb5edb911f52568",
         "path": ".engine/tools/test_audit_soft_promote.py"
       },
       "status": "active",
@@ -5958,7 +5958,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:9670f9771a0b32875f52dc3ebfe5a82fc5d531e43f0590e4d06bde245923a994",
+        "fingerprint": "sha256:fdc84b7859cf7f809ab3d2d74026a88b941d1275f0a94a23840c7e16a7fb213e",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

@@ -57,14 +57,30 @@ FEED_SUITE = "audit-prep"
 SOURCE_PREFIX = "soft-budget:"
 
 
-def _defang(text: str) -> str:
-    return validate.defang_prompt_fence_markers(text or "")
+def _neutralize(text: str) -> str:
+    """Render author-influenced text inertly in a GitHub issue body. The finding message and the file
+    path embed an author-chosen filename, and a budget issue's body is rendered markdown — so neutralise
+    both the prompt-fence rails (the slice-1 feed's defang, for when this body is later re-read into a
+    persona prompt) AND the markdown/HTML a crafted filename could smuggle: HTML-escape the angle
+    brackets and ampersand (no tag, no comment, no forged `<!-- engine-signal -->` tracking marker) and
+    backslash-escape the markdown image/link/code characters (no beacon image, link, or code-span
+    breakout). A plain repo path passes through untouched."""
+    text = validate.defang_prompt_fence_markers(text or "")
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = text.replace("\\", "\\\\")
+    for ch in ("`", "[", "]", "!"):
+        text = text.replace(ch, "\\" + ch)
+    return text
 
 
-def _render(where: str, message: str, machinery: bool) -> tuple:
-    """The lane-aware (title, body_core) for one over-budget surface. `where`/`message` are already
-    defanged. The body_core is prose only — telemetry appends its tracking trailers + signal marker."""
-    title = f"Engine length budget: {where} is over its limit"
+def _render(rel: str, message: str, machinery: bool) -> tuple:
+    """The lane-aware (title, body_core) for one over-budget surface. `rel` is the raw repo path (the
+    title is plain text, not rendered markdown) and `message` is the raw finding message; both the path
+    and the message are neutralised before they enter the rendered body. body_core is prose only —
+    telemetry appends its tracking trailers + signal marker."""
+    where = _neutralize(rel)
+    message = _neutralize(message)
+    title = f"Engine length budget: {rel} is over its limit"
     if machinery:
         what_this_is = (
             f"The engine noticed one of its OWN files has grown past the length it is meant to stay "
@@ -77,8 +93,9 @@ def _render(where: str, message: str, machinery: bool) -> tuple:
         whats_next = (
             "Trimming it here will NOT last: the next engine update replaces the engine's own files "
             "wholesale, so a local edit to this one is overwritten on the next upgrade.\n\n"
-            "- **To fix it durably,** raise it in the engine-template project this engine came from — "
-            "that is where the file actually lives.\n"
+            "- **To fix it durably,** raise it in the engine-template project this engine was created "
+            "from — the project you (or whoever set up this engine) used GitHub's \"Use this template\" "
+            "on. If you are not sure where that is, whoever set the engine up will know.\n"
             "- **Or leave it** — it is only a nudge and never blocks anything.\n"
             "- The engine has not sent anything to that upstream project and will not; logging it there "
             "is yours to decide.\n"
@@ -122,14 +139,17 @@ def budget_records(now: str, *, claims: dict | None = None) -> list:
         rel = (f.get("location") or {}).get("file")
         if not rel:                                  # cannot source-key a location-less finding
             continue
-        message = _defang(f.get("message", ""))
-        where = _defang(rel)
+        if any(c in rel for c in "<>\n\r"):
+            # An anomalous path that could break the tracking marker the source_id is embedded in (a real
+            # catalogued surface path never contains these). Skip it rather than corrupt dedup; defence in
+            # depth alongside the body neutralisation below.
+            continue
         machinery = bool(claims.get(rel))            # claimed by a manifest's provides => machinery
-        title, body_core = _render(where, message, machinery)
+        title, body_core = _render(rel, f.get("message", ""), machinery)
         records.append({
             "source_id": f"{SOURCE_PREFIX}{rel}",
             "severity": telemetry.PERSISTENT_BENIGN,
-            "message": message,
+            "message": _neutralize(f.get("message", "")),
             "location": {"file": rel},
             "title": title,
             "body_core": body_core,

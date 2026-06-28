@@ -140,9 +140,14 @@ def triage_pressure_line(open_low_severity_count: int, threshold: int) -> str | 
 
 def parse_source_id(body: str) -> str | None:
     """Recover a tracked Issue's signal id from the invisible marker in its body (the cache-wipe
-    recovery path). Returns None when the marker is absent or was stripped."""
-    m = _SENTINEL_RE.search(body or "")
-    return m.group(1) if m else None
+    recovery path). Returns None when the marker is absent or was stripped.
+
+    Takes the LAST marker, not the first: _with_tracking_trailers always appends the engine's own
+    marker as the final line, so if author-influenced body prose (a finding message or filename)
+    contains a forged `<!-- engine-signal: ... -->`, the real trailing marker still wins and dedup
+    cannot be hijacked by an earlier forgery."""
+    matches = _SENTINEL_RE.findall(body or "")
+    return matches[-1] if matches else None
 
 
 def issue_title(record: dict) -> str:
@@ -181,10 +186,12 @@ def issue_body(record: dict, first_seen: str, last_seen: str) -> str:
 def _with_tracking_trailers(body_core: str, source_id: str, first_seen: str, last_seen: str) -> str:
     """Append telemetry's two own trailers to an already-rendered issue body: the first-/last-seen
     line and the invisible signal marker (an HTML comment, recovered by parse_source_id even after a
-    cache wipe). Telemetry OWNS the marker — a caller supplies prose only and never pre-embeds one, so
-    _SENTINEL_RE always binds to this single appended marker and the source-keyed dedup stays sound.
-    Shared by issue_body (telemetry's own health framing) and promote_finding's pre-rendered-body path
-    (a producer's lane-aware framing), so the trailer/marker shape is stated once."""
+    cache wipe). Telemetry OWNS the marker, which it appends LAST — so even if a caller's body prose
+    carries a forged `<!-- engine-signal: ... -->`, parse_source_id (which takes the LAST match) still
+    recovers this real one. The producer's contract: the source_id must be marker-safe (no `<!--`/`-->`
+    or newline — every producer's source_id is a plain key, and the soft-finding promoter skips any path
+    that is not). Shared by issue_body (telemetry's own health framing) and promote_finding's
+    pre-rendered-body path (a producer's lane-aware framing), so the trailer/marker shape is stated once."""
     return (
         f"{body_core}\n"
         f"*First noticed {first_seen}; last reconfirmed {last_seen}.*\n\n"
