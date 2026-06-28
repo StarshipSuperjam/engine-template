@@ -616,18 +616,20 @@ def select_migrations(from_versions: dict, target_versions: dict, manifests: lis
     return out
 
 
-def _bind_migration_id(seam, module_id: str, version: str):
+def _bind_migration_id(seam, module_id: str, version: str, reversibility_floor: bool = False):
     """Bind the migration's identity into the backup seam so memory names the pre-migration snapshot collision-free
     by it (the retained-tag mechanism, D-264 law 3). The migration calls `context['backup'](store, engine_version)`
     exactly as before — the migration id rides along, so migration authors need not know about it and module_manager
-    stays a pure consumer that knows nothing of the snapshot's tag mechanism. Passing migration_id is forward-
-    compatible: a seam that ignores it still works (memory falls back to engine-version + generation)."""
+    stays a pure consumer that knows nothing of the snapshot's tag mechanism. `reversibility_floor` (True only for the
+    first data migration of the upgrade — #303) likewise rides along so memory records THAT snapshot as the undo floor;
+    module_manager passes only this boolean and never learns the snapshot's tag. Passing the extra kwargs is forward-
+    compatible: a seam that ignores them still works (memory falls back to engine-version + generation)."""
     if seam is None:
         return None
     migration_id = f"{module_id}@{version}"
 
     def _seam(store, engine_version):
-        return seam(store, engine_version, migration_id=migration_id)
+        return seam(store, engine_version, migration_id=migration_id, reversibility_floor=reversibility_floor)
     return _seam
 
 
@@ -651,6 +653,9 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
         module_dir = _modules_dir
     seam = _resolve_backup_seam(backup)
     result = {"ran": [], "refused": []}
+    floor_taken = False                                  # #303: the FIRST data migration of this upgrade is the
+    #                                                      reversibility floor — one run_migrations call == one upgrade
+    #                                                      == one reversibility unit (true for the sole caller upgrade()).
     for item in selected:
         mid, ver, kind = item["module_id"], item["version"], item.get("kind")
         if kind == "data" and seam is None:
@@ -659,9 +664,12 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
                 f"engine never changes stored data it can't first back up. Nothing was changed. Ask me to "
                 f"set up a backup, then update again.")
             continue
+        is_floor = kind == "data" and not floor_taken
+        if kind == "data":
+            floor_taken = True
         ctx = {"module_id": mid, "from_version": from_versions.get(mid), "to_version": ver,
                "engine_version": engine_version, "kind": kind,
-               "backup": _bind_migration_id(seam, mid, ver) if kind == "data" else None}
+               "backup": _bind_migration_id(seam, mid, ver, reversibility_floor=is_floor) if kind == "data" else None}
         if kind == "data":
             # A data migration snapshots BEFORE mutating; if that backup can't be taken at run time (the seam
             # returns a falsy handle, so the migration's own backup-first assert fires) it must DEGRADE LOUD —
@@ -688,18 +696,17 @@ def stamp_mismatch_finding(store_label: str, stamped_version: str, running_versi
     reverted, the engine CODE returns to the older version, but a data migration that already reshaped a
     gitignored store is NOT reverted with it (the store is gitignored, outside the pull request). Each data
     migration stamps its snapshot with the engine-code version it ran at; if the running engine code is now
-    OLDER than that stamp, the store is ahead of the code. Returns a hard finding.v1 naming the exact
-    restore command, or None when there is no mismatch (running >= stamped). DETECTION is the migration's
-    own logic; SURFACING is boot's existing read-only open-findings path (boot needs no change). The first
-    real use is owed to memory-substrate (no real store exists in core)."""
+    OLDER than that stamp, the store is ahead of the code. Returns a hard finding.v1 carrying the plain-handle
+    restore action, or None when there is no mismatch (running >= stamped). DETECTION is the migration system's
+    logic (memory's `restore_vault.detect_migration_revert` is the live caller); SURFACING is boot's existing
+    read-only open-findings path (boot needs no change). `restore_command` is a plain-handle action phrase, never
+    a raw tag/ref — the finding message is operator-facing (boot.open_findings renders it)."""
     if validate._ver_tuple(running_version) >= validate._ver_tuple(stamped_version):
         return None
     return validate.finding(
         "hard",
-        f"The stored data for '{store_label}' was last updated by a newer engine version "
-        f"({stamped_version}) than the one now running ({running_version}) — most likely an engine update "
-        f"was undone after it had already updated your data. Restore the backup so the two match: "
-        f"{restore_command}")
+        f"Your saved memory was changed by an engine update that isn't in place, so right now your "
+        f"memory and the engine don't match. To line them up again, {restore_command}.")
 
 
 def surface_stamp_mismatch(store_label: str, stamped_version: str, running_version: str,
@@ -709,7 +716,8 @@ def surface_stamp_mismatch(store_label: str, stamped_version: str, running_versi
     through its read-only open-findings path. Reuses close's GitHub boundary + finding-record shape.
     Returns the Issue number, or None when there is no mismatch / GitHub is unreachable (the in-session
     surfacing + the merge wall remain). This is a READ-ONLY check — it calls promote_finding, NEVER runs
-    migrate(), and is never wired into boot ('Migration is never triggered at boot')."""
+    migrate() (migration is never triggered at boot). Its live caller is memory's `restore_vault.detect_migration_revert`,
+    which runs the offline code-older-than-data check and, when online, calls this to open the durable tracked Issue."""
     f = stamp_mismatch_finding(store_label, stamped_version, running_version, restore_command)
     if f is None:
         return None
@@ -1051,6 +1059,13 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                                 "review and nothing was merged. Ask me to set up or check your backup, then "
                                 "update again.")
             return result
+        # Floor (c) (D-264): when a data migration ran, a copy of the saved memory was taken before it changed —
+        # disclose it ONCE per upgrade (structured kind check, not a per-step or string-match), plainly, so the later
+        # restore offer is reassurance rather than a mystery.
+        if any(item.get("kind") == "data" for item in selected):
+            result["notes"].append(
+                "Before changing your saved memory, I automatically saved a copy of it from right before this "
+                "update — there's nothing for you to do now. If this update is ever undone, I can bring that copy back.")
         # (5) COHERENCE — a hard finding pauses (the change is staged in the working copy, not landed)
         result["applied"] = True
         result["findings"] = module_coherence.check_coherence()

@@ -306,6 +306,109 @@ class MigrationRevertTests(_Base):
         self.assertEqual(_rb(ledger.ledger_path()), original)
 
 
+class MigrationRevertDetectorTests(_Base):
+    """Slice 3 — the OFFLINE code-older-than-data detector + the whole-update-undo lifecycle (D-264 floor a, #303)."""
+
+    def _set_running(self, version):
+        with open(os.path.join(validate.ENGINE_DIR, "engine.json"), "w", encoding="utf-8") as fh:
+            json.dump({"engine_release": version}, fh)
+
+    def _floor(self, fake, version, migration_id="core@0.0.0"):
+        """Mint the upgrade's reversibility-floor snapshot (stamped) over the current ledger; return its tag."""
+        snap = bv.snapshot_for_migration("recall-ledger", version, migration_id=migration_id,
+                                         reversibility_floor=True, transport=fake.transport)
+        self.assertIsNotNone(snap)
+        return snap["tag"]
+
+    def test_no_stamp_means_no_offer(self):
+        self._seed_and_backup(["a note"])
+        self.assertIsNone(bv.read_migration_stamp())
+        self.assertIsNone(rv.detect_migration_revert(github=None))
+
+    def test_no_offer_when_the_code_is_at_or_ahead_of_the_data(self):
+        fake = self._seed_and_backup(["a note"])
+        self._set_running("2.0.0")
+        self._floor(fake, "2.0.0")                                  # data migrated by the SAME running version
+        self.assertIsNone(rv.detect_migration_revert(github=None))
+
+    def test_offer_when_the_store_is_ahead_of_the_code(self):
+        fake = self._seed_and_backup(["a note"])
+        self._set_running("1.0.0")                                  # code reverted to the old version
+        tag = self._floor(fake, "2.0.0")                           # data was migrated by the newer version
+        offer = rv.detect_migration_revert(github=None)
+        self.assertIsNotNone(offer)
+        self.assertEqual(offer["tag"], tag)                        # the floor tag rides as executor payload
+        self.assertEqual(offer["stamped"], "2.0.0")
+        self.assertEqual(offer["running"], "1.0.0")
+
+    def test_no_false_fire_when_the_running_version_is_unreadable(self):
+        fake = self._seed_and_backup(["a note"])
+        self._floor(fake, "2.0.0")                                  # a real stamp exists
+        os.remove(os.path.join(validate.ENGINE_DIR, "engine.json"))  # gone -> _engine_version() == "unknown" -> (0,)
+        self.assertEqual(bv._engine_version(), "unknown")
+        self.assertIsNone(rv.detect_migration_revert(github=None))  # a (0,) running version must NOT false-fire
+
+    def test_online_promotes_the_durable_tracked_issue_with_a_plain_handle(self):
+        fake = self._seed_and_backup(["a note"])
+        self._set_running("1.0.0")
+        self._floor(fake, "2.0.0")
+        import module_manager
+        calls = []
+        orig = module_manager.surface_stamp_mismatch
+        module_manager.surface_stamp_mismatch = lambda *a, **k: (calls.append((a, k)) or 7)
+        try:
+            offer = rv.detect_migration_revert(github=object())     # a truthy github -> the durable path runs
+        finally:
+            module_manager.surface_stamp_mismatch = orig
+        self.assertIsNotNone(offer)
+        self.assertTrue(calls)                                      # the orphaned primitive now has a live caller
+        restore_command = calls[0][0][3]                           # 4th positional arg
+        for banned in ("refs/", "engine-snapshot/", "@"):
+            self.assertNotIn(banned, restore_command)               # plain handle, never a raw tag/ref
+
+    def test_whole_update_undo_restores_the_batch_floor_byte_identical(self):
+        # #303: across a 3-migration upgrade, the stamp cites the FIRST snapshot (S0); the detector cites it and
+        # restoring it brings back the TRUE pre-update memory (before A), not the before-C state.
+        fake = self._seed_and_backup(["pre-update note ZORP"])
+        ledger.set_generation(4)
+        pre = _rb(ledger.ledger_path())
+        self._set_running("1.0.0")
+        s0 = self._floor(fake, "2.0.0", migration_id="core@0.0.0")          # the batch floor (stamped)
+        bv._demo_plant("after migration A reshaped the store")
+        bv.snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.1.0", transport=fake.transport)  # S1
+        bv._demo_plant("after migration B reshaped the store")
+        bv.snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.2.0", transport=fake.transport)  # S2
+        offer = rv.detect_migration_revert(github=None)
+        self.assertEqual(offer["tag"], s0)                                 # cites the batch floor, not the last step
+        res = rv.restore_pre_migration(tag=offer["tag"], transport=fake.transport, consent="y", github=None)
+        self.assertTrue(res["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), pre)                   # the true pre-update memory is back
+        self.assertIsNone(bv.read_migration_stamp())                       # stamp cleared -> the offer self-clears
+
+    def test_restore_clears_the_stamp_but_a_missing_snapshot_keeps_it(self):
+        fake = self._seed_and_backup(["a note"])
+        ledger.set_generation(2)                                    # a known generation so the restore isn't conservatively guarded
+        self._set_running("1.0.0")
+        tag = self._floor(fake, "2.0.0")
+        miss = rv.restore_pre_migration(tag="engine-snapshot/recall/gone", transport=fake.transport,
+                                        consent="y", github=None)
+        self.assertEqual(miss["error"], "snapshot-missing")
+        self.assertIsNotNone(bv.read_migration_stamp())                    # a gone tag keeps disclosing -> NOT cleared
+        ok = rv.restore_pre_migration(tag=tag, transport=fake.transport, consent="y", github=None)
+        self.assertTrue(ok["ok"])
+        self.assertIsNone(bv.read_migration_stamp())                       # a real restore clears the stamp
+
+    def test_restore_now_does_not_clear_a_migration_stamp(self):
+        fake = self._seed_and_backup(["a rolling note"])
+        ledger.set_generation(2)                                           # known generation -> a clean successful restore
+        bv.push_now(transport=fake.transport)                             # refresh the rolling head at that generation
+        self._set_running("1.0.0")
+        self._floor(fake, "2.0.0")
+        res = rv.restore_now(transport=fake.transport, consent="y", github=None)
+        self.assertTrue(res["ok"])                                         # a genuine rolling restore...
+        self.assertIsNotNone(bv.read_migration_stamp())                    # ...must not touch the migration stamp
+
+
 class ResurrectionMessageLeakTests(unittest.TestCase):
     def test_the_resurrection_finding_carries_no_internals(self):
         finding = rv._resurrection_finding()

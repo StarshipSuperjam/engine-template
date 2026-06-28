@@ -473,6 +473,16 @@ def gather_signals(session_id: str | None = None) -> dict:
         restore_offer = restore_vault.detect_restore_offer()
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         restore_offer = None
+    try:
+        # The code-older-than-data restore offer (Slice 3, D-264 floor a), RELAYED from memory's own OFFLINE detector
+        # (boot computes no new state). Same lazy import as the restore-offer above (the restore_vault -> backup_vault
+        # -> boot back-edge). `gh` is passed so the detector can ALSO promote the durable tracked Issue when online;
+        # offline it still returns the in-session offer. Degrades QUIETLY to None — no stamp (no recent data migration)
+        # is the normal state, and a non-version-shaped running version never false-fires.
+        from memory import restore_vault as _rv
+        migration_revert = _rv.detect_migration_revert(github=gh)
+    except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        migration_revert = None
     # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
@@ -498,6 +508,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         "pr_conflict": pr_conflict,
         # the memory auto-restore offer (#R2, slice 6b): local memory is empty + a backup is configured, or None
         "restore_offer": restore_offer,
+        # the code-older-than-data offer (D-264 #303): the store is ahead of the engine after a reverted update, or None
+        "migration_revert": migration_revert,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
         "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
@@ -566,6 +578,19 @@ def render_dashboard(s: dict) -> str:
         pinned.append(
             "↩️ **Your saved memory looks empty, and this project has a backup.** Say **restore my memory** and "
             "I'll try to bring it back from the backup. Nothing on this computer changes until you say so.")
+
+    # The code-older-than-data restore OFFER (D-264 floor a, #303), surfaced read-only at the recovery tier. Memory's
+    # offline detector found the saved memory was reshaped by an engine update that is no longer in place, so the store
+    # is ahead of the code. Floor (a): exactly ONE action, by plain handle ("the copy saved before that update"), never
+    # a tag/ref — the snapshot-vs-latest choice is the engine's. Worded to cover BOTH an operator-undone update and a
+    # half-applied one that never landed (leads with the state, not "you undid"). boot OFFERS; the assistant runs
+    # memory.restore_pre_migration(tag=…) on consent (the tag rides the signal, never the operator's eyes).
+    if s.get("migration_revert"):
+        pinned.append(
+            "↩️ **Your saved memory was changed by an engine update that isn't in place** — so right now your "
+            "memory and the engine don't match. I can put your memory back to **the copy saved before that update**, so "
+            "they line up again. Say **restore my memory from before the update** and I'll bring it back — nothing on "
+            "this computer changes until you say so.")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
@@ -665,6 +690,9 @@ def present_marker_line(s: dict) -> str:
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
     if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
         return f"⚠ {PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it"
+    if s.get("migration_revert"):   # a recovery OFFER (not a ⚠ alarm): the store is ahead of the code after a revert
+        return (f"{PRESENT_MARKER}: your saved memory is ahead of the engine after an update was undone — say "
+                "'restore my memory from before the update' and I'll bring back the copy from before it")
     if s["restore_offer"]:   # a recovery OFFER (not a ⚠ alarm); ranked last, below every governance/strand signal
         return (f"{PRESENT_MARKER}: your saved memory looks empty — say 'restore my memory' and I'll try to bring "
                 "back your backup")

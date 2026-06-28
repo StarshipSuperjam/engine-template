@@ -362,14 +362,39 @@ class TestRunMigrations(unittest.TestCase):
                                     f"    with open({marker!r}, 'w') as fh:\n"
                                     "        fh.write(context['engine_version'])\n")
             calls = []
-            seam = lambda store, ver, migration_id=None: (calls.append((store, ver, migration_id)) or {"ok": True})
+            seam = lambda store, ver, migration_id=None, **kw: (
+                calls.append((store, ver, migration_id, kw.get("reversibility_floor"))) or {"ok": True})
             sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
             res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=seam)
             self.assertEqual(res["ran"], ["m -> 0.2.0 (data)"])
-            # the backup was taken (before the body ran), with the migration id bound in for collision-free naming
-            self.assertEqual(calls, [("store", "v2", "m@0.2.0")])
+            # the backup was taken (before the body ran), with the migration id bound in for collision-free naming, and
+            # the lone data migration is the upgrade's reversibility floor (#303)
+            self.assertEqual(calls, [("store", "v2", "m@0.2.0", True)])
             with open(marker) as fh:
                 self.assertEqual(fh.read(), "v2")              # the migration stamped the engine version
+
+    def test_only_the_first_data_migration_of_the_upgrade_is_the_reversibility_floor(self):
+        # #303: one run_migrations call == one upgrade. reversibility_floor is True for the FIRST data migration only;
+        # config migrations take no backup, and later data migrations of the same upgrade are NOT the floor.
+        with tempfile.TemporaryDirectory() as d:
+            md = os.path.join(d, ".engine", "modules", "m", "migrations")
+            os.makedirs(md)
+            body = ("def migrate(context):\n"
+                    "    if context['kind'] == 'data':\n"
+                    "        assert context['backup']('store', context['engine_version'])\n")
+            for fn in ("c.py", "d0.py", "d1.py"):
+                with open(os.path.join(md, fn), "w", encoding="utf-8") as fh:
+                    fh.write(body)
+            mdir = lambda mid: os.path.join(d, ".engine", "modules", mid)
+            calls = []
+            seam = lambda store, ver, migration_id=None, **kw: (
+                calls.append((migration_id, kw.get("reversibility_floor"))) or {"ok": True})
+            sel = [{"module_id": "m", "version": "0.1.0", "run": "migrations/c.py", "kind": "config"},
+                   {"module_id": "m", "version": "0.2.0", "run": "migrations/d0.py", "kind": "data"},
+                   {"module_id": "m", "version": "0.3.0", "run": "migrations/d1.py", "kind": "data"}]
+            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=seam)
+            self.assertEqual(len(res["ran"]), 3)
+            self.assertEqual(calls, [("m@0.2.0", True), ("m@0.3.0", False)])   # floor = first data migration only
 
     def test_data_migration_whose_backup_fails_at_runtime_refuses_cleanly_without_mutating(self):
         # A seam resolved LIVE but that returns a falsy handle at call time (a vault reachable at pre-flight,
@@ -404,6 +429,16 @@ class TestVersionStamp(unittest.TestCase):
     def test_no_mismatch_when_code_is_at_or_ahead_of_the_data(self):
         self.assertIsNone(module_manager.stamp_mismatch_finding("ledger", "0.2.0", "0.2.0", "cmd"))
         self.assertIsNone(module_manager.stamp_mismatch_finding("ledger", "0.2.0", "0.3.0", "cmd"))
+
+    def test_the_finding_message_is_plain_peer_voice_and_carries_no_raw_ref(self):
+        # the promoted Issue body is operator-facing (boot.open_findings renders it): plain peer voice, never a
+        # tag/ref/version-machinery (D-265 S1 — the operator meets a plain handle, not the mechanism).
+        f = module_manager.stamp_mismatch_finding(
+            "recall-ledger", "2.0.0", "1.0.0", "ask me to restore the copy saved before the last update")
+        msg = f["message"]
+        for banned in ("refs/", "engine-snapshot/", "@", "stored data"):
+            self.assertNotIn(banned, msg)
+        self.assertIn("saved memory", msg.lower())             # peer voice
 
     def test_surface_promotes_exactly_one_finding_via_a_faked_github(self):
         import telemetry
@@ -516,6 +551,25 @@ class TestUpgradeSafety(unittest.TestCase):
         self.assertIn("backup did not succeed", res["reason"])
         self.assertIn("NOT opened for review", res["reason"])
         self.assertEqual(opened, [])                           # the change was never opened for review
+
+    def test_a_successful_data_migration_upgrade_discloses_the_saved_copy_once(self):
+        # Floor (c) (D-264): a successful data-migration upgrade tells the operator a pre-update copy was saved —
+        # ONCE per upgrade, plainly, as reassurance for the later restore offer.
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                res = module_manager.upgrade(
+                    ref="v0.2.0", release_tree=release,
+                    opener=lambda **k: opened.append(k) or {"number": 1},
+                    backup=lambda *a, **k: {"ok": 1})          # the pre-update snapshot succeeds
+        self.assertTrue(opened)                                # the upgrade actually opened for review
+        disclosures = [n for n in res.get("notes", []) if "saved a copy of it from right before this update" in n]
+        self.assertEqual(len(disclosures), 1)                  # exactly one disclosure per upgrade
+        self.assertIn("nothing for you to do now", disclosures[0])
 
     def test_escaping_provides_in_a_release_is_refused_before_any_write(self):
         with tempfile.TemporaryDirectory() as d:
