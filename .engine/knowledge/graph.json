@@ -2078,7 +2078,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:b7ffe2215b3ea334f8c8a5ae32b4f98e02b63fd48c4d0939c85816baa51c893c",
+        "fingerprint": "sha256:7d6ca420e843611c960654dee16c9d897ed7307d96615a73b6303e8aa0530d2a",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -3765,7 +3765,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:8302afa3b77f151a76a450a4ff8452d4886b91d032eefff38fe620e7cd23e596",
+        "fingerprint": "sha256:f6ef883942d89ac30b79bcf85080da1b975fd4e28f529d2b524a72db90d68406",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -4088,7 +4088,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:82d93ab7384c5a94c74acb1291f5aaa9eef67c6ab542f0e4db6215a58cdd1127",
+        "fingerprint": "sha256:df3aaef68000ff1d9bd430a6368daf9169feac584874baa2060c079743ebf6fc",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -5074,7 +5074,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:2f59615b07566388e78040741e61b869412fa92c183a674d74771ba0d2258eb1",
+        "fingerprint": "sha256:d64f6a6648c7899a9829ffc94ca740527443497661eef0725ee443e8377e24d8",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -5346,7 +5346,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:e61a4b23a19d82092eb143e78d2332c3daf2707e28bcae7b91a35dd1758681c7",
+        "fingerprint": "sha256:bff3e7c0c09d1a96bc38c28a14b11ccaa65566c1c6dd7bb5265031bcf17f7d0e",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",

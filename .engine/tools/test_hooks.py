@@ -68,6 +68,12 @@ class TestEventInventory(unittest.TestCase):
         self.assertEqual(hooks.EVENT_INVENTORY["PostToolUse"]["owners"],
                          ("validation", "telemetry", "modes"))
 
+    def test_posttooluse_may_inject_and_stays_non_blocking(self):
+        # D-270/D-271: modes' acceptance trigger injects an assistant-internal stance directive
+        # (additionalContext) on Build entry, so PostToolUse may inject — but it never blocks.
+        self.assertTrue(hooks.EVENT_INVENTORY["PostToolUse"]["injects"])
+        self.assertFalse(hooks.EVENT_INVENTORY["PostToolUse"]["blocks"])
+
     def test_sessionend_is_hooks_owned_and_cannot_block(self):
         self.assertEqual(hooks.EVENT_INVENTORY["SessionEnd"]["owners"], ("hooks",))
         self.assertFalse(hooks.EVENT_INVENTORY["SessionEnd"]["blocks"])
