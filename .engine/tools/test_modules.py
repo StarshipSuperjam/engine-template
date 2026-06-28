@@ -420,8 +420,9 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         pd_checks = sorted(r for r, o in check_owner.items() if o == ["product-design"])
         self.assertEqual(pd_checks, [
             ".engine/check/product-lock-integrity.json",
+            ".engine/check/product-spec-coverage.json",
             ".engine/check/product-spec-form.json",
-        ], "product-design owns the spec-form check and the lock-integrity re-acceptance check")
+        ], "product-design owns the spec-form, coverage, and lock-integrity re-acceptance checks")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
@@ -504,8 +505,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # docs/spec/ tree from. The scaffold is committed product-authoring template files (the maintainer's
         # Slice-2 decision), homed beside the manifest under .engine/modules/ — NOT a catalogued surface
         # location, so it is owned (via this `scaffold` group) without being entitized into the knowledge
-        # graph. Pinning the exact provides locks the expanded footprint against drift; Slice 4 extends it
-        # (a coverage check + build-plan), and must update this list. Slice 3 added the lock-integrity check.
+        # graph. Pinning the exact provides locks the expanded footprint against drift. Slice 3 added the
+        # lock-integrity check; Slice 4a added the acceptance-criteria-coverage check + the build-order scaffold
+        # template (still under the same `scaffold` *.md glob, so only the check list grew); Slice 4b extends the
+        # operation/build-orchestration copy, not this provides list.
         manifests = module_coherence.discover_manifests()
         pd = next((m for _p, m in manifests if m.get("id") == "product-design"), None)
         self.assertIsNotNone(pd, "product-design must be a present module")
@@ -513,14 +516,16 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(pd.get("wires"), [])
         self.assertEqual(pd.get("depends"), {"core": ""})
         self.assertEqual(pd.get("provides"), {
-            "check": [".engine/check/product-lock-integrity.json", ".engine/check/product-spec-form.json"],
+            "check": [".engine/check/product-lock-integrity.json", ".engine/check/product-spec-coverage.json",
+                      ".engine/check/product-spec-form.json"],
             "tool": [".engine/tools/product_design/*.py"],
             "operation": [".engine/operations/product-intake.md"],
             "skill": [".claude/skills/engine-design/SKILL.md"],
             "doc": [".engine/docs/product-design.md"],
             "scaffold": [".engine/modules/product-design/scaffold/*.md"],
-        }, "product-design owns its front door: the spec-form + lock-integrity checks and their tools, the "
-           "intake operation, the engine-design skill, the orientation doc, and the spec-authoring scaffold")
+        }, "product-design owns its front door: the spec-form + coverage + lock-integrity checks and their "
+           "tools, the intake operation, the engine-design skill, the orientation doc, and the scaffold "
+           "(now including the build-order template)")
 
     def test_doc_ownership_is_partitioned_core_and_product_design(self):
         # The orientation doc lives under .engine/docs/, which core used to claim by a whole-surface glob

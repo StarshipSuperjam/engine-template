@@ -3,7 +3,7 @@
   "version": "0.0.0-dev",
   "status": "optional",
   "provides": {
-    "check": [".engine/check/product-lock-integrity.json", ".engine/check/product-spec-form.json"],
+    "check": [".engine/check/product-lock-integrity.json", ".engine/check/product-spec-coverage.json", ".engine/check/product-spec-form.json"],
     "tool": [".engine/tools/product_design/*.py"],
     "operation": [".engine/operations/product-intake.md"],
     "skill": [".claude/skills/engine-design/SKILL.md"],
