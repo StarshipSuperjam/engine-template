@@ -26,7 +26,19 @@ import module_coherence
 import validate
 
 DEPLOYED_FLOOR = os.path.join(validate.ROOT, "CLAUDE.deployed.md")
+ROOT_CLAUDE = os.path.join(validate.ROOT, "CLAUDE.md")
 SETTINGS_PATH = os.path.join(validate.ROOT, ".claude", "settings.json")
+
+
+def _floor_text() -> str:
+    """The deployed floor's text wherever it lives. In the construction repo the floor is CLAUDE.deployed.md
+    (the root CLAUDE.md is the construction-governance file); in a GENERATED repo, first-run's swap-in (#272)
+    makes the floor the root CLAUDE.md and removes CLAUDE.deployed.md. Read the floor from CLAUDE.deployed.md
+    if present, else CLAUDE.md — so the present-marker contract is checked against the real floor in both, and
+    the test never errors on an adopter's post-swap tree. Both paths are import-bound from validate.ROOT."""
+    path = DEPLOYED_FLOOR if os.path.isfile(DEPLOYED_FLOOR) else ROOT_CLAUDE
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
 
 
 def _offline():
@@ -108,10 +120,12 @@ class TestDegradedNotice(unittest.TestCase):
 
 class TestPresentMarker(unittest.TestCase):
     def test_marker_is_project_status_byte_identical_to_the_floor(self):
-        # The locked present marker, and its byte-identical presence in the deployed floor (slice 19).
+        # The locked present marker, and its byte-identical presence in the deployed floor (slice 19). The floor
+        # is read wherever it lives — CLAUDE.deployed.md in this construction repo, the root CLAUDE.md in a
+        # generated repo after first-run's swap-in (#272) removes CLAUDE.deployed.md — so the contract holds in
+        # both and the test never errors on an adopter's post-swap tree.
         self.assertEqual(boot.PRESENT_MARKER, "Project status")
-        with open(DEPLOYED_FLOOR, encoding="utf-8") as fh:
-            floor = fh.read()
+        floor = _floor_text()
         self.assertIn(boot.PRESENT_MARKER, floor,
                       "the floor's verify-presence instruction must name the exact card title boot renders")
 

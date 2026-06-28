@@ -99,6 +99,7 @@ COPY_HEADINGS = {
     "security-seeded": "A security-contact file came with this project",
     "readme-seeded": "Your project's front page is now yours",
     "license-cleared": "Your project starts without a license — and that's normal",
+    "claude-floor-seeded": "Your project's working guide",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
     # The finish (verify + tidy-up) phase — slice 27c.
@@ -236,6 +237,13 @@ FALLBACK_COPY = {
     "collision-unreadable": (
         "I couldn't make sense of {paths} just now, so I've left it completely untouched rather than risk "
         "changing it wrongly. Take a look at it, then run setup again — I'll pick up from here."
+    ),
+    "claude-floor-seeded": (
+        "This project started from a template, and its working guide — the CLAUDE.md at the top — arrived "
+        "carrying the template's own setup notes, which are about building the template itself, not your "
+        "project. I've put a short working guide for YOUR project in its place, so this file orients me to your "
+        "work. How you like me to work with you lives in your codes of conduct — that's where to tune it, any "
+        "time, with /engine-conduct. I didn't do this silently — this note is me telling you."
     ),
     "conduct-seeded": (
         "This project came set up with a starting set of codes of conduct — short notes on how you like me "
@@ -842,12 +850,84 @@ def _seed_license(say, copy=None) -> str:
     return "cleared"
 
 
+# The genesis marker the construction-governance CLAUDE.md leads with ("# engine-template — construction
+# governance …") — the ONE positive-match the floor swap fires on (#272). Kept BYTE-IDENTICAL to the
+# construction-repo sentinel's marker (memory_pointer_public_safety_check._CONSTRUCTION_MARKER), so the two
+# definitions of "this is the construction CLAUDE.md" can never silently disagree — a parity test in the
+# (retiring) test_instantiator.py binds them. Matched case-insensitively ANYWHERE in the file (the sentinel's
+# own `in` test), not anchored to the heading, so the recognizer and the sentinel agree exactly.
+_CONSTRUCTION_CLAUDE_MARKER = "construction governance"
+_ROOT_CLAUDE_REL = "CLAUDE.md"
+_DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
+
+
+def _is_construction_claude(text) -> bool:
+    """True iff `text` is the engine's traveled CONSTRUCTION-governance CLAUDE.md — the positive-match predicate
+    that fires the floor swap: non-empty AND carrying the construction marker (case-insensitive, anywhere — the
+    sentinel's exact test). Conservative on any doubt: an operator's own CLAUDE.md, an already-swapped floor
+    (the floor carries no such marker), or an absent/unreadable/empty file passed as "" or None is NOT a match,
+    so the file is preserved. Greenfield ("Use this template" copies the construction file to the generated
+    repo's root) -> match -> swapped; everything else -> preserved."""
+    return bool(text) and _CONSTRUCTION_CLAUDE_MARKER in text.lower()
+
+
+def _seed_deployed_floor(say, copy=None) -> str:
+    """Swap the engine's thin deployed floor in as the generated repo's root CLAUDE.md, retiring the traveled
+    construction-governance CLAUDE.md — the reconcile-the-root pattern, the same SHAPE and DISCLOSURE as the
+    README/LICENSE seeds, but SWAP-IFF-CONSTRUCTION-SEED (#272). "Use this template" copies BOTH the internal
+    construction-governance CLAUDE.md (which governs building the template itself) AND the thin deployed floor
+    (CLAUDE.deployed.md) into a generated repo; topology reserves the root CLAUDE.md slot for the engine's
+    deployed floor, not its build scaffolding. Apply OVERWRITES CLAUDE.md with the floor's content and DELETES
+    the consumed CLAUDE.deployed.md, but ONLY where the current root CLAUDE.md still positively matches the
+    engine's own construction seed (_is_construction_claude). Conservative swap-or-preserve: greenfield (the
+    traveled construction file) -> swapped; brownfield (the operator's own CLAUDE.md, no marker), a re-run (the
+    floor is already in place, no marker), or an absent/unreadable file -> left exactly as it is, returns
+    "present". NEVER STRANDS: if CLAUDE.md is the construction file but the floor source is missing/unreadable/
+    empty, it preserves the construction file rather than deleting it with nothing to put in its place (returns
+    "present") — impossible on a real template copy, but the safe degrade. The root CLAUDE.md is engine-owned
+    foundation infrastructure (repository-topology law 1); the operator's OWN stance lives in their codes of
+    conduct (preserved across an overlay), so the disclosure points customization at /engine-conduct rather than
+    inviting edits to CLAUDE.md. Discloses, in plain language, WHAT CHANGED — only when it actually swaps (never
+    silent, never on a no-op). Paths are validate.ROOT-relative, so a redirected demo/test touches only the
+    fixture, never the real tree."""
+    claude_path = os.path.join(validate.ROOT, _ROOT_CLAUDE_REL)
+    floor_path = os.path.join(validate.ROOT, _DEPLOYED_FLOOR_REL)
+    try:
+        current = ""
+        if os.path.isfile(claude_path):
+            with open(claude_path, encoding="utf-8") as fh:
+                current = fh.read()
+    except OSError:
+        return "present"                          # unreadable -> preserve on any doubt (never overwrite)
+    if not _is_construction_claude(current):
+        return "present"                          # operator content / already-swapped / absent -> untouched
+    try:
+        floor = ""
+        if os.path.isfile(floor_path):
+            with open(floor_path, encoding="utf-8") as fh:
+                floor = fh.read()
+    except OSError:
+        return "present"                          # floor unreadable -> never strand: keep the existing file
+    if not floor.strip():
+        return "present"                          # no floor source to swap in -> preserve (never strand)
+    try:
+        with open(claude_path, "w", encoding="utf-8") as fh:
+            fh.write(floor)
+        os.remove(floor_path)                     # consume the now-redundant source
+    except OSError:
+        return "skipped"
+    if copy is not None:
+        say(copy["claude-floor-seeded"])
+    return "swapped"
+
+
 def _apply_substrates(say, copy=None) -> dict:
     """STEP 5 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
     re-derive the knowledge graph (idempotent), confirm the state seed is present, seed the operator's
     codes-of-conduct override from the template seed, seed a root SECURITY.md disclosure channel, seed the
-    product's own starter README over the engine's marketing landing front, and clear the traveled template
-    LICENSE (all disclosed in plain language). The root reconciles sit here — co-located, AFTER the runtime — a
+    product's own starter README over the engine's marketing landing front, clear the traveled template
+    LICENSE, and swap the thin deployed floor in as the root CLAUDE.md (retiring the traveled construction
+    file) (all disclosed in plain language). The root reconciles sit here — co-located, AFTER the runtime — a
     deliberate mirror of the as-built conduct-seed placement: a pure file write/delete has no runtime dependency,
     and on a tool-runtime halt the phase never reaches here, so each lands on the resume (every one is idempotent —
     copy-if-absent for conduct/security, replace-iff-marketing-seed for the README, clear-iff-template-seed for the
@@ -868,6 +948,7 @@ def _apply_substrates(say, copy=None) -> dict:
     result["security"] = _seed_security(say, copy)
     result["readme"] = _seed_readme(say, copy)
     result["license"] = _seed_license(say, copy)
+    result["claude_floor"] = _seed_deployed_floor(say, copy)
     return result
 
 
@@ -1196,6 +1277,15 @@ def _build_fixture(root: str) -> None:
     with open(os.path.join(root, "LICENSE"), "w", encoding="utf-8") as fh:
         fh.write("MIT License\n\nCopyright (c) 2026 " + _TEMPLATE_LICENSE_HOLDER + "\n\n"
                  + _TEMPLATE_LICENSE_SEED.split("\n", 2)[2])
+    # Both CLAUDE files travel via "Use this template" too: the construction-governance CLAUDE.md (which governs
+    # building the template itself) and the thin deployed floor (CLAUDE.deployed.md). Plant both so STEP 5's
+    # greenfield swap (#272: construction file recognized -> floor swapped in, source removed) is exercised; the
+    # apply-demo also proves the construction repo's own two files stay untouched. The construction stand-in
+    # carries the recognizer marker; the floor stand-in carries boot's present marker, like the real floor.
+    with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+        fh.write("# engine-template — construction governance (stand-in for the practice project)\n")
+    with open(os.path.join(root, "CLAUDE.deployed.md"), "w", encoding="utf-8") as fh:
+        fh.write("# Your project runs on an Engine\n\nI show a Project status block first each session.\n")
 
 
 def _catalog_path(root: str) -> str:
@@ -1267,10 +1357,12 @@ _APPLY_DEMO_NOTE = (
 # The construction repo's own files the apply steps would write (or DELETE) if redirection ever leaked — the demo
 # asserts they are byte-for-byte unchanged afterward (the isolation guarantee, shown mechanically, not just claimed).
 # LICENSE is load-bearing here: the construction repo's own root LICENSE positively MATCHES the clear recognizer, so
-# this snapshot is the mechanical proof a redirected run never deletes it (stronger than the README case).
+# this snapshot is the mechanical proof a redirected run never deletes it (stronger than the README case). CLAUDE.md
+# (the construction-governance file) likewise MATCHES the floor-swap recognizer, and CLAUDE.deployed.md is the real
+# floor the swap would consume — both are snapshotted so a redirected run is proven never to swap/delete them (#272).
 _REAL_ISOLATION_FILES = (".engine/knowledge/graph.json", ".claude/settings.json", ".mcp.json",
-                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md", "SECURITY.md", "README.md", "LICENSE",
-                         ".engine/conduct/operator.md", ".engine/conduct/defaults.md")
+                         ".gitignore", ".github/CODEOWNERS", "CLAUDE.md", "CLAUDE.deployed.md", "SECURITY.md",
+                         "README.md", "LICENSE", ".engine/conduct/operator.md", ".engine/conduct/defaults.md")
 
 
 class _FakeIssues:
@@ -1621,6 +1713,46 @@ def _apply_demo() -> int:
             preserved = _read_text_or(lic, "") == mine
         print(f"    → brownfield: a license you chose yourself (same words, but YOUR name on the copyright) is left "
               f"exactly as it is (unchanged: {preserved}).")
+        ok &= preserved
+
+    # Scenario 8 — your project's working guide: the engine SWAPS its thin deployed floor in as the root
+    # CLAUDE.md and removes the now-redundant source (greenfield), so the template's own build-governance file
+    # never travels into your project; it leaves a CLAUDE.md you wrote yourself untouched (brownfield), and a
+    # second pass changes nothing — so the swap can only ever reach the engine's own traveled construction file
+    # (#272). This is exactly the issue's required demonstration.
+    print("\n— YOUR PROJECT'S WORKING GUIDE: the engine swaps its deployed floor in as CLAUDE.md — only over its OWN build file.")
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)                              # plants the construction CLAUDE.md + the deployed floor
+        claude = os.path.join(tmp, "CLAUDE.md")
+        floor_src = os.path.join(tmp, "CLAUDE.deployed.md")
+        had_construction = _is_construction_claude(_read_text_or(claude, ""))
+        floor_text = _read_text_or(floor_src, "")
+        with _redirect_root(tmp):
+            confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
+            apply(announce=lambda t: None, uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
+                  control_transport=_approve_transport(), **common)
+            swapped = _read_text_or(claude, "") == floor_text and not os.path.exists(floor_src)
+            second_pass = _seed_deployed_floor(say=lambda t: None)   # CLAUDE.md is now the floor → nothing matches
+        print(f"    → greenfield: the slot held the engine's own build file (construction file present: "
+              f"{had_construction}); the deployed floor is now your CLAUDE.md and the redundant copy is gone "
+              f"(swapped: {swapped}); a second setup pass changes nothing (no-op: {second_pass == 'present'}).")
+        print("    → and here, in plain words, is exactly what I'd tell you — never done silently:")
+        print(f'      "{load_copy()["claude-floor-seeded"]}"')
+        ok &= (had_construction and swapped and second_pass == "present")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)
+        claude = os.path.join(tmp, "CLAUDE.md")
+        mine = "# My Project\n\nMy own working notes — nothing to do with the Engine.\n"   # an operator-written CLAUDE.md
+        with open(claude, "w", encoding="utf-8") as fh:
+            fh.write(mine)
+        with _redirect_root(tmp):
+            confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
+            apply(announce=lambda t: None, uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
+                  control_transport=_approve_transport(), **common)
+            preserved = _read_text_or(claude, "") == mine
+        print(f"    → brownfield: a working guide you wrote yourself (no engine marker) is left exactly as it is "
+              f"(unchanged: {preserved}).")
         ok &= preserved
 
     # The isolation guarantee, shown.
