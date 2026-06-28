@@ -210,6 +210,102 @@ class Floor4Tests(_Base):
             self.assertNotIn(banned, res["message"].lower())
 
 
+class MigrationRevertTests(_Base):
+    """Slice 2 — restore the local ledger from a retained PRE-migration snapshot TAG (D-264 migration-revert)."""
+
+    def _snapshot_tag(self, fake, migration_id="mod@1.0.0"):
+        """Mint a retained pre-migration snapshot tag over the CURRENT ledger; return its name."""
+        snap = bv.snapshot_for_migration("recall-ledger", "9.9.9", migration_id=migration_id, transport=fake.transport)
+        self.assertIsNotNone(snap)                                  # a real, addressable retained snapshot exists
+        return snap["tag"]
+
+    def test_restores_pre_migration_memory_byte_identical_from_the_tag(self):
+        fake = self._seed_and_backup(["pre-update plan is locked PLUMBUS"])
+        ledger.set_generation(3)                                    # the pre-migration generation the snapshot carries
+        pre = _rb(ledger.ledger_path())
+        tag = self._snapshot_tag(fake)
+        bv._demo_plant("post-update row the new schema added GRUMBO")   # the migration reshapes the live store
+        bv.push_now(transport=fake.transport)                      # the routine rolling backup over the reshaped store
+        self.assertEqual(len(index.query("grumbo").records), 1)    # the reshaped store has the new row
+        res = rv.restore_pre_migration(tag=tag, transport=fake.transport, consent="y", github=None)
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["restored"])
+        self.assertEqual(_rb(ledger.ledger_path()), pre)           # the TRUE pre-update memory is back (retained tag,
+        self.assertEqual(len(index.query("grumbo").records), 0)    # not the rolling head the routine backup clobbered)
+        self.assertEqual(len(index.query("plumbus").records), 1)
+
+    def test_a_large_pre_migration_ledger_round_trips_from_the_tag(self):
+        fake = self._seed_and_backup([f"note {i} " + "y" * 200 for i in range(60)])   # past the ~1MB path
+        ledger.set_generation(2)
+        pre = _rb(ledger.ledger_path())
+        self.assertGreater(len(pre), 12_000)
+        tag = self._snapshot_tag(fake)
+        bv._demo_plant("a later reshape note")
+        res = rv.restore_pre_migration(tag=tag, transport=fake.transport, consent="y", github=None)
+        self.assertTrue(res["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), pre)
+
+    def test_missing_snapshot_tag_is_a_distinct_plain_message_never_silent(self):
+        fake = self._seed_and_backup(["a note that must survive a missing-snapshot restore"])
+        before = _rb(ledger.ledger_path())
+        res = rv.restore_pre_migration(tag="engine-snapshot/recall/does-not-exist",
+                                       transport=fake.transport, consent="y", github=None)
+        self.assertFalse(res["ok"])
+        self.assertFalse(res["restored"])
+        self.assertEqual(res["error"], "snapshot-missing")         # NOT collapsed into no-backup-data
+        self.assertEqual(res["message"], rv._MSG_SNAPSHOT_MISSING)
+        self.assertNotIn(res["message"], (rv._MSG_NO_BACKUP_DATA, rv._MSG_UNREACHABLE))   # distinct from both
+        self.assertEqual(_rb(ledger.ledger_path()), before)        # nothing on this computer changed
+        for banned in ("tag", "ref", "generation", "http", "git", "ledger", "index"):
+            self.assertNotIn(banned, res["message"].lower())       # plain handle, no engineer-jargon (D-265 S1/S2)
+
+    def test_empty_tag_argument_is_refused_as_snapshot_missing(self):
+        fake = self._seed_and_backup(["x"])
+        res = rv.restore_pre_migration(tag="   ", transport=fake.transport, consent="y", github=None)
+        self.assertEqual(res["error"], "snapshot-missing")
+        self.assertEqual(res["message"], rv._MSG_SNAPSHOT_MISSING)
+
+    def test_legitimate_revert_with_unchanged_generation_proceeds(self):
+        # No erasure-compaction in the revert window: the pre-migration generation == local generation, so the
+        # resurrection guard does NOT fire on a routine revert (D-264 law 4).
+        fake = self._seed_and_backup(["pre-update note"])
+        ledger.set_generation(5)
+        tag = self._snapshot_tag(fake)
+        bv._demo_plant("a reshaped row")                           # a non-compacting reshape leaves generation at 5
+        res = rv.restore_pre_migration(tag=tag, transport=fake.transport, consent="y", github=None)
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["restored"])
+
+    def test_resurrection_guard_fires_when_an_erasure_advanced_the_local_generation(self):
+        # An erasure-compaction ran in the revert window: local generation > the snapshot's -> SURFACED, not applied.
+        fake = self._seed_and_backup(["pre-update note"])
+        ledger.set_generation(3)
+        tag = self._snapshot_tag(fake)
+        before = _rb(ledger.ledger_path())
+        ledger.set_generation(12)                                  # an erasure bumped the local generation since
+        calls = []
+        orig = rv.surface_resurrection
+        rv.surface_resurrection = lambda *a, **k: calls.append((a, k))
+        try:
+            res = rv.restore_pre_migration(tag=tag, transport=fake.transport, consent="y")
+        finally:
+            rv.surface_resurrection = orig
+        self.assertEqual(res["error"], "resurrection")
+        self.assertEqual(_rb(ledger.ledger_path()), before)        # untouched
+        self.assertTrue(calls)                                      # surfaced through the open-findings path
+        res2 = rv.restore_pre_migration(tag=tag, transport=fake.transport, consent="y", override=True, github=None)
+        self.assertTrue(res2["ok"])                                 # an explicit override still restores it
+
+    def test_restore_now_behavior_is_preserved_after_the_shared_core_refactor(self):
+        # The extracted _restore_from_fetch must keep restore_now's rolling-head behavior byte-identical.
+        fake = self._seed_and_backup(["a rolling-backup note WICKET"])
+        original = _rb(ledger.ledger_path())
+        self._wipe_local()
+        res = rv.restore_now(transport=fake.transport, consent="y", github=None)
+        self.assertTrue(res["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), original)
+
+
 class ResurrectionMessageLeakTests(unittest.TestCase):
     def test_the_resurrection_finding_carries_no_internals(self):
         finding = rv._resurrection_finding()

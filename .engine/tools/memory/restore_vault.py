@@ -6,7 +6,11 @@ on that same folder id. That made memory durable off-machine — but nothing bro
 the RESTORE half, which fully closes Risk R2 (memory loss / portability for a non-engineer). Locked design:
 engine-planning memory README §"Backup and portability" — "restore = replace the ledger and rebuild the derived
 index (routed through `migrations` if the record shape changed)", guarded by the ledger-generation stamp so an older
-backup landing over newer state is SURFACED, never silently resurrected. Two operator floors live here:
+backup landing over newer state is SURFACED, never silently resurrected. The module serves TWO restore modes through
+ONE mechanism: `restore_now` reads the rolling backup head (fresh-machine + operator recovery), and
+`restore_pre_migration` reads a retained pre-migration snapshot TAG (the D-264 migration-revert undo, after a reverted
+upgrade leaves the store ahead of the code) — both share the fetch -> format/resurrection guard -> consent -> crash-safe
+swap pipeline, differing only in which ref the fetch resolves. Two operator floors live here:
   Floor 3 — the auto-restore-offer: a fresh instance whose local memory is empty but whose committed pointer is
     configured surfaces a plain-language offer at session start (boot relays `detect_restore_offer`, the strand /
     pr_conflict "boot offers, the assistant executes on consent" model). New-laptop recovery never depends on CLI or
@@ -69,10 +73,16 @@ def _fetch_blob(gh, owner: str, repo: str, sha) -> "bytes | None":
     return raw
 
 
-def fetch_snapshot(*, transport=None) -> dict:
+def fetch_snapshot(*, transport=None, ref=None) -> dict:
     """Fetch the backed-up ledger bytes + manifest from the configured vault. Pure GitHub API over the bounded
     transport; cheap-probe-first (a repo GET bounds a dead host). Never raises. Returns {ok, error, ledger_bytes,
-    manifest, ...}; error in {not-configured, no-token, unreachable, no-backup-data, namespace-missing, corrupt}."""
+    manifest, ...}; error in {not-configured, no-token, unreachable, no-backup-data, snapshot-missing,
+    namespace-missing, corrupt}.
+
+    `ref` selects which git ref to read: the default `None` reads the ROLLING backup head (`("heads", branch)`),
+    and `("tags", <tag_name>)` reads a retained pre-migration SNAPSHOT tag (the migration-revert restore path,
+    D-264). The commit -> tree -> blob -> manifest read is IDENTICAL for both — only the resolved ref differs —
+    so the one fetch mechanism serves both restore modes (no forked copy)."""
     pointer = bv.read_pointer()
     if pointer is None:
         return {"ok": False, "error": "not-configured"}
@@ -80,13 +90,17 @@ def fetch_snapshot(*, transport=None) -> dict:
     if gh is None:
         return {"ok": False, "error": "no-token"}
     owner, repo, branch, namespace = pointer["owner"], pointer["repo"], pointer["branch"], pointer["namespace"]
+    ref_kind, ref_name = ref if ref is not None else ("heads", branch)
     try:
         if bv._get(gh, f"/repos/{owner}/{repo}") is None:               # cheap probe: reachability
             return {"ok": False, "error": "unreachable"}
-        ref = bv._get(gh, f"/repos/{owner}/{repo}/git/ref/heads/{branch}")
-        base_sha = (ref or {}).get("object", {}).get("sha")
+        ref_obj = bv._get(gh, f"/repos/{owner}/{repo}/git/ref/{ref_kind}/{ref_name}")
+        base_sha = (ref_obj or {}).get("object", {}).get("sha")
         if not (isinstance(base_sha, str) and base_sha):
-            return {"ok": False, "error": "no-backup-data"}
+            # A HEADS miss is "nothing backed up yet" (no-backup-data). A TAGS miss is a CITED snapshot that is
+            # gone — a hand-deletion in the operator's own vault — a DISTINCT plain-language finding the operator
+            # must see (D-264 law 5 / floor d), never collapsed into the rolling "run a backup first" message.
+            return {"ok": False, "error": "snapshot-missing" if ref_kind == "tags" else "no-backup-data"}
         commit = bv._get(gh, f"/repos/{owner}/{repo}/git/commits/{base_sha}")
         tree_sha = (commit or {}).get("tree", {}).get("sha")
         if not (isinstance(tree_sha, str) and tree_sha):
@@ -323,6 +337,15 @@ _MSG_NAMESPACE_MISSING = ("Your project's saved-memory folder is no longer in th
                           "here, ask me to set up the backup again and I'll rebuild it from this computer. If this "
                           "computer is empty too and the memory isn't saved on another machine, that backed-up copy "
                           "is gone for good.")
+# The migration-revert distinct miss (D-264 law 5 / floor d): the CITED pre-update snapshot is gone. The floor names
+# the CONSEQUENCE + one honest recovery action, not the cause — so this does NOT assert "removed by hand" (it could
+# also be the engine's own retention prune, the open reversibility-unit question, #303). The recovery action is
+# DELIBERATELY NOT _MSG_NAMESPACE_MISSING's "set up the backup again" — that would re-push the RESHAPED store and
+# destroy the right copy's addressability. The honest action is re-run the update / ask for help, never a silent
+# no-restore.
+_MSG_SNAPSHOT_MISSING = ("The saved copy of your memory from before the last update isn't in your backup anymore. "
+                         "Nothing on this computer changed. The one-step undo isn't available, so I can re-run the "
+                         "update to get things working again, or you can ask me for help.")
 _MSG_CORRUPT = ("I couldn't read a complete copy of your memory from the backup, so I did NOT change anything on "
                 "this computer — better to keep what you have than risk a half copy. Try the restore again in a "
                 "little while.")
@@ -341,9 +364,11 @@ _MSG_DECLINED = "No restore was done. Your memory on this computer is unchanged.
 
 
 def _floor4_fetch(error: "str | None") -> str:
+    # `snapshot-missing` arises only on the tags (migration-revert) fetch path; mapping it here means the shared
+    # restore core surfaces the distinct floor-d message rather than the generic unreachable default.
     return {"not-configured": _MSG_NOT_CONFIGURED, "no-token": _MSG_UNREACHABLE, "unreachable": _MSG_UNREACHABLE,
-            "no-backup-data": _MSG_NO_BACKUP_DATA, "namespace-missing": _MSG_NAMESPACE_MISSING,
-            "corrupt": _MSG_CORRUPT}.get(error or "", _MSG_UNREACHABLE)
+            "no-backup-data": _MSG_NO_BACKUP_DATA, "snapshot-missing": _MSG_SNAPSHOT_MISSING,
+            "namespace-missing": _MSG_NAMESPACE_MISSING, "corrupt": _MSG_CORRUPT}.get(error or "", _MSG_UNREACHABLE)
 
 
 def _restore_consent_prompt(local_count: int, backup_count: int) -> str:
@@ -370,15 +395,45 @@ def _ask_restore_consent(local_count: int, backup_count: int) -> str:
 
 def restore_now(*, transport=None, consent: "str | None" = None, override: bool = False,
                 now: "int | None" = None, github=_UNSET) -> dict:
-    """Restore the local ledger + index from the configured backup. Fetch -> format guard -> resurrection guard ->
+    """Restore the local ledger + index from the ROLLING backup head. Fetch -> format guard -> resurrection guard ->
     consent -> apply (under the writer lock). OVERWRITES local memory, so it is foreground + consent-gated. Fail-SAFE:
     the canonical ledger is untouched until the atomic rename, and every failure is a plain Floor-4 message, never a
     raise. `consent` ('y'/'n') bypasses the prompt for tests/demo; `override` proceeds past the resurrection guard;
     `github` is forwarded to surfacing (None => offline). Result: {ok, error, restored, message}."""
-    when = int(time.time()) if now is None else int(now)
     fetch = fetch_snapshot(transport=transport)
+    return _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github)
+
+
+def restore_pre_migration(*, tag: str, transport=None, consent: "str | None" = None, override: bool = False,
+                          now: "int | None" = None, github=_UNSET) -> dict:
+    """Restore the local ledger from a retained PRE-MIGRATION snapshot TAG — the migration-revert recovery (D-264):
+    after an engine upgrade pull request is reverted, engine code goes back but a `data` migration that already
+    reshaped the gitignored store is not, so the store is ahead of the code; this restores the true pre-migration
+    memory the named snapshot tag holds. SAME fail-safe, consent-gated, crash-safe pipeline as `restore_now` — only
+    the ref read differs (`("tags", tag)`), so the one restore mechanism serves both modes. The snapshot manifest
+    carries the PRE-migration ledger-generation, so the resurrection guard still fires (only) if an erasure-compaction
+    ran in the revert window (D-264 law 4) — no special generation handling. A cited tag that is GONE (operator
+    hand-deletion) degrades to the distinct `_MSG_SNAPSHOT_MISSING` (floor d), never a silent no-restore.
+
+    Memory owns this mechanism + restore contract (D-265); the caller (Slice 3's detector / boot offer) supplies the
+    tag — the operator never reads or types a `refs/…` string (plain-handle floor a). Result: {ok, error, restored,
+    message}."""
+    if not (isinstance(tag, str) and tag.strip()):
+        return {"ok": False, "error": "snapshot-missing", "restored": False, "message": _MSG_SNAPSHOT_MISSING}
+    fetch = fetch_snapshot(transport=transport, ref=("tags", tag))
+    return _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github)
+
+
+def _restore_from_fetch(fetch: dict, *, consent: "str | None" = None, override: bool = False,
+                        now: "int | None" = None, github=_UNSET) -> dict:
+    """The shared post-fetch restore pipeline BOTH restore modes run: format guard -> resurrection guard -> consent
+    -> apply (under the writer lock). Takes an already-fetched `{ok, manifest, ledger_bytes, ...}` (from a rolling
+    head OR a snapshot tag — the only difference is upstream, in which ref the fetch read). A failed fetch degrades
+    to its plain Floor-4 message via `_floor4_fetch` (which maps the tag path's distinct `snapshot-missing`). The
+    canonical ledger is untouched until the atomic rename; every failure is a plain message, never a raise."""
     if not fetch.get("ok"):
         return {"ok": False, "error": fetch.get("error"), "restored": False, "message": _floor4_fetch(fetch.get("error"))}
+    when = int(time.time()) if now is None else int(now)
     manifest, ledger_bytes = fetch["manifest"], fetch["ledger_bytes"]
 
     if manifest.get("ledger-version") != ledger.LEDGER_FORMAT_VERSION:
@@ -542,7 +597,9 @@ def _demo() -> int:
     print("What this just proved: after a backup, the engine can WIPE the local memory and bring it back identical")
     print("and searchable — so a dead disk or a new laptop no longer loses 'how did I get here'. It will NOT silently")
     print("overwrite newer memory with an older backup (it surfaces that and refuses), it tells you plainly what will")
-    print("be replaced before it does anything, and a failed fetch changes nothing. That was a PRACTICE run, thrown")
+    print("be replaced before it does anything, and a failed fetch changes nothing. It also proves the mechanism that")
+    print("undoes a bad engine update — bringing back the exact memory saved before it — which the engine will offer")
+    print("on its own when it later detects your memory is ahead of your code. That was a PRACTICE run, thrown")
     print("away. To prove it end-to-end on your REAL GitHub — a throwaway private repo created, backed up to, restored")
     print("from, and deleted — run this command with --live.")
     return 0 if ok else 1
@@ -627,10 +684,54 @@ def _demo_body() -> bool:
     part6 = failed.get("ok") is False and unchanged and "http" not in failed["message"].lower()
     print(f"  => {'a failure names a consequence and one action, and changes nothing.' if part6 else '!!! a failed fetch was mishandled'}")
 
-    ok = part1 and part2 and part3 and part4 and part5 and part6
+    # --- PART 7 — migration-revert: restore the PRE-update memory from its retained snapshot tag (D-264) -------
+    print("\nPART 7 — undo a bad engine update: restore the copy saved before the last update (migration-revert)")
+    print("-" * 96)
+    # A clean pre-update state, snapshotted as a RETAINED TAG before a data migration reshapes the live store.
+    os.remove(ledger.ledger_path()); _quiet_remove(ledger.meta_path())
+    bv._demo_plant("Pre-update note: the quarterly plan is locked — PLUMBUS.")
+    ledger.set_generation(3)                                        # the pre-migration generation the snapshot carries
+    pre_update = _read_bytes(ledger.ledger_path())
+    snap = bv.snapshot_for_migration("recall-ledger", "9.9.9", migration_id="demo-mod@1.0.0", transport=fake.transport)
+    tag = (snap or {}).get("tag")
+    # The migration reshapes the live store, and a routine rolling backup runs over it — but the retained tag is a
+    # DISTINCT ref the rolling backup never touches, so the true pre-update copy stays addressable.
+    bv._demo_plant("Post-update row the new schema added — GRUMBO.")
+    bv.push_now(transport=fake.transport)                          # the routine rolling backup over the reshaped store
+    reshaped_hit = query_hits("grumbo")
+    reverted = restore_pre_migration(tag=tag, transport=fake.transport, consent="y", github=None)
+    back = _read_bytes(ledger.ledger_path())
+    print(f"  saved a pre-update snapshot, then the update reshaped memory (its new note present: {bool(reshaped_hit)})")
+    print(f"  restore says: {reverted['message']}")
+    print(f"  the pre-update memory is back, byte-identical: {back == pre_update}; the update's note is gone: "
+          f"{query_hits('grumbo') == 0}")
+    part7a = (bool(tag) and reverted.get("ok") is True and reverted.get("restored") is True and back == pre_update
+              and reshaped_hit == 1 and query_hits("grumbo") == 0 and query_hits("plumbus") == 1)
+
+    # A cited snapshot that is GONE (hand-deleted in the operator's own vault) -> the DISTINCT floor-d message, never
+    # a silent no-restore, and distinct from the rolling "nothing backed up yet" / "couldn't reach it" messages.
+    guard_bytes = _read_bytes(ledger.ledger_path())
+    missing = restore_pre_migration(tag="engine-snapshot/recall/does-not-exist", transport=fake.transport,
+                                    consent="y", github=None)
+    part7b = (missing.get("error") == "snapshot-missing" and missing["message"] == _MSG_SNAPSHOT_MISSING
+              and missing["message"] not in (_MSG_NO_BACKUP_DATA, _MSG_UNREACHABLE)
+              and _read_bytes(ledger.ledger_path()) == guard_bytes)
+    print(f"  a hand-deleted snapshot is disclosed plainly (not silently skipped): {part7b}")
+
+    # An erasure-compaction since the snapshot -> restoring the older-generation snapshot is SURFACED, not silently
+    # applied (D-264 law 4: the retained tag participates in the generation-resurrection check).
+    ledger.set_generation(12)                                      # an erasure bumped the local generation since
+    resurrect = restore_pre_migration(tag=tag, transport=fake.transport, consent="y", github=None)
+    part7c = resurrect.get("error") == "resurrection" and _read_bytes(ledger.ledger_path()) == guard_bytes
+    print(f"  if an erasure ran since the snapshot, the revert is surfaced, not silently applied: {part7c}")
+    part7 = part7a and part7b and part7c
+    print(f"  => {'a reverted update can be undone to the true pre-update memory.' if part7 else '!!! the migration-revert restore failed'}")
+
+    ok = part1 and part2 and part3 and part4 and part5 and part6 and part7
     if not ok:
         print("\nDEMO UNEXPECTED: a restore guarantee did not hold (the round trip, the resurrection guard, the "
-              "override, the offer, the consent text, or degrade-and-disclose).", file=sys.stderr)
+              "override, the offer, the consent text, degrade-and-disclose, or the migration-revert restore).",
+              file=sys.stderr)
     return bool(ok)
 
 
