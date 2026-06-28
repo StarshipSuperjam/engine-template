@@ -51,7 +51,9 @@ import validate  # noqa: E402
 #   injects — may this event inject `additionalContext`?
 #   owners  — the system(s) that own the behavior on this event. PostToolUse has THREE owners
 #             (validation's local nudge + telemetry's ambient capture + modes' plan-acceptance
-#             Build-entry trigger coexist on one event — D-180); SessionEnd is hooks-owned
+#             Build-entry trigger coexist on one event — D-180); it MAY inject — modes' acceptance
+#             trigger injects an assistant-internal stance directive (additionalContext) on Build entry
+#             (D-270/D-271), still non-blocking; SessionEnd is hooks-owned
 #             (cleanup/flush, cannot block); UserPromptSubmit is boot/orientation's per-prompt scent.
 #             SessionStart has THREE owners: boot's orientation pack + memory's consolidation sweep (3b)
 #             + the optional github-projects-sync board refresh, which coexist on one event by keyed
@@ -60,7 +62,7 @@ import validate  # noqa: E402
 EVENT_INVENTORY = {
     "SessionStart":     {"owners": ("boot", "memory", "github-projects-sync"), "blocks": False, "injects": True},
     "PreToolUse":       {"owners": ("invariant-owner",),         "blocks": True,  "injects": True},
-    "PostToolUse":      {"owners": ("validation", "telemetry", "modes"), "blocks": False, "injects": False},
+    "PostToolUse":      {"owners": ("validation", "telemetry", "modes"), "blocks": False, "injects": True},
     "PreCompact":       {"owners": ("memory",),                  "blocks": False, "injects": False},
     "Stop":             {"owners": ("close",),                   "blocks": True,  "injects": False},
     "SessionEnd":       {"owners": ("hooks",),                   "blocks": False, "injects": False},
@@ -168,8 +170,9 @@ def block(reason: str) -> dict:
 
 
 def inject(context: str) -> dict:
-    """Inject `additionalContext` back to Claude (SessionStart / UserPromptSubmit / PreToolUse
-    injectors). → structured stdout, exit 0."""
+    """Inject `additionalContext` back to Claude (SessionStart / UserPromptSubmit / PreToolUse /
+    PostToolUse injectors — PostToolUse carries modes' Build-entry stance directive, D-270/D-271).
+    → structured stdout, exit 0."""
     return {"action": "inject", "context": context}
 
 

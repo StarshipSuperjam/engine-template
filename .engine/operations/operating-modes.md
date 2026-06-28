@@ -39,15 +39,25 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
 3. **To start building, the operator either types `/engine-start` or accepts a plan.** `/engine-start` is
    an operator-only command the model cannot invoke itself (it carries the platform's operator-only flag,
    and the skill-coherence check holds that flag in place); accepting a plan the model proposed also enters
-   build (the model cannot accept its own plan). Either way the stance flips to build, the gate permits the
-   writes, and entering build is announced as the work begins. Neither path is silent or self-elected — the
-   model never flips its own stance.
+   build (the model cannot accept its own plan). Either way the stance flips to build and the gate permits
+   the writes. On plan-acceptance the `PostToolUse` hook sets the build signal **and** injects a terse
+   assistant-internal stance directive — do-not-relay machine context that re-grounds the session (which
+   still holds its start-of-session explore briefing) and sends it into the build-orchestration kickoff. The
+   **operator** meets build-entry exactly once, through that kickoff ("opening a draft pull request and
+   planning the work") — never through the hook. The signal is the **sole durable record**: it is cleared to
+   explore at every SessionStart, so a copy of that directive replayed on a resumed session is inert — the
+   session reports its stance from the live signal (explore), and the kickoff proceeds only if the live
+   signal still reads build. (Accepting a plan with the context cleared does not fire the hook at all
+   (claude-code#20397) → the signal stays absent → explore, and `/engine-start` is the recovery.) Neither
+   path is silent or self-elected — the model never flips its own stance.
 4. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire; it
    never merges the protected branch (authored later). It is the same workflow, constrained.
 
-To see what the gate decides for any action without Claude Desktop (the operator demo): `python
-tools/modes.py demo` (which also shows the plan-file carve-out and plan-acceptance entering build), or
-`python tools/modes.py classify <Tool> [command] [--session S] [--pm MODE]`.
+To check the live stance, `python tools/modes.py stance` — it resolves the session from `--session` or
+`$CLAUDE_CODE_SESSION_ID`, and says `unknown` (non-zero) rather than a misleading `explore` when it cannot
+resolve one. To see what the gate decides for any action without Claude Desktop (the operator demo): `python
+tools/modes.py demo` (which also shows the plan-file carve-out and plan-acceptance setting build + injecting
+the stance directive), or `python tools/modes.py classify <Tool> [command] [--session S] [--pm MODE]`.
 
 ## Done when
 

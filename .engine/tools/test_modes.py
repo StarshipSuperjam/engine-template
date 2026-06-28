@@ -12,6 +12,7 @@ on a block-eligible event.
 """
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -376,9 +377,10 @@ class TestMemoryTargetDenial(unittest.TestCase):
 
 
 class TestPlanAcceptanceBuildEntry(unittest.TestCase):
-    """#67 (D-179/D-180): a PostToolUse on the plan-exit completion (`ExitPlanMode`) flips the stance to
-    Build; every other completion leaves it untouched; the handler ALWAYS proceeds and emits no text; and
-    a rejected plan fires no PostToolUse so the stance stays Explore (fail-safe to the floor)."""
+    """#67 / D-270/D-271: a PostToolUse on the plan-exit completion (`ExitPlanMode`) flips the stance to
+    Build AND injects a do-not-relay assistant-internal stance directive (gated on the flip succeeding);
+    every other completion leaves it untouched and proceeds with no inject; the handler ALWAYS proceeds,
+    never blocks; a rejected plan fires no PostToolUse so the stance stays Explore (fail-safe to the floor)."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -392,8 +394,9 @@ class TestPlanAcceptanceBuildEntry(unittest.TestCase):
     def test_accepting_a_plan_enters_build(self):
         self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
         d = modes.accept_handler({"session_id": "s", "tool_name": "ExitPlanMode"})
-        self.assertEqual(d.get("action"), "proceed")               # never blocks, never decides
+        self.assertEqual(d.get("action"), "inject")                # sets the signal AND injects the directive
         self.assertEqual(modes.current_stance("s"), modes.BUILD)
+        self.assertIn(modes._STANCE_LINES[modes.BUILD], d.get("context", ""))
 
     def test_non_plan_exit_completion_does_not_enter_build(self):
         # The false-fire guard: ONLY ExitPlanMode enters Build. A subagent's inner tool calls do not fire
@@ -404,19 +407,50 @@ class TestPlanAcceptanceBuildEntry(unittest.TestCase):
             self.assertEqual(modes.current_stance("s"), modes.EXPLORE, f"{tool} must not enter Build")
 
     def test_handler_always_proceeds_and_tolerates_a_bad_payload(self):
-        self.assertEqual(modes.accept_handler({"tool_name": "ExitPlanMode"}).get("action"), "proceed")
+        # The inject is gated on the durable flip succeeding, so a sessionless/bad payload proceeds with NO
+        # inject (no split-brain) — set_stance returns False, the directive is never emitted.
+        self.assertEqual(modes.accept_handler({"tool_name": "ExitPlanMode"}).get("action"), "proceed")  # no sid
         self.assertEqual(modes.accept_handler({}).get("action"), "proceed")
         self.assertEqual(modes.accept_handler({"session_id": "s"}).get("action"), "proceed")  # no tool_name
         self.assertEqual(modes.current_stance("s"), modes.EXPLORE)        # none of those entered Build
 
-    def test_end_to_end_via_run_hook_sets_build_and_proceeds(self):
+    def test_end_to_end_via_run_hook_sets_build_and_injects(self):
         out, err = io.StringIO(), io.StringIO()
         payload = json.dumps({"session_id": "s", "tool_name": "ExitPlanMode"})
         code = hooks.run_hook("PostToolUse", modes.accept_handler,
                               stdin=io.StringIO(payload), stdout=out, stderr=err)
-        self.assertEqual(code, hooks.EXIT_PROCEED)        # PostToolUse always proceeds (exit 0)
-        self.assertEqual(out.getvalue(), "")              # sets a signal; emits no text
+        self.assertEqual(code, hooks.EXIT_PROCEED)        # the inject rides exit 0 — non-blocking, by design
+        emitted = json.loads(out.getvalue())              # sets the signal AND emits the directive
+        self.assertEqual(emitted["hookSpecificOutput"]["hookEventName"], "PostToolUse")
+        self.assertIn(modes._STANCE_LINES[modes.BUILD],
+                      emitted["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(modes.current_stance("s"), modes.BUILD)
+
+    def test_build_entry_directive_is_do_not_relay_and_carries_no_operator_announcement(self):
+        # The directive is assistant-facing machine context (D-270/D-271): it NAMES Build, is self-labelled
+        # do-not-relay, points the turn into the kickoff, and carries NO imperative relay marker (the glossary
+        # `INFORM THE USER THAT…` class) and no raw mechanism jargon — so if it ever leaks it reads plainly.
+        text = modes._build_entry_directive()
+        self.assertIn(modes._STANCE_LINES[modes.BUILD], text)         # names the new stance (fidelity anchor)
+        self.assertIn("don't relay", text.lower())                   # self-labelled do-not-relay
+        self.assertIn("kickoff", text.lower())                       # triggers, never replaces, the kickoff
+        low = text.lower()
+        for marker in ("inform the user", "tell the operator", "let the user know"):
+            self.assertNotIn(marker, low)                            # no imperative relay marker
+        for jargon in ("posttooluse", "additionalcontext", "hookspecificoutput"):
+            self.assertNotIn(jargon, low)                            # degrades to plain language if surfaced
+
+    def test_resumes_to_explore_so_a_replayed_directive_is_inert(self):
+        # Proves the cleared-signal floor + the live-signal authority: after accept (Build), a SessionStart
+        # clear returns the LIVE signal to Explore, so the assistant reports Explore (not any replayed line)
+        # and the gate denies an Edit. The genuine REPLAY of additionalContext is the platform ceiling, not a
+        # unit test; this pins the half the engine owns — the live signal, and the gate as the mechanical floor.
+        modes.accept_handler({"session_id": "s", "tool_name": "ExitPlanMode"})
+        self.assertEqual(modes.current_stance("s"), modes.BUILD)
+        modes.clear_stance("s")                                      # what boot does at every SessionStart
+        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)  # reports from the live signal, not a line
+        d = modes.handler({"session_id": "s", "tool_name": "Edit", "tool_input": {}})
+        self.assertEqual(d.get("permissionDecision"), "deny")       # the replayed 'you are in Build' is inert
 
     def test_main_accept_hook_routes_to_posttooluse(self):
         with mock.patch.object(modes.hooks, "run_hook", return_value=0) as rh:
@@ -476,6 +510,41 @@ class TestResolveSession(unittest.TestCase):
             self.assertTrue(_allow(allow), "the gate allows a write for the session that entered Build")
             other = modes.handler({"session_id": "sOther", "tool_name": "Edit", "tool_input": {}})
             self.assertTrue(_deny(other), "a different session stays in explore — the marker is session-keyed")
+
+    def test_stance_verb_uses_env_fallback_and_reports_the_true_stance(self):
+        # The footgun fix (D-270): a bare `modes.py stance` resolves the session from $CLAUDE_CODE_SESSION_ID
+        # and reports the REAL stance (Build here), not the safe-default explore it used to print with no flag.
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
+                mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "env-sid"}):
+            modes.set_stance("env-sid", modes.BUILD)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = modes.main(["stance"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip(), modes.BUILD)
+
+    def test_stance_verb_explicit_session_wins(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
+                mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "env-sid"}):
+            modes.set_stance("explicit-sid", modes.BUILD)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = modes.main(["stance", "--session", "explicit-sid"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip(), modes.BUILD)
+
+    def test_stance_verb_says_unknown_not_explore_when_unresolvable(self):
+        # The footgun itself: with NO resolvable session the OLD verb printed a confident `explore`. Now it
+        # says `unknown` and exits non-zero, so a self-check can never confirm the wrong belief.
+        with mock.patch.dict(os.environ, {}, clear=True):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = modes.main(["stance"])
+            self.assertEqual(rc, 1)
+            self.assertIn("unknown", buf.getvalue().lower())
+            self.assertNotIn(modes.EXPLORE, buf.getvalue())
 
 
 if __name__ == "__main__":
