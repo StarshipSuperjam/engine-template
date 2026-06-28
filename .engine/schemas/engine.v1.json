@@ -24,6 +24,31 @@
       "description": "The operator's own account handle, captured at first-run setup and preserved as operator config. It is the owner the engine writes into the code-ownership block for its own files, so an engine update re-renders that block for the new release's files while keeping this owner. Optional: it is absent until first-run setup derives and records it (and absent in the construction repository, which runs no first-run setup), so a manifest without it stays valid.",
       "type": "string",
       "minLength": 1
+    },
+    "control_plane": {
+      "description": "What the engine did to this repository's branch protection at setup, recorded so a later clean removal can reverse exactly that and nothing of the operator's. Written by the control-plane apply step on a brownfield arrival (and on greenfield, to record that the engine owns its own ruleset). Optional: absent until the gate is turned on, and on a repo whose protection was already fully in force.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ruleset_mode"],
+      "properties": {
+        "ruleset_mode": {
+          "description": "created: the engine created and owns its own branch-protection ruleset (greenfield). augmented: the engine added its checks into a pre-existing PRODUCT ruleset in place (brownfield), so removal strips back only what it added and never deletes the operator's rule.",
+          "enum": ["created", "augmented"]
+        },
+        "augmented_ruleset_id": {
+          "description": "The id of the product ruleset the engine augmented (when ruleset_mode is augmented); null when the engine created its own.",
+          "type": ["integer", "null"]
+        },
+        "added": {
+          "description": "The exact pieces the engine added to a product ruleset, so removal reverses precisely them: the required-check contexts it unioned in, and any wholly-missing floor rule types it added. null when the engine created its own ruleset.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "checks": { "type": "array", "items": { "type": "string" } },
+            "rules": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
     }
   }
 }

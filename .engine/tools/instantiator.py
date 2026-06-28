@@ -1080,12 +1080,36 @@ def _apply_wires(say) -> dict:
     return {"step": "wires", "status": "done", "applied": applied}
 
 
-def _apply_control_plane(control_transport, gh_refresh, control_issues, say, copy, repo=None, token=None) -> dict:
+def _persist_control_plane_marker(root, marker) -> None:
+    """Record the control-plane outcome in engine.json (under `control_plane`) so a later clean removal can
+    reverse EXACTLY what the arrival did to branch protection — whether the engine created its own ruleset or
+    augmented a pre-existing PRODUCT one, and which exact pieces it added. A read-modify-write (confirm wrote
+    the manifest earlier this phase). Best-effort: a write failure never fails the gate — it only means a
+    later de-bootstrap falls back to a bounded, name-only strip."""
+    if not marker:
+        return
+    path = _engine_manifest_path(root)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return
+    data["control_plane"] = marker
+    try:
+        _write_json(path, data)
+    except OSError:
+        return
+
+
+def _apply_control_plane(control_transport, gh_refresh, control_issues, say, copy, repo=None, token=None,
+                         root=None) -> dict:
     """STEP 7 — turn on the protected-branch review gate (the control-plane bootstrap, the permanent
-    primitive). Degrades LOUD when the repo/sign-in/capability is unavailable (never fakes the gate). Apply
-    ENDS regardless — the gate can be completed any time later, and boot keeps surfacing an unprotected repo.
-    Every boundary is injected — the repo coordinates + token AND the GitHub transport — so tests/the demo run
-    the real orchestration deterministically, independent of the ambient environment (e.g. CI's own token)."""
+    primitive). On a brownfield arrival this AUGMENTS the project's own branch-protection rule in place rather
+    than creating a second; either way it records, in engine.json, exactly what it did so removal can reverse
+    it. Degrades LOUD when the repo/sign-in/capability is unavailable (never fakes the gate). Apply ENDS
+    regardless — the gate can be completed any time later, and boot keeps surfacing an unprotected repo. Every
+    boundary is injected — the repo coordinates + token AND the GitHub transport — so tests/the demo run the
+    real orchestration deterministically, independent of the ambient environment (e.g. CI's own token)."""
     repo = repo or boot.repo_slug()
     token = token or boot.gh_token()
     if not repo or not token:
@@ -1095,7 +1119,9 @@ def _apply_control_plane(control_transport, gh_refresh, control_issues, say, cop
                                 issues=control_issues)
     result = cp.apply(branch=boot.PROTECTED_BRANCH, announce=say)
     say(bootstrap.render(result))
-    return {"step": "control-plane", "status": result.status, "protected": result.is_protected()}
+    _persist_control_plane_marker(root, result.marker)
+    return {"step": "control-plane", "status": result.status, "mode": result.mode,
+            "protected": result.is_protected()}
 
 
 def _apply_security_toggles(control_transport, say, copy, repo=None, token=None) -> dict:
@@ -1142,7 +1168,7 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     steps.append(_apply_substrates(say, copy))
     steps.append(_apply_wires(say))
     steps.append(_apply_control_plane(control_transport, gh_refresh, control_issues, say, copy,
-                                      repo=control_repo, token=control_token))
+                                      repo=control_repo, token=control_token, root=root))
     steps.append(_apply_security_toggles(control_transport, say, copy,
                                          repo=control_repo, token=control_token))
     return {"refused": False, "halted": False, "steps": steps}
@@ -2645,6 +2671,111 @@ def arrival_demo() -> bool:
     return ok
 
 
+def augment_demo() -> bool:
+    """Behavioral demonstration of the brownfield RULESET AUGMENT: on a project that already protects its main
+    branch with its OWN rule, the engine adds its two checks (and any missing floor protection) INTO that rule
+    rather than standing up a second one — preserving everything else of the operator's, byte for byte — and a
+    later clean removal takes back EXACTLY what was added. The REAL control-plane logic runs (apply →
+    augment → verify, then de_bootstrap); only the GitHub network is faked. It can fail: the before/after of
+    the operator's own rule is compared byte-for-byte, so a non-additive write would turn this red.
+
+    Named inductive ceiling: 'works on this in-memory product ruleset ⇒ works on a real adopter's live
+    branch-protection rule fetched from GitHub' is the step the fixture cannot discharge."""
+    import copy as _copy
+    ENG = list(bootstrap.protection_guard.REQUIRED_CHECKS)
+    # The operator's OWN ruleset: a PR rule, their own required check, force-push/deletion protection, and a
+    # deploy-bot bypass the engine must never disturb.
+    product = {
+        "id": 9, "name": "team protections", "target": "branch", "enforcement": "active",
+        "node_id": "RRS_x", "_links": {"self": {"href": "x"}}, "created_at": "2026-01-01T00:00:00Z",
+        "source": "owner/repo", "source_type": "Repository", "current_user_can_bypass": "always",
+        "bypass_actors": [{"actor_id": 7, "actor_type": "Integration", "bypass_mode": "always"}],
+        "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+        "rules": [
+            {"type": "pull_request", "parameters": {"required_approving_review_count": 2,
+                                                    "required_review_thread_resolution": True},
+             "ruleset_id": 9, "ruleset_source_type": "Repository"},
+            {"type": "required_status_checks",
+             "parameters": {"required_status_checks": [{"context": "product-ci"}],
+                            "strict_required_status_checks_policy": False}, "ruleset_id": 9},
+            {"type": "non_fast_forward", "ruleset_id": 9},
+            {"type": "deletion", "ruleset_id": 9},
+        ],
+    }
+    store = {9: _copy.deepcopy(product)}
+
+    def transport(method, path, body=None):
+        h = {"X-OAuth-Scopes": "repo"}
+        if method == "GET" and path.endswith("/rules/branches/main"):
+            return 200, [{**r, "ruleset_id": rid, "ruleset_source_type": "Repository"}
+                         for rid, rs in store.items() for r in rs["rules"]], h
+        if method == "GET" and path.endswith("/rulesets"):
+            return 200, [{"id": rid, "name": rs["name"]} for rid, rs in store.items()], h
+        if method == "GET" and "/rulesets/" in path:
+            return 200, _copy.deepcopy(store[int(path.rsplit("/", 1)[1])]), h
+        if method == "PUT" and "/rulesets/" in path:
+            rid = int(path.rsplit("/", 1)[1]); store[rid] = {**store[rid], **body, "id": rid}
+            return 200, {"id": rid}, h
+        if path.startswith("/repos/") and "/ruleset" not in path and "/rules" not in path:
+            return 200, {"full_name": "owner/repo"}, h
+        return 404, None, h
+
+    print("=" * 70)
+    print("AUGMENT DEMO — the engine joins a project that ALREADY protects its main branch.\n"
+          "Only the GitHub network is faked; the real read-modify-write augment + de-bootstrap run.")
+    ok = True
+
+    def _bypass(rid):
+        return store[rid].get("bypass_actors")
+
+    def _pr_rule(rid):
+        return next((r for r in store[rid]["rules"] if r["type"] == "pull_request"), None)
+    # Compare the WRITABLE form (type + parameters): the engine strips read-only metadata (ruleset_id, …)
+    # the PUT can't accept, so the operator's rule is preserved in its writable content, which is the promise.
+    before_pr = bootstrap._project_rule(_copy.deepcopy(_pr_rule(9)))
+    before_bypass = _copy.deepcopy(_bypass(9))
+
+    cp = bootstrap.ControlPlane("owner/repo", "tok", transport=transport,
+                                refresh_fn=lambda s: True, issues=_FakeIssues())
+    res = cp.apply(branch="main", announce=lambda t: None)
+
+    checks = bootstrap._bound_checks(store[9]["rules"])
+    print("\nApply — the engine augments the operator's existing rule in place:")
+    a_checks = {
+        "the operator now has ONE rule, not two (no second ruleset created)": len(store) == 1,
+        "the engine's two checks were added to the operator's rule": set(ENG).issubset(checks),
+        "the operator's own check is still there": "product-ci" in checks,
+        "the operator's pull-request rule is byte-for-byte unchanged": _pr_rule(9) == before_pr,
+        "the operator's bypass list is byte-for-byte unchanged": _bypass(9) == before_bypass,
+        "the outcome is recorded for an exact later removal":
+            res.marker and res.marker.get("ruleset_mode") == "augmented"
+            and res.marker.get("augmented_ruleset_id") == 9,
+    }
+    for label, good in a_checks.items():
+        print(f"    [{'ok' if good else 'FAIL'}] {label}")
+        ok = ok and good
+
+    print("\nRemoval — de-bootstrap takes back EXACTLY what was added, leaving the operator's rule:")
+    db = cp.de_bootstrap(marker=res.marker, announce=lambda t: None)
+    r_checks = {
+        "the engine's checks are gone; the operator's check remains":
+            bootstrap._bound_checks(store[9]["rules"]) == {"product-ci"},
+        "the operator's rule was NOT deleted (it is theirs)": 9 in store,
+        "the operator's pull-request rule is byte-for-byte unchanged": _pr_rule(9) == before_pr,
+        "the operator's bypass list is byte-for-byte unchanged": _bypass(9) == before_bypass,
+        "removal reported it only un-augmented (no keep/drop choice)": db.get("status") == "unaugmented",
+    }
+    for label, good in r_checks.items():
+        print(f"    [{'ok' if good else 'FAIL'}] {label}")
+        ok = ok and good
+
+    print("\n" + ("The brownfield augment behaved: additive on arrival, exact on removal, the operator's own\n"
+                  "rule untouched throughout. Inductive ceiling: a real adopter's live rule fetched from\n"
+                  "GitHub is the step this fixture cannot discharge."
+                  if ok else "THE AUGMENT DID NOT BEHAVE — see above."))
+    return ok
+
+
 def _parse_apply_flags(argv: list) -> dict:
     """Translate the apply CLI flags into the per-kind operator decisions the apply phase consents on:
     `--install-uv` approves installing the engine's tools; `--plan-mode adopt|keep` answers the planning
@@ -2690,6 +2821,8 @@ def main(argv: list) -> int:
         return _demo_collisions()
     if argv and argv[0] == "arrival-demo":
         return 0 if arrival_demo() else 1
+    if argv and argv[0] == "augment-demo":
+        return 0 if augment_demo() else 1
     if argv and argv[0] == "confirm":
         keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
         tier = _flag_value(argv, "--tier") or "solo"
