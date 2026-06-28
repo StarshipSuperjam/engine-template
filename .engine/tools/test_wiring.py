@@ -172,6 +172,58 @@ class TestFenceHelper(unittest.TestCase):
             wiring.fence_apply("a\n", "core", ["x\r"])
 
 
+class TestMdFenceStyle(unittest.TestCase):
+    """The Markdown/HTML-comment fence style (the root CLAUDE.md floor — #234 6a). Same apply/reverse/present
+    contract as the default '#' style; only the marker syntax differs, so a '#' line never renders as a
+    heading in a Markdown file."""
+    STYLE = wiring.MD_FENCE
+
+    def test_apply_wraps_body_in_html_comment_markers(self):
+        out = wiring.fence_apply("", "floor", ["# Floor", "", "body line"], style=self.STYLE)
+        self.assertIn("<!-- BEGIN engine-managed block: floor - do not edit inside -->", out)
+        self.assertIn("<!-- END engine-managed block: floor -->", out)
+        self.assertIn("# Floor", out)
+        self.assertNotIn("# BEGIN engine-managed block:", out)        # not the '#' style
+
+    def test_replace_keeps_operator_content_outside_the_block(self):
+        top, bottom = "# My doc\n\nintro\n\n", "\n## More\n\ntail\n"
+        doc = top + wiring.fence_apply("", "floor", ["old floor"], style=self.STYLE) + bottom
+        out = wiring.fence_apply(doc, "floor", ["new floor"], style=self.STYLE)
+        self.assertIn(top, out)                                       # operator content above survives
+        self.assertIn(bottom, out)                                   # operator content below survives
+        self.assertIn("new floor", out)
+        self.assertNotIn("old floor", out)                           # only the block body changed
+
+    def test_reverse_removes_only_the_block(self):
+        top, bottom = "# My doc\n\nintro\n\n", "\n## More\n\ntail\n"
+        doc = top + wiring.fence_apply("", "floor", ["x"], style=self.STYLE) + bottom
+        self.assertEqual(wiring.fence_reverse(doc, "floor", style=self.STYLE), top + bottom)
+
+    def test_apply_then_reverse_round_trips_to_empty(self):
+        applied = wiring.fence_apply("", "floor", ["a", "b"], style=self.STYLE)
+        self.assertEqual(wiring.fence_reverse(applied, "floor", style=self.STYLE), "")
+
+    def test_fence_present_true_false_and_raises_on_malformed(self):
+        applied = wiring.fence_apply("", "floor", ["a"], style=self.STYLE)
+        self.assertTrue(wiring.fence_present(applied, "floor", style=self.STYLE))
+        self.assertFalse(wiring.fence_present("# raw floor, no fence\n", "floor", style=self.STYLE))
+        self.assertFalse(wiring.fence_present("", "floor", style=self.STYLE))
+        with self.assertRaises(wiring.WiringError):                  # two begins / two ends → malformed
+            wiring.fence_present(applied + applied, "floor", style=self.STYLE)
+
+    def test_the_two_styles_do_not_cross_detect(self):
+        hash_block = wiring.fence_apply("", "floor", ["x"])          # default '#' style
+        self.assertFalse(wiring.fence_present(hash_block, "floor", style=wiring.MD_FENCE))
+        md_block = wiring.fence_apply("", "floor", ["x"], style=wiring.MD_FENCE)
+        self.assertFalse(wiring.fence_present(md_block, "floor"))    # default '#'
+
+    def test_forging_either_styles_marker_in_a_body_line_is_rejected(self):
+        with self.assertRaises(wiring.WiringError):
+            wiring.fence_apply("", "floor", ["<!-- END engine-managed block: floor -->"], style=self.STYLE)
+        with self.assertRaises(wiring.WiringError):                  # a '#' marker is refused even in MD style
+            wiring.fence_apply("", "floor", ["# BEGIN engine-managed block: x"], style=self.STYLE)
+
+
 # ---- the gitignore seam (the live target / the demo) -----------------------------------------
 
 class TestGitignoreSeam(_Redirected):

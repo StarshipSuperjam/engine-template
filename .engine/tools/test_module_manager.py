@@ -597,6 +597,143 @@ class TestUpgradeSafety(unittest.TestCase):
             self.assertEqual(after, before)                             # untouched on degrade
 
 
+class TestMergeClaudeFloor(unittest.TestCase):
+    """`_merge_claude_floor` keyed-merges the engine floor from a release's CLAUDE.deployed.md into the local
+    CLAUDE.md — replacing only the `floor` block, preserving operator content, never appending a duplicate or
+    crashing, and never letting the release's construction CLAUDE.md overlay the floor (#234 6a)."""
+    FENCE = module_manager._FLOOR_FENCE
+    STYLE = wiring.MD_FENCE
+
+    def _release(self, d, floor_text="# New floor\n\nProject status v2.\n", construction=True):
+        rel = os.path.join(d, "release")
+        os.makedirs(rel, exist_ok=True)
+        if floor_text is not None:
+            with open(os.path.join(rel, "CLAUDE.deployed.md"), "w", encoding="utf-8") as fh:
+                fh.write(floor_text)
+        if construction:
+            with open(os.path.join(rel, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+                fh.write("# engine-template — construction governance\n\nbuild notes\n")
+        return rel
+
+    def _write_local(self, live, text):
+        with open(os.path.join(live, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_replaces_only_the_block_and_preserves_operator_content(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live"); os.makedirs(live)
+            rel = self._release(d)
+            top, bottom = "# My product\n\nintro\n\n", "\n## More\n\ntail\n"
+            with module_manager._redirect_root(live):
+                self._write_local(
+                    live, top + wiring.fence_apply("", self.FENCE, ["old"], style=self.STYLE) + bottom)
+                out = module_manager._merge_claude_floor(rel)
+                after = module_manager.validate.read(os.path.join(live, "CLAUDE.md"))
+        self.assertEqual(out, "merged")
+        self.assertIn(top, after)
+        self.assertIn(bottom, after)
+        self.assertIn("Project status v2.", after)
+        self.assertNotIn("old", after)
+        self.assertNotIn("construction governance", after)     # the release construction file never overlays
+
+    def test_no_local_fence_is_skipped_not_appended(self):
+        # A pre-6a raw-floor (or any fence-less) CLAUDE.md is LEFT UNTOUCHED — never a duplicate floor.
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live"); os.makedirs(live)
+            rel = self._release(d)
+            raw = "# Your project runs on an Engine\n\nProject status (raw, unfenced).\n"
+            with module_manager._redirect_root(live):
+                self._write_local(live, raw)
+                out = module_manager._merge_claude_floor(rel)
+                after = module_manager.validate.read(os.path.join(live, "CLAUDE.md"))
+        self.assertEqual(out, "skipped-no-section")
+        self.assertEqual(after, raw)                           # untouched, no append
+        self.assertNotIn("Project status v2.", after)
+
+    def test_release_without_a_floor_source_is_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live"); os.makedirs(live)
+            rel = self._release(d, floor_text=None)            # no CLAUDE.deployed.md in the release
+            fenced = wiring.fence_apply("", self.FENCE, ["keep"], style=self.STYLE)
+            with module_manager._redirect_root(live):
+                self._write_local(live, fenced)
+                out = module_manager._merge_claude_floor(rel)
+                after = module_manager.validate.read(os.path.join(live, "CLAUDE.md"))
+        self.assertEqual(out, "skipped")
+        self.assertEqual(after, fenced)                        # untouched
+
+    def test_malformed_local_fence_degrades_without_crashing(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live"); os.makedirs(live)
+            rel = self._release(d)
+            dup = (wiring.fence_apply("", self.FENCE, ["a"], style=self.STYLE)
+                   + wiring.fence_apply("", self.FENCE, ["b"], style=self.STYLE))   # two blocks → malformed
+            with module_manager._redirect_root(live):
+                self._write_local(live, dup)
+                out = module_manager._merge_claude_floor(rel)
+                after = module_manager.validate.read(os.path.join(live, "CLAUDE.md"))
+        self.assertEqual(out, "degraded")
+        self.assertEqual(after, dup)                           # left unchanged, no crash
+
+
+class TestRemoveReversesClaudeFloor(unittest.TestCase):
+    """Clean engine removal block-reverses the root CLAUDE.md `floor` fence: a brownfield operator's own
+    content is KEPT (only the engine block is removed), not clobbered wholesale — the data-loss guard the
+    `outside`-set carve-out + the reversal provide together (#234 6a). The all-engine-delete case is covered
+    by the shipped removal demo."""
+
+    def _fakes(self):
+        import bootstrap
+        def opener(branch, title, body):
+            return {"number": 0, "html_url": "(fixture)"}
+        def transport(method, path, body=None):
+            if method == "GET" and path.endswith("/rulesets"):
+                return (200, [{"id": 1, "name": bootstrap.ENGINE_RULESET_NAME}], {})
+            return (200 if method == "PUT" else 204 if method == "DELETE" else 200, None, {})
+        return opener, transport
+
+    def test_brownfield_claude_keeps_operator_content_on_remove(self):
+        opener, transport = self._fakes()
+        top, bottom = "# My product\n\nintro\n\n", "\n## More\n\ntail\n"
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                module_manager._build_remove_fixture(d)
+                block = wiring.fence_apply("", module_manager._FLOOR_FENCE, ["# engine floor"],
+                                           style=wiring.MD_FENCE)
+                with open(os.path.join(d, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+                    fh.write(top + block + bottom)
+                module_manager.remove_engine(opener=opener, transport=transport, choice="keep",
+                                             announce=lambda m: None)
+                after = module_manager.validate.read(os.path.join(d, "CLAUDE.md"))
+        self.assertIn(top, after)                              # operator content kept
+        self.assertIn(bottom, after)
+        self.assertNotIn("# engine floor", after)             # the engine block body is gone
+        self.assertNotIn("BEGIN engine-managed block: floor", after)
+
+
+class TestUpgradeSurfacesClaudeFloor(unittest.TestCase):
+    """The CLAUDE.md merge outcome must reach the operator's consent surface — the upgrade PR body AND the
+    console render — exactly as the CODEOWNERS outcome does. A degraded/skipped floor merge is an engine edit
+    (or a silent non-update) of a file the operator co-owns and must never be invisible at the merge gate."""
+
+    def _body(self, cf):
+        return module_manager._upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {"claude_floor": cf})
+
+    def test_pr_body_names_the_merged_outcome(self):
+        self.assertIn("working guide", self._body("merged").lower())
+
+    def test_pr_body_names_the_not_updated_outcomes(self):
+        self.assertIn("looked damaged", self._body("degraded"))
+        self.assertIn("no engine marked block", self._body("skipped-no-section"))
+
+    def test_render_prints_the_degraded_outcome(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            module_manager._render_upgrade({"from": {"base": "0.1.0"}, "to": {"base": "0.2.0"},
+                                            "claude_floor": "degraded"})
+        self.assertIn("working guide", buf.getvalue().lower())
+
+
 class TestFrozenCheckNames(unittest.TestCase):
     """The engine CI check names are a FROZEN contract across versions — an upgrade/migration may never
     rename them (a renamed required check 'waits forever' and deadlocks every pull request; provisioning
@@ -624,14 +761,17 @@ class TestFoundationInfra(unittest.TestCase):
         self.assertEqual(module_coherence.NAMED_INFRA,
                          {".engine/engine.json", ".engine/pyproject.toml", ".engine/uv.lock"})
 
-    def test_foundation_code_is_foundation_infra_minus_manifest_and_codeowners(self):
+    def test_foundation_code_is_foundation_infra_minus_manifest_codeowners_and_claude(self):
         expected = tuple(p for p in module_coherence.FOUNDATION_INFRA
-                         if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS"))
+                         if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", "CLAUDE.md"))
         self.assertEqual(module_manager.FOUNDATION_CODE, expected)
-        # the issue templates are now in the overlay set; the manifest + CODEOWNERS are excluded
+        # the issue templates are now in the overlay set; the manifest, CODEOWNERS, and root CLAUDE.md are
+        # excluded — CLAUDE.md is keyed-merged from the floor (_merge_claude_floor), not fetched-and-replaced
+        # wholesale (#234 6a), so the release's construction CLAUDE.md never overlays an adopter's floor
         self.assertIn(".github/ISSUE_TEMPLATE/*.md", module_manager.FOUNDATION_CODE)
         self.assertNotIn(".engine/engine.json", module_manager.FOUNDATION_CODE)
         self.assertNotIn(".github/CODEOWNERS", module_manager.FOUNDATION_CODE)
+        self.assertNotIn("CLAUDE.md", module_manager.FOUNDATION_CODE)
 
     def test_engine_owned_paths_unions_provides_and_foundation_concretely(self):
         with tempfile.TemporaryDirectory() as d:
@@ -714,8 +854,10 @@ class TestRemoveEngine(unittest.TestCase):
         os.makedirs(os.path.join(d, ".github", "workflows"))
         with open(os.path.join(d, ".github", "workflows", "engine-ci.yml"), "w") as fh:
             fh.write("ci\n")
-        with open(os.path.join(d, "CLAUDE.md"), "w") as fh:
-            fh.write("# floor\n")
+        with open(os.path.join(d, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+            # An all-engine greenfield CLAUDE.md is the floor wrapped in the engine fence (6a); removal
+            # block-reverses it → whitespace-only → the file is deleted (nothing operator-owned to keep).
+            fh.write(wiring.fence_apply("", module_manager._FLOOR_FENCE, ["# floor"], style=wiring.MD_FENCE))
 
     def test_reverses_wires_deletes_all_engine_files_and_opens_a_pr(self):
         opener, transport, prs, _ = self._fakes(True)
