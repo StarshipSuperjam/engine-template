@@ -3227,7 +3227,7 @@
       },
       "slug": "coverage",
       "source": {
-        "fingerprint": "sha256:46b5ac8dacc249e28f9c2661cddb14112ec27f6b0a4876fdfbc312797454791c",
+        "fingerprint": "sha256:e580c9c5305b28e6339e9076d3ccfd1496a0935ec40e7459dcb3997b05c58242",
         "path": ".engine/tools/product_design/coverage.py"
       },
       "status": "active",

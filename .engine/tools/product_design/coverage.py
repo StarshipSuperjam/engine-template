@@ -77,7 +77,9 @@ _NOTHING_SETTLED_MESSAGE = (
 
 
 def _capabilities_phrase(n: int) -> str:
-    return "1 settled capability" if n == 1 else f"{n} settled capabilities"
+    # The caller already says "You've settled …", so this phrase carries only the count + noun (no second
+    # "settled", which would read as a stutter — "You've settled 1 settled capability").
+    return "1 capability" if n == 1 else f"{n} capabilities"
 
 
 def _no_build_plan_message(n: int) -> str:
