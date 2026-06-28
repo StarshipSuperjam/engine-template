@@ -422,19 +422,17 @@ def kind_shape(rule, ctx):
     consented higher ceiling for one named operation (the override lives in this guarded
     rule, not the operation's own unguarded frontmatter, so raising a budget stays a
     deliberate act needing the operator's sign-off); an entry that is malformed (no integer
-    budget, no recorded why) or names no targeted file fails at the rule's tier, so a stale
-    or unexplained override cannot rot into a silent grant."""
+    budget, no recorded why) or names a file that no longer exists fails at the rule's tier,
+    so a stale or unexplained override cannot rot into a silent grant."""
     tier = rule["tier"]
     params = rule.get("params") or {}
     required = params.get("required_sections", [])
     allowed = set(required) | set(params.get("allowed_sections", []))
     budget = params.get("length_budget")
     overrides = params.get("length_budget_overrides") or {}
-    covered = set()
     findings = []
     for path in target_files(rule):
         rel = os.path.relpath(path, ROOT)
-        covered.add(rel)
         body = read(path)
         present = section_order(body)
         present_set = set(present)
@@ -467,9 +465,11 @@ def kind_shape(rule, ctx):
                                 f"{file_budget}-line budget — a nudge to trim, never a block.", loc(path)))
     # Each override must be well-formed and live: an integer `budget` (the line ceiling) and a
     # recorded `why` (#273's recorded-rationale, made mechanical so a budget cannot be raised
-    # without a stated reason), keyed to an operation this rule targets. A malformed or stale
-    # entry would otherwise sit as inert, consented config that grants nothing while looking
-    # like a live budget. Each failure is the rule's hard tier so a dead grant cannot accumulate.
+    # without a stated reason), keyed to a file that still exists. A malformed entry, or a key
+    # left dangling by a rename, would otherwise sit as inert, consented config that grants
+    # nothing while looking like a live budget. Each failure is the rule's hard tier so a dead
+    # grant cannot accumulate. Existence is checked on disk directly (not via the iterated file
+    # list) so the guard is independent of which subset of files a given run evaluates.
     for key, ov in overrides.items():
         ov_budget = ov.get("budget") if isinstance(ov, dict) else None
         ov_why = ov.get("why") if isinstance(ov, dict) else None
@@ -477,10 +477,11 @@ def kind_shape(rule, ctx):
             findings.append(finding(tier, f"the length-budget override for '{key}' is incomplete — "
                             f"every override must give an integer 'budget' (the line ceiling) and a "
                             f"'why' (the recorded reason for the raise). Add both before merging.", None))
-        if key not in covered:
-            findings.append(finding(tier, f"the length-budget override names '{key}', which is not an "
-                            f"operation this rule targets — a stale or mistyped key. Update "
-                            f"length_budget_overrides in this rule: remove the entry or repoint it.", None))
+        if not os.path.isfile(os.path.join(ROOT, key)):
+            findings.append(finding(tier, f"the length-budget override names '{key}', which is not a "
+                            f"file in this project — a stale or mistyped key (often left by a rename). "
+                            f"Update length_budget_overrides in this rule: remove the entry or repoint it.",
+                            None))
     return (not any(f["severity"] == "hard" for f in findings)), findings
 
 

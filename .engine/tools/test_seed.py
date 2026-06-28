@@ -680,7 +680,7 @@ class TestShapeKind(unittest.TestCase):
             rule = _rule(kind="shape", tier="hard", target={"path": "x"}, params=params)
             passed, found = _run_kind(validate.kind_shape, rule, [p])
             self.assertFalse(passed)
-            self.assertTrue(any("not an operation this rule targets" in f["message"]
+            self.assertTrue(any("stale or mistyped key" in f["message"]
                                 and f["severity"] == "hard" for f in found))
 
     def test_override_without_recorded_reason_is_hard(self):
