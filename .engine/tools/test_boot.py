@@ -1032,5 +1032,85 @@ class TestStanceLine(unittest.TestCase):
         clear.assert_called_once_with("sess-xyz")
 
 
+class TestAntiHabituationCollapse(unittest.TestCase):
+    """D-269 — the standing-alarm collapse applied in the hook path (_relay_lines / assemble_pack
+    use_ledger). An unchanged alarm collapses to a terse reminder that keeps its consequence + fix offer;
+    a new/worsened one relays in full; the degrade-loud tells never collapse; and — the #313 grounding
+    invariant — the present-marker line and the all-clear render NEVER collapse."""
+
+    def setUp(self):
+        # isolate the ledger in a tmp dir via the env override, so the collapse is exercised hermetically
+        self.dir = tempfile.mkdtemp()
+        self._env = mock.patch.dict(os.environ, {boot.boot_alarm_ledger.ENV_DIR: self.dir})
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+
+    def test_findings_alarm_collapses_when_unchanged_keeping_the_offer(self):
+        s = _signals(finding_count=20, register="https://x/issues")
+        first = boot._relay_lines(s)                                    # no ledger -> full (neutral)
+        self.assertTrue(any("20 open engine finding" in l and "still" not in l.lower() for l in first))
+        second = boot._relay_lines(s)                                   # same condition -> terse
+        terse = [l for l in second if "finding" in l][0]
+        self.assertIn("still", terse.lower())
+        self.assertIn("review", terse.lower())                          # the offer is kept
+        self.assertIn("issues", terse)                                  # the register link is kept
+
+    def test_findings_worsening_relays_full_with_the_worse_label(self):
+        boot._relay_lines(_signals(finding_count=20, register="u"))     # seed
+        boot._relay_lines(_signals(finding_count=20, register="u"))     # collapse
+        worse = boot._relay_lines(_signals(finding_count=25, register="u"))
+        line = [l for l in worse if "finding" in l][0]
+        self.assertNotIn("still", line.lower())
+        self.assertIn("grown", line.lower())                            # the lexical "got worse" signal
+
+    def test_findings_improvement_relays_full_not_a_stale_still(self):
+        boot._relay_lines(_signals(finding_count=20, register="u"))     # seed
+        better = boot._relay_lines(_signals(finding_count=17, register="u"))
+        line = [l for l in better if "finding" in l][0]
+        self.assertIn("17", line)                                       # the new (lower) number is shown
+        self.assertNotIn("still", line.lower())                         # never collapsed to a stale count
+
+    def test_gate_alarm_collapses_keeping_consequence_and_fix(self):
+        s = _signals(gate="off", reason="no required checks")
+        boot._relay_lines(s)                                            # seed (full)
+        line = [l for l in boot._relay_lines(s) if "gate" in l.lower()][0]
+        self.assertIn("still", line.lower())
+        self.assertIn("re-enabling", line.lower())                      # the fix offer is kept
+        self.assertIn("main", line.lower())                            # the consequence is kept
+
+    def test_degrade_loud_tells_never_collapse(self):
+        # a couldn't-verify gate and a refused cursor always render full, even on repeat (never softened)
+        for over in (dict(gate="unknown"), dict(refused=True)):
+            boot._relay_lines(_signals(**over))
+            again = boot._relay_lines(_signals(**over))
+            self.assertFalse(any("unchanged since last session" in l.lower() for l in again),
+                             f"{over} must never collapse (degrade-loud)")
+
+    def test_present_marker_never_collapses(self):
+        # the #313 grounding invariant: the marker line is independent of the ledger and names the alarm
+        # every session, even as the relay behind it collapses.
+        s = _signals(finding_count=7, register="u")
+        boot._relay_lines(s); boot._relay_lines(s)                      # the relay collapses on the repeat
+        self.assertEqual(boot.present_marker_line(s),
+                         f"⚠ {boot.PRESENT_MARKER}: 7 open engine finding(s) to review")
+
+    def test_all_clear_never_collapses(self):
+        self.assertEqual(boot._relay_lines(_signals(gate="on")), [])    # no eligible alarms -> empty relay
+        self.assertEqual(boot.present_marker_line(_signals(gate="on")),
+                         f"{boot.PRESENT_MARKER}: all clear")
+
+    def test_hook_path_collapses_but_the_fresh_pack_cli_does_not(self):
+        with mock.patch.object(boot, "gather_signals", return_value=_signals(gate="off", reason="x")):
+            first = boot.assemble_pack(use_ledger=True)                 # the real hook path
+            second = boot.assemble_pack(use_ledger=True)
+            fresh = boot.assemble_pack()                                # the `pack` debug CLI (no ledger)
+        self.assertIn("their safety gate is off", first)               # full on first
+        self.assertIn("still off", second.lower())                     # terse on the repeat
+        self.assertIn("their safety gate is off", fresh)               # the fresh render never collapses
+        self.assertNotIn("still off", fresh.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

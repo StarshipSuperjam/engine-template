@@ -1617,7 +1617,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:12081f0b490e3af442057b7f9aba10904a887af90488cf10b471df9b1ce358ce",
+        "fingerprint": "sha256:550dd5249605b5879afadcdfda7e115a1d5531a43380e2e9dd0db681a718ab73",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -1818,7 +1818,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:3b419584fa757e9c16476c150e80daa6ecad058ab4e0b32760613e24148f909b",
+        "fingerprint": "sha256:26c956a5ffd485ba9c1ec3001d21ea2791560f9a24365ab973aad4eee9f395ed",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -3102,8 +3102,25 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:23c6949ef4987c0e02c5c24d476e966e80fcb6ec33a2765d9699f1cc7886eaa6",
+        "fingerprint": "sha256:e54dc54b7f4f10d4ed70a7e9f1b2508179f38f3933c78fc6d0e1e69aa9b1c188",
         "path": ".engine/tools/boot.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:boot_alarm_ledger",
+      "name": ".engine/tools/boot_alarm_ledger.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "boot_alarm_ledger",
+      "source": {
+        "fingerprint": "sha256:29ad6556892abcaba33dccf3cfa15a4b791804c5f3800c457ed7e6d04aadc2da",
+        "path": ".engine/tools/boot_alarm_ledger.py"
       },
       "status": "active",
       "type": "tool"
@@ -3342,6 +3359,23 @@
       "source": {
         "fingerprint": "sha256:9f21ca05b4b426582fde412fc1ee22f1cd6b337ef415f8eaafa245b3bcf1ae3d",
         "path": ".engine/tools/demo_audit_soft_findings.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_boot_alarm_collapse",
+      "name": ".engine/tools/demo_boot_alarm_collapse.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_boot_alarm_collapse",
+      "source": {
+        "fingerprint": "sha256:9c4fb03f9160e42e631e026c34d813afa2212f87256884ae0fa317ede8d93e57",
+        "path": ".engine/tools/demo_boot_alarm_collapse.py"
       },
       "status": "active",
       "type": "tool"
@@ -4615,8 +4649,25 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f3c01924899a0708ea14aa6fd43164d77352b14081448984ae073b81b9ad20fa",
+        "fingerprint": "sha256:4ff22bcc862b006a76cbaffe4750e220d94d25e847088e0293860309dcb289cf",
         "path": ".engine/tools/test_boot.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_boot_alarm_ledger",
+      "name": ".engine/tools/test_boot_alarm_ledger.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_boot_alarm_ledger",
+      "source": {
+        "fingerprint": "sha256:28b097225000489077fdceef53899def8a1d455a5ed887f326747286c2695f80",
+        "path": ".engine/tools/test_boot_alarm_ledger.py"
       },
       "status": "active",
       "type": "tool"
