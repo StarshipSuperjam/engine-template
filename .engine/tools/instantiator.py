@@ -241,10 +241,11 @@ FALLBACK_COPY = {
     "claude-floor-seeded": (
         "This project started from a template, and its working guide — the CLAUDE.md at the top — arrived "
         "carrying the template's own setup notes, which are about building the template itself, not your "
-        "project. I've replaced it with the engine's working guide for YOUR project. I keep this file current "
-        "as the engine updates, so the part that's yours to shape — how you like me to work with you — lives in "
-        "your codes of conduct instead: change it any time with /engine-conduct. I didn't do this silently — "
-        "this note is me telling you."
+        "project. I've replaced it with the engine's working guide for YOUR project, kept inside a clearly "
+        "marked block I keep current as the engine updates — so if you open that file and see the marker "
+        "lines around it, that part is mine to maintain, not something you need to edit. The part that's "
+        "yours to shape — how you like me to work with you — lives in your codes of conduct instead: change "
+        "it any time with /engine-conduct. I didn't do this silently — this note is me telling you."
     ),
     "conduct-seeded": (
         "This project came set up with a starting set of codes of conduct — short notes on how you like me "
@@ -861,6 +862,10 @@ def _seed_license(say, copy=None) -> str:
 _CONSTRUCTION_CLAUDE_MARKER = "construction governance"
 _ROOT_CLAUDE_REL = "CLAUDE.md"
 _DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
+# The floor is written as a keyed, comment-fenced engine section (the Markdown/HTML style) so it can later
+# co-exist inside a brownfield operator's own CLAUDE.md and be keyed-merged on upgrade rather than
+# replaced wholesale (repository-topology law 1; #234). Same fence id the upgrade overlay's keyed-merge uses.
+_FLOOR_FENCE = "floor"
 
 
 def _is_construction_claude(text) -> bool:
@@ -918,11 +923,18 @@ def _seed_deployed_floor(say, copy=None) -> str:
         return "present"                          # floor unreadable -> never strand: keep the existing file
     if not floor.strip():
         return "present"                          # no floor source to swap in -> preserve (never strand)
+    floor_lines = floor.split("\n")
+    if floor_lines and floor_lines[-1] == "":
+        floor_lines = floor_lines[:-1]            # drop the trailing-newline empty element; fence re-terminates
     try:
+        # Write the floor wrapped in the engine `floor` fence (greenfield converges on the keyed model the
+        # upgrade keyed-merge and brownfield coexistence both use). The whole file is the engine block on
+        # greenfield; on a brownfield arrival (#234 6b) the same fence is inserted into the operator's file.
+        fenced = wiring.fence_apply("", _FLOOR_FENCE, floor_lines, style=wiring.MD_FENCE)
         with open(claude_path, "w", encoding="utf-8") as fh:
-            fh.write(floor)
+            fh.write(fenced)
         os.remove(floor_path)                     # consume the now-redundant source
-    except OSError:
+    except (OSError, wiring.WiringError):
         return "skipped"
     if copy is not None:
         say(copy["claude-floor-seeded"])
@@ -1739,8 +1751,10 @@ def _apply_demo() -> int:
             confirm([], "solo", engine_release="1.0.0", handle="acme-dev")
             apply(announce=lambda t: None, uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
                   control_transport=_approve_transport(), **common)
-            swapped = _read_text_or(claude, "") == floor_text and not os.path.exists(floor_src)
-            second_pass = _seed_deployed_floor(say=lambda t: None)   # CLAUDE.md is now the floor → nothing matches
+            now = _read_text_or(claude, "")         # the floor, wrapped in the engine `floor` fence (6a)
+            swapped = (wiring.fence_present(now, _FLOOR_FENCE, style=wiring.MD_FENCE)
+                       and floor_text.rstrip("\n") in now and not os.path.exists(floor_src))
+            second_pass = _seed_deployed_floor(say=lambda t: None)   # CLAUDE.md is now the fenced floor → no match
         print(f"    → greenfield: the slot held the engine's own build file (construction file present: "
               f"{had_construction}); the deployed floor is now your CLAUDE.md and the redundant copy is gone "
               f"(swapped: {swapped}); a second setup pass changes nothing (no-op: {second_pass == 'present'}).")
@@ -2011,9 +2025,12 @@ def _shared_state(rel: str, path: str) -> str:
             return "empty"
         return "resume" if _json_has_engine_entry(rel, data) else "additive"
     if rel == "CLAUDE.md":
-        # Presence-only: the engine has no CLAUDE.md section shape yet (it currently ships a whole file), so
-        # we do not invent a marker — a pre-existing project guide is an additive overlap to surface. The
-        # concrete coexistence mechanism (so a resume stops re-flagging) is a deferred brownfield-arrival owe.
+        # Presence-only for now: the engine's CLAUDE.md section shape IS the `floor` fence (wiring.MD_FENCE),
+        # added in #234 slice 6a, but the FENCE-AWARE detection here — distinguishing an already-present engine
+        # floor ('resume') from a pre-existing project guide ('additive') — lands in 6b alongside this branch's
+        # only live caller (collision_check, still dormant). Until then a pre-existing guide is surfaced as an
+        # additive overlap; nothing live reads this return, so the detection is shaped with its caller, not one
+        # slice ahead of it.
         text = _read_text_opt(path)
         if text is None:
             return "unreadable"

@@ -62,6 +62,13 @@ FENCE_END = "# END engine-managed block: {id}"
 # Stable prefixes used to detect a forged marker in a body line, regardless of id.
 _FENCE_BEGIN_TOKEN = "# BEGIN engine-managed block:"
 _FENCE_END_TOKEN = "# END engine-managed block:"
+# The Markdown/HTML-comment fence style — same BEGIN/END grammar inside an HTML comment, for a keyed
+# engine section in a Markdown file (the root CLAUDE.md floor) where a leading '#' would render as a
+# heading. Selected via the `style=` parameter on the fence primitives; the '#' style stays the default.
+MD_FENCE_BEGIN = "<!-- BEGIN engine-managed block: {id} - do not edit inside -->"
+MD_FENCE_END = "<!-- END engine-managed block: {id} -->"
+_MD_FENCE_BEGIN_TOKEN = "<!-- BEGIN engine-managed block:"
+_MD_FENCE_END_TOKEN = "<!-- END engine-managed block:"
 
 MCP_NAME_PREFIX = "engine-"               # an engine MCP server name is engine-prefixed (module-system 106)
 CLAUDE_PROJECT_DIR = "${CLAUDE_PROJECT_DIR:-.}"  # the literal MCP path form (module-system 155-156); never locally expanded
@@ -118,13 +125,32 @@ def _check_id(fence_id: str) -> None:
 
 # ---- the comment-fenced-block helper (library helper, NOT a wires seam) -----------------------
 
-def _find_fence(lines: list, fence_id: str):
-    """Locate the single well-formed begin..end pair for `fence_id`. Returns (begin_idx, end_idx),
-    or None if absent. Raises WiringError if the fence is malformed (begin-without-end,
+class _FenceStyle:
+    """A comment-fence style: the begin/end line templates (each carrying `{id}`) and the stable
+    begin/end token prefixes used to detect a forged marker in a body line. Two styles ship — the
+    default '#' style (gitignore, CODEOWNERS) and the Markdown/HTML-comment style (the CLAUDE.md floor)."""
+    __slots__ = ("begin", "end", "begin_token", "end_token")
+
+    def __init__(self, begin, end, begin_token, end_token):
+        self.begin = begin
+        self.end = end
+        self.begin_token = begin_token
+        self.end_token = end_token
+
+
+HASH_FENCE = _FenceStyle(FENCE_BEGIN, FENCE_END, _FENCE_BEGIN_TOKEN, _FENCE_END_TOKEN)
+MD_FENCE = _FenceStyle(MD_FENCE_BEGIN, MD_FENCE_END, _MD_FENCE_BEGIN_TOKEN, _MD_FENCE_END_TOKEN)
+# A body line that forges EITHER style's marker is refused regardless of the active style (defense-in-depth).
+_ALL_FENCE_STYLES = (HASH_FENCE, MD_FENCE)
+
+
+def _find_fence(lines: list, fence_id: str, style: _FenceStyle = HASH_FENCE):
+    """Locate the single well-formed begin..end pair for `fence_id` in `style`. Returns (begin_idx,
+    end_idx), or None if absent. Raises WiringError if the fence is malformed (begin-without-end,
     orphan-end, duplicate-begin, begin-after-end, nesting) — the caller then leaves the file
     UNCHANGED and flags, never guessing a boundary and never deleting to EOF."""
-    begin = FENCE_BEGIN.format(id=fence_id)
-    end = FENCE_END.format(id=fence_id)
+    begin = style.begin.format(id=fence_id)
+    end = style.end.format(id=fence_id)
     begins = [i for i, ln in enumerate(lines) if ln == begin]
     ends = [i for i, ln in enumerate(lines) if ln == end]
     if not begins and not ends:
@@ -137,11 +163,12 @@ def _find_fence(lines: list, fence_id: str):
         f"unchanged. Remove the stray marker line(s) and re-run.")
 
 
-def fence_apply(text: str, fence_id: str, body_lines: list) -> str:
-    """Insert-iff-absent / replace-only-as-a-block. If the keyed fence is absent, append a fresh
-    block; if present, replace only its body between its own markers. Bytes OUTSIDE the fence —
-    including an operator line identical to a body line — are never touched. Idempotent: an
-    identical re-apply returns identical text. (module-system 108-109, 117; provisioning 254.)"""
+def fence_apply(text: str, fence_id: str, body_lines: list, *, style: _FenceStyle = HASH_FENCE) -> str:
+    """Insert-iff-absent / replace-only-as-a-block, in `style` (default '#'; the CLAUDE.md floor uses
+    MD_FENCE). If the keyed fence is absent, append a fresh block; if present, replace only its body
+    between its own markers. Bytes OUTSIDE the fence — including an operator line identical to a body
+    line — are never touched. Idempotent: an identical re-apply returns identical text.
+    (module-system 108-109, 117; provisioning 254.)"""
     _check_id(fence_id)
     body = list(body_lines)
     for bl in body:
@@ -150,11 +177,12 @@ def fence_apply(text: str, fence_id: str, body_lines: list) -> str:
         if "\n" in bl or "\r" in bl:
             raise WiringError("refused: a line to add contains a line break.")
         stripped = bl.strip()
-        if stripped.startswith(_FENCE_BEGIN_TOKEN) or stripped.startswith(_FENCE_END_TOKEN):
+        if any(stripped.startswith(s.begin_token) or stripped.startswith(s.end_token)
+               for s in _ALL_FENCE_STYLES):
             raise WiringError("refused: a line to add would forge an engine fence marker.")
     lines = text.split("\n")
-    span = _find_fence(lines, fence_id)
-    block = [FENCE_BEGIN.format(id=fence_id)] + body + [FENCE_END.format(id=fence_id)]
+    span = _find_fence(lines, fence_id, style)
+    block = [style.begin.format(id=fence_id)] + body + [style.end.format(id=fence_id)]
     if span is not None:
         b, e = span
         return "\n".join(lines[:b] + block + lines[e + 1:])
@@ -165,17 +193,25 @@ def fence_apply(text: str, fence_id: str, body_lines: list) -> str:
     return "\n".join(lines + block + [""])   # terminate the final line, then append (content preserved)
 
 
-def fence_reverse(text: str, fence_id: str) -> str:
-    """Remove ONLY the named fence's begin..end span; leave every other line byte-identical.
+def fence_reverse(text: str, fence_id: str, *, style: _FenceStyle = HASH_FENCE) -> str:
+    """Remove ONLY the named fence's begin..end span (in `style`); leave every other line byte-identical.
     No-op if the fence is absent. Raises WiringError (→ leave unchanged + flag) if malformed —
     NEVER deletes to EOF on an unterminated fence."""
     _check_id(fence_id)
     lines = text.split("\n")
-    span = _find_fence(lines, fence_id)
+    span = _find_fence(lines, fence_id, style)
     if span is None:
         return text
     b, e = span
     return "\n".join(lines[:b] + lines[e + 1:])
+
+
+def fence_present(text: str, fence_id: str, *, style: _FenceStyle = HASH_FENCE) -> bool:
+    """True iff a well-formed `fence_id` fence of `style` is present. Reuses _find_fence: absent → False;
+    a well-formed span → True; malformed → WiringError (so the caller degrades and leaves the file
+    unchanged rather than guessing a boundary)."""
+    _check_id(fence_id)
+    return _find_fence(text.split("\n"), fence_id, style) is not None
 
 
 CODEOWNERS_FENCE = "codeowners"
