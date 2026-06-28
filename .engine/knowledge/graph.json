@@ -3941,7 +3941,7 @@
       },
       "slug": "milestone_emit",
       "source": {
-        "fingerprint": "sha256:2943703649121fe6bc2506dc28d572f10dce5bde7981f89d9fdaabcbeb53b2f1",
+        "fingerprint": "sha256:9d3717c2831dbc9087a9c7a43188bea6dfeb4a0b9a10868f8e5c2079b931fe8f",
         "path": ".engine/tools/milestone_emit.py"
       },
       "status": "active",
@@ -5131,7 +5131,7 @@
       },
       "slug": "test_milestone_emit",
       "source": {
-        "fingerprint": "sha256:2d5416d4761475a1047df99b72ae924619a59e02287ee413e43f4737ff1dc2fc",
+        "fingerprint": "sha256:7eaf05aafe7d7f403881dfc32aeb4c92c2bc40f64fdd79a759d40bedec8d895b",
         "path": ".engine/tools/test_milestone_emit.py"
       },
       "status": "active",

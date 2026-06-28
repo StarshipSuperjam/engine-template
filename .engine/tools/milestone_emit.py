@@ -60,10 +60,13 @@ def derive_phases(text: str) -> list:
     """The ordered, de-duplicated, trimmed list of phase names from a build order's table. PURE — a string in,
     a list out, no IO. The build order is a markdown pipe table `| Phase | Capability | Doc |`; we take the
     first column (Phase), preserve first-appearance order, and drop blanks, the header row, and the
-    `| --- | --- |` separator row. Minimal on purpose: a CORE tool must not import the OPTIONAL product-design
-    parser (see the module docstring), so it re-derives this trivial parse itself."""
+    `| --- | --- |` separator row. The header is dropped by POSITION (the first table row), not by matching the
+    word "Phase" — so a real phase a build order happens to name "Phase" is not silently lost. Minimal on
+    purpose: a CORE tool must not import the OPTIONAL product-design parser (see the module docstring), so it
+    re-derives this trivial parse itself."""
     phases: list = []
     seen: set = set()
+    header_skipped = False
     for raw in text.splitlines():
         line = raw.strip()
         if not line.startswith("|"):
@@ -72,9 +75,10 @@ def derive_phases(text: str) -> list:
         if not cells:
             continue
         first = cells[0]
-        if first.lower() == "phase" or first == "":      # the header row, or an empty first cell
+        if not header_skipped:                           # the first table row is the column header (by position)
+            header_skipped = True
             continue
-        if set(first) <= set("-: "):                     # a separator row like | --- | :--: |
+        if not first or set(first) <= set("-: "):        # an empty first cell, or a | --- | :--: | separator row
             continue
         if first not in seen:
             seen.add(first)

@@ -106,6 +106,13 @@ class DerivePhasesTests(unittest.TestCase):
         text = "| Phase | Capability | Doc |\n| --- | --- | --- |\n| 1 | A | [a](a.md) |\n"
         self.assertEqual(milestone_emit.derive_phases(text), ["1"])
 
+    def test_a_data_phase_literally_named_phase_is_not_dropped(self):
+        # The header is skipped by POSITION (the first table row), not by matching the word "Phase", so a real
+        # phase a build order happens to name "Phase" survives — it is not mistaken for the column header.
+        text = ("| Phase | Capability | Doc |\n| --- | --- | --- |\n"
+                "| Phase | Login | [x](x.md) |\n| Real | Y | [y](y.md) |\n")
+        self.assertEqual(milestone_emit.derive_phases(text), ["Phase", "Real"])
+
 
 class ReadBuildOrderTests(unittest.TestCase):
     def _root_with(self, body):
