@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:9039b8b7d994ffb0b5ed14dae26ba63e4d11e340e466ee1a5ac5e5a44fd687fa",
+        "fingerprint": "sha256:db61752875aee85771221c9ec343f6f1e4e4d96193ad389be6b166320763c514",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -3068,7 +3068,7 @@
       },
       "slug": "audit_soft_findings",
       "source": {
-        "fingerprint": "sha256:f599c4650ecfede4b78533e4f4c820ec4603cc9b85b36b6009e28c6b3c833832",
+        "fingerprint": "sha256:c1a61ef165cab0fca83933805b4a09c85d9f787d9718b27c8eff70fb44f0c192",
         "path": ".engine/tools/audit_soft_findings.py"
       },
       "status": "active",
@@ -4564,7 +4564,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:994012186b5d68c195dee109450ec3290ba3fe45062437e31f40731bbda3ffea",
+        "fingerprint": "sha256:2207d6bcf47da39e2f461caa5178ec64fdd450dcbe864fe253bf746bd0c17010",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -4581,7 +4581,7 @@
       },
       "slug": "test_audit_soft_findings",
       "source": {
-        "fingerprint": "sha256:ee80c2b314474c60dcc78cf9a73d04d5aa3a363e041a7b4bfba70b07e3ff5028",
+        "fingerprint": "sha256:874924a2957cedca632e010dcf6a52f801e1f2a86d81c2e47274ce0cdd32fb96",
         "path": ".engine/tools/test_audit_soft_findings.py"
       },
       "status": "active",

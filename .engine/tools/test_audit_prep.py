@@ -226,6 +226,39 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn('>> "${GITHUB_ENV}"', text)                    # …hands it to the later memory step
         self.assertLess(text.index("MEMORY_AUDIT_REPO_VISIBILITY"), text.index("audit_digest.py memory"))
 
+    def test_fetches_soft_findings_and_feeds_the_persona(self):
+        # #273 half 2: a SOFT validator finding is otherwise printed to a CI log and discarded. The workflow
+        # collects the firing soft findings (the feed tool) and feeds them into the read-only persona's prompt
+        # between fresh markers, so the audit can finally see a recurring nudge.
+        text = self._text()
+        self.assertIn("audit_soft_findings.py", text)                # the workflow collects the firing soft findings
+        self.assertIn("BEGIN CURRENTLY-FIRING SOFT FINDINGS", text)  # …and feeds them into the persona's prompt
+
+    def test_soft_findings_feed_classifies_by_lane_and_forbids_a_tally(self):
+        # The feed instructs the persona to classify each finding by its two lanes (machinery -> escalate
+        # upstream, local state -> local reconcile) AND respects the no-count principle: recurrence is
+        # corroboration only, never a count/threshold/tally. Pin both so an edit can't drop either.
+        text = self._text()
+        self.assertIn("escalate-upstream", text)
+        self.assertIn("local-reconcile", text)
+        self.assertIn("never as a count, threshold, or 'seen N times' tally", text)
+
+    def test_soft_findings_step_stays_token_less(self):
+        # The feed reads committed files only and needs no GitHub token; pin the step token-less so a future
+        # edit can't quietly hand it creds it doesn't need.
+        text = self._text()
+        start = text.index("Fetch the currently-firing soft validator findings")
+        soft_step = text[start:text.index("- name:", start)]
+        self.assertIn("audit_soft_findings.py", soft_step)           # sanity: this is the soft-findings step
+        self.assertNotIn("GITHUB_TOKEN", soft_step)
+        self.assertNotIn("GH_TOKEN", soft_step)
+
+    def test_soft_findings_step_degrades_in_band_when_the_fetch_fails(self):
+        # Mirrors the other feed steps: if the fetch step itself fails, leave an honest marker so the persona
+        # discloses the gap rather than reading silence as "nothing is firing".
+        text = self._text()
+        self.assertIn("CURRENTLY-FIRING SOFT FINDINGS: could not be read this run (the fetch step failed)", text)
+
 
 if __name__ == "__main__":
     unittest.main()

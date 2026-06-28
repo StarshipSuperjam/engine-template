@@ -52,7 +52,7 @@ class TestSoftFindingsFeed(unittest.TestCase):
         validate.collect = boom
         out = asf.render()
         self.assertIn("could not be read", out)
-        self.assertIn("NOT reviewed", out)
+        self.assertIn("not reviewed", out)
         self.assertNotIn("clean read", out)
 
     def test_forged_fence_marker_in_finding_is_defanged(self):

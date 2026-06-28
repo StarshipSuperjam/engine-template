@@ -42,15 +42,16 @@ def render() -> str:
         # report-only suite does NOT prove the suite evaluated, so the feed must say plainly when
         # it could not be read rather than let the persona read silence as "nothing is firing".
         return ("CURRENTLY-FIRING SOFT FINDINGS: could not be read this run "
-                f"({exc}). Treat this concern as NOT reviewed and say so plainly in your digest; "
+                f"({exc}). Treat this concern as not reviewed and say so plainly in your digest; "
                 "do not read this as 'nothing is firing'.")
     soft = [f for f in findings if f.get("severity") != "hard"]
     if not soft:
         return ("No standing soft validator findings are firing this run — every catalogued "
                 "surface is within its budget and shape. This is a clean read, not a gap.")
     out = ["These non-blocking soft findings are firing right now (each is a nudge, never a merge "
-           "block). Judge which is a genuine standing signal worth surfacing as tracked work and "
-           "which is a benign disclosure:"]
+           "block). Judge which is a genuine signal worth surfacing as tracked work and which is a "
+           "benign disclosure (whether one is genuinely recurring is corroborated from your prior "
+           "digests, not from this single snapshot):"]
     for f in soft:
         msg = validate.defang_prompt_fence_markers(f.get("message", ""))
         loc = f.get("location") or {}
