@@ -46,12 +46,13 @@ short markers the files carry in their frontmatter stay in the files, never on s
 6. **Record the go-ahead and mark it settled.** When the operator is satisfied with a document, record their
    acceptance and mark that document settled in its frontmatter. A settled document is the ground the build
    adapts to; the engine never settles one on its own initiative.
-7. **Tell them where it lives, and be honest about the edge.** Point the operator to `docs/spec/` as the home
-   of their description, and say plainly that a settled document can be reopened later — it just takes a
-   deliberate, recorded change, never a quiet edit. Then name what this does not do yet: turning a settled
-   description into a tracked list of things to build, and keeping a settled one from drifting without the
-   operator's re-approval, come in later steps. Until then a settled description rests on this recorded
-   agreement, not on an automatic guard — say so, so the operator is not left thinking it is enforced for them.
+7. **Tell them where it lives, and how a settled document is protected.** Point the operator to `docs/spec/` as
+   the home of their description, and say plainly that a settled document is not frozen forever — it can be
+   changed or reopened later, but not quietly: when a pull request changes a settled document, the engine asks
+   the operator to confirm the change on that pull request (by applying the `guardrail-ack` label) before it can
+   merge, so the record always shows the change was deliberate, never a silent edit. Then name the one thing
+   this does not do yet: turning a settled description into a tracked list of things to build comes in a later
+   step. Until then the description rests here, settled and checked.
 
 ## Done when
 
@@ -67,6 +68,7 @@ stated and given their go-ahead on every document they consider settled.
 - **Plain words only, on screen.** The operator never sees the short stage markers the files carry or any
   internal engine vocabulary — only plain renders like "not yet described / in progress / settled". The same
   holds for how you report what the check found.
-- **Deferred to later slices (engine-facing):** the lock-integrity re-acceptance check, and the decomposition
-  of a settled spec into a build-plan, ordinary work issues, and milestones, are not built yet; this runbook
-  stops at a settled, checked spec.
+- **Deferred to a later slice (engine-facing):** the decomposition of a settled spec into a build-plan,
+  ordinary work issues, and milestones is not built yet; this runbook stops at a settled, checked spec — now
+  protected, once settled, by the lock-integrity re-acceptance check (a settled document cannot change on a
+  pull request without the operator's `guardrail-ack`).

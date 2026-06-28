@@ -22,8 +22,10 @@ lets you choose, and it leans toward keeping things light unless you ask for mor
 Each piece of your description moves through three plain stages as it matures: **not yet described** (a piece
 you have named but not written up yet), **in progress** (you are writing it), and **settled** (you have looked
 it over and accepted it as the description to build from). Settling something is your decision — the engine
-never settles a description on its own. A settled description is not frozen forever: you can reopen it later;
-it just takes a deliberate, recorded change rather than a quiet edit, so the record always shows what changed.
+never settles a description on its own. A settled description is not frozen forever: you can change or reopen it
+later, but not quietly. When a change touches a settled part of your description, the engine asks you to confirm
+it on the pull request — by applying the `guardrail-ack` label — before it can merge, so the record always shows
+the change was deliberate, never a silent edit.
 
 One thing the engine is careful about: when it checks your description, it is checking that every part is
 *present and well-formed* — not whether the design is *right*. Whether the idea is a good one is your call (and

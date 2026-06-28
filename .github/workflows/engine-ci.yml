@@ -8,7 +8,9 @@ name: engine-ci
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    # `labeled`/`unlabeled` so applying an acknowledgment label (e.g. `guardrail-ack`, the product-design
+    # lock-integrity re-acceptance) re-runs the suite and clears its check without needing a fresh push.
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
 permissions:
   contents: read

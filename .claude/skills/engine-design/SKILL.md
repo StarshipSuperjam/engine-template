@@ -18,6 +18,7 @@ allowed-tools: Bash(uv run *), Bash(gh *)
 
 This is a command the operator types to describe what they want built — it is never started on the engine's
 own initiative. Everything it produces is plain, readable files inside the operator's own project; nothing is
-treated as settled until they say so, and a settled description can always be reopened later. If the project's
-GitHub connection isn't reachable, the runbook still captures the work as committed files and says so, rather
-than stopping.
+treated as settled until they say so, and a settled description can always be changed later — the engine just
+asks the operator to confirm the change on the pull request first (by applying the `guardrail-ack` label), so it
+is never a quiet edit. If the project's GitHub connection isn't reachable, the runbook still captures the work as
+committed files and says so, rather than stopping.

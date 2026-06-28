@@ -1145,6 +1145,31 @@
       "type": "check"
     },
     {
+      "id": "check:product-lock-integrity",
+      "kind": "custom/script",
+      "name": ".engine/check/product-lock-integrity.json",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "product-lock-integrity",
+      "source": {
+        "fingerprint": "sha256:f3a30a2d251e84e7b9798e624923ad43e8f7b4982759645942ec214b16207018",
+        "path": ".engine/check/product-lock-integrity.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:product-spec-form",
       "kind": "custom/script",
       "name": ".engine/check/product-spec-form.json",
@@ -1472,7 +1497,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:d13d4fde2f4780571ce188dc19fc81dffda90efadcec4c60c1e0c87b9ee85fc4",
+        "fingerprint": "sha256:e4a0a31b737a01688df83a85a21472fc36069fa676282dad9ab6f7c752aa6c10",
         "path": ".engine/docs/product-design.md"
       },
       "status": "active",
@@ -1683,7 +1708,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:c32a979395a795ee280da0a088e1dfbbe12e75419562e3827764caf897211699",
+        "fingerprint": "sha256:2193e5d2d1da006d189587cecff7d85ff7f977812ac58f051f9fa3b24ed846c0",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
@@ -2018,7 +2043,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:f7de9defe506eb423c410aa9a0409e357a89cd32eb1bf2d335e422d21cf7e061",
+        "fingerprint": "sha256:c4b66c6f5d92a0313129db5cd80c4e8d474e2d8f15fa3a023cb1b30a8dda77a3",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -2753,7 +2778,7 @@
       },
       "slug": "engine-design",
       "source": {
-        "fingerprint": "sha256:bc8c42bf487520e4ea4910026d43fa0bf40c7e93467b1801fc32accb3b9fbb22",
+        "fingerprint": "sha256:c05cdb1eeb2db9d573a4cc6572ecc6d457fa0501a47f753a7532b6e140891ef5",
         "path": ".claude/skills/engine-design/SKILL.md"
       },
       "status": "active",
@@ -3772,6 +3797,23 @@
       "source": {
         "fingerprint": "sha256:9f1b052bf9c4d6defa6b14de59c01e8d4aa9abd01115ae6f935bdbeac6e0d461",
         "path": ".engine/tools/memory/ledger.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:lock_integrity",
+      "name": ".engine/tools/product_design/lock_integrity.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "lock_integrity",
+      "source": {
+        "fingerprint": "sha256:5438ca1d2501cffe2189fcb4224ecfbfa9fc9625f82bc80d298c39ef8f2375a0",
+        "path": ".engine/tools/product_design/lock_integrity.py"
       },
       "status": "active",
       "type": "tool"
@@ -4950,6 +4992,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_lock_integrity",
+      "name": ".engine/tools/product_design/test_lock_integrity.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "test_lock_integrity",
+      "source": {
+        "fingerprint": "sha256:c6413f715a40b5c0adeb1b2c4c7e530e0a8a17077c68d76d1c19f2d7996f6aa0",
+        "path": ".engine/tools/product_design/test_lock_integrity.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_mcp_server",
       "name": ".engine/tools/memory/test_mcp_server.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -5045,7 +5104,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:0e61f3a78cc5d60318cb089f5ac0b664e55b89812828a4a3c08cd7e8fb858f6e",
+        "fingerprint": "sha256:68e5f4c339d6ea08accc91834f4836e4301b1e6d275b28eff15a64a48b9fecf3",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
