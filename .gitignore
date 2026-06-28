@@ -37,3 +37,6 @@ __pycache__/
 # BEGIN engine-managed block: github-projects-sync-board-config - do not edit inside
 .engine/projects-sync/
 # END engine-managed block: github-projects-sync-board-config
+# BEGIN engine-managed block: core-boot-presentation-ledger - do not edit inside
+.engine/boot/.cache/
+# END engine-managed block: core-boot-presentation-ledger

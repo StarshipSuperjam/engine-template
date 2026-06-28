@@ -8,7 +8,14 @@ exist today, and injects it as `additionalContext` before the first prompt. The 
 the floor (always) + this pack (when the hook runs).
 
 Boot's laws, all load-bearing here (systems/lifecycle/boot/README.md):
-  - READ-ONLY orientation. Boot regenerates NO derived state; it only reads and surfaces.
+  - READ-ONLY OF CANONICAL STATE (D-269). Boot regenerates NO derived or committed state; it reads and
+    surfaces. Its ONE local write is the gitignored, non-canonical standing-alarm presentation ledger
+    (boot_alarm_ledger) — a record of what was already shown, not a regeneration of any canonical state.
+  - ANTI-HABITUATION BY COLLAPSE, NOT SUPPRESSION (D-269). A standing governance alarm renders every
+    session it is live, but one whose structured condition is UNCHANGED since last shown in full collapses
+    to a terse reminder (consequence + fix offer kept); a new/changed/worsened one relays in full. The
+    decision is deterministic in the hook path (_relay_lines -> boot_alarm_ledger.decide), fail-toward-full,
+    never the model. The present-marker line and the all-clear render NEVER collapse.
   - RELAY, NOT DETECT. Boot reuses the substrates' own detection — attention's ranking
     (attention.rank_live, consumed in its given precedence order and NEVER re-ranked), telemetry's
     debt readout, protection_guard's protected-branch evaluation — and renders them. It computes none.
@@ -61,6 +68,7 @@ import validate          # noqa: E402
 import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
 import boot_slice        # noqa: E402  (#37: boot's rung-1 knowledge cache; read() fail-opens to None)
+import boot_alarm_ledger  # noqa: E402  (D-269: the standing-alarm presentation ledger; decide() fail-opens to full)
 import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
 import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-branch evaluation)
@@ -699,40 +707,109 @@ def present_marker_line(s: dict) -> str:
     return f"{PRESENT_MARKER}: all clear"
 
 
-def must_push(s: dict) -> list:
-    """The INFORM-marked items the AI MUST relay to the operator in plain words — the governance-critical
-    alarms and the grounding-failure tell (D-187 must-push set). A fixed relay over detected signals;
-    routine status carries no marker (it is pulled via the status verb)."""
-    items: list[str] = []
+def _pushed_alarms(s: dict) -> list:
+    """The pushed governance set as STRUCTURED alarms — the single source for both must_push (the full
+    lines) and the D-269 collapse decision. Each alarm carries:
+      key         a stable identity (the ledger key);
+      value       the STRUCTURED condition the ledger compares (never the prose) — JSON-able;
+      collapsible whether it is in the D-269 collapse allowlist (a standing governance alarm). The
+                  degrade-loud tells — a couldn't-verify gate and a refused cursor — are NOT collapsible:
+                  they always render full so a grounding/verification failure never softens to a reminder;
+      full        the neutral full INFORM line (first appearance, an improved/changed condition, or any
+                  fail-toward-full fallback);
+      terse       (collapsible only) the one-line reminder when the condition is UNCHANGED since last shown
+                  in full — still names the consequence and still carries the offer to fix;
+      worse       (collapsible only) the full line when the condition has WORSENED (lexically distinct).
+    A fixed relay over detected signals; routine status carries no marker (it is pulled via the status verb)."""
+    alarms: list = []
     if s["gate"] == "off":
-        items.append(
-            f"{RELAY_MARKER} their safety gate is off — `{PROTECTED_BRANCH}` isn't protected, so "
-            f"unreviewed work could reach the main branch ({s['reason']}); it needs re-enabling.")
+        full = (f"{RELAY_MARKER} their safety gate is off — `{PROTECTED_BRANCH}` isn't protected, so "
+                f"unreviewed work could reach the main branch ({s['reason']}); it needs re-enabling.")
+        terse = (f"{RELAY_MARKER} their safety gate is still off (unchanged since last session) — "
+                 f"unreviewed work could still reach `{PROTECTED_BRANCH}`; it still needs re-enabling.")
+        alarms.append({"key": "gate", "value": ["off", s["reason"]], "collapsible": True,
+                       "full": full, "terse": terse, "worse": full})
     elif s["gate"] == "unknown":
-        items.append(
+        alarms.append({"key": "gate", "value": ["unknown", None], "collapsible": False, "full": (
             f"{RELAY_MARKER} the safety gate couldn't be verified (no GitHub access), so they shouldn't "
-            f"assume `{PROTECTED_BRANCH}` is protected — confirm before merging anything important.")
+            f"assume `{PROTECTED_BRANCH}` is protected — confirm before merging anything important.")})
     if s["refused"]:
-        items.append(
+        alarms.append({"key": "refused", "value": True, "collapsible": False, "full": (
             f"{RELAY_MARKER} the engine couldn't read where the project stands, so project status is "
-            f"unknown until it re-grounds.")
+            f"unknown until it re-grounds.")})
     if s["finding_count"]:
-        items.append(
-            f"{RELAY_MARKER} there are {s['finding_count']} open engine finding(s) about the engine's "
-            f"own health to review: {s['register']}")
-    return items
+        full = (f"{RELAY_MARKER} there are {s['finding_count']} open engine finding(s) about the engine's "
+                f"own health to review: {s['register']}")
+        terse = (f"{RELAY_MARKER} there are still {s['finding_count']} open engine finding(s) about the "
+                 f"engine's own health to review (unchanged since last session): {s['register']}")
+        worse = (f"{RELAY_MARKER} there are now {s['finding_count']} open engine finding(s) about the "
+                 f"engine's own health to review — this has grown since last session: {s['register']}")
+        alarms.append({"key": "findings", "value": s["finding_count"], "collapsible": True,
+                       "full": full, "terse": terse, "worse": worse})
+    return alarms
 
 
-def assemble_pack(session_id: str | None = None) -> str:
+def must_push(s: dict) -> list:
+    """The INFORM-marked items the AI MUST relay to the operator in plain words — the FULL (uncollapsed)
+    governance-critical alarms and the grounding-failure tell (D-187 must-push set). This is the fresh
+    render (the `pack` debug CLI and a fresh, ledger-less context); the SessionStart hook path applies the
+    D-269 collapse via _relay_lines instead. A fixed relay over detected signals."""
+    return [a["full"] for a in _pushed_alarms(s)]
+
+
+def _worse(key: str, prior, current) -> bool:
+    """Whether a changed collapse-eligible condition got WORSE (so it relays full with the 'this got worse'
+    wording, never a quiet reminder). Ordered only where 'worse' is meaningful: the open-findings count
+    rising. A gate going on->off is an alarm that was ABSENT last session (no prior entry), so it surfaces
+    as a first-appearance full relay, not a 'worse' transition."""
+    if key == "findings":
+        return isinstance(prior, int) and isinstance(current, int) and current > prior
+    return False
+
+
+def _relay_lines(s: dict) -> list:
+    """The hook-side relay set with the D-269 collapse applied (the deterministic decision lives here, in
+    the hook path — never the model): a collapse-eligible alarm whose structured condition is unchanged
+    since last shown in full renders TERSE; a new/changed one renders full; a worsened one renders the
+    'got worse' full line; the degrade-loud tells always render full. Fail-toward-full: if the ledger could
+    not be read (decide ok=False), every line is the neutral full form, never a misleading 'still'/'worse'."""
+    alarms = _pushed_alarms(s)
+    eligible = [{"key": a["key"], "value": a["value"]} for a in alarms if a["collapsible"]]
+    # Always call decide — even with an empty eligible set — so a now-resolved standing alarm is DROPPED
+    # from the ledger (verified-fixed), never left to wrongly collapse a later recurrence.
+    decision = boot_alarm_ledger.decide(eligible)
+    ok = decision.get("ok", False)
+    results = decision.get("results", {})
+    lines: list = []
+    for a in alarms:
+        if not a["collapsible"]:
+            lines.append(a["full"])
+            continue
+        r = results.get(a["key"], {"outcome": "full", "prior": None})
+        if r.get("outcome") == "collapse":
+            lines.append(a["terse"])
+        elif ok and r.get("prior") is not None and _worse(a["key"], r["prior"], a["value"]):
+            lines.append(a["worse"])
+        else:
+            lines.append(a["full"])
+    return lines
+
+
+def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) -> str:
     """The AI-FACING briefing injected at SessionStart (the operator-presentation relay, D-187/D-188). It
     reaches the MODEL, never the operator's screen — so it tells the AI to (1) render the present-marker
     block first, (2) relay each INFORM line in plain words, (3) surface a brief needs-attention headline;
     the full operator dashboard follows for grounding. The present-marker instruction always names the
     `Project status` token (so the marker is present on every branch), and is emitted BEFORE the dashboard
-    so a dashboard failure can't suppress it. Posture — the protected-branch merge is the real guarantee."""
+    so a dashboard failure can't suppress it. Posture — the protected-branch merge is the real guarantee.
+
+    `use_ledger` (the SessionStart HOOK path) applies the D-269 anti-habituation collapse — an unchanged
+    standing alarm relays terse, a new/worsened one in full — via the deterministic ledger. The `pack`
+    debug CLI leaves it False for a fresh, full render. The present-marker line and the dashboard NEVER
+    collapse: only the must-push relay payload behind the marker varies (boot/README §Anti-habituation)."""
     s = gather_signals(session_id)
     marker = present_marker_line(s)
-    push = must_push(s)
+    push = _relay_lines(s) if use_ledger else must_push(s)
     try:
         dashboard = render_dashboard(s)
     except Exception:
@@ -748,6 +825,15 @@ def assemble_pack(session_id: str | None = None) -> str:
         out.append("2. Relay each of these to the operator in plain language (they are governance-critical "
                    "— do not skip any):")
         out.extend(f"   - {line}" for line in push)
+        # AI-facing collapse contract (D-269; don't relay this line itself). An item phrased "still …
+        # (unchanged since last session)" is a standing one already seen — relay it as the brief reminder
+        # it is; a new or worsened item is stated in full. If a standing alarm has dropped off entirely
+        # since last session, that means the engine re-checked and it is resolved — not that it stopped
+        # watching; say so plainly if the operator asks.
+        out.append("   (An item marked 'still … (unchanged since last session)' is a standing one the "
+                   "operator already saw — relay it as a brief reminder, not a fresh alarm; a new or "
+                   "worsened item is stated in full. An alarm that dropped off since last session means "
+                   "the engine verified it resolved, never that it stopped checking.)")
     else:
         out.append("2. No governance alarm to relay this session.")
     out.append("3. Then surface a brief plain-language headline of anything in the status below that needs "
@@ -788,7 +874,9 @@ def handler(payload: dict) -> dict:
     any unreadable signal, and the merge wall backstops any write that slips that window."""
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     modes.clear_stance(session_id)
-    pack = assemble_pack(session_id)
+    # use_ledger=True: this is the real SessionStart path, so apply the D-269 collapse (an unchanged
+    # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
+    pack = assemble_pack(session_id, use_ledger=True)
     return hooks.inject(pack) if pack else hooks.proceed()
 
 

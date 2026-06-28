@@ -160,6 +160,13 @@
       "lines": [
         ".engine/telemetry/.cache/"
       ]
+    },
+    {
+      "type": "gitignore",
+      "key": "core-boot-presentation-ledger",
+      "lines": [
+        ".engine/boot/.cache/"
+      ]
     }
   ],
   "depends": {}
