@@ -103,6 +103,15 @@ item is the next chunk); the permitted write-scope is recorded alongside it as t
 chunks' declared paths. Both live in the build Issue, authored at Plan, GitHub-native and cold-readable,
 carrying the engine-domain label.
 
+**Grouping product work into phases.** When a build realizes product work and the project carries a committed
+build order (`docs/spec/build-plan.md`, the [product-design](../modules/product-design/manifest.json) module's
+artifact), group the work under native GitHub phases at Plan — the Milestone *is* the plan. Run
+`.engine/tools/milestone_emit.py emit`: it reads the build order and creates one phase per entry, never
+duplicating one on a re-run, then assign each open work Issue to its phase (`gh issue edit <n> --milestone
+<phase>`). The phase names are the build order's own, shown to the operator in plain language — never engine or
+review vocabulary. **Absent a build order there is nothing to consume and the build plans its phase itself.** The
+build order is a consumed input, authored by the module, never here.
+
 ## Done when
 
 A draft pull request was opened as the claim; the plan and result were reviewed to the operator-approved
