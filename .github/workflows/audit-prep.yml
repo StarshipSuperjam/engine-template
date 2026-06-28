@@ -159,6 +159,20 @@ jobs:
             printf '%s\n' "YOUR SAVED MEMORY: I couldn't read your saved memory this run (the fetch step failed). Treat concern #1 as not reviewed and say so plainly; do not claim the project has no saved memory." \
               > "${RUNNER_TEMP}/saved-memory.md"
           fi
+      - name: Fetch the currently-firing soft validator findings for the self-review
+        run: |
+          set -euo pipefail
+          # Issue #273 half 2: a SOFT validator finding (a non-blocking nudge — e.g. a runbook over its line
+          # budget) is otherwise printed to a CI log and discarded, so a recurring one drifts forever,
+          # invisible to this review. The feed tool reads the report-only audit-prep suite (never the CI
+          # gate), keeps soft-severity only, and defangs author-controlled text; the next step feeds it in.
+          # It needs NO token (committed files only), so it carries none. On a tool failure, leave an honest
+          # in-band marker so the persona discloses the gap rather than reading silence as "nothing firing".
+          if ! uv run --directory .engine --frozen -- python tools/audit_soft_findings.py \
+                 > "${RUNNER_TEMP}/soft-findings.md"; then
+            printf '%s\n' "CURRENTLY-FIRING SOFT FINDINGS: could not be read this run (the fetch step failed). Treat this concern as not reviewed and say so plainly in your digest; do not read it as 'nothing is firing'." \
+              > "${RUNNER_TEMP}/soft-findings.md"
+          fi
       - name: Run the read-only self-review and capture its plain-language digest
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -176,6 +190,7 @@ jobs:
           backlog="$(cat "${RUNNER_TEMP}/engine-issues.md")"
           prior="$(cat "${RUNNER_TEMP}/prior-digests.md")"
           saved="$(cat "${RUNNER_TEMP}/saved-memory.md")"
+          soft="$(cat "${RUNNER_TEMP}/soft-findings.md")"
           prompt="Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble.
 
           For concern #1 (stale saved memory), you cannot reach your saved memory yourself; it was read from the project's off-repo backup and follows between the markers. These are the project's CURRENT saved beliefs — notes memory has already set aside are not shown here, so do not read their absence as 'nothing to retire'. Review what you are shown as the operator's saved decisions and notes: do any now contradict each other, has anything you can see refuted one, or is a heavily-used note actually obsolete? If the markers say the backup isn't set up, couldn't be reached, or couldn't be read, treat concern #1 as not reviewed and say so plainly in your digest — and NEVER claim the project has no saved memory; you simply couldn't see it this run.
@@ -191,7 +206,12 @@ jobs:
           For over-time corroboration, your own most recent self-reviews were fetched for you (you cannot reach GitHub yourself) and follow between the markers. Read them ONLY as corroboration — a finding that keeps recurring is likely genuine, not a one-time blip — never as a decision: every keep-it-or-retire-it call still rests on a fresh check you run THIS cycle, and a quiet stretch is never read as gone. When a finding draws on this history, present the fresh check and the over-time note as two separate things. If the markers say there is nothing to compare against, treat this as a review of only what you can see now and say so plainly — never invent a trend.
           ----- BEGIN PRIOR SELF-REVIEWS -----
           ${prior}
-          ----- END PRIOR SELF-REVIEWS -----"
+          ----- END PRIOR SELF-REVIEWS -----
+
+          For the currently-firing soft findings (the non-blocking validator nudges firing right now), you cannot run the validator yourself; the soft findings were collected for you (soft-severity only, author-controlled text defanged) and follow between the markers. A soft finding is otherwise printed to a CI log and discarded, so a recurring one drifts forever — that is the gap you are closing by seeing them. Review them as a concern: judge which is a GENUINE STANDING SIGNAL worth surfacing as tracked work and which is a benign disclosure, and CLASSIFY each by your two lanes — a finding on template machinery is escalate-upstream (a local fix is overlaid away on the next engine update, so it is durable only upstream in engine-template), one on local state is local-reconcile. Lean on your prior self-reviews ONLY as corroboration that a nudge is genuinely recurring rather than a one-time blip — never as a count, threshold, or 'seen N times' tally; the call to surface it rests on the present read, written as a separate thing from the over-time note. If the markers say the findings could not be read, treat this concern as not reviewed and say so plainly; if they say nothing is firing, that is a clean read, not a gap.
+          ----- BEGIN CURRENTLY-FIRING SOFT FINDINGS -----
+          ${soft}
+          ----- END CURRENTLY-FIRING SOFT FINDINGS -----"
           claude -p \
             --agent audit \
             --model "${AUDIT_MODEL}" \
