@@ -235,8 +235,8 @@ FALLBACK_COPY = {
         "You have a rule that decides which teammate is asked to review changes to particular files — "
         "`{rule}` — and it also covers the engine's own files. The engine adds its own such rule so changes to "
         "its files are always sent to you; yours keeps covering everything else. I'm pointing this out so the "
-        "overlap is no surprise. Your choices: add the engine's rule (it takes priority for the engine's "
-        "files) · leave your rules as they are · stop, and decide later."
+        "overlap is no surprise. Your choices: add the engine's rule (so review requests for the engine's files "
+        "always come to you) · leave your rules as they are · stop, and decide later."
     ),
     "collision-none": (
         "Good news — none of your files or settings overlap with what the engine adds. I can set it up "
@@ -449,19 +449,37 @@ def _codeowners_distinct_owners(root: str) -> int:
     return len(owners)
 
 
-def detect_team(*, root: str | None = None, gh_api=None) -> dict:
+def _target_slug(target_root: str):
+    """The owner/repo of an arrival TARGET, read from ITS git remote — NOT the process cwd, which on a
+    brownfield run is the extracted release tree. So every live GitHub side of the arrival (branch protection,
+    native scanning, team detection, the arrival PR) is aimed at the project named by --target, never wherever
+    the tool happened to be launched. None when it can't be read (the dependent steps then degrade and say so)."""
+    import subprocess, re
+    try:
+        out = subprocess.run(["git", "-C", target_root, "remote", "get-url", "origin"],
+                             capture_output=True, text=True, timeout=15, check=False)
+        if out.returncode != 0:
+            return None
+    except Exception:  # noqa: BLE001 — missing binary / timeout / OS error → unknown, degrade
+        return None
+    m = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?/?$", out.stdout.strip())
+    return m.group(1) if m else None
+
+
+def detect_team(*, root: str | None = None, slug: str | None = None, gh_api=None) -> dict:
     """Brownfield team detection (provisioning §identity-and-tokens): does this project already have a team
     reviewing changes? Three READ-ONLY signals — a multi-owner CODEOWNERS (local), an existing required-review
     rule, or an organization-owned repo (both via `gh api`). Any one → a recommendation to use the team tier,
     NEVER a switch (the operator still chooses). Each network signal degrades to 'unknown' (not a false
-    positive) when `gh` can't answer. `gh_api(path) -> parsed-json-or-None` is injectable for tests/the demo.
+    positive) when `gh` can't answer. `slug` is the TARGET's owner/repo (the live caller passes the arrival
+    target's, never the process cwd's); `gh_api(path) -> parsed-json-or-None` is injectable for tests/the demo.
     Returns {detected, reason, signals}."""
     base = root if root is not None else validate.ROOT
     gh = gh_api if gh_api is not None else _gh_api_json
+    slug = slug if slug is not None else boot.repo_slug()
     signals = []
     if _codeowners_distinct_owners(base) > 1:
         signals.append("more than one reviewer is already named in your CODEOWNERS")
-    slug = boot.repo_slug()
     if slug:
         repo = gh(f"repos/{slug}")
         if isinstance(repo, dict) and (repo.get("owner") or {}).get("type") == "Organization":
@@ -2230,7 +2248,8 @@ def _insert_floor(release_tree: str) -> str:
 
 
 def arrive(*, target_root: str, release_tree: str, engine_release: str | None = None,
-           keep=None, tier: str | None = None, handle=None, decide=None, announce=None, opener=None,
+           keep=None, tier: str | None = None, handle=None, decide=None, apply_changes: bool = False,
+           announce=None, opener=None, gh_api=None,
            home_reader=None, settings_path=None, uv_present=None, uv_installer=None, uv_runner=None,
            consent=None, control_transport=None, gh_refresh=None, control_issues=None,
            control_repo=None, control_token=None) -> dict:
@@ -2238,23 +2257,32 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
     product tree and run the SAME instantiator, with the collision check as the one brownfield-only gate. The
     engine isn't on the target yet, so this runs from the EXTRACTED release (`release_tree`, the documented
     bootstrap's temp extraction) and is the SOLE writer to the live tree (`target_root`); ROOT is bound to the
-    target for every write. Order (the consent-before-write discipline): compute the release-derived owned set
-    → READ-ONLY collision check → surface each overlap with its consequence + the three choices, collected via
-    `decide(collision) -> 'accept'|'leave-as-is'|'abort'` (default: surface-and-stop) → ONLY THEN overlay the
-    full release module set (a class-1 'leave-as-is' path is kept, excluded from the overlay) + insert the
-    engine floor into the operator's CLAUDE.md → run confirm → apply → verify → retire unforked → land the
-    arrival as a reviewed PR (via `opener`). ANY 'abort', or a 'leave-as-is' on a shared file the engine needs
-    to function (class 2) or a review rule (class 3), STOPS before the first write — nothing is changed. Every
-    boundary is injectable so tests/the demo run the REAL flow with nothing real touched. Returns a structured
-    result the caller renders in plain language."""
+    target for every write.
+
+    TWO MODES. `apply_changes=False` (the default) is SURFACE-ONLY: it runs the read-only collision check,
+    shows every overlap + the team-tier recommendation, and STOPS — writing nothing, whether or not overlaps
+    were found (so the 'just show me' step is truly read-only even on a clean project). `apply_changes=True`
+    then performs the arrival: per-collision choices via `decide(collision) -> 'accept'|'leave-as-is'|'abort'`
+    (any 'abort', or a 'leave-as-is' on a shared file the engine needs (class 2) or a review rule (class 3),
+    stops BEFORE the first write — a class-1 'leave-as-is' path is kept, excluded from the overlay); then
+    overlay the full release module set, insert the engine floor into the operator's CLAUDE.md, run confirm →
+    apply → verify → retire unforked, and land the arrival as a reviewed PR (via `opener`).
+
+    The TARGET is the single source of truth for every write: the live GitHub side (branch protection, native
+    scanning via apply's control args, team detection, the arrival PR) is aimed at the target's own owner/repo
+    (`control_repo`, else read from the target's git remote — never the process cwd, which is the release tree).
+    Every boundary is injectable so tests/the demo run the REAL flow with nothing real touched. Returns a
+    structured result the caller renders in plain language."""
     say = announce if announce is not None else (lambda text: print(text))
     decide = decide if decide is not None else (lambda c: "abort")
     if not release_tree:
         raise ValueError("arrive needs the extracted engine release tree (release_tree).")
-    result = {"proceeded": False, "stopped_on": None, "reason": None, "collisions": [], "overlaid": [],
-              "floor": None, "tier": None, "team": None, "steps": [], "pr": None}
+    result = {"proceeded": False, "surfaced": False, "stopped_on": None, "reason": None, "collisions": [],
+              "overlaid": [], "floor": None, "tier": None, "team": None, "steps": [], "pr": None}
     with _redirect_root(target_root):
         copy = load_copy()
+        # The target's own owner/repo — the single aim for every live GitHub write (never the process cwd).
+        slug = control_repo if control_repo is not None else _target_slug(target_root)
         # The owned set + the full module id set the engine would deliver — computed with ROOT at the RELEASE
         # tree (module_coherence reads validate.ROOT), then ROOT is restored to the target before any write.
         with _redirect_root(release_tree):
@@ -2268,22 +2296,23 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
         check = collision_check(root=target_root, engine_paths=release_paths, copy=copy)
         result["collisions"] = check["collisions"]
         say(copy["collision-intro"] if check["collisions"] else copy["collision-none"])
-        # (2) Surface each overlap, then the team-tier recommendation — BEFORE any decision, so a surface-only
-        # run (decide → 'abort') still shows the operator everything they need to choose by. Read-only.
+        # (2) Surface each overlap, then the team-tier recommendation. Read-only.
         for c in check["collisions"]:
             say("  • " + c["consequence"])
-        team = detect_team(root=target_root)
+        team = detect_team(root=target_root, slug=slug, gh_api=gh_api)
         result["team"] = team
         if team.get("detected") and (tier or "solo") != "team":
             say(copy["team-recommended"])
+        result["surfaced"] = True
+        # SURFACE-ONLY stops here — nothing is written, whether or not overlaps were found.
+        if not apply_changes:
+            return {**result, "reason": "showed the overlaps, read-only — nothing was changed."}
         # (3) Collect the operator's per-collision choice and decide whether to proceed. Any 'abort' stops.
         # 'leave-as-is' on a class-1 (engine-exclusive) path is honored — that path is kept, excluded from the
         # overlay. 'leave-as-is' on a class-2 shared file the engine needs to function, or a class-3 review
-        # rule, stops (the engine never half-installs): accept it to go on, or sort it out and run the arrival
-        # again. Nothing is written until this passes.
+        # rule, stops (the engine never half-installs). Nothing is written until this passes.
         exclude = set()
-        decisions = [(c, decide(c)) for c in check["collisions"]]
-        for c, choice in decisions:
+        for c, choice in [(c, decide(c)) for c in check["collisions"]]:
             if choice == "abort":
                 return {**result, "stopped_on": f"class{c['klass']}",
                         "reason": "you chose to stop, so the arrival stopped and nothing was changed."}
@@ -2303,12 +2332,13 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
             return {**result, "stopped_on": "overlay", "reason": ur.reason}
         # (5) INSERT the engine floor into the operator's own CLAUDE.md (keyed, append-when-absent).
         result["floor"] = _insert_floor(release_tree)
-        # (6) Run the SAME instantiator: confirm (the checkpoint) → apply → verify → retire.
+        # (6) Run the SAME instantiator: confirm (the checkpoint) → apply → verify → retire. The control-plane
+        # args carry the TARGET's slug so branch protection + native scanning land on the target, not the cwd.
         confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle)
         applied = apply(announce=say, home_reader=home_reader, settings_path=settings_path,
                         uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
                         consent=consent, control_transport=control_transport, gh_refresh=gh_refresh,
-                        control_issues=control_issues, control_repo=control_repo,
+                        control_issues=control_issues, control_repo=slug,
                         control_token=control_token, handle=handle)
         result["steps"] = applied.get("steps", [])
         result["tier"] = tier or "solo"
@@ -2322,15 +2352,14 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
             return {**result, "proceeded": True,
                     "reason": "the engine is installed but a consistency check did not pass, so the one-time "
                               "setup files were left in place; fix the cause and run the arrival again."}
-        # (7) Land the arrival as a reviewed pull request (the merge wall; the operator approves it).
+        # (7) Land the arrival as a reviewed pull request on the TARGET (the merge wall; the operator approves).
         if opener is not None:
-            ident = derive_identity(target_root)
             title = "Add the engine to this project"
             body = ("This pull request adds the engine to the project: its files are placed in their own "
                     "namespaced corners, any overlap with the project's own files was surfaced and settled, "
                     "and the engine's working guide was added to CLAUDE.md alongside the project's own content. "
                     "Merging it turns on the review gate; reverting it removes the engine again.")
-            result["pr"] = opener(branch="engine-arrival", title=title, body=body)
+            result["pr"] = opener(branch="engine-arrival", title=title, body=body, repo=slug)
         result["proceeded"] = True
     return result
 
@@ -2379,8 +2408,13 @@ def _build_collision_fixture(root: str, *, populated: bool) -> None:
 
 
 def _plant_engine_entries(root: str) -> None:
-    """Model the engine already wired into the shared files (a resume): an engine-managed block in .gitignore
-    and an engine query server in .mcp.json — so those overlaps no longer flag on a re-run."""
+    """Model the engine already wired into the shared files (a resume): an engine-managed block in .gitignore, an
+    engine query server in .mcp.json, an engine hook in settings.json, and the engine `floor` fence in CLAUDE.md
+    — so those overlaps no longer flag on a re-run."""
+    claude = os.path.join(root, "CLAUDE.md")
+    with open(claude, "w", encoding="utf-8") as fh:
+        fh.write(wiring.fence_apply(_read_text_opt(claude) or "", _FLOOR_FENCE,
+                                    ["Project status block."], style=wiring.MD_FENCE))
     with open(os.path.join(root, ".gitignore"), "a", encoding="utf-8") as fh:
         fh.write(wiring.FENCE_BEGIN.format(id="core-knowledge-cache") + "\n.engine/knowledge/.cache/\n"
                  + wiring.FENCE_END.format(id="core-knowledge-cache") + "\n")
@@ -2462,7 +2496,7 @@ def _demo_collisions() -> int:
         before = _shared_paths_flagged(collision_check(root=tmp, engine_paths=engine_paths, copy=copy))
         _plant_engine_entries(tmp)
         after = _shared_paths_flagged(collision_check(root=tmp, engine_paths=engine_paths, copy=copy))
-        settled = {".gitignore", ".mcp.json", ".claude/settings.json"}
+        settled = {".gitignore", ".mcp.json", ".claude/settings.json", "CLAUDE.md"}
         print(f"    → shared-file overlaps first time: {sorted(before)}")
         print(f"    → after the engine has settled its part: {sorted(after)} — the settled files no longer "
               f"re-flag ({settled.isdisjoint(after)}).")
@@ -2537,7 +2571,7 @@ def arrival_demo() -> bool:
     faked = dict(home_reader=lambda: {}, uv_present=lambda: None,
                  uv_installer=lambda: "uv", uv_runner=lambda uv, g: True,
                  consent=lambda kind: True, control_transport=_approve_transport(),
-                 gh_refresh=lambda s: True, control_issues=_FakeIssues(),
+                 gh_refresh=lambda s: True, control_issues=_FakeIssues(), gh_api=lambda path: None,
                  control_repo="you/your-project", control_token="demo-token")
 
     # — ACCEPT: the engine arrives, surfacing every overlap and keeping the project's own content.
@@ -2550,7 +2584,7 @@ def arrival_demo() -> bool:
         before_guide = _read_text_or(os.path.join(target, "CLAUDE.md"), "")
         prs = []
         res = arrive(target_root=target, release_tree=release, engine_release="v1.2.3",
-                     keep=[], tier="team", handle="you", decide=lambda c: "accept",
+                     keep=[], tier="team", handle="you", decide=lambda c: "accept", apply_changes=True,
                      announce=quiet, opener=lambda **kw: prs.append(kw) or {"number": 1}, **faked)
         guide = _read_text_or(os.path.join(target, "CLAUDE.md"), "")
         floors = guide.count(wiring._MD_FENCE_BEGIN_TOKEN)
@@ -2585,7 +2619,7 @@ def arrival_demo() -> bool:
         snap = {p: _read_text_or(os.path.join(target, p), "")
                 for p in ("CLAUDE.md", ".gitignore", ".github/CODEOWNERS")}
         prs = []
-        res = arrive(target_root=target, release_tree=release, decide=lambda c: "abort",
+        res = arrive(target_root=target, release_tree=release, decide=lambda c: "abort", apply_changes=True,
                      announce=quiet, opener=lambda **kw: prs.append(kw) or {"number": 1}, **faked)
         after = {p: _read_text_or(os.path.join(target, p), "") for p in snap}
         no_engine = not os.path.isdir(os.path.join(target, ".engine"))
@@ -2683,10 +2717,10 @@ def main(argv: list) -> int:
         return 1 if res.get("refused") else 0
     if argv and argv[0] == "arrive":
         # BROWNFIELD ARRIVAL — run from the EXTRACTED release against a live project (--target). Without
-        # --accept-all the run is surface-and-stop: it shows every overlap, read-only, and changes nothing, so
-        # the operator can review them first. With --accept-all (after that review) it overlays the engine,
-        # inserts the floor, runs setup, and opens the arrival as a reviewed pull request. The release tree
-        # defaults to this extracted engine's own root.
+        # --accept-all the run is SURFACE-ONLY: it shows every overlap, read-only, and changes nothing (even on
+        # a clean project), so the operator can review first. With --accept-all (after that review) it overlays
+        # the engine, inserts the floor, runs setup, and opens the arrival as a reviewed pull request. The
+        # release tree defaults to this extracted engine's own root.
         target = _flag_value(argv, "--target") or os.getcwd()
         release = _flag_value(argv, "--release-tree") or validate.ROOT
         keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
@@ -2696,8 +2730,13 @@ def main(argv: list) -> int:
         accept_all = "--accept-all" in argv
         decide = (lambda c: "accept") if accept_all else (lambda c: "abort")
         opener = module_manager._open_upgrade_pr if accept_all else None
-        res = arrive(target_root=target, release_tree=release, engine_release=ref, keep=keep, tier=tier,
-                     handle=handle, decide=decide, opener=opener)
+        try:
+            res = arrive(target_root=target, release_tree=release, engine_release=ref, keep=keep, tier=tier,
+                         handle=handle, decide=decide, apply_changes=accept_all, opener=opener)
+        except Exception as exc:  # noqa: BLE001 — a live write to someone's project must never end in a raw
+            print(f"The arrival hit an unexpected problem and stopped: {exc}. Check the project's working "  # traceback
+                  "tree, undo any partial change with git if needed, and run the arrival again.")
+            return 1
         if res["proceeded"]:
             print(res.get("reason") or "The engine arrived: its files are in place, every overlap was "
                   "settled, and the change is open for you to review and approve.")
@@ -2705,9 +2744,15 @@ def main(argv: list) -> int:
         if res.get("stopped_on") in ("release", "overlay"):
             print(res.get("reason"))
             return 1
-        # Surface-only (no --accept-all): every overlap was shown, read-only, nothing changed.
-        print("Those are the overlaps. Review them with the owner, then run `arrive --accept-all` to go on "
-              "(or keep anything you want by sorting it out first, then run the arrival again).")
+        if res.get("stopped_on"):                       # an --accept-all run the operator stopped at an overlap
+            print(res.get("reason"))
+            return 0
+        # Surface-only (no --accept-all): everything was shown, read-only, nothing changed.
+        if res["collisions"]:
+            print("Those are the overlaps. Review them with the owner, then run `arrive --accept-all` to go on "
+                  "(or keep anything you want by sorting it out first, then run the arrival again).")
+        else:
+            print("No overlaps — the engine can be added cleanly. Run `arrive --accept-all` to add it.")
         return 0
     if argv and argv[0] == "collision-check":
         # The overlap check's LIVE caller is `arrive` (brownfield arrival, #234). Run on its own in THIS

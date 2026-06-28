@@ -23,13 +23,15 @@ local copy on the project, which the engine retires after setup.
    the supply-chain control — and extract it to a temporary folder outside the project. This gives you the
    engine's tools to run; it does not yet touch the project.
 2. **Check for overlaps — read-only, before anything is changed.** From the extracted release, run
-   `python3 <release>/.engine/tools/instantiator.py arrive --target <project-path>`. It reads the project and
-   changes nothing, and reports each place the engine and the project would overlap, in plain language: what the
-   engine would do, what the owner keeps or loses, and the choices — accept, leave it as is, or stop. It also
-   notes if the project already has a team reviewing changes, and recommends the team setup if so.
+   `python3 <release>/.engine/tools/instantiator.py arrive --target <project-path>`. Without `--accept-all`
+   this is read-only: it changes nothing — whether or not it finds overlaps — and reports each place the engine
+   and the project would overlap, in plain language: what the engine would do, what the owner keeps or loses,
+   and the choices — accept, leave it as is, or stop. It also notes if the project already has a team reviewing
+   changes, and recommends the team setup if so.
 3. **Review the overlaps with the owner.** For each overlap, state the consequence and let the owner decide. If
    the owner wants to keep something the engine would otherwise place, sort that out first (for example, move
-   their file, or settle on the team or solo setup). Nothing has been changed at this point.
+   their file, or settle on the team or solo setup). If the check found no overlaps, there is nothing to settle
+   — go straight to the next step. Nothing has been changed at this point.
 4. **Add the engine.** Once the overlaps are settled, run the same command with `--accept-all`, plus the owner's
    reviewer choice and any add-ons kept (for example
    `arrive --target <project-path> --accept-all --tier team --keep "" --handle their-account`). The engine is

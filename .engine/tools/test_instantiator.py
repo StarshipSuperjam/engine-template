@@ -1683,16 +1683,50 @@ class TestInsertFloor(unittest.TestCase):
 
 
 def _arrive_fakes():
-    """Every external boundary arrive() threads into apply faked, so the REAL arrival runs with nothing real
-    touched (mirrors _finish_apply)."""
+    """Every external boundary arrive() threads into apply/detect_team faked, so the REAL arrival runs with
+    nothing real touched (mirrors _finish_apply) — including the GitHub team-detection read (gh_api)."""
     return dict(home_reader=lambda: {}, uv_present=lambda: None, uv_installer=lambda: "uv",
                 uv_runner=lambda uv, g: True, consent=lambda kind: True,
                 control_transport=inst._approve_transport(), gh_refresh=lambda s: True,
-                control_issues=inst._FakeIssues(), control_repo="you/your-project", control_token="demo-token")
+                control_issues=inst._FakeIssues(), gh_api=lambda path: None,
+                control_repo="you/your-project", control_token="demo-token")
 
 
 class TestArrive(unittest.TestCase):
-    def test_abort_writes_nothing_and_opens_no_pr(self):
+    def test_surface_only_writes_nothing_even_with_no_overlaps(self):
+        # The BLOCKING case: a clean project with no overlaps must NOT be installed by the read-only step.
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(os.path.join(target, "src"))
+            with open(os.path.join(target, "src", "app.py"), "w") as fh:
+                fh.write("x = 1\n")                                   # a clean project: nothing in the way
+            inst._build_fixture(release)
+            prs = []
+            res = inst.arrive(target_root=target, release_tree=release, announce=lambda t: None,
+                              opener=lambda **k: prs.append(k), **_arrive_fakes())  # apply_changes defaults False
+            self.assertTrue(res["surfaced"])
+            self.assertFalse(res["proceeded"])
+            self.assertEqual(res["collisions"], [])
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))   # nothing written
+            self.assertEqual(prs, [])
+
+    def test_surface_only_with_overlaps_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            snap = {p: inst._read_text_or(os.path.join(target, p), "")
+                    for p in ("CLAUDE.md", ".gitignore", ".github/CODEOWNERS")}
+            prs = []
+            res = inst.arrive(target_root=target, release_tree=release, announce=lambda t: None,
+                              opener=lambda **k: prs.append(k), **_arrive_fakes())  # surface-only
+            self.assertTrue(res["surfaced"])
+            self.assertFalse(res["proceeded"])
+            self.assertTrue(res["collisions"])
+            self.assertEqual({p: inst._read_text_or(os.path.join(target, p), "") for p in snap}, snap)
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))
+            self.assertEqual(prs, [])
+
+    def test_abort_at_an_overlap_writes_nothing_and_opens_no_pr(self):
         with tempfile.TemporaryDirectory() as d:
             target, release = os.path.join(d, "p"), os.path.join(d, "r")
             os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
@@ -1700,20 +1734,32 @@ class TestArrive(unittest.TestCase):
                     for p in ("CLAUDE.md", ".gitignore", ".github/CODEOWNERS")}
             prs = []
             res = inst.arrive(target_root=target, release_tree=release, decide=lambda c: "abort",
-                              announce=lambda t: None, opener=lambda **k: prs.append(k), **_arrive_fakes())
+                              apply_changes=True, announce=lambda t: None,
+                              opener=lambda **k: prs.append(k), **_arrive_fakes())
             self.assertFalse(res["proceeded"])
             self.assertEqual({p: inst._read_text_or(os.path.join(target, p), "") for p in snap}, snap)
             self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))
             self.assertEqual(prs, [])
 
-    def test_accept_proceeds_inserts_one_floor_and_opens_one_pr(self):
+    def test_empty_release_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); os.makedirs(release)  # release has no modules
+            res = inst.arrive(target_root=target, release_tree=release, apply_changes=True,
+                              decide=lambda c: "accept", announce=lambda t: None,
+                              opener=lambda **k: {"number": 1}, **_arrive_fakes())
+            self.assertEqual(res["stopped_on"], "release")
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))
+
+    def test_accept_proceeds_inserts_one_floor_and_opens_one_pr_for_the_target(self):
         import wiring
         with tempfile.TemporaryDirectory() as d:
             target, release = os.path.join(d, "p"), os.path.join(d, "r")
             os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
             prs = []
             res = inst.arrive(target_root=target, release_tree=release, engine_release="v1", tier="team",
-                              handle="you", decide=lambda c: "accept", announce=lambda t: None,
+                              handle="you", decide=lambda c: "accept", apply_changes=True,
+                              announce=lambda t: None,
                               opener=lambda **k: prs.append(k) or {"number": 1}, **_arrive_fakes())
             guide = inst._read_text_or(os.path.join(target, "CLAUDE.md"), "")
             self.assertTrue(res["proceeded"])
@@ -1722,13 +1768,31 @@ class TestArrive(unittest.TestCase):
             self.assertNotIn("construction governance", guide)        # the release's construction file never overlaid
             self.assertTrue(os.path.isfile(os.path.join(target, ".engine", "modules", "core", "manifest.json")))
             self.assertEqual(len(prs), 1)
+            self.assertEqual(prs[0].get("repo"), "you/your-project")  # the PR is aimed at the TARGET's slug
+
+    def test_live_writes_target_the_derived_slug_not_the_cwd(self):
+        # No control_repo injected: the slug must be read from the TARGET's own git remote, not the process cwd.
+        import subprocess
+        fakes = _arrive_fakes(); fakes.pop("control_repo")
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            for args in (["git", "-C", target, "init", "-q"],
+                         ["git", "-C", target, "remote", "add", "origin",
+                          "https://github.com/acme/their-product.git"]):
+                subprocess.run(args, check=True, capture_output=True)
+            prs = []
+            inst.arrive(target_root=target, release_tree=release, tier="solo", handle="you",
+                        decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
+                        opener=lambda **k: prs.append(k) or {"number": 1}, **fakes)
+            self.assertEqual(prs[0].get("repo"), "acme/their-product")   # the target's remote, not cwd's
 
     def test_brownfield_seeding_leaves_owner_files_as_they_are(self):
         with tempfile.TemporaryDirectory() as d:
             target, release = os.path.join(d, "p"), os.path.join(d, "r")
             os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
             inst.arrive(target_root=target, release_tree=release, tier="team", handle="you",
-                        decide=lambda c: "accept", announce=lambda t: None,
+                        decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
                         opener=lambda **k: {"number": 1}, **_arrive_fakes())
             self.assertIn("security@ourproduct.example", inst._read_text_or(os.path.join(target, "SECURITY.md"), ""))
             self.assertIn("Our Product Inc.", inst._read_text_or(os.path.join(target, "LICENSE"), ""))
@@ -1741,7 +1805,7 @@ class TestArrive(unittest.TestCase):
             target, release = os.path.join(d, "p"), os.path.join(d, "r")
             os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
             inst.arrive(target_root=target, release_tree=release, tier="team", handle="you",
-                        decide=lambda c: "accept", announce=lambda t: None,
+                        decide=lambda c: "accept", apply_changes=True, announce=lambda t: None,
                         opener=lambda **k: {"number": 1}, **_arrive_fakes())
         self.assertTrue(inst._assert_real_files_unchanged(snap))
         self.assertEqual(validate.ROOT, root_before)   # ROOT restored after arrive's redirect
