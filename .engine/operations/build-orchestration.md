@@ -127,6 +127,19 @@ duplicating one on a re-run, then assign each open work Issue to its phase (`gh 
 review vocabulary. **Absent a build order there is nothing to consume and the build plans its phase itself.** The
 build order is a consumed input, authored by the module, never here.
 
+**Checking against the settled description.** When a build realizes a product-design work item, resolve the
+**settled description** at Plan — `.engine/tools/spec_referent.py resolve` on the build Issue's `Builds to:` work
+item (it follows work item → its `docs/spec/` document → that document's acceptance criteria, gated on a settled
+description). Hand those criteria **verbatim** (never a summary or a built-vs-spec judgment of your own) to the
+plan-review and pre-submission passes as the description they check against; when none resolves the pass
+discloses that plainly — never a silent pass. The **same one resolution** (consumed, not re-resolved) fills the
+**Review** record's operator-runnable acceptance steps (`spec_referent.py review-steps`): the steps the operator
+can run themselves, copied verbatim into two plain groups — "things you can confirm yourself" and "things I
+checked for you" — or a plain reason-named line when nothing is operator-runnable (an in-tool demo and a CLI-only
+check go on the engine's account). It is an offer for when the change matters, not a duty, and an unrun step is a
+promise, not proof — never beside a green check. The resolution holds with or without the optional product-design
+module; a read failure is surfaced loudly, never read as "no description".
+
 **Some pieces are owned elsewhere, not authored here.** The **routine entry** (`/engine-routine` and its
 procedure — the scope-lock read at boot and per commit, the first-fire echo, the misfire-as-Issue) is the
 routine-mode package's, and the **non-interactive permission posture** that makes an unattended run unable
