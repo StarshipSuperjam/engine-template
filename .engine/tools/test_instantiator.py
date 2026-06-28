@@ -985,7 +985,11 @@ class TestSeedDeployedFloor(unittest.TestCase):
                 now = inst._read_text_or(os.path.join(d, "CLAUDE.md"), "")
                 source_gone = not os.path.exists(os.path.join(d, "CLAUDE.deployed.md"))
         self.assertEqual(outcome, "swapped")
-        self.assertEqual(now, _FLOOR, "the deployed floor becomes the root CLAUDE.md")
+        # 6a: the floor is written wrapped in the engine `floor` fence (the keyed model greenfield, upgrade,
+        # and brownfield all share) — not the raw floor — so the upgrade keyed-merge has a block to replace.
+        self.assertTrue(inst.wiring.fence_present(now, inst._FLOOR_FENCE, style=inst.wiring.MD_FENCE),
+                        "the floor becomes the engine `floor` fenced section in CLAUDE.md")
+        self.assertIn(_FLOOR.rstrip("\n"), now, "the floor content lives inside the engine block")
         self.assertTrue(source_gone, "the consumed CLAUDE.deployed.md is removed")
         blob = "\n".join(said)
         self.assertTrue(said, "the swap is disclosed, never silent")

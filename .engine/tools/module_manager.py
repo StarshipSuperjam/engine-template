@@ -514,19 +514,29 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
 
 _UNSET = object()   # sentinel: "no GitHub boundary passed (resolve close._github)" vs "offline (None)"
 
+# Root CLAUDE.md is keyed-MERGED on upgrade, not wholesale-overlaid: it carries the engine's `floor` as a
+# comment-fenced section so a brownfield adopter's own CLAUDE.md co-exists with the engine's entries rather
+# than being seized (repository-topology law 1; the #234/#272 coexistence obligation). The floor is sourced
+# from the release's CLAUDE.deployed.md by `_merge_claude_floor`.
+_ROOT_CLAUDE_REL = "CLAUDE.md"
+_DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
+_FLOOR_FENCE = "floor"
+
 # Engine CODE owned by no module's `provides` but replaced wholesale on upgrade (provisioning L289/L356).
 # DERIVED from module_coherence.FOUNDATION_INFRA (the single source of the foundation-artifact set) minus
-# the two members the overlay must NOT fetch-and-replace: the engine manifest (engine.json — operator
-# config whose package versions upgrade bumps in place, identity preserved) and CODEOWNERS (re-rendered
-# locally from the post-overlay engine path set by upgrade step (2d) / `_refresh_codeowners`, never
-# fetched from a release — a release's block would carry the wrong owner + paths). Gitignored data and the deployment's
-# per-instance eADR stream are in no `provides`/FOUNDATION_CODE, so the overlay leaves them untouched
-# (config + data preserved). A member may be a glob (the issue templates); the overlay loop below expands
-# it against the release tree, so the issue templates are now refreshed on update (they were silently
-# omitted before — single-homing closed that gap; forward-only).
+# the members the overlay must NOT fetch-and-replace: the engine manifest (engine.json — operator config
+# whose package versions upgrade bumps in place, identity preserved); CODEOWNERS (re-rendered locally from
+# the post-overlay engine path set by upgrade step (2d) / `_refresh_codeowners`, never fetched from a
+# release — a release's block would carry the wrong owner + paths); and root CLAUDE.md (keyed-merged by
+# `_merge_claude_floor` from the release's CLAUDE.deployed.md so operator content is preserved and the
+# release's construction-governance CLAUDE.md never overlays an adopter's floor). Gitignored data and the
+# deployment's per-instance eADR stream are in no `provides`/FOUNDATION_CODE, so the overlay leaves them
+# untouched (config + data preserved). A member may be a glob (the issue templates); the overlay loop below
+# expands it against the release tree, so the issue templates are now refreshed on update (they were
+# silently omitted before — single-homing closed that gap; forward-only).
 FOUNDATION_CODE = tuple(
     p for p in module_coherence.FOUNDATION_INFRA
-    if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS")
+    if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", _ROOT_CLAUDE_REL)
 )
 
 
@@ -813,6 +823,16 @@ def _upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -
     elif co == "degraded":
         lines += ["", "Could not refresh the engine-file review list (no account handle on record); your "
                   "existing CODEOWNERS file was left unchanged."]
+    cf = result.get("claude_floor")
+    if cf == "merged":
+        lines += ["", "Updated your project's working guide (the engine's marked block in CLAUDE.md) to this "
+                  "version. Anything you wrote outside that block is untouched."]
+    elif cf == "degraded":
+        lines += ["", "Could not update your project's working guide — the engine's marked block in CLAUDE.md "
+                  "looked damaged, so I left the file unchanged. Check the marker lines, then update again."]
+    elif cf == "skipped-no-section":
+        lines += ["", "Did not update your project's working guide — I found no engine marked block in "
+                  "CLAUDE.md, so I left the file unchanged."]
     lines += ["", "The engine's own consistency check passed. Merging this is your review and consent; "
               "reverting this pull request undoes the update."]
     return "\n".join(lines)
@@ -863,6 +883,39 @@ def _refresh_codeowners(handle) -> str:
         return "degraded"
 
 
+def _merge_claude_floor(release_tree: str) -> str:
+    """Keyed-merge the engine's root-CLAUDE.md floor from the release's CLAUDE.deployed.md into the local
+    CLAUDE.md, replacing ONLY the engine `floor` fence and preserving any operator content outside it
+    (repository-topology law 1 — keyed, reversible entries; the #234/#272 coexistence obligation). The
+    floor is sourced from the release's CLAUDE.deployed.md, NEVER its CLAUDE.md (the maintainer
+    construction-governance file) — which also closes the latent bug where CLAUDE.md ∈ FOUNDATION_CODE
+    would copy the construction file over an adopter's floor on every upgrade.
+
+    Returns: 'merged' (the engine block was replaced); 'skipped' (the release ships no floor source);
+    'skipped-no-section' (the local CLAUDE.md carries no engine `floor` fence — leave it untouched, NEVER
+    append a duplicate floor: the pre-keyed-merge raw-floor case); 'degraded' (a malformed local fence —
+    leave it untouched, never a mid-upgrade crash). Structural sibling of `_refresh_codeowners`, but with
+    no handle dependency."""
+    src = os.path.join(release_tree, _DEPLOYED_FLOOR_REL)
+    if not os.path.isfile(src):
+        return "skipped"
+    floor_lines = validate.read(src).split("\n")
+    if floor_lines and floor_lines[-1] == "":
+        floor_lines = floor_lines[:-1]   # drop the trailing-newline empty element; fence_apply re-terminates
+    local_path = os.path.join(validate.ROOT, _ROOT_CLAUDE_REL)
+    local = validate.read(local_path) if os.path.isfile(local_path) else ""
+    try:
+        if not wiring.fence_present(local, _FLOOR_FENCE, style=wiring.MD_FENCE):
+            return "skipped-no-section"
+        merged = wiring.fence_apply(local, _FLOOR_FENCE, floor_lines, style=wiring.MD_FENCE)
+    except wiring.WiringError:
+        return "degraded"
+    if merged != local:
+        with open(local_path, "w", encoding="utf-8") as fh:
+            fh.write(merged)
+    return "merged"
+
+
 def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None, backup=None) -> dict:
     """Upgrade the whole engine vX -> vY (provisioning §"Upgrading the engine"). Steps: fetch the tagged
     release, overlay engine code and re-render the CODEOWNERS ownership wall for the new release's engine
@@ -882,7 +935,7 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
     injected = release_tree is not None
     result = {"refused": False, "applied": False, "reason": None, "from": None, "to": None,
               "copied": [], "wiring": [], "synced": None, "migrations": {"ran": [], "refused": []},
-              "findings": [], "pr": None, "notes": [], "codeowners": None}
+              "findings": [], "pr": None, "notes": [], "codeowners": None, "claude_floor": None}
     tmp = None
     try:
         engine = module_coherence.load_engine_manifest() or {"packages": {}}
@@ -946,6 +999,10 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # and the manifest bump, BEFORE coherence/PR (so the landed diff carries a complete wall). The
         # handle is the preserved-identity owner from the engine manifest; absent -> degrade (no change).
         result["codeowners"] = _refresh_codeowners(engine.get("handle"))
+        # (2e) KEYED-MERGE the root CLAUDE.md floor from the release's CLAUDE.deployed.md (replace only the
+        # engine `floor` fence; preserve operator content; never overlay the construction CLAUDE.md). Same
+        # placement rationale as the CODEOWNERS re-render: after the overlay, before coherence/PR.
+        result["claude_floor"] = _merge_claude_floor(release_tree)
         # (3) RE-SYNC the tool-runtime (real path only; the injected/practice run skips it — no real venv).
         # Migrations are Python that runs IN the runtime, so a FAILED re-sync ABORTS before step 4 rather
         # than run migrations against a stale runtime — staged but not opened, no saved data touched.
@@ -1076,9 +1133,11 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
     foundation = module_coherence.foundation_infra_paths()
     provides = set(module_coherence.provides_claims(manifests).keys())
     # engine-owned files OUTSIDE .engine/: provides-claimed (e.g. .claude/*/.gitkeep) + the non-.engine
-    # foundation members (CLAUDE.md, the .github/ artifacts), minus CODEOWNERS (handled specially below).
+    # foundation members (the .github/ artifacts), minus the two SHARED files handled specially below —
+    # CODEOWNERS and root CLAUDE.md — which carry the engine as a keyed fenced block, so they are
+    # block-reversed (operator content kept) rather than deleted wholesale.
     outside = sorted({r for r in (provides | set(foundation))
-                      if not r.startswith(".engine/") and r != co_rel})
+                      if not r.startswith(".engine/") and r not in (co_rel, _ROOT_CLAUDE_REL)})
     deleted = []
     for rel in outside:
         p = os.path.join(validate.ROOT, rel)
@@ -1101,6 +1160,26 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
             with open(co_path, "w", encoding="utf-8") as fh:
                 fh.write(remainder)
             deleted.append(f"{co_rel} (engine block removed; your own rules kept)")
+    # Root CLAUDE.md: the SAME block-reversal as CODEOWNERS — remove only the engine `floor` fence and
+    # delete the file iff nothing but whitespace remains (an all-engine greenfield CLAUDE.md), else keep the
+    # operator's own content (a brownfield CLAUDE.md). Wrapped so a malformed local fence degrades (leaves
+    # the file untouched) rather than crashing the uninstall in front of a non-engineer.
+    claude_path = os.path.join(validate.ROOT, _ROOT_CLAUDE_REL)
+    if os.path.isfile(claude_path):
+        text = validate.read(claude_path)
+        try:
+            remainder = wiring.fence_reverse(text, _FLOOR_FENCE, style=wiring.MD_FENCE)
+        except wiring.WiringError as exc:
+            remainder = text
+            result["left_in_place"].append(
+                f"Left {_ROOT_CLAUDE_REL} as it is — its engine section looked damaged ({exc}).")
+        if remainder.strip() == "":
+            os.remove(claude_path)
+            deleted.append(_ROOT_CLAUDE_REL)
+        elif remainder != text:
+            with open(claude_path, "w", encoding="utf-8") as fh:
+                fh.write(remainder)
+            deleted.append(f"{_ROOT_CLAUDE_REL} (engine block removed; your own content kept)")
     # the whole .engine/ tree (tools, checks, schemas, manifests, generated maps — everything). The
     # running tool keeps executing from memory, so the source being gone on disk before the opener stages
     # it (git add -A) is safe; any process needing .engine again would be a fresh process.
@@ -1208,6 +1287,16 @@ def _render_upgrade(result: dict) -> None:
     elif co == "degraded":
         print("  - could not refresh the engine-file review list (no account handle on record); "
               "left it unchanged")
+    cf = result.get("claude_floor")
+    if cf == "merged":
+        print("  - updated your project's working guide (the engine's marked block in CLAUDE.md; "
+              "your own content kept)")
+    elif cf == "degraded":
+        print("  - could not update your project's working guide — the engine's marked block in CLAUDE.md "
+              "looked damaged; left the file unchanged (check the marker lines and update again)")
+    elif cf == "skipped-no-section":
+        print("  - did not update your project's working guide — no engine marked block found in CLAUDE.md; "
+              "left the file unchanged")
     for r in result.get("migrations", {}).get("ran", []):
         print(f"  - ran update: {r}")
     for r in result.get("migrations", {}).get("refused", []):
@@ -1589,6 +1678,13 @@ def _build_upgrade_release(root: str) -> str:
     with open(os.path.join(eng, "pyproject.toml"), "w") as fh:
         fh.write('[project]\nname = "x"\nversion = "0"\n\n[dependency-groups]\nbase = ["pkg-a"]\n\n'
                  '[tool.uv]\ndefault-groups = ["base"]\n')
+    # The release ships BOTH the floor (CLAUDE.deployed.md — what the keyed-merge reads) and the maintainer
+    # construction CLAUDE.md (which must NEVER overlay an adopter's floor — the latent-bug regression Part L
+    # checks). The floor body carries a v2 marker so the merge is observable.
+    with open(os.path.join(root, "CLAUDE.deployed.md"), "w", encoding="utf-8") as fh:
+        fh.write("# Your project runs on an Engine (v2)\n\nProject status block, refreshed in v2.\n")
+    with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+        fh.write("# engine-template — construction governance (v2 release)\n\nbuild scaffolding\n")
     return root
 
 
@@ -1708,9 +1804,42 @@ def upgrade_demo() -> bool:
                 print(f"    [{'ok' if good else 'FAIL'}] {label}")
                 ok = ok and good
 
+    print("\nPart L — the update KEYED-MERGES the root CLAUDE.md floor: it replaces ONLY the engine's marked "
+          "block and keeps the operator's own content byte-for-byte, and the release's construction file "
+          "never overlays the floor (the #234/#272 coexistence obligation + the latent-bug fix):")
+    with tempfile.TemporaryDirectory() as d:
+        live = os.path.join(d, "live")
+        os.makedirs(live)
+        release = _build_upgrade_release(os.path.join(d, "release"))   # ships a v2 floor + a construction file
+        with _redirect_root(live):
+            _build_upgrade_fixture(live)
+            claude_path = os.path.join(live, "CLAUDE.md")
+            top = "# My product\n\nHow we work here.\n\n"
+            bottom = "\n## Contributing\n\nOpen a PR.\n"
+            old_floor = wiring.fence_apply(
+                "", _FLOOR_FENCE, ["# Old engine floor (v1)", "", "Project status block."],
+                style=wiring.MD_FENCE)
+            with open(claude_path, "w", encoding="utf-8") as fh:   # operator prose AROUND the engine block
+                fh.write(top + old_floor + bottom)
+            res = upgrade(ref="v0.2.0", release_tree=release,
+                          opener=lambda **k: {"number": 0}, backup=lambda *a: {"ok": 1})
+            after = validate.read(claude_path)
+            cl_checks = {
+                "the floor was keyed-merged": res.get("claude_floor") == "merged",
+                "the operator's content above the block survived": top in after,
+                "the operator's content below the block survived": bottom in after,
+                "the new engine floor replaced the block": "Project status block, refreshed in v2." in after,
+                "the old engine floor is gone": "Old engine floor (v1)" not in after,
+                "the construction file did NOT overlay CLAUDE.md": "construction governance" not in after,
+            }
+            for label, good in cl_checks.items():
+                print(f"    [{'ok' if good else 'FAIL'}] {label}")
+                ok = ok and good
+
     print("\n" + ("UPGRADE DEMO PASSED: an unreachable release degraded, a data update with no backup was "
-                  "refused, a backed-up update overlaid + migrated + opened a pull request cleanly, and the "
-                  "update re-rendered the code-ownership wall for the new files while keeping operator rules."
+                  "refused, a backed-up update overlaid + migrated + opened a pull request cleanly, the "
+                  "update re-rendered the code-ownership wall for the new files while keeping operator rules, "
+                  "and it keyed-merged the CLAUDE.md floor while keeping the operator's own content."
                   if ok else "UPGRADE DEMO DID NOT BEHAVE AS EXPECTED — see above."))
     return ok
 
@@ -1724,8 +1853,10 @@ def _build_remove_fixture(root: str) -> None:
     os.makedirs(os.path.join(root, ".github", "workflows"))
     with open(os.path.join(root, ".github", "workflows", "engine-ci.yml"), "w") as fh:
         fh.write("name: engine-ci\n")
-    with open(os.path.join(root, "CLAUDE.md"), "w") as fh:
-        fh.write("# engine floor\n")
+    with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+        # An all-engine greenfield CLAUDE.md: the floor wrapped in the engine fence (what 6a's first-run seed
+        # writes), so the removal demo exercises the real block-reversal (→ whitespace-only → file deleted).
+        fh.write(wiring.fence_apply("", _FLOOR_FENCE, ["# engine floor"], style=wiring.MD_FENCE))
     co = wiring.render_codeowners("# product rules\n/src/ @team\n",
                                   [".engine/engine.json", ".github/workflows/engine-ci.yml"], "@operator")
     with open(os.path.join(root, ".github", "CODEOWNERS"), "w") as fh:
@@ -1781,6 +1912,8 @@ def remove_engine_demo() -> bool:
                 "the whole .engine/ tree was deleted": not os.path.isdir(os.path.join(d, ".engine")),
                 "the engine's .github/ file was deleted (per-module remove never touches .github/)":
                     not os.path.isfile(os.path.join(d, ".github", "workflows", "engine-ci.yml")),
+                "the all-engine CLAUDE.md (only the engine block) was removed":
+                    not os.path.isfile(os.path.join(d, "CLAUDE.md")),
                 "CODEOWNERS kept the product rule and dropped the engine block":
                     "/src/ @team" in co_text and "engine.json" not in co_text,
                 "the deletions were opened as a (fixture) pull request for review": r["pr"] is not None,
