@@ -175,10 +175,20 @@ def issue_body(record: dict, first_seen: str, last_seen: str) -> str:
         "If it lingers and you want it resolved sooner, you can ask for the fix to be prioritised."
     )
     body = issue_author.render_engine_issue_body(what_this_is=what_this_is, whats_next=whats_next)
+    return _with_tracking_trailers(body, record["source_id"], first_seen, last_seen)
+
+
+def _with_tracking_trailers(body_core: str, source_id: str, first_seen: str, last_seen: str) -> str:
+    """Append telemetry's two own trailers to an already-rendered issue body: the first-/last-seen
+    line and the invisible signal marker (an HTML comment, recovered by parse_source_id even after a
+    cache wipe). Telemetry OWNS the marker — a caller supplies prose only and never pre-embeds one, so
+    _SENTINEL_RE always binds to this single appended marker and the source-keyed dedup stays sound.
+    Shared by issue_body (telemetry's own health framing) and promote_finding's pre-rendered-body path
+    (a producer's lane-aware framing), so the trailer/marker shape is stated once."""
     return (
-        f"{body}\n"
+        f"{body_core}\n"
         f"*First noticed {first_seen}; last reconfirmed {last_seen}.*\n\n"
-        f"{_SENTINEL_TEMPLATE.format(sid=record['source_id'])}\n"
+        f"{_SENTINEL_TEMPLATE.format(sid=source_id)}\n"
     )
 
 
@@ -549,10 +559,12 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
                   opened=opened, updated=updated, closed=closed)
 
 
-def promote_finding(github: GitHubIssues, record: dict, now: str):
+def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str | None = None,
+                    body_core: str | None = None):
     """Promote ONE finding to a tracked engine Issue — the out-of-band "log it" relay a producer hands
     a single concern to for durable tracking WITHOUT running a full triage pass. Close (slice 22) calls
-    it at cap-exhaustion / fail-open to degrade a still-undispositioned finding to logged (never lost).
+    it at cap-exhaustion / fail-open to degrade a still-undispositioned finding to logged (never lost);
+    the soft-finding promoter (audit_soft_promote) calls it to track a standing length-budget nudge.
 
     Open-or-update, deduped by `source_id` (the same source-keyed dedup `run` uses, via
     list_open_engine_issues + the body sentinel). It does **no auto-resolve**: unlike `run`, it never
@@ -561,6 +573,12 @@ def promote_finding(github: GitHubIssues, record: dict, now: str):
     State-free**: a one-shot surfacing, not a triage pass, so it never disturbs `run`'s persistence
     accrual or the committed debt cursor.
 
+    By default the Issue's title/body are telemetry's own health framing (issue_title/issue_body). A
+    producer that needs DIFFERENT operator-facing prose — e.g. the soft-finding promoter's lane-aware
+    body, which must say a machinery fix belongs upstream — passes a pre-rendered `title` and `body_core`
+    (the prose only; telemetry still owns and appends the first-/last-seen line and the invisible signal
+    marker via _with_tracking_trailers, so dedup/recovery stay sound regardless of the framing).
+
     Degrades to **False** when GitHub is unreachable or errors (DegradedReadError) — the finding was
     already surfaced to the operator in-session and the protected-branch merge is the durable backstop;
     a caller must NOT claim durable tracking when the write could not land. Returns the Issue number
@@ -568,13 +586,16 @@ def promote_finding(github: GitHubIssues, record: dict, now: str):
     own fail-open boundary (close's Stop handler rides hooks.run_hook's fail-open)."""
     sid = derive_source_key(record)
     first_seen = record.get("first_seen") or now
+    ttl = title if title is not None else issue_title(record)
+    body = (_with_tracking_trailers(body_core, sid, first_seen, now) if body_core is not None
+            else issue_body(record, first_seen, now))
     try:
         github.ensure_label()
         existing = next((i for i in github.list_open_engine_issues() if i.get("source_id") == sid), None)
         if existing is not None:
-            github.update_issue(existing["number"], issue_body(record, first_seen, now))
+            github.update_issue(existing["number"], body)
             return existing["number"]
-        return github.open_issue(issue_title(record), issue_body(record, first_seen, now)).get("number")
+        return github.open_issue(ttl, body).get("number")
     except DegradedReadError:
         return False
 

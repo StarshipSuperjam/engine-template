@@ -3075,6 +3075,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:audit_soft_promote",
+      "name": ".engine/tools/audit_soft_promote.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "audit_soft_promote",
+      "source": {
+        "fingerprint": "sha256:d77284edce92a46195a2944f011ef3e76071c558edbc879b8c8df2e06bdbcfd0",
+        "path": ".engine/tools/audit_soft_promote.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:backup_vault",
       "name": ".engine/tools/memory/backup_vault.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -3359,6 +3376,23 @@
       "source": {
         "fingerprint": "sha256:9f21ca05b4b426582fde412fc1ee22f1cd6b337ef415f8eaafa245b3bcf1ae3d",
         "path": ".engine/tools/demo_audit_soft_findings.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_audit_soft_promote",
+      "name": ".engine/tools/demo_audit_soft_promote.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_audit_soft_promote",
+      "source": {
+        "fingerprint": "sha256:5a7c86bf8e6a28ec5b47379bf14da612ea682e58c79e965605a562ac6cdcfe0a",
+        "path": ".engine/tools/demo_audit_soft_promote.py"
       },
       "status": "active",
       "type": "tool"
@@ -4513,7 +4547,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:5d3ea0e932cc7729f9c1a38ae78eaeb18afd342b01b62a27264b009592de1acb",
+        "fingerprint": "sha256:d3f5c25dadbb69d853fface5aa0d3615bfc1b4b85f2647bf6cac4617eb59f1ce",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -4598,7 +4632,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:2207d6bcf47da39e2f461caa5178ec64fdd450dcbe864fe253bf746bd0c17010",
+        "fingerprint": "sha256:089f6a0fe284f79a913279d8fcd8c4b2c0da0bff2711097831609f1227df488b",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -4617,6 +4651,23 @@
       "source": {
         "fingerprint": "sha256:874924a2957cedca632e010dcf6a52f801e1f2a86d81c2e47274ce0cdd32fb96",
         "path": ".engine/tools/test_audit_soft_findings.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_audit_soft_promote",
+      "name": ".engine/tools/test_audit_soft_promote.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_audit_soft_promote",
+      "source": {
+        "fingerprint": "sha256:439059ee8bd87f43f5c436329222226be170a094c2484af1793f67fbef704446",
+        "path": ".engine/tools/test_audit_soft_promote.py"
       },
       "status": "active",
       "type": "tool"
@@ -5907,7 +5958,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:0628db88a36c74f6b4a48c842e0c4abf9448a57c0ba959cfabac24aa4ec0e1b8",
+        "fingerprint": "sha256:9670f9771a0b32875f52dc3ebfe5a82fc5d531e43f0590e4d06bde245923a994",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
@@ -6077,7 +6128,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:02e62631e8efa7c827b8ceb39a13b14cf7985cfe78d2efbb9cfd31587dcf09ac",
+        "fingerprint": "sha256:41aba08c3b7ed9cb6f486c21b1863a08d4505e2d446b33f3ecbe939533097132",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

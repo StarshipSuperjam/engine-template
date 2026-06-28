@@ -36,11 +36,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # Read-only access to the engine-labelled issue backlog (the debt register) so the workflow can fetch it
-  # for the self-review's concern #2 and feed it to the read-only persona. The persona never gets a GitHub
-  # token; this scope serves the workflow's own fetch step (and the offline-cache refresh, which reads the
-  # same open-issue count).
-  issues: read
+  # Write access to the engine-labelled issues. The workflow READS the backlog (the debt register) to feed
+  # the self-review's concern #2 and the offline-cache refresh, and now also WRITES it: the promote step
+  # (issue #273 half 2) opens/updates an engine-labelled issue to durably track a standing length-budget
+  # finding. The bump from read to write is scoped to the engine-labelled issues this workflow manages and
+  # is the minimum that can open/update an issue; the persona never gets a GitHub token (it stays read-only).
+  issues: write
 
 jobs:
   gate:
@@ -217,6 +218,22 @@ jobs:
             --model "${AUDIT_MODEL}" \
             "${prompt}" \
             > "${RUNNER_TEMP}/audit-digest-body.md"
+      - name: Track standing length-budget findings as engine issues
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Issue #273 half 2 (slice 2): give a STANDING soft length-budget finding a durable home — a
+          # deduped, lane-aware engine-labelled issue — so it reaches boot and the tracker, not just this
+          # week's digest. The tool opens/updates only (never closes — a cleared finding is recommended for
+          # closure by the self-review's own backlog concern; the engine reports, the operator decides). It
+          # uses the OWN-repo GitHub token (never the Claude token) and needs the issues:write scope declared
+          # above. It is fail-open — it prints a visible status and exits 0 even when GitHub is unreachable,
+          # so a transient blip never fails the self-review; the trailing `|| true` additionally guards
+          # against any unexpected non-zero so this best-effort side action can never block the digest pull
+          # request, and the finding simply re-fires (and stays in the digest) next run.
+          uv run --directory .engine --frozen -- python tools/audit_soft_promote.py || true
       - name: Seal the digest with its run-date
         run: |
           set -euo pipefail

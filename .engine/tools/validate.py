@@ -1213,13 +1213,20 @@ def get_pr_author() -> str | None:
     return None
 
 
-def _evaluate(rules: list, suite: str, gates: bool, ctx: dict) -> list:
+def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool = False) -> list:
     """Dispatch every rule that joins `suite` through its kind and return the collected
     findings. The shared core behind both run() (which prints + computes an exit code) and
     collect() (which returns the data). `gates` is the suite's blocking-gate context — it
-    decides only where ci_author_exempt waives, never what is collected."""
+    decides only where ci_author_exempt waives, never what is collected.
+
+    With `with_source`, each finding is annotated with the rule that emitted it — `source_rule`
+    (the rule id) and `source_kind` (its kind) — so a programmatic consumer can tell, say, a
+    soft length-budget nudge (kind `shape`) apart from another soft finding firing in the same
+    suite. The finding.v1 base allows these extra keys (it fixes no closed property set), and the
+    default (off) leaves run()'s and the existing feed's findings byte-for-byte unchanged."""
     findings = []
     for rule in [r for r in rules if suite in r.get("suites", [])]:
+        kind, tier = rule.get("kind"), rule.get("tier", "hard")
         # Honor ci_author_exempt at the engine layer — before any check-kind runs, so the
         # closed kinds stay author-agnostic. It binds ONLY in the merge-gating (blocking-gate)
         # suite (`gates`, derived from the suite's context, not its name): the exemption waives
@@ -1229,43 +1236,48 @@ def _evaluate(rules: list, suite: str, gates: bool, ctx: dict) -> list:
         # case-folding — silent widening is a spoof concern). The by-id run_check() path carries
         # no suite and so never reaches here: the §15 guardrail-weakening guard is never exempt.
         if gates and ctx.get("pr_author") in (rule.get("ci_author_exempt") or []):
-            findings.append(finding("soft",
+            found = [finding("soft",
                 f"NOT APPLICABLE — check '{rule.get('id')}' does not bind for pull requests "
                 f"authored by {ctx.get('pr_author')} in the merge gate, so it was not evaluated "
                 f"here (a disclosed not-applicable pass — not a verification). This narrative "
                 f"check is waived for this author only; any guardrail-touching change in the pull "
-                f"request is still gated by the guardrail-ack label the maintainer applies."))
-            continue
-        kind, tier = rule.get("kind"), rule.get("tier", "hard")
-        fn = REGISTRY.get(kind)
-        if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
-            findings.append(finding(tier, f"Check rule '{rule.get('id')}' names "
-                            f"unregistered kind '{kind}'; cannot evaluate (fails closed)."))
-            continue
-        try:
-            _verdict, found = fn(rule, ctx)
-        except Exception as exc:  # a kind that errors fails closed
-            findings.append(finding("hard", f"Check rule '{rule.get('id')}' (kind "
-                            f"'{kind}') errored and could not evaluate: {exc}"))
-            continue
+                f"request is still gated by the guardrail-ack label the maintainer applies.")]
+        else:
+            fn = REGISTRY.get(kind)
+            if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
+                found = [finding(tier, f"Check rule '{rule.get('id')}' names "
+                         f"unregistered kind '{kind}'; cannot evaluate (fails closed).")]
+            else:
+                try:
+                    _verdict, found = fn(rule, ctx)
+                except Exception as exc:  # a kind that errors fails closed
+                    found = [finding("hard", f"Check rule '{rule.get('id')}' (kind "
+                             f"'{kind}') errored and could not evaluate: {exc}")]
+        if with_source:
+            for f in found:
+                f["source_rule"] = rule.get("id")
+                f["source_kind"] = kind
         findings.extend(found)
     return findings
 
 
-def collect(suite: str, ctx: dict) -> list:
+def collect(suite: str, ctx: dict, *, with_source: bool = False) -> list:
     """The machine-readable seam behind run(): evaluate `suite` and RETURN its findings
     (each {severity, message, location}) as data, rather than printing a human report. A
     programmatic consumer — the audit soft-findings feed — reads the report-only findings
     here instead of scraping run()'s stdout. RAISES (ValueError / the loader's exception)
     on a config error (undeclared suite, unloadable suites/rules); the caller decides how
-    to surface it (run() turns it into the loud exit-2 path, the feed into an honest marker)."""
+    to surface it (run() turns it into the loud exit-2 path, the feed into an honest marker).
+
+    `with_source` annotates each finding with its emitting rule (`source_rule`/`source_kind`) —
+    off by default, so the existing feed reads the bare base shape unchanged."""
     suites = load_suites()
     decl = suites.get(suite)
     if decl is None:
         raise ValueError(f"suite '{suite}' is not declared in .engine/suites.json "
                          f"(declared: {', '.join(sorted(suites))}).")
     gates = decl.get("context") == "blocking-gate"
-    return _evaluate(load_rules(), suite, gates, ctx)
+    return _evaluate(load_rules(), suite, gates, ctx, with_source=with_source)
 
 
 def run(suite: str, ctx: dict) -> int:
