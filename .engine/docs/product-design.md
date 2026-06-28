@@ -6,7 +6,8 @@ title: Describing what you want built
 
 This is for the person who wants to tell the engine what to build and have it written down clearly enough that
 the work which follows stays true to it. By the end you will know what the `engine-design` command does, how
-to start it, where what you write is kept, and what "settling" a description means.
+to start it, where what you write is kept, what "settling" a description means, and what happens when you hand
+it to a build.
 
 ## What you need to know
 
@@ -26,6 +27,13 @@ never settles a description on its own. A settled description is not frozen fore
 later, but not quietly. When a change touches a settled part of your description, the engine asks you to confirm
 it on the pull request — by applying the `guardrail-ack` label — before it can merge, so the record always shows
 the change was deliberate, never a silent edit.
+
+Once a piece is settled, you can hand it to a build. Two things follow, at two different moments. Right away,
+the engine writes a **build order** — your settled pieces grouped into ordered, plainly-named phases — and opens
+a **list of things to build**, one tracked item per piece, each pointing back at its description. Later, when a
+build actually runs, that order is what groups the work into **visible phases you can watch progress against** —
+the phases appear when a build is under way, not the moment you settle. And once there is a build order, a
+settled piece left out of it will hold a merge until it is added, so nothing you settled is quietly dropped.
 
 One thing the engine is careful about: when it checks your description, it is checking that every part is
 *present and well-formed* — not whether the design is *right*. Whether the idea is a good one is your call (and

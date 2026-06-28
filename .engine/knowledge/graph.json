@@ -1524,7 +1524,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:e4a0a31b737a01688df83a85a21472fc36069fa676282dad9ab6f7c752aa6c10",
+        "fingerprint": "sha256:db4174847700fc0e15e5cb8725cbe067c341db8acf6148a0e316cfaa78ffa136",
         "path": ".engine/docs/product-design.md"
       },
       "status": "active",
@@ -1830,7 +1830,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:0baa4fffd06e938eb8dcc05e220f83ab1ba0d2dfc436bcca64141d25d06e2167",
+        "fingerprint": "sha256:bafe67f18150581958258f042d791be3adee8ff2e5ac4aee0094fc46b550c63d",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -2070,7 +2070,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:c4b66c6f5d92a0313129db5cd80c4e8d474e2d8f15fa3a023cb1b30a8dda77a3",
+        "fingerprint": "sha256:a72f104205452b9e3c5d151417c218b760cfd3314a7e3bfc52582c93cc952530",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -2805,7 +2805,7 @@
       },
       "slug": "engine-design",
       "source": {
-        "fingerprint": "sha256:c05cdb1eeb2db9d573a4cc6572ecc6d457fa0501a47f753a7532b6e140891ef5",
+        "fingerprint": "sha256:d457cbd64e81d5b5d9e125ed4fd02edd0afeff6ecc62328008d7bed7fcab96cb",
         "path": ".claude/skills/engine-design/SKILL.md"
       },
       "status": "active",
@@ -3926,6 +3926,23 @@
       "source": {
         "fingerprint": "sha256:1123fefcdc591f28998893531719eb31038a490fe6989a78c23f88530efc7557",
         "path": ".engine/tools/migration_discipline/__init__.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:milestone_emit",
+      "name": ".engine/tools/milestone_emit.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "milestone_emit",
+      "source": {
+        "fingerprint": "sha256:9d3717c2831dbc9087a9c7a43188bea6dfeb4a0b9a10868f8e5c2079b931fe8f",
+        "path": ".engine/tools/milestone_emit.py"
       },
       "status": "active",
       "type": "tool"
@@ -5099,6 +5116,23 @@
       "source": {
         "fingerprint": "sha256:ffd70d6c252df35da3b6e61e6e496bd90af16c7334be9864af0767a46201a566",
         "path": ".engine/tools/test_memory_pointer_public_safety.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_milestone_emit",
+      "name": ".engine/tools/test_milestone_emit.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_milestone_emit",
+      "source": {
+        "fingerprint": "sha256:7eaf05aafe7d7f403881dfc32aeb4c92c2bc40f64fdd79a759d40bedec8d895b",
+        "path": ".engine/tools/test_milestone_emit.py"
       },
       "status": "active",
       "type": "tool"

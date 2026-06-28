@@ -21,4 +21,5 @@ own initiative. Everything it produces is plain, readable files inside the opera
 treated as settled until they say so, and a settled description can always be changed later — the engine just
 asks the operator to confirm the change on the pull request first (by applying the `guardrail-ack` label), so it
 is never a quiet edit. If the project's GitHub connection isn't reachable, the runbook still captures the work as
-committed files and says so, rather than stopping.
+committed files and says so, rather than stopping. Once a description is settled, the same command can turn it
+into a build order and a list of things to build — the work a build picks up from.
