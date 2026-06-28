@@ -362,11 +362,12 @@ class TestRunMigrations(unittest.TestCase):
                                     f"    with open({marker!r}, 'w') as fh:\n"
                                     "        fh.write(context['engine_version'])\n")
             calls = []
-            seam = lambda store, ver: (calls.append((store, ver)) or {"ok": True})
+            seam = lambda store, ver, migration_id=None: (calls.append((store, ver, migration_id)) or {"ok": True})
             sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
             res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=seam)
             self.assertEqual(res["ran"], ["m -> 0.2.0 (data)"])
-            self.assertEqual(calls, [("store", "v2")])         # the backup was taken (before the body ran)
+            # the backup was taken (before the body ran), with the migration id bound in for collision-free naming
+            self.assertEqual(calls, [("store", "v2", "m@0.2.0")])
             with open(marker) as fh:
                 self.assertEqual(fh.read(), "v2")              # the migration stamped the engine version
 
@@ -382,7 +383,7 @@ class TestRunMigrations(unittest.TestCase):
                                     "    assert handle, 'backup-first: a data migration must snapshot before mutating'\n"
                                     f"    open({marker!r}, 'w').write('RAN')\n")
             sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
-            failing = lambda store, ver: None                  # the backup fails at the moment of the snapshot
+            failing = lambda store, ver, **kw: None            # the backup fails at the moment of the snapshot
             res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=failing)
             self.assertEqual(res["ran"], [])                   # not counted as run
             self.assertEqual(len(res["refused"]), 1)
@@ -510,7 +511,7 @@ class TestUpgradeSafety(unittest.TestCase):
                 res = module_manager.upgrade(
                     ref="v0.2.0", release_tree=release,
                     opener=lambda **k: opened.append(k) or {"number": 1},
-                    backup=lambda *a: None)                    # resolved live, but the snapshot fails at run time
+                    backup=lambda *a, **k: None)               # resolved live, but the snapshot fails at run time
         self.assertFalse(res.get("refused"))                   # not a pre-flight refusal — it got past the overlay
         self.assertIn("backup did not succeed", res["reason"])
         self.assertIn("NOT opened for review", res["reason"])
@@ -531,7 +532,7 @@ class TestUpgradeSafety(unittest.TestCase):
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)
                 res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
-                                             opener=lambda **k: {"number": 1}, backup=lambda *a: {"ok": 1})
+                                             opener=lambda **k: {"number": 1}, backup=lambda *a, **k: {"ok": 1})
             self.assertTrue(res["refused"])
             self.assertIn("outside the engine", res["reason"])
 
@@ -589,7 +590,7 @@ class TestUpgradeSafety(unittest.TestCase):
                     fh.write("# operator only\n/src/ @me\n")
                 before = module_manager.validate.read(co_path)
                 res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
-                                             opener=lambda **k: {"number": 1}, backup=lambda *a: {"ok": 1})
+                                             opener=lambda **k: {"number": 1}, backup=lambda *a, **k: {"ok": 1})
                 after = module_manager.validate.read(co_path)
             self.assertFalse(res["refused"])
             self.assertEqual(res["codeowners"], "degraded")
