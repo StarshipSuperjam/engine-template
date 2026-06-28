@@ -109,7 +109,9 @@ COPY_HEADINGS = {
     "verify-gate-on": "Your review gate is on",
     "verify-gate-pending": "Your review gate isn't on yet",
     "retire-success": "Setup is complete",
-    # The brownfield overlap check — slice 27d (no live caller yet; see the collision-check section).
+    # The brownfield arrival surface — the live overlap check (see the collision-check + arrive sections) and
+    # the team-tier recommendation surfaced during gather when an existing team is detected.
+    "team-recommended": "Your project looks like it already has a team",
     "collision-intro": "Before I add the engine, here's what I found in your project",
     "collision-exclusive": "A file of yours sits where the engine keeps its own",
     "collision-shared": "The engine and your project both use the same file",
@@ -206,6 +208,12 @@ FALLBACK_COPY = {
         "Setup is complete. I've cleaned up the one-time setup files — the walkthrough, its notes, and the setup "
         "helper itself — now that they've done their job. Everything your project needs to keep running stays in "
         "place, and all your choices are saved. You're ready to start."
+    ),
+    "team-recommended": (
+        "Your project looks like it already has a team — others review changes here. For that, the team setup "
+        "fits best: the engine commits under a separate name and a teammate approves its changes, so the way "
+        "work is reviewed here stays the way it already works. It's a suggestion for you to weigh, not a switch "
+        "I throw — on-your-own stays available, and the choice is yours."
     ),
     "collision-intro": (
         "Your project already has files and settings of its own. I'm adding the engine alongside them, so first "
@@ -315,11 +323,13 @@ def selectable(catalog_entries: list) -> dict:
     return {c: sorted(grouped[c], key=lambda e: (e.get("verb", ""), e.get("id", ""))) for c in ordered + extra}
 
 
-def present_gather(root: str | None = None, catalog_path: str | None = None) -> str:
+def present_gather(root: str | None = None, catalog_path: str | None = None, team=None) -> str:
     """The plain-language GATHER walkthrough the operator reads: the repo coordinates I derived, the one
-    identity choice, the optional features to pick from (grouped by discipline, or the no-add-ons line when
-    the catalog is empty), and the plain statement that not-kept add-ons are deleted on confirm. Pure text —
-    no prompts, no writes; the skill/runbook does the asking."""
+    identity choice (plus a team-tier recommendation when an existing team is detected — brownfield arrival,
+    provisioning §identity-and-tokens; a suggestion, not a seizure), the optional features to pick from
+    (grouped by discipline, or the no-add-ons line when the catalog is empty), and the plain statement that
+    not-kept add-ons are deleted on confirm. Pure text — no prompts, no writes; the skill/runbook does the
+    asking. `team` (the detect_team result) is injectable for tests/the demo."""
     ident = derive_identity(root)
     coords = (f"{ident['owner']}/{ident['name']}" if ident["owner"] and ident["name"]
               else "(I couldn't read your project's name from GitHub — I'll ask you instead)")
@@ -330,6 +340,11 @@ def present_gather(root: str | None = None, catalog_path: str | None = None) -> 
         f"The branch I'll protect with a review gate: {ident['branch']}",
         "",
         _TIER_PROMPT,
+    ]
+    team = team if team is not None else detect_team(root=root)
+    if team.get("detected"):
+        lines += ["", load_copy()["team-recommended"]]
+    lines += [
         "",
         "Optional add-ons you can include or leave out:",
         "",
@@ -393,6 +408,68 @@ def derive_handle() -> str | None:
         return out.stdout.strip() or None if out.returncode == 0 else None
     except Exception:  # noqa: BLE001 — missing binary / timeout / OS error → no handle, degrade downstream
         return None
+
+
+def _gh_api_json(path: str):
+    """One best-effort `gh api <path>` read, parsed as JSON — None on any failure (gh absent / not signed in /
+    missing scope / network / non-zero exit / unparseable). The team-detection network boundary; injectable so
+    tests and the demo never reach GitHub."""
+    import subprocess
+    try:
+        out = subprocess.run(["gh", "api", path], capture_output=True, text=True, timeout=15, check=False)
+        if out.returncode != 0:
+            return None
+        return json.loads(out.stdout)
+    except Exception:  # noqa: BLE001 — missing binary / timeout / decode error → unknown signal, degrade
+        return None
+
+
+def _codeowners_distinct_owners(root: str) -> int:
+    """How many DISTINCT @owners the project's own CODEOWNERS assigns, OUTSIDE any engine-managed block (so
+    the engine's own single-owner rule never counts). >1 distinct owners is the local 'a team already reviews
+    here' signal. 0 when the file is absent/unreadable/malformed (no signal, never a crash)."""
+    path = os.path.join(root, ".github", "CODEOWNERS")
+    text = _read_text_opt(path)
+    if text is None:
+        return 0
+    lines = text.split("\n")
+    try:
+        span = wiring._find_fence(lines, wiring.CODEOWNERS_FENCE)
+    except wiring.WiringError:
+        return 0
+    excluded = set(range(span[0], span[1] + 1)) if span else set()
+    owners = set()
+    for i, ln in enumerate(lines):
+        if i in excluded:
+            continue
+        stripped = ln.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        owners.update(tok for tok in stripped.split()[1:] if tok.startswith("@"))
+    return len(owners)
+
+
+def detect_team(*, root: str | None = None, gh_api=None) -> dict:
+    """Brownfield team detection (provisioning §identity-and-tokens): does this project already have a team
+    reviewing changes? Three READ-ONLY signals — a multi-owner CODEOWNERS (local), an existing required-review
+    rule, or an organization-owned repo (both via `gh api`). Any one → a recommendation to use the team tier,
+    NEVER a switch (the operator still chooses). Each network signal degrades to 'unknown' (not a false
+    positive) when `gh` can't answer. `gh_api(path) -> parsed-json-or-None` is injectable for tests/the demo.
+    Returns {detected, reason, signals}."""
+    base = root if root is not None else validate.ROOT
+    gh = gh_api if gh_api is not None else _gh_api_json
+    signals = []
+    if _codeowners_distinct_owners(base) > 1:
+        signals.append("more than one reviewer is already named in your CODEOWNERS")
+    slug = boot.repo_slug()
+    if slug:
+        repo = gh(f"repos/{slug}")
+        if isinstance(repo, dict) and (repo.get("owner") or {}).get("type") == "Organization":
+            signals.append("the project belongs to an organization")
+        reviews = gh(f"repos/{slug}/branches/{boot.PROTECTED_BRANCH}/protection/required_pull_request_reviews")
+        if isinstance(reviews, dict) and (reviews.get("required_approving_review_count") or 0) > 0:
+            signals.append("changes here already require a review before merging")
+    return {"detected": bool(signals), "reason": signals[0] if signals else None, "signals": signals}
 
 
 def _existing_release(root: str | None = None) -> str | None:
@@ -1912,7 +1989,7 @@ def _finish_apply(tmp: str) -> dict:
                  control_issues=_FakeIssues(), control_repo="you/your-project", control_token="demo-token")
 
 
-# ==== BROWNFIELD COLLISION CHECK (core slice 27d) — surface, never overwrite ===========================
+# ==== BROWNFIELD COLLISION CHECK — surface, never overwrite ============================================
 #
 # When the engine joins an ALREADY-POPULATED project (brownfield), it inspects the project for any overlap
 # between what it would add and what is already there, and SURFACES each overlap in plain language with a
@@ -1924,14 +2001,13 @@ def _finish_apply(tmp: str) -> dict:
 #      and keeps the rest), and
 #   3. a product review rule that also covers the engine's files (the engine adds its own, placed to win).
 #
-# DOUBLED DEGENERACY (the loudest line, doubled): this check has NO live caller yet. It never runs in the
-# construction repo (engine == product), AND — because a project made from the template starts empty — it is
-# a no-op even on a real GREENFIELD adopter. It fires only when the deferred brownfield-ARRIVAL path (overlay
-# a fetched release onto a live tree, then run this) is built; until then its only exercise is the fixture
-# demo below. "Works on the fixture ⇒ works when the deferred caller runs it on a real populated repo" is an
-# inductive step the fixture cannot discharge — named, not hidden. The pure detection takes the engine path
-# set INJECTED (the deferred caller passes the release-derived set, BEFORE the overlay writes), defaulting to
-# the engine's own owned set so a test/demo can pass a real one.
+# The LIVE caller is arrive() (the brownfield-arrival path, #234): it runs this check read-only against the
+# target BEFORE any write, passing the RELEASE-derived owned path set (computed from the extracted release,
+# before the overlay lands). It never runs in the construction repo (engine == product), and on a GREENFIELD
+# adopter it is a no-op (a project made from the template starts empty). The remaining inductive gap — "behaves
+# on the fixture ⇒ behaves for a real adopter fetched from a real release" — is named, not hidden: this
+# construction repo never has a real outside project arrive, so the demo + tests are as far as it can reach.
+# The engine path set is INJECTED so a test/demo can pass a real one; it defaults to the engine's own owned set.
 
 # The platform-shared root files the engine co-occupies: it adds only its OWN marked/keyed entries and leaves
 # the project's content alone (topology §the wall L40-49). An EXPLICIT set — there is no path constant for the
@@ -2025,16 +2101,16 @@ def _shared_state(rel: str, path: str) -> str:
             return "empty"
         return "resume" if _json_has_engine_entry(rel, data) else "additive"
     if rel == "CLAUDE.md":
-        # Presence-only for now: the engine's CLAUDE.md section shape IS the `floor` fence (wiring.MD_FENCE),
-        # added in #234 slice 6a, but the FENCE-AWARE detection here — distinguishing an already-present engine
-        # floor ('resume') from a pre-existing project guide ('additive') — lands in 6b alongside this branch's
-        # only live caller (collision_check, still dormant). Until then a pre-existing guide is surfaced as an
-        # additive overlap; nothing live reads this return, so the detection is shaped with its caller, not one
-        # slice ahead of it.
+        # Fence-aware: the engine's CLAUDE.md section shape IS the `floor` fence (wiring.MD_FENCE, the
+        # HTML-comment style, #234 slice 6a). An already-present engine floor is a 'resume' (no flag); a
+        # pre-existing project guide with no engine floor is 'additive' (the engine inserts its keyed section
+        # and keeps the rest). Mirrors the .gitignore branch below, but with the Markdown begin-token.
         text = _read_text_opt(path)
         if text is None:
             return "unreadable"
-        return "additive" if text.strip() else "empty"
+        if not text.strip():
+            return "empty"
+        return "resume" if wiring._MD_FENCE_BEGIN_TOKEN in text else "additive"
     text = _read_text_opt(path)                         # fenced text (.gitignore)
     if text is None:
         return "unreadable"
@@ -2123,14 +2199,151 @@ def collision_check(*, root=None, engine_paths=None, copy=None) -> dict:
                         "shared_files": len(_COLLISION_SHARED), "engine_paths": len(engine_paths)}}
 
 
+def _insert_floor(release_tree: str) -> str:
+    """Insert the engine's root-CLAUDE.md floor into the LIVE project's own CLAUDE.md on arrival — the engine
+    `floor` fence, keyed and APPEND-when-absent (wiring.fence_apply, MD_FENCE), so an operator's existing guide
+    keeps all its content and the engine adds its section below it (repository-topology law 1). The floor body
+    is read from the RELEASE's CLAUDE.deployed.md (NOT its construction-governance CLAUDE.md, and not the target
+    — CLAUDE.deployed.md is not overlaid). This is the INSERT-on-arrival counterpart to module_manager's
+    SKIP-on-absent _merge_claude_floor (the upgrade path, which must never duplicate a floor): arrival is the
+    one path that creates the fence. Returns 'inserted' | 'present' (a floor is already there — a resume, no
+    duplicate) | 'skipped' (the release ships no floor) | 'degraded' (a malformed local fence — left untouched).
+    Paths are validate.ROOT-relative, so a redirected arrival writes only the live target."""
+    src = os.path.join(release_tree, _DEPLOYED_FLOOR_REL)
+    floor = _read_text_opt(src) if os.path.isfile(src) else None
+    if not floor or not floor.strip():
+        return "skipped"
+    floor_lines = floor.split("\n")
+    if floor_lines and floor_lines[-1] == "":
+        floor_lines = floor_lines[:-1]              # drop the trailing-newline empty element; fence re-terminates
+    local_path = os.path.join(validate.ROOT, _ROOT_CLAUDE_REL)
+    local = _read_text_opt(local_path) or "" if os.path.isfile(local_path) else ""
+    try:
+        if wiring.fence_present(local, _FLOOR_FENCE, style=wiring.MD_FENCE):
+            return "present"                        # an engine floor is already in place — never a second one
+        merged = wiring.fence_apply(local, _FLOOR_FENCE, floor_lines, style=wiring.MD_FENCE)
+    except wiring.WiringError:
+        return "degraded"                           # malformed local fence → leave untouched, never crash
+    with open(local_path, "w", encoding="utf-8") as fh:
+        fh.write(merged)
+    return "inserted"
+
+
+def arrive(*, target_root: str, release_tree: str, engine_release: str | None = None,
+           keep=None, tier: str | None = None, handle=None, decide=None, announce=None, opener=None,
+           home_reader=None, settings_path=None, uv_present=None, uv_installer=None, uv_runner=None,
+           consent=None, control_transport=None, gh_refresh=None, control_issues=None,
+           control_repo=None, control_token=None) -> dict:
+    """BROWNFIELD ARRIVAL (provisioning §greenfield-and-brownfield; #234) — overlay the engine onto a LIVE
+    product tree and run the SAME instantiator, with the collision check as the one brownfield-only gate. The
+    engine isn't on the target yet, so this runs from the EXTRACTED release (`release_tree`, the documented
+    bootstrap's temp extraction) and is the SOLE writer to the live tree (`target_root`); ROOT is bound to the
+    target for every write. Order (the consent-before-write discipline): compute the release-derived owned set
+    → READ-ONLY collision check → surface each overlap with its consequence + the three choices, collected via
+    `decide(collision) -> 'accept'|'leave-as-is'|'abort'` (default: surface-and-stop) → ONLY THEN overlay the
+    full release module set (a class-1 'leave-as-is' path is kept, excluded from the overlay) + insert the
+    engine floor into the operator's CLAUDE.md → run confirm → apply → verify → retire unforked → land the
+    arrival as a reviewed PR (via `opener`). ANY 'abort', or a 'leave-as-is' on a shared file the engine needs
+    to function (class 2) or a review rule (class 3), STOPS before the first write — nothing is changed. Every
+    boundary is injectable so tests/the demo run the REAL flow with nothing real touched. Returns a structured
+    result the caller renders in plain language."""
+    say = announce if announce is not None else (lambda text: print(text))
+    decide = decide if decide is not None else (lambda c: "abort")
+    if not release_tree:
+        raise ValueError("arrive needs the extracted engine release tree (release_tree).")
+    result = {"proceeded": False, "stopped_on": None, "reason": None, "collisions": [], "overlaid": [],
+              "floor": None, "tier": None, "team": None, "steps": [], "pr": None}
+    with _redirect_root(target_root):
+        copy = load_copy()
+        # The owned set + the full module id set the engine would deliver — computed with ROOT at the RELEASE
+        # tree (module_coherence reads validate.ROOT), then ROOT is restored to the target before any write.
+        with _redirect_root(release_tree):
+            release_paths = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
+            release_ids = sorted(m.get("id") for _rel, m in module_coherence.discover_manifests() if m.get("id"))
+        if not release_ids:
+            return {**result, "stopped_on": "release",
+                    "reason": "the engine release looks empty or unreadable, so the arrival stopped and "
+                              "nothing was changed."}
+        # (1) READ-ONLY collision check, BEFORE any write.
+        check = collision_check(root=target_root, engine_paths=release_paths, copy=copy)
+        result["collisions"] = check["collisions"]
+        say(copy["collision-intro"] if check["collisions"] else copy["collision-none"])
+        # (2) Surface each overlap, then the team-tier recommendation — BEFORE any decision, so a surface-only
+        # run (decide → 'abort') still shows the operator everything they need to choose by. Read-only.
+        for c in check["collisions"]:
+            say("  • " + c["consequence"])
+        team = detect_team(root=target_root)
+        result["team"] = team
+        if team.get("detected") and (tier or "solo") != "team":
+            say(copy["team-recommended"])
+        # (3) Collect the operator's per-collision choice and decide whether to proceed. Any 'abort' stops.
+        # 'leave-as-is' on a class-1 (engine-exclusive) path is honored — that path is kept, excluded from the
+        # overlay. 'leave-as-is' on a class-2 shared file the engine needs to function, or a class-3 review
+        # rule, stops (the engine never half-installs): accept it to go on, or sort it out and run the arrival
+        # again. Nothing is written until this passes.
+        exclude = set()
+        decisions = [(c, decide(c)) for c in check["collisions"]]
+        for c, choice in decisions:
+            if choice == "abort":
+                return {**result, "stopped_on": f"class{c['klass']}",
+                        "reason": "you chose to stop, so the arrival stopped and nothing was changed."}
+            if choice == "leave-as-is":
+                if c["klass"] == 1:
+                    exclude.update(c["paths"])
+                else:
+                    return {**result, "stopped_on": f"class{c['klass']}",
+                            "reason": "you chose to leave a file the engine needs as it is, so the arrival "
+                                      "stopped and nothing was changed — accept it to go on, or sort it out "
+                                      "and run the arrival again."}
+        # (4) OVERLAY the full release module set onto the live tree (kept class-1 paths excluded).
+        try:
+            result["overlaid"], _candidates = module_manager._overlay_engine_code(
+                release_tree, release_ids, exclude=exclude)
+        except module_manager._UpgradeRefused as ur:
+            return {**result, "stopped_on": "overlay", "reason": ur.reason}
+        # (5) INSERT the engine floor into the operator's own CLAUDE.md (keyed, append-when-absent).
+        result["floor"] = _insert_floor(release_tree)
+        # (6) Run the SAME instantiator: confirm (the checkpoint) → apply → verify → retire.
+        confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle)
+        applied = apply(announce=say, home_reader=home_reader, settings_path=settings_path,
+                        uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
+                        consent=consent, control_transport=control_transport, gh_refresh=gh_refresh,
+                        control_issues=control_issues, control_repo=control_repo,
+                        control_token=control_token, handle=handle)
+        result["steps"] = applied.get("steps", [])
+        result["tier"] = tier or "solo"
+        if applied.get("refused") or applied.get("halted"):
+            return {**result, "proceeded": True,
+                    "reason": "the engine's files are in place but setup did not finish (see the steps); "
+                              "fix the cause and run the arrival again — it resumes from here."}
+        verify(announce=say)
+        retired = retire(announce=say)
+        if retired.get("refused"):
+            return {**result, "proceeded": True,
+                    "reason": "the engine is installed but a consistency check did not pass, so the one-time "
+                              "setup files were left in place; fix the cause and run the arrival again."}
+        # (7) Land the arrival as a reviewed pull request (the merge wall; the operator approves it).
+        if opener is not None:
+            ident = derive_identity(target_root)
+            title = "Add the engine to this project"
+            body = ("This pull request adds the engine to the project: its files are placed in their own "
+                    "namespaced corners, any overlap with the project's own files was surfaced and settled, "
+                    "and the engine's working guide was added to CLAUDE.md alongside the project's own content. "
+                    "Merging it turns on the review gate; reverting it removes the engine again.")
+            result["pr"] = opener(branch="engine-arrival", title=title, body=body)
+        result["proceeded"] = True
+    return result
+
+
 # ---- collision demo (the consent instrument: REAL detection, throwaway PRODUCT fixtures) -------------
 
 _COLLISION_DEMO_NOTE = (
-    "Important — what this does and doesn't do yet: this overlap check has NO live trigger at the moment. A "
-    "project made from this template starts empty, so there is nothing to overlap; the check only matters when "
-    "the engine is added to a project that ALREADY has its own files — and that 'add to an existing project' "
-    "path is not built yet. So this does not protect a real project today. What follows runs the REAL overlap "
-    "logic against throwaway practice projects, to show it behaves; nothing here touches your real project."
+    "What this is: the overlap check is now the live first step when the engine is added to a project that "
+    "ALREADY has its own files (the brownfield arrival). This demonstration runs that REAL check against "
+    "throwaway practice projects so you can see it behave — a clean project, a populated one, and a re-run. "
+    "What it can't prove here: this construction repo never has a real outside project arrive, so 'it behaved "
+    "on these practice projects' is as far as a demonstration can reach — the live arrival end to end is "
+    "exercised by the arrival demo and the tests. Nothing here touches your real project."
 )
 
 
@@ -2267,6 +2480,137 @@ def _demo_collisions() -> int:
     return 0 if ok else 1
 
 
+# ---- arrival demo (the live brownfield arrival end to end: REAL overlay + collision + floor + setup) ----
+
+_ARRIVAL_DEMO_NOTE = (
+    "What this is: the LIVE brownfield arrival — adding the engine to a project that already has its own "
+    "files. It runs the REAL arrival against a throwaway practice project: the engine is overlaid from a "
+    "stand-in release, overlaps are surfaced, the engine's working-guide block is inserted into the project's "
+    "own CLAUDE.md (keeping the project's content), team review is recommended because the practice project "
+    "already has more than one reviewer, and setup runs — all behind a pull request the owner would approve. "
+    "Faked only at the edges: fetching the release, the engine's own tools install, GitHub, and opening the "
+    "pull request. What it can't prove here: a real outside project, fetched from a real release, arrives the "
+    "same way — this construction repo never has one arrive. 'It behaved on the practice project ⇒ it behaves "
+    "for a real adopter' is the step the fixture cannot discharge. Nothing here touches your real project."
+)
+
+
+def _build_arrival_product(root: str) -> None:
+    """A throwaway LIVE product repo the engine arrives onto: the project's own source + working guide
+    (CLAUDE.md, no engine floor) + .gitignore (class-2 overlaps), a multi-owner CODEOWNERS (class-3 overlap AND
+    the 'a team already reviews here' signal), and the project's own SECURITY.md / README (no engine marker) /
+    LICENSE (the engine must leave all three as they are). Deliberately NO files under .engine/ — keeping a
+    product file inside the engine's own namespace is a separate, consistency-flagged choice; this fixture
+    proves the clean arrival. Its own tempdir; never the real tree."""
+    os.makedirs(os.path.join(root, "src"))
+    with open(os.path.join(root, "src", "app.py"), "w", encoding="utf-8") as fh:
+        fh.write("print('the product')\n")
+    with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+        fh.write("# Our product's working guide\n\nHow we work here. Build with make.\n")
+    with open(os.path.join(root, ".gitignore"), "w", encoding="utf-8") as fh:
+        fh.write("node_modules/\n*.log\n")
+    os.makedirs(os.path.join(root, ".github"))
+    with open(os.path.join(root, ".github", "CODEOWNERS"), "w", encoding="utf-8") as fh:
+        fh.write("* @product/alice @product/bob\n")          # two reviewers → class-3 + team signal
+    with open(os.path.join(root, "SECURITY.md"), "w", encoding="utf-8") as fh:
+        fh.write("# Security\n\nEmail security@ourproduct.example.\n")
+    with open(os.path.join(root, "README.md"), "w", encoding="utf-8") as fh:
+        fh.write("# Our Product\n\nWhat it does.\n")          # no engine marketing marker → left untouched
+    with open(os.path.join(root, "LICENSE"), "w", encoding="utf-8") as fh:
+        fh.write("Apache License 2.0\n\nCopyright 2026 Our Product Inc.\n")  # not the template seed → untouched
+
+
+def arrival_demo() -> bool:
+    """Operator-runnable demonstration of the LIVE brownfield arrival. Builds a throwaway live product and a
+    stand-in extracted release, then runs the REAL arrive() twice — accept and abort — with only the edges
+    faked (release fetch, uv, GitHub, PR opener). Asserts: the accept run surfaces the overlaps, overlays the
+    engine onto the product, inserts EXACTLY ONE engine floor into the product's own CLAUDE.md while keeping
+    the product's content (and never copies the release's construction CLAUDE.md over it), recommends team
+    review, leaves the product's SECURITY/README/LICENSE as they are, and opens one pull request; the abort
+    run changes nothing and opens no pull request; and this real repo's files are untouched throughout."""
+    import tempfile
+    print(_BANNER + "\n")
+    print(_ARRIVAL_DEMO_NOTE + "\n")
+    real_before = _snapshot_real_files()
+    ok = True
+    quiet = lambda text: None
+    faked = dict(home_reader=lambda: {}, uv_present=lambda: None,
+                 uv_installer=lambda: "uv", uv_runner=lambda uv, g: True,
+                 consent=lambda kind: True, control_transport=_approve_transport(),
+                 gh_refresh=lambda s: True, control_issues=_FakeIssues(),
+                 control_repo="you/your-project", control_token="demo-token")
+
+    # — ACCEPT: the engine arrives, surfacing every overlap and keeping the project's own content.
+    print("— ADDING THE ENGINE (accept): overlay + surface + insert the floor + set up, behind a pull request.")
+    with tempfile.TemporaryDirectory() as d:
+        target, release = os.path.join(d, "product"), os.path.join(d, "release")
+        os.makedirs(target)
+        _build_arrival_product(target)
+        _build_fixture(release)
+        before_guide = _read_text_or(os.path.join(target, "CLAUDE.md"), "")
+        prs = []
+        res = arrive(target_root=target, release_tree=release, engine_release="v1.2.3",
+                     keep=[], tier="team", handle="you", decide=lambda c: "accept",
+                     announce=quiet, opener=lambda **kw: prs.append(kw) or {"number": 1}, **faked)
+        guide = _read_text_or(os.path.join(target, "CLAUDE.md"), "")
+        floors = guide.count(wiring._MD_FENCE_BEGIN_TOKEN)
+        engine_landed = os.path.isfile(os.path.join(target, ".engine", "modules", "core", "manifest.json"))
+        checks = {
+            "the arrival proceeded": res["proceeded"],
+            "the overlaps were surfaced": len(res["collisions"]) > 0,
+            "a team was detected and recommended": bool(res.get("team", {}).get("detected")),
+            "the engine's files were overlaid onto the product": engine_landed and len(res["overlaid"]) > 0,
+            "exactly one engine floor was inserted into the project's CLAUDE.md": floors == 1,
+            "the project's own guide text was kept": "How we work here." in guide,
+            "the release's construction CLAUDE.md never overlaid the guide": "construction governance" not in guide,
+            "the project's SECURITY file was left as it is": "security@ourproduct.example" in
+                _read_text_or(os.path.join(target, "SECURITY.md"), ""),
+            "the project's README was left as it is": _MARKETING_SEED_MARKER not in
+                _read_text_or(os.path.join(target, "README.md"), ""),
+            "the project's LICENSE was left as it is": "Our Product Inc." in
+                _read_text_or(os.path.join(target, "LICENSE"), ""),
+            "one pull request was opened for review": len(prs) == 1,
+        }
+        for label, passed in checks.items():
+            print(f"    {'[ok]' if passed else '[FAIL]'} {label}")
+            ok &= passed
+
+    # — ABORT: the owner stops at an overlap; nothing is written and no pull request is opened.
+    print("\n— STOPPING AT AN OVERLAP (abort): nothing is changed, no pull request is opened.")
+    with tempfile.TemporaryDirectory() as d:
+        target, release = os.path.join(d, "product"), os.path.join(d, "release")
+        os.makedirs(target)
+        _build_arrival_product(target)
+        _build_fixture(release)
+        snap = {p: _read_text_or(os.path.join(target, p), "")
+                for p in ("CLAUDE.md", ".gitignore", ".github/CODEOWNERS")}
+        prs = []
+        res = arrive(target_root=target, release_tree=release, decide=lambda c: "abort",
+                     announce=quiet, opener=lambda **kw: prs.append(kw) or {"number": 1}, **faked)
+        after = {p: _read_text_or(os.path.join(target, p), "") for p in snap}
+        no_engine = not os.path.isdir(os.path.join(target, ".engine"))
+        checks = {
+            "the arrival stopped": not res["proceeded"],
+            "the project's files are byte-for-byte unchanged": after == snap,
+            "no engine files were written": no_engine and not res["overlaid"],
+            "no pull request was opened": len(prs) == 0,
+        }
+        for label, passed in checks.items():
+            print(f"    {'[ok]' if passed else '[FAIL]'} {label}")
+            ok &= passed
+
+    # — ISOLATION: nothing above touched THIS real project's files.
+    print("\n— ISOLATION CHECK: did any of that touch THIS real project's files?")
+    unchanged = _assert_real_files_unchanged(real_before)
+    real_self = os.path.isfile(os.path.join(validate.ROOT, ".engine", "tools", "instantiator.py"))
+    print(f"    → this project's own files are byte-for-byte unchanged: {unchanged}; this tool still exists: "
+          f"{real_self}.")
+    ok &= (unchanged and real_self)
+
+    print("\n" + ("The brownfield arrival behaved." if ok else "THE ARRIVAL DID NOT BEHAVE — see above."))
+    return ok
+
+
 def _parse_apply_flags(argv: list) -> dict:
     """Translate the apply CLI flags into the per-kind operator decisions the apply phase consents on:
     `--install-uv` approves installing the engine's tools; `--plan-mode adopt|keep` answers the planning
@@ -2310,6 +2654,8 @@ def main(argv: list) -> int:
         return _finish_demo()
     if argv and argv[0] == "collision-demo":
         return _demo_collisions()
+    if argv and argv[0] == "arrival-demo":
+        return 0 if arrival_demo() else 1
     if argv and argv[0] == "confirm":
         keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
         tier = _flag_value(argv, "--tier") or "solo"
@@ -2335,12 +2681,40 @@ def main(argv: list) -> int:
         # confirms completion (exit 0).
         res = retire()
         return 1 if res.get("refused") else 0
+    if argv and argv[0] == "arrive":
+        # BROWNFIELD ARRIVAL — run from the EXTRACTED release against a live project (--target). Without
+        # --accept-all the run is surface-and-stop: it shows every overlap, read-only, and changes nothing, so
+        # the operator can review them first. With --accept-all (after that review) it overlays the engine,
+        # inserts the floor, runs setup, and opens the arrival as a reviewed pull request. The release tree
+        # defaults to this extracted engine's own root.
+        target = _flag_value(argv, "--target") or os.getcwd()
+        release = _flag_value(argv, "--release-tree") or validate.ROOT
+        keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
+        tier = _flag_value(argv, "--tier") or "solo"
+        handle = _flag_value(argv, "--handle") or derive_handle()
+        ref = _flag_value(argv, "--engine-release")
+        accept_all = "--accept-all" in argv
+        decide = (lambda c: "accept") if accept_all else (lambda c: "abort")
+        opener = module_manager._open_upgrade_pr if accept_all else None
+        res = arrive(target_root=target, release_tree=release, engine_release=ref, keep=keep, tier=tier,
+                     handle=handle, decide=decide, opener=opener)
+        if res["proceeded"]:
+            print(res.get("reason") or "The engine arrived: its files are in place, every overlap was "
+                  "settled, and the change is open for you to review and approve.")
+            return 0
+        if res.get("stopped_on") in ("release", "overlay"):
+            print(res.get("reason"))
+            return 1
+        # Surface-only (no --accept-all): every overlap was shown, read-only, nothing changed.
+        print("Those are the overlaps. Review them with the owner, then run `arrive --accept-all` to go on "
+              "(or keep anything you want by sorting it out first, then run the arrival again).")
+        return 0
     if argv and argv[0] == "collision-check":
-        # The overlap check runs when the engine is ADDED to a project that already has its own files. In this
-        # construction repo (engine == product) there is nothing to detect — running it here would read every
-        # engine file as a project file colliding with itself — so the verb short-circuits, read-only. The
-        # detection logic (collision_check) is exercised by `collision-demo` and the tests; its live caller is
-        # the deferred brownfield-arrival path.
+        # The overlap check's LIVE caller is `arrive` (brownfield arrival, #234). Run on its own in THIS
+        # construction repo (engine == product) there is nothing to detect — it would read every engine file as
+        # a project file colliding with itself — so the verb short-circuits, read-only. The real check runs
+        # from the extracted release against a live project; the detection is exercised by `arrive`,
+        # `collision-demo`, and the tests.
         print("This is the workshop where the engine is built — the overlap check runs when the engine is "
               "added to a project that already has its own files. Nothing to detect here.")
         return 0

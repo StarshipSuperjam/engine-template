@@ -130,6 +130,13 @@ Setup is complete. I've cleaned up the one-time setup files — the walkthrough,
 itself — now that they've done their job. Everything your project needs to keep running stays in place, and all
 your choices are saved. You're ready to start.
 
+## Your project looks like it already has a team
+
+Your project looks like it already has a team — others review changes here. For that, the team setup fits best:
+the engine commits under a separate name and a teammate approves its changes, so the way work is reviewed here
+stays the way it already works. It's a suggestion for you to weigh, not a switch I throw — on-your-own stays
+available, and the choice is yours.
+
 ## Before I add the engine, here's what I found in your project
 
 Your project already has files and settings of its own. I'm adding the engine alongside them, so first I'll

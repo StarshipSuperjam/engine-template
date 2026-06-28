@@ -824,6 +824,37 @@ class TestIssueTemplateOverlay(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(live, ".github", "ISSUE_TEMPLATE", "bug.md")))
 
 
+class TestOverlayExclude(unittest.TestCase):
+    """#234 6b: the brownfield arrival passes `exclude` so an engine-exclusive path the operator chose to keep
+    (a class-1 'leave-as-is') is NOT overwritten by the incoming engine file — the engine coexists around it."""
+
+    def _release(self, release):
+        os.makedirs(os.path.join(release, ".engine", "modules", "base"))
+        os.makedirs(os.path.join(release, ".engine", "tools"))
+        module_manager._write_json(
+            os.path.join(release, ".engine", "modules", "base", "manifest.json"),
+            {"id": "base", "version": "0.0.0", "status": "required",
+             "provides": {"tool": [".engine/tools/keep.py", ".engine/tools/other.py"]}, "depends": {}})
+        for name in ("keep.py", "other.py"):
+            with open(os.path.join(release, ".engine", "tools", name), "w") as fh:
+                fh.write("# engine version\n")
+
+    def test_excluded_path_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as d:
+            release, live = os.path.join(d, "release"), os.path.join(d, "live")
+            self._release(release)
+            os.makedirs(os.path.join(live, ".engine", "tools"))
+            with open(os.path.join(live, ".engine", "tools", "keep.py"), "w") as fh:
+                fh.write("# the product's own file\n")    # an operator file at an engine path (class-1)
+            with module_manager._redirect_root(live):
+                copied, _ = module_manager._overlay_engine_code(
+                    release, ["base"], exclude={".engine/tools/keep.py"})
+            self.assertNotIn(".engine/tools/keep.py", copied)            # kept, not overwritten
+            self.assertIn(".engine/tools/other.py", copied)             # the rest still overlaid
+            with open(os.path.join(live, ".engine", "tools", "keep.py")) as fh:
+                self.assertEqual(fh.read(), "# the product's own file\n")
+
+
 class TestRemoveEngine(unittest.TestCase):
     """Clean whole-engine removal (core 25c PR-3): de-bootstrap first, reverse all wires, delete every engine
     file (including the .github/ ones, unlike per-module remove), open a reviewed pull request. All four
