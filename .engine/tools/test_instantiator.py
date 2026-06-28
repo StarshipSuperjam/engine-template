@@ -932,6 +932,115 @@ class TestSeedLicense(unittest.TestCase):
         self.assertEqual(outcome, "present", "no LICENSE to recognize → preserve-on-doubt, delete nothing")
 
 
+# ==== the deployed-floor swap-in (issue #272) ========================================================
+
+def _seed_floor_root(tmp, *, claude=None, floor=None):
+    """Plant a fixture root for a _seed_deployed_floor test: optionally a root CLAUDE.md (its exact text) and
+    the CLAUDE.deployed.md floor source (its exact text). Either may be omitted to model the absent-file cases.
+    The caller holds the surrounding inst._redirect_root(tmp)."""
+    if claude is not None:
+        with open(os.path.join(tmp, "CLAUDE.md"), "w", encoding="utf-8") as fh:
+            fh.write(claude)
+    if floor is not None:
+        with open(os.path.join(tmp, "CLAUDE.deployed.md"), "w", encoding="utf-8") as fh:
+            fh.write(floor)
+
+
+_CONSTRUCTION_CLAUDE = "# engine-template — construction governance (read first)\nInternal build notes.\n"
+_FLOOR = "# Your project runs on an Engine\n\nI show a Project status block first each session.\n"
+
+
+class TestConstructionClaudeRecognizer(unittest.TestCase):
+    def test_recognizer_matches_only_the_construction_marker_preserving_on_any_doubt(self):
+        self.assertTrue(inst._is_construction_claude(_CONSTRUCTION_CLAUDE))
+        self.assertTrue(inst._is_construction_claude("CONSTRUCTION GOVERNANCE first"))       # case-insensitive, line 1
+        self.assertTrue(inst._is_construction_claude("\n\n" + _CONSTRUCTION_CLAUDE))         # leading blank lines tolerated
+        self.assertFalse(inst._is_construction_claude(_FLOOR))                               # the floor (no marker)
+        self.assertFalse(inst._is_construction_claude("# My Project\n\nMy own words.\n"))    # operator content
+        self.assertFalse(inst._is_construction_claude(""))                                   # empty
+        self.assertFalse(inst._is_construction_claude(None))                                 # absent/unreadable
+
+    def test_an_operator_claude_that_only_mentions_the_phrase_mid_document_is_not_a_match(self):
+        # The marker must lead the file (the file IS the engine's construction guide), not merely appear inside
+        # it — so an operator CLAUDE.md whose BODY happens to use the phrase (e.g. a construction-industry
+        # project documenting its own governance) is preserved, never clobbered.
+        mentions = ("# Acme site project\n\nWe follow strict construction governance rules on every job.\n")
+        self.assertFalse(inst._is_construction_claude(mentions))
+
+    def test_marker_is_identical_to_the_construction_repo_sentinel_marker(self):
+        # The floor-swap recognizer and the construction-repo public-safety sentinel must agree on what "the
+        # construction CLAUDE.md" is, or one could swap a file the other still treats as the construction repo.
+        import memory_pointer_public_safety_check as sentinel
+        self.assertEqual(inst._CONSTRUCTION_CLAUDE_MARKER, sentinel._CONSTRUCTION_MARKER)
+
+
+class TestSeedDeployedFloor(unittest.TestCase):
+    def test_greenfield_swaps_the_floor_in_removes_the_source_and_discloses(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_floor_root(d, claude=_CONSTRUCTION_CLAUDE, floor=_FLOOR)
+                outcome = inst._seed_deployed_floor(said.append, inst.load_copy())
+                now = inst._read_text_or(os.path.join(d, "CLAUDE.md"), "")
+                source_gone = not os.path.exists(os.path.join(d, "CLAUDE.deployed.md"))
+        self.assertEqual(outcome, "swapped")
+        self.assertEqual(now, _FLOOR, "the deployed floor becomes the root CLAUDE.md")
+        self.assertTrue(source_gone, "the consumed CLAUDE.deployed.md is removed")
+        blob = "\n".join(said)
+        self.assertTrue(said, "the swap is disclosed, never silent")
+        self.assertIn("working guide", blob.lower())
+        self.assertIn("/engine-conduct", blob, "customization points at conduct, not editing CLAUDE.md")
+
+    def test_brownfield_operator_claude_is_preserved_untouched(self):
+        said = []
+        mine = "# My Project\n\nMy own working notes — nothing to do with the Engine.\n"
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_floor_root(d, claude=mine, floor=_FLOOR)
+                outcome = inst._seed_deployed_floor(said.append, inst.load_copy())
+                now = inst._read_text_or(os.path.join(d, "CLAUDE.md"), "")
+                floor_kept = os.path.exists(os.path.join(d, "CLAUDE.deployed.md"))
+        self.assertEqual(outcome, "present")
+        self.assertEqual(now, mine, "an operator CLAUDE.md (no marker) is left exactly as it is")
+        self.assertTrue(floor_kept, "a no-op never deletes the floor source")
+        self.assertEqual(said, [], "no disclosure on a no-op")
+
+    def test_rerun_after_a_swap_is_a_noop(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_floor_root(d, claude=_CONSTRUCTION_CLAUDE, floor=_FLOOR)
+                inst._seed_deployed_floor(lambda t: None, inst.load_copy())          # first pass swaps
+                outcome = inst._seed_deployed_floor(said.append, inst.load_copy())    # CLAUDE.md is now the floor
+        self.assertEqual(outcome, "present", "CLAUDE.md is now the floor (no marker) → second pass is a no-op")
+        self.assertEqual(said, [], "a re-run never re-touches CLAUDE.md")
+
+    def test_floor_absent_never_strands_the_construction_file(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_floor_root(d, claude=_CONSTRUCTION_CLAUDE)                      # construction file, NO floor source
+                outcome = inst._seed_deployed_floor(said.append, inst.load_copy())
+                still_there = inst._read_text_or(os.path.join(d, "CLAUDE.md"), "")
+        self.assertEqual(outcome, "present", "no floor source → preserve, never strand the repo with no CLAUDE.md")
+        self.assertEqual(still_there, _CONSTRUCTION_CLAUDE, "the construction file is left in place, not deleted")
+        self.assertEqual(said, [], "no disclosure on a preserve")
+
+    def test_absent_claude_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                _seed_floor_root(d, floor=_FLOOR)                                     # floor present, NO root CLAUDE.md
+                outcome = inst._seed_deployed_floor(lambda t: None, inst.load_copy())
+                floor_kept = os.path.exists(os.path.join(d, "CLAUDE.deployed.md"))
+        self.assertEqual(outcome, "present", "no root CLAUDE.md to recognize → preserve-on-doubt")
+        self.assertTrue(floor_kept, "with nothing to swap, the floor source is left alone")
+
+
 class TestRepoLicenseIsTheTemplateSeed(unittest.TestCase):
     """A durable parity guard on the TEMPLATE's OWN root LICENSE (issue #147): the committed LICENSE must stay
     recognizable as the engine's shipped template-license seed, or provisioning's first-run clear (_seed_license)

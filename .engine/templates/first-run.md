@@ -77,6 +77,14 @@ choosealicense.com walks through the common options in plain language — and I 
 and help you add the one you choose, though I can't tell you which terms are right for you; for anything that really
 matters legally, ask a person. I didn't do this silently — this note is me telling you.
 
+## Your project's working guide
+
+This project started from a template, and its working guide — the `CLAUDE.md` at the top — arrived carrying the
+template's own setup notes, which are about building the template itself, not your project. I've replaced it with
+the engine's working guide for **your** project. I keep this file current as the engine updates, so the part
+that's yours to shape — how you like me to work with you — lives in your codes of conduct instead: change it any
+time with `/engine-conduct`. I didn't do this silently — this note is me telling you.
+
 ## If I couldn't set up file ownership for reviews
 
 I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files for
