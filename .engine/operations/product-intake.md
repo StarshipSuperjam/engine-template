@@ -55,7 +55,9 @@ short markers the files carry in their frontmatter stay in the files, never on s
    it — is settled, offer to turn it into work a build can pick up. Keep two moments distinct. *Now:* the engine
    writes a **build order** at `docs/spec/build-plan.md` — the settled capabilities grouped into ordered,
    plainly-named phases (e.g. "Foundation", "Core flows") — and opens a **list of things to build**, one tracked
-   item per capability, each pointing at its description and the parts it must satisfy. *Later:* when a build
+   item per capability, each **linking to its description** (the document under `docs/spec/`) and naming the
+   parts it must satisfy — the link is what lets a later build check the work against that description. *Later:*
+   when a build
    actually runs, that order is what groups the work into **visible phases you can watch progress against** — the
    phases are not created just by settling. Say the consequence plainly: once a build order exists, settled work
    left out of it will hold a merge until it is added, so nothing settled is quietly dropped. And reassure: the

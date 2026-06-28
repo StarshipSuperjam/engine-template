@@ -1832,7 +1832,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:e18bdd319dcadaeed072d6993acdf3130a863c2b19c521e1bb04007750c6cc08",
+        "fingerprint": "sha256:3ad9ff05ba175cd2b47e3eac8be5c8da1343e77d98231d4c2cc0644ef3711e8a",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -2092,7 +2092,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:a72f104205452b9e3c5d151417c218b760cfd3314a7e3bfc52582c93cc952530",
+        "fingerprint": "sha256:ca5fe692c1bf68e7f9d97c42fab146557c7cc80efe3c76c94959c672d8f0d61d",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -4378,6 +4378,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:spec_referent",
+      "name": ".engine/tools/spec_referent.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "spec_referent",
+      "source": {
+        "fingerprint": "sha256:c2e06b463c577c4701ea40c7aa75fda9803202d6beb67bd324735c8859bdf95a",
+        "path": ".engine/tools/spec_referent.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:standing_situation",
       "name": ".engine/tools/standing_situation.py",
       "owner": "core",
@@ -5699,6 +5716,23 @@
       "source": {
         "fingerprint": "sha256:f3d84059e9f53ee4a244474f8be94507cc357127b9fa5bedaad00ab9c014f482",
         "path": ".engine/tools/product_design/test_spec_form.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_spec_referent",
+      "name": ".engine/tools/test_spec_referent.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_spec_referent",
+      "source": {
+        "fingerprint": "sha256:55bfd5b7b9fa5991d8a607424ad97d48b87be8829bb06ed01e18aa41c5536792",
+        "path": ".engine/tools/test_spec_referent.py"
       },
       "status": "active",
       "type": "tool"
