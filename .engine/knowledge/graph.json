@@ -1016,7 +1016,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:2912fa66fe45b6b1900aa8971f29deed3b8c482e24b2e28caf5e4ba41ea67599",
+        "fingerprint": "sha256:1091c66ef8966c87b98f6945c43040a453cebf78bd6fe02d2c23f90eb2543f32",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -5238,7 +5238,7 @@
       },
       "slug": "test_operation",
       "source": {
-        "fingerprint": "sha256:4f8fdfc96e7cf5067aa0745442f26a7973178f1a7f99b1d06de0f8cd1ba48f2a",
+        "fingerprint": "sha256:82adf6dbb2478bdcc5224995168fe26f1aaed049d7898b5a036f895cc739bae0",
         "path": ".engine/tools/test_operation.py"
       },
       "status": "active",
@@ -5612,7 +5612,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:68ce39b97f54c89ea3e0db6f3f15efec14d893f291c6a55b9edd8a564a802ca4",
+        "fingerprint": "sha256:a993a3c01bf5e654b3b5064be1ca60195336d68c49e62f7355224994a9b2e4e9",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -5935,7 +5935,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:27df30a0206cf79a5fb39dfbc60d576508cf7dfae3d94bbcdea28e59d66f3376",
+        "fingerprint": "sha256:5a4ece5ce0e9051e0095654f236f3360fabe2fee0f3c854686372f00f0d1ccde",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
