@@ -80,10 +80,10 @@ matters legally, ask a person. I didn't do this silently — this note is me tel
 ## Your project's working guide
 
 This project started from a template, and its working guide — the `CLAUDE.md` at the top — arrived carrying the
-template's own setup notes, which are about building the template itself, not your project. I've put a short
-working guide for **your** project in its place, so this file orients me to your work. How you like me to work
-with you lives in your codes of conduct — that's where to tune it, any time, with `/engine-conduct`. I didn't do
-this silently — this note is me telling you.
+template's own setup notes, which are about building the template itself, not your project. I've replaced it with
+the engine's working guide for **your** project. I keep this file current as the engine updates, so the part
+that's yours to shape — how you like me to work with you — lives in your codes of conduct instead: change it any
+time with `/engine-conduct`. I didn't do this silently — this note is me telling you.
 
 ## If I couldn't set up file ownership for reviews
 

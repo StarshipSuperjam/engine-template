@@ -241,9 +241,10 @@ FALLBACK_COPY = {
     "claude-floor-seeded": (
         "This project started from a template, and its working guide — the CLAUDE.md at the top — arrived "
         "carrying the template's own setup notes, which are about building the template itself, not your "
-        "project. I've put a short working guide for YOUR project in its place, so this file orients me to your "
-        "work. How you like me to work with you lives in your codes of conduct — that's where to tune it, any "
-        "time, with /engine-conduct. I didn't do this silently — this note is me telling you."
+        "project. I've replaced it with the engine's working guide for YOUR project. I keep this file current "
+        "as the engine updates, so the part that's yours to shape — how you like me to work with you — lives in "
+        "your codes of conduct instead: change it any time with /engine-conduct. I didn't do this silently — "
+        "this note is me telling you."
     ),
     "conduct-seeded": (
         "This project came set up with a starting set of codes of conduct — short notes on how you like me "
@@ -850,12 +851,13 @@ def _seed_license(say, copy=None) -> str:
     return "cleared"
 
 
-# The genesis marker the construction-governance CLAUDE.md leads with ("# engine-template — construction
-# governance …") — the ONE positive-match the floor swap fires on (#272). Kept BYTE-IDENTICAL to the
-# construction-repo sentinel's marker (memory_pointer_public_safety_check._CONSTRUCTION_MARKER), so the two
-# definitions of "this is the construction CLAUDE.md" can never silently disagree — a parity test in the
-# (retiring) test_instantiator.py binds them. Matched case-insensitively ANYWHERE in the file (the sentinel's
-# own `in` test), not anchored to the heading, so the recognizer and the sentinel agree exactly.
+# The genesis marker the construction-governance CLAUDE.md LEADS WITH ("# engine-template — construction
+# governance …", its first line) — the ONE positive-match the floor swap fires on (#272). Kept identical to the
+# construction-repo sentinel's marker (memory_pointer_public_safety_check._CONSTRUCTION_MARKER), so the two key
+# on the SAME phrase — a parity test in the (retiring) test_instantiator.py binds the string. The recognizer
+# anchors the marker to the LEADING heading line (below), a strictly NARROWER match than the sentinel's
+# substring-anywhere test: the swap therefore never fires on a file the sentinel would not also call the
+# construction repo, so the two can never disagree in the dangerous (clobber) direction.
 _CONSTRUCTION_CLAUDE_MARKER = "construction governance"
 _ROOT_CLAUDE_REL = "CLAUDE.md"
 _DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
@@ -863,12 +865,18 @@ _DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
 
 def _is_construction_claude(text) -> bool:
     """True iff `text` is the engine's traveled CONSTRUCTION-governance CLAUDE.md — the positive-match predicate
-    that fires the floor swap: non-empty AND carrying the construction marker (case-insensitive, anywhere — the
-    sentinel's exact test). Conservative on any doubt: an operator's own CLAUDE.md, an already-swapped floor
-    (the floor carries no such marker), or an absent/unreadable/empty file passed as "" or None is NOT a match,
-    so the file is preserved. Greenfield ("Use this template" copies the construction file to the generated
-    repo's root) -> match -> swapped; everything else -> preserved."""
-    return bool(text) and _CONSTRUCTION_CLAUDE_MARKER in text.lower()
+    that fires the floor swap: its LEADING heading (the first non-empty line) carries the construction marker
+    (case-insensitive). Anchoring to the first line — not anywhere in the file — is the conservative reading of
+    "this IS the engine's construction file" (the same lead-the-file discipline _is_marketing_seed uses for the
+    README): an operator's own CLAUDE.md that merely MENTIONS the phrase in its body is NOT a match and is
+    preserved, never clobbered. An already-swapped floor (no such heading), operator content, or an
+    absent/unreadable/empty file passed as "" or None is likewise not a match. Greenfield ("Use this template"
+    copies the construction file, whose H1 carries the marker, to the generated repo's root) -> match ->
+    swapped; everything else -> preserved."""
+    if not text:
+        return False
+    first = next((ln for ln in text.splitlines() if ln.strip()), "")
+    return _CONSTRUCTION_CLAUDE_MARKER in first.lower()
 
 
 def _seed_deployed_floor(say, copy=None) -> str:

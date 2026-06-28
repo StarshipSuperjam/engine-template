@@ -953,11 +953,19 @@ _FLOOR = "# Your project runs on an Engine\n\nI show a Project status block firs
 class TestConstructionClaudeRecognizer(unittest.TestCase):
     def test_recognizer_matches_only_the_construction_marker_preserving_on_any_doubt(self):
         self.assertTrue(inst._is_construction_claude(_CONSTRUCTION_CLAUDE))
-        self.assertTrue(inst._is_construction_claude("CONSTRUCTION GOVERNANCE somewhere"))   # case-insensitive
+        self.assertTrue(inst._is_construction_claude("CONSTRUCTION GOVERNANCE first"))       # case-insensitive, line 1
+        self.assertTrue(inst._is_construction_claude("\n\n" + _CONSTRUCTION_CLAUDE))         # leading blank lines tolerated
         self.assertFalse(inst._is_construction_claude(_FLOOR))                               # the floor (no marker)
         self.assertFalse(inst._is_construction_claude("# My Project\n\nMy own words.\n"))    # operator content
         self.assertFalse(inst._is_construction_claude(""))                                   # empty
         self.assertFalse(inst._is_construction_claude(None))                                 # absent/unreadable
+
+    def test_an_operator_claude_that_only_mentions_the_phrase_mid_document_is_not_a_match(self):
+        # The marker must lead the file (the file IS the engine's construction guide), not merely appear inside
+        # it — so an operator CLAUDE.md whose BODY happens to use the phrase (e.g. a construction-industry
+        # project documenting its own governance) is preserved, never clobbered.
+        mentions = ("# Acme site project\n\nWe follow strict construction governance rules on every job.\n")
+        self.assertFalse(inst._is_construction_claude(mentions))
 
     def test_marker_is_identical_to_the_construction_repo_sentinel_marker(self):
         # The floor-swap recognizer and the construction-repo public-safety sentinel must agree on what "the
