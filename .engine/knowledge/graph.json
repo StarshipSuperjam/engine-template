@@ -2078,7 +2078,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:9125d745295cc59816c3821e8c52b0deffa0c76f4d0d1cd2c669044b08a156bd",
+        "fingerprint": "sha256:7d6ca420e843611c960654dee16c9d897ed7307d96615a73b6303e8aa0530d2a",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -4088,7 +4088,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:5a9c3bd76e57a00c48a8bbeb5afe61ddcb16907879419b3ff4b48ece8a7281d4",
+        "fingerprint": "sha256:df3aaef68000ff1d9bd430a6368daf9169feac584874baa2060c079743ebf6fc",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -5346,7 +5346,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:dab7a740862ee4441f652cbb28358941baee38d6ee027e9b5d0e3e8c7e0a3141",
+        "fingerprint": "sha256:bff3e7c0c09d1a96bc38c28a14b11ccaa65566c1c6dd7bb5265031bcf17f7d0e",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",

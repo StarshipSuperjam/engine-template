@@ -434,6 +434,7 @@ class TestPlanAcceptanceBuildEntry(unittest.TestCase):
         self.assertIn(modes._STANCE_LINES[modes.BUILD], text)         # names the new stance (fidelity anchor)
         self.assertIn("don't relay", text.lower())                   # self-labelled do-not-relay
         self.assertIn("kickoff", text.lower())                       # triggers, never replaces, the kickoff
+        self.assertIn("modes.py stance", text)                       # the live-signal re-read guard names its tool
         low = text.lower()
         for marker in ("inform the user", "tell the operator", "let the user know"):
             self.assertNotIn(marker, low)                            # no imperative relay marker

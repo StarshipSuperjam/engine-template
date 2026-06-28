@@ -392,9 +392,9 @@ def _build_entry_directive() -> str:
         f"{_STANCE_LINES[BUILD]} "
         "This note is for you, not the operator: don't relay it. The operator meets this entry once, through "
         "your build-orchestration kickoff (opening a draft pull request and planning the work) — go do that "
-        "now. First confirm your live stance still reads Build before you act; if it reads Explore (for example "
-        "a resumed session replaying this note over a stance that boot has reset to Explore), ignore this note, "
-        "stay in Explore, and do not open the kickoff."
+        "now. Before you act, confirm your live stance still reads Build — run `python tools/modes.py stance`. "
+        "If it reads Explore instead, ignore this note and stay in Explore: do not open the kickoff. The live "
+        "stance governs, never this note."
     )
 
 

@@ -47,9 +47,7 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
    planning the work") — never through the hook. The signal is the **sole durable record**: it is cleared to
    explore at every SessionStart, so a copy of that directive replayed on a resumed session is inert — the
    session reports its stance from the live signal (explore), and the kickoff proceeds only if the live
-   signal still reads build. (Accepting a plan with the context cleared does not fire the hook at all
-   (claude-code#20397) → the signal stays absent → explore, and `/engine-start` is the recovery.) Neither
-   path is silent or self-elected — the model never flips its own stance.
+   signal still reads build. Neither path is silent or self-elected — the model never flips its own stance.
 4. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire; it
    never merges the protected branch (authored later). It is the same workflow, constrained.
 
@@ -77,3 +75,7 @@ string is best-effort (an alias, `eval`, substitution, or chaining evades it). T
 guarantee is the **protected-branch merge** — any write that ever slips the gate (a crash, an evaded
 verb, or a `permissions.allow` entry that outranks the hook, which is why the engine never allow-lists a
 gated tool) still cannot reach the protected branch unreviewed. Never dress the local gate as the wall.
+
+Entering build is fail-safe too: if the plan-acceptance hook never fires — including accepting a plan with
+the context cleared, which does not fire it (claude-code#20397) — the signal stays absent → explore, and
+`/engine-start` is the recovery. A miss can only leave the session in explore, never falsely in build.
