@@ -55,7 +55,9 @@ whose only wall is the protected-branch merge.
    **not** rerun on those fixes unless the operator asks — the Review record states that delta.
 6. **Submit — mark the draft ready and hand to the human gate.** Confirm validation is green and fill the
    pull-request contract including the **Review** section (below), then **mark the pull request ready**
-   (`gh pr ready`) — the act that submits it. Mark it ready **only once** validation is green, the
+   (`gh pr ready`) — the act that submits it. Author that contract by **reading
+   `.github/pull_request_template.md` in full, never by grepping it for headers** — each section is a bold
+   summary line, then bullets, then an italic `*Impact:*` line, none of which a header scan reveals. Mark it ready **only once** validation is green, the
    pre-submission review is clean (no unresolved `blocking` or `serious` finding), and every post-review fix
    is pushed; until then it stays a **draft**, which cannot be merged. Marking it ready is the operator-facing
    signal that the change is ready to merge. A build session is **done when the pull request is submitted**
