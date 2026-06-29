@@ -2,7 +2,7 @@
 """Self-tests for the doc surface (slice 19): the doc.v1 operator-doc-frontmatter grammar, the committed doc
 template, the live shape + frontmatter validation rules, and the catalog flip that wires both in.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock: doc.v1 is a well-formed schema with teeth (a missing title, an unknown extra field such as an id or
 a date, or a status outside {active, deprecated, retired} is rejected; representative instances conform) AND

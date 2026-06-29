@@ -3,7 +3,7 @@
 committed knowledge-retrieval (11a) and search (11b) declarations, the schema-kind validation rule, and
 the single-active / conformance coherence leg (validate.interface_resolution_findings).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock: interface.v1 is a well-formed schema with teeth (a malformed declaration is rejected);
 the committed knowledge-retrieval declaration conforms and pins the D-116 op-set EXACTLY (a dropped or

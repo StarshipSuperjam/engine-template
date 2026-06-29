@@ -2,7 +2,7 @@
 """Self-tests for the attention ranking function (slice 12): the pure deterministic core (attention_rank),
 its versioned output contract (attention-result.v1.json), and the policy it reads (.engine/policies/attention.md).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock the FORM, not the calibration (D-052/D-113 — the values are uncalibrated starting values, so
 ranking *quality* is deliberately NOT asserted here):
