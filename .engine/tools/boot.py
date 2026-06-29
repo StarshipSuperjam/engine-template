@@ -633,16 +633,14 @@ def render_dashboard(s: dict) -> str:
                 else "📦 **Your project folder is pointed at a side line of work that's missing finished work "
                      "from your main project**")
         if behind.get("advisory") == "merged":
-            tail = (" — nothing here is unsaved or lost, your folder is just showing an older view. When you're "
-                    "ready, say **bring it up to date** and I'll point your folder back at your main project and "
-                    "bring it current; if anything's in the way I'll tell you and change nothing.")
+            tone = "Nothing here is unsaved or lost — your folder is just showing an older view."
         else:
-            tail = (" — there may be unfinished work saved on that side line that isn't in your main project "
-                    "yet, so I'll keep it exactly where it is, nothing deleted. When you're ready, say **bring "
-                    "it up to date** and I'll point your folder back at your main project and bring it current; "
-                    "if anything's in the way I'll tell you and change nothing.")
-        pinned.append(f"{lead} — updates have landed on your main project (most recently on {behind['latest']}) "
-                      f"that this side line doesn't have{tail}")
+            tone = ("There may be unfinished work saved on that side line that isn't in your main project yet, "
+                    "so I'll keep it exactly where it is — nothing deleted.")
+        pinned.append(
+            f"{lead} — your main project moved on most recently on {behind['latest']}. {tone} When you're ready, "
+            "say **bring it up to date** and I'll point your folder back at your main project and bring it "
+            "current; if anything's in the way I'll tell you and change nothing.")
     elif off_main:
         # Stage-1 (gentle, OFFLINE): merely parked on a side line, not yet behind — a gentle INVITATION, not a
         # defect report (the top-level checkout on a side line is anomalous because sessions work in separate
@@ -820,9 +818,14 @@ def present_marker_line(s: dict) -> str:
         return f"⚠ {PRESENT_MARKER}: {s['finding_count']} open engine finding(s) to review"
     if s["strand"]:   # ranked after the governance alarms + findings; a governance alarm still wins the marker
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
-    if s.get("behind_origin") or s.get("off_main"):   # folder health (drift off the main line), below the strand
-        # ONE tone-neutral headline for the widened fifth surfacing (off-main Stage-1 / behind Stage-2); the two
-        # tones and the felt consequence live in the dashboard's pinned line, not the marker (product-S1/S2).
+    if s.get("behind_origin") and s["behind_origin"].get("on_default"):
+        # Stage-2 on the DEFAULT branch (#335): the folder IS on its main line, only behind — the headline must
+        # not say it's "off" the main line (that would contradict the dashboard's "fallen behind" line).
+        return (f"⚠ {PRESENT_MARKER}: your project folder has fallen behind your recent work — say 'bring it "
+                "up to date' and I'll bring it current")
+    if s.get("behind_origin") or s.get("off_main"):   # off the main line (parked on a side line, maybe behind too)
+        # ONE tone-neutral headline for the off-main stages; the two tones and the felt consequence live in the
+        # dashboard's pinned line, not the marker (product-S1/S2). Accurate here — the checkout is genuinely off it.
         return (f"⚠ {PRESENT_MARKER}: your project folder isn't on your main line of work — say 'bring it up "
                 "to date' and I'll sort it out safely")
     if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
@@ -906,8 +909,10 @@ def _worse(key: str, prior, current) -> bool:
         return isinstance(prior, int) and isinstance(current, int) and current > prior
     if key == "off_main":
         # the off-main Stage-1 park escalating to the behind Stage-2 (missing merged work): same side line,
-        # not-behind -> behind. The value is [side-line, behind?]; worsening is False -> True on the flag.
-        return (isinstance(prior, list) and isinstance(current, list)
+        # not-behind -> behind. The value is [side-line, behind?]; worsening is False -> True on the flag. The
+        # length guard contains a corrupted/short ledger value to this one signal (it is read OUTSIDE decide's
+        # try/except, so an IndexError here would suppress the whole briefing, not just degrade this line).
+        return (isinstance(prior, list) and len(prior) >= 2 and isinstance(current, list) and len(current) >= 2
                 and prior[:1] == current[:1] and not prior[1] and bool(current[1]))
     return False
 

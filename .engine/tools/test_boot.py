@@ -627,10 +627,13 @@ class TestBehindOriginSurfacing(unittest.TestCase):
         self.assertLess(strand, behind, "a broken-state strand outranks the behind heads-up")
 
     def test_present_marker_reflects_behind_but_strand_and_governance_outrank(self):
-        # the marker is ONE tone-neutral headline for the widened fifth surfacing (the two tones live in the
-        # dashboard line, not the marker — product-S1/S2)
-        self.assertIn("isn't on your main line of work",
+        # on the DEFAULT branch the folder IS on its main line, only behind -> the headline says "fallen behind",
+        # NOT "off your main line of work" (which would contradict the dashboard's on-default line). The off-main
+        # headline is covered in TestOffMainSurfacing.
+        self.assertIn("fallen behind your recent work",
                       boot.present_marker_line(_signals(behind_origin=self._BEHIND)))
+        self.assertNotIn("isn't on your main line of work",
+                         boot.present_marker_line(_signals(behind_origin=self._BEHIND)))
         self.assertEqual(boot.present_marker_line(_signals(behind_origin=None)),
                          f"{boot.PRESENT_MARKER}: all clear")
         # a strand (broken state) still wins the marker over a behind heads-up
@@ -714,6 +717,13 @@ class TestOffMainSurfacing(unittest.TestCase):
         # a governance alarm still wins the marker
         self.assertIn("open engine finding",
                       boot.present_marker_line(_signals(finding_count=3, off_main=self._OFF_MAIN)))
+
+    def test_marker_says_off_main_for_a_side_line_behind_but_fallen_behind_on_the_default(self):
+        # the headline must match the state: off the main line (side-line behind) -> "isn't on your main line";
+        # on the main line but behind (on_default) -> "fallen behind". The two must never be conflated (the
+        # on-default case is regression-guarded in TestBehindOriginSurfacing).
+        self.assertIn("isn't on your main line of work",
+                      boot.present_marker_line(_signals(behind_origin=self._BEHIND_SIDE)))
 
     def test_off_main_is_not_in_the_must_push_set(self):
         # gentle folder health -> not governance-critical, no INFORM marker (relayed via the dashboard heads-up)

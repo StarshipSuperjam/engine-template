@@ -40,9 +40,9 @@ def render(session_id: str | None = None) -> str:
         return f"## {boot.PRESENT_MARKER}\n{_DEGRADED}"
 
 
-# A complete, made-up signals set for the demo's "what an alarm looks like" example. It carries ALL the keys
-# `gather_signals` returns (render_dashboard reads each by hard subscript, so a missing key would raise), and
-# is deliberately a gate-off situation so the demo shows the loudest alarm. Pure data — no I/O.
+# A made-up signals set for the demo's "what an alarm looks like" example. It carries the keys render_dashboard
+# reads by hard subscript (a missing one would raise) plus the optional folder-health / recovery signals it reads
+# defensively, and is deliberately a gate-off situation so the demo shows the loudest alarm. Pure data — no I/O.
 _EXAMPLE_SIGNALS = {
     "state": {"schema_version": 1,
               "standing_situation": {"milestone": "Ship the beta", "phase": "Building the checkout page"},
@@ -59,6 +59,8 @@ _EXAMPLE_SIGNALS = {
     "shipped": ["#42 Add the sign-in page", "#41 Set up the database"],
     "stance": "Looking around — reading and planning, not changing anything yet.",
     "strand": None,   # the operator-checkout strand signal (boot slice B); None = the folder is healthy
+    "behind_origin": None,   # the behind-the-main-line tail (#335/#342); None = the folder isn't missing merged work
+    "off_main": None,   # the off-main Stage-1 signal (#342); None = the folder is on its main line of work
     "pr_conflict": None,   # the stranded-PR conflict signal (#136); None = no pull request is stuck
     "restore_offer": None,   # the memory auto-restore offer (slice 6b); None = memory present or no backup configured
     # A representative self-review-has-gone-stale finding (audit-library 3c) so the example also shows the
