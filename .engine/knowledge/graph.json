@@ -3213,7 +3213,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:dfeaba5464fbb502d41b11f42f5b82e9665d633fe106b161f8de1c0b1d70306d",
+        "fingerprint": "sha256:66592a9394faafc4ae352cfd019289ba9a814a374d091016ec7a0864412a2012",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -4794,7 +4794,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:545ddd1662e2a7f544b952e645fd41ab514d764f80fe1a6c80226f2e4fb6a0a8",
+        "fingerprint": "sha256:097d68017eefd2840d3cc4cbd3734c4da6e5c8c3809db9608cb0402b9a6c5f5d",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
