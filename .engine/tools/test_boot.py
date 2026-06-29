@@ -123,7 +123,9 @@ class TestDegradedNotice(unittest.TestCase):
         # committed file is just missing. This is the operator-chosen separate signal for the graph-absent state.
         dash = boot.render_dashboard(_signals(map_rebuilt=True))
         self.assertIn("running on a rebuilt project map", dash)
-        self.assertIn("regenerate the committed map", dash)             # names the one fix
+        self.assertIn("regenerate it with", dash)                      # the fix is actionable...
+        self.assertIn("knowledge_gen.py generate", dash)               # ...naming the canonical command,
+        self.assertIn("commit the result", dash)                       # ...and that it must be committed
         self.assertNotIn("couldn't reach your project map", dash)       # NOT the unreachable alarm
         self.assertNotIn("couldn't reach", dash.lower())               # no degrade-alarm wording when only this
 
