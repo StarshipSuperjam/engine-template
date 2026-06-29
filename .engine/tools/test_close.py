@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for slice 22 — close: the turn-close Stop disposition gate + ambient-capture trigger.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Each test locks one load-bearing law (systems/lifecycle/close/README.md), faking only the network (the
 demo-fidelity rule): the ephemeral session-keyed record round-trips and degrades SAFE; the gate HOLDS a

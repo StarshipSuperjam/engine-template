@@ -11,7 +11,7 @@ These lock the load-bearing behavior the deliverable gate attests:
     demotion, the all-engine no-op, and the verbatim, D-120-clean render;
   - the dispatch (demo returns clean; the env-guarded CLIs; resolve/review-steps over --doc).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 """
 from __future__ import annotations
 
