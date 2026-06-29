@@ -587,6 +587,21 @@ class TestReturnToDefault(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=[])
             self.assertEqual(checkout_health.return_to_default(cwd=work, apply=True)["status"], "healthy")
 
+    def test_does_not_overclaim_when_the_default_cannot_be_brought_current(self):
+        # the local default itself diverged from origin/main: the RETURN succeeds losslessly (back on main),
+        # but the post-return fast-forward cannot run, so the result must report brought_current=False rather
+        # than falsely claim "up to date" (honest self-report — the trust model).
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04"])   # origin advanced on main
+            with open(os.path.join(work, "local-main.txt"), "w") as fh:
+                fh.write("local main work")
+            _commit(work, "divergent local commit on main")     # local main now diverges from origin/main
+            _git(work, "checkout", "-q", "-b", "my-feature")     # park off-main at that diverged tip
+            r = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True)
+            self.assertEqual(r["status"], "fixed")               # the return itself succeeded, lossless
+            self.assertEqual(_branch(work), "main")              # back on the default branch
+            self.assertFalse(r["brought_current"])               # honest: NOT brought up to date (diverged)
+
 
 class TestOpInProgress(unittest.TestCase):
     """The lossless gate's load-bearing probe (#342 constraint 3): a paused git operation must block the fix

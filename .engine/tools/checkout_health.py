@@ -516,8 +516,12 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
     if do_fetch:
         _run(["git", "-C", main, "fetch", "--quiet", "origin", default], timeout=_FETCH_TIMEOUT)
     # safely back on the default; bring it current with the lossless --ff-only (best-effort, never forced).
-    _ok(["git", "-C", main, "merge", "--ff-only", f"origin/{default}"])
-    return {"status": "fixed", "main": main, "branch": default, "from": current, "applied": True}
+    # --ff-only succeeds when it advances OR when already up to date, and fails (no mutation) only when the
+    # LOCAL default has itself diverged from origin/<default> — so its result is exactly "is the default now
+    # current?". The return already succeeded losslessly; we report the catch-up honestly rather than assume it.
+    brought_current = _ok(["git", "-C", main, "merge", "--ff-only", f"origin/{default}"])
+    return {"status": "fixed", "main": main, "branch": default, "from": current,
+            "brought_current": brought_current, "applied": True}
 
 
 # ---- the operator-runnable demo (synthetic fixtures; deterministic) -------------------------
@@ -738,19 +742,49 @@ def _plain_return_to_default(apply: bool) -> int:
     r = return_to_default(apply=apply)
     if r["status"] == "healthy":
         print("Your project folder is on your main branch already — nothing to move.")
-    elif r["status"] == "fixed":
+    elif r["status"] == "fixed" and r.get("brought_current"):
         print("Pointed your project folder back at your main branch and brought it up to date. Your other work "
               "is untouched — it's still saved on its own branch, exactly where it was.")
+    elif r["status"] == "fixed":
+        print("Pointed your project folder back at your main branch — your other work is untouched, still saved "
+              "on its own branch. I left your main branch exactly as it was (it has some local changes of its "
+              "own that aren't on the shared copy yet), so it may not be fully up to date.")
     elif r["status"] == "blocked":
         print("Your project folder is parked on another branch, but it has unsaved changes (or a git operation "
               "paused mid-way), so I left everything exactly where it is — nothing moved, nothing lost. Save or "
               "set those aside and ask again.")
     elif not apply:
-        print("Your project folder is parked on another branch instead of your main one. I can point it back "
-              "safely — your work on the other branch stays saved on that branch. Re-run with --apply to do it.")
+        parked = r.get("branch")
+        where = f"the branch '{parked}'" if parked else "another branch"
+        print(f"Your project folder is parked on {where} instead of your main one. I can point it back safely — "
+              f"your work there stays saved on that branch. Re-run with --apply to do it.")
     else:
         print("I couldn't safely point your project folder back at your main branch, so I left it untouched — "
               "nothing is lost.")
+    return 0
+
+
+def _plain_offmain() -> int:
+    """Report (plain words, no git verbs) whether THIS repo's checkout is parked off its default branch."""
+    off = detect_off_main()
+    if not off:
+        print("Your project folder is on your main branch — not parked off it.")
+    else:
+        print(f"Your project folder is parked on the branch '{off['branch']}' instead of your main one "
+              f"('{off['main_branch']}'). Run `returnmain` to see how I'd point it back — your work on "
+              f"'{off['branch']}' stays saved on that branch.")
+    return 0
+
+
+def _plain_behind() -> int:
+    """Report (plain words, no git verbs) whether THIS repo's checkout is missing recent merged work (online)."""
+    behind = detect_behind_origin()
+    if not behind:
+        print("Your project folder is up to date — it's not missing recent merged work (or I'm offline).")
+        return 0
+    verb = "catchup" if behind.get("on_default") else "returnmain"
+    print("Your project folder is missing recent merged work that's landed on the shared copy. Run "
+          f"`{verb}` to see how I'd bring it current safely — nothing you already have will be lost.")
     return 0
 
 
@@ -764,13 +798,9 @@ def main(argv: list) -> int:
     if argv and argv[0] == "returnmain":
         return _plain_return_to_default(apply="--apply" in argv)
     if argv and argv[0] == "offmain":
-        result = detect_off_main()
-        print(result if result else "on your main branch — not parked off it")
-        return 0
+        return _plain_offmain()
     if argv and argv[0] == "behind":
-        result = detect_behind_origin()
-        print(result if result else "up to date — not behind origin (or offline)")
-        return 0
+        return _plain_behind()
     result = detect_strand()
     print(result if result else "healthy — no strand detected")
     return 0
