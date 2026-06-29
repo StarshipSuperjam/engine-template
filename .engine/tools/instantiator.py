@@ -70,8 +70,8 @@ _ALREADY_SET_UP = ("This project is already set up — first-time setup only run
 # that is already set up — or in THIS workshop — never re-fires the one-time, file-replacing setup steps.
 # apply runs only through the setup walkthrough (which passes the first-run token); a bare apply points the
 # operator back there. The flag itself is internal machinery, so the copy never mentions it.
-_APPLY_NOT_FIRST_RUN = ("First-time setup runs through the setup walkthrough, not by hand — run /engine-setup "
-                        "to set up a brand-new project. Nothing was changed.")
+_APPLY_NOT_FIRST_RUN = ("First-time setup runs through the setup walkthrough, not by hand — run /engine-setup, "
+                        "which sets a project up or tells you it's already done. Nothing was changed.")
 # verify/retire refuse while the root CLAUDE.md is still the engine's construction file (the workshop, or a
 # generated repo whose setup has not finished). {what} = "check for consistency" / "tidy up".
 _WORKSHOP_NO_SETUP = ("This is the workshop where the engine is built — first-time setup never runs here, so "
@@ -996,11 +996,12 @@ def _root_is_construction() -> bool:
     the floor (so the root file is the deployed floor, not construction — the guard passes through to the real
     verb), while in the workshop the construction file is present, so the one-time verbs refuse rather than
     re-fire setup or (for retire) self-delete the real tooling. Reuses the conservative leading-heading
-    predicate; an absent/unreadable file reads as not-construction (no refusal — never block on doubt)."""
+    predicate; an absent, unreadable, or non-text file reads as not-construction (no refusal — never block on
+    doubt; UnicodeDecodeError is caught alongside OSError so a binary root file degrades, it does not crash)."""
     try:
         with open(os.path.join(validate.ROOT, _ROOT_CLAUDE_REL), encoding="utf-8") as fh:
             return _is_construction_claude(fh.read())
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return False
 
 

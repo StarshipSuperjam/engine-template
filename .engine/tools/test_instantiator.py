@@ -1244,6 +1244,16 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             self.assertFalse(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
                              "a real first-run retire tidies the one-time setup tool away")
 
+    def test_root_construction_check_degrades_on_a_non_text_file(self):
+        # The guard's "never block on doubt" promise: a binary/non-UTF-8 root CLAUDE.md must read as
+        # not-construction (so verify/retire pass through), not crash the verb.
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with open(os.path.join(d, "CLAUDE.md"), "wb") as fh:
+                fh.write(b"\xff\xfe\x00\x01 not valid utf-8")
+            with inst._redirect_root(d):
+                self.assertFalse(inst._root_is_construction(), "a non-text root file degrades, never raises")
+
 
 # ==== VERIFY + RETIRE (core slice 27c) ===============================================================
 
