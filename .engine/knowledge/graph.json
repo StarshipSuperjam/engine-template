@@ -1443,7 +1443,7 @@
       },
       "slug": "untracked-surface",
       "source": {
-        "fingerprint": "sha256:fcacd63c2555a41008d09adabd1489616821a60bc6267f46fae8974bde2bc6c2",
+        "fingerprint": "sha256:fcbf43746f33459a4c834c847afd8720eccd2125ca02277d441a1f32c3b3d986",
         "path": ".engine/check/untracked-surface.json"
       },
       "status": "active",
