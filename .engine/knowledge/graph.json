@@ -1429,6 +1429,32 @@
       "type": "check"
     },
     {
+      "id": "check:untracked-surface",
+      "kind": "custom/script",
+      "name": ".engine/check/untracked-surface.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "untracked-surface",
+      "source": {
+        "fingerprint": "sha256:fcacd63c2555a41008d09adabd1489616821a60bc6267f46fae8974bde2bc6c2",
+        "path": ".engine/check/untracked-surface.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "audit-prep"
+      ],
+      "tier": "soft",
+      "type": "check"
+    },
+    {
       "id": "check:upstream-clean",
       "kind": "custom/script",
       "name": ".engine/check/upstream-clean.json",
@@ -1797,7 +1823,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:192dbd02d866f8d0c777f54594c55f7909acc0de610d27c63448e82ba783a575",
+        "fingerprint": "sha256:859e444f87d4cdd582db5b46ace3b54a89a4cb97800b9fc7f5cc35cbdb561c1d",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4122,7 +4148,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:ec47ae470b2528984904aad035b270df0258c8410f632584dc29f401fcd232ac",
+        "fingerprint": "sha256:133289cd08167e9e8cdb07a92149181c59900f0c54609700480ce795d3ae0a91",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -5397,7 +5423,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:f8ca51df5bf79c3be4afccf257bc2ed756b4f7d1702ab3d1010247fed17072c5",
+        "fingerprint": "sha256:818b21e098f7f78282656d61f11367e8b9b8058b4f6ac726a570a8b9f6eea44a",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -6079,6 +6105,23 @@
       "source": {
         "fingerprint": "sha256:96ace52fb4ab922fc695f211f57b4468a841fc81450c8276f87e8568d709590b",
         "path": ".engine/tools/tune.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:untracked_surface_check",
+      "name": ".engine/tools/untracked_surface_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "untracked_surface_check",
+      "source": {
+        "fingerprint": "sha256:e69cb563aa0e954d9a480491fbf3e18ed0d42807d8e3721614e560085d3f231d",
+        "path": ".engine/tools/untracked_surface_check.py"
       },
       "status": "active",
       "type": "tool"
