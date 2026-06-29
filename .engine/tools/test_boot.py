@@ -74,7 +74,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
-            "behind_origin": None,
+            "behind_origin": None, "off_main": None,
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False}
 
@@ -594,7 +594,10 @@ class TestBehindOriginSurfacing(unittest.TestCase):
     """The behind-origin tail (#335) is surfaced read-only at the strand tier (folder health, below the
     governance alarms), consequence-led and COUNT-FREE (the design's 'never a count' leaf law), with no git
     verbs and a concrete consent phrase. boot RELAYS; the assistant runs catch_up on consent."""
-    _BEHIND = {"state": "behind", "main": "/p", "branch": "main", "missing": 9, "latest": "2026-06-27"}
+    # behind on the DEFAULT branch (#335): on_default True -> the original consequence copy. The branch-agnostic
+    # side-line case (on_default False) is exercised in TestOffMainSurfacing below.
+    _BEHIND = {"state": "behind", "main": "/p", "branch": "main", "current": "main", "on_default": True,
+               "missing": 9, "latest": "2026-06-27", "advisory": "merged"}
 
     def test_render_surfaces_the_behind_line_only_when_behind(self):
         dash = boot.render_dashboard(_signals(behind_origin=self._BEHIND))
@@ -624,8 +627,13 @@ class TestBehindOriginSurfacing(unittest.TestCase):
         self.assertLess(strand, behind, "a broken-state strand outranks the behind heads-up")
 
     def test_present_marker_reflects_behind_but_strand_and_governance_outrank(self):
-        self.assertIn("fallen behind recent merged work",
+        # on the DEFAULT branch the folder IS on its main line, only behind -> the headline says "fallen behind",
+        # NOT "off your main line of work" (which would contradict the dashboard's on-default line). The off-main
+        # headline is covered in TestOffMainSurfacing.
+        self.assertIn("fallen behind your recent work",
                       boot.present_marker_line(_signals(behind_origin=self._BEHIND)))
+        self.assertNotIn("isn't on your main line of work",
+                         boot.present_marker_line(_signals(behind_origin=self._BEHIND)))
         self.assertEqual(boot.present_marker_line(_signals(behind_origin=None)),
                          f"{boot.PRESENT_MARKER}: all clear")
         # a strand (broken state) still wins the marker over a behind heads-up
@@ -649,6 +657,90 @@ class TestBehindOriginSurfacing(unittest.TestCase):
                 p.stop()
         self.assertEqual(relayed["behind_origin"], self._BEHIND)   # relayed verbatim
         self.assertIsNone(failed["behind_origin"])                 # a detector/network failure degrades to None
+
+
+class TestOffMainSurfacing(unittest.TestCase):
+    """The off-main Stage-1 signal (#342/D-275): the top-level checkout parked on a side line of work is
+    surfaced read-only at the strand tier (folder health, below the governance alarms), as a GENTLE INVITATION
+    (not a defect report), COUNT-FREE, with no git verbs and the one shared consent phrase. The firm Stage-2
+    (behind on a side line) supersedes it, with a two-tone advisory and — on escalation — a named lineage."""
+    _OFF_MAIN = {"state": "off-main", "main": "/p", "branch": "feature-x", "main_branch": "main"}
+    # behind on a SIDE line of work (on_default False): the branch-agnostic Stage-2 escalation
+    _BEHIND_SIDE = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
+                    "on_default": False, "missing": 7, "latest": "2026-06-28", "advisory": "carries-work"}
+
+    def test_render_surfaces_a_gentle_off_main_line_only_when_off_main(self):
+        dash = boot.render_dashboard(_signals(off_main=self._OFF_MAIN))
+        self.assertIn("side line of work", dash.lower())
+        self.assertIn("bring it up to date", dash.lower())          # the shared consent phrase
+        self.assertIn("nothing's at risk", dash.lower())            # a gentle invitation, not a defect report
+        self.assertNotIn("side line of work", boot.render_dashboard(_signals(off_main=None)).lower())
+
+    def test_off_main_line_is_count_free_and_has_no_git_verbs(self):
+        line = next(ln for ln in boot.render_dashboard(_signals(off_main=self._OFF_MAIN)).splitlines()
+                    if "side line of work" in ln.lower())
+        self.assertNotIn("feature-x", line)                         # the raw branch name never leaks
+        for verb in ("fast-forward", "ff-only", "fetch", "rebase", "ancestor", "origin/", "checkout", "branch"):
+            self.assertNotIn(verb, line.lower(), f"git verb leaked to the operator surface: {verb}")
+
+    def test_off_main_pins_below_the_governance_alarm_and_the_strand(self):
+        pack = boot.render_dashboard(_signals(gate="off", reason="x",
+                                              strand={"states": ["detached"], "main": "/p"},
+                                              off_main=self._OFF_MAIN))
+        lines = [ln.lower() for ln in pack.splitlines()]
+        gate = next(i for i, ln in enumerate(lines) if "safety gate is off" in ln)
+        strand = next(i for i, ln in enumerate(lines) if "drifted into a broken state" in ln)
+        off = next(i for i, ln in enumerate(lines) if "side line of work" in ln)
+        self.assertLess(gate, off, "the governance alarm must pin above the off-main invitation")
+        self.assertLess(strand, off, "a broken-state strand outranks the off-main invitation")
+
+    def test_behind_on_a_side_line_supersedes_the_gentle_off_main_line(self):
+        # both live (parked on a side line AND missing merged work) -> the FIRM Stage-2 line, not the gentle one
+        dash = boot.render_dashboard(_signals(off_main=self._OFF_MAIN, behind_origin=self._BEHIND_SIDE))
+        self.assertIn("missing finished work", dash.lower())        # the firm escalation
+        self.assertIn("2026-06-28", dash)                           # the felt date
+        self.assertNotIn("nothing's at risk", dash.lower())         # the gentle line is gone
+        self.assertIn("bring it up to date", dash.lower())          # still one consent phrase
+
+    def test_side_line_behind_two_tone_keeps_unfinished_work_when_it_may_carry_some(self):
+        # carries-work advisory -> the keep-your-work-safe tone (errs gentle)
+        carries = boot.render_dashboard(_signals(behind_origin=self._BEHIND_SIDE)).lower()
+        self.assertIn("keep it exactly where it is", carries)
+        # merged advisory -> the only-an-older-view tone
+        merged = boot.render_dashboard(_signals(behind_origin={**self._BEHIND_SIDE, "advisory": "merged"})).lower()
+        self.assertIn("older view", merged)
+        self.assertIn("nothing here is unsaved or lost", merged)
+
+    def test_present_marker_reflects_off_main_but_governance_outranks(self):
+        self.assertIn("isn't on your main line of work",
+                      boot.present_marker_line(_signals(off_main=self._OFF_MAIN)))
+        # a governance alarm still wins the marker
+        self.assertIn("open engine finding",
+                      boot.present_marker_line(_signals(finding_count=3, off_main=self._OFF_MAIN)))
+
+    def test_marker_says_off_main_for_a_side_line_behind_but_fallen_behind_on_the_default(self):
+        # the headline must match the state: off the main line (side-line behind) -> "isn't on your main line";
+        # on the main line but behind (on_default) -> "fallen behind". The two must never be conflated (the
+        # on-default case is regression-guarded in TestBehindOriginSurfacing).
+        self.assertIn("isn't on your main line of work",
+                      boot.present_marker_line(_signals(behind_origin=self._BEHIND_SIDE)))
+
+    def test_off_main_is_not_in_the_must_push_set(self):
+        # gentle folder health -> not governance-critical, no INFORM marker (relayed via the dashboard heads-up)
+        self.assertEqual(boot.must_push(_signals(off_main=self._OFF_MAIN)), [])
+
+    def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.checkout_health, "detect_off_main", return_value=self._OFF_MAIN):
+                relayed = boot.gather_signals()
+            with mock.patch.object(boot.checkout_health, "detect_off_main", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["off_main"], self._OFF_MAIN)       # relayed verbatim
+        self.assertIsNone(failed["off_main"])                      # a detector failure degrades to None
 
 
 class TestPrConflictSurfacing(unittest.TestCase):
@@ -1197,6 +1289,65 @@ class TestAntiHabituationCollapse(unittest.TestCase):
         self.assertIn("still off", second.lower())                     # terse on the repeat
         self.assertIn("their safety gate is off", fresh)               # the fresh render never collapses
         self.assertNotIn("still off", fresh.lower())
+
+    # --- the gentle off-main signal collapses through the SAME single decide() call (#342, blocking B2) ---
+    _OM = {"state": "off-main", "main": "/p", "branch": "feature-x", "main_branch": "main"}
+
+    def test_off_main_collapses_to_terse_when_unchanged(self):
+        s = _signals(off_main=dict(self._OM))
+        boot._relay_lines(s)                                # fresh ledger -> full (neutral)
+        self.assertFalse(s["off_main"]["collapsed"])
+        self.assertIn("nothing's at risk", boot.render_dashboard(s).lower())
+        boot._relay_lines(s)                                # same condition -> collapse
+        self.assertTrue(s["off_main"]["collapsed"])
+        terse = boot.render_dashboard(s).lower()
+        self.assertIn("unchanged since last session", terse)
+        self.assertIn("bring it up to date", terse)         # the offer is kept in the terse line
+
+    def test_off_main_renders_full_when_no_collapse_flag_is_set(self):
+        # the pure status-verb path never runs _relay_lines -> the off-main line renders FULL (fail-toward-full)
+        dash = boot.render_dashboard(_signals(off_main=dict(self._OM))).lower()
+        self.assertIn("nothing's at risk", dash)
+        self.assertNotIn("unchanged since last session", dash)
+
+    def test_off_main_collapse_coexists_with_the_governance_baselines(self):
+        # the single decide() call must collapse off-main WITHOUT dropping the gate/findings ledger entries
+        s = _signals(gate="off", reason="x", finding_count=4, register="u", off_main=dict(self._OM))
+        boot._relay_lines(s)                                # seed gate + findings + off-main together
+        lines = boot._relay_lines(s)                        # repeat -> all three collapse, none dropped
+        self.assertTrue(any("still off" in l.lower() for l in lines), "gate baseline must survive")
+        self.assertTrue(any("still" in l.lower() and "finding" in l.lower() for l in lines),
+                        "findings baseline must survive")
+        self.assertTrue(s["off_main"]["collapsed"], "off-main collapses on the same pass")
+
+    def test_off_main_escalating_to_behind_relays_the_firm_line_with_its_lineage(self):
+        side_behind = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
+                       "on_default": False, "missing": 5, "latest": "2026-06-28", "advisory": "carries-work"}
+        boot._relay_lines(_signals(off_main=dict(self._OM)))     # session 1: gentle park (seed)
+        boot._relay_lines(_signals(off_main=dict(self._OM)))     # session 2: still gentle (collapse)
+        s = _signals(off_main=dict(self._OM), behind_origin=side_behind)
+        boot._relay_lines(s)                                     # session 3: now also behind -> worsened
+        self.assertTrue(s["off_main"]["worsened"])
+        self.assertIn("flagged earlier", boot.render_dashboard(s).lower())   # the named lineage
+
+    def test_off_main_first_full_relay_after_an_established_ledger_carries_the_disclosure_note(self):
+        # an established ledger (earlier sessions ran) that never saw off-main -> the first off-main full relay
+        # explains the new check, so a folder reported healthy before isn't silently re-cast as freshly broken
+        boot._relay_lines(_signals(finding_count=3, register="u"))   # seed the ledger from a prior session
+        boot._relay_lines(_signals(finding_count=3, register="u"))   # a second prior session (ledger is real now)
+        s = _signals(finding_count=3, register="u", off_main=dict(self._OM))
+        boot._relay_lines(s)
+        self.assertTrue(s["off_main"]["first_sighting"])
+        self.assertIn("newer check", boot.render_dashboard(s).lower())
+
+    def test_off_main_disclosure_note_does_not_repeat_once_seen(self):
+        boot._relay_lines(_signals(finding_count=3, register="u"))
+        boot._relay_lines(_signals(finding_count=3, register="u"))
+        s = _signals(finding_count=3, register="u", off_main=dict(self._OM))
+        boot._relay_lines(s)                                 # first off-main full relay (disclosure shown)
+        boot._relay_lines(s)                                 # repeat -> collapse, no disclosure
+        self.assertTrue(s["off_main"]["collapsed"])
+        self.assertNotIn("newer check", boot.render_dashboard(s).lower())
 
 
 if __name__ == "__main__":
