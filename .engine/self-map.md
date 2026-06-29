@@ -4,6 +4,11 @@
 > catalog and module manifests, so it always matches them. To update it, change those and
 > regenerate with `uv run --directory .engine -- python tools/self_map.py generate`, then commit the result.
 
+> **What this shows — and what it does not.** This map shows your engine's structural makeup:
+> the kinds of file it governs and the packages it is built from, derived to match those sources.
+> It does not show whether each part *works* or is well designed — that is your review and each
+> module's own checks, never something this map attests.
+
 Engine release `0.0.0-dev` · identity `solo`
 
 ## Surfaces

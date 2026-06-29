@@ -369,7 +369,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:b30ec7473e5a2814257e8e01e9f5f883206d7d12208ef80d9177d066f4acfb4d",
+        "fingerprint": "sha256:6991efca29de5b460e3ffe64e219bed40d54535297f56f87738dc41289e9d5cc",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -788,7 +788,7 @@
       },
       "slug": "knowledge-coverage",
       "source": {
-        "fingerprint": "sha256:da312323fff00884520f906a5d2bb7347cf4548c22be58b0d98fc6905e1381c4",
+        "fingerprint": "sha256:dc3fce8becfe35b2c909d56bccfdba16a8869daa91241a2d64169931cf3dfdfc",
         "path": ".engine/check/knowledge-coverage.json"
       },
       "status": "active",
@@ -2024,7 +2024,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:269750e1791a743f64dbe1ee077d25708d8ae368edcf443af969245009c59df1",
+        "fingerprint": "sha256:7c6e6bd8a6829fb311e42ac4e94900c8729fcef237e62af47168c6c35e32496a",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -3145,7 +3145,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e54dc54b7f4f10d4ed70a7e9f1b2508179f38f3933c78fc6d0e1e69aa9b1c188",
+        "fingerprint": "sha256:d268e2f0bd89ac13b3eafb7f281c8f4eff9e990cb619c2cabfed716bd1975c3f",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -3842,7 +3842,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:1aa3c2c38d0256a255c16e15b4ce52b0b4659db82baacb2d5f3f5d7070daa0bf",
+        "fingerprint": "sha256:ef597945f5176dfc479416684aad5282b904d3908a9ecb0f9b6425d60852d015",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -4148,7 +4148,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:133289cd08167e9e8cdb07a92149181c59900f0c54609700480ce795d3ae0a91",
+        "fingerprint": "sha256:ab165ffb237ef14d083d4e8e3629ab300bd6e791c615199fe1c458564db83da5",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -4454,7 +4454,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:0d60d3afba90eb771234822afd7b210e323b368e7d522502168b63672a34647e",
+        "fingerprint": "sha256:7395f27924e9222edc9c376ea785ca7fbf7cad69e861c95f1771812af3bd40e6",
         "path": ".engine/tools/self_map.py"
       },
       "status": "active",
@@ -5151,7 +5151,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:2f66e9ae376bbc559fb216b48b32733f59e87b358f793b4898ffc83e07bd0fe1",
+        "fingerprint": "sha256:3674fb64382eb66ccf8b0e17db3b49329fa5e5edd69cba3e28d0f7f9c37235e3",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",

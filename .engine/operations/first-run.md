@@ -25,7 +25,7 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    kept, and their account name (for example `confirm --tier solo --keep "" --handle their-account`). Before
    this point nothing is changed; saving is the step the rest of setup builds on.
 5. **Install the choices and turn on the review gate.** With the choices saved, run
-   `python3 .engine/tools/instantiator.py apply`. In order, the engine: removes the add-ons that were not
+   `python3 .engine/tools/instantiator.py apply --first-run`. In order, the engine: removes the add-ons that were not
    kept (their files are deleted); sets who reviews changes to the engine's own files; turns on the safer
    planning default for this project (or, if the operator already has their own editing default, offers to —
    and leaves theirs alone if they decline); **sets up the engine's own programs in a private project folder —
@@ -34,8 +34,8 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    present and theirs to tune; switches the engine on; and turns on the branch review gate that makes every
    change go through approval (which may ask for a one-time GitHub approval, explained in plain words first). Show the operator the plain-language result
    of each step. If the engine's programs can't be set up (for example, no internet), setup **stops safely at
-   that point and never falls back to a different setup** — say so, and run `apply` again later to resume from
-   where it left off. When the steps are done, show a plain summary of what was set up and anything still left
+   that point and never falls back to a different setup** — say so, and run `apply --first-run` again later to
+   resume from where it left off. When the steps are done, show a plain summary of what was set up and anything still left
    for the operator (for example, finishing the review gate later).
 6. **Check it all fits together — and pause if not.** With the steps done, run
    `python3 .engine/tools/instantiator.py verify`. This confirms the installed engine is consistent. If
