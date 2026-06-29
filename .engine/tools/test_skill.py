@@ -3,7 +3,7 @@
 skill template, the live shape + frontmatter validation rules, the catalog flip that wires both in, and the
 pure skill-set coherence leg (validate.skill_coherence_findings).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock: skill.v1 is a well-formed schema with teeth (a missing `description`, a wrong-typed flag, or a
 non-string field is rejected; representative model-auto / operator-typed / model-only instances pass) and — the

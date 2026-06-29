@@ -3,7 +3,7 @@
 budget + block cap, the per-OS interpreter-path resolver, the fail-open-and-flag harness, and the pure
 block-budget coherence leg (validate.block_budget_findings).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock the laws hooks owns (systems/infrastructure/hooks/README.md):
   - the event inventory is the engine's chosen subset, with PostToolUse three-owner (validation·telemetry·

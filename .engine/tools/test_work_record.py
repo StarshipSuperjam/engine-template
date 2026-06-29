@@ -13,7 +13,7 @@ These lock the load-bearing behaviours a non-engineer cannot read code to verify
     so a bad timestamp can never reach the ranking math and crash the whole ranking.
 Only git (an injected `run`) and the network (an injected `gh._transport`) are faked; the reader logic is real.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 """
 from __future__ import annotations
 import os

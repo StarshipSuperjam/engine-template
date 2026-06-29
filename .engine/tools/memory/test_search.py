@@ -1,7 +1,7 @@
 """test_search.py — unit tests for ranked, filtered recall: index.search (memory-substrate-sqlite-fts5, slice 5).
 
 Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py'
+    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Covers the slice-5 `search` laws (the search.json contract): results come back BEST-FIRST by lexical relevance
 (bm25 on the fast path) with usage (frecency) breaking near-ties but NEVER overriding a clearly-stronger match

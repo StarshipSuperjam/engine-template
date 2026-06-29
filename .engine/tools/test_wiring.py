@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for slice 7 — the wiring library + the comment-fenced-block helper.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock the R5-firewall properties that, for four of the five seams, have NO behavioral demo
 this slice (their target files are born later) and so rest entirely on test name↔assertion

@@ -9,7 +9,7 @@ These lock the load-bearing behavior the deliverable gate attests:
     then re-runnable to completion;
   - the dispatch (demo returns clean; the env-guarded CLIs).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 """
 from __future__ import annotations
 

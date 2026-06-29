@@ -1,7 +1,7 @@
 """test_scent_lookup.py — the per-prompt scent's fast lexical lookup: index.scent_lookup (slice 5, PR 2).
 
 Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py'
+    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 scent_lookup is the scent-shaped primitive `search` is NOT (search pays an O(ledger) usage pass and is
 implicit-AND). These pin its laws: OR-match (a record sharing ANY salient term is found, unlike search's

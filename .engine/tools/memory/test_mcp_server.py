@@ -1,7 +1,7 @@
 """test_mcp_server.py — the engine-memory MCP server, headless (memory-substrate-sqlite-fts5, slice 5).
 
 Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py'
+    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Exercises the server in-process (no Claude Desktop, no subprocess): the single `search` tool delegates to the
 ranked library and returns `{"results": [...]}`, and — the move slice 5 adds — fires the live reinforcement
