@@ -678,6 +678,16 @@ def render_dashboard(s: dict) -> str:
     out.extend(f"- {line}" for line in s["shipped"]) if s["shipped"] else out.append(
         "- (no recent merges found)")
 
+    # The artifact warrant (D-261), proportionately LIGHT: this dashboard — and the project map it
+    # draws on — is an automated readout derived from the engine's own checks, so it states its bound
+    # right where it is read. The graph behind "your project map" is a byte-fingerprinted generated file
+    # whose bound rides this startup view (an authored field in it would break exact-match regeneration),
+    # so the line lives here, not in the raw graph. Light because the limit is near self-evident and the
+    # real gate (the merge review) is named elsewhere in this briefing.
+    out.append("")
+    out.append("_This view is an automated readout: a clear status shows the checks the engine can run "
+               "came back clean — not that everything is correct. Your review at merge is the real gate._")
+
     return "\n".join(out)
 
 

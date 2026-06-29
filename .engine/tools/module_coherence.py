@@ -428,6 +428,21 @@ def check_coherence(tier: str = "hard") -> list:
     return dep + own + wiring_leg + orphan_leg + block
 
 
+# The artifact warrant (D-261) for a coherence result: what a green check shows, what it does NOT, and
+# what still needs a look. Printed on EVERY report — green or with findings — so the bound the operator
+# reads never collapses to the green word alone. Adapted from the locked coherence warrant
+# (../engine-planning systems/grammar/module-system/README.md §Coherence). Coherence is a STRUCTURAL
+# attestation and the gap is wide, so this is the most prominent of the engine's warrants (proportionate).
+COHERENCE_WARRANT = (
+    "\nWhat this shows / what it does not:"
+    "\n  - A green result shows the installed set is CONSISTENT — every dependency present and in range,"
+    "\n    every declared wire applied, every engine file owned by exactly one module."
+    "\n  - It does NOT show that the modules WORK. That a module does useful work shows in its own checks"
+    "\n    and in the behaviour you observe — never here; a green coherence result is not a fitness check."
+    "\n  - Whether an installed module still earns its place is the self-review's call, not coherence's."
+)
+
+
 def _print_report(findings: list, n_modules: int, n_files: int) -> None:
     """Plain-language-first, matching the validator's report() register — a human sentence
     per issue, never raw JSON (the operator reads this; --json is the machine channel)."""
@@ -444,6 +459,7 @@ def _print_report(findings: list, n_modules: int, n_files: int) -> None:
     elif not soft:
         print(f"\nOK — the module set is coherent: {n_modules} module(s) installed, "
               f"{n_files} engine file(s), all owned.")
+    print(COHERENCE_WARRANT)
 
 
 def _demo(_argv: list) -> int:
