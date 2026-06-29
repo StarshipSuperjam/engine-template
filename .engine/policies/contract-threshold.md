@@ -12,6 +12,12 @@ A decision is recorded as its own contract (a permanent decision record) only wh
 
 - Contract-rate signal (`contract_rate_max`): when more contracts reach the accepted state within any 7-day stretch than the limit set in this policy's settings block — the `values` at the top of this file — the next start-up raises a gentle "are decisions being over-recorded?" note. To change this limit, type `/engine-tune` — it saves your choice so an engine update won't undo it.
 
+How the set of records changes — and stays small — follows three rules, so the body of contracts grows only on real decisions, never on routine work:
+
+- **A new record is added only for a genuinely new decision** that clears the four-part bar above. Routine work adds no record.
+- **An accepted record is never edited to change what it decided.** If a decision is re-opened and genuinely changes, that is written as a *new* record which says it supersedes the earlier one; the earlier one is kept, never rewritten, so the history of why stays auditable.
+- **A small correction or re-confirmation that does not change the decision is not a new record.** It rides the pull request's description — the same durable place everything below the bar goes — rather than spawning another contract.
+
 ## Scope
 
 Applies to every decision made while working inside this engine — the live question "does this deserve its own permanent decision record, or does it belong in the pull request description?" It does not govern decisions about the product the engine is helping to build; those follow the product's own conventions.
