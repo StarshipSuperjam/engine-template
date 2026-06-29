@@ -6,6 +6,7 @@ lens: product-intent
 model-tier: judgment
 permissions: read-only
 output-contract: plan-review-finding.v1
+disallowedTools: [Edit, Write, NotebookEdit, Bash]
 ---
 
 ## Mandate

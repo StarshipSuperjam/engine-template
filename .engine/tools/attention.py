@@ -204,43 +204,58 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
                                "recency": cursor_as_of, "source": "telemetry"})
 
     src = source or knowledge_query
-    if focus and src is not None:
+    # Knowledge is AVAILABLE iff the map could be READ — NOT iff there was a focus to walk it from. The old
+    # `if focus and ...` guard conflated the two: a clean session (no work in hand -> empty focus) skipped the
+    # block entirely, so knowledge never entered `available` and boot raised the false "couldn't reach your
+    # project map" notice every clean session. Split the two concerns: walk only when there is a focus, but
+    # mark knowledge available whenever the map is reachable.
+    if src is not None:
         try:
-            # The cold-start adjacency walk is PINNED to the four structural edges (the attention policy's
-            # `## Scope` budget-neutrality invariant, D-203): a new edge kind (e.g. supersedes) is pull-only
-            # and never bulks up orientation. Pass the walk set explicitly rather than leaning on the
-            # neighbors() default, so the pin lives at attention's own call site. Read it from `src` (the
-            # boot slice carries the same WALK_EDGE_KINDS) so the branch never depends on the knowledge_query
-            # module when boot passes its own rung-1 source.
-            walk_edges = edge_filter if edge_filter is not None else list(src.WALK_EDGE_KINDS)
-            # The walk is BIDIRECTIONAL (forward + reverse, `direction="both"`) over that same pinned edge
-            # set (D-224). Forward-only starves a leaf: a non-check, ungoverned surface has no outgoing
-            # structural edge but `provided_by` -> its module, so it collapses to just its module. Reverse
-            # (`direction:in`) surfaces the connective tissue that already exists in the graph — a policy's
-            # governed surfaces, a module's dependents/surfaces, any surface's targeting checks. Reverse is a
-            # query-time direction over the SAME forward edges (D-203 gate 3), NOT a new edge type, so it is
-            # budget-neutral: reverse candidates compete for the same fixed structural_neighbors slice, never
-            # grow it. A genuinely bare leaf (ungoverned AND untargeted, e.g. a tool) still resolves to only
-            # its module; relevance-ordering a dense neighbourhood is deferred (engine-planning Q38/Q39, D-224).
-            # The focus is the work in hand — a single entity id or a SET (the changed work usually spans
-            # several entities, #37). Walk each member, then DEDUPE neighbours and EXCLUDE any neighbour that
-            # is itself a focus member (co-changed entities are not each other's "structural neighbours").
-            # FOCUS_CAP bounds the focus set; the structural_neighbors PARTITION is bounded downstream by the
-            # policy budget/trim via rank() — this cap does not (and need not) bound the candidate count.
-            focus_ids = [focus] if isinstance(focus, str) else list(focus)
-            focus_set = set(focus_ids)
-            seen: set = set()
-            for fid in focus_ids:
-                for n in src.neighbors(fid, edge_filter=walk_edges, depth=depth, direction="both"):
-                    nid = n["id"]
-                    if nid in focus_set or nid in seen:
-                        continue
-                    seen.add(nid)
-                    candidates.append({"id": nid, "category": "structural_neighbors",
-                                       "proximity": 1.0, "recency": None, "source": "knowledge"})
-            available.add("knowledge")  # the substrate WAS consulted (an empty neighbourhood is still a read)
+            if focus:
+                # The cold-start adjacency walk is PINNED to the four structural edges (the attention policy's
+                # `## Scope` budget-neutrality invariant, D-203): a new edge kind (e.g. supersedes) is pull-only
+                # and never bulks up orientation. Pass the walk set explicitly rather than leaning on the
+                # neighbors() default, so the pin lives at attention's own call site. Read it from `src` (the
+                # boot slice carries the same WALK_EDGE_KINDS) so the branch never depends on the knowledge_query
+                # module when boot passes its own rung-1 source.
+                walk_edges = edge_filter if edge_filter is not None else list(src.WALK_EDGE_KINDS)
+                # The walk is BIDIRECTIONAL (forward + reverse, `direction="both"`) over that same pinned edge
+                # set (D-224). Forward-only starves a leaf: a non-check, ungoverned surface has no outgoing
+                # structural edge but `provided_by` -> its module, so it collapses to just its module. Reverse
+                # (`direction:in`) surfaces the connective tissue that already exists in the graph — a policy's
+                # governed surfaces, a module's dependents/surfaces, any surface's targeting checks. Reverse is a
+                # query-time direction over the SAME forward edges (D-203 gate 3), NOT a new edge type, so it is
+                # budget-neutral: reverse candidates compete for the same fixed structural_neighbors slice, never
+                # grow it. A genuinely bare leaf (ungoverned AND untargeted, e.g. a tool) still resolves to only
+                # its module; relevance-ordering a dense neighbourhood is deferred (engine-planning Q38/Q39, D-224).
+                # The focus is the work in hand — a single entity id or a SET (the changed work usually spans
+                # several entities, #37). Walk each member, then DEDUPE neighbours and EXCLUDE any neighbour that
+                # is itself a focus member (co-changed entities are not each other's "structural neighbours").
+                # FOCUS_CAP bounds the focus set; the structural_neighbors PARTITION is bounded downstream by the
+                # policy budget/trim via rank() — this cap does not (and need not) bound the candidate count.
+                focus_ids = [focus] if isinstance(focus, str) else list(focus)
+                focus_set = set(focus_ids)
+                seen: set = set()
+                for fid in focus_ids:
+                    for n in src.neighbors(fid, edge_filter=walk_edges, depth=depth, direction="both"):
+                        nid = n["id"]
+                        if nid in focus_set or nid in seen:
+                            continue
+                        seen.add(nid)
+                        candidates.append({"id": nid, "category": "structural_neighbors",
+                                           "proximity": 1.0, "recency": None, "source": "knowledge"})
+            else:
+                # No focus to walk from (a clean session, no work in hand). The map is still REACHABLE, so
+                # mark it available rather than degrade — `find()` is a reachability probe. It is a no-op on a
+                # present boot slice (whose existence already proves the map was read), but the REAL read on
+                # the `knowledge_query` fallback (when boot's slice read failed and `source` was None), which
+                # RAISES KnowledgeUnavailable if the map is genuinely unreachable (rung 4) — so a true failure
+                # still falls to the `except` below and degrades. A live-rebuilt map reads fine here (it WAS
+                # reached); boot surfaces that separately, never as "couldn't reach" (see boot_slice from_live).
+                src.find()
+            available.add("knowledge")  # reached (walked, or probed reachable) -> NOT degraded
         except Exception:
-            pass  # knowledge unavailable -> degrade over it
+            pass  # map genuinely unreachable (rung 4) -> degrade -> the real "couldn't reach" notice fires
 
     if work_record is not None:
         try:

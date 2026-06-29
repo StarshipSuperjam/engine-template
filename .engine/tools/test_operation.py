@@ -3,7 +3,7 @@
 committed operation template, the live shape + frontmatter validation rules, and the catalog flip that wires
 both in.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock: operation.v1 is a well-formed schema with teeth (a missing title, an unknown extra field such as
 an id, or a status outside {active, deprecated, retired} is rejected; representative instances conform) AND
@@ -126,9 +126,15 @@ class TestTemplate(unittest.TestCase):
                          SHAPE_RULE["params"]["required_sections"] + SHAPE_RULE["params"]["allowed_sections"])
 
     def test_template_shape_spec_matches_shape_rule_params_no_drift(self):
-        """The committed template's shape-spec frontmatter and the operation-shape rule's params must stay
-        byte-identical — so the authoring scaffold and the machine-read rule cannot silently diverge."""
-        self.assertEqual(validate.frontmatter(TEMPLATE_PATH), SHAPE_RULE["params"])
+        """The committed template's shape-spec frontmatter and the operation-shape rule's GRAMMAR params must
+        stay byte-identical — so the authoring scaffold and the machine-read rule cannot silently diverge.
+        length_budget_overrides is a rule-only field (instance-specific, recorded budget raises keyed to a
+        named operation); it is deliberately absent from the template, which carries only the grammar every
+        operation shares, so it is excluded from the no-drift comparison but asserted not to leak into the
+        scaffold."""
+        grammar = {k: v for k, v in SHAPE_RULE["params"].items() if k != "length_budget_overrides"}
+        self.assertEqual(validate.frontmatter(TEMPLATE_PATH), grammar)
+        self.assertNotIn("length_budget_overrides", validate.frontmatter(TEMPLATE_PATH))
 
     def test_template_shape_spec_is_a_well_formed_template_v1(self):
         self.assertEqual(_errors(TEMPLATE_SCHEMA, validate.frontmatter(TEMPLATE_PATH)), [])

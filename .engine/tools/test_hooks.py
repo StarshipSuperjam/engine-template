@@ -3,7 +3,7 @@
 budget + block cap, the per-OS interpreter-path resolver, the fail-open-and-flag harness, and the pure
 block-budget coherence leg (validate.block_budget_findings).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock the laws hooks owns (systems/infrastructure/hooks/README.md):
   - the event inventory is the engine's chosen subset, with PostToolUse three-owner (validation·telemetry·
@@ -67,6 +67,12 @@ class TestEventInventory(unittest.TestCase):
         # Build-entry trigger coexist on one event (D-180 owner inventory).
         self.assertEqual(hooks.EVENT_INVENTORY["PostToolUse"]["owners"],
                          ("validation", "telemetry", "modes"))
+
+    def test_posttooluse_may_inject_and_stays_non_blocking(self):
+        # D-270/D-271: modes' acceptance trigger injects an assistant-internal stance directive
+        # (additionalContext) on Build entry, so PostToolUse may inject — but it never blocks.
+        self.assertTrue(hooks.EVENT_INVENTORY["PostToolUse"]["injects"])
+        self.assertFalse(hooks.EVENT_INVENTORY["PostToolUse"]["blocks"])
 
     def test_sessionend_is_hooks_owned_and_cannot_block(self):
         self.assertEqual(hooks.EVENT_INVENTORY["SessionEnd"]["owners"], ("hooks",))

@@ -100,13 +100,21 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertNotIn('branch="audit-prep/${stamp}"', text)               # the collision-prone form must not return
 
     def test_fetches_the_issue_backlog_and_feeds_the_read_only_persona(self):
-        # #183 / Option 1: the persona never reaches GitHub. The workflow grants only `issues: read`, fetches
-        # the engine-labelled backlog through the telemetry boundary, and feeds it into the persona's prompt —
-        # so concern #2 has its data without the read-only persona ever holding a GitHub token.
+        # #183 / Option 1: the persona never reaches GitHub. The workflow fetches the engine-labelled backlog
+        # through the telemetry boundary and feeds it into the persona's prompt — so concern #2 has its data
+        # without the read-only persona ever holding a GitHub token.
         text = self._text()
-        self.assertIn("issues: read", text)                         # the only new scope, read-only
         self.assertIn("telemetry.py engine-issues", text)           # the workflow fetches the backlog
         self.assertIn("BEGIN OPEN ENGINE-LABELLED ISSUES", text)    # …and feeds it into the persona's prompt
+
+    def test_issues_scope_is_write_for_the_promote_step(self):
+        # #273 half 2 (slice 2): the workflow now WRITES the engine-labelled issues (the promote step opens/
+        # updates a tracked length-budget issue), so the scope rises from read to write. Pin `issues: write`
+        # so a future edit can't silently drop the promoter's ability to track a finding — and so the
+        # privilege increase stays a visible, deliberate line.
+        text = self._text()
+        self.assertIn("issues: write", text)
+        self.assertNotIn("issues: read", text)   # the bare read scope must not linger and mislead
 
     def test_persona_step_stays_token_less(self):
         # The read-only persona must never receive a GitHub token — the fetch/refresh/PR steps are the only
@@ -225,6 +233,65 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("MEMORY_AUDIT_REPO_VISIBILITY", text)
         self.assertIn('>> "${GITHUB_ENV}"', text)                    # …hands it to the later memory step
         self.assertLess(text.index("MEMORY_AUDIT_REPO_VISIBILITY"), text.index("audit_digest.py memory"))
+
+    def test_fetches_soft_findings_and_feeds_the_persona(self):
+        # #273 half 2: a SOFT validator finding is otherwise printed to a CI log and discarded. The workflow
+        # collects the firing soft findings (the feed tool) and feeds them into the read-only persona's prompt
+        # between fresh markers, so the audit can finally see a recurring nudge.
+        text = self._text()
+        self.assertIn("audit_soft_findings.py", text)                # the workflow collects the firing soft findings
+        self.assertIn("BEGIN CURRENTLY-FIRING SOFT FINDINGS", text)  # …and feeds them into the persona's prompt
+
+    def test_soft_findings_feed_classifies_by_lane_and_forbids_a_tally(self):
+        # The feed instructs the persona to classify each finding by its two lanes (machinery -> escalate
+        # upstream, local state -> local reconcile) AND respects the no-count principle: recurrence is
+        # corroboration only, never a count/threshold/tally. Pin both so an edit can't drop either.
+        text = self._text()
+        self.assertIn("escalate-upstream", text)
+        self.assertIn("local-reconcile", text)
+        self.assertIn("never as a count, threshold, or 'seen N times' tally", text)
+
+    def test_soft_findings_step_stays_token_less(self):
+        # The feed reads committed files only and needs no GitHub token; pin the step token-less so a future
+        # edit can't quietly hand it creds it doesn't need.
+        text = self._text()
+        start = text.index("Fetch the currently-firing soft validator findings")
+        soft_step = text[start:text.index("- name:", start)]
+        self.assertIn("audit_soft_findings.py", soft_step)           # sanity: this is the soft-findings step
+        self.assertNotIn("GITHUB_TOKEN", soft_step)
+        self.assertNotIn("GH_TOKEN", soft_step)
+
+    def test_soft_findings_step_degrades_in_band_when_the_fetch_fails(self):
+        # Mirrors the other feed steps: if the fetch step itself fails, leave an honest marker so the persona
+        # discloses the gap rather than reading silence as "nothing is firing".
+        text = self._text()
+        self.assertIn("CURRENTLY-FIRING SOFT FINDINGS: could not be read this run (the fetch step failed)", text)
+
+    def test_promote_step_tracks_standing_budget_findings_as_issues(self):
+        # #273 half 2 (slice 2): after the persona reads the firing soft findings, the workflow durably tracks
+        # a STANDING length-budget one as a deduped, lane-aware engine issue, so it reaches boot + the tracker
+        # and not just this week's digest.
+        text = self._text()
+        self.assertIn("audit_soft_promote.py", text)
+
+    def test_promote_step_uses_the_own_repo_token_never_the_claude_token(self):
+        # The promote step writes engine issues with the OWN-repo GitHub token (issues:write), never the Claude
+        # OAuth token (which only auths the persona run). Slice the step and pin its creds so a future edit
+        # can't hand it the wrong token or drop the GitHub one it needs.
+        text = self._text()
+        start = text.index("Track standing length-budget findings as engine issues")
+        step = text[start:text.index("- name:", start)]
+        self.assertIn("audit_soft_promote.py", step)                 # sanity: this is the promote step
+        self.assertIn("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}", step)
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", step)            # never the persona's Claude token
+
+    def test_promote_step_cannot_block_the_digest_pull_request(self):
+        # The promoter is fail-open, and the step additionally guards with `|| true` so this best-effort side
+        # action can never fail the run and strand the digest PR. Pin both the guard and that the promote step
+        # runs before the seal/PR steps (so a non-`|| true` rewrite that aborts can't silently block them).
+        text = self._text()
+        self.assertIn("audit_soft_promote.py || true", text)
+        self.assertLess(text.index("audit_soft_promote.py"), text.index("Seal the digest"))
 
 
 if __name__ == "__main__":

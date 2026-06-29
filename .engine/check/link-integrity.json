@@ -4,7 +4,7 @@
   "kind": "coverage",
   "params": {
     "mode": "links",
-    "exclude_dirs": [".git", ".engine/.venv"]
+    "exclude_dirs": [".git", ".engine/.venv", ".engine/_fixtures"]
   },
   "tier": "hard",
   "suites": ["CI"],

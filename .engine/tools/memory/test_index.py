@@ -1,7 +1,7 @@
 """test_index.py — unit tests for the derived memory lookup (memory-substrate-sqlite-fts5, slice 2).
 
 Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py'
+    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These tests cover the slice-2 laws: the fast lookup and the slow backup return the SAME set of records (the
 unicode61-mirror), the FTS5-absent condition is detected and degrades to the scan, the rebuild is atomic

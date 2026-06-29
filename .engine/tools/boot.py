@@ -8,7 +8,14 @@ exist today, and injects it as `additionalContext` before the first prompt. The 
 the floor (always) + this pack (when the hook runs).
 
 Boot's laws, all load-bearing here (systems/lifecycle/boot/README.md):
-  - READ-ONLY orientation. Boot regenerates NO derived state; it only reads and surfaces.
+  - READ-ONLY OF CANONICAL STATE (D-269). Boot regenerates NO derived or committed state; it reads and
+    surfaces. Its ONE local write is the gitignored, non-canonical standing-alarm presentation ledger
+    (boot_alarm_ledger) — a record of what was already shown, not a regeneration of any canonical state.
+  - ANTI-HABITUATION BY COLLAPSE, NOT SUPPRESSION (D-269). A standing governance alarm renders every
+    session it is live, but one whose structured condition is UNCHANGED since last shown in full collapses
+    to a terse reminder (consequence + fix offer kept); a new/changed/worsened one relays in full. The
+    decision is deterministic in the hook path (_relay_lines -> boot_alarm_ledger.decide), fail-toward-full,
+    never the model. The present-marker line and the all-clear render NEVER collapse.
   - RELAY, NOT DETECT. Boot reuses the substrates' own detection — attention's ranking
     (attention.rank_live, consumed in its given precedence order and NEVER re-ranked), telemetry's
     debt readout, protection_guard's protected-branch evaluation — and renders them. It computes none.
@@ -61,6 +68,8 @@ import validate          # noqa: E402
 import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
 import boot_slice        # noqa: E402  (#37: boot's rung-1 knowledge cache; read() fail-opens to None)
+import knowledge_gen     # noqa: E402  (REGEN_CMD: the one operator-facing regenerate-the-map command, cited not re-typed)
+import boot_alarm_ledger  # noqa: E402  (D-269: the standing-alarm presentation ledger; decide() fail-opens to full)
 import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
 import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-branch evaluation)
@@ -265,7 +274,7 @@ def _and_list(items: list) -> str:
     return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
-def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = None) -> tuple[list, list, dict | None]:
+def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = None, source=None) -> tuple[list, list, dict | None]:
     """Consume attention.rank_live and SPLIT its ranked partition into (1) operator ACTION lines, rendered in
     the GIVEN precedence order as plain language (a bounded prefix per category — boot renders, never
     re-orders), and (2) the knowledge NEIGHBORHOOD of the work in hand. The neighborhood is AI-orientation
@@ -282,8 +291,11 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = 
     # Boot's RUNG-1 knowledge read (#37): a fresh boot slice is read once and threaded into every knowledge
     # read below, so orientation reads the gitignored cache instead of the SQLite index. `read()` fail-opens to
     # None (a missing/stale/broken slice, or knowledge unavailable) — then the reads run on `knowledge_query`
-    # exactly as before (the shared rungs 2-4), or boot orients without the block. Never blocks boot.
-    source = boot_slice.read()
+    # exactly as before (the shared rungs 2-4), or boot orients without the block. Never blocks boot. The caller
+    # (gather_signals) reads the slice ONCE and passes it in — so the same read also yields the `from_live`
+    # provenance for the rebuilt-map heads-up without a second read; `source=None` (the CLI/tests) reads here.
+    if source is None:
+        source = boot_slice.read()
     try:
         # with_total: the count BEHIND the cap, so the render discloses focus truncation honestly (#165).
         focus, focus_total = attention.derive_focus(gh=gh, with_total=True, source=source)
@@ -439,7 +451,14 @@ def gather_signals(session_id: str | None = None) -> dict:
     # ranking and the "Open problems" header read ONE number (they cannot disagree) and the SessionStart path
     # makes no second GitHub call. None (no repo/token, or a failed read) -> telemetry degrades and the
     # committed count stands in -> boot raises the loud 'couldn't reach' notice.
-    att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh, live_findings=finding_count)
+    # Boot's rung-1 knowledge slice (#37), read ONCE here and threaded into needs_attention — the SAME read also
+    # carries `from_live`: True when the committed graph.json was absent and orientation ran on a LIVE rebuild
+    # (rung 3, "loudly degraded"). That drives the rebuilt-map heads-up, NOT the att_degraded "couldn't reach"
+    # notice — the map IS reachable, only the committed file is missing. read() fail-opens to None (never raises
+    # into boot), so a read failure leaves map_rebuilt False and is covered instead by the "couldn't reach" path.
+    source = boot_slice.read()
+    map_rebuilt = bool(source and getattr(source, "from_live", False))
+    att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh, live_findings=finding_count, source=source)
     try:
         # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
         # low-stakes (a stranded local checkout cannot reach the protected branch), so it degrades QUIETLY
@@ -447,6 +466,16 @@ def gather_signals(session_id: str | None = None) -> dict:
         strand = checkout_health.detect_strand()
     except Exception:  # noqa: BLE001 — any detector failure degrades that one signal, never the pack
         strand = None
+    try:
+        # The behind-origin tail (#335), RELAYED from checkout_health's own detection (boot computes no new
+        # state). This is the engine's one ONLINE boot signal that fetches: a best-effort, tightly bounded
+        # `git fetch` then a clean-fast-forward check. Online-only by nature (a behind checkout cannot be seen
+        # offline), so it degrades SILENTLY to None on no-network / no-remote / a non-default branch — never a
+        # false "behind". boot OFFERS bringing it current; the assistant runs checkout_health.catch_up only on
+        # the operator's consent (the strand model). Lossless by construction (`merge --ff-only`).
+        behind_origin = checkout_health.detect_behind_origin()
+    except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
+        behind_origin = None
     try:
         # The self-review freshness signal, RELAYED from audit_digest's own detection (boot computes no new
         # state). Called arg-less so it reads the committed digest + today and owns STALENESS_DAYS/the re-arm
@@ -473,6 +502,16 @@ def gather_signals(session_id: str | None = None) -> dict:
         restore_offer = restore_vault.detect_restore_offer()
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         restore_offer = None
+    try:
+        # The code-older-than-data restore offer (Slice 3, D-264 floor a), RELAYED from memory's own OFFLINE detector
+        # (boot computes no new state). Same lazy import as the restore-offer above (the restore_vault -> backup_vault
+        # -> boot back-edge). `gh` is passed so the detector can ALSO promote the durable tracked Issue when online;
+        # offline it still returns the in-session offer. Degrades QUIETLY to None — no stamp (no recent data migration)
+        # is the normal state, and a non-version-shaped running version never false-fires.
+        from memory import restore_vault as _rv
+        migration_revert = _rv.detect_migration_revert(github=gh)
+    except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        migration_revert = None
     # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
@@ -489,15 +528,23 @@ def gather_signals(session_id: str | None = None) -> dict:
         "finding_count": finding_count, "register": register,
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
+        # True iff orientation ran on a LIVE-rebuilt map because the committed graph.json is absent (a distinct
+        # heads-up, NOT the att_degraded "couldn't reach": the map is reachable, the committed file is missing)
+        "map_rebuilt": map_rebuilt,
         # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
         "neighborhood": neighborhood,
         "shipped": recently_shipped(),
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
+        # the behind-origin tail (#335): on the default branch + a clean fast-forward would bring in merged
+        # work past the velocity bar, or None (also None offline — the signal is online-only)
+        "behind_origin": behind_origin,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
         # the memory auto-restore offer (#R2, slice 6b): local memory is empty + a backup is configured, or None
         "restore_offer": restore_offer,
+        # the code-older-than-data offer (D-264 #303): the store is ahead of the engine after a reverted update, or None
+        "migration_revert": migration_revert,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
         "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
@@ -546,6 +593,18 @@ def render_dashboard(s: dict) -> str:
             "and I'll get it healthy again — I'll save anything at risk first (including any work that's "
             "drifted off your branch) to a safe point, so nothing is lost.")
 
+    # The behind-origin tail (#335), surfaced read-only at the strand tier (below the governance alarms — a
+    # behind checkout cannot reach protected `main`). Consequence-led and COUNT-FREE per the design's
+    # "never a count" leaf law, no git verbs, with a concrete consent phrase like every sibling offer. boot
+    # OFFERS; the assistant runs checkout_health.catch_up only on consent. Lossless by construction.
+    if s.get("behind_origin"):
+        pinned.append(
+            "📦 **Your project folder has fallen behind your recent work** — merged updates have landed since "
+            f"you last caught up (most recently on {s['behind_origin']['latest']}), and your folder doesn't "
+            "have them yet. I work in a separate copy, so nothing is broken — when you're ready, say **bring "
+            "it up to date** and I'll bring your folder current safely; or, if you have unsaved work in the "
+            "way, I'll tell you and leave everything untouched. Either way, nothing you already have will be lost.")
+
     # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier
     # (below the governance alarms — a conflicting PR cannot reach protected `main`, so it is NOT a governance
     # alarm). boot OFFERS the one-step fix; the assistant runs pr_reconcile.reconcile only on the operator's
@@ -566,6 +625,19 @@ def render_dashboard(s: dict) -> str:
         pinned.append(
             "↩️ **Your saved memory looks empty, and this project has a backup.** Say **restore my memory** and "
             "I'll try to bring it back from the backup. Nothing on this computer changes until you say so.")
+
+    # The code-older-than-data restore OFFER (D-264 floor a, #303), surfaced read-only at the recovery tier. Memory's
+    # offline detector found the saved memory was reshaped by an engine update that is no longer in place, so the store
+    # is ahead of the code. Floor (a): exactly ONE action, by plain handle ("the copy saved before that update"), never
+    # a tag/ref — the snapshot-vs-latest choice is the engine's. Worded to cover BOTH an operator-undone update and a
+    # half-applied one that never landed (leads with the state, not "you undid"). boot OFFERS; the assistant runs
+    # memory.restore_pre_migration(tag=…) on consent (the tag rides the signal, never the operator's eyes).
+    if s.get("migration_revert"):
+        pinned.append(
+            "↩️ **Your saved memory was changed by an engine update that isn't in place** — so right now your "
+            "memory and the engine don't match. I can put your memory back to **the copy saved before that update**, so "
+            "they line up again. Say **restore my memory from before the update** and I'll bring it back — nothing on "
+            "this computer changes until you say so.")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
@@ -621,6 +693,19 @@ def render_dashboard(s: dict) -> str:
             f"I couldn't reach {missing} this session, so the priority order below may be incomplete — "
             f"re-ground before you rely on it.")
 
+    if s.get("map_rebuilt"):
+        # The committed project map (graph.json) is absent, so orientation ran on a LIVE rebuild (rung 3). The
+        # map IS reachable — this is deliberately NOT the "couldn't reach" degrade above: it is a distinct
+        # inform + consequence line in peer voice (never an alarm), naming the missing file and the one fix.
+        # The operator chose this rare state earns its own at-boot heads-up rather than only the merge-time
+        # coverage check. Cite the one canonical regenerate-and-commit command (REGEN_CMD) the way every sibling
+        # message does, so the fix is actionable for a non-engineer. .get() so a fixed-signals test fixture
+        # without the key never KeyErrors.
+        degraded.append(
+            "I'm running on a rebuilt project map — your committed map file is missing. Orientation still "
+            f"works, but regenerate it with `{knowledge_gen.REGEN_CMD}` and commit the result to restore "
+            "your saved map.")
+
     if degraded:
         out.append("")
         out.extend(f"_{line}_" for line in degraded)
@@ -645,6 +730,16 @@ def render_dashboard(s: dict) -> str:
     out.extend(f"- {line}" for line in s["shipped"]) if s["shipped"] else out.append(
         "- (no recent merges found)")
 
+    # The artifact warrant (D-261), proportionately LIGHT: this dashboard — and the project map it
+    # draws on — is an automated readout derived from the engine's own checks, so it states its bound
+    # right where it is read. The graph behind "your project map" is a byte-fingerprinted generated file
+    # whose bound rides this startup view (an authored field in it would break exact-match regeneration),
+    # so the line lives here, not in the raw graph. Light because the limit is near self-evident and the
+    # real gate (the merge review) is named elsewhere in this briefing.
+    out.append("")
+    out.append("_This view is an automated readout: a clear status shows the checks the engine can run "
+               "came back clean — not that everything is correct. Your review at merge is the real gate._")
+
     return "\n".join(out)
 
 
@@ -663,48 +758,123 @@ def present_marker_line(s: dict) -> str:
         return f"⚠ {PRESENT_MARKER}: {s['finding_count']} open engine finding(s) to review"
     if s["strand"]:   # ranked after the governance alarms + findings; a governance alarm still wins the marker
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
+    if s.get("behind_origin"):   # sibling of strand (folder health), below it: missing updates, not a broken state
+        return (f"⚠ {PRESENT_MARKER}: your project folder has fallen behind recent merged work — say 'bring it "
+                "up to date' and I'll bring it current")
     if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
         return f"⚠ {PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it"
+    if s.get("migration_revert"):   # a recovery OFFER (not a ⚠ alarm): the store is ahead of the code after a revert
+        return (f"{PRESENT_MARKER}: your saved memory is ahead of the engine after an update was undone — say "
+                "'restore my memory from before the update' and I'll bring back the copy from before it")
     if s["restore_offer"]:   # a recovery OFFER (not a ⚠ alarm); ranked last, below every governance/strand signal
         return (f"{PRESENT_MARKER}: your saved memory looks empty — say 'restore my memory' and I'll try to bring "
                 "back your backup")
     return f"{PRESENT_MARKER}: all clear"
 
 
-def must_push(s: dict) -> list:
-    """The INFORM-marked items the AI MUST relay to the operator in plain words — the governance-critical
-    alarms and the grounding-failure tell (D-187 must-push set). A fixed relay over detected signals;
-    routine status carries no marker (it is pulled via the status verb)."""
-    items: list[str] = []
+def _pushed_alarms(s: dict) -> list:
+    """The pushed governance set as STRUCTURED alarms — the single source for both must_push (the full
+    lines) and the D-269 collapse decision. Each alarm carries:
+      key         a stable identity (the ledger key);
+      value       the STRUCTURED condition the ledger compares (never the prose) — JSON-able;
+      collapsible whether it is in the D-269 collapse allowlist (a standing governance alarm). The
+                  degrade-loud tells — a couldn't-verify gate and a refused cursor — are NOT collapsible:
+                  they always render full so a grounding/verification failure never softens to a reminder;
+      full        the neutral full INFORM line (first appearance, an improved/changed condition, or any
+                  fail-toward-full fallback);
+      terse       (collapsible only) the one-line reminder when the condition is UNCHANGED since last shown
+                  in full — still names the consequence and still carries the offer to fix;
+      worse       (collapsible only) the full line when the condition has WORSENED (lexically distinct).
+    A fixed relay over detected signals; routine status carries no marker (it is pulled via the status verb)."""
+    alarms: list = []
     if s["gate"] == "off":
-        items.append(
-            f"{RELAY_MARKER} their safety gate is off — `{PROTECTED_BRANCH}` isn't protected, so "
-            f"unreviewed work could reach the main branch ({s['reason']}); it needs re-enabling.")
+        full = (f"{RELAY_MARKER} their safety gate is off — `{PROTECTED_BRANCH}` isn't protected, so "
+                f"unreviewed work could reach the main branch ({s['reason']}); it needs re-enabling.")
+        terse = (f"{RELAY_MARKER} their safety gate is still off (unchanged since last session) — "
+                 f"unreviewed work could still reach `{PROTECTED_BRANCH}`; it still needs re-enabling.")
+        alarms.append({"key": "gate", "value": ["off", s["reason"]], "collapsible": True,
+                       "full": full, "terse": terse, "worse": full})
     elif s["gate"] == "unknown":
-        items.append(
+        alarms.append({"key": "gate", "value": ["unknown", None], "collapsible": False, "full": (
             f"{RELAY_MARKER} the safety gate couldn't be verified (no GitHub access), so they shouldn't "
-            f"assume `{PROTECTED_BRANCH}` is protected — confirm before merging anything important.")
+            f"assume `{PROTECTED_BRANCH}` is protected — confirm before merging anything important.")})
     if s["refused"]:
-        items.append(
+        alarms.append({"key": "refused", "value": True, "collapsible": False, "full": (
             f"{RELAY_MARKER} the engine couldn't read where the project stands, so project status is "
-            f"unknown until it re-grounds.")
+            f"unknown until it re-grounds.")})
     if s["finding_count"]:
-        items.append(
-            f"{RELAY_MARKER} there are {s['finding_count']} open engine finding(s) about the engine's "
-            f"own health to review: {s['register']}")
-    return items
+        full = (f"{RELAY_MARKER} there are {s['finding_count']} open engine finding(s) about the engine's "
+                f"own health to review: {s['register']}")
+        terse = (f"{RELAY_MARKER} there are still {s['finding_count']} open engine finding(s) about the "
+                 f"engine's own health to review (unchanged since last session): {s['register']}")
+        worse = (f"{RELAY_MARKER} there are now {s['finding_count']} open engine finding(s) about the "
+                 f"engine's own health to review — this has grown since last session: {s['register']}")
+        alarms.append({"key": "findings", "value": s["finding_count"], "collapsible": True,
+                       "full": full, "terse": terse, "worse": worse})
+    return alarms
 
 
-def assemble_pack(session_id: str | None = None) -> str:
+def must_push(s: dict) -> list:
+    """The INFORM-marked items the AI MUST relay to the operator in plain words — the FULL (uncollapsed)
+    governance-critical alarms and the grounding-failure tell (D-187 must-push set). This is the fresh
+    render (the `pack` debug CLI and a fresh, ledger-less context); the SessionStart hook path applies the
+    D-269 collapse via _relay_lines instead. A fixed relay over detected signals."""
+    return [a["full"] for a in _pushed_alarms(s)]
+
+
+def _worse(key: str, prior, current) -> bool:
+    """Whether a changed collapse-eligible condition got WORSE (so it relays full with the 'this got worse'
+    wording, never a quiet reminder). Ordered only where 'worse' is meaningful: the open-findings count
+    rising. A gate going on->off is an alarm that was ABSENT last session (no prior entry), so it surfaces
+    as a first-appearance full relay, not a 'worse' transition."""
+    if key == "findings":
+        return isinstance(prior, int) and isinstance(current, int) and current > prior
+    return False
+
+
+def _relay_lines(s: dict) -> list:
+    """The hook-side relay set with the D-269 collapse applied (the deterministic decision lives here, in
+    the hook path — never the model): a collapse-eligible alarm whose structured condition is unchanged
+    since last shown in full renders TERSE; a new/changed one renders full; a worsened one renders the
+    'got worse' full line; the degrade-loud tells always render full. Fail-toward-full: if the ledger could
+    not be read (decide ok=False), every line is the neutral full form, never a misleading 'still'/'worse'."""
+    alarms = _pushed_alarms(s)
+    eligible = [{"key": a["key"], "value": a["value"]} for a in alarms if a["collapsible"]]
+    # Always call decide — even with an empty eligible set — so a now-resolved standing alarm is DROPPED
+    # from the ledger (verified-fixed), never left to wrongly collapse a later recurrence.
+    decision = boot_alarm_ledger.decide(eligible)
+    ok = decision.get("ok", False)
+    results = decision.get("results", {})
+    lines: list = []
+    for a in alarms:
+        if not a["collapsible"]:
+            lines.append(a["full"])
+            continue
+        r = results.get(a["key"], {"outcome": "full", "prior": None})
+        if r.get("outcome") == "collapse":
+            lines.append(a["terse"])
+        elif ok and r.get("prior") is not None and _worse(a["key"], r["prior"], a["value"]):
+            lines.append(a["worse"])
+        else:
+            lines.append(a["full"])
+    return lines
+
+
+def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) -> str:
     """The AI-FACING briefing injected at SessionStart (the operator-presentation relay, D-187/D-188). It
     reaches the MODEL, never the operator's screen — so it tells the AI to (1) render the present-marker
     block first, (2) relay each INFORM line in plain words, (3) surface a brief needs-attention headline;
     the full operator dashboard follows for grounding. The present-marker instruction always names the
     `Project status` token (so the marker is present on every branch), and is emitted BEFORE the dashboard
-    so a dashboard failure can't suppress it. Posture — the protected-branch merge is the real guarantee."""
+    so a dashboard failure can't suppress it. Posture — the protected-branch merge is the real guarantee.
+
+    `use_ledger` (the SessionStart HOOK path) applies the D-269 anti-habituation collapse — an unchanged
+    standing alarm relays terse, a new/worsened one in full — via the deterministic ledger. The `pack`
+    debug CLI leaves it False for a fresh, full render. The present-marker line and the dashboard NEVER
+    collapse: only the must-push relay payload behind the marker varies (boot/README §Anti-habituation)."""
     s = gather_signals(session_id)
     marker = present_marker_line(s)
-    push = must_push(s)
+    push = _relay_lines(s) if use_ledger else must_push(s)
     try:
         dashboard = render_dashboard(s)
     except Exception:
@@ -720,6 +890,15 @@ def assemble_pack(session_id: str | None = None) -> str:
         out.append("2. Relay each of these to the operator in plain language (they are governance-critical "
                    "— do not skip any):")
         out.extend(f"   - {line}" for line in push)
+        # AI-facing collapse contract (D-269; don't relay this line itself). An item phrased "still …
+        # (unchanged since last session)" is a standing one already seen — relay it as the brief reminder
+        # it is; a new or worsened item is stated in full. If a standing alarm has dropped off entirely
+        # since last session, that means the engine re-checked and it is resolved — not that it stopped
+        # watching; say so plainly if the operator asks.
+        out.append("   (An item marked 'still … (unchanged since last session)' is a standing one the "
+                   "operator already saw — relay it as a brief reminder, not a fresh alarm; a new or "
+                   "worsened item is stated in full. An alarm that dropped off since last session means "
+                   "the engine verified it resolved, never that it stopped checking.)")
     else:
         out.append("2. No governance alarm to relay this session.")
     out.append("3. Then surface a brief plain-language headline of anything in the status below that needs "
@@ -760,7 +939,9 @@ def handler(payload: dict) -> dict:
     any unreadable signal, and the merge wall backstops any write that slips that window."""
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     modes.clear_stance(session_id)
-    pack = assemble_pack(session_id)
+    # use_ledger=True: this is the real SessionStart path, so apply the D-269 collapse (an unchanged
+    # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
+    pack = assemble_pack(session_id, use_ledger=True)
     return hooks.inject(pack) if pack else hooks.proceed()
 
 

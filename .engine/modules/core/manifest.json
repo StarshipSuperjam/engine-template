@@ -13,6 +13,7 @@
       ".engine/operations/close-turn.md",
       ".engine/operations/conduct-author.md",
       ".engine/operations/control-plane-bootstrap.md",
+      ".engine/operations/engine-arrival.md",
       ".engine/operations/engine-remove.md",
       ".engine/operations/engine-upgrade.md",
       ".engine/operations/first-run.md",
@@ -158,6 +159,13 @@
       "key": "core-telemetry-cache",
       "lines": [
         ".engine/telemetry/.cache/"
+      ]
+    },
+    {
+      "type": "gitignore",
+      "key": "core-boot-presentation-ledger",
+      "lines": [
+        ".engine/boot/.cache/"
       ]
     }
   ],

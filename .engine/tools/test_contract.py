@@ -2,7 +2,7 @@
 """Self-tests for the contract surface (slice 13): the contract.v1 frontmatter grammar, the committed
 contract template, the live shape-kind validation rule, and the catalog flip that wires both in.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock: contract.v1 is a well-formed schema with teeth (a malformed eADR id, a status outside the
 decision lifecycle, a bad date, a missing required field, or an unknown extra field is rejected, and the

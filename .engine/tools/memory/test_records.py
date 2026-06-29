@@ -69,10 +69,13 @@ class FactoryTests(unittest.TestCase):
 
 class StabilityTests(_Base):
     def test_the_id_survives_an_index_rebuild_byte_for_byte(self):
-        rec = capture._make_record("S", 0, "user", "the quokka decision")
+        # The recall vehicle is a CURATED episodic (closed batch → live): ambient turn-deltas are not recall
+        # content (D-273/D-274, #332). The id-stability property is record-kind-agnostic.
+        rec = consolidate._make_episodic("S", {"role": "decision", "text": "the quokka decision"}, "batch-x")
         ledger.append(rec)
+        ledger.append(consolidate._make_marker("S", "batch-x"))   # close the batch so the episodic is live
         index.rebuild()
-        hits = [r for r in index.query("quokka").records if r.get("kind") == capture.RECORD_KIND]
+        hits = [r for r in index.query("quokka").records if r.get("kind") == records.EPISODIC_KIND]
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0][records.RECORD_ID_KEY], rec[records.RECORD_ID_KEY])  # index read it, not re-mint
 
@@ -87,8 +90,10 @@ class StabilityTests(_Base):
 
 class NonSearchableTests(_Base):
     def test_the_id_is_not_a_search_term(self):
-        rec = capture._make_record("S", 0, "user", "findable by its words")
+        # vehicle is a curated episodic (closed batch → live); ambient turn-deltas are not recall content (#332)
+        rec = consolidate._make_episodic("S", {"role": "decision", "text": "findable by its words"}, "batch-x")
         ledger.append(rec)
+        ledger.append(consolidate._make_marker("S", "batch-x"))
         index.rebuild()
         self.assertTrue(index.query("findable").records)              # the words ARE findable
         self.assertEqual(index.query(rec[records.RECORD_ID_KEY]).records, [])  # the id is NOT
@@ -96,11 +101,12 @@ class NonSearchableTests(_Base):
 
 class BackCompatTests(_Base):
     def test_a_record_with_no_id_still_appends_indexes_and_queries(self):
-        # a pre-4b turn-delta — NO "id" field — must read/index/query fine (no reader requires an id). `ts` is
-        # current (not a sentinel): scored demotion (slice 4c) sets an ancient record aside from recall, which
-        # would mask the id tolerance this test is about — keep the record fresh so it is recalled on its merit.
-        ledger.append({"v": 1, "kind": capture.RECORD_KIND, "session_id": "S", "ts": int(time.time()), "seq": 0,
-                       "speaker": "user", "text": "an old note about pelicans", "tags": ["stop"]})
+        # a pre-4b CURATED record — NO "id" field — must read/index/query fine (no reader requires an id). A
+        # batchless episodic is always live; ambient turn-deltas are no longer recall content (D-273/D-274, #332),
+        # so the recall vehicle is an episodic. `ts` is current (not a sentinel): scored demotion (slice 4c) sets
+        # an ancient record aside from recall, which would mask the id tolerance this test is about.
+        ledger.append({"v": 1, "kind": records.EPISODIC_KIND, "session_id": "S", "ts": int(time.time()),
+                       "role": "observation", "text": "an old note about pelicans", "tags": ["episodic"]})
         index.rebuild()
         hits = index.query("pelicans").records
         self.assertEqual(len(hits), 1)

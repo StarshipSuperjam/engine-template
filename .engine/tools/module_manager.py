@@ -616,18 +616,20 @@ def select_migrations(from_versions: dict, target_versions: dict, manifests: lis
     return out
 
 
-def _bind_migration_id(seam, module_id: str, version: str):
+def _bind_migration_id(seam, module_id: str, version: str, reversibility_floor: bool = False):
     """Bind the migration's identity into the backup seam so memory names the pre-migration snapshot collision-free
     by it (the retained-tag mechanism, D-264 law 3). The migration calls `context['backup'](store, engine_version)`
     exactly as before — the migration id rides along, so migration authors need not know about it and module_manager
-    stays a pure consumer that knows nothing of the snapshot's tag mechanism. Passing migration_id is forward-
-    compatible: a seam that ignores it still works (memory falls back to engine-version + generation)."""
+    stays a pure consumer that knows nothing of the snapshot's tag mechanism. `reversibility_floor` (True only for the
+    first data migration of the upgrade — #303) likewise rides along so memory records THAT snapshot as the undo floor;
+    module_manager passes only this boolean and never learns the snapshot's tag. Passing the extra kwargs is forward-
+    compatible: a seam that ignores them still works (memory falls back to engine-version + generation)."""
     if seam is None:
         return None
     migration_id = f"{module_id}@{version}"
 
     def _seam(store, engine_version):
-        return seam(store, engine_version, migration_id=migration_id)
+        return seam(store, engine_version, migration_id=migration_id, reversibility_floor=reversibility_floor)
     return _seam
 
 
@@ -651,6 +653,9 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
         module_dir = _modules_dir
     seam = _resolve_backup_seam(backup)
     result = {"ran": [], "refused": []}
+    floor_taken = False                                  # #303: the FIRST data migration of this upgrade is the
+    #                                                      reversibility floor — one run_migrations call == one upgrade
+    #                                                      == one reversibility unit (true for the sole caller upgrade()).
     for item in selected:
         mid, ver, kind = item["module_id"], item["version"], item.get("kind")
         if kind == "data" and seam is None:
@@ -659,9 +664,12 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
                 f"engine never changes stored data it can't first back up. Nothing was changed. Ask me to "
                 f"set up a backup, then update again.")
             continue
+        is_floor = kind == "data" and not floor_taken
+        if kind == "data":
+            floor_taken = True
         ctx = {"module_id": mid, "from_version": from_versions.get(mid), "to_version": ver,
                "engine_version": engine_version, "kind": kind,
-               "backup": _bind_migration_id(seam, mid, ver) if kind == "data" else None}
+               "backup": _bind_migration_id(seam, mid, ver, reversibility_floor=is_floor) if kind == "data" else None}
         if kind == "data":
             # A data migration snapshots BEFORE mutating; if that backup can't be taken at run time (the seam
             # returns a falsy handle, so the migration's own backup-first assert fires) it must DEGRADE LOUD —
@@ -688,18 +696,17 @@ def stamp_mismatch_finding(store_label: str, stamped_version: str, running_versi
     reverted, the engine CODE returns to the older version, but a data migration that already reshaped a
     gitignored store is NOT reverted with it (the store is gitignored, outside the pull request). Each data
     migration stamps its snapshot with the engine-code version it ran at; if the running engine code is now
-    OLDER than that stamp, the store is ahead of the code. Returns a hard finding.v1 naming the exact
-    restore command, or None when there is no mismatch (running >= stamped). DETECTION is the migration's
-    own logic; SURFACING is boot's existing read-only open-findings path (boot needs no change). The first
-    real use is owed to memory-substrate (no real store exists in core)."""
+    OLDER than that stamp, the store is ahead of the code. Returns a hard finding.v1 carrying the plain-handle
+    restore action, or None when there is no mismatch (running >= stamped). DETECTION is the migration system's
+    logic (memory's `restore_vault.detect_migration_revert` is the live caller); SURFACING is boot's existing
+    read-only open-findings path (boot needs no change). `restore_command` is a plain-handle action phrase, never
+    a raw tag/ref — the finding message is operator-facing (boot.open_findings renders it)."""
     if validate._ver_tuple(running_version) >= validate._ver_tuple(stamped_version):
         return None
     return validate.finding(
         "hard",
-        f"The stored data for '{store_label}' was last updated by a newer engine version "
-        f"({stamped_version}) than the one now running ({running_version}) — most likely an engine update "
-        f"was undone after it had already updated your data. Restore the backup so the two match: "
-        f"{restore_command}")
+        f"Your saved memory was changed by an engine update that isn't in place, so right now your "
+        f"memory and the engine don't match. To line them up again, {restore_command}.")
 
 
 def surface_stamp_mismatch(store_label: str, stamped_version: str, running_version: str,
@@ -709,7 +716,8 @@ def surface_stamp_mismatch(store_label: str, stamped_version: str, running_versi
     through its read-only open-findings path. Reuses close's GitHub boundary + finding-record shape.
     Returns the Issue number, or None when there is no mismatch / GitHub is unreachable (the in-session
     surfacing + the merge wall remain). This is a READ-ONLY check — it calls promote_finding, NEVER runs
-    migrate(), and is never wired into boot ('Migration is never triggered at boot')."""
+    migrate() (migration is never triggered at boot). Its live caller is memory's `restore_vault.detect_migration_revert`,
+    which runs the offline code-older-than-data check and, when online, calls this to open the durable tracked Issue."""
     f = stamp_mismatch_finding(store_label, stamped_version, running_version, restore_command)
     if f is None:
         return None
@@ -728,14 +736,18 @@ def surface_stamp_mismatch(store_label: str, stamped_version: str, running_versi
 
 # ---- upgrade: overlay (off the PRESENT set) + wiring deltas + re-sync + migrations + coherence + PR ----
 
-def _overlay_engine_code(release_tree: str, present_ids: list) -> tuple:
+def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> tuple:
     """Overlay the engine CODE of the PRESENT packages from `release_tree`: each present module's
     `provides` files + its manifest, plus the FOUNDATION_CODE infra the release ships. Driven off the
     PRESENT set (never the release tree's modules/*), so a deselected module is NEVER resurrected
     (provisioning L352-356). Operator config (engine.json identity, the policy-override) and gitignored
     data + the per-instance eADR stream are in no `provides`/FOUNDATION_CODE, so they are untouched.
     CONTAINMENT GUARD (the topology wall): every destination must resolve INSIDE ROOT — fail closed BEFORE
-    any write (the PR-1 pattern). Returns (copied_relpaths, {module_id: release_manifest})."""
+    any write (the PR-1 pattern). `exclude` (a set of repo-relative paths) is NOT overwritten — the brownfield
+    arrival passes the engine-exclusive paths an operator chose to keep ('leave-as-is', a class-1 collision),
+    so the engine coexists around them rather than replacing them. Returns (copied_relpaths,
+    {module_id: release_manifest})."""
+    skip = set(exclude or ())
     to_copy: dict = {}   # rel -> src (dedup; a manifest also matched by a glob resolves to one entry)
     candidates: dict = {}
     for mid in present_ids:
@@ -765,6 +777,8 @@ def _overlay_engine_code(release_tree: str, present_ids: list) -> tuple:
                               f"({shown}); nothing was changed.")
     copied = []
     for rel, src in sorted(to_copy.items()):
+        if rel in skip:                      # an operator file the arrival is keeping (class-1 leave-as-is)
+            continue
         dst = os.path.join(validate.ROOT, rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copyfile(src, dst)
@@ -1045,6 +1059,13 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                                 "review and nothing was merged. Ask me to set up or check your backup, then "
                                 "update again.")
             return result
+        # Floor (c) (D-264): when a data migration ran, a copy of the saved memory was taken before it changed —
+        # disclose it ONCE per upgrade (structured kind check, not a per-step or string-match), plainly, so the later
+        # restore offer is reassurance rather than a mystery.
+        if any(item.get("kind") == "data" for item in selected):
+            result["notes"].append(
+                "Before changing your saved memory, I automatically saved a copy of it from right before this "
+                "update — there's nothing for you to do now. If this update is ever undone, I can bring that copy back.")
         # (5) COHERENCE — a hard finding pauses (the change is staged in the working copy, not landed)
         result["applied"] = True
         result["findings"] = module_coherence.check_coherence()
@@ -1088,6 +1109,10 @@ def _remove_engine_pr_body(result: dict) -> str:
                      "from it.")
     elif db.get("status") == "dropped":
         lines.append("- Removes the safety rule on your main branch entirely (you chose to remove it).")
+    elif db.get("status") == "unaugmented":
+        lines.append("- Takes the engine's checks — and any force-push/deletion/pull-request protection the "
+                     "engine had added — back out of your own branch-protection rule, leaving the rest of "
+                     "that rule exactly as it was. (The rule is yours, so it is not removed.)")
     lines += ["", "Reviewed and reversible: reverting this pull request restores the engine's files. The "
               "main-branch safety rule is turned back on by running the engine setup again.", "",
               "Merging this is your review and consent."]
@@ -1130,8 +1155,13 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
     slug = repo or boot.repo_slug()
     tok = token if token is not None else boot.gh_token()
     cp = bootstrap.ControlPlane(slug or "", tok or "", transport=transport)
+    # The control-plane marker the arrival recorded — whether the engine created its OWN ruleset or AUGMENTED
+    # a pre-existing PRODUCT one, and the exact pieces it added — so de-bootstrap reverses precisely that and
+    # nothing of the operator's. Absent on an older install or when none was recorded; de_bootstrap then falls
+    # back to a bounded, name-only strip that still never deletes a product rule.
+    marker = (module_coherence.load_engine_manifest() or {}).get("control_plane")
     try:
-        result["de_bootstrap"] = cp.de_bootstrap(choice=choice, announce=say)
+        result["de_bootstrap"] = cp.de_bootstrap(choice=choice, marker=marker, announce=say)
     except bootstrap.BootstrapError as exc:
         return {**result, "refused": True,
                 "reason": f"Couldn't reach GitHub to remove the engine's branch protection ({exc}); "
@@ -1954,11 +1984,80 @@ def remove_engine_demo() -> bool:
         print(f"    [{'ok' if m_ok else 'FAIL'}] the safety rule was removed entirely (a delete was issued)")
         ok = ok and m_ok
 
+    print("\nPart N — clean removal on a BROWNFIELD repo whose OWN rule the engine augmented:")
+    # The arrival added the engine's two checks (and a non_fast_forward rule) INTO the product's own ruleset
+    # and recorded that in engine.json. Removal must reverse EXACTLY that and leave the product's rule —
+    # never delete it, and never offer a keep/drop choice (the rule is the operator's, not the engine's).
+    product_detail = {
+        "id": 9, "name": "team protections", "target": "branch", "enforcement": "active",
+        "node_id": "RRS_x", "_links": {"self": {"href": "x"}}, "created_at": "2026-01-01T00:00:00Z",
+        "source": "owner/repo", "source_type": "Repository", "current_user_can_bypass": "always",
+        "bypass_actors": [{"actor_id": 5, "actor_type": "Team", "bypass_mode": "always"}],
+        "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+        "rules": [
+            {"type": "pull_request", "parameters": {"required_approving_review_count": 1},
+             "ruleset_source_type": "Repository", "ruleset_id": 9},
+            {"type": "required_status_checks", "parameters": {
+                "required_status_checks": [{"context": "product-ci"}, {"context": "engine-ci"},
+                                           {"context": "engine-guard"}],
+                "strict_required_status_checks_policy": False}, "ruleset_id": 9},
+            {"type": "non_fast_forward", "ruleset_id": 9},   # engine-added (recorded in the marker)
+        ],
+    }
+    n_puts, n_deletes = [], []
+
+    def aug_transport(method, path, body=None):
+        if method == "GET" and path.endswith("/rulesets"):
+            return (200, [{"id": 9, "name": "team protections"}], {})   # NO engine-named ruleset present
+        if method == "GET" and path.endswith("/rulesets/9"):
+            return (200, product_detail, {})
+        if method == "PUT" and path.endswith("/rulesets/9"):
+            n_puts.append(body)
+            return (200, {"id": 9}, {})
+        if method == "DELETE":
+            n_deletes.append(path)
+            return (204, None, {})
+        return (200, None, {})
+
+    with tempfile.TemporaryDirectory() as d:
+        with _redirect_root(d):
+            _build_remove_fixture(d)
+            # Record the augment marker the arrival would have written.
+            eng_path = os.path.join(d, ".engine", "engine.json")
+            eng = json.loads(validate.read(eng_path))
+            eng["control_plane"] = {"ruleset_mode": "augmented", "augmented_ruleset_id": 9,
+                                    "added": {"checks": ["engine-ci", "engine-guard"],
+                                              "rules": ["non_fast_forward"]}}
+            _write_json(eng_path, eng)
+            rN = remove_engine(opener=fake_opener, transport=aug_transport, choice="keep",
+                               announce=lambda m: None)
+        put_body = n_puts[-1] if n_puts else {}
+        put_rules = put_body.get("rules", [])
+        put_types = {r.get("type") for r in put_rules}
+        put_checks = bootstrap._bound_checks(put_rules)
+        n_checks = {
+            "the engine's checks were taken out of the product's rule (status 'unaugmented')":
+                (rN["de_bootstrap"] or {}).get("status") == "unaugmented",
+            "the product's rule was NOT deleted (it is the operator's)": not n_deletes,
+            "exactly one update was written back to the product's rule": len(n_puts) == 1,
+            "the engine checks are gone, the product's own check remains":
+                put_checks == {"product-ci"},
+            "the engine-added force-push rule was removed": "non_fast_forward" not in put_types,
+            "the product's own pull-request rule was left untouched":
+                {"type": "pull_request", "parameters": {"required_approving_review_count": 1}} in put_rules,
+            "the operator's bypass list was preserved verbatim":
+                put_body.get("bypass_actors") == product_detail["bypass_actors"],
+        }
+        for label, good in n_checks.items():
+            print(f"    [{'ok' if good else 'FAIL'}] {label}")
+            ok = ok and good
+
     print("\n" + ("REMOVAL DEMO PASSED: the ownership block rendered file-precisely, and the engine removed\n"
                   "itself cleanly on the fixture — it took its checks off the safety rule first, undid its\n"
-                  "shared-file edits, deleted its files, and opened a reviewed pull request — for BOTH the\n"
-                  "keep and remove choices. The four real boundaries named above are the inductive gap a\n"
-                  "fixture cannot discharge."
+                  "shared-file edits, deleted its files, and opened a reviewed pull request — for the engine's\n"
+                  "own keep AND remove choices, AND for a brownfield repo whose own rule it had only augmented\n"
+                  "(reversing exactly what it added, never deleting the operator's rule). The four real\n"
+                  "boundaries named above are the inductive gap a fixture cannot discharge."
                   if ok else "REMOVAL DEMO DID NOT BEHAVE AS EXPECTED — see above."))
     return ok
 

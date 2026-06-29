@@ -165,6 +165,12 @@ class Slice:
         self._adjacency = data.get("adjacency") or {}
         self.WALK_EDGE_KINDS = knowledge_index.WALK_EDGE_KINDS
         self.EDGE_KINDS = knowledge_index.EDGE_KINDS
+        # Provenance for boot's render: True iff this slice was rebuilt from a LIVE surface-walk because the
+        # committed graph.json was absent (rung 3, "loudly degraded") rather than from the committed map. The
+        # map is still reachable (orientation works), so this is NOT a "couldn't reach" degrade — boot surfaces
+        # it as a distinct heads-up. `read()` sets it from the build source; a directly-constructed Slice
+        # defaults to False (committed). See knowledge/README degrade chain + boot_slice module docstring.
+        self.from_live = False
 
     def find(self):
         """knowledge_query.find()-shaped, ordered by id (its `ORDER BY id`). Carries the two fields derive_focus
@@ -202,10 +208,15 @@ def read(slice_path: str | None = None, graph_path: str | None = None):
     (fail-open; mirrors the index; NEVER raises into boot). When None, boot's reads fall back to the
     knowledge_query path (which itself runs the shared rungs), or boot orients without the block."""
     try:
-        path, _source = ensure(slice_path, graph_path)
+        path, source = ensure(slice_path, graph_path)
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-        return Slice(data)
+        s = Slice(data)
+        # `ensure` returns 'committed'/'live' (what it rebuilt from) or None (the slice was already fresh — only
+        # a committed slice is ever fresh, a live one never is, line 105-109). So 'live' is the one case the
+        # committed map was absent and we are on the rebuilt fallback — carry that to boot's render.
+        s.from_live = (source == "live")
+        return s
     except Exception:
         return None
 

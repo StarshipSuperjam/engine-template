@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for the qa-review module — the pre-submission-review lens roster.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock the module's load-bearing facts, since nothing else does:
   - pre-submission-review-finding.v1 is a well-formed schema with TEETH — it accepts a well-formed finding

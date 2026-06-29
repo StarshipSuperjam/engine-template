@@ -127,8 +127,29 @@ def finding(severity: str, message: str, location: dict | None = None) -> dict:
     return {"severity": severity, "message": message, "location": location}
 
 
+def env_override_path(var: str, default: "str | None" = None) -> "str | None":
+    """Resolve an input-substitution env var to a path — the one shared seam the negative-fixture
+    meta-check's custom/script units use (#286, D-256…D-260). When `var` is set and non-empty,
+    return it resolved under ROOT (an absolute value is used as-is); otherwise return `default`
+    unchanged. So when the variable is UNSET — every production run — the caller gets its own
+    default and behaviour is byte-unchanged; the seam is inert outside a `run_unit` fixture run,
+    which is the only path that sets the variable (around the child, restored after). One helper,
+    one relative-to-ROOT resolution rule, so every seam is the same single audit rather than a
+    dozen hand-rolled `os.environ`+`join` blocks."""
+    value = os.environ.get(var)
+    if not value:
+        return default
+    return value if os.path.isabs(value) else os.path.join(ROOT, value)
+
+
 def loc(path: str, line: int | None = None) -> dict:
     return {"file": os.path.relpath(path, ROOT), "line": line}
+
+
+def _is_pos_int(v) -> bool:
+    """A positive integer, excluding bool (a Python int subclass) so True/False can
+    never pass as a budget or count."""
+    return isinstance(v, int) and not isinstance(v, bool) and v > 0
 
 
 # ---- shared helpers --------------------------------------------------------
@@ -411,12 +432,19 @@ def kind_shape(rule, ctx):
     the budget is always SOFT, never the rule's hard tier (templates/README.md). The
     shape-spec is read from params (required_sections, allowed_sections, length_budget),
     the template.v1 grammar; reading it from a template file's frontmatter arrives
-    with the first authored template (a later slice; it needs frontmatter parsing)."""
+    with the first authored template (a later slice; it needs frontmatter parsing).
+    An optional params.length_budget_overrides {rel: {budget, why}} carries a recorded,
+    consented higher ceiling for one named operation (the override lives in this guarded
+    rule, not the operation's own unguarded frontmatter, so raising a budget stays a
+    deliberate act needing the operator's sign-off); an entry that is malformed (no integer
+    budget, no recorded why) or names a file that no longer exists fails at the rule's tier,
+    so a stale or unexplained override cannot rot into a silent grant."""
     tier = rule["tier"]
     params = rule.get("params") or {}
     required = params.get("required_sections", [])
     allowed = set(required) | set(params.get("allowed_sections", []))
     budget = params.get("length_budget")
+    overrides = params.get("length_budget_overrides") or {}
     findings = []
     for path in target_files(rule):
         rel = os.path.relpath(path, ROOT)
@@ -438,12 +466,37 @@ def kind_shape(rule, ctx):
             if name not in allowed:
                 findings.append(finding(tier, f"'{rel}' has section '## {name}', which the "
                                 f"template does not allow. {rule['message']}", loc(path)))
-        # length budget — a soft nudge only, regardless of the rule's tier
-        if budget is not None:
+        # length budget — a soft nudge only, regardless of the rule's tier. A per-file
+        # override (a recorded, consented higher ceiling for one named operation) replaces
+        # the rule-wide budget for its file; absent or malformed, the rule-wide budget
+        # applies (a malformed override is caught as a hard finding below).
+        ov = overrides.get(rel)
+        ov_budget = ov.get("budget") if isinstance(ov, dict) else None
+        file_budget = ov_budget if _is_pos_int(ov_budget) else budget
+        if file_budget is not None:
             lines = len(body.splitlines())
-            if lines > budget:
+            if lines > file_budget:
                 findings.append(finding("soft", f"'{rel}' is {lines} lines, over its "
-                                f"{budget}-line budget — a nudge to trim, never a block.", loc(path)))
+                                f"{file_budget}-line budget — a nudge to trim, never a block.", loc(path)))
+    # Each override must be well-formed and live: an integer `budget` (the line ceiling) and a
+    # recorded `why` (#273's recorded-rationale, made mechanical so a budget cannot be raised
+    # without a stated reason), keyed to a file that still exists. A malformed entry, or a key
+    # left dangling by a rename, would otherwise sit as inert, consented config that grants
+    # nothing while looking like a live budget. Each failure is the rule's hard tier so a dead
+    # grant cannot accumulate. Existence is checked on disk directly (not via the iterated file
+    # list) so the guard is independent of which subset of files a given run evaluates.
+    for key, ov in overrides.items():
+        ov_budget = ov.get("budget") if isinstance(ov, dict) else None
+        ov_why = ov.get("why") if isinstance(ov, dict) else None
+        if not _is_pos_int(ov_budget) or not (isinstance(ov_why, str) and ov_why.strip()):
+            findings.append(finding(tier, f"the length-budget override for '{key}' is incomplete — "
+                            f"every override must give an integer 'budget' (the line ceiling) and a "
+                            f"'why' (the recorded reason for the raise). Add both before merging.", None))
+        if not os.path.isfile(os.path.join(ROOT, key)):
+            findings.append(finding(tier, f"the length-budget override names '{key}', which is not a "
+                            f"file in this project — a stale or mistyped key (often left by a rename). "
+                            f"Update length_budget_overrides in this rule: remove the entry or repoint it.",
+                            None))
     return (not any(f["severity"] == "hard" for f in findings)), findings
 
 
@@ -540,17 +593,23 @@ def catalog_coverage_findings(surfaces: dict, present_locations: set, tier: str,
 def _coverage_catalog(rule, ctx):
     """catalog-coverage over the live surface catalog + filesystem (see the pure
     catalog_coverage_findings); non-surface infra directories are passed via
-    params.infra_dirs."""
+    params.infra_dirs. The catalog source and the walk root default to the live globals
+    (CATALOG_PATH / ROOT — what CI runs); run_unit (#286, D-256…D-260) may override BOTH
+    via ctx (coverage_catalog / coverage_root) to point the REAL callable at a seeded
+    mini-tree, so the meta-check witnesses this exact entry point. Production callers pass
+    neither key, so the behaviour is byte-unchanged."""
     tier = rule["tier"]
+    catalog_path = ctx.get("coverage_catalog", CATALOG_PATH)
+    base = ctx.get("coverage_root", ROOT)
     try:
-        surfaces = load_json(CATALOG_PATH).get("surfaces", {})
+        surfaces = load_json(catalog_path).get("surfaces", {})
     except Exception as exc:
         return False, [finding(tier, f"Could not read the surface catalog to check coverage: "
-                       f"{exc}. {rule['message']}", loc(CATALOG_PATH))]
+                       f"{exc}. {rule['message']}", loc(catalog_path))]
     infra = set((rule.get("params") or {}).get("infra_dirs", []))
     present = set()
     for root in (".engine", ".claude"):
-        abs_root = os.path.join(ROOT, root)
+        abs_root = os.path.join(base, root)
         if os.path.isdir(abs_root):
             for name in sorted(os.listdir(abs_root)):
                 if os.path.isdir(os.path.join(abs_root, name)):
@@ -851,6 +910,21 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
         declares one is a coherence finding"). Scoped to the two KNOWN lensless roles, not "any
         non-review role", so an unknown role carrying a lens yields only the role finding (no
         redundant second finding), and a review role's lens is valid.
+      - a `permissions: read-only` persona that does not actually BLOCK the authoritative-write
+        tools (Edit, Write, NotebookEdit) — the realization of the design's "permissions maps to the
+        Claude Code tool/permission restrictions the platform enforces" (agent.v1 `permissions` /
+        `tools` / `disallowedTools`; D-272). A read-only persona blocks a write tool iff it lists it
+        in `disallowedTools` OR declares a `tools` allowlist (a list) that omits it; a read-only
+        persona that declares NEITHER inherits every tool (the inherit-all trap) and is a finding.
+        HONEST LIMIT: this enforces only that the native file-writing tools (Edit/Write/NotebookEdit)
+        are blocked — it deliberately does NOT police `Bash` (which the execution roles
+        pre-submission-review/audit legitimately keep to run the suite in a scratch worktree —
+        qa-review/README dry-run) nor any write-capable MCP tools the session may expose; confining
+        those tool-/shell-side writes is the orchestration worktree's + the protected-branch merge
+        gate's job, not a frontmatter invariant this static leg can see. A STRING-valued
+        disallowedTools/tools is treated CONSERVATIVELY (a string denylist blocks nothing here; a
+        string `tools` is not a write-excluding allowlist), so blocking must come from the list
+        form — this errs toward a false finding, never a false pass.
 
     It does NOT do the dangling/unconsumed-lens check (an installed review lens nothing in the
     orchestration consumes): that needs build-orchestration's consumed-lens set (which gate
@@ -870,6 +944,7 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     roles = {"plan-review", "worker", "pre-submission-review", "audit"}
     lensless_roles = {"worker", "audit"}   # the recognized roles that carry no lens
     tiers = {"judgment", "mechanical"}
+    write_tools = ("Edit", "Write", "NotebookEdit")   # the authoritative-write tools a read-only persona must block
     findings = []
     for a in agents:
         name = a.get("name", "(unnamed)")
@@ -885,6 +960,24 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
             findings.append(finding(tier, f"Persona '{name}' has role '{role}', which carries no lens, "
                             f"but declares lens '{a.get('lens')}'; only the review roles carry a "
                             f"lens. {message}"))
+        if a.get("permissions") == "read-only":
+            allow, deny = a.get("tools"), a.get("disallowedTools")
+            allow_list = allow if isinstance(allow, list) else None        # a STRING tools (e.g. "inherit") is not an excluding allowlist
+            deny_set = {str(t) for t in deny} if isinstance(deny, list) else set()
+            if allow is None and deny is None:
+                findings.append(finding(tier, f"Persona '{name}' declares permissions: read-only but "
+                                f"declares neither a tools allowlist nor a disallowedTools denylist, so it "
+                                f"inherits every tool — including the authoritative-write tools "
+                                f"{list(write_tools)}. Block them via disallowedTools (or a write-excluding "
+                                f"tools allowlist). {message}"))
+            else:
+                unblocked = [t for t in write_tools
+                             if t not in deny_set and not (allow_list is not None and t not in allow_list)]
+                if unblocked:
+                    findings.append(finding(tier, f"Persona '{name}' declares permissions: read-only but does "
+                                    f"not block the authoritative-write tool(s) {unblocked}: a read-only persona "
+                                    f"must block Edit/Write/NotebookEdit via disallowedTools or omit them from a "
+                                    f"tools allowlist. {message}"))
     return findings
 
 
@@ -1175,6 +1268,117 @@ def get_pr_author() -> str | None:
     return None
 
 
+def get_pr_labels() -> list:
+    """The PR's label names from the trusted event context (.pull_request.labels[].name), or an
+    EMPTY list when unavailable: a local run, a --pr-body-file invocation, or a malformed/partial
+    event. Read only; the sole consumer is _evaluate()'s ci_label_exempt honoring in the merge-gating
+    suite. Degrades to [] — and therefore to ENFORCING the rule — on any doubt (a non-list labels
+    field, a label without a string name, an unreadable event), never to a falsely-exempt label.
+    Mirrors get_pr_author()'s fail-safe posture: empty means 'no exemption', never 'skip the check'."""
+    event = os.environ.get("GITHUB_EVENT_PATH")
+    if event and os.path.exists(event):
+        try:
+            labels = (load_json(event).get("pull_request") or {}).get("labels")
+            if not isinstance(labels, list):
+                return []                  # absent / type-confused labels → no exemption (enforce)
+            return [lbl["name"] for lbl in labels
+                    if isinstance(lbl, dict) and isinstance(lbl.get("name"), str)]
+        except (OSError, ValueError, AttributeError, TypeError):
+            return []                      # unreadable / malformed / type-confused event → no labels
+    return []
+
+
+def _exemption_note(rule: dict, ctx: dict) -> "str | None":
+    """The disclosed not-applicable note when a merge-gating rule does not bind for THIS pull
+    request — waived by its author (ci_author_exempt) or by a label it carries (ci_label_exempt) —
+    or None when the rule binds normally and its kind must run. Called by _evaluate ONLY in the
+    blocking-gate suite (so the waiver lands exactly where a rule would otherwise block a merge);
+    the by-id run_check() path never reaches here, so the §15 guardrail-weakening guard is never
+    exempt. Exact-match only (no case-folding — silent widening is a spoof concern). Author is
+    checked first; both forms emit a stated pass that names WHY the rule did not apply, never a
+    silent green."""
+    author = ctx.get("pr_author")
+    if author in (rule.get("ci_author_exempt") or []):
+        return (f"NOT APPLICABLE — check '{rule.get('id')}' does not bind for pull requests "
+                f"authored by {author} in the merge gate, so it was not evaluated "
+                f"here (a disclosed not-applicable pass — not a verification). This narrative "
+                f"check is waived for this author only; any guardrail-touching change in the pull "
+                f"request is still gated by the guardrail-ack label the maintainer applies.")
+    matched = sorted(set(ctx.get("pr_labels") or []) & set(rule.get("ci_label_exempt") or []))
+    if matched:
+        return (f"NOT APPLICABLE — check '{rule.get('id')}' does not bind for pull requests "
+                f"labelled '{matched[0]}' in the merge gate, so it was not evaluated here (a "
+                f"disclosed not-applicable pass — not a verification). This narrative check is "
+                f"waived for this single-purpose pull-request class only, which carries its own "
+                f"deliberate plain-language body; any guardrail-touching change in the pull "
+                f"request is still gated by the guardrail-ack label the maintainer applies.")
+    return None
+
+
+def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool = False) -> list:
+    """Dispatch every rule that joins `suite` through its kind and return the collected
+    findings. The shared core behind both run() (which prints + computes an exit code) and
+    collect() (which returns the data). `gates` is the suite's blocking-gate context — it
+    decides only where ci_author_exempt waives, never what is collected.
+
+    With `with_source`, each finding is annotated with the rule that emitted it — `source_rule`
+    (the rule id) and `source_kind` (its kind) — so a programmatic consumer can tell, say, a
+    soft length-budget nudge (kind `shape`) apart from another soft finding firing in the same
+    suite. The finding.v1 base allows these extra keys (it fixes no closed property set), and the
+    default (off) leaves run()'s and the existing feed's findings byte-for-byte unchanged."""
+    findings = []
+    for rule in [r for r in rules if suite in r.get("suites", [])]:
+        kind, tier = rule.get("kind"), rule.get("tier", "hard")
+        # Honor ci_author_exempt / ci_label_exempt at the engine layer — before any check-kind
+        # runs, so the closed kinds stay author- and label-agnostic. They bind ONLY in the
+        # merge-gating (blocking-gate) suite (`gates`, derived from the suite's context, not its
+        # name): the exemption waives exactly where a rule would otherwise block a merge. A matched
+        # author OR a matched label yields a DISCLOSED not-applicable pass (a soft note, never
+        # gating), never a silent green and never a workflow skip that would leave the required
+        # check pending. Exact-match only (no case-folding — silent widening is a spoof concern).
+        # The by-id run_check() path carries no suite and so never reaches here: the §15
+        # guardrail-weakening guard is never exempt.
+        exempt_note = _exemption_note(rule, ctx) if gates else None
+        if exempt_note is not None:
+            found = [finding("soft", exempt_note)]
+        else:
+            fn = REGISTRY.get(kind)
+            if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
+                found = [finding(tier, f"Check rule '{rule.get('id')}' names "
+                         f"unregistered kind '{kind}'; cannot evaluate (fails closed).")]
+            else:
+                try:
+                    _verdict, found = fn(rule, ctx)
+                except Exception as exc:  # a kind that errors fails closed
+                    found = [finding("hard", f"Check rule '{rule.get('id')}' (kind "
+                             f"'{kind}') errored and could not evaluate: {exc}")]
+        if with_source:
+            for f in found:
+                f["source_rule"] = rule.get("id")
+                f["source_kind"] = kind
+        findings.extend(found)
+    return findings
+
+
+def collect(suite: str, ctx: dict, *, with_source: bool = False) -> list:
+    """The machine-readable seam behind run(): evaluate `suite` and RETURN its findings
+    (each {severity, message, location}) as data, rather than printing a human report. A
+    programmatic consumer — the audit soft-findings feed — reads the report-only findings
+    here instead of scraping run()'s stdout. RAISES (ValueError / the loader's exception)
+    on a config error (undeclared suite, unloadable suites/rules); the caller decides how
+    to surface it (run() turns it into the loud exit-2 path, the feed into an honest marker).
+
+    `with_source` annotates each finding with its emitting rule (`source_rule`/`source_kind`) —
+    off by default, so the existing feed reads the bare base shape unchanged."""
+    suites = load_suites()
+    decl = suites.get(suite)
+    if decl is None:
+        raise ValueError(f"suite '{suite}' is not declared in .engine/suites.json "
+                         f"(declared: {', '.join(sorted(suites))}).")
+    gates = decl.get("context") == "blocking-gate"
+    return _evaluate(load_rules(), suite, gates, ctx, with_source=with_source)
+
+
 def run(suite: str, ctx: dict) -> int:
     try:
         suites = load_suites()
@@ -1192,37 +1396,7 @@ def run(suite: str, ctx: dict) -> int:
     except Exception as exc:  # a broken check rule file halts loudly (config error), in plain language
         print(f"\nCONFIG ERROR: cannot load the check rules: {exc}", file=sys.stderr)
         return 2
-    findings = []
-    for rule in [r for r in rules if suite in r.get("suites", [])]:
-        # Honor ci_author_exempt at the engine layer — before any check-kind runs, so the
-        # closed kinds stay author-agnostic. It binds ONLY in the merge-gating (blocking-gate)
-        # suite (`gates`, derived from the suite's context, not its name): the exemption waives
-        # exactly where a rule would otherwise block a merge. A matched author yields a DISCLOSED
-        # not-applicable pass (a soft note, never gating), never a silent green and never a
-        # workflow skip that would leave the required check pending. Exact-match only (no
-        # case-folding — silent widening is a spoof concern). The by-id run_check() path carries
-        # no suite and so never reaches here: the §15 guardrail-weakening guard is never exempt.
-        if gates and ctx.get("pr_author") in (rule.get("ci_author_exempt") or []):
-            findings.append(finding("soft",
-                f"NOT APPLICABLE — check '{rule.get('id')}' does not bind for pull requests "
-                f"authored by {ctx.get('pr_author')} in the merge gate, so it was not evaluated "
-                f"here (a disclosed not-applicable pass — not a verification). This narrative "
-                f"check is waived for this author only; any guardrail-touching change in the pull "
-                f"request is still gated by the guardrail-ack label the maintainer applies."))
-            continue
-        kind, tier = rule.get("kind"), rule.get("tier", "hard")
-        fn = REGISTRY.get(kind)
-        if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
-            findings.append(finding(tier, f"Check rule '{rule.get('id')}' names "
-                            f"unregistered kind '{kind}'; cannot evaluate (fails closed)."))
-            continue
-        try:
-            _verdict, found = fn(rule, ctx)
-        except Exception as exc:  # a kind that errors fails closed
-            findings.append(finding("hard", f"Check rule '{rule.get('id')}' (kind "
-                            f"'{kind}') errored and could not evaluate: {exc}"))
-            continue
-        findings.extend(found)
+    findings = _evaluate(rules, suite, gates, ctx)
     report(suite, findings, gates)
     # Gate on the authoritative signal — any hard-severity finding — but only where
     # the suite's context is a blocking-gate. A callable's verdict flag is advisory;
@@ -1271,6 +1445,64 @@ def run_check(check_id: str, ctx: dict) -> int:
     return 1 if hard_fired else 0
 
 
+def run_unit(unit, target=None, ctx=None):
+    """Run ONE check-logic unit against a caller-substituted target and return its
+    (passed, findings) exactly as production would — the target-substitution affordance the
+    negative-fixture meta-check (#286, D-256…D-260) needs to witness that each hard check
+    actually BITES a seeded bad input. It is NOT a production entry point: run()/run_check()/
+    --check never call it, so those paths and every existing finding are byte-unchanged.
+
+    `unit` is the rule to run — its `kind` selects the REAL REGISTRY callable (a custom/script
+    unit carries params.script). For the closed kinds it is a transient rule the caller crafts;
+    for a custom/script it is the real committed rule. `target` (a dict) substitutes the input
+    by unit class, overlaying only the keys that class reads and leaving the rest of `ctx`:
+      - path:               presence/schema/shape — the fixture glob, set as target.path
+                            (target_files resolves it under ROOT); the real callable is unchanged.
+      - coverage_catalog,
+        coverage_root:      coverage — the catalog source + walk root the real callable reads.
+      - manifests:          coherence — the manifest set the real callable reads (ctx['manifests']).
+      - env:                custom/script — env vars set around the child and restored after, so a
+                            script reading a substituted GITHUB_EVENT_PATH (or another agreed
+                            variable the fixture's script honours) sees the seeded input. (No edit
+                            to kind_custom_script — it already builds its child env from os.environ.)
+    NOTE on `env`: it mutates the process-global os.environ for the duration of the call (restored
+    in a finally), so it is meaningful ONLY for the custom/script kind — which builds its child env
+    from os.environ; the in-process closed kinds never read the environment. It is therefore not
+    safe to call run_unit with `env` from multiple threads at once (no current/planned caller does).
+    Dispatch mirrors run()/run_check(): an unregistered kind or an erroring callable FAILS CLOSED
+    (a hard finding), so the meta-check witnesses exactly what the gate does."""
+    target = target or {}
+    ctx = dict(ctx or {})
+    rule = dict(unit)
+    if "path" in target:
+        rule["target"] = {**(rule.get("target") or {}), "path": target["path"]}
+    for key in ("coverage_catalog", "coverage_root", "manifests"):
+        if key in target:
+            ctx[key] = target[key]
+    fn = REGISTRY.get(rule.get("kind"))
+    if fn is None:  # dangling kind: fail closed, exactly as run()/run_check()
+        return False, [finding(rule.get("tier", "hard"), f"run_unit: rule '{rule.get('id')}' names "
+                       f"unregistered kind '{rule.get('kind')}'; cannot evaluate (fails closed).")]
+
+    def _call():
+        try:
+            return fn(rule, ctx)
+        except Exception as exc:  # an erroring callable fails closed, exactly as run()/run_check()
+            return False, [finding("hard", f"Check rule '{rule.get('id')}' (kind "
+                           f"'{rule.get('kind')}') errored and could not evaluate: {exc}")]
+
+    env = target.get("env")
+    if not env:
+        return _call()
+    saved = {k: os.environ.get(k) for k in env}      # set the substituted target in the child env...
+    try:
+        os.environ.update({k: str(v) for k, v in env.items()})
+        return _call()
+    finally:                                          # ...and restore os.environ no matter what
+        for k, v in saved.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
 def fmt(f: dict) -> str:
     where = ""
     if f.get("location"):
@@ -1311,7 +1543,8 @@ def main(argv: list) -> int:
             print(f"unknown argument: {argv[i]}", file=sys.stderr)
             return 2
     ctx = {"pr_body": get_pr_body(body_file),     # the same ctx both entry points build
-           "pr_author": get_pr_author()}          # honored by run() for ci_author_exempt (CI gate only)
+           "pr_author": get_pr_author(),           # honored by run() for ci_author_exempt (CI gate only)
+           "pr_labels": get_pr_labels()}           # honored by run() for ci_label_exempt (CI gate only)
     if check_id is not None:
         return run_check(check_id, ctx)
     return run(suite, ctx)

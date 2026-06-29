@@ -26,8 +26,10 @@ post-core):
 
   3. THE PLAN-ACCEPTANCE BUILD-ENTRY TRIGGER — a PostToolUse hook (accept_handler) that flips the stance
      to Build when the operator accepts a plan (the plan-exit `ExitPlanMode` completion). The second
-     interactive entry path alongside the slice-26 verb; it sets the signal and nothing else, never
-     blocks, and fails safe to explore (D-179/D-180; modes/README §"Entering Build").
+     interactive entry path alongside the slice-26 verb; it sets the Build signal AND injects a terse
+     assistant-internal stance directive that triggers build-orchestration's kickoff (the operator
+     announcement stays the kickoff's, exactly once; the signal is the sole durable record); never blocks;
+     fails safe to explore (D-179/D-180/D-270/D-271; modes/README §"Entering Build").
 
 THE GATE IS A §6 NUDGE, NOT A WALL — stated honestly, never overstated (modes/README §"the gate is a
 strong default, and its enforcement is fallible"; D-171). The gate emits its deny in the form the platform
@@ -360,21 +362,52 @@ def handler(payload: dict) -> dict:
 # so the durable discriminator is that the completion fired. A REJECTED plan fires no PostToolUse, so it
 # never enters Build; the model cannot accept its own plan, so this is not self-electable.
 #
-# It SETS THE SIGNAL AND NOTHING ELSE: a PostToolUse hook cannot inject conversational text, so the
-# entry is announced by build-orchestration's kickoff ("opening a draft pull request and planning the
-# work"), not here. It ALWAYS proceeds — PostToolUse is non-block-eligible (the harness fails open on a
-# block/decide there), so it declares no BLOCK_INVARIANT and the block budget is untouched. FAIL-SAFE:
-# if the hook errors or never fires, the signal stays absent → Explore, never Build (the safe floor).
+# It SETS THE SIGNAL AND INJECTS A TERSE ASSISTANT-INTERNAL STANCE DIRECTIVE: current Claude Code delivers a
+# PostToolUse hook's additionalContext to the model (D-270 corrected the earlier, falsified "a PostToolUse
+# hook cannot inject conversational text" claim), so the entry PUSHES a directive that names the new stance
+# and triggers build-orchestration's kickoff ("opening a draft pull request and planning the work") — rather
+# than relying on the model to override its stale start-of-session Explore briefing from memory. The OPERATOR
+# announcement stays build-orchestration's, exactly once: the injected line is do-not-relay machine context,
+# never an operator announcement. The SIGNAL is the sole durable record and the line is strictly advisory
+# (the inject is gated on the flip succeeding), so there is no partial-failure split-brain, and a line
+# replayed over a SessionStart-cleared signal on resume is inert (the live-signal re-read guard returns it to
+# Explore). It ALWAYS proceeds — PostToolUse is non-block-eligible (the harness fails open on a block/decide
+# there), so it declares no BLOCK_INVARIANT and the block budget is untouched. FAIL-SAFE: if the hook errors
+# or never fires — including accept-with-clear-context, which does not fire (claude-code#20397) — the signal
+# stays absent → Explore, never Build (the safe floor; the operator-typed verb is the recovery path).
 _PLAN_EXIT_TOOL = "ExitPlanMode"
+
+
+def _build_entry_directive() -> str:
+    """The ASSISTANT-FACING stance directive injected on plan-acceptance (D-270/D-271). It NAMES the new Build
+    stance and directs THIS turn into build-orchestration's kickoff — a push, so the session stops acting on
+    its stale start-of-session Explore briefing. It is a TURN-LOCAL directive, never a durable stance record:
+    the stance SIGNAL is the sole durable record (cleared to Explore at every SessionStart), so a copy of this
+    line replayed on a resumed session is inert — the live-signal re-read guard sends a cleared-stance session
+    back to Explore. It carries NO operator-facing copy, is self-labelled do-not-relay, and carries no
+    imperative relay marker — the operator meets Build-entry once, through the kickoff, never through this note.
+    A fidelity test (test_modes) pins it to _STANCE_LINES[BUILD] and to the do-not-relay / no-marker laws."""
+    return (
+        "Your stance just changed to Build — the operator accepted a plan. "
+        f"{_STANCE_LINES[BUILD]} "
+        "This note is for you, not the operator: don't relay it. The operator meets this entry once, through "
+        "your build-orchestration kickoff (opening a draft pull request and planning the work) — go do that "
+        "now. Before you act, confirm your live stance still reads Build — run `python tools/modes.py stance`. "
+        "If it reads Explore instead, ignore this note and stay in Explore: do not open the kickoff. The live "
+        "stance governs, never this note."
+    )
 
 
 def accept_handler(payload: dict) -> dict:
     """The plan-acceptance Build-entry trigger, run on PostToolUse. On the plan-exit completion
-    (`ExitPlanMode`), set the session's stance to Build; on anything else, no-op. ALWAYS proceeds —
-    never blocks, never emits text. A non-ExitPlanMode completion (or a missing tool name) leaves the
-    stance untouched, and a rejected plan fires no PostToolUse at all → the stance stays Explore."""
+    (`ExitPlanMode`), set the session's stance to Build AND inject a terse assistant-internal stance directive
+    that triggers build-orchestration's kickoff (D-270/D-271); on anything else, no-op. The inject is GATED on
+    the durable flip succeeding — the SIGNAL is the sole durable record, the injected line strictly advisory —
+    so a bad/sessionless payload (set_stance returns False) proceeds with no inject and no split-brain. ALWAYS
+    proceeds — never blocks. A rejected plan fires no PostToolUse → the stance stays Explore (the safe floor)."""
     if isinstance(payload, dict) and payload.get("tool_name") == _PLAN_EXIT_TOOL:
-        set_stance(payload.get("session_id"), BUILD)
+        if set_stance(payload.get("session_id"), BUILD):
+            return hooks.inject(_build_entry_directive())
     return hooks.proceed()
 
 
@@ -471,32 +504,44 @@ def _demo(_argv: list) -> int:
             ("a NON-plan write to ~/.claude/settings.json",   "default", {"file_path": "~/.claude/settings.json"})]:
         print(f"  {label:49} Write -> {_decision_line(gate('Write', pm=pm, tool_input=ti))}")
 
-    print("\nAccepting a plan enters Build (#67) — this runs the real trigger:")
+    print("\nAccepting a plan enters Build AND pushes you a stance directive (#67 / D-270) — real trigger:")
     print(f"  before:                                  stance={current_stance(sid)}")
-    accept_handler({"session_id": sid, "tool_name": "SomeOtherTool"})
-    print(f"  some other action finishes ->            stance={current_stance(sid)} (unchanged — only "
-          f"accepting a plan enters Build)")
-    accept_handler({"session_id": sid, "tool_name": _PLAN_EXIT_TOOL})
+    d_other = accept_handler({"session_id": sid, "tool_name": "SomeOtherTool"})
+    print(f"  some other action finishes ->            stance={current_stance(sid)} "
+          f"(unchanged; hook action={d_other.get('action')} — only accepting a plan enters Build)")
+    d_accept = accept_handler({"session_id": sid, "tool_name": _PLAN_EXIT_TOOL})
     built = current_stance(sid)
-    print(f"  accepting a plan ->                      stance={built}")
+    directive = d_accept.get("context", "")
+    print(f"  accepting a plan ->                      stance={built} (hook action={d_accept.get('action')})")
+    print("  the directive it injected to YOU (do-not-relay, names Build, triggers the kickoff):")
+    print(f"    {directive[:92]}…")
     e_build = _decision_line(gate('Edit'))
     print(f"  the SAME edit denied above is now ->     {e_build} (the real capability, not just the label)")
 
+    # Resume inertness: SessionStart clears the signal; a replayed directive is then inert — the LIVE signal
+    # reads Explore, so the gate denies and the assistant reports Explore (never the replayed line).
     cleared = clear_stance(sid)
-    print(f"\nClear the signal (what boot does at SessionStart): clear_stance -> {cleared}")
+    print(f"\nResume — SessionStart clears the signal (the directive may be replayed, but is NOT re-run): "
+          f"clear_stance -> {cleared}")
     stance_after_clear = current_stance(sid)
     e_explore = _decision_line(gate('Edit'))
-    print(f"Back in EXPLORE (stance={stance_after_clear}): an Edit is denied again -> {e_explore}")
+    print(f"  live stance now ->                       {stance_after_clear} (you report THIS, not the line)")
+    print(f"  a replayed 'you are in Build' directive is inert: the same Edit is ->  {e_explore}")
     print("\nThe gate is a §6 nudge, not a wall — a disguised verb slips it, a crash fails it open; the "
-          "merge wall is the guarantee. Accepting a plan enters Build (human-gated, not a stronger gate); "
-          "the entry is announced as the build begins, not by the (silent) hook.")
-    # Self-check: accepting a plan enters Build (where the same Edit is now allowed); clearing the signal
-    # returns to Explore (where the Edit is denied again).
+          "merge wall is the guarantee. Accepting a plan enters Build (human-gated, not a stronger gate) and "
+          "pushes you a do-not-relay stance directive; the OPERATOR announcement stays the build-orchestration "
+          "kickoff, exactly once. (The platform delivering that directive on PostToolUse is the inductive "
+          "ceiling a fixture can't discharge — verified against current Claude Code, D-270/D-271.)")
+    # Self-check: accept SETS Build AND injects a directive that names Build and is do-not-relay; a non-accept
+    # completion proceeds with no inject; clearing the signal returns to Explore (the replayed line is inert —
+    # the live signal, not the line, governs).
     ok = ("build" in str(built).lower() and "explore" in str(stance_after_clear).lower()
-          and "allow" in e_build.lower() and ("den" in e_explore.lower()))
+          and "allow" in e_build.lower() and ("den" in e_explore.lower())
+          and d_accept.get("action") == "inject" and _STANCE_LINES[BUILD] in directive
+          and "don't relay" in directive.lower() and d_other.get("action") == "proceed")
     if not ok:
-        print("\nDEMO UNEXPECTED: the Explore->Build->Explore transitions or the Edit-gate decisions did not "
-              "behave as expected.", file=sys.stderr)
+        print("\nDEMO UNEXPECTED: the Explore->Build->Explore transitions, the injected stance directive, or "
+              "the Edit-gate decisions did not behave as expected.", file=sys.stderr)
         return 1
     return 0
 
@@ -514,7 +559,14 @@ def main(argv: list) -> int:
     if cmd == "classify":
         return _classify(argv[1:])
     if cmd == "stance":
-        print(current_stance(_arg(argv, "--session")))
+        # Resolve the session id like set-build/clear (explicit --session else $CLAUDE_CODE_SESSION_ID), so
+        # a bare `modes.py stance` self-check reports the REAL stance instead of the safe-default `explore`
+        # it would print with no session. Unresolvable → say so + non-zero, never a confident false `explore`.
+        session = _resolve_session(argv)
+        if not session:
+            print("unknown (no session id resolvable)")
+            return 1
+        print(current_stance(session))
         return 0
     if cmd == "set-build":
         ok = set_stance(_resolve_session(argv), BUILD)
@@ -527,7 +579,8 @@ def main(argv: list) -> int:
     if cmd == "demo":
         return _demo(argv[1:])
     print("usage: modes.py [hook | accept-hook | classify <Tool> [cmd] [--session S] [--pm MODE] "
-          "[--plan-file] | stance --session S | set-build --session S | clear --session S | demo]",
+          "[--plan-file] | stance [--session S] | set-build [--session S] | clear --session S | demo]  "
+          "(stance/set-build resolve the session from --session else $CLAUDE_CODE_SESSION_ID)",
           file=sys.stderr)
     return 2
 

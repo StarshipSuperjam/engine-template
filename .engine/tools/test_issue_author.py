@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for the shared issue-authoring helper (core slice IH).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Each test locks one law of the control-plane engine-authored-issue body contract: the two required
 parts cannot be omitted (TypeError at the call boundary — the by-construction enforcement) nor left

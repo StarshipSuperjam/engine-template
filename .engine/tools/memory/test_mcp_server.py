@@ -1,7 +1,7 @@
 """test_mcp_server.py — the engine-memory MCP server, headless (memory-substrate-sqlite-fts5, slice 5).
 
 Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py'
+    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Exercises the server in-process (no Claude Desktop, no subprocess): the single `search` tool delegates to the
 ranked library and returns `{"results": [...]}`, and — the move slice 5 adds — fires the live reinforcement
@@ -88,6 +88,18 @@ class ToolWiringTests(_ServerBase):
         tagged = self._result_json(
             await srv.server.call_tool("search", {"query": "export", "tags": ["release"]}))
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
+
+    async def test_search_answer_carries_the_recall_completeness_note(self):
+        # §7 (D-273/D-274, #332): the recall answer itself discloses that the raw verbatim behind the curated
+        # summaries is kept and recoverable. Present when there are results; omitted on an empty answer.
+        self.add("we decided to ship the export format", role="decision")
+        data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
+        self.assertTrue(data["results"])
+        self.assertIn("recall_completeness", data)
+        self.assertIn("recoverable", data["recall_completeness"].lower())
+        empty = self._result_json(await srv.server.call_tool("search", {"query": "nonexistentzqxword"}))
+        self.assertEqual(empty["results"], [])
+        self.assertNotIn("recall_completeness", empty)   # nothing returned -> nothing to disclose
 
     async def test_unknown_role_surfaces_as_a_tool_error(self):
         self.add("a decision about export", role="decision")

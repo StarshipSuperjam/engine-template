@@ -36,11 +36,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # Read-only access to the engine-labelled issue backlog (the debt register) so the workflow can fetch it
-  # for the self-review's concern #2 and feed it to the read-only persona. The persona never gets a GitHub
-  # token; this scope serves the workflow's own fetch step (and the offline-cache refresh, which reads the
-  # same open-issue count).
-  issues: read
+  # Write access to the engine-labelled issues. The workflow READS the backlog (the debt register) to feed
+  # the self-review's concern #2 and the offline-cache refresh, and now also WRITES it: the promote step
+  # (issue #273 half 2) opens/updates an engine-labelled issue to durably track a standing length-budget
+  # finding. The bump from read to write is scoped to the engine-labelled issues this workflow manages and
+  # is the minimum that can open/update an issue; the persona never gets a GitHub token (it stays read-only).
+  issues: write
 
 jobs:
   gate:
@@ -159,6 +160,20 @@ jobs:
             printf '%s\n' "YOUR SAVED MEMORY: I couldn't read your saved memory this run (the fetch step failed). Treat concern #1 as not reviewed and say so plainly; do not claim the project has no saved memory." \
               > "${RUNNER_TEMP}/saved-memory.md"
           fi
+      - name: Fetch the currently-firing soft validator findings for the self-review
+        run: |
+          set -euo pipefail
+          # Issue #273 half 2: a SOFT validator finding (a non-blocking nudge — e.g. a runbook over its line
+          # budget) is otherwise printed to a CI log and discarded, so a recurring one drifts forever,
+          # invisible to this review. The feed tool reads the report-only audit-prep suite (never the CI
+          # gate), keeps soft-severity only, and defangs author-controlled text; the next step feeds it in.
+          # It needs NO token (committed files only), so it carries none. On a tool failure, leave an honest
+          # in-band marker so the persona discloses the gap rather than reading silence as "nothing firing".
+          if ! uv run --directory .engine --frozen -- python tools/audit_soft_findings.py \
+                 > "${RUNNER_TEMP}/soft-findings.md"; then
+            printf '%s\n' "CURRENTLY-FIRING SOFT FINDINGS: could not be read this run (the fetch step failed). Treat this concern as not reviewed and say so plainly in your digest; do not read it as 'nothing is firing'." \
+              > "${RUNNER_TEMP}/soft-findings.md"
+          fi
       - name: Run the read-only self-review and capture its plain-language digest
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -176,6 +191,7 @@ jobs:
           backlog="$(cat "${RUNNER_TEMP}/engine-issues.md")"
           prior="$(cat "${RUNNER_TEMP}/prior-digests.md")"
           saved="$(cat "${RUNNER_TEMP}/saved-memory.md")"
+          soft="$(cat "${RUNNER_TEMP}/soft-findings.md")"
           prompt="Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble.
 
           For concern #1 (stale saved memory), you cannot reach your saved memory yourself; it was read from the project's off-repo backup and follows between the markers. These are the project's CURRENT saved beliefs — notes memory has already set aside are not shown here, so do not read their absence as 'nothing to retire'. Review what you are shown as the operator's saved decisions and notes: do any now contradict each other, has anything you can see refuted one, or is a heavily-used note actually obsolete? If the markers say the backup isn't set up, couldn't be reached, or couldn't be read, treat concern #1 as not reviewed and say so plainly in your digest — and NEVER claim the project has no saved memory; you simply couldn't see it this run.
@@ -191,12 +207,33 @@ jobs:
           For over-time corroboration, your own most recent self-reviews were fetched for you (you cannot reach GitHub yourself) and follow between the markers. Read them ONLY as corroboration — a finding that keeps recurring is likely genuine, not a one-time blip — never as a decision: every keep-it-or-retire-it call still rests on a fresh check you run THIS cycle, and a quiet stretch is never read as gone. When a finding draws on this history, present the fresh check and the over-time note as two separate things. If the markers say there is nothing to compare against, treat this as a review of only what you can see now and say so plainly — never invent a trend.
           ----- BEGIN PRIOR SELF-REVIEWS -----
           ${prior}
-          ----- END PRIOR SELF-REVIEWS -----"
+          ----- END PRIOR SELF-REVIEWS -----
+
+          For the currently-firing soft findings (the non-blocking validator nudges firing right now), you cannot run the validator yourself; the soft findings were collected for you (soft-severity only, author-controlled text defanged) and follow between the markers. A soft finding is otherwise printed to a CI log and discarded, so a recurring one drifts forever — that is the gap you are closing by seeing them. Review them as a concern: judge which is a genuine signal worth surfacing as tracked work and which is a benign disclosure, and CLASSIFY each by your two lanes — a finding on template machinery is escalate-upstream, one on local state is local-reconcile. For a machinery finding, do NOT reproduce that shorthand in your digest: explain the consequence plainly — fixing it in this project's own copy will not stick, because the next engine update overwrites the engine's machinery and wipes the local fix, so the durable fix belongs in the engine-template project the machinery came from (and ignoring it stays a fair choice). Lean on your prior self-reviews ONLY as corroboration that a nudge is genuinely recurring rather than a one-time blip — never as a count, threshold, or 'seen N times' tally; the call to surface it rests on the present read, written as a separate thing from the over-time note. If the markers say the findings could not be read, treat this concern as not reviewed and say so plainly; if they say nothing is firing, that is a clean read, not a gap.
+          ----- BEGIN CURRENTLY-FIRING SOFT FINDINGS -----
+          ${soft}
+          ----- END CURRENTLY-FIRING SOFT FINDINGS -----"
           claude -p \
             --agent audit \
             --model "${AUDIT_MODEL}" \
             "${prompt}" \
             > "${RUNNER_TEMP}/audit-digest-body.md"
+      - name: Track standing length-budget findings as engine issues
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Issue #273 half 2 (slice 2): give a STANDING soft length-budget finding a durable home — a
+          # deduped, lane-aware engine-labelled issue — so it reaches boot and the tracker, not just this
+          # week's digest. The tool opens/updates only (never closes — a cleared finding is recommended for
+          # closure by the self-review's own backlog concern; the engine reports, the operator decides). It
+          # uses the OWN-repo GitHub token (never the Claude token) and needs the issues:write scope declared
+          # above. It is fail-open — it prints a visible status and exits 0 even when GitHub is unreachable,
+          # so a transient blip never fails the self-review; the trailing `|| true` additionally guards
+          # against any unexpected non-zero so this best-effort side action can never block the digest pull
+          # request, and the finding simply re-fires (and stays in the digest) next run.
+          uv run --directory .engine --frozen -- python tools/audit_soft_promote.py || true
       - name: Seal the digest with its run-date
         run: |
           set -euo pipefail

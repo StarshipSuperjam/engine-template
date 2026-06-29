@@ -51,7 +51,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger  # noqa: E402 — the canonical store + its generation stamp + the shared ledger_dir()
+from memory import ledger, records  # noqa: E402 — the canonical store + the shared record-kind vocabulary
 
 # Build-spec leaf (recorded; the operator chose ~24h this session). How often the throttled SessionStart push may
 # run, after the one-time consented setup. A politeness/cost guard only: failure-direction is benign both ways — too
@@ -64,6 +64,14 @@ _HOUR = 3600
 # holding the throttle + privacy-report state. Never committed; resolved via ledger.ledger_dir() so it lands in the
 # throwaway cabinet under tests/demo and the real store in production. Already fenced by the `.engine/memory/` gitignore.
 _STATE_FILENAME = "backup-vault-state.json"
+
+# The migration stamp (D-264 #303): a second gitignored sidecar (same dir/convention as the state sidecar above)
+# recording the reversibility floor of the most-recent upgrade — what version reshaped the local store and which
+# retained snapshot tag is the copy from BEFORE that whole update. It is the local, offline record the code-older-
+# than-data detector reads (the migrated version is recorded nowhere else locally: engine.json reverts WITH the code),
+# and the tag the prune must shield so the undo target survives. Survives a code revert (gitignored). Batch-floor-wins:
+# written for the FIRST data migration of an upgrade, not overwritten by later migrations of the same upgrade.
+_MIGRATION_STAMP_FILENAME = "migration-stamp.json"
 
 # The committed destination pointer — the ONE backup artifact that lives in git (topology law-5's pre-authorized
 # carve-out: a fresh instance reads it to find the namespace). It CANNOT live under the gitignored `.engine/memory/`,
@@ -114,10 +122,10 @@ _SNAPSHOT_COMMIT_MESSAGE = "Pre-migration memory snapshot (engine)"
 # and named collision-free by the migration id (the primary discriminator: one upgrade runs several migrations at one
 # engine-version). DETERMINISTIC per migration, so a replay collides and is refused rather than silently duplicating.
 _SNAPSHOT_TAG_PREFIX = "engine-snapshot"
-# Retention cap (D-264 law 5 build-spec leaf, recorded): keep at most this many snapshots per namespace. The MOST-
-# RECENT is never pruned (the citation-bound floor — a code-older-than-data mismatch cites it); only superseded ones
-# beyond the cap are deleted. 2 leaves a one-step safety margin beyond the single citable snapshot.
-_SNAPSHOT_RETENTION_CAP = 2
+# Retention (D-264 law 5 + #303 — reversibility unit = the upgrade): `_prune_snapshots` keeps exactly the most-recent
+# snapshot AND the stamp-cited batch floor (the copy "undo the update" restores), pruning every intermediate. So a
+# namespace settles to <=2 snapshot tags; no numeric cap is needed — the cited floor + the locked most-recent define
+# the keep-set directly. (The earlier `_SNAPSHOT_RETENTION_CAP` recency window was retired here.)
 
 # The tightened per-call network timeout (seconds). telemetry's shared `_http` hardcodes 30s; a SessionStart push must
 # be bounded much tighter so a flaky host cannot stall session start. Matches boot._run's 10s CLI budget.
@@ -218,6 +226,17 @@ def _engine_version() -> str:
         return rel if isinstance(rel, str) and rel else "unknown"
     except Exception:  # noqa: BLE001 — a missing/malformed engine.json degrades to "unknown", never crashes a backup
         return "unknown"
+
+
+def _is_version_shaped(v) -> bool:
+    """True iff `v` is a real dotted version the code-older-than-data compare can use. The literal 'latest'/'unknown'/''
+    all reduce to (0,) under validate._ver_tuple — a stamp recording one could never fire the detector — while a
+    genuine version like '0.4.0' reduces to (0,4,0)."""
+    try:
+        import validate  # noqa: E402 — lazy, same as _engine_version
+        return isinstance(v, str) and bool(v) and validate._ver_tuple(v) != (0,)
+    except Exception:  # noqa: BLE001 — any doubt -> treat as not version-shaped (write no stamp)
+        return False
 
 
 def build_manifest(*, ledger_path: "str | None" = None, now: "int | None" = None,
@@ -330,6 +349,60 @@ def _record_state(*, now: int, success: bool, privacy_ok: bool) -> None:
 
 
 # ============================================================================================================
+# The migration stamp (D-264 #303): the local, offline record of the upgrade's reversibility floor.
+# ============================================================================================================
+
+def _migration_stamp_path() -> str:
+    return os.path.join(ledger.ledger_dir(), _MIGRATION_STAMP_FILENAME)
+
+
+def read_migration_stamp() -> "dict | None":
+    """The migration stamp, or None if absent/malformed/wrong-schema. None on ANY doubt: the detector then makes no
+    offer, and the prune (which reads this to find the cited floor) keeps EVERYTHING — citation doubt prunes nothing."""
+    try:
+        with open(_migration_stamp_path(), encoding="utf-8") as fh:
+            s = json.load(fh)
+    except Exception:  # noqa: BLE001 — absent/unreadable/malformed -> no stamp
+        return None
+    if not isinstance(s, dict) or s.get("schema_version") != 1:
+        return None
+    for key in ("store_label", "migrated_by_version", "snapshot_tag"):
+        if not (isinstance(s.get(key), str) and s.get(key)):
+            return None
+    return s
+
+
+def write_migration_stamp(*, store_label: str, migrated_by_version: str, snapshot_tag: str,
+                          now: "int | None" = None) -> dict:
+    """Record the reversibility floor of the current upgrade (batch-floor-wins; the caller gates this to the FIRST data
+    migration). Atomic write (the write_pointer pattern) so a torn stamp never silently kills the restore offer.
+    Returns the written dict. The caller wraps this best-effort: a stamp-write fault must never refuse a migration, and
+    the prune's citation-doubt fail-safe keeps the just-created floor tag even if this write was lost."""
+    when = int(time.time()) if now is None else int(now)
+    s = {"schema_version": 1, "store_label": store_label, "migrated_by_version": migrated_by_version,
+         "snapshot_tag": snapshot_tag, "stamped_at": _iso_utc(when)}
+    path = _migration_stamp_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(s, fh, indent=2)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+    return s
+
+
+def clear_migration_stamp() -> None:
+    """Remove the stamp — the store now matches its code (a migration-revert restore brought the floor back, so the
+    store is no longer ahead). Idempotent and quiet: a missing stamp is the normal post-clear state."""
+    try:
+        os.remove(_migration_stamp_path())
+    except OSError:  # absent (already cleared) or unremovable -> nothing to do
+        pass
+
+
+# ============================================================================================================
 # The Git Data push (large-file safe: blob -> tree -> commit -> ref; the Contents API caps ~1MB).
 # ============================================================================================================
 
@@ -433,9 +506,9 @@ def _list_snapshot_tags(gh, owner: str, repo: str, namespace: str) -> list:
     """The snapshot tags for `namespace`, via matching-refs (read-only). Returns [{name, sha}], or [] on any failure
     (a prune that cannot enumerate prunes NOTHING — fail-safe, never deletes blind)."""
     prefix = f"{_SNAPSHOT_TAG_PREFIX}/{_sanitize_ref_component(namespace)}/"
-    # `per_page=100` is defense-in-depth: the cap self-limits a namespace to <=cap+1 tags and this is the only
-    # writer, so a single page always suffices — but an explicit page size means a prune never orders against a
-    # silently-truncated first page if that invariant were ever broken externally.
+    # `per_page=100` is defense-in-depth: this is the only writer and steady state is <=2 tags/namespace (most-recent +
+    # cited floor); a k-migration upgrade transiently holds up to k before the prune settles it, far below 100. An
+    # explicit page size means a prune never operates against a silently-truncated first page.
     data = _get(gh, f"/repos/{owner}/{repo}/git/matching-refs/tags/{prefix}?per_page=100")
     out = []
     for r in (data or []):
@@ -452,15 +525,6 @@ def _delete_tag(gh, owner: str, repo: str, tag_name: str) -> bool:
     return status in (200, 204)
 
 
-def _commit_date(gh, owner: str, repo: str, sha: str) -> str:
-    """The committer date of `sha` (a lexically-sortable string — ISO 8601 from GitHub; the prune path needs only a
-    consistent recency ORDER, not date parsing) for ordering at prune time, or '' on any doubt. One cheap GET; avoids
-    reading each snapshot's tree/manifest just to order them."""
-    c = _get(gh, f"/repos/{owner}/{repo}/git/commits/{sha}")
-    d = ((c or {}).get("committer") or {}).get("date") if isinstance(c, dict) else None
-    return d if isinstance(d, str) else ""
-
-
 def _tag_protection_present(gh, owner: str, repo: str) -> bool:
     """OPTIONAL hardening probe: is a tag-targeting ruleset present (so the platform makes the tag harder to delete)?
     Paid-tier-only on a free private repo, so this returns False there — and the snapshot's guarantee stays
@@ -470,24 +534,24 @@ def _tag_protection_present(gh, owner: str, repo: str) -> bool:
 
 
 def _prune_snapshots(gh, owner: str, repo: str, namespace: str, keep_name: str) -> list:
-    """Citation-bound retention (D-264 law 5): keep the MOST-RECENT snapshot for `namespace` always (a code-older-
-    than-data mismatch cites it) plus up to the cap; delete older superseded snapshots. `keep_name` (the just-created
-    snapshot) is always kept. Orders by commit date; on ANY ordering doubt it prunes NOTHING — fail-safe, never
-    deletes a snapshot it cannot prove is superseded below the bound. Returns the pruned tag names."""
+    """Citation-bound retention (D-264 law 5 + #303 — the reversibility unit is the upgrade). Keep exactly TWO tags:
+    the MOST-RECENT snapshot (`keep_name`, the just-created one — law 5 'never prune the most-recent') AND the
+    stamp-cited batch FLOOR (the copy 'undo the update' restores — the stamp IS the citation law 5 binds retention to).
+    Delete every other (intermediate) snapshot, so steady state is <=2 tags/namespace (they coincide -> 1 for a
+    single-migration upgrade). FAIL-SAFE on citation doubt: if the stamp cannot be read (absent/lost), prune NOTHING —
+    the engine never deletes the undo target it disclosed it saved, even if the floor's stamp write was lost. Returns
+    the pruned tag names."""
     tags = _list_snapshot_tags(gh, owner, repo, namespace)
-    if len(tags) <= _SNAPSHOT_RETENTION_CAP:
+    if len(tags) <= 1:
         return []
-    dated = []
-    for t in tags:
-        d = _commit_date(gh, owner, repo, t.get("sha") or "")
-        if not d:
-            return []                                    # cannot order confidently -> prune nothing (fail-safe)
-        dated.append((d, t["name"]))
-    dated.sort(reverse=True)                             # most-recent first
-    keep = {keep_name} | {name for _d, name in dated[:_SNAPSHOT_RETENTION_CAP]}
+    stamp = read_migration_stamp()
+    if stamp is None:
+        return []                                        # citation doubt -> prune nothing (never delete a possible floor)
+    keep = {keep_name, stamp.get("snapshot_tag")}
     pruned = []
-    for _d, name in dated:
-        if name not in keep and _delete_tag(gh, owner, repo, name):
+    for t in tags:
+        name = t.get("name")
+        if name and name not in keep and _delete_tag(gh, owner, repo, name):
             pruned.append(name)
     return pruned
 
@@ -541,8 +605,8 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
     return {"ok": True, "error": None, "pushed": True, "namespace": namespace}
 
 
-def snapshot_for_migration(store, engine_version, *, migration_id=None, transport=None,
-                           now: "int | None" = None):
+def snapshot_for_migration(store, engine_version, *, migration_id=None, reversibility_floor=False,
+                           transport=None, now: "int | None" = None):
     """The pre-migration backup seam the module manager consumes via `getattr(memory, "snapshot_for_migration")`
     (module_manager._resolve_backup_seam). A `data` migration calls this BEFORE mutating its store; the engine
     refuses the migration unless it returns a truthy handle, so un-backed-up data is never silently reshaped.
@@ -551,16 +615,19 @@ def snapshot_for_migration(store, engine_version, *, migration_id=None, transpor
     its OWN pre-migration-ledger commit, tagged collision-free by the namespace + migration id, with the rolling
     branch head left untouched. A name COLLISION (a replay of the same migration) is REFUSED, never an overwrite. The
     tag survives the routine backup because it is a different ref — distinctness is the tier-independent guarantee;
-    platform tag-immutability is optional paid-tier hardening, probed and reported (`hardened`), never promised. After
-    a successful snapshot, older superseded snapshots for the same store are pruned to the retention cap, never below
-    the citation bound (the most-recent is always kept).
+    platform tag-immutability is optional paid-tier hardening, probed and reported (`hardened`), never promised. When
+    `reversibility_floor` is True (the FIRST data migration of an upgrade — #303), this snapshot is recorded as the
+    local reversibility floor (`write_migration_stamp`): the copy "undo the update" restores. After a successful
+    snapshot the prune keeps exactly the most-recent snapshot AND the stamp-cited floor, deleting intermediates
+    (steady state <=2 tags/namespace).
 
     Returns a truthy handle on success, or **None** when no backup could be taken (vault not configured / no token /
     unreachable / public-flipped / commit or tag-create failed / a name collision) — a non-None return MUST mean a
     real, addressable, retained snapshot exists, so the no-backup guard refuses the migration on None. `store` is a
     caller-supplied label (advisory); v1 memory has one physical store — the live ledger (`ledger.ledger_path()`,
     which honors ENGINE_MEMORY_DIR). `migration_id` (injected by `run_migrations`) is the snapshot's primary
-    discriminator; absent, it falls back to the engine version + ledger generation."""
+    discriminator; absent, it falls back to the engine version + ledger generation. `reversibility_floor` (also from
+    `run_migrations`) marks the first data migration of the upgrade so this snapshot is recorded as the undo floor."""
     when = int(time.time()) if now is None else int(now)
     pointer = read_pointer()
     if pointer is None:
@@ -592,6 +659,19 @@ def snapshot_for_migration(store, engine_version, *, migration_id=None, transpor
     if status not in (200, 201):
         return None                                          # collision (409/422) or failure -> refuse the migration
     hardened = _tag_protection_present(gh, owner, repo)
+    if reversibility_floor and _is_version_shaped(engine_version):
+        # #303: this is the FIRST data migration of the upgrade, so its snapshot is the batch floor — the copy "undo
+        # the update" restores. Record it BEFORE the prune so the prune's citation read shields it. Best-effort: a
+        # stamp-write fault must never refuse a successful snapshot (the prune's citation-doubt fail-safe then keeps
+        # this just-created floor tag regardless). Later migrations of the SAME upgrade pass reversibility_floor=False
+        # and leave this stamp intact, so it keeps citing the floor. A non-version-shaped engine_version (the literal
+        # "latest"/"unknown", which the running-side compares as (0,)) writes NO stamp — a stamp that can never fire
+        # the detector is worse than none (the prune then over-retains via the citation-doubt fail-safe, never deletes).
+        try:
+            write_migration_stamp(store_label=str(store), migrated_by_version=str(engine_version),
+                                  snapshot_tag=tag_name, now=when)
+        except Exception:  # noqa: BLE001 — never turn a successful snapshot into a refused migration on a sidecar write
+            pass
     _prune_snapshots(gh, owner, repo, namespace, keep_name=tag_name)
     return {"backed-up": True, "engine-version": engine_version, "namespace": namespace,
             "tag": tag_name, "hardened": hardened}
@@ -1255,8 +1335,10 @@ class _FakeVault:
 
 
 def _demo_plant(text: str) -> None:
-    """Append one real note to the throwaway ledger so the backup has content to copy."""
-    ledger.append({"kind": "turn-delta", "role": "observation", "text": text, "ts": int(time.time())})
+    """Append one real note to the throwaway ledger so the backup has content to copy. A curated `episodic`
+    record (recall-eligible): ambient turn-deltas are not recall content (D-273/D-274, #332), so planting an
+    episodic keeps a demo/test that shows the restored note is searchable truthful."""
+    ledger.append({"kind": records.EPISODIC_KIND, "role": "observation", "text": text, "ts": int(time.time())})
 
 
 def _demo() -> int:
@@ -1469,7 +1551,7 @@ def snapshot_demo() -> bool:
             setup(scope="shared", transport=fake.transport, consent="y")
             ptr = read_pointer()
             slug = f"{ptr['owner']}/{ptr['repo']}"
-            ledger.append({"kind": "turn-delta", "text": "state BEFORE the migration reshapes it"})
+            ledger.append({"kind": records.AMBIENT_CAPTURE_KIND, "text": "state BEFORE the migration reshapes it"})
 
             rolling_before = fake.refs.get(f"{slug}@{ptr['branch']}")
             handle = snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.2.0",
@@ -1477,7 +1559,7 @@ def snapshot_demo() -> bool:
             snap_commit = fake.tags.get(f"{slug}@{handle['tag']}") if handle else None
             rolling_after_snapshot = fake.refs.get(f"{slug}@{ptr['branch']}")    # the snapshot must NOT advance it
             # a later ROUTINE rolling backup (advances the branch head) — must NOT touch the snapshot tag
-            ledger.append({"kind": "turn-delta", "text": "state the migration would have written"})
+            ledger.append({"kind": records.AMBIENT_CAPTURE_KIND, "text": "state the migration would have written"})
             push_now(transport=fake.transport)
             rolling_after_backup = fake.refs.get(f"{slug}@{ptr['branch']}")
             snap_commit_after = fake.tags.get(f"{slug}@{handle['tag']}") if handle else None

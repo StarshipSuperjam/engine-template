@@ -2,8 +2,9 @@
 
 <!-- Starting shape for the build order at docs/spec/build-plan.md — the one place that records, in order, the
 capabilities you'll build. Copy it to docs/spec/build-plan.md and keep one row per capability per phase. The
-Phase column is the order you'll build in (group related work under the same phase); the Capability column is a
-plain name; the Doc column links to that capability's document under docs/spec/. Every settled capability must
+Phase column is a plain, meaningful name for a stage of the build (for example "Foundation" or "Core flows") —
+group related work under the same phase, and the phases run in the order they first appear here; the Capability
+column is a plain name; the Doc column links to that capability's document under docs/spec/. Every settled capability must
 appear here at least once, so nothing settled is overlooked — a settled capability missing from this list will
 block a merge until you add it. Capabilities that are still not-yet-described or in progress may appear here too
 (forward planning) or be left out until they settle; only settled ones are required. Moving a capability to a
@@ -15,4 +16,4 @@ update that test too.) -->
 
 | Phase | Capability | Doc |
 | --- | --- | --- |
-| 1 | Capability name | [Capability name](spec-capability.md) |
+| Foundation | Capability name | [Capability name](spec-capability.md) |

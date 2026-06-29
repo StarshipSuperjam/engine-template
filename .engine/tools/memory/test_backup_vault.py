@@ -472,33 +472,88 @@ class MigrationSnapshotTests(_Base):
         self.assertTrue(bv.snapshot_for_migration("recall-ledger", "v1", migration_id="m@2",
                                                   transport=fake.transport)["hardened"])
 
-    def test_prune_keeps_the_cap_and_never_the_most_recent(self):
+    def test_prune_keeps_the_floor_and_the_most_recent(self):
+        # #303 (reversibility unit = the upgrade): across one upgrade's data migrations, the FIRST is the
+        # reversibility floor (stamped); the prune keeps exactly {floor, most-recent} and deletes every intermediate,
+        # so a namespace settles to <=2 snapshot tags even for a multi-migration upgrade.
         fake = self._setup_vault()
-        names = []                                               # CAP+1 snapshots of the same store; prune runs per snapshot
-        for i in range(bv._SNAPSHOT_RETENTION_CAP + 1):
-            h = bv.snapshot_for_migration("recall-ledger", f"v{i}", migration_id=f"core@0.{i}.0",
-                                          transport=fake.transport)
-            names.append(h["tag"])
+        s0 = bv.snapshot_for_migration("recall-ledger", "0.3.0", migration_id="core@0.0.0",
+                                       reversibility_floor=True, transport=fake.transport)["tag"]   # the batch floor
+        bv.snapshot_for_migration("recall-ledger", "0.3.0", migration_id="core@0.1.0",             # an intermediate
+                                  transport=fake.transport)
+        s2 = bv.snapshot_for_migration("recall-ledger", "0.3.0", migration_id="core@0.2.0",         # the most-recent
+                                       transport=fake.transport)["tag"]
         remaining = {k.split("@", 1)[1] for k in fake.tags}
-        self.assertEqual(len(remaining), bv._SNAPSHOT_RETENTION_CAP)   # capped
-        self.assertIn(names[-1], remaining)                            # the MOST-RECENT (citable) is never pruned
-        self.assertIn(names[0], fake.deleted_tags)                     # the oldest superseded one was pruned
+        self.assertEqual(remaining, {s0, s2})                          # exactly the floor + the most-recent
+        self.assertEqual(bv.read_migration_stamp()["snapshot_tag"], s0)  # the stamp cites the floor, not the last step
 
-    def test_prune_fail_safe_prunes_nothing_when_recency_cannot_be_ordered(self):
-        # the law-5 citation-bound floor: if a snapshot's recency cannot be established, prune deletes NOTHING
-        # (never deletes blind / never risks cutting a still-citable snapshot).
+    def test_prune_fail_safe_prunes_nothing_when_the_citation_cannot_be_read(self):
+        # #303 citation-bound fail-safe: if the migration stamp (the floor citation) cannot be read, the prune deletes
+        # NOTHING — the engine never deletes a snapshot that might be the undo floor, even if the floor's stamp was lost.
         fake = self._setup_vault()
-        for i in range(bv._SNAPSHOT_RETENTION_CAP):
-            bv.snapshot_for_migration("recall-ledger", f"v{i}", migration_id=f"core@0.{i}.0", transport=fake.transport)
+        # two snapshots exist but NO reversibility floor was recorded (no stamp) -> the prune has no citation to trust
+        bv.snapshot_for_migration("recall-ledger", "0.1.0", migration_id="core@0.0.0", transport=fake.transport)
+        bv.snapshot_for_migration("recall-ledger", "0.2.0", migration_id="core@0.1.0", transport=fake.transport)
+        self.assertIsNone(bv.read_migration_stamp())                   # no floor stamp -> citation doubt
         ptr = bv.read_pointer()
-        slug, ns = f"{ptr['owner']}/{ptr['repo']}", ptr["namespace"]
-        # inject an extra snapshot tag whose commit object is absent -> its date is unknown -> ordering is impossible
-        fake.tags[f"{slug}@{bv._SNAPSHOT_TAG_PREFIX}/{ns}/orphan"] = "sha-with-no-commit-object"
         before = dict(fake.tags)
-        pruned = bv._prune_snapshots(bv._gh(fake.transport), ptr["owner"], ptr["repo"], ns, keep_name="anything")
-        self.assertEqual(pruned, [])                                    # ordering doubt -> prune nothing
+        pruned = bv._prune_snapshots(bv._gh(fake.transport), ptr["owner"], ptr["repo"], ptr["namespace"],
+                                     keep_name="anything")
+        self.assertEqual(pruned, [])                                    # citation doubt -> prune nothing
         self.assertEqual(fake.tags, before)                            # not one tag deleted
         self.assertEqual(fake.deleted_tags, [])
+
+    def test_reversibility_floor_writes_a_stamp_matching_the_created_tag(self):
+        # #303: the floor snapshot records the local reversibility stamp, and it cites EXACTLY the tag it created
+        # (one source variable -> the stamp and the ref cannot drift).
+        fake = self._setup_vault()
+        h = bv.snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.0.0",
+                                      reversibility_floor=True, transport=fake.transport)
+        stamp = bv.read_migration_stamp()
+        self.assertIsNotNone(stamp)
+        self.assertEqual(stamp["snapshot_tag"], h["tag"])              # cites the just-created tag, no drift
+        self.assertEqual(stamp["migrated_by_version"], "2.0.0")
+        self.assertEqual(stamp["store_label"], "recall-ledger")
+
+    def test_a_non_floor_migration_writes_no_stamp(self):
+        fake = self._setup_vault()
+        bv.snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.1.0", transport=fake.transport)
+        self.assertIsNone(bv.read_migration_stamp())                   # only the batch floor records the stamp
+
+    def test_a_non_version_shaped_floor_writes_no_stamp(self):
+        # the literal "latest"/"unknown" compares as (0,) on the running side, so a stamp recording it could never
+        # fire the detector — write none (the prune then over-retains via the citation fail-safe, never deletes).
+        fake = self._setup_vault()
+        h = bv.snapshot_for_migration("recall-ledger", "latest", migration_id="core@0.0.0",
+                                      reversibility_floor=True, transport=fake.transport)
+        self.assertIsNotNone(h)                                        # the snapshot itself still succeeds
+        self.assertIsNone(bv.read_migration_stamp())
+
+    def test_a_failed_floor_stamp_never_refuses_the_snapshot_or_lets_a_later_prune_delete_the_floor(self):
+        # The floor stamp write is best-effort: a write fault must NOT refuse the (successful) snapshot, and a later
+        # migration's prune (now with no readable citation) must delete NOTHING -> the floor survives the lost stamp.
+        fake = self._setup_vault()
+        orig = bv.write_migration_stamp
+        bv.write_migration_stamp = lambda **kw: (_ for _ in ()).throw(OSError("disk full"))
+        try:
+            h = bv.snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.0.0",
+                                          reversibility_floor=True, transport=fake.transport)
+        finally:
+            bv.write_migration_stamp = orig
+        self.assertIsNotNone(h)                                        # the snapshot was NOT refused by the stamp fault
+        s0 = h["tag"]
+        self.assertIsNone(bv.read_migration_stamp())                   # but the floor stamp was lost
+        bv.snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.1.0", transport=fake.transport)
+        remaining = {k.split("@", 1)[1] for k in fake.tags}
+        self.assertIn(s0, remaining)                                   # the floor survived despite the lost citation
+
+    def test_stamp_round_trip_and_clear(self):
+        bv.write_migration_stamp(store_label="recall-ledger", migrated_by_version="2.0.0",
+                                 snapshot_tag="engine-snapshot/ns/core-0.0.0")
+        self.assertEqual(bv.read_migration_stamp()["migrated_by_version"], "2.0.0")
+        bv.clear_migration_stamp()
+        self.assertIsNone(bv.read_migration_stamp())
+        bv.clear_migration_stamp()                                     # idempotent: clearing an absent stamp is a no-op
 
     def test_returns_none_when_the_vault_is_not_configured(self):
         self.assertIsNone(                                       # no setup -> no pointer -> not-configured

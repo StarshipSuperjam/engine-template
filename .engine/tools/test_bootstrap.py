@@ -1,6 +1,6 @@
 """Tests for the control-plane bootstrap (core slice 25a).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 The GitHub network is the ONLY thing faked (an in-memory transport returning (status, json, headers), and a
 fake label-ensure boundary); every test exercises the real capability-detection, floor-merge, create/repair,
@@ -264,12 +264,16 @@ class TestLabelsAndDisclosure(unittest.TestCase):
 class TestCopySurface(unittest.TestCase):
     def test_template_carries_every_copy_section(self):
         # The template SURFACE must hold every heading the tool renders -> no silent drift to fallbacks.
-        copy = bootstrap.load_copy(bootstrap.TEMPLATE_PATH)
-        for key in bootstrap.COPY_HEADINGS:
-            self.assertTrue(copy[key].strip(), f"copy section {key!r} missing from the template")
-        # And the template body, not the built-in fallback, is what was read.
-        self.assertNotEqual(copy["before-you-approve"], "")
-        self.assertIn("repo", copy["before-you-approve"])          # the literal is pre-translated
+        # Parse the template DIRECTLY (not load_copy, which substitutes the fallback for a missing section and
+        # would make a dropped heading read as present — the very drift this guards). Assert each heading is a
+        # real section in the template file with a non-empty body.
+        with open(bootstrap.TEMPLATE_PATH, encoding="utf-8") as fh:
+            sections = bootstrap._parse_sections(fh.read())
+        for key, heading in bootstrap.COPY_HEADINGS.items():
+            self.assertIn(heading, sections, f"copy section {key!r} ({heading!r}) missing from the template")
+            self.assertTrue(sections[heading].strip(), f"copy section {key!r} is empty in the template")
+        # And the template body, not the built-in fallback, is what load_copy returns.
+        self.assertIn("repo", bootstrap.load_copy(bootstrap.TEMPLATE_PATH)["before-you-approve"])
 
     def test_missing_template_falls_back_not_crashes(self):
         copy = bootstrap.load_copy("/no/such/template.md")
@@ -390,6 +394,332 @@ class TestDeBootstrap(unittest.TestCase):
         before = list(protection_guard.REQUIRED_CHECKS)
         self._cp(_RulesetFake(present=True)).de_bootstrap(choice="keep", announce=quiet)
         self.assertEqual(protection_guard.REQUIRED_CHECKS, before)
+
+
+# ====================================================================================================
+# Brownfield augment + de-bootstrap (slice 6c). A purpose-built fake enforces the REAL list-vs-detail
+# split — the list endpoint returns summaries WITHOUT rules, the full object (with rules) comes only from
+# GET /rulesets/{id}, and the evaluated per-branch endpoint tags each in-force rule with the ruleset_id it
+# came from — so these tests genuinely exercise ruleset_detail and the whitelist projection rather than
+# reading rules off the list (which would mask a verbatim-echo bug).
+# ====================================================================================================
+
+def product_ruleset(rid=9, name="team protections", checks=("product-ci",), with_pr=True,
+                    with_nff=True, with_deletion=True, bypass=None, thread_resolution=True):
+    """A FULL product ruleset object (as GET /rulesets/{id} returns it), carrying the read-only metadata a
+    real GET echoes and a writable body, so the projection (which must strip the former) is exercised."""
+    rules: list = []
+    if with_pr:
+        rules.append({"type": "pull_request",
+                      "parameters": {"required_approving_review_count": 1,
+                                     "required_review_thread_resolution": thread_resolution,
+                                     "dismiss_stale_reviews_on_push": False},
+                      "ruleset_source_type": "Repository", "ruleset_id": rid})
+    rules.append({"type": "required_status_checks",
+                  "parameters": {"required_status_checks": [{"context": c} for c in checks],
+                                 "strict_required_status_checks_policy": False},
+                  "ruleset_source_type": "Repository", "ruleset_id": rid})
+    if with_nff:
+        rules.append({"type": "non_fast_forward", "ruleset_id": rid})
+    if with_deletion:
+        rules.append({"type": "deletion", "ruleset_id": rid})
+    return {"id": rid, "name": name, "target": "branch", "enforcement": "active",
+            "node_id": "RRS_x", "_links": {"self": {"href": "x"}}, "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-02T00:00:00Z", "source": REPO, "source_type": "Repository",
+            "current_user_can_bypass": "always",
+            "bypass_actors": bypass if bypass is not None
+            else [{"actor_id": 5, "actor_type": "Team", "bypass_mode": "always"}],
+            "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+            "rules": rules}
+
+
+class AugmentGitHub:
+    """In-memory GitHub modeling a repo that already protects main with its OWN ruleset(s). Enforces the real
+    list-vs-detail split and tags evaluated rules with their ruleset_id. `drop_writes` simulates a concurrent
+    overwrite (a PUT accepted but not applied); `mangle_on_put` drops a product rule on store (a
+    preservation-violating server); `detail_partial` returns a rules-less detail (a partial read);
+    `classic` is a list of in-force rules with NO ruleset_id (classic branch protection)."""
+
+    def __init__(self, products=None, scopes="repo", drop_writes=0, mangle_on_put=False,
+                 detail_partial=False, classic=None, drop_rule_types=None, normalize=False,
+                 change_param=False):
+        self.rulesets = {p["id"]: p for p in (products or [])}
+        self.scopes = scopes
+        self.drop_writes = drop_writes
+        self.mangle_on_put = mangle_on_put
+        self.detail_partial = detail_partial
+        self.classic = classic or []
+        self.drop_rule_types = set(drop_rule_types or [])   # server silently rejects these rule types
+        self.normalize = normalize                          # server echoes back a default param (GitHub does)
+        self.change_param = change_param                    # server alters an operator param (a violation)
+        self.calls: list = []
+        self._next_id = 900
+
+    def _evaluated(self):
+        out = list(self.classic)
+        for rid, rs in self.rulesets.items():
+            for r in rs.get("rules", []):
+                out.append({**r, "ruleset_id": rid, "ruleset_source_type": "Repository"})
+        return out
+
+    def transport(self, method, path, body=None):
+        self.calls.append((method, path, body))
+        headers = {} if self.scopes is None else {"X-OAuth-Scopes": self.scopes}
+        if method == "GET" and path == f"/repos/{REPO}":
+            return 200, {"full_name": REPO}, headers
+        if method == "GET" and path == f"/repos/{REPO}/rules/branches/main":
+            return 200, self._evaluated(), headers
+        if method == "GET" and path == f"/repos/{REPO}/rulesets":
+            return 200, [{"id": rid, "name": rs.get("name")} for rid, rs in self.rulesets.items()], headers
+        if method == "GET" and path.startswith(f"/repos/{REPO}/rulesets/"):
+            rid = int(path.rsplit("/", 1)[1])
+            rs = self.rulesets.get(rid)
+            if rs is None:
+                return 404, None, headers
+            if self.detail_partial:
+                return 200, {"id": rid, "name": rs.get("name")}, headers   # malformed: no rules array
+            return 200, dict(rs), headers
+        if method == "PUT" and path.startswith(f"/repos/{REPO}/rulesets/"):
+            rid = int(path.rsplit("/", 1)[1])
+            if self.drop_writes > 0:
+                self.drop_writes -= 1
+                return 200, {"id": rid}, headers          # accepted but NOT applied (someone else won)
+            stored = {**self.rulesets.get(rid, {}), **body, "id": rid}
+            rules = [dict(r) for r in stored.get("rules", [])]
+            if self.drop_rule_types:                       # server rejects a rule type (org policy / tier)
+                rules = [r for r in rules if r.get("type") not in self.drop_rule_types]
+            for r in rules:                                # server-side parameter behaviors
+                if r.get("type") == "pull_request":
+                    p = dict(r.get("parameters") or {})
+                    if self.normalize:                     # echoes back a default param it filled in
+                        p.setdefault("dismiss_stale_reviews_on_push", False)
+                    if self.change_param and "required_approving_review_count" in p:
+                        p["required_approving_review_count"] = 0   # alters an operator setting (a violation)
+                    r["parameters"] = p
+            if self.mangle_on_put:
+                rules = [r for r in rules if r.get("type") != "pull_request"]
+            stored["rules"] = rules
+            self.rulesets[rid] = stored
+            return 200, {"id": rid}, headers
+        if method == "POST" and path == f"/repos/{REPO}/rulesets":
+            rid = self._next_id
+            self._next_id += 1
+            self.rulesets[rid] = {**body, "id": rid}
+            return 201, {"id": rid, "name": body.get("name")}, headers
+        if method == "DELETE" and path.startswith(f"/repos/{REPO}/rulesets/"):
+            self.rulesets.pop(int(path.rsplit("/", 1)[1]), None)
+            return 204, None, headers
+        return 404, None, headers
+
+    def detail(self, rid):
+        return self.rulesets.get(rid)
+
+    def writes(self):
+        return [c for c in self.calls if c[0] in ("POST", "PUT", "DELETE")]
+
+    def checks_of(self, rid):
+        return bootstrap._bound_checks((self.rulesets.get(rid) or {}).get("rules", []))
+
+    def types_of(self, rid):
+        return {r.get("type") for r in (self.rulesets.get(rid) or {}).get("rules", [])}
+
+
+ENGINE = list(protection_guard.REQUIRED_CHECKS)
+
+
+class TestAugmentPayload(unittest.TestCase):
+    """The pure read-modify helper: strictly additive, read-only fields stripped, residual gaps reported."""
+
+    def test_unions_engine_checks_into_existing_rule(self):
+        payload, added, residual = bootstrap.augment_payload(product_ruleset())
+        ctx = bootstrap._bound_checks(payload["rules"])
+        self.assertEqual(ctx, {"product-ci", *ENGINE})
+        self.assertEqual(set(added["checks"]), set(ENGINE))
+        self.assertEqual(added["rules"], [])            # all floor rule types already present
+        self.assertEqual(residual, [])
+
+    def test_creates_checks_rule_when_absent(self):
+        prod = product_ruleset(checks=())
+        prod["rules"] = [r for r in prod["rules"] if r["type"] != "required_status_checks"]
+        payload, added, _ = bootstrap.augment_payload(prod)
+        self.assertEqual(bootstrap._bound_checks(payload["rules"]), set(ENGINE))
+        self.assertIn("required_status_checks", added["rules"])
+        self.assertEqual(added["checks"], [])           # the created rule's removal covers the checks
+
+    def test_adds_wholly_missing_floor_rule_types(self):
+        _payload, added, residual = bootstrap.augment_payload(
+            product_ruleset(with_nff=False, with_deletion=False))
+        self.assertIn("non_fast_forward", added["rules"])
+        self.assertIn("deletion", added["rules"])
+        self.assertEqual(residual, [])
+
+    def test_preserves_bypass_and_conditions_and_strips_readonly(self):
+        prod = product_ruleset()
+        payload, _added, _residual = bootstrap.augment_payload(prod)
+        self.assertEqual(payload["bypass_actors"], prod["bypass_actors"])
+        self.assertEqual(payload["conditions"], prod["conditions"])
+        for k in ("id", "node_id", "_links", "source", "source_type", "created_at",
+                  "updated_at", "current_user_can_bypass"):
+            self.assertNotIn(k, payload)
+        for r in payload["rules"]:                      # per-rule read-only metadata stripped
+            self.assertNotIn("ruleset_id", r)
+            self.assertNotIn("ruleset_source_type", r)
+
+    def test_existing_weak_pr_rule_is_disclosed_not_modified(self):
+        prod = product_ruleset(thread_resolution=False)
+        payload, added, residual = bootstrap.augment_payload(prod)
+        self.assertTrue(any("unresolved" in m for m in residual))   # the gap is reported
+        pr = next(r for r in payload["rules"] if r["type"] == "pull_request")
+        self.assertFalse(pr["parameters"]["required_review_thread_resolution"])   # NOT flipped
+        self.assertEqual(added["rules"], [])            # no rule type added; PR rule already present
+
+    def test_already_augmented_is_a_noop(self):
+        _payload, added, _residual = bootstrap.augment_payload(
+            product_ruleset(checks=("product-ci", *ENGINE)))
+        self.assertEqual(added["checks"], [])
+        self.assertEqual(added["rules"], [])
+
+
+class TestApplyAugmentsProductRuleset(unittest.TestCase):
+    def _cp(self, fake):
+        return cp(fake)
+
+    def test_augments_the_single_product_ruleset_and_creates_no_second(self):
+        fake = AugmentGitHub(products=[product_ruleset()])
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "applied")
+        self.assertEqual(res.mode, "augmented")
+        self.assertEqual(len(fake.rulesets), 1)                  # NO second ruleset created
+        self.assertNotIn("POST", [c[0] for c in fake.writes()])
+        self.assertEqual(fake.checks_of(9), {"product-ci", *ENGINE})
+        self.assertEqual(res.marker["ruleset_mode"], "augmented")
+        self.assertEqual(res.marker["augmented_ruleset_id"], 9)
+        self.assertEqual(set(res.marker["added"]["checks"]), set(ENGINE))
+
+    def test_augment_preserves_the_operators_bypass_and_other_check(self):
+        prod = product_ruleset(bypass=[{"actor_id": 7, "actor_type": "Integration", "bypass_mode": "always"}])
+        fake = AugmentGitHub(products=[prod])
+        self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(fake.rulesets[9]["bypass_actors"], prod["bypass_actors"])
+        self.assertIn("product-ci", fake.checks_of(9))
+
+    def test_partial_floor_is_disclosed_not_rewritten(self):
+        fake = AugmentGitHub(products=[product_ruleset(thread_resolution=False)])
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.mode, "augmented-partial")
+        self.assertTrue(res.missing)                            # the residual gap is carried for disclosure
+        pr = next(r for r in fake.rulesets[9]["rules"] if r["type"] == "pull_request")
+        self.assertFalse(pr["parameters"]["required_review_thread_resolution"])   # left as the operator set it
+
+    def test_preservation_violation_degrades_never_false_applied(self):
+        fake = AugmentGitHub(products=[product_ruleset()], mangle_on_put=True)   # server drops a product rule
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "degraded")
+        self.assertEqual(res.cause, "preserve-failed")
+
+    def test_server_dropping_an_added_floor_rule_does_not_claim_applied(self):
+        # The engine adds non_fast_forward, but the server (an org policy / plan tier) silently rejects it.
+        # The engine must NOT report the floor as on — it verifies against the re-read object, not its payload.
+        fake = AugmentGitHub(products=[product_ruleset(with_nff=False)], drop_rule_types=["non_fast_forward"])
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "degraded")
+        self.assertEqual(res.cause, "verify-failed")
+        self.assertTrue(any("force-push" in m for m in res.missing))   # the unmet piece is named
+
+    def test_preservation_tolerates_server_parameter_normalization(self):
+        # GitHub echoes back default params it fills in; the additive write must NOT false-alarm on that.
+        fake = AugmentGitHub(products=[product_ruleset()], normalize=True)
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "applied")
+        self.assertEqual(res.mode, "augmented")
+
+    def test_preservation_catches_a_changed_operator_parameter(self):
+        # If the server (or anything) alters an operator-set parameter, that IS a weakening — fail closed.
+        fake = AugmentGitHub(products=[product_ruleset()], change_param=True)   # drops approvals 1 -> 0
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "degraded")
+        self.assertEqual(res.cause, "preserve-failed")
+
+    def test_concurrent_overwrite_retries_once_then_succeeds(self):
+        fake = AugmentGitHub(products=[product_ruleset()], drop_writes=1)
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "applied")
+        self.assertEqual(len([c for c in fake.writes() if c[0] == "PUT"]), 2)   # retried exactly once
+
+    def test_persistent_overwrite_does_not_claim_applied(self):
+        fake = AugmentGitHub(products=[product_ruleset()], drop_writes=5)
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "unverified")
+        self.assertLessEqual(len([c for c in fake.writes() if c[0] == "PUT"]), 2)   # bounded
+
+    def test_partial_detail_read_fails_closed_with_no_write(self):
+        fake = AugmentGitHub(products=[product_ruleset()], detail_partial=True)
+        res = self._cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.status, "unverified")
+        self.assertEqual([c for c in fake.writes() if c[0] == "PUT"], [])   # never PUT on a doubtful read
+
+    def test_more_than_one_product_ruleset_creates_own_and_discloses(self):
+        said = []
+        fake = AugmentGitHub(products=[product_ruleset(rid=9), product_ruleset(rid=10, name="other")])
+        res = cp(fake).apply(branch="main", announce=said.append)
+        self.assertEqual(res.mode, "created")
+        self.assertIn("POST", [c[0] for c in fake.writes()])               # created its own
+        self.assertTrue(any("more than one" in s for s in said))           # disclosed the ambiguity
+
+    def test_classic_protection_creates_own_and_discloses(self):
+        said = []
+        # classic branch protection: in-force rules with NO ruleset_id, partially meeting the floor.
+        fake = AugmentGitHub(products=[], classic=[{"type": "pull_request",
+                             "parameters": {"required_review_thread_resolution": True}}])
+        res = cp(fake).apply(branch="main", announce=said.append)
+        self.assertEqual(res.mode, "created")
+        self.assertIn("POST", [c[0] for c in fake.writes()])
+        self.assertTrue(any("already protected" in s for s in said))
+
+    def test_own_engine_ruleset_present_repairs_in_place(self):
+        fake = AugmentGitHub(products=[product_ruleset(rid=3, name=bootstrap.ENGINE_RULESET_NAME, checks=())])
+        res = cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(res.mode, "repaired")
+        self.assertNotIn("POST", [c[0] for c in fake.writes()])            # repaired, not created
+
+
+class TestDeBootstrapAugmented(unittest.TestCase):
+    # The fixtures here represent the POST-augment state: the product ruleset as it stands AFTER arrival
+    # augmented it (the engine's checks unioned in, and — per AUG.added.rules — a non_fast_forward rule the
+    # engine added because the product lacked one). The marker records exactly that, so removal reverses it.
+    AUG = {"ruleset_mode": "augmented", "augmented_ruleset_id": 9,
+           "added": {"checks": list(protection_guard.REQUIRED_CHECKS), "rules": ["non_fast_forward"]}}
+
+    def test_reverses_exactly_the_marked_additions_never_deletes(self):
+        prod = product_ruleset(checks=("product-ci", *ENGINE))   # post-augment: engine checks + (nff) present
+        fake = AugmentGitHub(products=[prod])
+        r = cp(fake).de_bootstrap(marker=self.AUG, announce=quiet)
+        self.assertEqual(r["status"], "unaugmented")
+        self.assertEqual(fake.checks_of(9), {"product-ci"})              # engine checks gone, theirs kept
+        self.assertNotIn("non_fast_forward", fake.types_of(9))           # engine-added rule removed
+        self.assertIn("pull_request", fake.types_of(9))                 # their rule untouched
+        self.assertNotIn("DELETE", [c[0] for c in fake.writes()])      # never deletes a product rule
+
+    def test_preserves_operator_bypass_on_strip(self):
+        prod = product_ruleset(checks=("product-ci", *ENGINE))
+        fake = AugmentGitHub(products=[prod])
+        cp(fake).de_bootstrap(marker=self.AUG, announce=quiet)
+        self.assertEqual(fake.rulesets[9]["bypass_actors"], prod["bypass_actors"])
+
+    def test_marker_absent_falls_back_to_bounded_name_strip(self):
+        prod = product_ruleset(checks=("product-ci", *ENGINE), with_nff=True)
+        fake = AugmentGitHub(products=[prod])
+        r = cp(fake).de_bootstrap(marker=None, announce=quiet)
+        self.assertEqual(r["status"], "unaugmented")
+        self.assertEqual(fake.checks_of(9), {"product-ci"})            # only the frozen engine names stripped
+        self.assertIn("non_fast_forward", fake.types_of(9))            # NOT removed (authorship unknown)
+        self.assertNotIn("DELETE", [c[0] for c in fake.writes()])
+
+    def test_marker_absent_and_no_engine_checks_is_no_rule(self):
+        fake = AugmentGitHub(products=[product_ruleset(checks=("product-ci",))])
+        r = cp(fake).de_bootstrap(marker=None, announce=quiet)
+        self.assertEqual(r["status"], "no-rule")
+        self.assertEqual([c for c in fake.writes()], [])              # nothing of the operator's touched
 
 
 if __name__ == "__main__":

@@ -85,6 +85,22 @@ class TestSeal(unittest.TestCase):
             self.assertEqual(body_before, body_after)
             self.assertEqual(audit_digest.check(p)["severity"], "note")
 
+    def test_seal_appends_the_recall_completeness_disclosure_once_idempotently(self):
+        # §7 (D-273/D-274, #332): the committed digest carries the standing recall-completeness line — recall
+        # surfaces curated summaries; the raw verbatim is kept and recoverable. Appended on a fresh seal, and
+        # never doubled when an existing digest is re-sealed.
+        with tempfile.TemporaryDirectory() as d:
+            p = self._scratch(d)
+            audit_digest.seal(p, generated=JUNE, body=BODY)
+            _fm, body = audit_digest.split(p)
+            self.assertIn(audit_digest._RECALL_COMPLETENESS_HEADING, body)
+            self.assertIn("recoverable", body.lower())
+            self.assertEqual(body.count(audit_digest._RECALL_COMPLETENESS_HEADING), 1)
+            audit_digest.seal(p, generated=datetime.date(2026, 7, 1))    # re-seal, body=None
+            _fm2, body2 = audit_digest.split(p)
+            self.assertEqual(body2.count(audit_digest._RECALL_COMPLETENESS_HEADING), 1)  # not doubled
+            self.assertEqual(audit_digest.check(p)["severity"], "note")
+
 
 class TestCheckEdgeCases(unittest.TestCase):
     def test_absent_digest_passes_the_seal_gate(self):

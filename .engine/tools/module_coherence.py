@@ -19,7 +19,11 @@ present", a directory listing, never a hand-authored registry — and the engine
   - OWNERSHIP (validate.ownership_findings): every engine file under .engine/ is claimed by
     exactly one module's `provides`, or is a named foundation infrastructure artifact, or is
     a module manifest (owned by its own module by construction). An unclaimed file is an
-    orphan; a doubly-claimed file is a conflict.
+    orphan; a doubly-claimed file is a conflict. The ownership inventory is the COMMITTED tree
+    (git-tracked): an untracked file — sync-conflict cruft a file-sync tool dropped, or an
+    intended new file not yet committed — is not yet an ownership concern, so it is not read as a
+    spurious local orphan (#281); the untracked-surface detector (untracked_surface_findings, a
+    separate soft custom/script check) names it instead.
   - WIRING — BIDIRECTIONAL "declared <-> applied". FORWARD declared->applied (validate.wiring_findings
     over wiring.is_applied): every `wires` directive a present manifest declares is applied in its shared
     target file. An mcp wire is APPROVAL-BLIND — it checks the committed .mcp.json definition, never the
@@ -54,6 +58,7 @@ import glob as _glob
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -149,11 +154,55 @@ PRUNE_DIRS = {".venv", "__pycache__", ".cache", ".pytest_cache"}
 # `.engine/tools/projects_sync/` (owned via that module's `provides` glob) stays ownership-checked.
 PRUNE_PATHS = {".engine/memory", ".engine/projects-sync"}
 
+# Repo-relative directory PATHS holding COMMITTED test data that is deliberately NOT a governed surface: the
+# reserved negative-fixture namespace (`.engine/_fixtures/`, engine-planning D-256/D-260). These are seeded
+# bad inputs the negative-fixture meta-check runs each hard check against to prove it bites. Distinct
+# justification from both sets above: unlike PRUNE_DIRS (regenerable caches) and PRUNE_PATHS (gitignored
+# runtime state), fixtures ARE committed — but they are excluded from the ownership leg because no module
+# `provides` them and they must never read as an unowned orphan or an uncatalogued surface (the check-system
+# "fixtures are test data, not a surface" rule). Anchored on the exact path, so a committed tool or surface
+# elsewhere is unaffected. Pruned by the SAME walk mechanism as PRUNE_PATHS — and at the SHARED walk
+# (_walk_engine_files), so the namespace is excluded from BOTH the ownership leg and the #281
+# untracked-surface detector intentionally (a committed fixture is not cruft to flag; fixtures are never
+# fingerprinted into the graph, so the #281 "a regen would pull it in" risk does not apply to them).
+FIXTURE_PATHS = {".engine/_fixtures"}
+
 MODULES_GLOB = ".engine/modules/*/manifest.json"
 
 
 def _rel(abs_path: str) -> str:
     return os.path.relpath(abs_path, validate.ROOT).replace(os.sep, "/")
+
+
+def _git_lines(args: list) -> list | None:
+    """Run a read-only `git -C ROOT <args> -z` and return the NUL-split, ROOT-relative relpaths
+    (forward-slash, matching _rel), or None on any non-zero exit / missing binary / timeout. Never
+    raises — a degraded git read returns None so the caller fails safe. Mirrors checkout_health._run.
+    Reads validate.ROOT at call time, so a test that redirects ROOT is honored. Fixed argv, no shell —
+    no injection surface; `-z` is verbatim NUL-terminated, so a filename with spaces/quotes is safe."""
+    try:
+        out = subprocess.run(["git", "-C", validate.ROOT, *args, "-z"],
+                             capture_output=True, text=True, timeout=30, check=False)
+    except Exception:  # noqa: BLE001 — missing binary / timeout / OS error all degrade to "unavailable"
+        return None
+    if out.returncode != 0:
+        return None
+    return [p for p in out.stdout.split("\0") if p]
+
+
+def _tracked_paths() -> set | None:
+    """The git-tracked relpaths (`git ls-files`), or None when git is unavailable. engine_file_inventory
+    intersects with this so an UNTRACKED file is not read as a committed-ownership concern (#281)."""
+    lines = _git_lines(["ls-files"])
+    return set(lines) if lines is not None else None
+
+
+def _untracked_surface_paths() -> set | None:
+    """The relpaths git neither tracks NOR ignores (`git ls-files --others --exclude-standard`) — genuine
+    sync-conflict cruft, or a new file not yet committed; gitignored files are deliberately excluded (they
+    are intentional, not cruft). None when git is unavailable. The untracked-surface detector's input."""
+    lines = _git_lines(["ls-files", "--others", "--exclude-standard"])
+    return set(lines) if lines is not None else None
 
 
 def discover_manifests() -> list:
@@ -171,19 +220,86 @@ def load_engine_manifest():
     return validate.load_json(path) if os.path.isfile(path) else None
 
 
-def engine_file_inventory() -> list:
-    """Every committed engine file under .engine/ (relpaths), excluding regenerable
-    derivative directories. The product never owns a file under .engine/, so this is the
-    exclusively-engine corner where file ownership is well-defined."""
+def _walk_engine_files() -> list:
+    """Every file under .engine/ on the live filesystem (relpaths), pruning regenerable cache dirs
+    (PRUNE_DIRS, any depth), gitignored runtime roots (PRUNE_PATHS), and the committed-but-non-surface
+    fixtures namespace (FIXTURE_PATHS). The RAW walk — what is on disk, tracked or not.
+    engine_file_inventory() narrows this to the committed set; the untracked-surface detector reads it raw
+    (both therefore exclude the three pruned sets)."""
     out = []
     for dirpath, dirs, files in os.walk(validate.ENGINE_DIR):
-        # Prune name-matched caches (PRUNE_DIRS, any depth) and path-matched gitignored runtime roots
-        # (PRUNE_PATHS, the exact repo-relative path) so neither's contents are flagged as orphans.
+        # Prune name-matched caches (PRUNE_DIRS, any depth), path-matched gitignored runtime roots
+        # (PRUNE_PATHS), and the committed-but-non-surface fixtures namespace (FIXTURE_PATHS) — each by the
+        # exact repo-relative path — so none of their contents are flagged as orphans.
         dirs[:] = [d for d in dirs
                    if d not in PRUNE_DIRS
-                   and _rel(os.path.join(dirpath, d)) not in PRUNE_PATHS]
+                   and _rel(os.path.join(dirpath, d)) not in PRUNE_PATHS
+                   and _rel(os.path.join(dirpath, d)) not in FIXTURE_PATHS]
         out.extend(_rel(os.path.join(dirpath, f)) for f in files)
     return sorted(out)
+
+
+def engine_file_inventory() -> list:
+    """The COMMITTED engine files under .engine/ (relpaths) — the OWNERSHIP inventory. Ownership is a
+    property of the committed tree, so the raw walk is intersected with git's tracked set: an untracked
+    file (sync-conflict cruft, or an intended new file not yet committed) is not yet an ownership concern
+    and must not raise a spurious local orphan / double-claim (#281). Fail-soft: when git is unavailable
+    the raw walk is returned unchanged (the prior behavior); in CI (a clean checkout, all committed) the
+    intersection is a no-op. Nothing is dropped silently — untracked_surface_findings names what is
+    excluded. The product never owns a file under .engine/, so this is the exclusively-engine corner
+    where file ownership is well-defined."""
+    walked = _walk_engine_files()
+    tracked = _tracked_paths()
+    if tracked is None:
+        return walked
+    return [rel for rel in walked if rel in tracked]
+
+
+def _claude_surface_roots() -> list:
+    """The `.claude/` surface-location roots from the surface catalog (today .claude/skills/,
+    .claude/agents/) — read from the catalog so the set stays single-sourced, never hand-listed. Engine
+    surface files live under .engine/ AND these roots; the untracked-surface detector walks both."""
+    catalog = validate.load_json(validate.CATALOG_PATH) or {}
+    roots = {(s or {}).get("location") for s in (catalog.get("surfaces") or {}).values()}
+    return sorted(r for r in roots if isinstance(r, str) and r.startswith(".claude/"))
+
+
+def _surface_walk() -> list:
+    """Every file on disk under the engine's surface territory: the raw .engine/ tree plus the catalogued
+    .claude/ surface roots (so a duplicated skill/agent directory, e.g. `engine-help 2/SKILL.md`, is seen
+    — a literal `provides` path never would). The untracked-surface detector cross-references this against
+    git."""
+    out = set(_walk_engine_files())
+    for root in _claude_surface_roots():
+        for dirpath, dirs, files in os.walk(os.path.join(validate.ROOT, root)):
+            dirs[:] = [d for d in dirs if d not in PRUNE_DIRS]
+            out.update(_rel(os.path.join(dirpath, f)) for f in files)
+    return sorted(out)
+
+
+def untracked_surface_findings(tier: str = "soft") -> list:
+    """Issue #281 detector: every file under the engine surface (the .engine/ tree + the catalogued
+    .claude/ surface roots) that git neither tracks nor ignores — sync-conflict cruft a file-sync tool
+    dropped, or a new engine file not yet committed — as a `tier` (soft) finding naming the file. CI runs
+    on a clean checkout, so this is silent there (the pollution it guards is local-only); it surfaces on a
+    local validate run and the audit digest. When git is unavailable it cannot tell tracked from
+    untracked, so it returns ONE finding saying the check was skipped — never a silent all-clear."""
+    untracked = _untracked_surface_paths()
+    if untracked is None:
+        return [validate.finding(tier,
+            "The untracked-surface check could not run because git was unavailable, so the engine could "
+            "not tell which surface files are committed. If your working copy holds sync-conflict "
+            "duplicates (names like `… 2.py`), they are not being caught right now.")]
+    findings = []
+    for rel in sorted(set(_surface_walk()) & untracked):
+        findings.append(validate.finding(tier,
+            f"'{rel}' is under the engine's surface but git is not tracking it. The shared checks run on "
+            f"a clean copy of the repository and never see it, so it can cause a failure that only happens "
+            f"on your machine — and regenerating the engine's map of itself would pull it in. If a "
+            f"file-sync tool created it (names like `… 2.py`), delete it; if it is a new engine file "
+            f"you meant to add, commit it.",
+            validate.loc(os.path.join(validate.ROOT, rel))))
+    return findings
 
 
 def provides_claims(manifests: list) -> dict:
@@ -328,6 +444,21 @@ def check_coherence(tier: str = "hard") -> list:
     return dep + own + wiring_leg + orphan_leg + block
 
 
+# The artifact warrant (D-261) for a coherence result: what a green check shows, what it does NOT, and
+# what still needs a look. Printed on EVERY report — green or with findings — so the bound the operator
+# reads never collapses to the green word alone. Adapted from the locked coherence warrant
+# (../engine-planning systems/grammar/module-system/README.md §Coherence). Coherence is a STRUCTURAL
+# attestation and the gap is wide, so this is the most prominent of the engine's warrants (proportionate).
+COHERENCE_WARRANT = (
+    "\nWhat this shows / what it does not:"
+    "\n  - A green result shows the installed set is CONSISTENT — every dependency present and in range,"
+    "\n    every declared wire applied, every engine file owned by exactly one module."
+    "\n  - It does NOT show that the modules WORK. That a module does useful work shows in its own checks"
+    "\n    and in the behaviour you observe — never here; a green coherence result is not a fitness check."
+    "\n  - Whether an installed module still earns its place is the self-review's call, not coherence's."
+)
+
+
 def _print_report(findings: list, n_modules: int, n_files: int) -> None:
     """Plain-language-first, matching the validator's report() register — a human sentence
     per issue, never raw JSON (the operator reads this; --json is the machine channel)."""
@@ -344,6 +475,7 @@ def _print_report(findings: list, n_modules: int, n_files: int) -> None:
     elif not soft:
         print(f"\nOK — the module set is coherent: {n_modules} module(s) installed, "
               f"{n_files} engine file(s), all owned.")
+    print(COHERENCE_WARRANT)
 
 
 def _demo(_argv: list) -> int:
@@ -396,9 +528,60 @@ def _demo(_argv: list) -> int:
             wiring.SETTINGS_PATH = saved
 
 
+def _untracked_demo(_argv: list) -> int:
+    """Operator-runnable fail-then-pass for the #281 untracked-surface guard, on a THROWAWAY git repo
+    (never your real tree). It commits an owned engine file, drops an UNTRACKED duplicate under the
+    surface, and shows (a) the ownership inventory excludes it (no spurious orphan) and (b) the detector
+    names it — then `git add`s it and shows the detector go quiet. The REAL engine_file_inventory /
+    untracked_surface_findings logic runs; only the repo it reads is a fixture."""
+    saved = (validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH)
+    dup_rel = ".engine/tools/real_tool 2.py"
+
+    def _git(root, *a):
+        subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=False)
+
+    with tempfile.TemporaryDirectory() as root:
+        engine = os.path.join(root, ".engine")
+        os.makedirs(os.path.join(engine, "tools"))
+        os.makedirs(os.path.join(engine, "schemas"))
+        with open(os.path.join(engine, "schemas", "surface-catalog.json"), "w", encoding="utf-8") as fh:
+            json.dump({"surfaces": {"skill": {"location": ".claude/skills/"}}}, fh)
+        with open(os.path.join(engine, "tools", "real_tool.py"), "w", encoding="utf-8") as fh:
+            fh.write("# a committed engine tool\n")
+        validate.ROOT, validate.ENGINE_DIR = root, engine
+        validate.CATALOG_PATH = os.path.join(engine, "schemas", "surface-catalog.json")
+        try:
+            _git(root, "init")
+            _git(root, "add", "-A")
+            _git(root, "-c", "user.email=e@x", "-c", "user.name=e", "commit", "-m", "base")
+            print("This demo uses a throwaway git repo — your real files are never touched.\n")
+            with open(os.path.join(engine, "tools", "real_tool 2.py"), "w", encoding="utf-8") as fh:
+                fh.write("# a sync-conflict duplicate a file-sync tool dropped\n")
+            print(f"(1) A file-sync tool dropped an untracked duplicate: {dup_rel}")
+            in_inv = dup_rel in engine_file_inventory()
+            print(f"    ownership inventory includes it? {in_inv}  "
+                  f"(expected False — tracked-only, so no spurious orphan)")
+            flagged = untracked_surface_findings("soft")
+            named = any(dup_rel in f["message"] for f in flagged)
+            print(f"    the detector names it? {named}  ({len(flagged)} soft finding(s))")
+            print("\n(2) Committing it (as if it were an intended new file), then re-checking:")
+            _git(root, "add", "-A")
+            cleared = not any(dup_rel in f["message"] for f in untracked_surface_findings("soft"))
+            print(f"    detector quiet for it now? {cleared}")
+            ok = (not in_inv) and named and cleared
+            print("\n" + ("DEMO PASSED: the untracked duplicate was kept out of ownership, named by the "
+                          "detector, and cleared once committed."
+                          if ok else "DEMO DID NOT BEHAVE AS EXPECTED — see above."))
+            return 0 if ok else 1
+        finally:
+            validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH = saved
+
+
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo(argv[1:])
+    if argv and argv[0] == "demo-untracked":
+        return _untracked_demo(argv[1:])
     try:
         manifests = discover_manifests()
         inventory = engine_file_inventory()

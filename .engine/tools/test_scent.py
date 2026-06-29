@@ -1,7 +1,7 @@
 """test_scent.py — the per-prompt attention scent handler: scent.py (memory-substrate-sqlite-fts5, slice 5, PR 2).
 
 Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py'
+    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 The scent is the M1-completing seam: a UserPromptSubmit hook that injects ATTRIBUTED POINTERS over memory's
 fast lookup. These pin its locked laws: silent on no strong match; attributed pointers NOT content (the injected
@@ -145,6 +145,24 @@ class RenderLawTests(_ScentBase):
         text = self.run_scent("calendar sync", self.sid()) or ""
         self.assertIn("decision", text)
         self.assertIn("calendar-sync", text)       # a tag is a pointer (entity ref), surfaced; the body is not
+
+    def test_recall_completeness_is_disclosed_once_per_session(self):
+        # §7 (D-273/D-274, #332): alongside the FIRST pointers, the scent discloses that these point to curated
+        # summaries whose raw verbatim is kept and recoverable; shown once per session (like the degraded notice),
+        # never repeated on every prompt.
+        self.seed_calendar()
+        sid = self.sid()
+        first = self.run_scent("how should we handle the calendar sync?", sid) or ""
+        self.assertIn(scent._COMPLETENESS_DISCLOSURE, first)
+        self.assertIn("recoverable", first.lower())
+        # a DIFFERENT distinctive topic surfaces a fresh pointer (the term repeated, mirroring seed_calendar, so it
+        # clears the salience bar); the completeness note must NOT repeat on this second firing
+        self.add("we chose the postgres datastore; the postgres rows back the postgres ledger",
+                 role="decision", tags=["storage"])
+        self.rebuild()
+        second = self.run_scent("which postgres datastore did we choose?", sid) or ""
+        self.assertTrue(second)                                    # a fresh pointer still surfaces
+        self.assertNotIn(scent._COMPLETENESS_DISCLOSURE, second)   # but the note is not repeated
 
     def test_caps_at_surface_max(self):
         # The cap is a rendering bound, independent of bm25 magnitude (which other tests cover). Lower the

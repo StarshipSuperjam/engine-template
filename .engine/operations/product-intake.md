@@ -1,5 +1,5 @@
 ---
-title: Describe and settle a product spec — the engine-design intake
+title: Describe, settle, and hand off a product spec — the engine-design intake
 ---
 
 ## Purpose
@@ -8,8 +8,8 @@ How the engine helps the operator turn "here is what I want to build" into a wri
 description of the product, kept as plain files under `docs/spec/`. Enter this when the operator runs
 `engine-design`, or asks to describe, plan, or write up what they want built. The end state is a description
 the operator has read and accepted, with every part present and well-formed — the ground the build works
-from. It writes only the operator's own project files, and it never decides whether the design is *right* —
-that stays the operator's call.
+from — and, when the operator is ready, the tracked build work that follows from it. It writes only the
+operator's own project files, and it never decides whether the design is *right* — that stays the operator's call.
 
 ## Steps
 
@@ -50,25 +50,35 @@ short markers the files carry in their frontmatter stay in the files, never on s
    the home of their description, and say plainly that a settled document is not frozen forever — it can be
    changed or reopened later, but not quietly: when a pull request changes a settled document, the engine asks
    the operator to confirm the change on that pull request (by applying the `guardrail-ack` label) before it can
-   merge, so the record always shows the change was deliberate, never a silent edit. Then name the one thing
-   this does not do yet: turning a settled description into a tracked list of things to build comes in a later
-   step. Until then the description rests here, settled and checked.
+   merge, so the record always shows the change was deliberate, never a silent edit.
+8. **Turn the settled description into tracked build work.** When a description — or a newly-settled part of
+   it — is settled, offer to turn it into work a build can pick up. Keep two moments distinct. *Now:* the engine
+   writes a **build order** at `docs/spec/build-plan.md` — the settled capabilities grouped into ordered,
+   plainly-named phases (e.g. "Foundation", "Core flows") — and opens a **list of things to build**, one tracked
+   item per capability, each **linking to its description** (the document under `docs/spec/`) and naming the
+   parts it must satisfy — the link is what lets a later build check the work against that description. *Later:*
+   when a build
+   actually runs, that order is what groups the work into **visible phases you can watch progress against** — the
+   phases are not created just by settling. Say the consequence plainly: once a build order exists, settled work
+   left out of it will hold a merge until it is added, so nothing settled is quietly dropped. And reassure: the
+   build order is a committed file, written even with no GitHub connection — only the tracked items wait for the
+   connection; re-running is safe, updating the order and adding only items not already tracked. Picking "build
+   this" on an item is the deliberate act that starts a build.
 
 ## Done when
 
 `docs/spec/` holds a master index and one document per capability, the form check
 (`engine/check/product-spec-form`) reports no problems, and the operator has seen the result with its bound
-stated and given their go-ahead on every document they consider settled.
+stated and given their go-ahead on every document they consider settled. When the operator has chosen to hand
+the settled work to a build, a build order at `docs/spec/build-plan.md` groups it into phases and there is a
+tracked item to build for each settled capability.
 
 ## Notes
 
-- **Degrade, do not dead-end.** Every step lands as committed files, so a missing or unreachable GitHub
-  connection only defers the later turning-into-tracked-work step; the description itself is written, checked,
-  and settled entirely from files. Tell the operator what is deferred rather than stopping.
+- **Degrade, do not dead-end.** Almost everything lands as committed files, so a missing or unreachable GitHub
+  connection defers only the tracked items in the last step — the description, its checks, the settled state, and
+  the build order are all written from files. Tell the operator what is waiting on the connection rather than
+  stopping.
 - **Plain words only, on screen.** The operator never sees the short stage markers the files carry or any
-  internal engine vocabulary — only plain renders like "not yet described / in progress / settled". The same
-  holds for how you report what the check found.
-- **Deferred to a later slice (engine-facing):** the decomposition of a settled spec into a build-plan,
-  ordinary work issues, and milestones is not built yet; this runbook stops at a settled, checked spec — now
-  protected, once settled, by the lock-integrity re-acceptance check (a settled document cannot change on a
-  pull request without the operator's `guardrail-ack`).
+  internal engine vocabulary — only plain renders like "not yet described / in progress / settled", "build
+  order", "phases", and "things to build". The same holds for how you report what the check found.

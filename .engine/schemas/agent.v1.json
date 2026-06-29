@@ -45,6 +45,10 @@
       "description": "Platform passthrough: the Claude Code tool set this persona may use — the mechanism the permissions split maps to (a read-only reviewer's tools exclude write; a worker's allow scoped write). Read by the platform and left untouched by the engine; its shape is the platform's, so the engine does not constrain it here beyond accepting the platform's list or string forms.",
       "type": ["array", "string"]
     },
+    "disallowedTools": {
+      "description": "Platform passthrough: the Claude Code tool DENYLIST — tools removed from whatever this persona would otherwise inherit — the second mechanism (beside tools) the permissions split maps to. The denylist is how a read-only reviewer keeps its full read/search/web/MCP reach while losing only the authoritative-write tools (Edit, Write, NotebookEdit) — a blanket read-only allowlist would strip the MCP and web tools the adversarial review legitimately needs (D-272). That a read-only persona actually blocks the write tools (via this denylist OR a write-excluding tools allowlist, and is not inherit-all) is enforced by the agent coherence leg, not this schema — tools/disallowedTools stay well-formed platform passthrough here, mirroring how role/model-tier membership lives in the leg. Read by the platform; the engine does not constrain its values here beyond the platform's list or string forms.",
+      "type": ["array", "string"]
+    },
     "permissionMode": {
       "description": "Platform passthrough: the Claude Code permission mode that realizes the read-only-vs-scoped-write posture. Read by the platform; the engine does not constrain its values here.",
       "type": "string",

@@ -3,7 +3,7 @@
 PR-1 `add` (fetch/overlay), and slice 25c PR-2 the engine `upgrade`/updater + the migrations machinery
 (select/run, the no-backup guard, the version-stamp check, and the frozen-check-name invariant).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Pure policy (refusals, the derivation, migration select/order, version-stamp detection, the tightened
 migrations schema) is tested directly on fixture data — no disk mutation; the live mutation glue (`remove`,
@@ -339,18 +339,29 @@ class TestRunMigrations(unittest.TestCase):
                 self.assertEqual(fh.read(), "config")
 
     def test_data_migration_refused_without_a_backup_seam_and_never_runs(self):
-        with tempfile.TemporaryDirectory() as d:
-            marker = os.path.join(d, "out.txt")
-            mdir = self._module_dir(d, "dd.py",
-                                    "def migrate(context):\n"
-                                    f"    with open({marker!r}, 'w') as fh:\n"
-                                    "        fh.write('RAN')\n")
-            sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
-            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v1", module_dir=mdir, backup=None)
-            self.assertEqual(res["ran"], [])
-            self.assertEqual(len(res["refused"]), 1)
-            self.assertIn("no data backup", res["refused"][0])
-            self.assertFalse(os.path.exists(marker))          # the migration body never ran
+        # Force the no-backup-available condition so the test is deterministic regardless of the developer's
+        # ambient state: with backup=None, _resolve_backup_seam falls back to the live memory seam, which is
+        # available iff memory.migration_backup_available() (a configured vault pointer). On a dev machine with a
+        # real vault configured that is True, the seam resolves, and the data migration would RUN — so pin it
+        # False here (the same isolation TestBackupSeamResolution uses) to exercise the refusal path this asserts.
+        import memory
+        orig = memory.migration_backup_available
+        memory.migration_backup_available = lambda: False
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                marker = os.path.join(d, "out.txt")
+                mdir = self._module_dir(d, "dd.py",
+                                        "def migrate(context):\n"
+                                        f"    with open({marker!r}, 'w') as fh:\n"
+                                        "        fh.write('RAN')\n")
+                sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
+                res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v1", module_dir=mdir, backup=None)
+                self.assertEqual(res["ran"], [])
+                self.assertEqual(len(res["refused"]), 1)
+                self.assertIn("no data backup", res["refused"][0])
+                self.assertFalse(os.path.exists(marker))          # the migration body never ran
+        finally:
+            memory.migration_backup_available = orig
 
     def test_data_migration_runs_after_backup_and_is_stamped(self):
         with tempfile.TemporaryDirectory() as d:
@@ -362,14 +373,39 @@ class TestRunMigrations(unittest.TestCase):
                                     f"    with open({marker!r}, 'w') as fh:\n"
                                     "        fh.write(context['engine_version'])\n")
             calls = []
-            seam = lambda store, ver, migration_id=None: (calls.append((store, ver, migration_id)) or {"ok": True})
+            seam = lambda store, ver, migration_id=None, **kw: (
+                calls.append((store, ver, migration_id, kw.get("reversibility_floor"))) or {"ok": True})
             sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
             res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=seam)
             self.assertEqual(res["ran"], ["m -> 0.2.0 (data)"])
-            # the backup was taken (before the body ran), with the migration id bound in for collision-free naming
-            self.assertEqual(calls, [("store", "v2", "m@0.2.0")])
+            # the backup was taken (before the body ran), with the migration id bound in for collision-free naming, and
+            # the lone data migration is the upgrade's reversibility floor (#303)
+            self.assertEqual(calls, [("store", "v2", "m@0.2.0", True)])
             with open(marker) as fh:
                 self.assertEqual(fh.read(), "v2")              # the migration stamped the engine version
+
+    def test_only_the_first_data_migration_of_the_upgrade_is_the_reversibility_floor(self):
+        # #303: one run_migrations call == one upgrade. reversibility_floor is True for the FIRST data migration only;
+        # config migrations take no backup, and later data migrations of the same upgrade are NOT the floor.
+        with tempfile.TemporaryDirectory() as d:
+            md = os.path.join(d, ".engine", "modules", "m", "migrations")
+            os.makedirs(md)
+            body = ("def migrate(context):\n"
+                    "    if context['kind'] == 'data':\n"
+                    "        assert context['backup']('store', context['engine_version'])\n")
+            for fn in ("c.py", "d0.py", "d1.py"):
+                with open(os.path.join(md, fn), "w", encoding="utf-8") as fh:
+                    fh.write(body)
+            mdir = lambda mid: os.path.join(d, ".engine", "modules", mid)
+            calls = []
+            seam = lambda store, ver, migration_id=None, **kw: (
+                calls.append((migration_id, kw.get("reversibility_floor"))) or {"ok": True})
+            sel = [{"module_id": "m", "version": "0.1.0", "run": "migrations/c.py", "kind": "config"},
+                   {"module_id": "m", "version": "0.2.0", "run": "migrations/d0.py", "kind": "data"},
+                   {"module_id": "m", "version": "0.3.0", "run": "migrations/d1.py", "kind": "data"}]
+            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=seam)
+            self.assertEqual(len(res["ran"]), 3)
+            self.assertEqual(calls, [("m@0.2.0", True), ("m@0.3.0", False)])   # floor = first data migration only
 
     def test_data_migration_whose_backup_fails_at_runtime_refuses_cleanly_without_mutating(self):
         # A seam resolved LIVE but that returns a falsy handle at call time (a vault reachable at pre-flight,
@@ -404,6 +440,16 @@ class TestVersionStamp(unittest.TestCase):
     def test_no_mismatch_when_code_is_at_or_ahead_of_the_data(self):
         self.assertIsNone(module_manager.stamp_mismatch_finding("ledger", "0.2.0", "0.2.0", "cmd"))
         self.assertIsNone(module_manager.stamp_mismatch_finding("ledger", "0.2.0", "0.3.0", "cmd"))
+
+    def test_the_finding_message_is_plain_peer_voice_and_carries_no_raw_ref(self):
+        # the promoted Issue body is operator-facing (boot.open_findings renders it): plain peer voice, never a
+        # tag/ref/version-machinery (D-265 S1 — the operator meets a plain handle, not the mechanism).
+        f = module_manager.stamp_mismatch_finding(
+            "recall-ledger", "2.0.0", "1.0.0", "ask me to restore the copy saved before the last update")
+        msg = f["message"]
+        for banned in ("refs/", "engine-snapshot/", "@", "stored data"):
+            self.assertNotIn(banned, msg)
+        self.assertIn("saved memory", msg.lower())             # peer voice
 
     def test_surface_promotes_exactly_one_finding_via_a_faked_github(self):
         import telemetry
@@ -516,6 +562,25 @@ class TestUpgradeSafety(unittest.TestCase):
         self.assertIn("backup did not succeed", res["reason"])
         self.assertIn("NOT opened for review", res["reason"])
         self.assertEqual(opened, [])                           # the change was never opened for review
+
+    def test_a_successful_data_migration_upgrade_discloses_the_saved_copy_once(self):
+        # Floor (c) (D-264): a successful data-migration upgrade tells the operator a pre-update copy was saved —
+        # ONCE per upgrade, plainly, as reassurance for the later restore offer.
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                res = module_manager.upgrade(
+                    ref="v0.2.0", release_tree=release,
+                    opener=lambda **k: opened.append(k) or {"number": 1},
+                    backup=lambda *a, **k: {"ok": 1})          # the pre-update snapshot succeeds
+        self.assertTrue(opened)                                # the upgrade actually opened for review
+        disclosures = [n for n in res.get("notes", []) if "saved a copy of it from right before this update" in n]
+        self.assertEqual(len(disclosures), 1)                  # exactly one disclosure per upgrade
+        self.assertIn("nothing for you to do now", disclosures[0])
 
     def test_escaping_provides_in_a_release_is_refused_before_any_write(self):
         with tempfile.TemporaryDirectory() as d:
@@ -822,6 +887,37 @@ class TestIssueTemplateOverlay(unittest.TestCase):
             self.assertIn(".github/ISSUE_TEMPLATE/bug.md", copied)
             self.assertIn(".github/ISSUE_TEMPLATE/feature.md", copied)
             self.assertTrue(os.path.isfile(os.path.join(live, ".github", "ISSUE_TEMPLATE", "bug.md")))
+
+
+class TestOverlayExclude(unittest.TestCase):
+    """#234 6b: the brownfield arrival passes `exclude` so an engine-exclusive path the operator chose to keep
+    (a class-1 'leave-as-is') is NOT overwritten by the incoming engine file — the engine coexists around it."""
+
+    def _release(self, release):
+        os.makedirs(os.path.join(release, ".engine", "modules", "base"))
+        os.makedirs(os.path.join(release, ".engine", "tools"))
+        module_manager._write_json(
+            os.path.join(release, ".engine", "modules", "base", "manifest.json"),
+            {"id": "base", "version": "0.0.0", "status": "required",
+             "provides": {"tool": [".engine/tools/keep.py", ".engine/tools/other.py"]}, "depends": {}})
+        for name in ("keep.py", "other.py"):
+            with open(os.path.join(release, ".engine", "tools", name), "w") as fh:
+                fh.write("# engine version\n")
+
+    def test_excluded_path_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as d:
+            release, live = os.path.join(d, "release"), os.path.join(d, "live")
+            self._release(release)
+            os.makedirs(os.path.join(live, ".engine", "tools"))
+            with open(os.path.join(live, ".engine", "tools", "keep.py"), "w") as fh:
+                fh.write("# the product's own file\n")    # an operator file at an engine path (class-1)
+            with module_manager._redirect_root(live):
+                copied, _ = module_manager._overlay_engine_code(
+                    release, ["base"], exclude={".engine/tools/keep.py"})
+            self.assertNotIn(".engine/tools/keep.py", copied)            # kept, not overwritten
+            self.assertIn(".engine/tools/other.py", copied)             # the rest still overlaid
+            with open(os.path.join(live, ".engine", "tools", "keep.py")) as fh:
+                self.assertEqual(fh.read(), "# the product's own file\n")
 
 
 class TestRemoveEngine(unittest.TestCase):

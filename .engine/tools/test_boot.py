@@ -74,8 +74,9 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
-            "pr_conflict": None, "restore_offer": None, "audit_stale": None, "live_standing": None,
-            "neighborhood": None}
+            "behind_origin": None,
+            "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
+            "live_standing": None, "neighborhood": None, "map_rebuilt": False}
 
 
 def _signals(**over):
@@ -116,6 +117,31 @@ class TestDegradedNotice(unittest.TestCase):
         dash = boot.render_dashboard(_signals(att_degraded=["attention"]))
         self.assertIn("I couldn't reach your work-priority ranking this session", dash)
         self.assertNotIn("I couldn't reach attention", dash)   # the internal noun must not reach the operator
+
+    def test_live_rebuild_shows_a_distinct_heads_up_not_a_couldnt_reach(self):
+        # When orientation ran on a LIVE rebuild (the committed graph.json is absent), the dashboard surfaces a
+        # DISTINCT heads-up — inform + consequence, never the "couldn't reach" alarm: the map IS reachable, the
+        # committed file is just missing. This is the operator-chosen separate signal for the graph-absent state.
+        dash = boot.render_dashboard(_signals(map_rebuilt=True))
+        self.assertIn("running on a rebuilt project map", dash)
+        self.assertIn("regenerate it with", dash)                      # the fix is actionable...
+        self.assertIn("knowledge_gen.py generate", dash)               # ...naming the canonical command,
+        self.assertIn("commit the result", dash)                       # ...and that it must be committed
+        self.assertNotIn("couldn't reach your project map", dash)       # NOT the unreachable alarm
+        self.assertNotIn("couldn't reach", dash.lower())               # no degrade-alarm wording when only this
+
+    def test_no_rebuild_heads_up_when_the_committed_map_is_present(self):
+        # The normal case: committed map present (map_rebuilt False/absent) -> no rebuild heads-up at all.
+        self.assertNotIn("rebuilt project map", boot.render_dashboard(_signals()))
+        self.assertNotIn("rebuilt project map", boot.render_dashboard(_signals(map_rebuilt=False)))
+
+    def test_rebuild_heads_up_and_couldnt_reach_can_coexist_distinctly(self):
+        # A degraded substrate AND a live rebuild can fire together; the two read as separate advisories, the
+        # rebuild line never folded into the "couldn't reach" clause (the conflation this whole change undoes).
+        dash = boot.render_dashboard(_signals(att_degraded=["telemetry"], map_rebuilt=True))
+        self.assertIn("I couldn't reach your open-problems list from GitHub this session", dash)
+        self.assertIn("running on a rebuilt project map", dash)
+        self.assertNotIn("couldn't reach your project map", dash)       # the map line stays the rebuild wording
 
 
 class TestPresentMarker(unittest.TestCase):
@@ -564,6 +590,67 @@ class TestStrandSurfacing(unittest.TestCase):
         self.assertIsNone(failed["strand"])                 # a detector failure degrades quietly to None
 
 
+class TestBehindOriginSurfacing(unittest.TestCase):
+    """The behind-origin tail (#335) is surfaced read-only at the strand tier (folder health, below the
+    governance alarms), consequence-led and COUNT-FREE (the design's 'never a count' leaf law), with no git
+    verbs and a concrete consent phrase. boot RELAYS; the assistant runs catch_up on consent."""
+    _BEHIND = {"state": "behind", "main": "/p", "branch": "main", "missing": 9, "latest": "2026-06-27"}
+
+    def test_render_surfaces_the_behind_line_only_when_behind(self):
+        dash = boot.render_dashboard(_signals(behind_origin=self._BEHIND))
+        self.assertIn("fallen behind", dash.lower())
+        self.assertIn("2026-06-27", dash)                        # the felt date
+        self.assertIn("bring it up to date", dash.lower())       # the concrete consent phrase
+        self.assertIn("nothing you already have will be lost", dash.lower())
+        self.assertNotIn("fallen behind", boot.render_dashboard(_signals(behind_origin=None)).lower())
+
+    def test_behind_line_is_count_free_and_has_no_git_verbs(self):
+        # the design's "never a count" + "git verbs never reach the operator surface" laws, on the actual line
+        line = next(ln for ln in boot.render_dashboard(_signals(behind_origin=self._BEHIND)).splitlines()
+                    if "fallen behind" in ln.lower())
+        self.assertNotIn("9", line)                              # the missing-count never appears
+        for verb in ("fast-forward", "ff-only", "fetch", "rebase", "ancestor", "origin/"):
+            self.assertNotIn(verb, line.lower(), f"git verb leaked to the operator surface: {verb}")
+
+    def test_behind_pins_below_the_governance_alarm_and_the_strand(self):
+        pack = boot.render_dashboard(_signals(gate="off", reason="x",
+                                              strand={"states": ["detached"], "main": "/p"},
+                                              behind_origin=self._BEHIND))
+        lines = [ln.lower() for ln in pack.splitlines()]
+        gate = next(i for i, ln in enumerate(lines) if "safety gate is off" in ln)
+        strand = next(i for i, ln in enumerate(lines) if "drifted into a broken state" in ln)
+        behind = next(i for i, ln in enumerate(lines) if "fallen behind" in ln)
+        self.assertLess(gate, behind, "the governance alarm must pin above the behind heads-up")
+        self.assertLess(strand, behind, "a broken-state strand outranks the behind heads-up")
+
+    def test_present_marker_reflects_behind_but_strand_and_governance_outrank(self):
+        self.assertIn("fallen behind recent merged work",
+                      boot.present_marker_line(_signals(behind_origin=self._BEHIND)))
+        self.assertEqual(boot.present_marker_line(_signals(behind_origin=None)),
+                         f"{boot.PRESENT_MARKER}: all clear")
+        # a strand (broken state) still wins the marker over a behind heads-up
+        self.assertIn("needs attention",
+                      boot.present_marker_line(_signals(strand={"states": ["detached"], "main": "/p"},
+                                                        behind_origin=self._BEHIND)))
+
+    def test_behind_is_not_in_the_must_push_set(self):
+        # not governance-critical -> no INFORM marker (relayed via the dashboard heads-up, like the strand)
+        self.assertEqual(boot.must_push(_signals(behind_origin=self._BEHIND)), [])
+
+    def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.checkout_health, "detect_behind_origin", return_value=self._BEHIND):
+                relayed = boot.gather_signals()
+            with mock.patch.object(boot.checkout_health, "detect_behind_origin", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["behind_origin"], self._BEHIND)   # relayed verbatim
+        self.assertIsNone(failed["behind_origin"])                 # a detector/network failure degrades to None
+
+
 class TestPrConflictSurfacing(unittest.TestCase):
     """#136: a pull request stranded on the two derived index files is surfaced read-only at the STRAND tier —
     pinned BELOW the governance alarms (a conflicting PR cannot reach protected `main`), carried on the
@@ -667,6 +754,59 @@ class TestRestoreOfferSurfacing(unittest.TestCase):
                 p.stop()
         self.assertEqual(relayed["restore_offer"], self._OFFER)   # the local detector's signal is relayed verbatim
         self.assertIsNone(failed["restore_offer"])                # a detector/import failure degrades quietly to None
+
+
+class TestMigrationRevertOffer(unittest.TestCase):
+    """Slice 3 (D-264 floor a, #303): boot RELAYS memory's code-older-than-data detector as a one-action recovery
+    OFFER, by plain handle (never the raw tag the signal carries), pinned below the governance alarms, carried on the
+    present-marker, and NOT in must_push. boot OFFERS; the assistant runs memory.restore_pre_migration on consent."""
+    _OFFER = {"store_label": "recall-ledger", "stamped": "2.0.0", "running": "1.0.0",
+              "tag": "engine-snapshot/abc123/core-2.0.0"}
+
+    def test_render_surfaces_the_offer_by_plain_handle_never_the_tag(self):
+        offered = boot.render_dashboard(_signals(migration_revert=self._OFFER))
+        self.assertIn("the copy saved before that update", offered.lower())
+        self.assertIn("restore my memory from before the update", offered.lower())
+        self.assertIn("until you say so", offered.lower())            # the consent-first reassurance
+        # floor (a) / D-265 S1: the raw tag is opaque executor payload, never rendered to the operator
+        self.assertNotIn("engine-snapshot/", offered)
+        self.assertNotIn(self._OFFER["tag"], offered)
+        self.assertNotIn("the copy saved before that update",
+                         boot.render_dashboard(_signals(migration_revert=None)).lower())
+
+    def test_offer_pins_below_the_governance_alarm(self):
+        pack = boot.render_dashboard(_signals(gate="off", reason="x", migration_revert=self._OFFER))
+        lines = pack.splitlines()
+        gate = next(i for i, ln in enumerate(lines) if "safety gate is off" in ln.lower())
+        offer = next(i for i, ln in enumerate(lines) if "before that update" in ln.lower())
+        self.assertLess(gate, offer, "the governance alarm must pin above the recovery offer")
+
+    def test_present_marker_reflects_the_offer_but_alarms_outrank_and_carries_no_tag(self):
+        marker = boot.present_marker_line(_signals(migration_revert=self._OFFER))
+        self.assertIn("ahead of the engine", marker)
+        self.assertIn("restore my memory from before the update", marker)
+        self.assertNotIn("engine-snapshot/", marker)                  # no raw tag on the marker either
+        self.assertEqual(boot.present_marker_line(_signals(migration_revert=None)),
+                         f"{boot.PRESENT_MARKER}: all clear")
+        self.assertEqual(boot.present_marker_line(_signals(gate="off", migration_revert=self._OFFER)),
+                         "⚠ Protected branch is off")                 # a governance alarm outranks the offer
+
+    def test_offer_is_not_in_the_must_push_set(self):
+        self.assertEqual(boot.must_push(_signals(migration_revert=self._OFFER)), [])
+
+    def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            from memory import restore_vault
+            with mock.patch.object(restore_vault, "detect_migration_revert", return_value=self._OFFER):
+                relayed = boot.gather_signals()
+            with mock.patch.object(restore_vault, "detect_migration_revert", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["migration_revert"], self._OFFER)    # the detector's signal is relayed verbatim
+        self.assertIsNone(failed["migration_revert"])                 # a detector/import failure degrades quietly to None
 
 
 class TestAuditStaleness(unittest.TestCase):
@@ -977,6 +1117,86 @@ class TestStanceLine(unittest.TestCase):
             for p in patchers:
                 p.stop()
         clear.assert_called_once_with("sess-xyz")
+
+
+class TestAntiHabituationCollapse(unittest.TestCase):
+    """D-269 — the standing-alarm collapse applied in the hook path (_relay_lines / assemble_pack
+    use_ledger). An unchanged alarm collapses to a terse reminder that keeps its consequence + fix offer;
+    a new/worsened one relays in full; the degrade-loud tells never collapse; and — the #313 grounding
+    invariant — the present-marker line and the all-clear render NEVER collapse."""
+
+    def setUp(self):
+        # isolate the ledger in a tmp dir via the env override, so the collapse is exercised hermetically
+        self.dir = tempfile.mkdtemp()
+        self._env = mock.patch.dict(os.environ, {boot.boot_alarm_ledger.ENV_DIR: self.dir})
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+
+    def test_findings_alarm_collapses_when_unchanged_keeping_the_offer(self):
+        s = _signals(finding_count=20, register="https://x/issues")
+        first = boot._relay_lines(s)                                    # no ledger -> full (neutral)
+        self.assertTrue(any("20 open engine finding" in l and "still" not in l.lower() for l in first))
+        second = boot._relay_lines(s)                                   # same condition -> terse
+        terse = [l for l in second if "finding" in l][0]
+        self.assertIn("still", terse.lower())
+        self.assertIn("review", terse.lower())                          # the offer is kept
+        self.assertIn("issues", terse)                                  # the register link is kept
+
+    def test_findings_worsening_relays_full_with_the_worse_label(self):
+        boot._relay_lines(_signals(finding_count=20, register="u"))     # seed
+        boot._relay_lines(_signals(finding_count=20, register="u"))     # collapse
+        worse = boot._relay_lines(_signals(finding_count=25, register="u"))
+        line = [l for l in worse if "finding" in l][0]
+        self.assertNotIn("still", line.lower())
+        self.assertIn("grown", line.lower())                            # the lexical "got worse" signal
+
+    def test_findings_improvement_relays_full_not_a_stale_still(self):
+        boot._relay_lines(_signals(finding_count=20, register="u"))     # seed
+        better = boot._relay_lines(_signals(finding_count=17, register="u"))
+        line = [l for l in better if "finding" in l][0]
+        self.assertIn("17", line)                                       # the new (lower) number is shown
+        self.assertNotIn("still", line.lower())                         # never collapsed to a stale count
+
+    def test_gate_alarm_collapses_keeping_consequence_and_fix(self):
+        s = _signals(gate="off", reason="no required checks")
+        boot._relay_lines(s)                                            # seed (full)
+        line = [l for l in boot._relay_lines(s) if "gate" in l.lower()][0]
+        self.assertIn("still", line.lower())
+        self.assertIn("re-enabling", line.lower())                      # the fix offer is kept
+        self.assertIn("main", line.lower())                            # the consequence is kept
+
+    def test_degrade_loud_tells_never_collapse(self):
+        # a couldn't-verify gate and a refused cursor always render full, even on repeat (never softened)
+        for over in (dict(gate="unknown"), dict(refused=True)):
+            boot._relay_lines(_signals(**over))
+            again = boot._relay_lines(_signals(**over))
+            self.assertFalse(any("unchanged since last session" in l.lower() for l in again),
+                             f"{over} must never collapse (degrade-loud)")
+
+    def test_present_marker_never_collapses(self):
+        # the #313 grounding invariant: the marker line is independent of the ledger and names the alarm
+        # every session, even as the relay behind it collapses.
+        s = _signals(finding_count=7, register="u")
+        boot._relay_lines(s); boot._relay_lines(s)                      # the relay collapses on the repeat
+        self.assertEqual(boot.present_marker_line(s),
+                         f"⚠ {boot.PRESENT_MARKER}: 7 open engine finding(s) to review")
+
+    def test_all_clear_never_collapses(self):
+        self.assertEqual(boot._relay_lines(_signals(gate="on")), [])    # no eligible alarms -> empty relay
+        self.assertEqual(boot.present_marker_line(_signals(gate="on")),
+                         f"{boot.PRESENT_MARKER}: all clear")
+
+    def test_hook_path_collapses_but_the_fresh_pack_cli_does_not(self):
+        with mock.patch.object(boot, "gather_signals", return_value=_signals(gate="off", reason="x")):
+            first = boot.assemble_pack(use_ledger=True)                 # the real hook path
+            second = boot.assemble_pack(use_ledger=True)
+            fresh = boot.assemble_pack()                                # the `pack` debug CLI (no ledger)
+        self.assertIn("their safety gate is off", first)               # full on first
+        self.assertIn("still off", second.lower())                     # terse on the repeat
+        self.assertIn("their safety gate is off", fresh)               # the fresh render never collapses
+        self.assertNotIn("still off", fresh.lower())
 
 
 if __name__ == "__main__":

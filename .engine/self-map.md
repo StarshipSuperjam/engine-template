@@ -4,6 +4,11 @@
 > catalog and module manifests, so it always matches them. To update it, change those and
 > regenerate with `uv run --directory .engine -- python tools/self_map.py generate`, then commit the result.
 
+> **What this shows — and what it does not.** This map shows your engine's structural makeup:
+> the kinds of file it governs and the packages it is built from, derived to match those sources.
+> It does not show whether each part *works* or is well designed — that is your review and each
+> module's own checks, never something this map attests.
+
 Engine release `0.0.0-dev` · identity `solo`
 
 ## Surfaces
@@ -55,7 +60,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
   - knowledge: `.engine/knowledge/*.json`
-  - operation: `.engine/operations/boot-session-start.md`, `.engine/operations/build-orchestration.md`, `.engine/operations/close-turn.md`, `.engine/operations/conduct-author.md`, `.engine/operations/control-plane-bootstrap.md`, `.engine/operations/engine-remove.md`, `.engine/operations/engine-upgrade.md`, `.engine/operations/first-run.md`, `.engine/operations/knowledge-impact-check.md`, `.engine/operations/module-add.md`, `.engine/operations/module-remove.md`, `.engine/operations/operating-modes.md`, `.engine/operations/tune-policy.md`
+  - operation: `.engine/operations/boot-session-start.md`, `.engine/operations/build-orchestration.md`, `.engine/operations/close-turn.md`, `.engine/operations/conduct-author.md`, `.engine/operations/control-plane-bootstrap.md`, `.engine/operations/engine-arrival.md`, `.engine/operations/engine-remove.md`, `.engine/operations/engine-upgrade.md`, `.engine/operations/first-run.md`, `.engine/operations/knowledge-impact-check.md`, `.engine/operations/module-add.md`, `.engine/operations/module-remove.md`, `.engine/operations/operating-modes.md`, `.engine/operations/tune-policy.md`
   - policy: `.engine/policies/attention.md`, `.engine/policies/contract-threshold.md`, `.engine/policies/escalation.md`, `.engine/policies/finding-disposition.md`, `.engine/policies/triage-threshold.md`
   - provisioning: `.engine/provisioning/first-run-assets.json`, `.engine/provisioning/module-catalog.json`
   - schema: `.engine/schemas/*.json`
@@ -149,7 +154,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
-  - check: `.engine/check/agent-frontmatter.json`, `.engine/check/agent-shape.json`, `.engine/check/audit-concern-list.json`, `.engine/check/audit-digest-fingerprint.json`, `.engine/check/audit-digest-staleness.json`, `.engine/check/catalog-coverage.json`, `.engine/check/conduct-frontmatter.json`, `.engine/check/conduct-shape.json`, `.engine/check/conduct-weakening-guard.json`, `.engine/check/contract-frontmatter.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/doc-frontmatter.json`, `.engine/check/doc-shape.json`, `.engine/check/engine-manifest.json`, `.engine/check/first-run-reference-closure.json`, `.engine/check/in-tool-demo-failure-path.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/knowledge-vocabulary.json`, `.engine/check/link-integrity.json`, `.engine/check/memory-pointer-public-safety.json`, `.engine/check/module-manifest.json`, `.engine/check/operation-frontmatter.json`, `.engine/check/operation-shape.json`, `.engine/check/policy-frontmatter.json`, `.engine/check/policy-override-stale.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/provisioning-catalog.json`, `.engine/check/self-map-drift.json`, `.engine/check/skill-coherence.json`, `.engine/check/skill-frontmatter.json`, `.engine/check/skill-shape.json`, `.engine/check/state-cursor.json`, `.engine/check/uv-group-drift.json`
+  - check: `.engine/check/agent-coherence.json`, `.engine/check/agent-frontmatter.json`, `.engine/check/agent-shape.json`, `.engine/check/audit-concern-list.json`, `.engine/check/audit-digest-fingerprint.json`, `.engine/check/audit-digest-staleness.json`, `.engine/check/catalog-coverage.json`, `.engine/check/conduct-frontmatter.json`, `.engine/check/conduct-shape.json`, `.engine/check/conduct-weakening-guard.json`, `.engine/check/contract-frontmatter.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/doc-frontmatter.json`, `.engine/check/doc-shape.json`, `.engine/check/engine-manifest.json`, `.engine/check/first-run-reference-closure.json`, `.engine/check/hard-check-bite.json`, `.engine/check/in-tool-demo-failure-path.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/knowledge-vocabulary.json`, `.engine/check/link-integrity.json`, `.engine/check/memory-pointer-public-safety.json`, `.engine/check/module-manifest.json`, `.engine/check/operation-frontmatter.json`, `.engine/check/operation-shape.json`, `.engine/check/policy-frontmatter.json`, `.engine/check/policy-override-stale.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/provisioning-catalog.json`, `.engine/check/self-map-drift.json`, `.engine/check/skill-coherence.json`, `.engine/check/skill-frontmatter.json`, `.engine/check/skill-shape.json`, `.engine/check/state-cursor.json`, `.engine/check/untracked-surface.json`, `.engine/check/uv-group-drift.json`
 - wires: none (this module adds no shared-state edits)
 
 ### `audit-library` — version `0.0.0-dev` (required)

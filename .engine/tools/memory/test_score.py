@@ -212,9 +212,11 @@ class LedgerDemotionTests(_Base):
         self.assertIn(records.MARKER_KIND, kinds)
 
     def test_back_compat_a_recent_record_with_no_id_or_no_role_still_recalls(self):
-        # Case 10: a pre-4b record (no `id`) and a role-less turn-delta still score (born hot) and recall; the
-        # access-index lookup for a missing id is empty, never a crash.
-        ledger.append(capture._make_record("s", 0, "user", "the cartographer mislabeled the delta"))
+        # Case 10: a pre-4b record (no `id`) and a role-less curated record still score (born hot) and recall; the
+        # access-index lookup for a missing id is empty, never a crash. Ambient turn-deltas are no longer recall
+        # content (D-273/D-274, #332), so the role-less vehicle is a role-less episodic, not a turn-delta.
+        ledger.append({"v": 1, "kind": records.EPISODIC_KIND, "session_id": "s", "ts": int(time.time()),
+                       "text": "the cartographer mislabeled the map", "tags": ["episodic"]})   # no id, no role
         legacy = {"v": 1, "kind": records.EPISODIC_KIND, "session_id": "s",
                   "ts": int(time.time()), "role": "decision", "text": "no id here either", "tags": []}
         ledger.append(legacy)

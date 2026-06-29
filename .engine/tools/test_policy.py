@@ -4,7 +4,7 @@ template, the live policy-shape rule, the committed policy instances (the four v
 attention policy the slice-12 cognitive floor contributes), the contract-threshold filled-presence rule (the
 slice-13 forward-obligation), and the catalog flip that wires schema + template in.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock: policy.v1 is a well-formed schema with teeth (a status outside the decision lifecycle, a bad
 date, a missing required field, an unknown extra field, a malformed established_by link, or a values block

@@ -10,6 +10,17 @@ maintainer-construction-governance file, distinct from the thin deployed-floor `
 `CLAUDE.md` a generated repo is meant to carry in its place. The two bodies stay separate and must not be
 conflated.
 
+## The engine's codes of conduct — loaded here, every session
+
+The engine carries standing **codes of conduct** — how it engages: a critical-thinking partner, plain
+language, explain-before-acting, grounded claims, honest failure, preserving the owner's intent — loaded as
+part of the floor every session, in this repo as in any repo the engine runs. They are guidance the engine
+follows, not a gate (the real protection is the merge gate below), and they are yours to shape with
+`/engine-conduct`.
+
+@.engine/conduct/defaults.md
+@.engine/conduct/operator.md
+
 ## What this repo is
 
 `engine-template` is a GitHub repository template that, via "Use this template," stands up an AI-driven Engine —
@@ -60,6 +71,13 @@ smell to recheck, never a verdict to relay). My adjudication raises confidence; 
 
 ## Harness invariants (hold through v1)
 
+- **Full spec capability every PR — no construction milestone licenses an under-build.** Each PR drives the
+  slice it touches to its full spec capability; M1, the engine's v1, and "once deployed" are never reasons to
+  ship less (`principles.md` §20). The build-conformance review flags a slice built partial or parked behind a
+  milestone as a divergence. The only sanctioned non-builds are the engine==product construction-repo
+  differences (no rendered CODEOWNERS, the hand-seeded manifest, this distinct construction-governance file)
+  and a capability a `locked` design doc or logged decision explicitly scopes out of v1 — a build session may
+  not reclassify in-spec work as out-of-scope to dodge building it.
 - Every change is a **pull request against protected `main`**; **validator-green before merge** (the
   mechanical floor — the seed validator, now `validators-core`).
 - **Plan-first, one step at a time**; each step finished and re-grounded from merged disk before the next.
@@ -115,7 +133,10 @@ Each hand-built seed piece is **superseded** by the engine module that prefigure
 `validators-core`; the PR-body completeness rule → the validation `presence` kind; ad-hoc write-discipline → the
 modes Explore write-gate; and **this `CLAUDE.md` → the `core` grammar + the boot floor.** That last supersession is
 what **retires this file at v1**, when the build locus leaves the repo and the deployed floor (`CLAUDE.deployed.md`)
-becomes the only `CLAUDE.md` a generated repo carries. **The protected-branch human merge gate is the one rung
+becomes the only `CLAUDE.md` a generated repo carries. That supersession swaps **which governance file is
+active** — the construction body retires, the boot floor takes over — and **never licenses building a slice
+less completely before then** (`principles.md` §20; stage-0 §6): the seed governance being provisional is a
+governance *handoff*, not deferred capability. **The protected-branch human merge gate is the one rung
 that never retires** — every other rung is superseded by machinery; the gate-holder's merge is forever.
 
 ## Resume order for a build session

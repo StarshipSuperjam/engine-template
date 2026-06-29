@@ -6,6 +6,7 @@ lens: usability
 model-tier: judgment
 permissions: read-only
 output-contract: pre-submission-review-finding.v1
+disallowedTools: [Edit, Write, NotebookEdit]
 ---
 
 ## Mandate

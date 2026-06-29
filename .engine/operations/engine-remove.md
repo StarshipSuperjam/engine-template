@@ -49,6 +49,12 @@ your main branch is no longer protected, and turning protection back on later me
 again to re-create the rule. Reverting the removal pull request brings the files back but does not turn the
 safety rule back on by itself.
 
+**When the safety rule was yours, not the engine's.** If the engine arrived on a repo that already protected
+its main branch and added its checks to *your* rule (rather than creating its own), removal takes back exactly
+what it added — its checks, and any force-push/deletion/pull-request protection it had to add — and leaves the
+rest of your rule exactly as it was. There is no keep-or-remove choice in that case, because the rule is yours,
+not one the engine created; the engine never deletes a rule it did not make.
+
 **Shared things the engine leaves alone.** In your shared setup files the engine removes only its own entries.
 If something there might also be yours — a permission you granted that you may still want — the engine leaves
 it and tells you, so you can remove it by hand if you don't need it. The cost of never wrongly removing

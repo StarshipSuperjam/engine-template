@@ -2,7 +2,7 @@
 """Self-tests for slice 11a — the knowledge-retrieval op-set (knowledge_query.py), the SQLite index
 (knowledge_index.py), and the graph-query MCP server (knowledge_mcp_server.py).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock the load-bearing teeth over a controlled FIXTURE graph (so assertions are exact and
 independent of the evolving real graph): get-entity returns the entity + edges (or None); find selects
