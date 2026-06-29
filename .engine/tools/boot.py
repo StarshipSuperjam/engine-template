@@ -602,7 +602,8 @@ def render_dashboard(s: dict) -> str:
             "📦 **Your project folder has fallen behind your recent work** — merged updates have landed since "
             f"you last caught up (most recently on {s['behind_origin']['latest']}), and your folder doesn't "
             "have them yet. I work in a separate copy, so nothing is broken — when you're ready, say **bring "
-            "it up to date** and I'll bring your folder current safely; nothing you already have will be lost.")
+            "it up to date** and I'll bring your folder current safely; or, if you have unsaved work in the "
+            "way, I'll tell you and leave everything untouched. Either way, nothing you already have will be lost.")
 
     # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier
     # (below the governance alarms — a conflicting PR cannot reach protected `main`, so it is NOT a governance

@@ -86,8 +86,16 @@ say yes** — it never runs the repair un-asked. Only then does it run the un-st
 checkout. It is **lossless-or-it-does-not-run**: it saves anything at risk — work that has drifted off the
 branch, or unsaved changes — to a safe point first, then re-attaches the folder to its branch and restores the
 missing engine files; if it cannot safely tell where to put the folder, it refuses rather than guess, and the
-assistant says so. The assistant relays the plain-language result. (Bringing a merely *behind* folder up to
-date is a separate, deferred step — the repair handles the broken states, not ordinary behind-ness.)
+assistant says so. The assistant relays the plain-language result.
+
+**A folder that has merely fallen behind is the same shape (#335).** When boot surfaces that the folder is on
+its default branch but missing recent merged work, the assistant likewise **waits for the operator to say**
+"bring it up to date", then runs the catch-up (`checkout_health.catch_up`). It is **lossless-or-it-does-not-run**
+by construction: it brings the folder current only along a safe fast-forward, keeping any unsaved changes; if
+unsaved work is in the way it changes nothing and reports that plainly (a `blocked` result), so nothing is lost.
+The assistant relays the plain result — brought current, already up to date, or blocked-with-unsaved-work — and
+never forces. (This signal is online-only and consequence-gated: ordinary small drift stays quiet, and a folder
+parked on a *non-default* branch is a separate state, not yet handled — [issue #342](https://github.com/StarshipSuperjam/engine-template/issues/342).)
 
 **A stranded pull request is the same shape (#136).** When boot surfaces a pull request that can't be merged,
 the assistant likewise **waits for the operator's go-ahead**, then runs the reconcile (`pr_reconcile.reconcile`).
