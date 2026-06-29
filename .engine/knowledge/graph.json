@@ -1164,7 +1164,7 @@
       },
       "slug": "pr-body-completeness",
       "source": {
-        "fingerprint": "sha256:769d2fe0946299386a1f0d88d22c073cb1a726d39efa816fc53376f67a14425b",
+        "fingerprint": "sha256:103d56924cc9f63ca6b084771d7d382c3727d67cedc5f4aa792290026d0f78cd",
         "path": ".engine/check/pr-body-completeness.json"
       },
       "status": "active",
@@ -2443,7 +2443,7 @@
       },
       "slug": "check.v1",
       "source": {
-        "fingerprint": "sha256:6ab9d118d4ab2503dde86f2d3e79848441add0c9b1cf2b64a7dc99379f4c0765",
+        "fingerprint": "sha256:a9661635c4ca5ece3866bac2adcd9785b7f7fe3308276b7d97ded48b6733b003",
         "path": ".engine/schemas/check.v1.json"
       },
       "status": "active",
@@ -3491,7 +3491,7 @@
       },
       "slug": "demo_ci_author_exempt",
       "source": {
-        "fingerprint": "sha256:0719cdd97208064e60b15c44b845ed134ff6ef3044eb348f2bdef711d7f204ab",
+        "fingerprint": "sha256:24fe0634cb18d854ebd30e9216067628c2663547f26bb19b3de1c6a8c06c6133",
         "path": ".engine/tools/demo_ci_author_exempt.py"
       },
       "status": "active",
@@ -5089,7 +5089,7 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:0cc044b3414b1bfde57588c5a2d2a30f00f7258851d5fa1398523a0c32b5c894",
+        "fingerprint": "sha256:40d10ac7e4808c0ee5bb6eaf8ceb4c199c6c33c149caba2c260f7614b8ed373c",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",
@@ -5871,7 +5871,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:616caf113a5aaf3db9b859dd673219a809b07cb7d61a95a2d0398ffe7c83f945",
+        "fingerprint": "sha256:addd2ee6cd397710cd736a0fdc9f009abd683d9e70868c3028d94dfda1e0cc91",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -6228,7 +6228,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:c84ab8681fcd437a9e85cac5bb95e196c9649fcb4b8944fb71b55d54b0576464",
+        "fingerprint": "sha256:fc27baf6bda1ce96e289017afe257fcc8eef21fec99547f5cfcd5a4040d8f43e",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

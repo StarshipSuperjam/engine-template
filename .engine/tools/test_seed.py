@@ -124,10 +124,12 @@ class TestCiAuthorExempt(unittest.TestCase):
         self.assertNotIn("the kind ran", text)   # the kind was skipped before dispatch
 
     def test_github_actions_bot_author_is_exempt(self):
-        # The engine's own bot PRs — the scheduled self-review digest and the memory-erasure proposal — are
-        # opened by github-actions[bot] and carry a plain-language body, not the eight-section template; like
-        # dependabot they are an exempted, disclosed not-applicable pass (this is what clears the digest PR's
-        # otherwise-red engine-ci). Proves the engine honors the EXACT bot login, brackets and all.
+        # The scheduled self-review DIGEST pull request is opened by github-actions[bot] (audit-prep.yml opens
+        # it via the workflow GITHUB_TOKEN) and carries a plain-language body, not the eight-section template;
+        # like dependabot it is an exempted, disclosed not-applicable pass (this is what clears the digest PR's
+        # otherwise-red engine-ci). Proves the engine honors the EXACT bot login, brackets and all. (The
+        # memory-erasure proposal is NOT bot-authored — a local SessionStart hook opens it under the operator's
+        # own gh token — so it is cleared by the engine-erasure LABEL exemption instead; see TestCiLabelExempt.)
         self._install(exempt=("dependabot[bot]", "github-actions[bot]"))
         rc, text = self._run("CI", {"pr_body": "", "pr_author": "github-actions[bot]"})
         self.assertEqual(rc, 0)
@@ -196,6 +198,98 @@ class TestCiAuthorExempt(unittest.TestCase):
         self.assertNotIn("the kind ran", text)
 
 
+class TestCiLabelExempt(unittest.TestCase):
+    """The engine honors a rule's `ci_label_exempt` in the merge gate as a DISCLOSED not-applicable
+    pass — keyed on a LABEL the pull request carries (e.g. engine-erasure), not its author — so a
+    single-purpose pull-request class whose own plain body is its account is waived without a silent
+    green; the closed kinds stay label-agnostic; the by-id guard path is never exempt; exact-match
+    only. The label-keyed sibling of TestCiAuthorExempt (the memory-erasure proposal is operator-
+    authored, so the author exemption cannot reach it — this is what clears its engine-ci)."""
+    DISCLOSURE = "NOT APPLICABLE"
+
+    def setUp(self):
+        self._rules, self._reg = validate.load_rules, dict(validate.REGISTRY)
+
+    def tearDown(self):
+        validate.load_rules = self._rules
+        validate.REGISTRY.clear()
+        validate.REGISTRY.update(self._reg)
+
+    def _install(self, *, suites=("CI",), exempt=("engine-erasure",)):
+        # The same always-fail synthetic kind TestCiAuthorExempt uses: a PASS proves the engine
+        # skipped it (exempt), a FAIL proves the kind ran ("the kind ran" appears iff dispatched).
+        validate.load_rules = lambda: [{"id": "engine/check/synthetic-label-exempt",
+                                        "kind": "always-fail", "tier": "hard",
+                                        "suites": list(suites), "params": {},
+                                        "ci_label_exempt": list(exempt)}]
+        validate.REGISTRY["always-fail"] = lambda rule, ctx: (
+            False, [validate.finding("hard", "the kind ran")])
+
+    def _run(self, suite, ctx):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = validate.run(suite, ctx)
+        return rc, out.getvalue()
+
+    def test_exempt_label_passes_in_ci_with_disclosure(self):
+        self._install()
+        rc, text = self._run("CI", {"pr_body": "", "pr_labels": ["engine-erasure"]})
+        self.assertEqual(rc, 0)                  # waived → no hard finding → completed pass
+        self.assertIn(self.DISCLOSURE, text)     # disclosed, never a silent green
+        self.assertNotIn("the kind ran", text)   # the kind was skipped before dispatch
+
+    def test_one_matching_label_among_many_exempts(self):
+        self._install()
+        rc, text = self._run("CI", {"pr_body": "", "pr_labels": ["chore", "engine-erasure", "z"]})
+        self.assertEqual(rc, 0)
+        self.assertIn(self.DISCLOSURE, text)
+        self.assertNotIn("the kind ran", text)
+
+    def test_nonexempt_label_still_enforced(self):
+        self._install()
+        rc, text = self._run("CI", {"pr_body": "", "pr_labels": ["some-other-label"]})
+        self.assertEqual(rc, 1)
+        self.assertIn("the kind ran", text)
+        self.assertNotIn(self.DISCLOSURE, text)
+
+    def test_no_labels_enforced(self):
+        # Local run / --pr-body-file / malformed event → [] labels → never matches → enforces.
+        self._install()
+        rc, _ = self._run("CI", {"pr_body": "", "pr_labels": []})
+        self.assertEqual(rc, 1)
+
+    def test_wrong_case_label_enforced(self):
+        self._install()
+        rc, text = self._run("CI", {"pr_body": "", "pr_labels": ["Engine-Erasure"]})
+        self.assertEqual(rc, 1)                  # exact match only; no silent case-fold widening
+        self.assertIn("the kind ran", text)
+
+    def test_exempt_only_in_blocking_gate_suite(self):
+        # The same rule + label in a non-blocking-gate suite is NOT exempted: the kind runs
+        # (advisory there, so assert on the text). Locks the gate to the suite's blocking-gate
+        # CONTEXT, not the literal name "CI".
+        self._install(suites=("pre-commit",))
+        rc, text = self._run("pre-commit", {"pr_body": "", "pr_labels": ["engine-erasure"]})
+        self.assertNotIn(self.DISCLOSURE, text)
+        self.assertIn("the kind ran", text)
+
+    def test_by_id_guard_path_never_exempt(self):
+        # run_check() (the by-id path engine-guard uses) carries no suite, so it never honors
+        # ci_label_exempt — the §15 guard judges an engine-erasure-labelled PR too.
+        self._install()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = validate.run_check("engine/check/synthetic-label-exempt",
+                                    {"pr_body": "", "pr_labels": ["engine-erasure"]})
+        self.assertEqual(rc, 1)
+        self.assertNotIn(self.DISCLOSURE, out.getvalue())
+
+    def test_kind_presence_is_label_agnostic(self):
+        # The closed kind never reads labels: an exempt label still fails an empty body.
+        passed, found = validate.kind_presence(
+            COMPLETENESS_RULE, {"pr_body": "", "pr_labels": ["engine-erasure"]})
+        self.assertFalse(passed)
+        self.assertEqual(len(found), 8)
+
+
 class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
     """The optional `ci_author_exempt` field is additive: the committed rule carries it,
     the schema still requires exactly the seven, and no committed rule is invalidated."""
@@ -207,12 +301,15 @@ class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
                          ["id", "target", "kind", "params", "tier", "suites", "message"])
 
     def test_committed_pr_body_rule_declares_and_validates(self):
-        # Two exempt bot authors: dependabot[bot] (its dependency PRs) and github-actions[bot] (the engine's
-        # own bot-opened PRs — the scheduled self-review digest and the memory-erasure proposal — which carry
-        # their own plain-language body, never the eight-section template). A drop of either silently re-breaks
-        # those bot PRs' engine-ci, so pin the exact list.
+        # Two exempt bot AUTHORS: dependabot[bot] (its dependency PRs) and github-actions[bot] (the scheduled
+        # self-review digest pull request, opened via the workflow token) — both carry their own plain-language
+        # body, never the eight-section template. Plus one exempt LABEL, engine-erasure: the single-purpose
+        # memory-erasure proposal is opened by a local hook under the operator's own identity (NOT a bot), so the
+        # author exemption cannot reach it — its deliberate plain consent body is cleared by the label instead.
+        # A drop of any of these silently re-breaks those PRs' engine-ci, so pin the exact lists.
         rule = validate.load_json(os.path.join(validate.CHECK_DIR, "pr-body-completeness.json"))
         self.assertEqual(rule.get("ci_author_exempt"), ["dependabot[bot]", "github-actions[bot]"])
+        self.assertEqual(rule.get("ci_label_exempt"), ["engine-erasure"])
         errs = list(validate.Draft202012Validator(self._schema()).iter_errors(rule))
         self.assertEqual(errs, [])
 
@@ -276,6 +373,64 @@ class TestGetPrAuthor(unittest.TestCase):
         os.environ["GITHUB_ACTOR"] = "dependabot[bot]"
         self._event({"pull_request": {"user": {}}})
         self.assertIsNone(validate.get_pr_author())
+
+
+class TestGetPrLabels(unittest.TestCase):
+    """get_pr_labels() reads the trusted event context (.pull_request.labels[].name) and degrades to
+    [] — therefore to ENFORCING the rule — on any doubt: a non-list labels field, a label without a
+    string name, an unreadable/partial event. The second security-load-bearing event parser (its
+    falsely-exempt failure mode would waive a hard check), so it is tested directly against a real
+    GITHUB_EVENT_PATH file, not via an injected ctx — the same posture as get_pr_author."""
+    def setUp(self):
+        self._env = {"GITHUB_EVENT_PATH": os.environ.get("GITHUB_EVENT_PATH")}
+        self._paths = []
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        for p in self._paths:
+            if os.path.exists(p):
+                os.unlink(p)
+
+    def _event(self, raw):
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as fh:
+            fh.write(raw if isinstance(raw, str) else json.dumps(raw))
+        self._paths.append(path)
+        os.environ["GITHUB_EVENT_PATH"] = path
+
+    def test_valid_event_returns_label_names_in_order(self):
+        self._event({"pull_request": {"labels": [{"name": "engine-erasure"}, {"name": "chore"}]}})
+        self.assertEqual(validate.get_pr_labels(), ["engine-erasure", "chore"])
+
+    def test_no_labels_is_empty_not_an_error(self):
+        self._event({"pull_request": {"labels": []}})
+        self.assertEqual(validate.get_pr_labels(), [])
+
+    def test_degrades_to_empty_on_every_malformed_shape(self):
+        for raw in ({"pull_request": {"labels": None}},               # null labels
+                    {"pull_request": {"labels": "engine-erasure"}},   # type-confused labels (str, not list)
+                    {"pull_request": {"labels": [{"name": None}]}},   # name present but not a string
+                    {"pull_request": []},                             # type-confused pull_request
+                    {"pull_request": None},                           # null pull_request
+                    {},                                               # no pull_request
+                    "this is not json"):                              # unparseable event
+            with self.subTest(raw=raw):
+                self._event(raw)
+                self.assertEqual(validate.get_pr_labels(), [])
+
+    def test_mixed_items_keep_only_well_formed_string_names(self):
+        # A real labels array of valid label objects mixed with junk → only the string names survive,
+        # never a crash and never a falsely-included non-string.
+        self._event({"pull_request": {"labels": [
+            {"name": "engine-erasure"}, {"no-name": "x"}, "a-string", 7, None, {"name": 9}]}})
+        self.assertEqual(validate.get_pr_labels(), ["engine-erasure"])
+
+    def test_missing_file_or_unset_env_returns_empty(self):
+        os.environ["GITHUB_EVENT_PATH"] = "/no/such/event/file.json"
+        self.assertEqual(validate.get_pr_labels(), [])
+        os.environ.pop("GITHUB_EVENT_PATH", None)
+        self.assertEqual(validate.get_pr_labels(), [])
 
 
 class TestDispatcherGate(unittest.TestCase):

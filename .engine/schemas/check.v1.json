@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "check.v1 — the shape of a single validation rule",
-  "description": "A check is one validation rule, authored as data (never as validator code): it names what to inspect, which check-kind evaluates it, how hard it bites, and which suites run it. The validation engine loads every check file and dispatches each to its kind. This schema governs the rule's shape — its seven required fields and one optional field (ci_author_exempt), and no others. It does not decide whether the named kind exists (an unknown kind is caught when the rule runs) or whether the rule's claim is true (only that the rule is well-formed).",
+  "description": "A check is one validation rule, authored as data (never as validator code): it names what to inspect, which check-kind evaluates it, how hard it bites, and which suites run it. The validation engine loads every check file and dispatches each to its kind. This schema governs the rule's shape — its seven required fields and two optional fields (ci_author_exempt and ci_label_exempt), and no others. It does not decide whether the named kind exists (an unknown kind is caught when the rule runs) or whether the rule's claim is true (only that the rule is well-formed).",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "target", "kind", "params", "tier", "suites", "message"],
@@ -61,6 +61,12 @@
     },
     "ci_author_exempt": {
       "description": "Optional. PR-author logins (for example dependabot[bot]) for which this rule does not bind in the merge-gating (CI) suite. The validation engine honors it as a disclosed not-applicable pass — a stated pass that names why the rule did not apply — never a silent skip, and never a workflow-level skip that would leave the required check pending and block the merge. The closed check-kinds stay author-agnostic: the engine reads the author from the trusted event context and skips the rule before any kind runs. Reserved for a recognized external automation whose own pull-request body is its account of the change; widening this list is a guardrail change that must be re-confirmed for spoof-safety.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "ci_label_exempt": {
+      "description": "Optional. Pull-request labels (for example engine-erasure) for which this rule does not bind in the merge-gating (CI) suite. Honored exactly like ci_author_exempt — a disclosed not-applicable pass, never a silent skip — but it keys on a label the pull request carries rather than on its author, so it waives a whole class of pull request rather than one automation's account. Reserved for an engine-defined single-purpose pull-request class whose own deliberate body is its account of the change (for example a single-purpose erasure proposal, which carries a plain-language consent body rather than the eight-section template). The closed check-kinds stay label-agnostic: the engine reads the labels from the trusted event context and skips the rule before any kind runs. Widening this list is a guardrail change that must be re-confirmed for spoof-safety.",
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true
