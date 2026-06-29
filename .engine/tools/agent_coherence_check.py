@@ -44,12 +44,21 @@ _MESSAGE = ("A reviewer or audit persona declared read-only must be one the plat
             "disallowedTools (the design-review lenses also block Bash, since they never run code).")
 
 
-def engine_agents(root: str | None = None) -> list:
+def engine_agents(root: str | None = None, agents_dir: str | None = None) -> list:
     """Parse the present personas' frontmatter. Inject the filename stem as `name` when the
-    frontmatter omits it, so a finding names the persona file the operator would actually open."""
-    base = root or validate.ROOT
+    frontmatter omits it, so a finding names the persona file the operator would actually open.
+
+    `agents_dir` is the negative-fixture meta-check's seam (#286): glob `*.md` directly under that
+    directory instead of a real `.claude/agents` tree — so a committed negative fixture is NOT discovered
+    by Claude Code's own agent loader (which scans `.claude/agents/**`) and shipped into every adopter as a
+    phantom persona. The coherence logic over the parsed frontmatter is identical either way."""
     agents = []
-    for path in sorted(glob.glob(os.path.join(base, _AGENT_GLOB))):
+    if agents_dir:
+        paths = sorted(glob.glob(os.path.join(agents_dir, "*.md")))
+    else:
+        base = root or validate.ROOT
+        paths = sorted(glob.glob(os.path.join(base, _AGENT_GLOB)))
+    for path in paths:
         fm = dict(validate.frontmatter(path))
         fm.setdefault("name", os.path.splitext(os.path.basename(path))[0])
         agents.append(fm)
@@ -127,7 +136,11 @@ def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
-    return emit(validate.agent_coherence_findings(engine_agents(), tier, _MESSAGE))
+    # ENGINE_AGENT_FIXTURE_DIR (unset in production) lets the negative-fixture meta-check point the persona
+    # scan at a seeded non-.claude fixture dir, so the coherence gate is witnessed biting a real bad input
+    # (#286) without the fixture being loaded as a real persona by Claude Code's own loader.
+    agents = engine_agents(agents_dir=validate.env_override_path("ENGINE_AGENT_FIXTURE_DIR"))
+    return emit(validate.agent_coherence_findings(agents, tier, _MESSAGE))
 
 
 if __name__ == "__main__":

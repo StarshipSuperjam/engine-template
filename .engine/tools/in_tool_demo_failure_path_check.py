@@ -157,7 +157,10 @@ def check(root: str | None = None) -> list:
 
 
 def main() -> int:
-    print(json.dumps(check()))
+    # ENGINE_ROOT (unset in production) lets the negative-fixture meta-check point the scan at a
+    # seeded mini-tree carrying a demo subcommand that cannot fail, so the gate is witnessed biting a
+    # real bad input (#286).
+    print(json.dumps(check(validate.env_override_path("ENGINE_ROOT"))))
     return 0
 
 

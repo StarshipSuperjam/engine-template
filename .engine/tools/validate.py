@@ -127,6 +127,21 @@ def finding(severity: str, message: str, location: dict | None = None) -> dict:
     return {"severity": severity, "message": message, "location": location}
 
 
+def env_override_path(var: str, default: "str | None" = None) -> "str | None":
+    """Resolve an input-substitution env var to a path — the one shared seam the negative-fixture
+    meta-check's custom/script units use (#286, D-256…D-260). When `var` is set and non-empty,
+    return it resolved under ROOT (an absolute value is used as-is); otherwise return `default`
+    unchanged. So when the variable is UNSET — every production run — the caller gets its own
+    default and behaviour is byte-unchanged; the seam is inert outside a `run_unit` fixture run,
+    which is the only path that sets the variable (around the child, restored after). One helper,
+    one relative-to-ROOT resolution rule, so every seam is the same single audit rather than a
+    dozen hand-rolled `os.environ`+`join` blocks."""
+    value = os.environ.get(var)
+    if not value:
+        return default
+    return value if os.path.isabs(value) else os.path.join(ROOT, value)
+
+
 def loc(path: str, line: int | None = None) -> dict:
     return {"file": os.path.relpath(path, ROOT), "line": line}
 

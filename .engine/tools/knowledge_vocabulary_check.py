@@ -161,7 +161,10 @@ def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
-    catalog = validate.load_json(validate.CATALOG_PATH)
+    # ENGINE_CATALOG_PATH (unset in production) lets the negative-fixture meta-check point the
+    # expected-vocabulary side at a seeded catalog that drifts from the real vocabulary files, so the
+    # gate is witnessed biting a real bad input (#286). The vocabulary sites still read the real files.
+    catalog = validate.load_json(validate.env_override_path("ENGINE_CATALOG_PATH") or validate.CATALOG_PATH)
     return emit(vocabulary_findings(expected_vocabulary(catalog), collect_sites(), tier))
 
 
