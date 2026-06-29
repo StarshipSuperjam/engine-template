@@ -339,18 +339,29 @@ class TestRunMigrations(unittest.TestCase):
                 self.assertEqual(fh.read(), "config")
 
     def test_data_migration_refused_without_a_backup_seam_and_never_runs(self):
-        with tempfile.TemporaryDirectory() as d:
-            marker = os.path.join(d, "out.txt")
-            mdir = self._module_dir(d, "dd.py",
-                                    "def migrate(context):\n"
-                                    f"    with open({marker!r}, 'w') as fh:\n"
-                                    "        fh.write('RAN')\n")
-            sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
-            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v1", module_dir=mdir, backup=None)
-            self.assertEqual(res["ran"], [])
-            self.assertEqual(len(res["refused"]), 1)
-            self.assertIn("no data backup", res["refused"][0])
-            self.assertFalse(os.path.exists(marker))          # the migration body never ran
+        # Force the no-backup-available condition so the test is deterministic regardless of the developer's
+        # ambient state: with backup=None, _resolve_backup_seam falls back to the live memory seam, which is
+        # available iff memory.migration_backup_available() (a configured vault pointer). On a dev machine with a
+        # real vault configured that is True, the seam resolves, and the data migration would RUN — so pin it
+        # False here (the same isolation TestBackupSeamResolution uses) to exercise the refusal path this asserts.
+        import memory
+        orig = memory.migration_backup_available
+        memory.migration_backup_available = lambda: False
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                marker = os.path.join(d, "out.txt")
+                mdir = self._module_dir(d, "dd.py",
+                                        "def migrate(context):\n"
+                                        f"    with open({marker!r}, 'w') as fh:\n"
+                                        "        fh.write('RAN')\n")
+                sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
+                res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v1", module_dir=mdir, backup=None)
+                self.assertEqual(res["ran"], [])
+                self.assertEqual(len(res["refused"]), 1)
+                self.assertIn("no data backup", res["refused"][0])
+                self.assertFalse(os.path.exists(marker))          # the migration body never ran
+        finally:
+            memory.migration_backup_available = orig
 
     def test_data_migration_runs_after_backup_and_is_stamped(self):
         with tempfile.TemporaryDirectory() as d:
