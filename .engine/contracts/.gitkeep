@@ -1,2 +1,0 @@
-# Keeps the contracts home (the append-only eADR stream) tracked while it is empty.
-# Remove this once the first eADR (eADR-0001-*.md) lands.
