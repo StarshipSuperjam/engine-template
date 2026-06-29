@@ -54,6 +54,7 @@ CLI:  python tools/checkout_health.py            # classify THIS repo's main che
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import subprocess
 import sys
@@ -164,10 +165,27 @@ def _is_lossless(main: str) -> tuple[bool, list[str]]:
     return (not reasons), reasons
 
 
+def _persisted_default_branch(main: str) -> str | None:
+    """The default-branch name the instantiator derived at first run and persisted as operator config in the
+    engine manifest (`<main>/.engine/engine.json`, key `default_branch` — #342). Read OFFLINE. None when
+    absent/unreadable/malformed — the construction repo and any pre-persistence checkout have no such key, so
+    the caller falls back to live resolution."""
+    try:
+        with open(os.path.join(main, ".engine", "engine.json"), encoding="utf-8") as fh:
+            val = json.load(fh).get("default_branch")
+        return val.strip() if isinstance(val, str) and val.strip() else None
+    except Exception:  # noqa: BLE001 — absent / unreadable / malformed manifest -> no persisted name
+        return None
+
+
 def _default_branch(main: str) -> str | None:
-    """The branch to re-attach a detached HEAD to, resolved OFFLINE: origin/HEAD's target, else a local
-    main/master, else the sole local branch. None when it cannot be safely determined — the fix then REFUSES
-    rather than move HEAD to a guessed branch."""
+    """The branch to re-attach a detached HEAD to (and the #342 classification anchor), resolved OFFLINE: the
+    PERSISTED derived name first (validated as an existing local branch, so a stale name can never redirect the
+    re-attach mutation), else origin/HEAD's target, else a local main/master, else the sole local branch. None
+    when it cannot be safely determined — the fix then REFUSES rather than move HEAD to a guessed branch."""
+    persisted = _persisted_default_branch(main)
+    if persisted and _run(["git", "-C", main, "rev-parse", "--verify", "--quiet", f"refs/heads/{persisted}"]):
+        return persisted   # validated: an existing local branch — safe for the re-attach mutation (gate S3)
     head = _run(["git", "-C", main, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
     if head and head.strip():
         ref = head.strip()

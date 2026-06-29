@@ -181,6 +181,29 @@ class TestConfirm(unittest.TestCase):
                 res = inst.confirm([], "solo", engine_release="1.0.0")
             self.assertEqual(sorted(res["manifest"]["packages"]), ["core"], "the id-less manifest is skipped")
 
+    def test_persists_the_derived_default_branch_when_known(self):
+        # #342: the derived default-branch name is persisted as operator config in the manifest, so offline
+        # classification reads a known name. It validates against the (closed) engine schema.
+        import validate as _v
+        schema = _v.load_json(os.path.join(_v.SCHEMAS_DIR, "engine.v1.json"))
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo", engine_release="1.0.0", default_branch="trunk")
+            self.assertEqual(res["manifest"]["default_branch"], "trunk")
+            with open(res["path"], encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh)["default_branch"], "trunk")
+            self.assertEqual(list(_v.Draft202012Validator(schema).iter_errors(res["manifest"])), [],
+                             "the manifest with default_branch validates against the closed engine schema")
+
+    def test_omits_default_branch_when_underivable(self):
+        # Best-effort: when the default branch can't be derived (None), it is simply absent — manifest stays valid.
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo", engine_release="1.0.0", default_branch=None)
+            self.assertNotIn("default_branch", res["manifest"])
+
 
 class TestCatalogSchemaConformance(unittest.TestCase):
     def _schema(self):

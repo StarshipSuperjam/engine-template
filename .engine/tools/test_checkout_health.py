@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import subprocess
 import tempfile
@@ -422,6 +423,45 @@ class TestUnstrand(unittest.TestCase):
         for token in ('"reset"', '"clean"', '"-f"', '"--force"', '"--hard"',
                       '"drop"', '"clear"', '"push"'):
             self.assertNotIn(token, src, f"the un-stranding fix must never use the git token {token}")
+
+
+class TestPersistedDefaultBranch(unittest.TestCase):
+    """#342 Slice 1: `_default_branch` reads the persisted manifest name FIRST, but only when it is a real
+    local branch (a stale/wrong name must never redirect the detached-HEAD re-attach mutation); else it falls
+    back to the live origin/HEAD → main/master → sole-branch resolution."""
+
+    def _repo(self, root, *, branch, persisted):
+        os.makedirs(os.path.join(root, ".engine"))
+        _git(root, "init", "-q", "-b", branch)
+        with open(os.path.join(root, "f.txt"), "w") as fh:
+            fh.write("x")
+        _git(root, "add", "-A")
+        _git(root, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", "seed")
+        manifest = {"engine_release": "0.0.0-dev", "packages": {"core": "0.0.0-dev"}, "identity": "solo"}
+        if persisted is not None:
+            manifest["default_branch"] = persisted
+        with open(os.path.join(root, ".engine", "engine.json"), "w") as fh:
+            json.dump(manifest, fh)
+
+    def test_persisted_name_wins_over_the_fallback_guess(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "r")
+            self._repo(root, branch="main", persisted="trunk")
+            _git(root, "branch", "trunk")           # 'trunk' is a real local branch, distinct from main
+            # the live fallback would pick 'main'; the validated persisted name wins
+            self.assertEqual(checkout_health._default_branch(root), "trunk")
+
+    def test_falls_back_when_persisted_name_is_not_a_local_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "r")
+            self._repo(root, branch="main", persisted="renamed-away")   # stale: no such local branch
+            self.assertEqual(checkout_health._default_branch(root), "main")   # ignored -> live fallback
+
+    def test_falls_back_when_no_persisted_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "r")
+            self._repo(root, branch="main", persisted=None)             # construction / pre-persistence repo
+            self.assertEqual(checkout_health._default_branch(root), "main")
 
 
 if __name__ == "__main__":
