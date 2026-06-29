@@ -204,6 +204,14 @@ class TestConfirm(unittest.TestCase):
                 res = inst.confirm([], "solo", engine_release="1.0.0", default_branch=None)
             self.assertNotIn("default_branch", res["manifest"])
 
+    def test_derive_default_branch_prefers_gh_then_degrades_to_none(self):
+        # gh is authoritative: a fake transport reports the repo's default branch (scoped to the given slug).
+        self.assertEqual(
+            inst.derive_default_branch(slug="o/r", gh_api=lambda _p: {"default_branch": "trunk"}), "trunk")
+        # gh silent + a non-git tree with no origin/HEAD -> None (never a bare guess), persists nothing.
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(inst.derive_default_branch(root=d, slug="o/r", gh_api=lambda _p: None))
+
 
 class TestCatalogSchemaConformance(unittest.TestCase):
     def _schema(self):
