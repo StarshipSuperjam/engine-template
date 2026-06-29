@@ -864,11 +864,13 @@
       },
       "slug": "hard-check-bite",
       "source": {
-        "fingerprint": "sha256:4b82e20eb0608c4e58e997639b41416bfdfb305c8567c0800adbce0d2f2f3703",
+        "fingerprint": "sha256:2f3a9f527eeecb80e060f4119021838e2c185b0b7b6a0d0f73e5514466f0e42d",
         "path": ".engine/check/hard-check-bite.json"
       },
       "status": "active",
-      "suites": [],
+      "suites": [
+        "CI"
+      ],
       "tier": "hard",
       "type": "check"
     },
@@ -5998,7 +6000,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:6286b860d014b224ab4fd92fda12c6e57481d3763714b723a28089c74b5a8799",
+        "fingerprint": "sha256:add8dbadb802228b7ac8cc06abec2345a979bec23bd63ba76697b71ec65a07f5",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
