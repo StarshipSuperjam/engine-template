@@ -1,4 +1,4 @@
 {
-  "target": "",
-  "cost": "No erasure is currently proposed."
+  "target": "f729d2c52dbc44be9eadfdc0ac0b51ba",
+  "cost": "A test 'probe' note written during memory upkeep to verify the store mechanism — never a real memory."
 }
