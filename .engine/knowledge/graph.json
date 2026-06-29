@@ -207,6 +207,31 @@
       "type": "agent"
     },
     {
+      "id": "check:agent-coherence",
+      "kind": "custom/script",
+      "name": ".engine/check/agent-coherence.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "agent-coherence",
+      "source": {
+        "fingerprint": "sha256:c66350f46d20bc8c8eb406d0c9ab211d29da998c87d345e49fdf3c12c40f202e",
+        "path": ".engine/check/agent-coherence.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:agent-frontmatter",
       "kind": "schema",
       "name": ".engine/check/agent-frontmatter.json",
@@ -1164,7 +1189,7 @@
       },
       "slug": "pr-body-completeness",
       "source": {
-        "fingerprint": "sha256:769d2fe0946299386a1f0d88d22c073cb1a726d39efa816fc53376f67a14425b",
+        "fingerprint": "sha256:103d56924cc9f63ca6b084771d7d382c3727d67cedc5f4aa792290026d0f78cd",
         "path": ".engine/check/pr-body-completeness.json"
       },
       "status": "active",
@@ -1846,7 +1871,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:f763990c60ba68e392a3afbbdfaf9271200165859ce34040138d0cf04862fae8",
+        "fingerprint": "sha256:3d3dc31814605fe879966efd04e0b4054d03a0495046ef3dd54cff1230a1370b",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2443,7 +2468,7 @@
       },
       "slug": "check.v1",
       "source": {
-        "fingerprint": "sha256:6ab9d118d4ab2503dde86f2d3e79848441add0c9b1cf2b64a7dc99379f4c0765",
+        "fingerprint": "sha256:a9661635c4ca5ece3866bac2adcd9785b7f7fe3308276b7d97ded48b6733b003",
         "path": ".engine/schemas/check.v1.json"
       },
       "status": "active",
@@ -3032,7 +3057,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:e5ce339927c314abaa0a1676f9abc78fc4fe5516d1765d836720341d8bf55255",
+        "fingerprint": "sha256:56916eb4e85d4348199ce563de21748e0e90db455a67a1daa9a11e6b07242c6f",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -3508,7 +3533,7 @@
       },
       "slug": "demo_ci_author_exempt",
       "source": {
-        "fingerprint": "sha256:0719cdd97208064e60b15c44b845ed134ff6ef3044eb348f2bdef711d7f204ab",
+        "fingerprint": "sha256:e6e862c432cd49c4826c7c0647461a0e124901cb36681c3e86c10fbaef02f01f",
         "path": ".engine/tools/demo_ci_author_exempt.py"
       },
       "status": "active",
@@ -5123,7 +5148,7 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:0cc044b3414b1bfde57588c5a2d2a30f00f7258851d5fa1398523a0c32b5c894",
+        "fingerprint": "sha256:04216477151ade89fa8b1e9817ad0000c51ceaa2d5a32aeaea9e34e938fa47a3",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",
@@ -5497,7 +5522,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:dcd02078385f272906405e9fa04ea5829139e0d7333ec3e4300f15429bd755c1",
+        "fingerprint": "sha256:0ecaf68237707447ccf9a0c1b98b56e989aa93daaff267acbe901896e9be1c4a",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -5514,7 +5539,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b7ae1a07f1e3cfff5d628e97d321bea07337c41dc89aa9b45ffe8133cf04c642",
+        "fingerprint": "sha256:66f459e7fee0115bd9f54a0bbd0e3893c3b5457296e195d39815a32592c83778",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -5905,7 +5930,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:616caf113a5aaf3db9b859dd673219a809b07cb7d61a95a2d0398ffe7c83f945",
+        "fingerprint": "sha256:addd2ee6cd397710cd736a0fdc9f009abd683d9e70868c3028d94dfda1e0cc91",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -6262,7 +6287,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:faddd40c7fb986c8bda5399dfe6c9b81fe3d1ae7b3d084e68cb374ce3b52f508",
+        "fingerprint": "sha256:4d22028c2cdd69b08a0b96669d32c4a0f48404669c39b51221e2dda2402811da",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

@@ -69,8 +69,8 @@ def _demo() -> int:
     is ever removed."""
     tier = "hard"
     present = engine_agents()
-    print("Your engine's review/audit personas, and the safety check that keeps the read-only ones "
-          "unable to edit the work they review:\n")
+    print("Your engine's review/audit personas, and the safety check that makes sure the read-only "
+          "ones carry the lock that blocks the file-writing tools:\n")
     if not present:
         print("  (no personas are installed yet)")
         return 0
@@ -79,16 +79,22 @@ def _demo() -> int:
             continue
         deny = a.get("disallowedTools")
         locked = isinstance(deny, list) and all(t in deny for t in ("Edit", "Write", "NotebookEdit"))
-        note = "read-only — the platform blocks it from editing/writing files" if locked \
-            else "read-only but NOT locked — it could still edit files"
+        no_bash = locked and "Bash" in deny
+        if not locked:
+            note = "read-only but NOT locked — it would inherit the file-writing tools"
+        elif no_bash:
+            note = "read-only — carries the lock on the file-writing tools, and can't run commands"
+        else:
+            note = "read-only — carries the lock on the file-writing tools (keeps Bash to run checks)"
         print(f"  {str(a.get('name')):34} {note}")
 
     clean = validate.agent_coherence_findings(present, tier, _MESSAGE)
     if clean:
         print("\nThe safety check found a problem with the personas as installed (see engine-ci).")
     else:
-        print("\nThe safety check: all clear — every read-only persona really is one the platform "
-              "stops from editing the work it reviews.")
+        print("\nThe safety check: all clear — every read-only persona carries the lock that blocks the "
+              "file-writing tools. (This check confirms the lock is DECLARED; that the platform then "
+              "honors it is confirmed separately, in a fresh session — see the PR's review steps.)")
 
     target = next((a for a in present
                    if a.get("permissions") == "read-only" and isinstance(a.get("disallowedTools"), list)), None)
@@ -104,11 +110,13 @@ def _demo() -> int:
         print(f"  -> the safety check turns RED: {name} would inherit every tool, including the ones "
               f"that edit and write files, while still calling itself read-only. The build is blocked "
               f"until the lock is put back.")
-    print("\nThat is the safety net: a read-only reviewer can't quietly become one that edits the work "
-          "it reviews — the check catches it before it could be merged.")
-    print("\nThe honest limit: this guarantees the write tools (Edit/Write/NotebookEdit) are blocked. "
-          "The qa and audit personas still keep Bash to run checks; confining what Bash does to a "
-          "throwaway copy is the build's worktree isolation and your merge gate, not this check.")
+    print("\nThat is the safety net: a read-only reviewer can't quietly drop the lock that blocks the "
+          "file-writing tools — the check catches it before it could be merged.")
+    print("\nThe honest limit: this check confirms the lock on the file-writing tools "
+          "(Edit/Write/NotebookEdit) is declared. It does NOT police writes through other paths — the "
+          "Bash shell (which qa and audit keep to run checks) or any write-capable MCP tools the session "
+          "exposes; confining those to a throwaway copy is the build's worktree isolation, and your merge "
+          "gate is the guarantee that nothing a reviewer touches reaches your main branch.")
     if not found:
         print("\nDEMO UNEXPECTED: the guard did not flag the removed tool lock.", file=sys.stderr)
         return 1

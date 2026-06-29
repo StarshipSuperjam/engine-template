@@ -296,10 +296,12 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
-    def test_check_corpus_split_core_two_guards_validators_core_thirtyeight(self):
+    def test_check_corpus_split_core_two_guards_validators_core_thirtynine(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
-        # the self-validation corpus is validators-core's (38 rules: the negative-fixture meta-check
+        # the self-validation corpus is validators-core's (39 rules: the read-only-persona write-lock
+        # guard (this change, D-272 — every read-only review/audit persona must block the file-writing
+        # tools, the live consumer of agent_coherence_findings) atop the negative-fixture meta-check
         # (engine-template #286 — the checker-of-checkers, D-256…D-260; dormant until wired live) atop
         # the untracked-surface detector
         # (engine-template #281 — names a surface file git is not tracking, e.g. sync-conflict cruft) atop
@@ -351,6 +353,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/protection.json",
         ], "core owns exactly the two §15 guards")
         self.assertEqual(vc_checks, [
+            ".engine/check/agent-coherence.json",
             ".engine/check/agent-frontmatter.json",
             ".engine/check/agent-shape.json",
             ".engine/check/audit-concern-list.json",
@@ -389,7 +392,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/state-cursor.json",
             ".engine/check/untracked-surface.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 38 corpus rules")
+        ], "validators-core owns exactly the 39 corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])

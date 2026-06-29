@@ -901,11 +901,15 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
         `tools` / `disallowedTools`; D-272). A read-only persona blocks a write tool iff it lists it
         in `disallowedTools` OR declares a `tools` allowlist (a list) that omits it; a read-only
         persona that declares NEITHER inherits every tool (the inherit-all trap) and is a finding.
-        HONEST LIMIT: this enforces only the write-tool floor — it deliberately does NOT police
-        `Bash`, which the execution roles (pre-submission-review, audit) legitimately keep to run
-        the suite in a scratch worktree (qa-review/README dry-run); Bash-via-shell confinement is
-        the orchestration worktree's + the protected-branch merge gate's job, not a frontmatter
-        invariant this static leg can see.
+        HONEST LIMIT: this enforces only that the native file-writing tools (Edit/Write/NotebookEdit)
+        are blocked — it deliberately does NOT police `Bash` (which the execution roles
+        pre-submission-review/audit legitimately keep to run the suite in a scratch worktree —
+        qa-review/README dry-run) nor any write-capable MCP tools the session may expose; confining
+        those tool-/shell-side writes is the orchestration worktree's + the protected-branch merge
+        gate's job, not a frontmatter invariant this static leg can see. A STRING-valued
+        disallowedTools/tools is treated CONSERVATIVELY (a string denylist blocks nothing here; a
+        string `tools` is not a write-excluding allowlist), so blocking must come from the list
+        form — this errs toward a false finding, never a false pass.
 
     It does NOT do the dangling/unconsumed-lens check (an installed review lens nothing in the
     orchestration consumes): that needs build-orchestration's consumed-lens set (which gate
