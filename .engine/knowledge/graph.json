@@ -3108,7 +3108,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:00e9b8a4841c7b8e518c0e6659d4dacb1e5fa64c6cacb6e4b1db65be2287e13f",
+        "fingerprint": "sha256:342b00a79508d844d981dc86dcee6fff9b69b663b72dfc323dc0ac2392486727",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -3193,7 +3193,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:1787c0fb01e6c7f7563871ebbecaa5308046ed818e7c3ef4bf91e0a6812eaf7a",
+        "fingerprint": "sha256:9201068b370682e8edcd5cd84cac744190d851005513c3ccb3d79245bcd5f38c",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -3329,7 +3329,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:a8ad9883769771ebd2f648c7948c98e38f6ad8066675ba102335fc1acd8f898d",
+        "fingerprint": "sha256:e0235f4b24ded41982954b170b83e983b19c0e3acd0f729b4b043dc9fb0e0afb",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",

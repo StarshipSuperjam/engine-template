@@ -199,8 +199,8 @@ _RECALL_COMPLETENESS_HEADING = "## Memory recall completeness"
 _RECALL_COMPLETENESS_DIGEST = (
     f"\n\n{_RECALL_COMPLETENESS_HEADING}\n\n"
     "Memory recall surfaces curated summaries of past sessions; the raw, word-for-word notes behind them are kept "
-    "and fully recoverable on request — they are not deleted by being left out of recall, and this is not a "
-    "forgetting event. Ask to see the exact wording for any of them. (D-273/D-274.)"
+    "and fully recoverable on request — they are not deleted by being left out of recall, and nothing was "
+    "forgotten. Ask to see the exact wording for any of them."
 )
 
 

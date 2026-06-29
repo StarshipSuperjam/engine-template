@@ -1551,7 +1551,7 @@ def snapshot_demo() -> bool:
             setup(scope="shared", transport=fake.transport, consent="y")
             ptr = read_pointer()
             slug = f"{ptr['owner']}/{ptr['repo']}"
-            ledger.append({"kind": "turn-delta", "text": "state BEFORE the migration reshapes it"})
+            ledger.append({"kind": records.AMBIENT_CAPTURE_KIND, "text": "state BEFORE the migration reshapes it"})
 
             rolling_before = fake.refs.get(f"{slug}@{ptr['branch']}")
             handle = snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.2.0",
@@ -1559,7 +1559,7 @@ def snapshot_demo() -> bool:
             snap_commit = fake.tags.get(f"{slug}@{handle['tag']}") if handle else None
             rolling_after_snapshot = fake.refs.get(f"{slug}@{ptr['branch']}")    # the snapshot must NOT advance it
             # a later ROUTINE rolling backup (advances the branch head) — must NOT touch the snapshot tag
-            ledger.append({"kind": "turn-delta", "text": "state the migration would have written"})
+            ledger.append({"kind": records.AMBIENT_CAPTURE_KIND, "text": "state the migration would have written"})
             push_now(transport=fake.transport)
             rolling_after_backup = fake.refs.get(f"{slug}@{ptr['branch']}")
             snap_commit_after = fake.tags.get(f"{slug}@{handle['tag']}") if handle else None
