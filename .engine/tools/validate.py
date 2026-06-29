@@ -895,6 +895,21 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
         declares one is a coherence finding"). Scoped to the two KNOWN lensless roles, not "any
         non-review role", so an unknown role carrying a lens yields only the role finding (no
         redundant second finding), and a review role's lens is valid.
+      - a `permissions: read-only` persona that does not actually BLOCK the authoritative-write
+        tools (Edit, Write, NotebookEdit) — the realization of the design's "permissions maps to the
+        Claude Code tool/permission restrictions the platform enforces" (agent.v1 `permissions` /
+        `tools` / `disallowedTools`; D-272). A read-only persona blocks a write tool iff it lists it
+        in `disallowedTools` OR declares a `tools` allowlist (a list) that omits it; a read-only
+        persona that declares NEITHER inherits every tool (the inherit-all trap) and is a finding.
+        HONEST LIMIT: this enforces only that the native file-writing tools (Edit/Write/NotebookEdit)
+        are blocked — it deliberately does NOT police `Bash` (which the execution roles
+        pre-submission-review/audit legitimately keep to run the suite in a scratch worktree —
+        qa-review/README dry-run) nor any write-capable MCP tools the session may expose; confining
+        those tool-/shell-side writes is the orchestration worktree's + the protected-branch merge
+        gate's job, not a frontmatter invariant this static leg can see. A STRING-valued
+        disallowedTools/tools is treated CONSERVATIVELY (a string denylist blocks nothing here; a
+        string `tools` is not a write-excluding allowlist), so blocking must come from the list
+        form — this errs toward a false finding, never a false pass.
 
     It does NOT do the dangling/unconsumed-lens check (an installed review lens nothing in the
     orchestration consumes): that needs build-orchestration's consumed-lens set (which gate
@@ -914,6 +929,7 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     roles = {"plan-review", "worker", "pre-submission-review", "audit"}
     lensless_roles = {"worker", "audit"}   # the recognized roles that carry no lens
     tiers = {"judgment", "mechanical"}
+    write_tools = ("Edit", "Write", "NotebookEdit")   # the authoritative-write tools a read-only persona must block
     findings = []
     for a in agents:
         name = a.get("name", "(unnamed)")
@@ -929,6 +945,24 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
             findings.append(finding(tier, f"Persona '{name}' has role '{role}', which carries no lens, "
                             f"but declares lens '{a.get('lens')}'; only the review roles carry a "
                             f"lens. {message}"))
+        if a.get("permissions") == "read-only":
+            allow, deny = a.get("tools"), a.get("disallowedTools")
+            allow_list = allow if isinstance(allow, list) else None        # a STRING tools (e.g. "inherit") is not an excluding allowlist
+            deny_set = {str(t) for t in deny} if isinstance(deny, list) else set()
+            if allow is None and deny is None:
+                findings.append(finding(tier, f"Persona '{name}' declares permissions: read-only but "
+                                f"declares neither a tools allowlist nor a disallowedTools denylist, so it "
+                                f"inherits every tool — including the authoritative-write tools "
+                                f"{list(write_tools)}. Block them via disallowedTools (or a write-excluding "
+                                f"tools allowlist). {message}"))
+            else:
+                unblocked = [t for t in write_tools
+                             if t not in deny_set and not (allow_list is not None and t not in allow_list)]
+                if unblocked:
+                    findings.append(finding(tier, f"Persona '{name}' declares permissions: read-only but does "
+                                    f"not block the authoritative-write tool(s) {unblocked}: a read-only persona "
+                                    f"must block Edit/Write/NotebookEdit via disallowedTools or omit them from a "
+                                    f"tools allowlist. {message}"))
     return findings
 
 

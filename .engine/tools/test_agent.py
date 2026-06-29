@@ -40,10 +40,14 @@ AGENTS_DIR = os.path.join(validate.ROOT, ".claude", "agents")
 PERMISSIONS_ENUM = AGENT_SCHEMA["properties"]["permissions"]["enum"]
 
 # Representative, conforming persona frontmatter — one per role shape.
+# A read-only persona must BLOCK the authoritative-write tools (the permissions↔tools coherence
+# rule, D-272), so the conforming reviewer/audit fixtures carry that lock; the worker is scoped-write
+# and is not subject to the rule, so it carries none.
 VALID_REVIEWER = {"name": "architecture-plan-reviewer",
                   "description": "Reviews the proposed plan for cross-system seams and scope.",
                   "role": "plan-review", "lens": "architecture", "model-tier": "judgment",
-                  "permissions": "read-only", "output-contract": "review-finding.v1"}
+                  "permissions": "read-only", "output-contract": "review-finding.v1",
+                  "disallowedTools": ["Edit", "Write", "NotebookEdit", "Bash"]}
 VALID_WORKER = {"name": "scoped-worker",
                 "description": "Implements one scoped commit and hands the result back.",
                 "role": "worker", "model-tier": "mechanical",
@@ -51,7 +55,8 @@ VALID_WORKER = {"name": "scoped-worker",
 VALID_AUDIT = {"name": "self-audit",
                "description": "Runs the read-only self-audit persona under the audit-prep cron.",
                "role": "audit", "model-tier": "judgment",
-               "permissions": "read-only", "output-contract": "audit-finding.v1"}
+               "permissions": "read-only", "output-contract": "audit-finding.v1",
+               "disallowedTools": ["Edit", "Write", "NotebookEdit"]}
 
 # A well-formed persona BODY (the shape kind reads the body, never the frontmatter).
 VALID_BODY = (
@@ -116,6 +121,13 @@ class TestSchema(unittest.TestCase):
                 "model": "sonnet", "effort": "low"}
         self.assertEqual(_errors(AGENT_SCHEMA, rich), [])
         self.assertEqual(_errors(AGENT_SCHEMA, {**rich, "tools": "inherit"}), [])  # tools array OR string
+
+    def test_disallowedtools_passthrough_conforms_array_or_string(self):
+        """The denylist key (D-272) is platform passthrough like tools: array OR string forms conform,
+        and its WELL-FORMEDNESS is the schema's job — whether a read-only persona's denylist actually
+        blocks the write tools is the coherence leg's (see TestAgentCoherenceLeg)."""
+        self.assertEqual(_errors(AGENT_SCHEMA, {**VALID_WORKER, "disallowedTools": ["Edit", "Write"]}), [])
+        self.assertEqual(_errors(AGENT_SCHEMA, {**VALID_WORKER, "disallowedTools": "Edit"}), [])
 
     def test_arbitrary_role_tier_lens_strings_are_accepted_by_the_schema(self):
         """The design's load-bearing inverse: closed-set MEMBERSHIP is the coherence leg's job, NOT the
@@ -300,6 +312,51 @@ class TestAgentCoherenceLeg(unittest.TestCase):
         persona carrying an arbitrary, unconsumed lens is therefore SILENT here (lens is an open vocabulary)."""
         f = validate.agent_coherence_findings([{**VALID_REVIEWER, "lens": "nobody-consumes-this"}], "hard", "m")
         self.assertEqual(f, [])
+
+    # --- the permissions↔write-tools rule (D-272): a read-only persona must BLOCK Edit/Write/NotebookEdit ---
+
+    def test_readonly_with_denylist_blocking_writes_is_clean(self):
+        inst = {**VALID_REVIEWER, "disallowedTools": ["Edit", "Write", "NotebookEdit"]}
+        self.assertEqual(validate.agent_coherence_findings([inst], "hard", "m"), [])
+
+    def test_readonly_with_write_excluding_allowlist_is_clean(self):
+        """A tools ALLOWLIST that omits the write tools blocks them just as a denylist does — the
+        execution lenses keep Bash and broad read/MCP reach via the denylist form, but the allowlist
+        form must also pass so the rule is mechanism-agnostic."""
+        inst = {k: v for k, v in VALID_REVIEWER.items() if k != "disallowedTools"}
+        inst["tools"] = ["Read", "Grep", "Glob", "WebFetch", "mcp__engine-knowledge-graph__find"]
+        self.assertEqual(validate.agent_coherence_findings([inst], "hard", "m"), [])
+
+    def test_readonly_with_no_tool_lock_is_a_finding_inherit_all(self):
+        """The inherit-all trap: a read-only persona declaring NEITHER tools nor disallowedTools
+        inherits every tool, including the write tools — the exact gap this rule closes."""
+        inst = {k: v for k, v in VALID_REVIEWER.items() if k != "disallowedTools"}
+        f = validate.agent_coherence_findings([inst], "hard", "m")
+        self.assertTrue(any(x["severity"] == "hard" and "neither a tools allowlist nor a disallowedTools"
+                            in x["message"] for x in f))
+
+    def test_readonly_denylist_missing_a_write_tool_is_a_finding(self):
+        inst = {**VALID_REVIEWER, "disallowedTools": ["Edit", "Write"]}   # NotebookEdit not blocked
+        f = validate.agent_coherence_findings([inst], "hard", "m")
+        self.assertTrue(any(x["severity"] == "hard" and "NotebookEdit" in x["message"] for x in f))
+
+    def test_readonly_allowlist_including_a_write_tool_is_a_finding(self):
+        inst = {k: v for k, v in VALID_REVIEWER.items() if k != "disallowedTools"}
+        inst["tools"] = ["Read", "Grep", "Edit"]   # an allowlist that grants a write tool
+        f = validate.agent_coherence_findings([inst], "hard", "m")
+        self.assertTrue(any(x["severity"] == "hard" and "Edit" in x["message"] for x in f))
+
+    def test_scoped_write_worker_without_a_lock_is_not_subject_to_the_rule(self):
+        """The rule fires only on permissions: read-only — a scoped-write worker carrying no
+        disallowedTools is NOT flagged (its write posture is legitimate)."""
+        self.assertEqual(validate.agent_coherence_findings([VALID_WORKER], "hard", "m"), [])
+
+    def test_bash_is_not_policed_the_honest_write_tool_floor(self):
+        """Honest limit: a read-only persona that blocks the write tools but KEEPS Bash is clean —
+        the execution roles (qa, audit) need Bash, and Bash-via-shell confinement is the orchestration
+        worktree's + merge gate's job, not this static leg's. So Bash present is NOT a finding."""
+        inst = {**VALID_REVIEWER, "disallowedTools": ["Edit", "Write", "NotebookEdit"]}  # Bash NOT denied
+        self.assertEqual(validate.agent_coherence_findings([inst], "hard", "m"), [])
 
 
 if __name__ == "__main__":
