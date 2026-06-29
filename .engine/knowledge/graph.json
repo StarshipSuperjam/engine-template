@@ -3764,6 +3764,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:hard_check_bite_check",
+      "name": ".engine/tools/hard_check_bite_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "hard_check_bite_check",
+      "source": {
+        "fingerprint": "sha256:d42e5336ff877e983ff4d7ce5af4fdd09bf74b15648a3ac43cb2437325aba322",
+        "path": ".engine/tools/hard_check_bite_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:hook-runner",
       "name": ".engine/tools/hook-runner.sh",
       "owner": "core",
@@ -5085,6 +5102,23 @@
       "source": {
         "fingerprint": "sha256:af4994975dc3a46297122071c8457d397519f4ebe6a814d1e40736329938a044",
         "path": ".engine/tools/memory/test_forget.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_hard_check_bite",
+      "name": ".engine/tools/test_hard_check_bite.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_hard_check_bite",
+      "source": {
+        "fingerprint": "sha256:83af40986077c662ba9f78f6e9dc1c6e54caf4cd8b3f8777e48b87d2d4f569d9",
+        "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
       "type": "tool"
