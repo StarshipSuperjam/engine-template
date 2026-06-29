@@ -66,6 +66,16 @@ _BANNER = (
 )
 _ALREADY_SET_UP = ("This project is already set up — first-time setup only runs on a brand-new project. "
                    "Nothing to do here.")
+# The one-time lifecycle verbs (apply/verify/retire) refuse a bare hand-run so re-running them on a project
+# that is already set up — or in THIS workshop — never re-fires the one-time, file-replacing setup steps.
+# apply runs only through the setup walkthrough (which passes the first-run token); a bare apply points the
+# operator back there. The flag itself is internal machinery, so the copy never mentions it.
+_APPLY_NOT_FIRST_RUN = ("First-time setup runs through the setup walkthrough, not by hand — run /engine-setup "
+                        "to set up a brand-new project. Nothing was changed.")
+# verify/retire refuse while the root CLAUDE.md is still the engine's construction file (the workshop, or a
+# generated repo whose setup has not finished). {what} = "check for consistency" / "tidy up".
+_WORKSHOP_NO_SETUP = ("This is the workshop where the engine is built — first-time setup never runs here, so "
+                      "there's nothing to {what}. Nothing was changed.")
 _EMPTY_CATALOG_LINE = ("There are no optional add-ons to choose yet — the essentials are already included, "
                        "and I'll set those up when you confirm.")
 _TIER_PROMPT = (
@@ -977,6 +987,21 @@ def _is_construction_claude(text) -> bool:
         return False
     first = next((ln for ln in text.splitlines() if ln.strip()), "")
     return _CONSTRUCTION_CLAUDE_MARKER in first.lower()
+
+
+def _root_is_construction() -> bool:
+    """True iff this repo's root CLAUDE.md is still the engine's construction-governance file — i.e. this is the
+    workshop, or a generated repo whose first-run apply has not yet swapped the deployed floor in. The
+    verify/retire CLI guards key off this: a legitimate first run reaches verify/retire only AFTER apply swapped
+    the floor (so the root file is the deployed floor, not construction — the guard passes through to the real
+    verb), while in the workshop the construction file is present, so the one-time verbs refuse rather than
+    re-fire setup or (for retire) self-delete the real tooling. Reuses the conservative leading-heading
+    predicate; an absent/unreadable file reads as not-construction (no refusal — never block on doubt)."""
+    try:
+        with open(os.path.join(validate.ROOT, _ROOT_CLAUDE_REL), encoding="utf-8") as fh:
+            return _is_construction_claude(fh.read())
+    except OSError:
+        return False
 
 
 def _seed_deployed_floor(say, copy=None) -> str:
@@ -1997,6 +2022,39 @@ def _finish_demo() -> int:
         ok &= (v_bad["paused"] and r_bad["refused"] and assets_still_there
                and not v_fixed["paused"] and not r_fixed["refused"] and finished)
 
+    # Scenario 3 — the bare-hand guard (#297): a stray hand-run of the one-time verbs on a set-up/workshop tree
+    # must change NOTHING, so it never re-fires the file-replacing setup steps. Driven through the REAL CLI
+    # dispatch (main), the surface the guard lives on. The dangerous one is retire — bare, it would self-delete
+    # the setup tool — so the stand-in tool's survival is the headline assertion.
+    print("\n— A BARE HAND-RUN OF THE ONE-TIME VERBS: each refuses and changes nothing.")
+    import io
+    with tempfile.TemporaryDirectory() as tmp:
+        _build_fixture(tmp)                                   # a workshop-like tree: root CLAUDE.md is construction
+        _plant_first_run_assets(tmp)                          # the real-tool stand-ins a stray retire would delete
+
+        def _run(argv):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main(argv)
+            return rc, buf.getvalue()
+        with _redirect_root(tmp):
+            rc_apply, out_apply = _run(["apply"])             # bare apply → no-op, points back to the walkthrough
+            rc_token, out_token = _run(["apply", "--first-run"])  # the walkthrough's token lets apply through
+            rc_verify, out_verify = _run(["verify"])          # workshop verify → refuse
+            rc_retire, out_retire = _run(["retire"])          # workshop retire → refuse (the dangerous one)
+            tool_alive = os.path.isfile(os.path.join(tmp, ".engine", "tools", "instantiator.py"))
+            still_construction = _root_is_construction()
+        bare_apply_noop = (rc_apply == 0 and _APPLY_NOT_FIRST_RUN in out_apply)
+        token_reaches_apply = (_APPLY_NOT_FIRST_RUN not in out_token and "hasn't been confirmed" in out_token)
+        verify_refused = ("workshop where the engine is built" in out_verify)
+        retire_refused = ("workshop where the engine is built" in out_retire)
+        print(f"    → bare apply changed nothing and sent you back to setup ({bare_apply_noop}); the setup "
+              f"walkthrough's run still goes through ({token_reaches_apply}).")
+        print(f"    → bare verify refused ({verify_refused}); bare retire refused ({retire_refused}) and the "
+              f"setup tool is still here ({tool_alive}); the project guide was not swapped ({still_construction}).")
+        ok &= (bare_apply_noop and token_reaches_apply and verify_refused and retire_refused
+               and tool_alive and still_construction)
+
     # The isolation guarantee, shown by name (each file named, not just a silent pass).
     print("\n— ISOLATION CHECK: did any of that touch THIS real project's files?")
     unchanged = True
@@ -2832,6 +2890,14 @@ def main(argv: list) -> int:
               f"reviewer = {'a team' if tier == 'team' else 'on your own'}).")
         return 0
     if argv and argv[0] == "apply":
+        # FIRST-RUN GUARD (#297): apply re-fires the one-time, file-replacing setup steps, so a bare hand-run on
+        # an already-set-up project — or in this workshop — must do nothing. The setup walkthrough passes the
+        # `--first-run` token; a bare apply refuses and points back there. The token (not a construction-repo
+        # check) is what guards apply, because a legitimate apply interrupted before the floor swap is
+        # CONTENT-IDENTICAL to the workshop, and the locked design requires that interrupted apply to RESUME.
+        if "--first-run" not in argv:
+            print(_APPLY_NOT_FIRST_RUN)
+            return 0
         decisions = _parse_apply_flags(argv)
         res = apply(consent=lambda kind: decisions.get(kind, False))
         _print_ledger_plain(res)
@@ -2840,12 +2906,24 @@ def main(argv: list) -> int:
         # The consistency check. A hard finding pauses (exit 1) with a plain explanation + the two next
         # actions; clean is exit 0. The standing review-gate surfacing is boot's, so verify run on its own
         # leaves the gate status to the start-of-session check rather than re-checking GitHub here.
+        # FIRST-RUN GUARD (#297): refuse while the root CLAUDE.md is still the construction file — the workshop,
+        # or a generated repo whose setup has not finished. A real first-run verify runs only after apply
+        # swapped the floor in, so this never blocks a legitimate run.
+        if _root_is_construction():
+            print(_WORKSHOP_NO_SETUP.format(what="check for consistency"))
+            return 0
         res = verify()
         return 1 if res.get("paused") else 0
     if argv and argv[0] == "retire":
         # The tidy-up: refuses (exit 1) on an inconsistent setup — the irreversible self-delete never runs on
         # a broken setup; otherwise removes the one-time setup files, re-derives the saved information, and
         # confirms completion (exit 0).
+        # FIRST-RUN GUARD (#297): refuse while the root CLAUDE.md is still the construction file. This is the
+        # highest-severity case — a bare retire in the workshop would self-delete the REAL instantiator, tests,
+        # demos, and setup skill. A real first-run retire runs only after apply swapped the floor in.
+        if _root_is_construction():
+            print(_WORKSHOP_NO_SETUP.format(what="tidy up"))
+            return 0
         res = retire()
         return 1 if res.get("refused") else 0
     if argv and argv[0] == "arrive":
