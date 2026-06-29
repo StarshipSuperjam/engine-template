@@ -943,6 +943,20 @@ class TestRunUnitSeam(unittest.TestCase):
         self.assertIn("orphan", msgs)   # the present-but-unclaimed directory
         self.assertIn("alpha", msgs)    # the catalogued-but-absent surface
 
+    def test_drives_the_coherence_callable_against_substituted_manifests(self):
+        # The manifests class: a substituted manifest set drives the REAL kind_coherence —
+        # a manifest depending on an uninstalled module bites; a satisfiable set passes.
+        unit = _rule(kind="coherence", message="modules inconsistent")
+        bad = [{"id": "a", "version": "1.0.0", "depends": {"b": ""}}]   # b not installed
+        good = [{"id": "a", "version": "1.0.0", "depends": {"b": ">=1.0.0"}},
+                {"id": "b", "version": "1.5.0", "depends": {}}]
+        bad_pass, bad_found = validate.run_unit(unit, {"manifests": bad}, {})
+        ok_pass, ok_found = validate.run_unit(unit, {"manifests": good}, {})
+        self.assertFalse(bad_pass)
+        self.assertTrue(any(f["severity"] == "hard" for f in bad_found))
+        self.assertTrue(ok_pass)
+        self.assertEqual(ok_found, [])
+
     def test_custom_script_substitutes_through_env_and_restores(self):
         # A custom/script reads its target from the environment; run_unit sets the env var
         # around the child and ALWAYS restores os.environ afterward (whether the key was

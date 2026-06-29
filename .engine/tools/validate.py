@@ -1369,9 +1369,13 @@ def run_unit(unit, target=None, ctx=None):
         coverage_root:      coverage — the catalog source + walk root the real callable reads.
       - manifests:          coherence — the manifest set the real callable reads (ctx['manifests']).
       - env:                custom/script — env vars set around the child and restored after, so a
-                            script reading ENGINE_PR_BODY_FILE / a substituted GITHUB_EVENT_PATH
-                            sees the seeded input. (No edit to kind_custom_script — it already
-                            builds its child env from os.environ.)
+                            script reading a substituted GITHUB_EVENT_PATH (or another agreed
+                            variable the fixture's script honours) sees the seeded input. (No edit
+                            to kind_custom_script — it already builds its child env from os.environ.)
+    NOTE on `env`: it mutates the process-global os.environ for the duration of the call (restored
+    in a finally), so it is meaningful ONLY for the custom/script kind — which builds its child env
+    from os.environ; the in-process closed kinds never read the environment. It is therefore not
+    safe to call run_unit with `env` from multiple threads at once (no current/planned caller does).
     Dispatch mirrors run()/run_check(): an unregistered kind or an erroring callable FAILS CLOSED
     (a hard finding), so the meta-check witnesses exactly what the gate does."""
     target = target or {}
