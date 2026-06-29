@@ -154,7 +154,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:912f01c77a993c12a5a28840ec21dd2d4da0e167200f454ff50d65b636be6c0c",
+        "fingerprint": "sha256:7d9b49950c47eb760eaa79e9c56cbf078b51229834353c756324451a4f986b5b",
         "path": ".claude/agents/qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -1912,7 +1912,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:ec1db609c6e569832d038bcea05a826359b781e2f77f21241347cf121ac8db5f",
+        "fingerprint": "sha256:87c0ea35b291ee2b5d1319f19cc0df91f8b24d92228879300973f5c325d427cf",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -3057,7 +3057,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:56916eb4e85d4348199ce563de21748e0e90db455a67a1daa9a11e6b07242c6f",
+        "fingerprint": "sha256:b1e9ceeb3f3c3a771012af9208a5a6ec1bc7033d78e8ab390f6bae0a2a884a19",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -3125,7 +3125,7 @@
       },
       "slug": "audit_digest_fingerprint_check",
       "source": {
-        "fingerprint": "sha256:5f7103134bc4f599e45aaeb1542952792943f6c1e5ef2b230236c48ba63bb259",
+        "fingerprint": "sha256:8a14b0132902fc40ee125e3dbb8346db299c154d942ceb3836b96b336d706024",
         "path": ".engine/tools/audit_digest_fingerprint_check.py"
       },
       "status": "active",
@@ -3346,7 +3346,7 @@
       },
       "slug": "conduct_shape_check",
       "source": {
-        "fingerprint": "sha256:c2fdc28bfcae42ffc4a5cdd69f96b993c807d6ffe6f93af44a7178ea1bc79720",
+        "fingerprint": "sha256:5180d53e1988e13a5c5c8f4983f50c4bbc7fb8a767eb2a048b035b3b74b50f69",
         "path": ".engine/tools/conduct_shape_check.py"
       },
       "status": "active",
@@ -3397,7 +3397,7 @@
       },
       "slug": "coverage",
       "source": {
-        "fingerprint": "sha256:e580c9c5305b28e6339e9076d3ccfd1496a0935ec40e7459dcb3997b05c58242",
+        "fingerprint": "sha256:922f83d83758b581b0062256d593443dd609b609907eac948242045be2f37b61",
         "path": ".engine/tools/product_design/coverage.py"
       },
       "status": "active",
@@ -3822,7 +3822,7 @@
       },
       "slug": "first_run_reference_closure_check",
       "source": {
-        "fingerprint": "sha256:db7bde925ce3e1d9eac3ea703ec905cedba1940eacbb79f8f4bbdf9b18898501",
+        "fingerprint": "sha256:7bfa869fea9333dd69ee7565092560408272f8d7a4d4aff0b3437027f9e9f247",
         "path": ".engine/tools/first_run_reference_closure_check.py"
       },
       "status": "active",
@@ -3856,7 +3856,7 @@
       },
       "slug": "hard_check_bite_check",
       "source": {
-        "fingerprint": "sha256:d42e5336ff877e983ff4d7ce5af4fdd09bf74b15648a3ac43cb2437325aba322",
+        "fingerprint": "sha256:eec822d21303c0319ffe4d0e5e3c739a4bf3d7b39011b6340ed8e5bb042f9e04",
         "path": ".engine/tools/hard_check_bite_check.py"
       },
       "status": "active",
@@ -3907,7 +3907,7 @@
       },
       "slug": "in_tool_demo_failure_path_check",
       "source": {
-        "fingerprint": "sha256:a861b83f2ccdb015014acc7eba57d325ed56ead1d65df22f94eeb2b0ba40eb82",
+        "fingerprint": "sha256:c0af65d574520e99afad7d111dc33068ccf6899887476dcc4afd5289c9fa6b04",
         "path": ".engine/tools/in_tool_demo_failure_path_check.py"
       },
       "status": "active",
@@ -4077,7 +4077,7 @@
       },
       "slug": "knowledge_vocabulary_check",
       "source": {
-        "fingerprint": "sha256:d63137b86b4ee2c0dd497a46f8b3ae0a7259649dcc69a37bd5f41d9bf34c5453",
+        "fingerprint": "sha256:00b98f1bb91fc7ad53873f893b0939814873e513a3b70f7e190ff80ca7f53af4",
         "path": ".engine/tools/knowledge_vocabulary_check.py"
       },
       "status": "active",
@@ -4162,7 +4162,7 @@
       },
       "slug": "memory_pointer_public_safety_check",
       "source": {
-        "fingerprint": "sha256:52a754fbd2ecc8565ea806d3614254b1828f84391f93fe9104979abaf01534de",
+        "fingerprint": "sha256:612a98eb703ab276989aee97c78383ad6ff1614c73a04002feaacaf092b97f0d",
         "path": ".engine/tools/memory_pointer_public_safety_check.py"
       },
       "status": "active",
@@ -4315,7 +4315,7 @@
       },
       "slug": "policy_override_check",
       "source": {
-        "fingerprint": "sha256:43da49969387218aa1e1a4906b3bfd57368807c849dce5fe4b09805122e1b492",
+        "fingerprint": "sha256:e812888fa13eae18143d19db3e6a65f3e8626fd6c939a29b8f900d6e386ad22e",
         "path": ".engine/tools/policy_override_check.py"
       },
       "status": "active",
@@ -4570,7 +4570,7 @@
       },
       "slug": "self_map_check",
       "source": {
-        "fingerprint": "sha256:bb8f84ce91cdee031f4a89ddb166804d341764acf9fd385e147bb8959ff676bb",
+        "fingerprint": "sha256:00b5d8e450afc30428f04935aecbf16bad0044efc00a40622e56d7cc611608e0",
         "path": ".engine/tools/self_map_check.py"
       },
       "status": "active",
@@ -4587,7 +4587,7 @@
       },
       "slug": "skill_coherence_check",
       "source": {
-        "fingerprint": "sha256:81a1f0ac98a5a6a709d0227ad25345b67a81bcc4b3f8b686c826f53215aafa4b",
+        "fingerprint": "sha256:12b71493b9c33c882edeab11b324565ee28a250455072858a7dadebe6e37004d",
         "path": ".engine/tools/skill_coherence_check.py"
       },
       "status": "active",
@@ -4604,7 +4604,7 @@
       },
       "slug": "spec_form",
       "source": {
-        "fingerprint": "sha256:28f9c802fb8c3ac07efc4d03b372e0a0ea255e21be9326378210a16675e50a6f",
+        "fingerprint": "sha256:5114d2881e8cefa8c08a5c4e04abfa20b4e7c2c436293ae1363d86f5ac0553ce",
         "path": ".engine/tools/product_design/spec_form.py"
       },
       "status": "active",
@@ -5216,7 +5216,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:83af40986077c662ba9f78f6e9dc1c6e54caf4cd8b3f8777e48b87d2d4f569d9",
+        "fingerprint": "sha256:6286b860d014b224ab4fd92fda12c6e57481d3763714b723a28089c74b5a8799",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -5471,7 +5471,7 @@
       },
       "slug": "test_memory_pointer_public_safety",
       "source": {
-        "fingerprint": "sha256:ffd70d6c252df35da3b6e61e6e496bd90af16c7334be9864af0767a46201a566",
+        "fingerprint": "sha256:52eed082cba3d9629d6061d51e8a5f3f71a6bff6236b1d6f6b351bd110659a2c",
         "path": ".engine/tools/test_memory_pointer_public_safety.py"
       },
       "status": "active",
@@ -6287,7 +6287,7 @@
       },
       "slug": "uv_group_drift_check",
       "source": {
-        "fingerprint": "sha256:a93c95219e94b5e943788f0703d018294c5cd6925265f02f150e4fc58e018b47",
+        "fingerprint": "sha256:5e737e8d7efac942b794806de072c5a44bb43846e22688517fedfb9fff522771",
         "path": ".engine/tools/uv_group_drift_check.py"
       },
       "status": "active",
@@ -6304,7 +6304,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:4d22028c2cdd69b08a0b96669d32c4a0f48404669c39b51221e2dda2402811da",
+        "fingerprint": "sha256:895559118f9531a7a5fe5f6b262dcdc715cb49f07cb8a4af26e0e6b16bbd18a5",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

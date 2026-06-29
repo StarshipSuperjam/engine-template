@@ -42,7 +42,7 @@ class CheckTests(unittest.TestCase):
 
     def _drive(self, *, construction, committed):
         guard._is_construction_repo = lambda: construction
-        guard._committed_pointer_text = lambda: committed
+        guard._committed_pointer_text = lambda pointer_rel=guard.POINTER_REL: committed
         return guard.check()
 
     def test_configured_pointer_in_the_construction_repo_is_a_hard_finding(self):

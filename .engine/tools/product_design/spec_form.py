@@ -425,7 +425,10 @@ def emit_findings() -> int:
     """The no-argument path the validator invokes: print the finding.v1 array and return 0. Violations carry
     the rule's declared tier (the validator passes it as ENGINE_RULE_TIER, defaulting hard); the no-op is
     always soft (set inside findings())."""
-    print(json.dumps(findings(os.environ.get("ENGINE_RULE_TIER", "hard"))))
+    # ENGINE_SPEC_ROOT (unset in production) lets the negative-fixture meta-check point the spec scan
+    # at a seeded docs/spec tree, so the form gate is witnessed biting a real bad input (#286).
+    print(json.dumps(findings(os.environ.get("ENGINE_RULE_TIER", "hard"),
+                              validate.env_override_path("ENGINE_SPEC_ROOT"))))
     return 0
 
 

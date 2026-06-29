@@ -239,7 +239,11 @@ def evaluate(*, root: str | None = None, check_dir: str | None = None, fixture_r
                 rule = _load(rule_path)
             except Exception:
                 continue  # a malformed check rule is another check's job, not this one's
-            if rule.get("kind") == "custom/script":
+            # Scope is the in-scope HARD check (validation README "Proven to bite"): a soft
+            # custom/script is not a merge gate, so it is not required to carry a negative fixture
+            # — and emitting a hard "no fixture" finding for one would escalate a soft concern to a
+            # hard meta-finding. Only hard instances are in the roster.
+            if rule.get("kind") == "custom/script" and rule.get("tier") == "hard":
                 findings.extend(_cover_script_instance(rule, fixture_root, root, tier))
     return findings
 

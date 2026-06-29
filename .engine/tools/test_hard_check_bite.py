@@ -6,8 +6,10 @@ drive the testable `evaluate(...)` core against controlled rosters, and drive th
 token), never order/count.
 """
 from __future__ import annotations
+import glob as _glob
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,8 +20,19 @@ import hard_check_bite_check as hcb  # noqa: E402
 
 ROOT = validate.ROOT
 LIVE_FIXTURES = os.path.join(ROOT, ".engine", "_fixtures")
+CHECK_DIR = os.path.join(ROOT, ".engine", "check")
 RULE_PATH = os.path.join(ROOT, ".engine", "check", "hard-check-bite.json")
 CLOSED_KINDS = sorted(k for k in validate.REGISTRY if k != "custom/script")
+
+
+def _live_hard_script_rules() -> list:
+    """Every live hard custom/script rule (the meta-check's roster(b) population)."""
+    rules = []
+    for rp in sorted(_glob.glob(os.path.join(CHECK_DIR, "*.json"))):
+        r = validate.load_json(rp)
+        if r.get("kind") == "custom/script" and r.get("tier") == "hard":
+            rules.append(r)
+    return rules
 
 
 def _write(path: str, text: str) -> None:
@@ -156,6 +169,101 @@ class TestRuleIsDormantAndWellFormed(unittest.TestCase):
         self.assertEqual(rule["kind"], "custom/script")
         self.assertEqual(rule["params"]["script"], ".engine/tools/hard_check_bite_check.py")
         self.assertNotIn("pass_token", rule["params"])  # deferred until a token-needing unit (S6)
+
+
+class TestS4LiveRosterBackfill(unittest.TestCase):
+    """S4 real-repo regression: every in-scope hard custom/script INSTANCE either bites its committed fixture
+    or is honored as a disclosed not-applicable carve-out — the roster is whole. The meta-check's own self-entry
+    is excluded (its live self-coverage is wired in S5 and would otherwise re-enter the live roster)."""
+
+    def test_every_hard_instance_bites_or_is_disclosed_na(self):
+        for rule in _live_hard_script_rules():
+            stem = rule["id"].split("engine/check/")[-1]
+            if stem == "hard-check-bite":
+                continue
+            na = os.path.join(LIVE_FIXTURES, stem, "not-applicable.json")
+            with self.subTest(check=stem):
+                if os.path.isfile(na):
+                    found = hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard")
+                    self.assertTrue(found and all(f["severity"] == "soft" for f in found),
+                                    f"{stem}: a not-applicable carve-out must yield only soft notes: {found}")
+                    self.assertTrue(any("NOT APPLICABLE" in (f.get("message") or "") for f in found), found)
+                elif stem == "memory-pointer-public-safety":
+                    # It reads its fixture via `git show HEAD:`, so it bites only once the fixture is committed
+                    # at HEAD (the live witness is the CI run on the committed pull request). Skip until then.
+                    committed = subprocess.run(
+                        ["git", "cat-file", "-e",
+                         "HEAD:.engine/_fixtures/memory-pointer-public-safety/pointer.json"],
+                        cwd=ROOT, capture_output=True).returncode == 0
+                    if not committed:
+                        self.skipTest("memory-pointer fixture not yet committed at HEAD (git show HEAD: read)")
+                    self.assertEqual(hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard"), [])
+                else:
+                    self.assertEqual(hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard"), [],
+                                     f"{stem}: did not bite its committed fixture")
+
+
+class TestS4TierFilter(unittest.TestCase):
+    """Roster(b) is scoped to HARD instances (validation README "every in-scope hard check"): a soft
+    custom/script with no fixture is NOT enumerated — so a soft no-op is never escalated to a hard 'missing
+    fixture' meta-finding — while a hard one with no fixture still fails closed."""
+
+    def _rule(self, tier: str) -> dict:
+        return {"id": f"engine/check/x-{tier}", "kind": "custom/script", "tier": tier,
+                "target": {"context": "x"}, "params": {"script": ".engine/tools/validate.py"},
+                "suites": [], "message": "m"}
+
+    def test_soft_instance_without_fixture_yields_no_finding(self):
+        with tempfile.TemporaryDirectory() as chk, tempfile.TemporaryDirectory() as fix:
+            _write(os.path.join(chk, "x-soft.json"), json.dumps(self._rule("soft")))
+            found = hcb.evaluate(check_dir=chk, fixture_root=fix, kinds=[])
+        self.assertEqual(found, [], f"a soft instance must not be enumerated: {found}")
+
+    def test_hard_instance_without_fixture_fails_closed(self):
+        with tempfile.TemporaryDirectory() as chk, tempfile.TemporaryDirectory() as fix:
+            _write(os.path.join(chk, "x-hard.json"), json.dumps(self._rule("hard")))
+            found = hcb.evaluate(check_dir=chk, fixture_root=fix, kinds=[])
+        self.assertTrue(any(f["severity"] == "hard" and "no negative test fixture" in f["message"]
+                            for f in found), found)
+
+
+class TestS4NotApplicableDisclosuresAreArgued(unittest.TestCase):
+    """Each shipped N/A disclosure carries the exact locked property AND a reason that argues it (names the
+    live external substrate and the D-263 false-witness point) — not a bare category assertion."""
+
+    NA_CHECKS = ("protection", "dependency-review", "guardrail-weakening", "product-lock-integrity")
+
+    def test_each_na_disclosure_is_honored_and_reasoned(self):
+        for stem in self.NA_CHECKS:
+            with self.subTest(check=stem):
+                disclosure = validate.load_json(os.path.join(LIVE_FIXTURES, stem, "not-applicable.json"))
+                self.assertEqual(disclosure["property"], hcb._NA_PROPERTY)
+                reason = disclosure.get("reason", "")
+                self.assertIn("false witness", reason.lower(),
+                              f"{stem}: the reason must argue why fixturing the fail-closed path is a false witness")
+
+
+class TestEnvOverridePathSeam(unittest.TestCase):
+    """The one shared seam helper (validate.env_override_path): UNSET -> the caller's default (production
+    byte-unchanged); a relative value -> resolved under ROOT; an absolute value -> used as-is."""
+
+    VAR = "ENGINE_TEST_SEAM_VAR_DO_NOT_SET"
+
+    def tearDown(self):
+        os.environ.pop(self.VAR, None)
+
+    def test_unset_returns_default(self):
+        os.environ.pop(self.VAR, None)
+        self.assertIsNone(validate.env_override_path(self.VAR))
+        self.assertEqual(validate.env_override_path(self.VAR, "/x/default"), "/x/default")
+
+    def test_relative_resolves_under_root(self):
+        os.environ[self.VAR] = ".engine/foo.json"
+        self.assertEqual(validate.env_override_path(self.VAR), os.path.join(validate.ROOT, ".engine/foo.json"))
+
+    def test_absolute_used_as_is(self):
+        os.environ[self.VAR] = "/abs/path.json"
+        self.assertEqual(validate.env_override_path(self.VAR), "/abs/path.json")
 
 
 if __name__ == "__main__":

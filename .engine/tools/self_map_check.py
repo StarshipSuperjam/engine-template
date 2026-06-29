@@ -22,6 +22,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import self_map  # noqa: E402
+import validate  # noqa: E402  (the negative-fixture meta-check's input-substitution seam)
 
 
 def emit(findings: list) -> int:
@@ -33,7 +34,10 @@ def emit(findings: list) -> int:
 
 
 def main() -> int:
-    f = self_map.check()
+    # ENGINE_SELF_MAP_PATH (unset in every production run) lets the negative-fixture meta-check
+    # point the committed-side read at a seeded stale map while the canonical side still derives
+    # from the real repo — so the drift gate is witnessed biting a real bad input (#286).
+    f = self_map.check(validate.env_override_path("ENGINE_SELF_MAP_PATH"))
     return emit([f] if f["severity"] == "hard" else [])
 
 
