@@ -62,7 +62,8 @@ if _PARENT not in sys.path:
 from memory import ledger, records  # noqa: E402
 
 RECORD_VERSION = 1                       # the per-record ledger-version envelope (slice-1 forward-owe)
-RECORD_KIND = "turn-delta"
+RECORD_KIND = records.AMBIENT_CAPTURE_KIND   # the ambient-capture kind, now homed in `records` (the cycle-free
+                                             # leaf `forget` also reads); aliased here so the string never drifts
 CURSOR_FILENAME = "capture-state.json"   # {session_id: captured-message-count}; gitignored sibling
 LOCK_FILENAME = ".capture.lock"          # the capture transaction lock; gitignored sibling
 

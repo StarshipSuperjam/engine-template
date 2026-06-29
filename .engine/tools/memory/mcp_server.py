@@ -64,6 +64,17 @@ def _recall(query: str, *, roles=None, tags=None, limit=None):
     return result
 
 
+# Operator-facing recall-completeness note (§7 floor; D-273/D-274, issue #332). Recall surfaces only the curated
+# layer — episodic summaries and gists; the raw, word-for-word turn-notes behind them are kept and fully
+# recoverable, never deleted by this exclusion. Carried in the recall answer itself (alongside the results) so the
+# assistant relays it to the operator (the operator-communication law) and can offer the verbatim. The wording is
+# a build-spec leaf.
+_RECALL_COMPLETENESS_NOTE = (
+    "These are curated summaries. The original word-for-word notes behind them are still kept and recoverable — "
+    "offer to pull the exact wording if the operator wants it."
+)
+
+
 @server.tool(
     name="search",
     description=(
@@ -79,7 +90,11 @@ def _recall(query: str, *, roles=None, tags=None, limit=None):
 )
 def search(query: str, roles: list[str] | None = None,
            tags: list[str] | None = None, limit: int | None = None) -> dict:
-    return {"results": _recall(query, roles=roles, tags=tags, limit=limit).records}
+    out = _recall(query, roles=roles, tags=tags, limit=limit).records
+    result: dict = {"results": out}
+    if out:
+        result["recall_completeness"] = _RECALL_COMPLETENESS_NOTE
+    return result
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------

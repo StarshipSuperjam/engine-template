@@ -70,6 +70,16 @@ _DEGRADED_DISCLOSURE = (
     "Memory's fast recall is unavailable on this machine, so the automatic per-prompt memory hints are paused "
     "this session. You can still query memory directly (the memory search tool) when you need it."
 )
+# The §7 recall-completeness disclosure (D-273/D-274, issue #332). Recall surfaces only the curated layer — these
+# pointers are to curated summaries; the raw, word-for-word notes behind them are kept and fully recoverable
+# (never deleted by that exclusion). Shown ONCE per session alongside the first pointers (mirroring the degraded
+# disclosure's once-per-session sentinel), so the operator can be offered the verbatim. AI-facing and relayed; the
+# wording is a build-spec leaf.
+_COMPLETENESS_MARKER = "\x00recall-completeness"   # a reserved sentinel in the surfaced-set (never a real id)
+_COMPLETENESS_DISCLOSURE = (
+    "These point to curated summaries of earlier sessions; the raw, word-for-word notes behind them are kept and "
+    "recoverable — offer to pull the exact wording if the operator wants it."
+)
 
 
 # ---- the strong-match threshold (read from attention's policy; degrade-safe) ----------------
@@ -218,7 +228,13 @@ def handler(payload: dict) -> dict:
     fresh = _undeduped(strong, session_id, records.RECORD_ID_KEY)
     if not fresh:
         return hooks.proceed()
-    return hooks.inject(_render(fresh))
+    block = _render(fresh)
+    # §7: alongside the FIRST pointers of the session, disclose once that these are curated summaries whose raw
+    # verbatim is kept and recoverable (the surfaced-set dedup keeps it to one showing, like the degraded notice).
+    if _COMPLETENESS_MARKER not in _surfaced(session_id):
+        _mark_surfaced(session_id, [_COMPLETENESS_MARKER])
+        block = block + "\n\n" + _COMPLETENESS_DISCLOSURE
+    return hooks.inject(block)
 
 
 def _score_of(record, records_mod) -> float:

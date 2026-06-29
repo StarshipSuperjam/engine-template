@@ -51,7 +51,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger  # noqa: E402 — the canonical store + its generation stamp + the shared ledger_dir()
+from memory import ledger, records  # noqa: E402 — the canonical store + the shared record-kind vocabulary
 
 # Build-spec leaf (recorded; the operator chose ~24h this session). How often the throttled SessionStart push may
 # run, after the one-time consented setup. A politeness/cost guard only: failure-direction is benign both ways — too
@@ -1335,8 +1335,10 @@ class _FakeVault:
 
 
 def _demo_plant(text: str) -> None:
-    """Append one real note to the throwaway ledger so the backup has content to copy."""
-    ledger.append({"kind": "turn-delta", "role": "observation", "text": text, "ts": int(time.time())})
+    """Append one real note to the throwaway ledger so the backup has content to copy. A curated `episodic`
+    record (recall-eligible): ambient turn-deltas are not recall content (D-273/D-274, #332), so planting an
+    episodic keeps a demo/test that shows the restored note is searchable truthful."""
+    ledger.append({"kind": records.EPISODIC_KIND, "role": "observation", "text": text, "ts": int(time.time())})
 
 
 def _demo() -> int:
@@ -1549,7 +1551,7 @@ def snapshot_demo() -> bool:
             setup(scope="shared", transport=fake.transport, consent="y")
             ptr = read_pointer()
             slug = f"{ptr['owner']}/{ptr['repo']}"
-            ledger.append({"kind": "turn-delta", "text": "state BEFORE the migration reshapes it"})
+            ledger.append({"kind": records.AMBIENT_CAPTURE_KIND, "text": "state BEFORE the migration reshapes it"})
 
             rolling_before = fake.refs.get(f"{slug}@{ptr['branch']}")
             handle = snapshot_for_migration("recall-ledger", "2.0.0", migration_id="core@0.2.0",
@@ -1557,7 +1559,7 @@ def snapshot_demo() -> bool:
             snap_commit = fake.tags.get(f"{slug}@{handle['tag']}") if handle else None
             rolling_after_snapshot = fake.refs.get(f"{slug}@{ptr['branch']}")    # the snapshot must NOT advance it
             # a later ROUTINE rolling backup (advances the branch head) — must NOT touch the snapshot tag
-            ledger.append({"kind": "turn-delta", "text": "state the migration would have written"})
+            ledger.append({"kind": records.AMBIENT_CAPTURE_KIND, "text": "state the migration would have written"})
             push_now(transport=fake.transport)
             rolling_after_backup = fake.refs.get(f"{slug}@{ptr['branch']}")
             snap_commit_after = fake.tags.get(f"{slug}@{handle['tag']}") if handle else None

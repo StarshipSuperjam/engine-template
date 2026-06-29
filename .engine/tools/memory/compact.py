@@ -392,7 +392,7 @@ def _all_records() -> list:
 def _content_records() -> list:
     """Every recall-bearing record in the cabinet (notes + summaries), regardless of recall visibility — the
     thing a rewrite must never lose."""
-    keep = (records.EPISODIC_KIND, "turn-delta")
+    keep = (records.EPISODIC_KIND, records.AMBIENT_CAPTURE_KIND)
     return [r for r in _all_records() if r.get("kind") in keep]
 
 
