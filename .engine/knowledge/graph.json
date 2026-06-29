@@ -720,6 +720,29 @@
       "type": "check"
     },
     {
+      "id": "check:hard-check-bite",
+      "kind": "custom/script",
+      "name": ".engine/check/hard-check-bite.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "hard-check-bite",
+      "source": {
+        "fingerprint": "sha256:4b82e20eb0608c4e58e997639b41416bfdfb305c8567c0800adbce0d2f2f3703",
+        "path": ".engine/check/hard-check-bite.json"
+      },
+      "status": "active",
+      "suites": [],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:in-tool-demo-failure-path",
       "kind": "custom/script",
       "name": ".engine/check/in-tool-demo-failure-path.json",
@@ -1823,7 +1846,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:859e444f87d4cdd582db5b46ace3b54a89a4cb97800b9fc7f5cc35cbdb561c1d",
+        "fingerprint": "sha256:f763990c60ba68e392a3afbbdfaf9271200165859ce34040138d0cf04862fae8",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -5457,7 +5480,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b99fe37138154b76febeed29816b5e70211f33747b98471a653b15e6e7f6959f",
+        "fingerprint": "sha256:b7ae1a07f1e3cfff5d628e97d321bea07337c41dc89aa9b45ffe8133cf04c642",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

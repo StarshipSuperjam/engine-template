@@ -17,12 +17,16 @@ the check schema is unchanged). Each in-scope hard check-logic unit gets one sub
 - a **`custom/script` check instance** → `<check-id-stem>/`, the rule id minus `engine/check/`
   (e.g. `disposition-issue-resolution/`)
 
-Each unit directory holds the seeded bad input (a single bad file; or, for the repo-global `coverage`/`coherence`
-kinds, a malformed mini-tree or a `manifests.json` data literal). The exact per-unit layout — including the
-planned `expect.json` sidecar that names the `(finding-id, severity)` the meta-check asserts by set-membership,
-and the reviewed `not-applicable` disclosure for a unit with no statically-decidable CI failure path — is settled
-by the meta-check slice that consumes these fixtures (a build-spec leaf); the durable rule here is only the
-by-presence binding and the location convention above.
+Each unit directory holds a `rule.json` (the transient rule the meta-check runs), the seeded bad input (a single
+bad file; or, for the repo-global `coverage`/`coherence` kinds, a malformed mini-tree or a `manifests.json` data
+literal), and an `expect.json` sidecar. The sidecar declares **`{"severity": ..., "message_contains": ...}`** — the
+meta-check asserts by **set-membership** that a finding of that severity carrying that message token is present
+(never order/count). The token is required, and it is what distinguishes the unit's *intended* finding from an
+unrelated bite: a fixture that fail-closes for the wrong reason fires a hard finding but not the expected one, so it
+does not satisfy the assertion. A unit with no statically-decidable CI failure path instead carries a
+`not-applicable.json` whose `property` is exactly `"no statically-decidable failure path in the CI environment"`
+(verbatim — a compressed slug would reopen the self-classification escape D-257/D-258 closed); the meta-check lists
+every such carve-out loudly and it is re-derived at the review gate.
 
 **Every fixture must live under `.engine/_fixtures/` and nowhere else.** The exclusions that shield these files
 are anchored on this exact path, so a fixture placed outside the namespace (or under a near-miss sibling like
