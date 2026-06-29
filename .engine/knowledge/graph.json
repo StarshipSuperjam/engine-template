@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:db61752875aee85771221c9ec343f6f1e4e4d96193ad389be6b166320763c514",
+        "fingerprint": "sha256:fdbe17e9b7a6170bb6e9f532991ef4f984bcfed6b3626b0a5d8c2c2928eb5082",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "design-review-architecture",
       "source": {
-        "fingerprint": "sha256:db33a14acadaac2c79b2e538e579ce81676c21bd0be67074595ef341817a244e",
+        "fingerprint": "sha256:7a8452b79dc6f8f33a4ccb0e328c76649808b8437e908141b7a0008041419f79",
         "path": ".claude/agents/design-review-architecture.md"
       },
       "status": "active",
@@ -62,7 +62,7 @@
       "role": "plan-review",
       "slug": "design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:7e609bf8ba42821fddb093015eb752575c8baf56f4efef4a85008f9a246f660e",
+        "fingerprint": "sha256:902b6150d4778445e5218de868c8fef79e95a092de0a48814ee36a1da8fee4f3",
         "path": ".claude/agents/design-review-feasibility.md"
       },
       "status": "active",
@@ -85,7 +85,7 @@
       "role": "plan-review",
       "slug": "design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:57aa029fc74db48e3c8be5daaf5d14ce2d6bb93ca73d7fed89b27d169727a8c9",
+        "fingerprint": "sha256:fb945d85a5954053e14b5916467f21280e155faa8821405f595653ddf9661f8c",
         "path": ".claude/agents/design-review-product-intent.md"
       },
       "status": "active",
@@ -108,7 +108,7 @@
       "role": "plan-review",
       "slug": "design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:054cd6529b7c5ffd55ce9724c55a72c60f1c1c8f0e48861dc22bd50930a0f0c8",
+        "fingerprint": "sha256:e3deba61e3e3055be4f11ad4271c1d963b9443b2812452463e6bd319fb5cc38b",
         "path": ".claude/agents/design-review-risk-governance.md"
       },
       "status": "active",
@@ -131,7 +131,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:96f3bc9a1abb1a4408c4bb96dc7bccd92814093560d63b589ad59817affd14a6",
+        "fingerprint": "sha256:7a1f1a3535e7cd4ad3bd97c0098ef2a355c0b6bf2a8c376f3d5227fd9b0a9554",
         "path": ".claude/agents/qa-review-security-governance.md"
       },
       "status": "active",
@@ -154,7 +154,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:a736d080d68e203dca9bac25a14277ccfe5cb6e3f552d6ce895c4f90b33149b9",
+        "fingerprint": "sha256:912f01c77a993c12a5a28840ec21dd2d4da0e167200f454ff50d65b636be6c0c",
         "path": ".claude/agents/qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -177,7 +177,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:368a71e9af51e45ad4dda808ff08e271ffbc4ca03d0625cda1e21a6f59df3722",
+        "fingerprint": "sha256:c826b30ecf6d2490b47694d9284624f9c129b631c8550680ae1a05597f19722f",
         "path": ".claude/agents/qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -200,11 +200,36 @@
       "role": "pre-submission-review",
       "slug": "qa-review-usability",
       "source": {
-        "fingerprint": "sha256:e69ca7908add179d339121cbd41ecaccb9c7c19e2d4448a7769c3b40fdd209f2",
+        "fingerprint": "sha256:eec3f177ecd94278d6be71bcf3fa89d49fc07495dbba192df74f1ee159c50651",
         "path": ".claude/agents/qa-review-usability.md"
       },
       "status": "active",
       "type": "agent"
+    },
+    {
+      "id": "check:agent-coherence",
+      "kind": "custom/script",
+      "name": ".engine/check/agent-coherence.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "agent-coherence",
+      "source": {
+        "fingerprint": "sha256:c66350f46d20bc8c8eb406d0c9ab211d29da998c87d345e49fdf3c12c40f202e",
+        "path": ".engine/check/agent-coherence.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
     },
     {
       "id": "check:agent-frontmatter",
@@ -1846,7 +1871,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:f763990c60ba68e392a3afbbdfaf9271200165859ce34040138d0cf04862fae8",
+        "fingerprint": "sha256:3d3dc31814605fe879966efd04e0b4054d03a0495046ef3dd54cff1230a1370b",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2392,7 +2417,7 @@
       },
       "slug": "agent.v1",
       "source": {
-        "fingerprint": "sha256:23ce35423e8494fd0d1a4421e2784569ee22d0b3e4bdcadcba4605567d144acd",
+        "fingerprint": "sha256:f7d52b00d7f14b79d072b41d3cbe5c31db1681cdb98c86b734178109a8c98e00",
         "path": ".engine/schemas/agent.v1.json"
       },
       "status": "active",
@@ -3020,6 +3045,23 @@
       "status": "active",
       "title": "engine-tune",
       "type": "skill"
+    },
+    {
+      "id": "tool:agent_coherence_check",
+      "name": ".engine/tools/agent_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "agent_coherence_check",
+      "source": {
+        "fingerprint": "sha256:56916eb4e85d4348199ce563de21748e0e90db455a67a1daa9a11e6b07242c6f",
+        "path": ".engine/tools/agent_coherence_check.py"
+      },
+      "status": "active",
+      "type": "tool"
     },
     {
       "id": "tool:attention",
@@ -4647,8 +4689,25 @@
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:5d11f0c5b761a8f04ed871267c260839164211dbd22fc8203b8e70280dc8858c",
+        "fingerprint": "sha256:87e562e76407960b807e560192df30350e66a08625e8a0ff911b2fae60c52840",
         "path": ".engine/tools/test_agent.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_agent_coherence_check",
+      "name": ".engine/tools/test_agent_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_agent_coherence_check",
+      "source": {
+        "fingerprint": "sha256:762fc1011840c77c5141f4767984ecf1c05ea4e8bf3a67fa42ff3b0fb649218a",
+        "path": ".engine/tools/test_agent_coherence_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -5480,7 +5539,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b7ae1a07f1e3cfff5d628e97d321bea07337c41dc89aa9b45ffe8133cf04c642",
+        "fingerprint": "sha256:66f459e7fee0115bd9f54a0bbd0e3893c3b5457296e195d39815a32592c83778",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -6228,7 +6287,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:fc27baf6bda1ce96e289017afe257fcc8eef21fec99547f5cfcd5a4040d8f43e",
+        "fingerprint": "sha256:4d22028c2cdd69b08a0b96669d32c4a0f48404669c39b51221e2dda2402811da",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

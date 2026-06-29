@@ -5,6 +5,7 @@ role: audit
 model-tier: judgment
 permissions: read-only
 output-contract: audit-finding.v1
+disallowedTools: [Edit, Write, NotebookEdit]
 ---
 
 ## Mandate

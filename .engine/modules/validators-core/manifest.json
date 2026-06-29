@@ -4,6 +4,7 @@
   "status": "required",
   "provides": {
     "check": [
+      ".engine/check/agent-coherence.json",
       ".engine/check/agent-frontmatter.json",
       ".engine/check/agent-shape.json",
       ".engine/check/audit-concern-list.json",
