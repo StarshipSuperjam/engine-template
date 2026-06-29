@@ -154,6 +154,19 @@ PRUNE_DIRS = {".venv", "__pycache__", ".cache", ".pytest_cache"}
 # `.engine/tools/projects_sync/` (owned via that module's `provides` glob) stays ownership-checked.
 PRUNE_PATHS = {".engine/memory", ".engine/projects-sync"}
 
+# Repo-relative directory PATHS holding COMMITTED test data that is deliberately NOT a governed surface: the
+# reserved negative-fixture namespace (`.engine/_fixtures/`, engine-planning D-256/D-260). These are seeded
+# bad inputs the negative-fixture meta-check runs each hard check against to prove it bites. Distinct
+# justification from both sets above: unlike PRUNE_DIRS (regenerable caches) and PRUNE_PATHS (gitignored
+# runtime state), fixtures ARE committed — but they are excluded from the ownership leg because no module
+# `provides` them and they must never read as an unowned orphan or an uncatalogued surface (the check-system
+# "fixtures are test data, not a surface" rule). Anchored on the exact path, so a committed tool or surface
+# elsewhere is unaffected. Pruned by the SAME walk mechanism as PRUNE_PATHS — and at the SHARED walk
+# (_walk_engine_files), so the namespace is excluded from BOTH the ownership leg and the #281
+# untracked-surface detector intentionally (a committed fixture is not cruft to flag; fixtures are never
+# fingerprinted into the graph, so the #281 "a regen would pull it in" risk does not apply to them).
+FIXTURE_PATHS = {".engine/_fixtures"}
+
 MODULES_GLOB = ".engine/modules/*/manifest.json"
 
 
@@ -209,16 +222,19 @@ def load_engine_manifest():
 
 def _walk_engine_files() -> list:
     """Every file under .engine/ on the live filesystem (relpaths), pruning regenerable cache dirs
-    (PRUNE_DIRS, any depth) and gitignored runtime roots (PRUNE_PATHS). The RAW walk — what is on disk,
-    tracked or not. engine_file_inventory() narrows this to the committed set; the untracked-surface
-    detector reads it raw."""
+    (PRUNE_DIRS, any depth), gitignored runtime roots (PRUNE_PATHS), and the committed-but-non-surface
+    fixtures namespace (FIXTURE_PATHS). The RAW walk — what is on disk, tracked or not.
+    engine_file_inventory() narrows this to the committed set; the untracked-surface detector reads it raw
+    (both therefore exclude the three pruned sets)."""
     out = []
     for dirpath, dirs, files in os.walk(validate.ENGINE_DIR):
-        # Prune name-matched caches (PRUNE_DIRS, any depth) and path-matched gitignored runtime roots
-        # (PRUNE_PATHS, the exact repo-relative path) so neither's contents are flagged as orphans.
+        # Prune name-matched caches (PRUNE_DIRS, any depth), path-matched gitignored runtime roots
+        # (PRUNE_PATHS), and the committed-but-non-surface fixtures namespace (FIXTURE_PATHS) — each by the
+        # exact repo-relative path — so none of their contents are flagged as orphans.
         dirs[:] = [d for d in dirs
                    if d not in PRUNE_DIRS
-                   and _rel(os.path.join(dirpath, d)) not in PRUNE_PATHS]
+                   and _rel(os.path.join(dirpath, d)) not in PRUNE_PATHS
+                   and _rel(os.path.join(dirpath, d)) not in FIXTURE_PATHS]
         out.extend(_rel(os.path.join(dirpath, f)) for f in files)
     return sorted(out)
 
