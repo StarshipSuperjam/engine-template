@@ -1143,7 +1143,7 @@ class TestApplyCli(unittest.TestCase):
             inst._build_fixture(d)
             buf = io.StringIO()
             with inst._redirect_root(d), contextlib.redirect_stdout(buf):
-                rc = inst.main(["apply"])      # no manifest → refuse
+                rc = inst.main(["apply", "--first-run"])   # token present → reaches the not-confirmed refusal
             self.assertEqual(rc, 1)
             self.assertIn("hasn't been confirmed", buf.getvalue())
 
@@ -1155,6 +1155,104 @@ class TestApplyCli(unittest.TestCase):
                 rc1 = inst.main(["confirm", "--tier", "solo", "--keep", "", "--handle", "octocat"])
             self.assertEqual(rc1, 0)
             self.assertTrue(inst.is_provisioned(d), "confirm wrote the checkpoint")
+
+
+class TestFirstRunVerbGuards(unittest.TestCase):
+    """#297 — the one-time lifecycle verbs refuse a bare hand-run so re-running them on an already-set-up project
+    (or in this workshop) never re-fires the file-replacing setup steps. apply is gated by the `--first-run`
+    token the setup walkthrough passes (a construction-repo check can't go on apply — a legitimate apply
+    interrupted before the floor swap is content-identical to the workshop, and the locked design requires that
+    interrupted apply to resume). verify/retire refuse while the root CLAUDE.md is still the construction file —
+    a real first-run reaches them only after apply swapped the deployed floor in."""
+
+    def test_bare_apply_is_a_noop_and_touches_nothing(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d), contextlib.redirect_stdout(io.StringIO()):
+                inst.main(["confirm", "--tier", "solo", "--keep", "", "--handle", "octocat"])  # already set up
+            buf = io.StringIO()
+            with inst._redirect_root(d), contextlib.redirect_stdout(buf):
+                rc = inst.main(["apply"])                  # bare hand-run — no first-run token
+            self.assertEqual(rc, 0)
+            self.assertIn(inst._APPLY_NOT_FIRST_RUN, buf.getvalue())
+            # the one-time reconciles did NOT fire: the markers their recognizers key on are untouched
+            with open(os.path.join(d, "README.md"), encoding="utf-8") as fh:
+                self.assertIn(inst._MARKETING_SEED_MARKER, fh.read(), "the README front was not replaced")
+            self.assertTrue(os.path.isfile(os.path.join(d, "LICENSE")), "the LICENSE was not cleared")
+            with inst._redirect_root(d):
+                self.assertTrue(inst._root_is_construction(), "the construction CLAUDE.md was not swapped")
+
+    def test_apply_with_first_run_token_runs_the_real_logic(self):
+        # The token lets apply through to its real logic — proven by it reaching the not-confirmed refusal on an
+        # unconfirmed fixture (the locked resumable-apply path the bare-run guard must never block).
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)                          # confirmed = False
+            buf = io.StringIO()
+            with inst._redirect_root(d), contextlib.redirect_stdout(buf):
+                rc = inst.main(["apply", "--first-run"])
+            self.assertEqual(rc, 1)
+            self.assertIn("hasn't been confirmed", buf.getvalue())
+            self.assertNotIn(inst._APPLY_NOT_FIRST_RUN, buf.getvalue())
+
+    def test_verify_refuses_in_the_workshop(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)                          # root CLAUDE.md is still the construction file
+            buf = io.StringIO()
+            with inst._redirect_root(d), contextlib.redirect_stdout(buf):
+                rc = inst.main(["verify"])
+            self.assertEqual(rc, 0)
+            self.assertIn("workshop where the engine is built", buf.getvalue())
+
+    def test_verify_runs_after_setup_swapped_the_floor(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            buf = io.StringIO()
+            with inst._redirect_root(d):
+                _finished_fixture(d)                        # full apply ran → root CLAUDE.md is the deployed floor
+                with contextlib.redirect_stdout(buf):
+                    rc = inst.main(["verify"])
+            self.assertEqual(rc, 0)
+            self.assertNotIn("workshop where the engine is built", buf.getvalue(),
+                             "a real first-run verify is not blocked by the guard")
+
+    def test_retire_refuses_in_the_workshop_and_deletes_nothing(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            inst._plant_first_run_assets(d)                 # the real-tool stand-ins a stray retire would delete
+            buf = io.StringIO()
+            with inst._redirect_root(d), contextlib.redirect_stdout(buf):
+                rc = inst.main(["retire"])
+            self.assertEqual(rc, 0)
+            self.assertIn("workshop where the engine is built", buf.getvalue())
+            self.assertTrue(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
+                            "a bare retire in the workshop must not self-delete the real setup tool")
+
+    def test_retire_runs_after_setup_swapped_the_floor(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as d:
+            buf = io.StringIO()
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                with contextlib.redirect_stdout(buf):
+                    rc = inst.main(["retire"])
+            self.assertEqual(rc, 0)
+            self.assertNotIn("workshop where the engine is built", buf.getvalue())
+            self.assertFalse(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
+                             "a real first-run retire tidies the one-time setup tool away")
+
+    def test_root_construction_check_degrades_on_a_non_text_file(self):
+        # The guard's "never block on doubt" promise: a binary/non-UTF-8 root CLAUDE.md must read as
+        # not-construction (so verify/retire pass through), not crash the verb.
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with open(os.path.join(d, "CLAUDE.md"), "wb") as fh:
+                fh.write(b"\xff\xfe\x00\x01 not valid utf-8")
+            with inst._redirect_root(d):
+                self.assertFalse(inst._root_is_construction(), "a non-text root file degrades, never raises")
 
 
 # ==== VERIFY + RETIRE (core slice 27c) ===============================================================
