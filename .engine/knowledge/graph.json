@@ -2456,7 +2456,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:550dd5249605b5879afadcdfda7e115a1d5531a43380e2e9dd0db681a718ab73",
+        "fingerprint": "sha256:a2da6be72bafdc7f03f04d45dd79ca956e0bc66586970814cda7ad7f5bd48a53",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",

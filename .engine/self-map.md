@@ -55,7 +55,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - agent: `.claude/agents/.gitkeep`
   - check: `.engine/check/guardrail-weakening.json`, `.engine/check/protection.json`
   - conduct: `.engine/conduct/defaults.md`
-  - contract: `.engine/contracts/*.md`, `.engine/contracts/.gitkeep`
+  - contract: `.engine/contracts/*.md`
   - doc: `.engine/docs/getting-started.md`
   - foundation: `.engine/self-map.md`, `.engine/suites.json`
   - interface: `.engine/interfaces/*.json`
