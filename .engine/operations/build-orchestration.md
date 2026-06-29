@@ -68,6 +68,14 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    the installed pre-submission passes run cold-context and findings are dispositioned. Validation reruns on
    every change including post-audit fixes; the cold review runs once at the agreed depth and does **not**
    rerun on those fixes unless the operator asks — the Review record states that delta.
+   **Re-derive every not-applicable carve-out the negative-fixture meta-check lists.** When that meta-check
+   (`engine/check/hard-check-bite`) reports a hard check as *not applicable* (its loud soft note — a check
+   exempted from a negative fixture), the gate does not take the disclosure's word: for each one it re-derives
+   the bound — confirming the check's *aimed* failure cannot be triggered by any committed input in CI (so the
+   only seedable path is the fail-closed one, which would be a false witness), not merely that the disclosure
+   carries the right property string. Anything that no longer holds becomes a finding; the per-carve-out
+   re-derivation is recorded in the Review section. This is the standing control behind the meta-check's printed
+   "re-derived at the review gate"; the meta-check checks the disclosure, the gate checks the world.
 7. **Submit — mark the draft ready and hand to the human gate.** Fill the pull-request contract including
    the **Review** section by **reading `.github/pull_request_template.md` in full, never grepping it for
    headers** — each section is a bold summary line, then bullets, then an italic `*Impact:*` line, none of

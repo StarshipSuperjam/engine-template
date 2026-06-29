@@ -101,7 +101,11 @@ def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
-    return emit(findings(tier))
+    # ENGINE_CONDUCT_DIR (unset in production) lets the negative-fixture meta-check point the shape
+    # gate at a seeded conduct dir, so it is witnessed biting a real bad input (#286).
+    conduct_dir = validate.env_override_path("ENGINE_CONDUCT_DIR")
+    paths = sorted(glob.glob(os.path.join(conduct_dir, "*.md"))) if conduct_dir else None
+    return emit(findings(tier, paths))
 
 
 if __name__ == "__main__":

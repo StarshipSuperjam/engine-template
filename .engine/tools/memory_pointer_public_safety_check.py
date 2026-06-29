@@ -42,9 +42,9 @@ def _is_construction_repo() -> bool:
         return False
 
 
-def _committed_pointer_text() -> "str | None":
+def _committed_pointer_text(pointer_rel: str = POINTER_REL) -> "str | None":
     try:
-        out = subprocess.run(["git", "show", f"HEAD:{POINTER_REL}"], cwd=validate.ROOT,
+        out = subprocess.run(["git", "show", f"HEAD:{pointer_rel}"], cwd=validate.ROOT,
                              capture_output=True, text=True, timeout=10)
     except Exception:  # noqa: BLE001 — git absent / detached HEAD / timeout -> can't determine -> pass (backstop)
         return None
@@ -61,12 +61,15 @@ def is_configured_pointer(text: str) -> bool:
                                        for k in ("owner", "repo", "namespace"))
 
 
-def check() -> "dict | None":
+def check(pointer_rel: str = POINTER_REL) -> "dict | None":
     """The guard result: a `hard` finding when a configured pointer is committed in the construction repo, else
-    None (safe / not applicable). Separated from main() so a test can drive it directly."""
+    None (safe / not applicable). Separated from main() so a test can drive it directly. `pointer_rel` is the
+    committed path read via `git show HEAD:` — overridable so the negative-fixture meta-check can point it at a
+    committed fixture pointer; the construction-scope gate is NOT overridable (a backdoor past it would defeat
+    this safety check)."""
     if not _is_construction_repo():
         return None
-    text = _committed_pointer_text()
+    text = _committed_pointer_text(pointer_rel)
     if text is None or not is_configured_pointer(text):
         return None
     return validate.finding(
@@ -79,7 +82,13 @@ def check() -> "dict | None":
 
 
 def main() -> int:
-    f = check()
+    # ENGINE_POINTER_REL (unset in production) lets the negative-fixture meta-check redirect the
+    # `git show HEAD:` read at a committed fixture pointer carrying placeholder-violating coordinates,
+    # so this safety gate is witnessed biting a real bad input (#286). It is a repo-relative pathspec
+    # (passed verbatim to `git show HEAD:`), NOT resolved to an absolute path. The committed-state read
+    # means the fixture only bites once committed at HEAD (so the live witness is in CI).
+    pointer_rel = os.environ.get("ENGINE_POINTER_REL") or POINTER_REL
+    f = check(pointer_rel)
     print(json.dumps([f] if f is not None else []))
     return 0
 
