@@ -300,8 +300,12 @@ class TestLiveDebtRegister(unittest.TestCase):
               "integration_debt": {"open_count": 2, "as_of": "2026-01-01T00:00:00Z"}}
 
     def _assemble(self, *, live_findings):
+        # find() is mocked so the empty-focus reachability probe (assemble_candidates now reads the map even with
+        # no focus) stays hermetic — these cases assert on telemetry, not on the real graph. An empty list means
+        # the probe succeeds (a reachable, if empty, map), so knowledge is available and never the variable here.
         with mock.patch.object(attention.validate, "load_json", return_value=dict(self._STATE)), \
-                mock.patch.object(attention.work_record, "read_in_flight", return_value=[]):
+                mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
+                mock.patch.object(attention.knowledge_query, "find", return_value=[]):
             return attention.assemble_candidates(FIXTURE_POLICY, live_findings=live_findings)
 
     def _debt(self, cands):
@@ -803,6 +807,39 @@ class TestSliceSourceInjection(unittest.TestCase):
             self.assertEqual(attention.derive_focus(run=lambda a: None, source=src), ["tool:boot"])
             nb = attention.neighborhood_of(["policy:attention"], source=src)
         self.assertEqual(nb["groups"][0]["sample"], ["module:core"])
+
+
+class TestEmptyFocusKnowledgeAvailability(unittest.TestCase):
+    """The clean-worktree false-alarm fix: knowledge AVAILABILITY tracks whether the map could be READ, not
+    whether there was a focus to walk it from. A clean session (no work in hand -> empty focus) must NOT degrade
+    knowledge — the map is reachable, so boot does not raise the false "couldn't reach your project map" notice;
+    a GENUINELY unreachable map still degrades, so the real notice is preserved."""
+
+    def test_empty_focus_with_a_reachable_source_is_available_and_walks_nothing(self):
+        # The fix's positive case (the real boot path): boot passes its rung-1 slice as `source`. With no focus,
+        # the walk must NOT run (no structural_neighbors candidate), yet knowledge IS available (the map was
+        # reached) — the inverse of the bug, which left knowledge degraded on every clean session.
+        src = _FakeSource(by_path={".engine/tools/attention.py": "tool:attention"})
+        with mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
+             mock.patch.object(attention.knowledge_query, "neighbors",
+                               side_effect=AssertionError("no focus => the walk must NOT run")):
+            for empty in (None, []):
+                cands, available, _ = attention.assemble_candidates(
+                    FIXTURE_POLICY, state_path="/nonexistent", focus=empty, gh=None, source=src)
+                self.assertIn("knowledge", available)                                  # reachable -> available
+                self.assertEqual([c for c in cands if c["category"] == "structural_neighbors"], [])  # no walk
+
+    def test_empty_focus_stays_degraded_when_the_map_is_genuinely_unreachable(self):
+        # The fix's safety case: boot's slice read failed (source=None) so the empty-focus probe falls to
+        # knowledge_query.find(); when THAT raises (rung 4 — committed graph absent AND the live walk also
+        # fails), knowledge stays degraded so boot's real "couldn't reach your project map" notice still fires.
+        with mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
+             mock.patch.object(attention.knowledge_query, "find",
+                               side_effect=Exception("knowledge unavailable")):
+            cands, available, _ = attention.assemble_candidates(
+                FIXTURE_POLICY, state_path="/nonexistent", focus=None, gh=None, source=None)
+        self.assertNotIn("knowledge", available)                                       # unreachable -> degraded
+        self.assertEqual([c for c in cands if c["category"] == "structural_neighbors"], [])
 
 
 if __name__ == "__main__":

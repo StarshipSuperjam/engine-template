@@ -68,6 +68,7 @@ import validate          # noqa: E402
 import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
 import boot_slice        # noqa: E402  (#37: boot's rung-1 knowledge cache; read() fail-opens to None)
+import knowledge_gen     # noqa: E402  (REGEN_CMD: the one operator-facing regenerate-the-map command, cited not re-typed)
 import boot_alarm_ledger  # noqa: E402  (D-269: the standing-alarm presentation ledger; decide() fail-opens to full)
 import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
@@ -273,7 +274,7 @@ def _and_list(items: list) -> str:
     return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
-def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = None) -> tuple[list, list, dict | None]:
+def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = None, source=None) -> tuple[list, list, dict | None]:
     """Consume attention.rank_live and SPLIT its ranked partition into (1) operator ACTION lines, rendered in
     the GIVEN precedence order as plain language (a bounded prefix per category — boot renders, never
     re-orders), and (2) the knowledge NEIGHBORHOOD of the work in hand. The neighborhood is AI-orientation
@@ -290,8 +291,11 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = 
     # Boot's RUNG-1 knowledge read (#37): a fresh boot slice is read once and threaded into every knowledge
     # read below, so orientation reads the gitignored cache instead of the SQLite index. `read()` fail-opens to
     # None (a missing/stale/broken slice, or knowledge unavailable) — then the reads run on `knowledge_query`
-    # exactly as before (the shared rungs 2-4), or boot orients without the block. Never blocks boot.
-    source = boot_slice.read()
+    # exactly as before (the shared rungs 2-4), or boot orients without the block. Never blocks boot. The caller
+    # (gather_signals) reads the slice ONCE and passes it in — so the same read also yields the `from_live`
+    # provenance for the rebuilt-map heads-up without a second read; `source=None` (the CLI/tests) reads here.
+    if source is None:
+        source = boot_slice.read()
     try:
         # with_total: the count BEHIND the cap, so the render discloses focus truncation honestly (#165).
         focus, focus_total = attention.derive_focus(gh=gh, with_total=True, source=source)
@@ -447,7 +451,14 @@ def gather_signals(session_id: str | None = None) -> dict:
     # ranking and the "Open problems" header read ONE number (they cannot disagree) and the SessionStart path
     # makes no second GitHub call. None (no repo/token, or a failed read) -> telemetry degrades and the
     # committed count stands in -> boot raises the loud 'couldn't reach' notice.
-    att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh, live_findings=finding_count)
+    # Boot's rung-1 knowledge slice (#37), read ONCE here and threaded into needs_attention — the SAME read also
+    # carries `from_live`: True when the committed graph.json was absent and orientation ran on a LIVE rebuild
+    # (rung 3, "loudly degraded"). That drives the rebuilt-map heads-up, NOT the att_degraded "couldn't reach"
+    # notice — the map IS reachable, only the committed file is missing. read() fail-opens to None (never raises
+    # into boot), so a read failure leaves map_rebuilt False and is covered instead by the "couldn't reach" path.
+    source = boot_slice.read()
+    map_rebuilt = bool(source and getattr(source, "from_live", False))
+    att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh, live_findings=finding_count, source=source)
     try:
         # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
         # low-stakes (a stranded local checkout cannot reach the protected branch), so it degrades QUIETLY
@@ -507,6 +518,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         "finding_count": finding_count, "register": register,
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
+        # True iff orientation ran on a LIVE-rebuilt map because the committed graph.json is absent (a distinct
+        # heads-up, NOT the att_degraded "couldn't reach": the map is reachable, the committed file is missing)
+        "map_rebuilt": map_rebuilt,
         # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
         "neighborhood": neighborhood,
         "shipped": recently_shipped(),
@@ -653,6 +667,19 @@ def render_dashboard(s: dict) -> str:
         degraded.append(
             f"I couldn't reach {missing} this session, so the priority order below may be incomplete — "
             f"re-ground before you rely on it.")
+
+    if s.get("map_rebuilt"):
+        # The committed project map (graph.json) is absent, so orientation ran on a LIVE rebuild (rung 3). The
+        # map IS reachable — this is deliberately NOT the "couldn't reach" degrade above: it is a distinct
+        # inform + consequence line in peer voice (never an alarm), naming the missing file and the one fix.
+        # The operator chose this rare state earns its own at-boot heads-up rather than only the merge-time
+        # coverage check. Cite the one canonical regenerate-and-commit command (REGEN_CMD) the way every sibling
+        # message does, so the fix is actionable for a non-engineer. .get() so a fixed-signals test fixture
+        # without the key never KeyErrors.
+        degraded.append(
+            "I'm running on a rebuilt project map — your committed map file is missing. Orientation still "
+            f"works, but regenerate it with `{knowledge_gen.REGEN_CMD}` and commit the result to restore "
+            "your saved map.")
 
     if degraded:
         out.append("")
