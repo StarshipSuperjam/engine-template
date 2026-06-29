@@ -10,31 +10,45 @@ invokes the detector in its SessionStart pack and OFFERS the fix; the assistant 
 operator says yes. The fix is the deployed-floor never-strand-main rule's ONE sanctioned write to the operator
 checkout.
 
-Design (systems/infrastructure/provisioning/README.md §"Operator-checkout strand"; D-189/D-190):
+Design (systems/infrastructure/provisioning/README.md §"Operator-checkout strand"; D-189/D-190; D-275/D-276):
   - From the session's worktree, resolve the main checkout (`git worktree list` — main listed FIRST — with
-    `--git-common-dir` as a fallback) and read its state LOCALLY.
-  - **Two binary states, checked every boot, OFFLINE:** a detached `HEAD`; missing engine files
-    (`.claude/settings.json`, `.engine/`) — `detect_strand`.
-  - **Behind-origin is the ONLINE, consequence-gated tail** — `detect_behind_origin` (#335). When the checkout
-    sits ON its default branch and a clean fast-forward would bring in merged work it is missing, it surfaces a
-    felt consequence (never a bare count). It is the one path that touches the network: a best-effort, tightly
+    `--git-common-dir` as a fallback) and read its state LOCALLY (one shared `_resolve_state`).
+  - **Two binary BROKEN states, checked every boot, OFFLINE:** a detached `HEAD`; missing engine files
+    (`.claude/settings.json`, `.engine/`) — `detect_strand`. These two stay TWO (D-275).
+  - **Off-main is the OFFLINE Stage-1 signal** — `detect_off_main` (#342). A healthy checkout PARKED on a
+    non-default branch (the wrong-branch park) is caught on day one, before anything is even missing — the
+    cheap-to-fix window. It fires only when the default branch is KNOWN with confidence (the persisted name or
+    `origin/HEAD`), never on a heuristic guess, so a pre-persistence checkout raises no false standing nag.
+  - **Behind-the-main-line is the ONLINE, consequence-gated Stage-2 tail** — `detect_behind_origin` (#335,
+    widened branch-agnostic for #342/D-275). The harmful essence is *missing your merged main line of work* —
+    NOT which branch you sit on — so it fires whether the checkout is on the default branch OR parked on a side
+    branch, whenever origin/<default> carries merged work the checkout lacks past the bar. It surfaces a felt
+    consequence (never a bare count). It is the one path that touches the network: a best-effort, tightly
     bounded `git fetch` (degrades SILENTLY to None offline — the signal is online-only). It fires only past a
     velocity-relative bar (missing more than ~one active day's worth of merges, computed from the merge-date span
-    of recent merges — data-relative, never the wall clock), so ordinary drift never alarms.
+    of recent merges — data-relative, never the wall clock), so ordinary drift never alarms. Whether the missing
+    work is fully absorbed or the branch still carries its own is an ADVISORY tone only (`git cherry`, err-gentle
+    — `_merged_advisory`), never a safety gate.
   - **The strand fix is lossless-or-it-does-not-run.** Safe iff `git -C <main> rev-list HEAD --not --branches`
-    empty AND `stash list` empty AND `status --porcelain` clean — decided OFFLINE. Its ONLY git mutations are
+    empty AND `stash list` empty (repo-global — a sibling worktree's stash fails it SAFE) AND `status
+    --porcelain` clean AND no git operation paused mid-flight (`_op_in_progress` — a paused `rebase -i` leaves
+    the tree clean yet moving HEAD would corrupt it) — decided OFFLINE. Its ONLY git mutations are
     ADDITIVE-or-post-rescue: `checkout -b` (create a ref), `commit` onto a FRESH rescue branch (saves work),
     `checkout <branch>` (only after at-risk work is rescued), and per-path `checkout HEAD -- <absent path>`
     (restore ONLY currently-absent tracked files). It **NEVER** runs `reset` / `clean` / `checkout -f` /
-    `stash drop` / `push` / any force flag. When it cannot safely tell which branch to re-attach to, it
-    **REFUSES** (no mutation) rather than guess.
-  - **The behind-origin correction is `catch_up`** — `git merge --ff-only origin/<default>`. `--ff-only` is git's
-    own refuse-if-not-a-fast-forward guard: it advances the branch only along a strict-ancestor linear path and
-    ABORTS (no mutation, no loss — keeping any uncommitted edits) if local work would be overwritten. So it is
-    lossless **by construction**, needs no rescue branch and no branch switch (unlike the detached arm), and a
-    diverged branch is refused, never forced. `--ff-only` is the SINGLE sanctioned non-additive git verb; every
-    destructive token stays forbidden (test_checkout_health source-scans for them, and a behavioral test pins
-    that `catch_up` refuses divergence).
+    `stash drop` / `push` / any force flag. When it cannot safely tell which branch to re-attach to (or a git
+    operation is paused), it **REFUSES** (no mutation) rather than guess.
+  - **The corrections are `catch_up` (on the default) and `return_to_default` (off it).** `catch_up` —
+    `git merge --ff-only origin/<default>` — is the on-default arm: `--ff-only` is git's own
+    refuse-if-not-a-fast-forward guard, advancing the branch only along a strict-ancestor linear path and
+    ABORTING (no mutation, no loss — keeping any uncommitted edits) if local work would be overwritten, so it is
+    lossless **by construction**, needs no rescue branch and no branch switch, and a diverged branch is refused,
+    never forced. `return_to_default` — the off-main arm — points a checkout parked on a side branch back at its
+    default and fast-forwards: returning to a NAMED branch never orphans commits (the side branch ref keeps
+    them, so no rescue), it runs only when the lossless gate is clean (else BLOCKS, no mutation), and its
+    `checkout <default>` is defensive (never `-f`). `--ff-only` is the SINGLE sanctioned non-additive git verb;
+    every destructive token stays forbidden (test_checkout_health source-scans for them, and behavioral tests
+    pin that `catch_up` refuses divergence and `return_to_default` blocks on a paused operation).
   - **Fail-soft = quiet** (detection): any git error / unresolvable main returns None (no strand surfaced) — a
     stranded local checkout cannot reach the protected branch, so it degrades quietly; the double-fault is the
     boot floor's present-marker backstop.
@@ -46,6 +60,9 @@ off the operator surface). The fixes return a structured result the runbook/boot
 CLI:  python tools/checkout_health.py            # classify THIS repo's main checkout (signal or "healthy")
       python tools/checkout_health.py unstrand   # dry-run: what the strand fix WOULD do (no mutation)
       python tools/checkout_health.py unstrand --apply   # repair THIS repo's checkout (only if stranded)
+      python tools/checkout_health.py offmain    # report whether the checkout is parked off its default branch
+      python tools/checkout_health.py returnmain # dry-run: what pointing it back WOULD do (no mutation)
+      python tools/checkout_health.py returnmain --apply # point THIS repo's checkout back at its default branch
       python tools/checkout_health.py behind     # report whether the checkout is behind origin (online)
       python tools/checkout_health.py catchup    # dry-run: what bringing it current WOULD do (no mutation)
       python tools/checkout_health.py catchup --apply    # bring THIS repo's checkout current (only if behind)
@@ -132,18 +149,34 @@ def _main_checkout(cwd: str | None = None) -> tuple[str, bool] | None:
     return None
 
 
-def detect_strand(cwd: str | None = None) -> dict | None:
-    """Classify the operator's main checkout as stranded or not — OFFLINE, READ-ONLY. Returns None when
-    healthy (on a branch AND both engine files present) OR when the check cannot run (fail-soft quiet).
-    A strand returns {"states": [...], "main": <path>} with one or both of "detached" / "missing-files"."""
+def _resolve_state(cwd: str | None = None) -> tuple[str, bool, bool, str] | None:
+    """Resolve the operator's main checkout ONCE, OFFLINE, for all three classifiers (strand / off-main /
+    behind) — so a single detection pass needs only one `git worktree list`. Returns
+    (main, detached, missing_files, current) or None when the main checkout cannot be resolved (fail-soft
+    quiet). `current` is the checked-out branch name ('' when detached). The DEFAULT branch is deliberately NOT
+    resolved here: off-main needs the CONFIDENT default (persisted / origin-HEAD only) while behind tolerates
+    the heuristic fallback, so each caller resolves its own (see `_confident_default_branch` / `_default_branch`)."""
     resolved = _main_checkout(cwd)
     if not resolved:
         return None
     main, detached = resolved
+    missing = any(not os.path.exists(os.path.join(main, rel)) for rel in _ENGINE_FILES)
+    current = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+    return main, detached, missing, current
+
+
+def detect_strand(cwd: str | None = None) -> dict | None:
+    """Classify the operator's main checkout as stranded or not — OFFLINE, READ-ONLY. Returns None when
+    healthy (on a branch AND both engine files present) OR when the check cannot run (fail-soft quiet).
+    A strand returns {"states": [...], "main": <path>} with one or both of "detached" / "missing-files"."""
+    st = _resolve_state(cwd)
+    if not st:
+        return None
+    main, detached, missing, _current = st
     states: list[str] = []
     if detached:
         states.append("detached")
-    if any(not os.path.exists(os.path.join(main, rel)) for rel in _ENGINE_FILES):
+    if missing:
         states.append("missing-files")
     if not states:
         return None
@@ -152,9 +185,33 @@ def detect_strand(cwd: str | None = None) -> dict | None:
 
 # ---- the un-stranding fix: lossless-or-it-does-not-run (issue #80, slice C) ------------------
 
+# Git operation-in-progress sentinels: a PAUSED merge / cherry-pick / revert / (interactive) rebase. Probed
+# via `git rev-parse --git-path` so a worktree's own git dir is honored. A paused `rebase -i` leaves
+# `status --porcelain` CLEAN, so this probe — not the porcelain check — is what catches it (D-275, constraint 3).
+_INPROGRESS_PATHS = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")
+
+
+def _op_in_progress(main: str) -> bool:
+    """OFFLINE: is a git operation paused mid-flight in the main checkout (merge / cherry-pick / revert /
+    rebase)? Load-bearing for the lossless gate: such a state can leave `status --porcelain` CLEAN, yet moving
+    HEAD then would corrupt or abandon the operation. Probes the sentinel paths git itself names via
+    `rev-parse --git-path` (resolved against `main`, so a linked worktree's own git dir is honored). True if ANY
+    sentinel is present."""
+    for rel in _INPROGRESS_PATHS:
+        p = (_run(["git", "-C", main, "rev-parse", "--git-path", rel]) or "").strip()
+        if not p:
+            continue
+        full = p if os.path.isabs(p) else os.path.join(main, p)
+        if os.path.exists(full):
+            return True
+    return False
+
+
 def _is_lossless(main: str) -> tuple[bool, list[str]]:
-    """OFFLINE: can a strand be fixed without first rescuing? Safe iff no commit sits on no branch AND no
-    stash AND a clean working tree (provisioning L473-474). Returns (safe, reasons)."""
+    """OFFLINE: can the checkout be moved (re-attached, or returned to its default branch) without first
+    rescuing? Safe iff no commit sits on no branch AND no stash (repo-global — a sibling worktree's stash fails
+    this SAFE) AND a clean working tree AND no git operation paused mid-flight (provisioning L473-474; D-275
+    constraint 3). Returns (safe, reasons). Shared by `unstrand` and `return_to_default`."""
     reasons: list[str] = []
     if (_run(["git", "-C", main, "rev-list", "HEAD", "--not", "--branches"]) or "").strip():
         reasons.append("off-branch-commits")   # committed work reachable from no branch (detached work)
@@ -162,6 +219,8 @@ def _is_lossless(main: str) -> tuple[bool, list[str]]:
         reasons.append("stash")
     if (_run(["git", "-C", main, "status", "--porcelain"]) or "").strip():
         reasons.append("uncommitted")
+    if _op_in_progress(main):
+        reasons.append("op-in-progress")       # a paused merge/rebase/cherry-pick/revert — never move HEAD
     return (not reasons), reasons
 
 
@@ -178,18 +237,31 @@ def _persisted_default_branch(main: str) -> str | None:
         return None
 
 
-def _default_branch(main: str) -> str | None:
-    """The branch to re-attach a detached HEAD to (and the #342 classification anchor), resolved OFFLINE: the
-    PERSISTED derived name first (validated as an existing local branch, so a stale name can never redirect the
-    re-attach mutation), else origin/HEAD's target, else a local main/master, else the sole local branch. None
-    when it cannot be safely determined — the fix then REFUSES rather than move HEAD to a guessed branch."""
+def _confident_default_branch(main: str) -> str | None:
+    """The default branch ONLY when KNOWN with confidence, resolved OFFLINE: the PERSISTED derived name first
+    (validated as an existing local branch, so a stale name can never mislead), else `origin/HEAD`'s target.
+    None for the heuristic last resorts (a local main/master, or the sole branch) that `_default_branch` adds —
+    off-main detection uses THIS so a pre-persistence checkout with no `origin/HEAD` raises no false standing
+    nag on a GUESSED default (#342 risk-S2)."""
     persisted = _persisted_default_branch(main)
     if persisted and _run(["git", "-C", main, "rev-parse", "--verify", "--quiet", f"refs/heads/{persisted}"]):
-        return persisted   # validated: an existing local branch — safe for the re-attach mutation (gate S3)
+        return persisted   # validated: an existing local branch — safe to anchor on (gate S3)
     head = _run(["git", "-C", main, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
     if head and head.strip():
         ref = head.strip()
         return ref.split("origin/", 1)[1] if ref.startswith("origin/") else ref
+    return None
+
+
+def _default_branch(main: str) -> str | None:
+    """The branch to re-attach a detached HEAD to (and the behind tail's main-line anchor), resolved OFFLINE:
+    the CONFIDENT default first (persisted-validated, else origin/HEAD — see `_confident_default_branch`), then
+    the heuristic last resorts a re-attach/ff can still safely use — a local main/master, else the sole local
+    branch. None when it cannot be safely determined — the fix then REFUSES rather than move HEAD to a guessed
+    branch."""
+    confident = _confident_default_branch(main)
+    if confident:
+        return confident
     names = [n.strip() for n in
              (_run(["git", "-C", main, "branch", "--format=%(refname:short)"]) or "").split("\n") if n.strip()]
     for cand in ("main", "master"):
@@ -241,6 +313,10 @@ def assess(cwd: str | None = None) -> dict:
         return {"status": "needs-manual", "main": main, "reason": "no-default-branch",
                 "strand": strand["states"]}
     lossless, reasons = _is_lossless(main)
+    if "op-in-progress" in reasons:
+        # a paused merge/rebase/cherry-pick/revert must be resolved by hand — never auto-fixed around it
+        return {"status": "needs-manual", "main": main, "reason": "op-in-progress",
+                "strand": strand["states"]}
     plan: list[str] = []
     if detached and not lossless:
         plan.append("rescue")          # save at-risk work before moving HEAD
@@ -285,7 +361,29 @@ def unstrand(cwd: str | None = None, apply: bool = False) -> dict:
     return {"status": "fixed", "main": main, "rescue": rescue, "did": did, "applied": True}
 
 
-# ---- the behind-origin tail: online signal + the fast-forward correction (issue #335) -------
+# ---- the off-main signal: offline Stage-1 wrong-branch park (#342, D-275) -------------------
+
+def detect_off_main(cwd: str | None = None) -> dict | None:
+    """OFFLINE, READ-ONLY: is the operator's main checkout PARKED on a non-default branch (the wrong-branch
+    park — #342, the Stage-1 signal)? Returns {"state":"off-main","main","branch","main_branch"} when the
+    checkout is on a branch that is NOT the default, is not detached, and is not a broken strand, AND the
+    default branch is KNOWN with confidence (persisted / origin-HEAD) — else None. The confidence gate keeps a
+    pre-persistence checkout with no `origin/HEAD` from raising a standing nag on a GUESSED default (risk-S2).
+    `branch` is where it is parked; `main_branch` is the default it has drifted off. Offline and fires on day
+    one (0-behind) — the cheap-to-fix window; *being* behind the merged main line is the separate online tail."""
+    st = _resolve_state(cwd)
+    if not st:
+        return None
+    main, detached, missing, current = st
+    if detached or missing:
+        return None                # a broken strand is the strand detector's territory, not this signal
+    default = _confident_default_branch(main)
+    if not current or not default or current == default:
+        return None                # no branch / no confident default / already on the default -> not off-main
+    return {"state": "off-main", "main": main, "branch": current, "main_branch": default}
+
+
+# ---- the behind-the-main-line tail: online signal + the fast-forward corrections (#335; #342) ----
 
 def _days_between(a: str, b: str) -> int:
     """Whole days between two `YYYY-MM-DD` dates (git `%cs`), or 1 if either is unparseable. Data-relative —
@@ -309,64 +407,121 @@ def _velocity_threshold(main: str, upstream: str) -> int:
     return max(1, round(len(dates) / span))
 
 
-def detect_behind_origin(cwd: str | None = None, *, do_fetch: bool = True) -> dict | None:
-    """ONLINE, READ-ONLY behind-origin signal (#335). Returns a consequence-shaped dict when the operator's
-    main checkout sits ON its default branch and a CLEAN fast-forward would bring in merged work it is missing
-    PAST the velocity bar — else None. Online-only: a fetch failure (offline/timeout) degrades SILENTLY to None.
+def _merged_advisory(main: str, base: str, branch: str) -> str:
+    """ADVISORY ONLY — never a safety gate (D-275 constraint 4): is the work on `branch` already absorbed into
+    `base` (the up-to-date main line, e.g. origin/<default>)? Via `git cherry <base> <branch>`: a line starting
+    '+' is a commit with NO equivalent in base, '-' one already present. Asymmetric-safe — it OVER-reports
+    unfinished work (a MULTI-commit squash reads as '+' lines) and NEVER false-says 'all merged', so we return
+    'merged' only when cherry is wholly clean (no '+'), and err to 'carries-work' otherwise AND on any git error.
+    The surfacing reads 'carries-work' to choose the gentle keep-your-unfinished-work-safe tone."""
+    out = _run(["git", "-C", main, "cherry", base, branch])
+    if out is None:
+        return "carries-work"                      # cherry failed (unrelated histories / error) -> gentle default
+    return "carries-work" if any(ln.startswith("+") for ln in out.splitlines()) else "merged"
 
-    Computed only for an otherwise-HEALTHY checkout (reuses detect_strand — a detached / missing-files strand
-    is the strand detector's job) that is ON the default branch ('behind' on a feature branch is the normal
-    working state; a checkout parked on a NON-default branch is the wrong-branch state litigated separately,
-    not this signal). The correction is catch_up(). Return: {"state":"behind","main","branch","missing","latest"}
-    — `missing` is merge commits (merged updates) behind, `latest` the newest one's date (`YYYY-MM-DD`)."""
-    if detect_strand(cwd) is not None:
-        return None                                # a strand is the strand detector's territory, not this tail
-    resolved = _main_checkout(cwd)
-    if not resolved:
+
+def detect_behind_origin(cwd: str | None = None, *, do_fetch: bool = True) -> dict | None:
+    """ONLINE, READ-ONLY behind-the-main-line signal (#335; widened branch-agnostic for #342/D-275). Returns a
+    consequence-shaped dict when the operator's main checkout — ON ITS DEFAULT BRANCH or PARKED ON A SIDE
+    BRANCH — is missing merged work that has landed on origin/<default>, PAST the velocity bar. Else None.
+    Online-only: a fetch failure (offline/timeout) or an unresolvable default degrades SILENTLY to None
+    (honest, never a false all-clear).
+
+    Branch-agnostic by design (D-275): the harmful essence is *missing your merged main line of work*, not which
+    branch you sit on, so it no longer requires HEAD to be the default branch OR a strict ancestor of
+    origin/<default> — a side branch carrying its own commits still surfaces. The ANCESTRY / clean-ff question
+    moves entirely to the CORRECTIONS (catch_up on the default, return_to_default off it), which block losslessly
+    when a fast-forward is not possible. A broken strand is ceded to the strand detector. Return:
+    {"state":"behind","main","branch":<default>,"current":<branch>,"on_default":bool,"missing":N,
+    "latest":<YYYY-MM-DD>,"advisory":"merged"|"carries-work"} — `missing` is merge commits on origin/<default>
+    the checkout lacks; `advisory` is the ADVISORY merged-vs-carries-work tone (errs gentle; see _merged_advisory)."""
+    st = _resolve_state(cwd)
+    if not st:
         return None
-    main, detached = resolved
-    if detached:
-        return None
+    main, detached, missing_files, current = st
+    if detached or missing_files:
+        return None                                # a broken strand is the strand detector's territory
     default = _default_branch(main)
-    current = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
-    if not default or current != default:
-        return None                                # not on the default branch -> not this signal (wrong-branch)
+    if not default:
+        return None                                # can't resolve the main line -> silent (degrade honest)
     if do_fetch:
         # best-effort, tightly bounded; updates ONLY the remote-tracking ref (never the working tree or HEAD).
-        # A failure leaves origin/<default> as-is and the clean-ff check below simply finds nothing -> None.
+        # A failure leaves origin/<default> as-is and the count below simply finds nothing -> None.
         _run(["git", "-C", main, "fetch", "--quiet", "origin", default], timeout=_FETCH_TIMEOUT)
     upstream = f"origin/{default}"
-    # clean fast-forward only: HEAD must be a STRICT ancestor of origin/<default> (behind, not diverged/level).
-    if not _ok(["git", "-C", main, "merge-base", "--is-ancestor", "HEAD", upstream]):
-        return None                                # diverged / unrelated / no upstream -> not a clean behind
+    # merged work on origin/<default> the checkout lacks — counted regardless of ancestry (so a diverged HEAD or
+    # a side-branch HEAD still surfaces). An absent upstream -> rev-list errors -> 0 -> quiet (online-only).
     missing = int((_run(["git", "-C", main, "rev-list", "--merges", "--count", f"HEAD..{upstream}"])
                    or "0").strip() or "0")
     if missing <= _velocity_threshold(main, upstream):
-        return None                                # level, or below the felt bar (normal drift) -> quiet
+        return None                                # level/ahead, or below the felt bar (normal drift) -> quiet
     latest = (_run(["git", "-C", main, "log", "--merges", "-1", "--format=%cs", f"HEAD..{upstream}"]) or "").strip()
-    return {"state": "behind", "main": main, "branch": default, "missing": missing, "latest": latest}
+    return {"state": "behind", "main": main, "branch": default, "current": current,
+            "on_default": current == default, "missing": missing, "latest": latest,
+            "advisory": _merged_advisory(main, upstream, current)}
 
 
 def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True) -> dict:
-    """Bring a behind-but-clean-fast-forwardable main checkout current, on the operator's consent. LOSSLESS by
+    """Bring a behind main checkout current, on the operator's consent — the ON-DEFAULT arm. LOSSLESS by
     construction: `git merge --ff-only` advances the branch only along a strict-ancestor linear path and ABORTS
     (no mutation, no loss — uncommitted edits to untouched files are kept) if local work would be overwritten,
-    so there is no rescue branch and no branch switch (unlike unstrand's detached arm), and a diverged branch is
-    refused — never forced. Dry-run (apply=False) reports without mutating. Every mutation targets `git -C
-    <main>` — never the session's own worktree. status ∈ healthy | behind | fixed | blocked."""
+    so there is no rescue branch AND NO BRANCH SWITCH (unlike unstrand's detached arm), and a diverged branch is
+    refused — never forced. When the checkout is PARKED ON A SIDE BRANCH, returning it to the default is
+    `return_to_default`'s job — catch_up never fast-forwards a side branch, so it declines ('off-main'). Dry-run
+    (apply=False) reports without mutating. Every mutation targets `git -C <main>` — never the session's own
+    worktree. status ∈ healthy | behind | off-main | fixed | blocked."""
     behind = detect_behind_origin(cwd, do_fetch=do_fetch)
     if not behind:
         return {"status": "healthy", "applied": False}     # not behind (or can't tell) -> nothing to do
+    if not behind.get("on_default"):
+        # behind, but parked on a side branch: returning to the default is return_to_default's job, not a
+        # fast-forward of the side branch (catch_up's "no branch switch" invariant). Decline, no mutation.
+        return {"status": "off-main", "main": behind["main"], "branch": behind["branch"],
+                "current": behind.get("current"), "applied": False}
     main, default, missing = behind["main"], behind["branch"], behind["missing"]
     if not apply:
         return {**behind, "status": "behind", "applied": False}
     # --ff-only is git's OWN refuse-if-not-a-fast-forward guard (the single sanctioned non-additive verb): it
     # advances on a strict ancestor and aborts otherwise, so a diverged branch or a clashing local edit can
-    # never be force-merged or clobbered. detect_behind_origin already proved a strict-ancestor clean ff.
+    # never be force-merged or clobbered.
     if _ok(["git", "-C", main, "merge", "--ff-only", f"origin/{default}"]):
         return {"status": "fixed", "main": main, "branch": default, "brought_in": missing, "applied": True}
-    # git refused: local edits clash with incoming files. Nothing changed, nothing lost — report actionably.
+    # git refused: diverged history, or local edits clash with incoming files. Nothing changed, nothing lost.
     return {"status": "blocked", "main": main, "branch": default, "applied": False}
+
+
+def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True) -> dict:
+    """Point an operator checkout PARKED ON A NON-DEFAULT BRANCH back at its default branch (and bring it
+    current), on the operator's consent — the correction for the off-main state (#342). LOSSLESS: returning to a
+    NAMED branch never orphans commits (the side branch ref keeps them — no rescue needed, unlike unstrand's
+    detached arm), and the switch runs ONLY when the lossless gate is clean (no uncommitted edits, no stash, no
+    paused git operation); otherwise it BLOCKS with no mutation, nothing lost. The `git checkout <default>` is
+    defensive — never `-f` — so a refusal blocks rather than forces. Having returned, it fast-forwards to
+    origin/<default> with the same `--ff-only` proof catch_up uses (best-effort — being safely back on the
+    freshly-returned default is already the win). Dry-run (apply=False) reports without mutating. Every mutation
+    targets `git -C <main>` — never the session's own worktree. status ∈ healthy | off-main | blocked | fixed."""
+    off = detect_off_main(cwd)
+    if not off:
+        return {"status": "healthy", "applied": False}     # on the default branch (or can't tell) -> nothing
+    main, default, current = off["main"], off["main_branch"], off["branch"]
+    if not apply:
+        return {**off, "status": "off-main", "applied": False}
+    lossless, reasons = _is_lossless(main)
+    if not lossless:
+        # dirty tree / stash / paused op: returning would risk work -> block, no mutation (constraint 3)
+        return {"status": "blocked", "main": main, "branch": default, "from": current,
+                "reasons": reasons, "applied": False}
+    if not _ok(["git", "-C", main, "checkout", default]):   # defensive; never -f; a refusal blocks, never forces
+        return {"status": "blocked", "main": main, "branch": default, "from": current, "applied": False}
+    if do_fetch:
+        _run(["git", "-C", main, "fetch", "--quiet", "origin", default], timeout=_FETCH_TIMEOUT)
+    # safely back on the default; bring it current with the lossless --ff-only (best-effort, never forced).
+    # --ff-only succeeds when it advances OR when already up to date, and fails (no mutation) only when the
+    # LOCAL default has itself diverged from origin/<default> — so its result is exactly "is the default now
+    # current?". The return already succeeded losslessly; we report the catch-up honestly rather than assume it.
+    brought_current = _ok(["git", "-C", main, "merge", "--ff-only", f"origin/{default}"])
+    return {"status": "fixed", "main": main, "branch": default, "from": current,
+            "brought_current": brought_current, "applied": True}
 
 
 # ---- the operator-runnable demo (synthetic fixtures; deterministic) -------------------------
@@ -435,6 +590,19 @@ def _behind_fixture(tmp: str) -> str:
     return work
 
 
+def _off_main_fixture(tmp: str) -> str:
+    """A `work` clone (so `origin/HEAD` -> main: the default is KNOWN with confidence) left checked out on a
+    side branch carrying its own unmerged commit — the wrong-branch park (#342). Returns the `work` path."""
+    work = _behind_fixture(tmp)                  # a clone on main, behind origin by several merged PRs
+    _run(["git", "-C", work, "checkout", "-q", "-b", "my-feature"])
+    with open(os.path.join(work, "my-feature-note.txt"), "w") as fh:
+        fh.write("WORK IN PROGRESS")
+    _run(["git", "-C", work, "add", "-A"])
+    _run(["git", "-C", work, "-c", "user.email=e@x", "-c", "user.name=n",
+          "commit", "-q", "-m", "my unfinished feature work"])
+    return work
+
+
 # Plain-language renderings of the internal plan/result, for the operator-facing CLI + demo (the structured
 # {plan, did} stay machine-shaped; these translate them so no internal token reaches the operator surface).
 _STEP_WORDS = {"rescue": "save your at-risk work to a safe point",
@@ -485,7 +653,24 @@ def _demo() -> int:
         print(f"   After bringing it up to date (a safe fast-forward): up to date now? {caught_up} "
               f"(brought in {result.get('brought_in')} merged updates)")
 
-    print("\n4) The plain-language lines the operator sees — a stranded folder, then a behind one (both OFFERS):\n")
+    print("\n4) The 'parked on the wrong branch' state (#342) — your folder is on a side branch, not your main")
+    print("   one. Caught on day one, before anything is even missing; the engine offers to point it back —\n")
+    with tempfile.TemporaryDirectory() as tmp:
+        work = _off_main_fixture(tmp)
+        off = detect_off_main(cwd=work)
+        print("   Before: this folder is healthy but parked on a side branch instead of its main one. The")
+        print("   off-main signal is OFFLINE and fires straight away (no network, no waiting to fall behind):")
+        print(f"      {off}")
+        feature_sha = (_run(["git", "-C", work, "rev-parse", "my-feature"]) or "").strip()
+        result = return_to_default(cwd=work, apply=True, do_fetch=True)
+        back_on_main = detect_off_main(cwd=work) is None
+        feature_kept = (_run(["git", "-C", work, "rev-parse", "my-feature"]) or "").strip() == feature_sha
+        feature_note = _run(["git", "-C", work, "show", "my-feature:my-feature-note.txt"])
+        print(f"   After pointing it back: on the main branch now? {back_on_main}; your side-branch work left")
+        print(f"   exactly where it was? {feature_kept} — 'my-feature-note.txt' on 'my-feature' still reads: "
+              f"{feature_note!r}")
+
+    print("\n5) The plain-language lines the operator sees — a stranded folder, then a behind one (both OFFERS):\n")
     import boot  # lazy: avoids the boot<->checkout_health import cycle (boot is fully loaded by demo time)
     signals = boot.gather_signals()
     signals["strand"] = {"states": ["detached"], "main": "/your/project/folder"}
@@ -497,14 +682,17 @@ def _demo() -> int:
                                 "missing": 9, "latest": "2026-06-27"}
     print(boot.render_dashboard(signals))
     # Self-check: detection separates a healthy folder from the two stranded shapes; the strand repair heals
-    # the folder and the at-risk work survives on the rescue branch; AND the behind tail fires past the bar and
-    # the catch-up brings the folder current (the lossless fast-forward).
+    # the folder and the at-risk work survives on the rescue branch; the behind tail fires past the bar and the
+    # catch-up brings the folder current; AND the off-main signal fires on a side branch and return_to_default
+    # points it back losslessly (the side-branch work stays put on its branch).
     ok = (states.get("healthy") is None and states.get("detached") is not None
           and states.get("missing") is not None and healed and "DO NOT LOSE THIS" in (note or "")
-          and behind is not None and behind.get("state") == "behind" and caught_up)
+          and behind is not None and behind.get("state") == "behind" and caught_up
+          and off is not None and off.get("state") == "off-main"
+          and back_on_main and feature_kept and "WORK IN PROGRESS" in (feature_note or ""))
     if not ok:
-        print("\nDEMO UNEXPECTED: strand detection/repair, or the behind-origin signal/catch-up, did not "
-              "behave as expected.", file=sys.stderr)
+        print("\nDEMO UNEXPECTED: strand detection/repair, the behind-origin signal/catch-up, or the off-main "
+              "signal/return-to-default, did not behave as expected.", file=sys.stderr)
         return 1
     return 0
 
@@ -549,6 +737,57 @@ def _plain_catch_up(apply: bool) -> int:
     return 0
 
 
+def _plain_return_to_default(apply: bool) -> int:
+    """The operator-runnable return-to-default CLI over THIS repo's real checkout, in plain words (no git verbs)."""
+    r = return_to_default(apply=apply)
+    if r["status"] == "healthy":
+        print("Your project folder is on your main branch already — nothing to move.")
+    elif r["status"] == "fixed" and r.get("brought_current"):
+        print("Pointed your project folder back at your main branch and brought it up to date. Your other work "
+              "is untouched — it's still saved on its own branch, exactly where it was.")
+    elif r["status"] == "fixed":
+        print("Pointed your project folder back at your main branch — your other work is untouched, still saved "
+              "on its own branch. I left your main branch exactly as it was (it has some local changes of its "
+              "own that aren't on the shared copy yet), so it may not be fully up to date.")
+    elif r["status"] == "blocked":
+        print("Your project folder is parked on another branch, but it has unsaved changes (or a git operation "
+              "paused mid-way), so I left everything exactly where it is — nothing moved, nothing lost. Save or "
+              "set those aside and ask again.")
+    elif not apply:
+        parked = r.get("branch")
+        where = f"the branch '{parked}'" if parked else "another branch"
+        print(f"Your project folder is parked on {where} instead of your main one. I can point it back safely — "
+              f"your work there stays saved on that branch. Re-run with --apply to do it.")
+    else:
+        print("I couldn't safely point your project folder back at your main branch, so I left it untouched — "
+              "nothing is lost.")
+    return 0
+
+
+def _plain_offmain() -> int:
+    """Report (plain words, no git verbs) whether THIS repo's checkout is parked off its default branch."""
+    off = detect_off_main()
+    if not off:
+        print("Your project folder is on your main branch — not parked off it.")
+    else:
+        print(f"Your project folder is parked on the branch '{off['branch']}' instead of your main one "
+              f"('{off['main_branch']}'). Run `returnmain` to see how I'd point it back — your work on "
+              f"'{off['branch']}' stays saved on that branch.")
+    return 0
+
+
+def _plain_behind() -> int:
+    """Report (plain words, no git verbs) whether THIS repo's checkout is missing recent merged work (online)."""
+    behind = detect_behind_origin()
+    if not behind:
+        print("Your project folder is up to date — it's not missing recent merged work (or I'm offline).")
+        return 0
+    verb = "catchup" if behind.get("on_default") else "returnmain"
+    print("Your project folder is missing recent merged work that's landed on the shared copy. Run "
+          f"`{verb}` to see how I'd bring it current safely — nothing you already have will be lost.")
+    return 0
+
+
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
@@ -556,10 +795,12 @@ def main(argv: list) -> int:
         return _plain_unstrand(apply="--apply" in argv)
     if argv and argv[0] == "catchup":
         return _plain_catch_up(apply="--apply" in argv)
+    if argv and argv[0] == "returnmain":
+        return _plain_return_to_default(apply="--apply" in argv)
+    if argv and argv[0] == "offmain":
+        return _plain_offmain()
     if argv and argv[0] == "behind":
-        result = detect_behind_origin()
-        print(result if result else "up to date — not behind origin (or offline)")
-        return 0
+        return _plain_behind()
     result = detect_strand()
     print(result if result else "healthy — no strand detected")
     return 0

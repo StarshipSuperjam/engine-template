@@ -13,6 +13,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -157,8 +158,10 @@ def _origin_and_work(tmp: str, *, merge_dates: list, touch_shared_on_last: bool 
 
 
 class TestBehindOrigin(unittest.TestCase):
-    """The ONLINE behind-origin tail (#335): fires only for an on-default-branch, clean-fast-forwardable
-    checkout that is missing MORE merged work than the project's own pace makes normal — and never mutates."""
+    """The ONLINE behind-the-main-line tail (#335; widened branch-agnostic for #342/D-275): fires whenever the
+    checkout — on its default branch OR parked on a side branch — is missing MORE merged work than the
+    project's own pace makes normal. The ancestry/clean-ff question lives in the CORRECTION, not here; this
+    signal never mutates."""
 
     def test_fires_when_missing_exceeds_velocity_bar(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,6 +173,8 @@ class TestBehindOrigin(unittest.TestCase):
             self.assertEqual(r["missing"], 4)
             self.assertEqual(r["branch"], "main")
             self.assertEqual(r["latest"], "2026-06-05")     # newest missing merge's date, for the felt line
+            self.assertTrue(r["on_default"])                # on main -> the on-default arm (catch_up)
+            self.assertEqual(r["advisory"], "merged")       # the checkout carries no own work -> fully absorbed
 
     def test_quiet_when_below_velocity_bar(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,10 +182,25 @@ class TestBehindOrigin(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"] * 4)
             self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
 
-    def test_none_on_a_feature_branch(self):
-        # 'behind origin/main' is the NORMAL state on a working feature branch -> not this signal
+    def test_fires_branch_agnostic_on_a_side_branch_missing_merged_work(self):
+        # the #342 incident shape: parked on a side branch AND missing merged work past the bar -> FIRES (the
+        # old on-default-only gate is gone). on_default is False -> the correction is return_to_default, not ff.
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
+            _git(work, "checkout", "-q", "-b", "my-feature")
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertIsNotNone(r)
+            self.assertEqual(r["state"], "behind")
+            self.assertEqual(r["missing"], 3)
+            self.assertEqual(r["branch"], "main")           # the default it is behind
+            self.assertEqual(r["current"], "my-feature")    # where it is parked
+            self.assertFalse(r["on_default"])
+
+    def test_quiet_on_a_feature_branch_below_the_bar(self):
+        # a feature branch merely behind by normal-pace drift stays QUIET on this (firm) signal — the gentle
+        # day-one nudge is the separate off-main signal, not this one (the two-stage model, feasibility-N1).
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02"] * 3)   # span 1 -> threshold 3; missing 3 !> 3
             _git(work, "checkout", "-q", "-b", "my-feature")
             self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
 
@@ -196,14 +216,20 @@ class TestBehindOrigin(unittest.TestCase):
             work, _ = _origin_and_work(tmp, merge_dates=[])   # origin never advanced -> current
             self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
 
-    def test_none_when_diverged(self):
-        # a local commit on work's main makes HEAD no longer an ancestor of origin/main -> not a clean behind
+    def test_fires_when_diverged_with_a_carries_work_advisory(self):
+        # a local commit on work's main diverges it AND it is still missing merged work -> the widened detector
+        # SURFACES it (ancestry no longer gates detection); the advisory reads 'carries-work' (own commit not in
+        # origin/main), and the CORRECTION (catch_up) is what blocks it losslessly — see TestCatchUp.
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
             with open(os.path.join(work, "local.txt"), "w") as fh:
                 fh.write("local\n")
             _commit(work, "local divergent work")
-            self.assertIsNone(checkout_health.detect_behind_origin(cwd=work, do_fetch=True))
+            r = checkout_health.detect_behind_origin(cwd=work, do_fetch=True)
+            self.assertIsNotNone(r)
+            self.assertEqual(r["state"], "behind")
+            self.assertTrue(r["on_default"])                # still on main, just diverged
+            self.assertEqual(r["advisory"], "carries-work")  # the local commit is not absorbed into origin/main
 
     def test_fetch_leaves_working_tree_and_head_unchanged(self):
         # the online fetch touches ONLY the remote-tracking ref — never HEAD or the working tree (read-only)
@@ -272,7 +298,8 @@ class TestCatchUp(unittest.TestCase):
 
     def test_diverged_is_refused_never_force_merged(self):
         # the behavioural guard that REPLACES the --ff-only source-scan: a diverged checkout is never advanced
-        # or force-merged — detect_behind_origin gates it out, so catch_up makes no mutation.
+        # or force-merged. The widened detector now SURFACES it (it IS missing merged work), so the protection
+        # moves to the CORRECTION — `--ff-only` aborts on the non-fast-forward, so catch_up BLOCKS, no mutation.
         with tempfile.TemporaryDirectory() as tmp:
             work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
             with open(os.path.join(work, "local.txt"), "w") as fh:
@@ -280,10 +307,23 @@ class TestCatchUp(unittest.TestCase):
             _commit(work, "divergent local work")
             before = _head(work)
             r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
-            self.assertEqual(r["status"], "healthy")                  # diverged -> not behind -> nothing to do
-            self.assertEqual(_head(work), before)                     # HEAD never moved (no ff, no merge)
+            self.assertEqual(r["status"], "blocked")                  # diverged -> --ff-only aborts -> blocked
+            self.assertFalse(r["applied"])
+            self.assertEqual(_head(work), before)                     # HEAD never moved (no ff, no force-merge)
             merges = checkout_health._run(["git", "-C", work, "rev-list", "--merges", "--count", "HEAD"])
             self.assertEqual((merges or "").strip(), "0")             # no merge commit was ever created
+
+    def test_declines_on_a_side_branch_never_fast_forwards_it(self):
+        # catch_up is the ON-DEFAULT arm: parked on a side branch + behind -> it DECLINES ('off-main') and never
+        # fast-forwards the side branch (that is return_to_default's job). No mutation.
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04", "2026-06-06"])
+            _git(work, "checkout", "-q", "-b", "my-feature")
+            before = _head(work)
+            r = checkout_health.catch_up(cwd=work, apply=True, do_fetch=True)
+            self.assertEqual(r["status"], "off-main")
+            self.assertFalse(r["applied"])
+            self.assertEqual(_head(work), before)                     # the side branch was never advanced
 
 
 class TestUnstrand(unittest.TestCase):
@@ -423,6 +463,180 @@ class TestUnstrand(unittest.TestCase):
         for token in ('"reset"', '"clean"', '"-f"', '"--force"', '"--hard"',
                       '"drop"', '"clear"', '"push"'):
             self.assertNotIn(token, src, f"the un-stranding fix must never use the git token {token}")
+
+
+def _rev(root: str, ref: str) -> str:
+    return subprocess.run(["git", "-C", root, "rev-parse", ref], capture_output=True, text=True).stdout.strip()
+
+
+def _branch(root: str) -> str:
+    return subprocess.run(["git", "-C", root, "symbolic-ref", "--quiet", "--short", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def _healthy_repo(tmp: str, name: str = "r", *, branch: str = "main", default_branch=None) -> str:
+    """A healthy local checkout (engine files present, one commit) initialised ON `branch`, NO remote. With
+    `default_branch`, persists that name in an engine.json manifest (the Slice-1 derived config) — so the
+    CONFIDENT default resolves with no origin/HEAD."""
+    root = os.path.join(tmp, name)
+    os.makedirs(os.path.join(root, ".claude"))
+    os.makedirs(os.path.join(root, ".engine"))
+    with open(os.path.join(root, ".claude", "settings.json"), "w") as fh:
+        fh.write("{}")
+    if default_branch is not None:
+        manifest = {"engine_release": "0.0.0-dev", "packages": {"core": "0.0.0-dev"},
+                    "identity": "solo", "default_branch": default_branch}
+        with open(os.path.join(root, ".engine", "engine.json"), "w") as fh:
+            json.dump(manifest, fh)
+    _git(root, "init", "-q", "-b", branch)
+    _git(root, "add", "-A")
+    _git(root, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", "seed")
+    return root
+
+
+def _clone_on_branch(tmp: str, branch: str) -> str:
+    """A `work` clone of a tiny origin (default 'main', so `origin/HEAD` -> main is a CONFIDENT default), left
+    checked out on a NEW side branch carrying its own committed work. Returns the `work` path."""
+    work, _ = _origin_and_work(tmp, merge_dates=[])      # clone on main; clone sets refs/remotes/origin/HEAD
+    _git(work, "checkout", "-q", "-b", branch)
+    with open(os.path.join(work, "feature-work.txt"), "w") as fh:
+        fh.write("FEATURE WIP")
+    _commit(work, "my feature work")
+    return work
+
+
+class TestOffMain(unittest.TestCase):
+    """#342 Stage-1 off-main: a HEALTHY checkout parked on a non-default branch reads OFF-MAIN — but only when
+    the default is KNOWN with confidence (persisted / origin-HEAD), never on a heuristic guess (risk-S2)."""
+
+    def test_fires_on_a_side_branch_with_confident_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r = checkout_health.detect_off_main(cwd=_clone_on_branch(tmp, "my-feature"))
+            self.assertIsNotNone(r)
+            self.assertEqual(r["state"], "off-main")
+            self.assertEqual(r["branch"], "my-feature")
+            self.assertEqual(r["main_branch"], "main")
+
+    def test_none_on_the_default_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])      # on main, origin/HEAD -> main
+            self.assertIsNone(checkout_health.detect_off_main(cwd=work))
+
+    def test_persisted_default_enables_off_main_without_a_remote(self):
+        # no clone, no origin/HEAD: the persisted manifest name (validated as a real local branch) is the
+        # confident default, so off-main still fires (exercises Slice 1's persisted read).
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _healthy_repo(tmp, branch="main", default_branch="main")
+            _git(root, "checkout", "-q", "-b", "my-feature")
+            r = checkout_health.detect_off_main(cwd=root)
+            self.assertIsNotNone(r)
+            self.assertEqual(r["branch"], "my-feature")
+            self.assertEqual(r["main_branch"], "main")
+
+    def test_silent_when_default_is_only_a_guess(self):
+        # no persisted name, no origin/HEAD -> the default would only be a heuristic guess -> NO standing nag
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _healthy_repo(tmp, branch="my-feature")       # sole branch, no remote, no manifest default
+            self.assertIsNone(checkout_health.detect_off_main(cwd=root))
+
+    def test_none_when_detached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = _clone_on_branch(tmp, "my-feature")
+            _git(work, "checkout", "-q", "--detach", "HEAD")     # a strand is the strand detector's territory
+            self.assertIsNone(checkout_health.detect_off_main(cwd=work))
+
+
+class TestReturnToDefault(unittest.TestCase):
+    """#342 off-main correction: point a side-branch park back at its default, LOSSLESS — the side-branch work
+    stays on its branch; a dirty / paused state BLOCKS with no mutation."""
+
+    def test_lossless_return_keeps_side_branch_work_on_its_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = _clone_on_branch(tmp, "my-feature")           # 'feature-work.txt' committed on my-feature
+            feature_sha = _rev(work, "my-feature")
+            r = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True)
+            self.assertEqual(r["status"], "fixed")
+            self.assertEqual(_branch(work), "main")              # back on the default branch
+            self.assertIsNone(checkout_health.detect_off_main(cwd=work))
+            self.assertEqual(_rev(work, "my-feature"), feature_sha)   # the branch ref still holds the work
+            self.assertEqual(checkout_health._run(["git", "-C", work, "show", "my-feature:feature-work.txt"]),
+                             "FEATURE WIP")                       # the side-branch work survived, untouched
+
+    def test_dry_run_reports_without_mutating(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = _clone_on_branch(tmp, "my-feature")
+            r = checkout_health.return_to_default(cwd=work, apply=False)
+            self.assertEqual(r["status"], "off-main")
+            self.assertFalse(r["applied"])
+            self.assertEqual(_branch(work), "my-feature")        # still parked on the side branch
+
+    def test_dirty_tree_blocks_with_no_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = _clone_on_branch(tmp, "my-feature")
+            with open(os.path.join(work, "feature-work.txt"), "w") as fh:
+                fh.write("UNSAVED EDIT")                          # an uncommitted change
+            r = checkout_health.return_to_default(cwd=work, apply=True)
+            self.assertEqual(r["status"], "blocked")
+            self.assertFalse(r["applied"])
+            self.assertEqual(_branch(work), "my-feature")        # never left the side branch
+            with open(os.path.join(work, "feature-work.txt")) as fh:
+                self.assertEqual(fh.read(), "UNSAVED EDIT")      # nothing lost
+
+    def test_on_the_default_branch_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=[])
+            self.assertEqual(checkout_health.return_to_default(cwd=work, apply=True)["status"], "healthy")
+
+    def test_does_not_overclaim_when_the_default_cannot_be_brought_current(self):
+        # the local default itself diverged from origin/main: the RETURN succeeds losslessly (back on main),
+        # but the post-return fast-forward cannot run, so the result must report brought_current=False rather
+        # than falsely claim "up to date" (honest self-report — the trust model).
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _ = _origin_and_work(tmp, merge_dates=["2026-06-02", "2026-06-04"])   # origin advanced on main
+            with open(os.path.join(work, "local-main.txt"), "w") as fh:
+                fh.write("local main work")
+            _commit(work, "divergent local commit on main")     # local main now diverges from origin/main
+            _git(work, "checkout", "-q", "-b", "my-feature")     # park off-main at that diverged tip
+            r = checkout_health.return_to_default(cwd=work, apply=True, do_fetch=True)
+            self.assertEqual(r["status"], "fixed")               # the return itself succeeded, lossless
+            self.assertEqual(_branch(work), "main")              # back on the default branch
+            self.assertFalse(r["brought_current"])               # honest: NOT brought up to date (diverged)
+
+
+class TestOpInProgress(unittest.TestCase):
+    """The lossless gate's load-bearing probe (#342 constraint 3): a paused git operation must block the fix
+    even though `git status --porcelain` is CLEAN. Proven with a REAL paused `rebase -i` (a leading 'break'
+    stops it with an empty porcelain), not a planted sentinel file."""
+
+    def _pause_rebase(self, root: str) -> None:
+        for i in (1, 2, 3):
+            with open(os.path.join(root, "f.txt"), "w") as fh:
+                fh.write(f"c{i}")
+            _commit(root, f"c{i}")
+        edit = 'import sys;f=sys.argv[1];c=open(f).read();open(f,"w").write("break\\n"+c)'
+        env = dict(os.environ, GIT_SEQUENCE_EDITOR=f"{sys.executable} -c '{edit}'")
+        subprocess.run(["git", "-C", root, "-c", "user.email=e@x", "-c", "user.name=n",
+                        "rebase", "-i", "HEAD~2"], capture_output=True, text=True, check=False, env=env)
+
+    def test_paused_rebase_is_detected_with_a_clean_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "rb")                              # healthy engine files, on a branch
+            self._pause_rebase(root)
+            porcelain = subprocess.run(["git", "-C", root, "status", "--porcelain"],
+                                       capture_output=True, text=True).stdout
+            self.assertEqual(porcelain.strip(), "")             # the tree is CLEAN — porcelain alone would miss it
+            self.assertTrue(checkout_health._op_in_progress(root))        # the sentinel probe catches it
+            self.assertIn("op-in-progress", checkout_health._is_lossless(root)[1])
+
+    def test_unstrand_refuses_during_a_paused_rebase_with_no_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _repo(tmp, "rb")
+            self._pause_rebase(root)
+            before = _head(root)
+            r = checkout_health.unstrand(cwd=root, apply=True)
+            self.assertEqual(r["status"], "needs-manual")
+            self.assertEqual(r["reason"], "op-in-progress")
+            self.assertEqual(_head(root), before)               # HEAD never moved — nothing disturbed
 
 
 class TestPersistedDefaultBranch(unittest.TestCase):
