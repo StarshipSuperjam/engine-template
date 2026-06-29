@@ -17,6 +17,7 @@
       ".engine/check/contract-frontmatter.json",
       ".engine/check/contract-shape.json",
       ".engine/check/contract-threshold.json",
+      ".engine/check/disposition-issue-resolution.json",
       ".engine/check/doc-frontmatter.json",
       ".engine/check/doc-shape.json",
       ".engine/check/engine-manifest.json",

@@ -380,14 +380,17 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
 
 
 def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
-            engine_release: str | None = None, handle: str | None = None) -> dict:
+            engine_release: str | None = None, handle: str | None = None,
+            default_branch: str | None = None) -> dict:
     """CONFIRM — write the engine manifest, the resumability checkpoint (D-024). Records the engine release,
     the identity tier, the kept package set (the always-present required spine plus the optional features the
     operator kept — an unkept optional is simply left out of the manifest, its files removed later in the
-    apply phase, not here), and the operator's handle when known (the preserved-config owner the apply phase
-    renders code-ownership from; omitted when None, keeping the manifest valid either way). This is the single
-    committing step; before it, nothing is written. Returns the written path and the manifest. `root`,
-    `engine_release`, and `handle` are injectable for tests and the demo."""
+    apply phase, not here), the operator's handle when known (the preserved-config owner the apply phase
+    renders code-ownership from), and the repo's derived default-branch name when known (the preserved-config
+    coordinate offline classification reads — checkout_health's operator-checkout strand model, #342 — instead
+    of a frequently-unset `origin/HEAD`). Each derived field is omitted when None, keeping the manifest valid
+    either way. This is the single committing step; before it, nothing is written. Returns the written path and
+    the manifest. `root`, `engine_release`, `handle`, and `default_branch` are injectable for tests and the demo."""
     kept = set(kept_optional_ids or [])
     packages: dict = {}
     for _rel, manifest in module_coherence.discover_manifests():
@@ -400,6 +403,8 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     written = {"engine_release": release, "packages": dict(sorted(packages.items())), "identity": tier}
     if handle:
         written["handle"] = handle
+    if default_branch:
+        written["default_branch"] = default_branch
     path = _engine_manifest_path(root)
     _write_json(path, written)
     return {"path": path, "manifest": written}
@@ -417,6 +422,32 @@ def derive_handle() -> str | None:
                              capture_output=True, text=True, timeout=15, check=False)
         return out.stdout.strip() or None if out.returncode == 0 else None
     except Exception:  # noqa: BLE001 — missing binary / timeout / OS error → no handle, degrade downstream
+        return None
+
+
+def derive_default_branch(root: str | None = None, *, slug: str | None = None, gh_api=None) -> str | None:
+    """The repo's DEFAULT branch name, derived best-effort at first run (provisioning: a derived coordinate,
+    persisted by `confirm` as operator config). `gh` first (authoritative), then git's `origin/HEAD`, then
+    None — never a bare guess. `confirm` persists it so later OFFLINE classification (checkout_health's #342
+    strand model) reads a known name rather than a `refs/remotes/origin/HEAD` that is frequently unset (and
+    absent on a no-remote checkout).
+
+    Scoped to the TARGET repo, not the process cwd: `slug` (the GitHub `owner/repo` for the gh read) defaults
+    to the cwd's origin on the greenfield path, but the brownfield arrival passes the target's slug; `root`
+    scopes the git fallback to the target tree; `gh_api` is injectable (the arrival's transport, and tests)."""
+    import subprocess
+    gh = gh_api if gh_api is not None else _gh_api_json
+    slug = slug or boot.repo_slug()
+    if slug:
+        data = gh(f"repos/{slug}")
+        if isinstance(data, dict) and isinstance(data.get("default_branch"), str) and data["default_branch"]:
+            return data["default_branch"]
+    try:
+        out = subprocess.run(["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+                             capture_output=True, text=True, timeout=15, check=False, cwd=root or validate.ROOT)
+        ref = out.stdout.strip() if out.returncode == 0 else ""
+        return ref.split("origin/", 1)[1] if ref.startswith("origin/") else (ref or None)
+    except Exception:  # noqa: BLE001 — missing binary / timeout / OS error → no derived name, persist nothing
         return None
 
 
@@ -2333,7 +2364,7 @@ def _insert_floor(release_tree: str) -> str:
 
 
 def arrive(*, target_root: str, release_tree: str, engine_release: str | None = None,
-           keep=None, tier: str | None = None, handle=None, decide=None, apply_changes: bool = False,
+           keep=None, tier: str | None = None, handle=None, default_branch=None, decide=None, apply_changes: bool = False,
            announce=None, opener=None, gh_api=None,
            home_reader=None, settings_path=None, uv_present=None, uv_installer=None, uv_runner=None,
            consent=None, control_transport=None, gh_refresh=None, control_issues=None,
@@ -2386,6 +2417,9 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
             say("  • " + c["consequence"])
         team = detect_team(root=target_root, slug=slug, gh_api=gh_api)
         result["team"] = team
+        # The target's default-branch name, derived target-scoped (its slug + tree, never the process cwd) and
+        # persisted at confirm below — so the arrived repo classifies its checkout against a known name (#342).
+        target_default_branch = derive_default_branch(root=target_root, slug=slug, gh_api=gh_api)
         if team.get("detected") and (tier or "solo") != "team":
             say(copy["team-recommended"])
         result["surfaced"] = True
@@ -2419,7 +2453,8 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
         result["floor"] = _insert_floor(release_tree)
         # (6) Run the SAME instantiator: confirm (the checkpoint) → apply → verify → retire. The control-plane
         # args carry the TARGET's slug so branch protection + native scanning land on the target, not the cwd.
-        confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle)
+        confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle,
+                default_branch=default_branch or target_default_branch)
         applied = apply(announce=say, home_reader=home_reader, settings_path=settings_path,
                         uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
                         consent=consent, control_transport=control_transport, gh_refresh=gh_refresh,
@@ -2886,7 +2921,8 @@ def main(argv: list) -> int:
         keep = [k for k in (_flag_value(argv, "--keep") or "").split(",") if k]
         tier = _flag_value(argv, "--tier") or "solo"
         handle = _flag_value(argv, "--handle") or derive_handle()
-        res = confirm(keep, tier, handle=handle)
+        default_branch = _flag_value(argv, "--default-branch") or derive_default_branch()
+        res = confirm(keep, tier, handle=handle, default_branch=default_branch)
         print(f"Saved your choices ({', '.join(sorted(res['manifest']['packages']))}; "
               f"reviewer = {'a team' if tier == 'team' else 'on your own'}).")
         return 0

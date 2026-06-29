@@ -493,6 +493,41 @@
         ],
         "provided_by": [
           "module:validators-core"
+        ],
+        "targets": [
+          "contract:eADR-0001-versioned-template",
+          "contract:eADR-0002-repo-authoritative-truth",
+          "contract:eADR-0003-ship-the-substrate-not-the-data",
+          "contract:eADR-0004-degrade-to-git-native",
+          "contract:eADR-0005-nudge-locally-hardgate-at-review",
+          "contract:eADR-0006-three-enforcement-tiers",
+          "contract:eADR-0007-engine-product-wall",
+          "contract:eADR-0008-fault-containment-at-the-seams",
+          "contract:eADR-0009-modules-declare-files-and-wiring",
+          "contract:eADR-0010-derived-binding-by-presence",
+          "contract:eADR-0011-guardrail-integrity",
+          "contract:eADR-0012-deferral-seams",
+          "contract:eADR-0013-one-trust-gate-evidence",
+          "contract:eADR-0014-one-history-living-documents",
+          "contract:eADR-0015-remediation-loop-not-self-healing",
+          "contract:eADR-0016-ontology-surfaces-catalogued-ranked",
+          "contract:eADR-0017-engine-namespaced-identifiers",
+          "contract:eADR-0018-cognitive-substrate-one-workflow",
+          "contract:eADR-0019-memory-knowledge-distinct-substrates",
+          "contract:eADR-0020-thin-dispatcher-kind-registry",
+          "contract:eADR-0021-control-plane-enforcement-layer",
+          "contract:eADR-0022-hooks-lifecycle-bindings-block-budget",
+          "contract:eADR-0023-one-manifest-grammar-provisioning",
+          "contract:eADR-0024-modes-three-stances-two-axes",
+          "contract:eADR-0025-draft-pr-is-the-claim",
+          "contract:eADR-0026-external-contribution-fork-native",
+          "contract:eADR-0027-execution-substrate-uv-runtime",
+          "contract:eADR-0028-cold-adversarial-audit",
+          "contract:eADR-0029-contract-threshold-standing-rule-tier",
+          "contract:eADR-0030-operator-stance-floor",
+          "contract:eADR-0031-state-cursor-pointers-and-counts",
+          "contract:eADR-0032-attention-policy-plus-function",
+          "contract:eADR-0033-boot-refresh-family"
         ]
       },
       "slug": "contract-frontmatter",
@@ -518,6 +553,41 @@
         ],
         "provided_by": [
           "module:validators-core"
+        ],
+        "targets": [
+          "contract:eADR-0001-versioned-template",
+          "contract:eADR-0002-repo-authoritative-truth",
+          "contract:eADR-0003-ship-the-substrate-not-the-data",
+          "contract:eADR-0004-degrade-to-git-native",
+          "contract:eADR-0005-nudge-locally-hardgate-at-review",
+          "contract:eADR-0006-three-enforcement-tiers",
+          "contract:eADR-0007-engine-product-wall",
+          "contract:eADR-0008-fault-containment-at-the-seams",
+          "contract:eADR-0009-modules-declare-files-and-wiring",
+          "contract:eADR-0010-derived-binding-by-presence",
+          "contract:eADR-0011-guardrail-integrity",
+          "contract:eADR-0012-deferral-seams",
+          "contract:eADR-0013-one-trust-gate-evidence",
+          "contract:eADR-0014-one-history-living-documents",
+          "contract:eADR-0015-remediation-loop-not-self-healing",
+          "contract:eADR-0016-ontology-surfaces-catalogued-ranked",
+          "contract:eADR-0017-engine-namespaced-identifiers",
+          "contract:eADR-0018-cognitive-substrate-one-workflow",
+          "contract:eADR-0019-memory-knowledge-distinct-substrates",
+          "contract:eADR-0020-thin-dispatcher-kind-registry",
+          "contract:eADR-0021-control-plane-enforcement-layer",
+          "contract:eADR-0022-hooks-lifecycle-bindings-block-budget",
+          "contract:eADR-0023-one-manifest-grammar-provisioning",
+          "contract:eADR-0024-modes-three-stances-two-axes",
+          "contract:eADR-0025-draft-pr-is-the-claim",
+          "contract:eADR-0026-external-contribution-fork-native",
+          "contract:eADR-0027-execution-substrate-uv-runtime",
+          "contract:eADR-0028-cold-adversarial-audit",
+          "contract:eADR-0029-contract-threshold-standing-rule-tier",
+          "contract:eADR-0030-operator-stance-floor",
+          "contract:eADR-0031-state-cursor-pointers-and-counts",
+          "contract:eADR-0032-attention-policy-plus-function",
+          "contract:eADR-0033-boot-refresh-family"
         ]
       },
       "slug": "contract-shape",
@@ -544,6 +614,41 @@
         ],
         "provided_by": [
           "module:validators-core"
+        ],
+        "targets": [
+          "contract:eADR-0001-versioned-template",
+          "contract:eADR-0002-repo-authoritative-truth",
+          "contract:eADR-0003-ship-the-substrate-not-the-data",
+          "contract:eADR-0004-degrade-to-git-native",
+          "contract:eADR-0005-nudge-locally-hardgate-at-review",
+          "contract:eADR-0006-three-enforcement-tiers",
+          "contract:eADR-0007-engine-product-wall",
+          "contract:eADR-0008-fault-containment-at-the-seams",
+          "contract:eADR-0009-modules-declare-files-and-wiring",
+          "contract:eADR-0010-derived-binding-by-presence",
+          "contract:eADR-0011-guardrail-integrity",
+          "contract:eADR-0012-deferral-seams",
+          "contract:eADR-0013-one-trust-gate-evidence",
+          "contract:eADR-0014-one-history-living-documents",
+          "contract:eADR-0015-remediation-loop-not-self-healing",
+          "contract:eADR-0016-ontology-surfaces-catalogued-ranked",
+          "contract:eADR-0017-engine-namespaced-identifiers",
+          "contract:eADR-0018-cognitive-substrate-one-workflow",
+          "contract:eADR-0019-memory-knowledge-distinct-substrates",
+          "contract:eADR-0020-thin-dispatcher-kind-registry",
+          "contract:eADR-0021-control-plane-enforcement-layer",
+          "contract:eADR-0022-hooks-lifecycle-bindings-block-budget",
+          "contract:eADR-0023-one-manifest-grammar-provisioning",
+          "contract:eADR-0024-modes-three-stances-two-axes",
+          "contract:eADR-0025-draft-pr-is-the-claim",
+          "contract:eADR-0026-external-contribution-fork-native",
+          "contract:eADR-0027-execution-substrate-uv-runtime",
+          "contract:eADR-0028-cold-adversarial-audit",
+          "contract:eADR-0029-contract-threshold-standing-rule-tier",
+          "contract:eADR-0030-operator-stance-floor",
+          "contract:eADR-0031-state-cursor-pointers-and-counts",
+          "contract:eADR-0032-attention-policy-plus-function",
+          "contract:eADR-0033-boot-refresh-family"
         ]
       },
       "slug": "contract-threshold",
@@ -608,6 +713,31 @@
         "CI",
         "pre-close",
         "pre-commit"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:disposition-issue-resolution",
+      "kind": "custom/script",
+      "name": ".engine/check/disposition-issue-resolution.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "disposition-issue-resolution",
+      "source": {
+        "fingerprint": "sha256:4233b285c29166bf2203592f2227b1b3f672301fc74b2196491d5f058442f24f",
+        "path": ".engine/check/disposition-issue-resolution.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
       ],
       "tier": "hard",
       "type": "check"
@@ -759,11 +889,13 @@
       },
       "slug": "hard-check-bite",
       "source": {
-        "fingerprint": "sha256:4b82e20eb0608c4e58e997639b41416bfdfb305c8567c0800adbce0d2f2f3703",
+        "fingerprint": "sha256:f184d0690b6e0a93994ba08ecc2fa4931443f0b4da70b4bbe40fb4b19e9291ce",
         "path": ".engine/check/hard-check-bite.json"
       },
       "status": "active",
-      "suites": [],
+      "suites": [
+        "CI"
+      ],
       "tier": "hard",
       "type": "check"
     },
@@ -1573,6 +1705,666 @@
       "type": "conduct"
     },
     {
+      "id": "contract:eADR-0001-versioned-template",
+      "name": ".engine/contracts/eADR-0001-versioned-template.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0001-versioned-template",
+      "source": {
+        "fingerprint": "sha256:4bdccd156d705997e36cc35bed4f3ba12ddf0c9d198b4f58b45974ba985d7341",
+        "path": ".engine/contracts/eADR-0001-versioned-template.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0002-repo-authoritative-truth",
+      "name": ".engine/contracts/eADR-0002-repo-authoritative-truth.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0002-repo-authoritative-truth",
+      "source": {
+        "fingerprint": "sha256:10dd78c6593defc4d621f9a9c9baffa01c2d2d098d8a9a057cfcf68ee3f35112",
+        "path": ".engine/contracts/eADR-0002-repo-authoritative-truth.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0003-ship-the-substrate-not-the-data",
+      "name": ".engine/contracts/eADR-0003-ship-the-substrate-not-the-data.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0003-ship-the-substrate-not-the-data",
+      "source": {
+        "fingerprint": "sha256:5151e714d73e05b9a4409476e6b50a94b7c3b4d5a77fdf757e6ac54ce246838a",
+        "path": ".engine/contracts/eADR-0003-ship-the-substrate-not-the-data.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0004-degrade-to-git-native",
+      "name": ".engine/contracts/eADR-0004-degrade-to-git-native.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0004-degrade-to-git-native",
+      "source": {
+        "fingerprint": "sha256:d85615bf5b2f40347a9e318fed645d22bb3a43b32cd2040412e815b0d0226ebb",
+        "path": ".engine/contracts/eADR-0004-degrade-to-git-native.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0005-nudge-locally-hardgate-at-review",
+      "name": ".engine/contracts/eADR-0005-nudge-locally-hardgate-at-review.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0005-nudge-locally-hardgate-at-review",
+      "source": {
+        "fingerprint": "sha256:37ccd6483f8dbfc7985134eddae4d9e874ba6152ff499aec5654245a9f466e2b",
+        "path": ".engine/contracts/eADR-0005-nudge-locally-hardgate-at-review.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0006-three-enforcement-tiers",
+      "name": ".engine/contracts/eADR-0006-three-enforcement-tiers.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0006-three-enforcement-tiers",
+      "source": {
+        "fingerprint": "sha256:499d709a08cb45871c982060ab9b39bae7c44cff4633c5cf8944ce05efa580c1",
+        "path": ".engine/contracts/eADR-0006-three-enforcement-tiers.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0007-engine-product-wall",
+      "name": ".engine/contracts/eADR-0007-engine-product-wall.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0007-engine-product-wall",
+      "source": {
+        "fingerprint": "sha256:970a02a20481a55955c7f19e98248eacca8a4c6e74d1f4902ea677adaa10853a",
+        "path": ".engine/contracts/eADR-0007-engine-product-wall.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0008-fault-containment-at-the-seams",
+      "name": ".engine/contracts/eADR-0008-fault-containment-at-the-seams.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0008-fault-containment-at-the-seams",
+      "source": {
+        "fingerprint": "sha256:699b27f542e6dcc4bf24a5590b8aff09fe5e1e0d8d878ddad5c6e8678469f6cc",
+        "path": ".engine/contracts/eADR-0008-fault-containment-at-the-seams.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0009-modules-declare-files-and-wiring",
+      "name": ".engine/contracts/eADR-0009-modules-declare-files-and-wiring.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0009-modules-declare-files-and-wiring",
+      "source": {
+        "fingerprint": "sha256:f854773f5e19ec38cb5f9b29fb19bbc0fd339c96c2d5ae0c50d04b211f1d1a1d",
+        "path": ".engine/contracts/eADR-0009-modules-declare-files-and-wiring.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0010-derived-binding-by-presence",
+      "name": ".engine/contracts/eADR-0010-derived-binding-by-presence.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0010-derived-binding-by-presence",
+      "source": {
+        "fingerprint": "sha256:79f410401b3c3f7e510d2096323fdbe6abae1cab24a977def16b278d269bdc05",
+        "path": ".engine/contracts/eADR-0010-derived-binding-by-presence.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0011-guardrail-integrity",
+      "name": ".engine/contracts/eADR-0011-guardrail-integrity.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0011-guardrail-integrity",
+      "source": {
+        "fingerprint": "sha256:cac8d7389e687929136e42716de3df3ee3589a7253d768f0692bd2c0e6d9a2e3",
+        "path": ".engine/contracts/eADR-0011-guardrail-integrity.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0012-deferral-seams",
+      "name": ".engine/contracts/eADR-0012-deferral-seams.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0012-deferral-seams",
+      "source": {
+        "fingerprint": "sha256:fd0de6d770d24dfb340fa78217b4d5c215cf7bfb69815c137fa9d5bca41138e1",
+        "path": ".engine/contracts/eADR-0012-deferral-seams.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0013-one-trust-gate-evidence",
+      "name": ".engine/contracts/eADR-0013-one-trust-gate-evidence.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0013-one-trust-gate-evidence",
+      "source": {
+        "fingerprint": "sha256:f5162f92de028da6e45cad07e79e73e59fab86f79dc9a10e02db3cd972fcd493",
+        "path": ".engine/contracts/eADR-0013-one-trust-gate-evidence.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0014-one-history-living-documents",
+      "name": ".engine/contracts/eADR-0014-one-history-living-documents.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0014-one-history-living-documents",
+      "source": {
+        "fingerprint": "sha256:0a13ccbd13574953288509b81d5278a54196531e6c8378357167762b6bfaabdc",
+        "path": ".engine/contracts/eADR-0014-one-history-living-documents.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0015-remediation-loop-not-self-healing",
+      "name": ".engine/contracts/eADR-0015-remediation-loop-not-self-healing.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0015-remediation-loop-not-self-healing",
+      "source": {
+        "fingerprint": "sha256:6e69068917ae4cc7e7d38c6e5c4765616a031ba81cafeff5797bf45b35c5f253",
+        "path": ".engine/contracts/eADR-0015-remediation-loop-not-self-healing.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0016-ontology-surfaces-catalogued-ranked",
+      "name": ".engine/contracts/eADR-0016-ontology-surfaces-catalogued-ranked.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0016-ontology-surfaces-catalogued-ranked",
+      "source": {
+        "fingerprint": "sha256:86237553ee450c551a748e5bbf91729a952c5aee3223a6346518ca339001846d",
+        "path": ".engine/contracts/eADR-0016-ontology-surfaces-catalogued-ranked.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0017-engine-namespaced-identifiers",
+      "name": ".engine/contracts/eADR-0017-engine-namespaced-identifiers.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0017-engine-namespaced-identifiers",
+      "source": {
+        "fingerprint": "sha256:1c5aa99a3db2c542b264b623c840f973faee979b32686b174474744698ac77ed",
+        "path": ".engine/contracts/eADR-0017-engine-namespaced-identifiers.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0018-cognitive-substrate-one-workflow",
+      "name": ".engine/contracts/eADR-0018-cognitive-substrate-one-workflow.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0018-cognitive-substrate-one-workflow",
+      "source": {
+        "fingerprint": "sha256:965befacfae649cbcab7f4330fea9348e08fbd61bb2d54c937c6701a46689d3d",
+        "path": ".engine/contracts/eADR-0018-cognitive-substrate-one-workflow.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0019-memory-knowledge-distinct-substrates",
+      "name": ".engine/contracts/eADR-0019-memory-knowledge-distinct-substrates.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0019-memory-knowledge-distinct-substrates",
+      "source": {
+        "fingerprint": "sha256:3cbef15dc05111f024aac6ee30dadfeb0fee5a5fef0f8d268586e100379576db",
+        "path": ".engine/contracts/eADR-0019-memory-knowledge-distinct-substrates.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0020-thin-dispatcher-kind-registry",
+      "name": ".engine/contracts/eADR-0020-thin-dispatcher-kind-registry.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0020-thin-dispatcher-kind-registry",
+      "source": {
+        "fingerprint": "sha256:fc4e29cebfb34ac9b7751b1a40509eb940225881795e25d6a10cdef1bbb0d1f2",
+        "path": ".engine/contracts/eADR-0020-thin-dispatcher-kind-registry.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0021-control-plane-enforcement-layer",
+      "name": ".engine/contracts/eADR-0021-control-plane-enforcement-layer.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0021-control-plane-enforcement-layer",
+      "source": {
+        "fingerprint": "sha256:919223bea737ad022f63f9e180b879ab8cdbc673e189af8172e8c13c54c83de1",
+        "path": ".engine/contracts/eADR-0021-control-plane-enforcement-layer.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0022-hooks-lifecycle-bindings-block-budget",
+      "name": ".engine/contracts/eADR-0022-hooks-lifecycle-bindings-block-budget.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0022-hooks-lifecycle-bindings-block-budget",
+      "source": {
+        "fingerprint": "sha256:a03ee685935073b08db350c23d2d30724a68ec3cd3b6354969c06b816174ceac",
+        "path": ".engine/contracts/eADR-0022-hooks-lifecycle-bindings-block-budget.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0023-one-manifest-grammar-provisioning",
+      "name": ".engine/contracts/eADR-0023-one-manifest-grammar-provisioning.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0023-one-manifest-grammar-provisioning",
+      "source": {
+        "fingerprint": "sha256:26da28f5390bd2c7ee4197ed06fcc21f2c0fb87091b6ad5b4e9d65988b58e7d2",
+        "path": ".engine/contracts/eADR-0023-one-manifest-grammar-provisioning.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0024-modes-three-stances-two-axes",
+      "name": ".engine/contracts/eADR-0024-modes-three-stances-two-axes.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0024-modes-three-stances-two-axes",
+      "source": {
+        "fingerprint": "sha256:100630fbc2883dad9565cc4c22ab459f807c4c43f4883d89b2e5067c5680174b",
+        "path": ".engine/contracts/eADR-0024-modes-three-stances-two-axes.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0025-draft-pr-is-the-claim",
+      "name": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0025-draft-pr-is-the-claim",
+      "source": {
+        "fingerprint": "sha256:3084239a6c645c8f55d8f0c994a4ead171d35c3609441422bde56c834cc223c1",
+        "path": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0026-external-contribution-fork-native",
+      "name": ".engine/contracts/eADR-0026-external-contribution-fork-native.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0026-external-contribution-fork-native",
+      "source": {
+        "fingerprint": "sha256:b3142e047afdc2937ed0a9fef87c05d3c066b456cb5f3a550b8d4ea7c66ba253",
+        "path": ".engine/contracts/eADR-0026-external-contribution-fork-native.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0027-execution-substrate-uv-runtime",
+      "name": ".engine/contracts/eADR-0027-execution-substrate-uv-runtime.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0027-execution-substrate-uv-runtime",
+      "source": {
+        "fingerprint": "sha256:7001e048a2cb6cc439f2fdc1c391b94841f0229a3cd3fe5aea05adfb869ba8ab",
+        "path": ".engine/contracts/eADR-0027-execution-substrate-uv-runtime.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0028-cold-adversarial-audit",
+      "name": ".engine/contracts/eADR-0028-cold-adversarial-audit.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0028-cold-adversarial-audit",
+      "source": {
+        "fingerprint": "sha256:df4d76fbc0296e1bee1d328c7556506b5e05e5de3516b9e4366e9cc9bfb52e5d",
+        "path": ".engine/contracts/eADR-0028-cold-adversarial-audit.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0029-contract-threshold-standing-rule-tier",
+      "name": ".engine/contracts/eADR-0029-contract-threshold-standing-rule-tier.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0029-contract-threshold-standing-rule-tier",
+      "source": {
+        "fingerprint": "sha256:6b40e201763bb58996c8db43be3866fcbe0da1d0b3670b935d425ff5d11f617b",
+        "path": ".engine/contracts/eADR-0029-contract-threshold-standing-rule-tier.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0030-operator-stance-floor",
+      "name": ".engine/contracts/eADR-0030-operator-stance-floor.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0030-operator-stance-floor",
+      "source": {
+        "fingerprint": "sha256:49ea1ae077e2cdb9d045cf49c67904d704c0d8e2da2b594264f9108edbbe227c",
+        "path": ".engine/contracts/eADR-0030-operator-stance-floor.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0031-state-cursor-pointers-and-counts",
+      "name": ".engine/contracts/eADR-0031-state-cursor-pointers-and-counts.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0031-state-cursor-pointers-and-counts",
+      "source": {
+        "fingerprint": "sha256:06342cdf049e4d08ef66376ef06a765c6040c3d690569ba2253ced2a4bfa6bea",
+        "path": ".engine/contracts/eADR-0031-state-cursor-pointers-and-counts.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0032-attention-policy-plus-function",
+      "name": ".engine/contracts/eADR-0032-attention-policy-plus-function.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0032-attention-policy-plus-function",
+      "source": {
+        "fingerprint": "sha256:c2c68142cc0f3defb450b76e11d02f19fd29fe8426fba4f2586c3d52c5ca3f44",
+        "path": ".engine/contracts/eADR-0032-attention-policy-plus-function.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0033-boot-refresh-family",
+      "name": ".engine/contracts/eADR-0033-boot-refresh-family.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0033-boot-refresh-family",
+      "source": {
+        "fingerprint": "sha256:95c19d8e9bab72d94d2f423c9f0ff7afaf0665d9ba98424e7c2cc29d2e1c6841",
+        "path": ".engine/contracts/eADR-0033-boot-refresh-family.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -1691,7 +2483,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:550dd5249605b5879afadcdfda7e115a1d5531a43380e2e9dd0db681a718ab73",
+        "fingerprint": "sha256:a2da6be72bafdc7f03f04d45dd79ca956e0bc66586970814cda7ad7f5bd48a53",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -1871,7 +2663,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:3d3dc31814605fe879966efd04e0b4054d03a0495046ef3dd54cff1230a1370b",
+        "fingerprint": "sha256:73b8a5877ba058e85cc54597b22d907f0495dd1747992fb6d995e064d98c68c5",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -1892,7 +2684,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:09a12e6a40a279aafa5f75fc635ba1858d79ece8e3051e76cb39c458b5de9684",
+        "fingerprint": "sha256:e4bfb5d394d5472371e3d2220be624de8161e41af26580fd59fafe5d041ba983",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -2273,7 +3065,7 @@
       },
       "slug": "contract-threshold",
       "source": {
-        "fingerprint": "sha256:060a4cf310d3658444ad5f9099921acfed7cfa0fb923fd28d3bcac847a068748",
+        "fingerprint": "sha256:fa32a8d2481e06ab4a9083798254511718396f500c42033f9e32b9601d8dfbf0",
         "path": ".engine/policies/contract-threshold.md"
       },
       "status": "active",
@@ -2553,7 +3345,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:93634f01bbec498a6a15fbc46199480be609d84a0b3deb31b763a27f00ea7cae",
+        "fingerprint": "sha256:f8116a1453c8c077e36b2158fb3ffa2ef25c1babd6e5b618604a239ac312a388",
         "path": ".engine/schemas/engine.v1.json"
       },
       "status": "active",
@@ -3210,7 +4002,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:27e5cac49c40447412341e4fa559bed91d2648b922c9a319bd3e4743881a85b6",
+        "fingerprint": "sha256:5a26c1c51f59caee6a2b484b6ffc973466cf9134ef62ba9da9bcceb87c0393cb",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -3295,7 +4087,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:1c312abc71f0379aae2d3117774f11b0c82362d694df0cc6be54b0959e5c0dfa",
+        "fingerprint": "sha256:09775c86223711ad2ced9d57b64587f3c800617838d7c61092beeeca707c971f",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -3727,6 +4519,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:disposition_issue_resolution_check",
+      "name": ".engine/tools/disposition_issue_resolution_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "disposition_issue_resolution_check",
+      "source": {
+        "fingerprint": "sha256:bcf048e4b39cb22dd4628be313dbb00f9318edc0eecaa4b06ecca0d58b40c312",
+        "path": ".engine/tools/disposition_issue_resolution_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:engine_help",
       "name": ".engine/tools/engine_help.py",
       "owner": "core",
@@ -3754,7 +4563,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:88b495f1c5fd1baa63140a97cb407abbe21ba1a2237cf9c7bd8e46175a20551e",
+        "fingerprint": "sha256:08256a044f5cf41c161aa09555a988ab2dbf962ead99bce5ad9a959e567cb9a1",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -3941,7 +4750,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:ef597945f5176dfc479416684aad5282b904d3908a9ecb0f9b6425d60852d015",
+        "fingerprint": "sha256:8c39f939a86ec38f74ad50c8575c597eb9ee9e8c720e4bbf31ba091edbc70a67",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -4842,7 +5651,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:b76717fde010d818c12c93ed0e4b7b783edaf333216419472cd42cb6bc3d4f98",
+        "fingerprint": "sha256:bee5261ab0ea9f5b5e9e37628b3aed09021d2ab03eb5dd2b0e3468b678794b18",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -4927,7 +5736,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:068bd7d5c098b9741f72e3cc77919594cc9a948acceb62c551410a8d5ceeea58",
+        "fingerprint": "sha256:7c9d76004ef8abd5634c580882b9dbfc528e665380007800f0582403ee1a08c9",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -5036,6 +5845,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_contract_canon",
+      "name": ".engine/tools/test_contract_canon.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_contract_canon",
+      "source": {
+        "fingerprint": "sha256:6346eb5cf0047b18faab67ee66131f324a01c079e6aac2e2139af7eea7cb49c0",
+        "path": ".engine/tools/test_contract_canon.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_coverage",
       "name": ".engine/tools/product_design/test_coverage.py",
       "owner": "product-design",
@@ -5065,6 +5891,23 @@
       "source": {
         "fingerprint": "sha256:c2b384df37b43e7f92da862621d0bf0ab10589b90f17abb71cac857a5d24adad",
         "path": ".engine/tools/test_design_review.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_disposition_issue_resolution",
+      "name": ".engine/tools/test_disposition_issue_resolution.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_disposition_issue_resolution",
+      "source": {
+        "fingerprint": "sha256:9b291fe85b405307656c5f158ec5468eeacd965e0e3d04adce8ff73315de73e3",
+        "path": ".engine/tools/test_disposition_issue_resolution.py"
       },
       "status": "active",
       "type": "tool"
@@ -5216,7 +6059,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:6286b860d014b224ab4fd92fda12c6e57481d3763714b723a28089c74b5a8799",
+        "fingerprint": "sha256:11535bad89869276da998f14847695e8cdb57a06fe910075959d5373e2085d13",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -5284,7 +6127,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:3674fb64382eb66ccf8b0e17db3b49329fa5e5edd69cba3e28d0f7f9c37235e3",
+        "fingerprint": "sha256:620c9786853fe8f3c56a3b92581bf1acadae5ebd91a1f17973459e57242620d0",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -5556,7 +6399,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:66f459e7fee0115bd9f54a0bbd0e3893c3b5457296e195d39815a32592c83778",
+        "fingerprint": "sha256:b912f7a48b3b35e31a21ce3cc9badaee3f27481d4ad16469cd173a5bb9b9a285",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

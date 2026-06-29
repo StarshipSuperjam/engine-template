@@ -16,6 +16,13 @@ project.
 files under `.github/`; everything else at the root belongs to the project. Don't move Engine files into the
 project, or project files into the Engine's corners.
 
+**Why the Engine works the way it does — I read it before I change how it works.** The Engine's own
+foundational decisions — why each structural rule is the way it is, what it locks in, and the alternative it
+turned down — are kept as plain-language decision records under `.engine/contracts/`. They aren't loaded every
+session, so they don't crowd the briefing; but before I change how a part of the Engine itself works, I consult
+the record that governs it, so a settled decision isn't quietly undone. You can read them too — each one stands
+on its own in plain prose.
+
 **I work in an isolated copy — never in your project folder's git history.** Your top-level project folder is
 yours, a place to look at the project, not a workspace I rewrite. I don't change its git state — I won't detach
 it, reset it, switch its branch, or commit directly into it — as part of doing build work, on my own, or

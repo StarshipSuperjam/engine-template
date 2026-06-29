@@ -25,6 +25,11 @@
       "type": "string",
       "minLength": 1
     },
+    "default_branch": {
+      "description": "The repository's default branch name, derived from GitHub/git at first-run setup and preserved as operator config. The engine reads it offline to tell whether the operator's top-level checkout is sitting on its main line or has drifted off it, so the check does not depend on a refs/remotes/origin/HEAD that is frequently unset. Optional: absent until first-run setup derives and records it (and absent in the construction repository, which runs no first-run setup), so a manifest without it stays valid.",
+      "type": "string",
+      "minLength": 1
+    },
     "control_plane": {
       "description": "What the engine did to this repository's branch protection at setup, recorded so a later clean removal can reverse exactly that and nothing of the operator's. Written by the control-plane apply step on a brownfield arrival (and on greenfield, to record that the engine owns its own ruleset). Optional: absent until the gate is turned on, and on a repo whose protection was already fully in force.",
       "type": "object",
