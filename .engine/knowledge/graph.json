@@ -369,7 +369,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:82ebde921750df13c5f3384b0f230a114047d7457862bb8dd152a24d278dabc4",
+        "fingerprint": "sha256:6991efca29de5b460e3ffe64e219bed40d54535297f56f87738dc41289e9d5cc",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -788,7 +788,7 @@
       },
       "slug": "knowledge-coverage",
       "source": {
-        "fingerprint": "sha256:da312323fff00884520f906a5d2bb7347cf4548c22be58b0d98fc6905e1381c4",
+        "fingerprint": "sha256:dc3fce8becfe35b2c909d56bccfdba16a8869daa91241a2d64169931cf3dfdfc",
         "path": ".engine/check/knowledge-coverage.json"
       },
       "status": "active",
