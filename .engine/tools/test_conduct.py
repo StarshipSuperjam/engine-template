@@ -115,5 +115,34 @@ class TestConductWeakeningGuard(unittest.TestCase):
             self.assertEqual(conduct_weakening_check.findings("soft", paths=[p]), [])
 
 
+class TestConductLoadsInTheWakeupFloor(unittest.TestCase):
+    """The engine loads its codes of conduct at the wake-up floor in EVERY repo (D-192): the active
+    construction floor (root CLAUDE.md) and the deployed floor (CLAUDE.deployed.md) both @import the two
+    layer files, so a session — in this construction repo or a generated one — never wakes up without
+    conduct. Guards the #299 fix: before it only CLAUDE.deployed.md carried the imports, so the
+    construction repo's own sessions woke up with conduct switched off."""
+    _IMPORTS = ("@.engine/conduct/defaults.md", "@.engine/conduct/operator.md")
+
+    def _floor_text(self, name):
+        with open(os.path.join(validate.ROOT, name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_active_construction_floor_imports_conduct(self):
+        text = self._floor_text("CLAUDE.md")
+        for imp in self._IMPORTS:
+            self.assertIn(imp, text,
+                          f"the active root CLAUDE.md must @import {imp} so the engine wakes up with its conduct")
+
+    def test_deployed_floor_imports_conduct(self):
+        text = self._floor_text("CLAUDE.deployed.md")
+        for imp in self._IMPORTS:
+            self.assertIn(imp, text)
+
+    def test_imported_layer_files_resolve_to_active_codes(self):
+        self.assertTrue(os.path.exists(_DEFAULTS) and os.path.exists(_OPERATOR))
+        active = [c for c in validate.frontmatter(_DEFAULTS)["codes"] if c.get("status") == "active"]
+        self.assertGreaterEqual(len(active), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
