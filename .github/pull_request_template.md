@@ -1,5 +1,7 @@
 <!-- If this PR closes GitHub issue(s): add one `Closes #N` line per issue directly below this comment (the keyword is required for GitHub to auto-close them on merge — "Closes #1, #2" does NOT work). Delete this comment if the PR closes no issue. -->
 
+> *A green mechanical check below shows this change conforms to the engine's rules — not that it is correct. What covers correctness is the behavioural steps in **Review** and your own read of the change; a green check is never a substitute for that. Your merge is the binding gate.*
+
 ## Purpose
 
 **<one-line summary of why this change exists>**
