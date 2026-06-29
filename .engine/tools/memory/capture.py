@@ -8,10 +8,17 @@ along a "content survives / reflection defers" seam. This module is the CONTENT 
     consolidation into clean, role-typed episodic records is the REFLECTION half (slice 3b), deferred
     because it needs the in-context AI's judgment, which a fire-and-forget hook does not have.
 
-  - **Capture is cheap, generous, and LOSSLESS.** A long turn is *chunked* (paragraph-preferred, 4 KB)
-    and every chunk is stored — content is never elided at capture time. Curation/compression is the
-    later reflection step's job. "Raw deltas are already in the ledger" is the durability promise this
-    keeps: once a turn finishes, its notes cannot be lost, even on an ungraceful exit.
+  - **Capture is cheap, generous, and LOSSLESS over conversation.** A long *turn* is *chunked*
+    (paragraph-preferred, 4 KB) and every chunk is stored — conversational content is never elided at
+    capture time; curation/compression is the later reflection step's job. What capture does NOT store is
+    Claude Code's own transcript scaffolding — slash-command echoes, local-command output/caveats, and
+    control sentinels (`_is_noise`) — because that plumbing is *not conversation*. Excluding it before the
+    ledger is an "is this conversation at all" filter, NEVER the importance keep/discard gate the design
+    forbids: the design bars gatekeeping on *worth* because worth is future-unknowable
+    (engine-planning systems/cognitive/memory: "importance is a function of the future the capturing
+    session cannot see"), whereas a harness wrapper's non-conversation status is knowable now and stable.
+    "Raw deltas are already in the ledger" is the durability promise this keeps: once a turn finishes, its
+    conversational notes cannot be lost, even on an ungraceful exit.
 
   - **This module is a LEAF.** It writes the ledger and RETURNS a small report; it emits no
     operator-facing prose at runtime and never raises into its caller. `capture_turn_delta` is the

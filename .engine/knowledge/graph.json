@@ -3213,7 +3213,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:66592a9394faafc4ae352cfd019289ba9a814a374d091016ec7a0864412a2012",
+        "fingerprint": "sha256:c9d400ab8acfc5b244a1b616690959144a4a30e78e7d34d440f20d02dc3ec504",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
