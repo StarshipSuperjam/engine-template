@@ -16,10 +16,21 @@ stdlib-only; imports nothing from `memory`.
 
 import uuid
 
-# Record kinds (the `kind` field). `turn-delta` is capture's own (it stays in capture.py); these are the
-# shared kinds the reflection (3b) and forgetting (4a+) layers both reference.
+# Record kinds (the `kind` field). These are the shared kinds the reflection (3b) and forgetting (4a+) layers
+# both reference.
+AMBIENT_CAPTURE_KIND = "turn-delta"  # the role-less, Stop-appended verbatim capture record. Promoted here (it was
+                                     # capture's own) so `forget`'s recall-membership filter can name it WITHOUT
+                                     # importing `capture` at module load (cycle discipline); `capture.RECORD_KIND`
+                                     # now aliases this so the string never drifts.
 EPISODIC_KIND = "episodic"          # an AI-written episodic summary record
 MARKER_KIND = "consolidated"        # the in-ledger "this session has been tidied" marker (survives backup)
+
+# Recall membership (D-273/D-274, issue #332). Recall surfaces the curated layer — episodic records + gists — and
+# excludes ambient `turn-delta` capture, which is fuel for consolidation and the abandoned-session sweep, never
+# recall content. `forget._is_ambient_capture` keys on AMBIENT_CAPTURE_KIND above; the discriminator is the
+# record's `kind`, re-derived on every recall read / index rebuild (no per-record marker, no carried bit — it
+# survives compaction for free). It is a targeted exclusion of the ambient kind, not a curated-kind allowlist: a
+# record carrying a `role` + `text` but no explicit kind is an episodic-shaped recall record and stays surfaced.
 
 # Tags.
 DEFAULT_EPISODIC_TAG = "episodic"

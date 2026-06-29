@@ -89,6 +89,18 @@ class ToolWiringTests(_ServerBase):
             await srv.server.call_tool("search", {"query": "export", "tags": ["release"]}))
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
 
+    async def test_search_answer_carries_the_recall_completeness_note(self):
+        # §7 (D-273/D-274, #332): the recall answer itself discloses that the raw verbatim behind the curated
+        # summaries is kept and recoverable. Present when there are results; omitted on an empty answer.
+        self.add("we decided to ship the export format", role="decision")
+        data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
+        self.assertTrue(data["results"])
+        self.assertIn("recall_completeness", data)
+        self.assertIn("recoverable", data["recall_completeness"].lower())
+        empty = self._result_json(await srv.server.call_tool("search", {"query": "nonexistentzqxword"}))
+        self.assertEqual(empty["results"], [])
+        self.assertNotIn("recall_completeness", empty)   # nothing returned -> nothing to disclose
+
     async def test_unknown_role_surfaces_as_a_tool_error(self):
         self.add("a decision about export", role="decision")
         with self.assertRaises(Exception) as cm:

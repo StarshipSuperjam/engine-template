@@ -187,6 +187,30 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
         where)
 
 
+# ---- the §7 recall-completeness disclosure (D-273/D-274, issue #332) -------------------------
+# Recall surfaces only the curated layer (episodic summaries + gists); the raw, word-for-word turn-notes behind
+# them are kept and fully recoverable — never deleted by that recall-exclusion. The verdict requires this
+# disclosure to reach the operator at the point of consumption (the recall answer carries it — scent + the memory
+# search tool) AND in the committed audits digest (never digest-only). This is the digest half: a STANDING line
+# (the digest is committed in CI with no access to the local gitignored ledger, so it cannot enumerate sessions —
+# the whole-store exclusion collapses to one line, exactly as the verdict allows). It is NOT a forgetting event:
+# nothing was retired or erased, so there is no undo handle. The wording is a build-spec leaf.
+_RECALL_COMPLETENESS_HEADING = "## Memory recall completeness"
+_RECALL_COMPLETENESS_DIGEST = (
+    f"\n\n{_RECALL_COMPLETENESS_HEADING}\n\n"
+    "Memory recall surfaces curated summaries of past sessions; the raw, word-for-word notes behind them are kept "
+    "and fully recoverable on request — they are not deleted by being left out of recall, and this is not a "
+    "forgetting event. Ask to see the exact wording for any of them. (D-273/D-274.)"
+)
+
+
+def _ensure_recall_completeness(body: str) -> str:
+    """Append the standing §7 recall-completeness line if absent — idempotent, so a fresh seal adds it once and a
+    re-seal (whose body already carries it) never doubles it. The fingerprint is computed AFTER this, so check()
+    round-trips the committed body verbatim."""
+    return body if _RECALL_COMPLETENESS_HEADING in body else body + _RECALL_COMPLETENESS_DIGEST
+
+
 # ---- the seal writer (IO) --------------------------------------------------------------------
 
 def _render(generated: str, fingerprint: str, body: str) -> str:
@@ -206,6 +230,7 @@ def seal(path: str, generated=None, body: str | None = None) -> dict:
         _fm, body = split(path)              # re-seal: reuse the existing body slice verbatim
     else:
         body = "\n\n" + body.lstrip("\n")    # fresh: one blank line between the header and the prose
+    body = _ensure_recall_completeness(body)
     fingerprint = compute_seal(generated, body)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="") as fh:

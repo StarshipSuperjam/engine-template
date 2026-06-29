@@ -51,7 +51,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger  # noqa: E402 — the canonical store + its generation stamp + the shared ledger_dir()
+from memory import ledger, records  # noqa: E402 — the canonical store + the shared record-kind vocabulary
 
 # Build-spec leaf (recorded; the operator chose ~24h this session). How often the throttled SessionStart push may
 # run, after the one-time consented setup. A politeness/cost guard only: failure-direction is benign both ways — too
@@ -1335,8 +1335,10 @@ class _FakeVault:
 
 
 def _demo_plant(text: str) -> None:
-    """Append one real note to the throwaway ledger so the backup has content to copy."""
-    ledger.append({"kind": "turn-delta", "role": "observation", "text": text, "ts": int(time.time())})
+    """Append one real note to the throwaway ledger so the backup has content to copy. A curated `episodic`
+    record (recall-eligible): ambient turn-deltas are not recall content (D-273/D-274, #332), so planting an
+    episodic keeps a demo/test that shows the restored note is searchable truthful."""
+    ledger.append({"kind": records.EPISODIC_KIND, "role": "observation", "text": text, "ts": int(time.time())})
 
 
 def _demo() -> int:

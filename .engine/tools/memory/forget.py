@@ -239,18 +239,36 @@ def record_access(target_id: str, *, path: "str | None" = None, now: "int | None
         capture._release_lock(lock_fd)
 
 
+def _is_ambient_capture(record) -> bool:
+    """True iff `record` is an ambient `turn-delta` capture — the role-less, `Stop`-appended verbatim that is fuel
+    for consolidation and the abandoned-session sweep, never recall content (D-273/D-274, issue #332). The single
+    recall-membership discriminator; recall drops it on every path via `live_records`."""
+    return isinstance(record, dict) and record.get("kind") == records.AMBIENT_CAPTURE_KIND
+
+
 def live_records(path: "str | None" = None, *, now: "int | None" = None):
-    """Yield the ledger records recall should surface — every record EXCEPT (a) the episodics a crashed
-    consolidation pass orphaned (logical retirement, 4a), (b) the reinforcement markers + the records scored
-    into the archived tier (scored demotion, 4c), and (c) the raw episodes a COMPLETED gist roll-up superseded
-    + a crashed roll-up's orphaned gist + the roll-up markers themselves (gist roll-up, 4d-ii). A dropped record
-    stays in the ledger, fully recoverable; this generator just doesn't surface it. The single shared authority
-    both retrieval paths consume, so the fast (FTS5) and slow (scan) lookups retire AND demote identically.
+    """Yield the ledger records recall should surface.
+
+    Recall surfaces the curated layer, NOT ambient capture (D-273/D-274, issue #332): a `turn-delta` is the
+    role-less, `Stop`-appended verbatim — fuel for consolidation and the abandoned-session sweep, NEVER recall
+    content. `_is_ambient_capture` drops it here, on the ONE shared read path the fast (FTS5) and slow (scan)
+    lookups both consume, so the exclusion holds identically on every path — including the degraded plain scan the
+    #332 verdict singles out. The discriminator is the record's `kind`, re-derived on every read / index rebuild:
+    no per-record marker, no carried bit, so membership survives compaction for free and edits no ledger line in
+    place. (A targeted exclusion of the ambient kind, not a curated-kind allowlist: a record carrying a `role` +
+    `text` but no explicit kind is an episodic-shaped recall record and stays surfaced — only the named ambient
+    kind is fuel. A future *ambient* kind must be added to `_is_ambient_capture` to stay out of recall.)
+
+    The four pre-existing exclusions still trim a record that is retired or demoted: (a) an episodic a crashed
+    consolidation pass orphaned (logical retirement, 4a); (b) a reinforcement marker / a record scored into the
+    archived tier (scored demotion, 4c); (c) a raw episode a COMPLETED gist roll-up superseded, a crashed roll-up's
+    orphaned gist, and the roll-up markers (gist roll-up, 4d-ii). A dropped record stays in the ledger, fully
+    recoverable; this generator just doesn't surface it.
 
     Cheap sequential passes over the RAW ledger (never the filtered stream): the consolidation + roll-up closed
-    sets, the supersession map, and the reinforcement access index; then stream, dropping a record if ANY of the
-    four exclusions fires (they OR together — any one reason hides it). `now` is resolved once so every record in
-    one rebuild scores against a single clock. Mutates nothing — never writes, never deletes."""
+    sets, the supersession map, and the reinforcement access index; then stream, dropping a record if ANY exclusion
+    fires (they OR together — any one reason hides it). `now` is resolved once so every record in one rebuild scores
+    against a single clock. Mutates nothing — never writes, never deletes."""
     src = ledger.ledger_path() if path is None else path
     closed = _closed_batches(src)
     closed_rollup = _closed_rollup_batches(src)
@@ -258,7 +276,8 @@ def live_records(path: "str | None" = None, *, now: "int | None" = None):
     access_index = _access_index(src)
     now = int(time.time()) if now is None else now
     for record in ledger.iter_records(path=src):
-        if (not _is_retired(record, closed)
+        if (not _is_ambient_capture(record)
+                and not _is_retired(record, closed)
                 and not _is_gist_orphan(record, closed_rollup)
                 and not _is_superseded(record, superseded)
                 and not _is_demoted(record, access_index, now)):

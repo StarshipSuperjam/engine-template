@@ -69,12 +69,35 @@ class LiveRecordsTests(_Base):
                        "tags": [], records.BATCH_KEY: ""})
         self.assertEqual(len(self._live_episodics()), 1)
 
-    def test_non_episodic_records_pass_through(self):
+    def test_ambient_turn_deltas_are_excluded_but_markers_pass_through(self):
+        # Recall surfaces the curated layer, not ambient capture (D-273/D-274, #332): a raw turn-delta is fuel,
+        # never recall content, so live_records drops it; the structural `consolidated` marker still passes
+        # through (it carries no recall text, so it never surfaces as a hit, but it is not the ambient kind).
         ledger.append(capture._make_record("S", 0, "user", "a turn note"))   # turn-delta, no batch
         self._marker("S", "batch-x")                                          # a lone marker
         kinds = sorted({r.get("kind") for r in forget.live_records()})
-        self.assertIn(capture.RECORD_KIND, kinds)
+        self.assertNotIn(capture.RECORD_KIND, kinds)    # the ambient turn-delta is excluded from recall
         self.assertIn(records.MARKER_KIND, kinds)
+
+    def test_an_excluded_turn_delta_stays_in_the_raw_ledger_recoverable(self):
+        # exclusion is recall-only — the delta is never deleted (#332: recall-exclusion, not erasure)
+        ledger.append(capture._make_record("S", 0, "user", "a recoverable turn note"))
+        self.assertEqual([r.get("kind") for r in ledger.iter_records()], [capture.RECORD_KIND])  # still resident
+        self.assertEqual(list(forget.live_records()), [])                                         # just not surfaced
+
+    def test_delta_excluded_on_both_recall_paths_but_the_sweep_still_sees_it(self):
+        # The exclusion holds identically on the fast FTS5 path AND the degraded forced scan (#332 conformance #1),
+        # while the consolidation sweep reads the raw ledger UNFILTERED (#3), so the delta is still its input.
+        ledger.append(capture._make_record("S", 0, "user", "a quokka turn note"))
+        self._episodic("S", "the quokka decision", "batch-x")
+        self._marker("S", "batch-x")                                  # close the batch -> the episodic is live
+        index.rebuild()
+        for hits in (index.query("quokka").records, index.query("quokka", force_scan=True).records):
+            kinds = {r.get("kind") for r in hits}
+            self.assertIn(records.EPISODIC_KIND, kinds)               # the curated summary surfaces...
+            self.assertNotIn(capture.RECORD_KIND, kinds)              # ...the ambient delta does not, on either path
+        self.assertEqual([r.get("text") for r in consolidate.read_deltas("S")],
+                         ["a quokka turn note"])                      # sweep input intact (orthogonality)
 
     def test_the_orphan_stays_in_the_raw_ledger_recoverable(self):
         self._episodic("S", "orphan note", "batch-x")          # retired from recall...
