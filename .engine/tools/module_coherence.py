@@ -161,7 +161,10 @@ PRUNE_PATHS = {".engine/memory", ".engine/projects-sync"}
 # runtime state), fixtures ARE committed — but they are excluded from the ownership leg because no module
 # `provides` them and they must never read as an unowned orphan or an uncatalogued surface (the check-system
 # "fixtures are test data, not a surface" rule). Anchored on the exact path, so a committed tool or surface
-# elsewhere is unaffected. Pruned by the SAME walk mechanism as PRUNE_PATHS.
+# elsewhere is unaffected. Pruned by the SAME walk mechanism as PRUNE_PATHS — and at the SHARED walk
+# (_walk_engine_files), so the namespace is excluded from BOTH the ownership leg and the #281
+# untracked-surface detector intentionally (a committed fixture is not cruft to flag; fixtures are never
+# fingerprinted into the graph, so the #281 "a regen would pull it in" risk does not apply to them).
 FIXTURE_PATHS = {".engine/_fixtures"}
 
 MODULES_GLOB = ".engine/modules/*/manifest.json"
@@ -219,9 +222,10 @@ def load_engine_manifest():
 
 def _walk_engine_files() -> list:
     """Every file under .engine/ on the live filesystem (relpaths), pruning regenerable cache dirs
-    (PRUNE_DIRS, any depth) and gitignored runtime roots (PRUNE_PATHS). The RAW walk — what is on disk,
-    tracked or not. engine_file_inventory() narrows this to the committed set; the untracked-surface
-    detector reads it raw."""
+    (PRUNE_DIRS, any depth), gitignored runtime roots (PRUNE_PATHS), and the committed-but-non-surface
+    fixtures namespace (FIXTURE_PATHS). The RAW walk — what is on disk, tracked or not.
+    engine_file_inventory() narrows this to the committed set; the untracked-surface detector reads it raw
+    (both therefore exclude the three pruned sets)."""
     out = []
     for dirpath, dirs, files in os.walk(validate.ENGINE_DIR):
         # Prune name-matched caches (PRUNE_DIRS, any depth), path-matched gitignored runtime roots

@@ -607,6 +607,41 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         finally:
             validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
 
+    def test_inventory_prunes_the_fixtures_namespace_but_keeps_a_same_named_dir_elsewhere(self):
+        # #286/D-256: the committed negative-fixture namespace `.engine/_fixtures/` holds deliberately-broken
+        # test data that no module `provides`, so the ownership inventory must skip it — else every committed
+        # fixture reports as an unowned orphan. This is the deterministic guard for the FIXTURE_PATHS prune,
+        # the sibling of the PRUNE_PATHS test above.
+        #
+        # The load-bearing half is the SECOND assertion: the prune is anchored on the exact path
+        # `.engine/_fixtures`, NOT the bare name `_fixtures`, so a same-named directory ANYWHERE ELSE in the
+        # tree (e.g. `.engine/tools/_fixtures/`) stays ownership-checked. A bare-name `"_fixtures"` prune would
+        # silently un-own any such directory — this test goes red if a future change weakens the path-anchor to
+        # a name, or removes FIXTURE_PATHS entirely.
+        saved_root, saved_engine = validate.ROOT, validate.ENGINE_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                engine = os.path.join(d, ".engine")
+                fixtures = os.path.join(engine, "_fixtures", "kind-schema")   # the namespace -> must prune
+                lookalike = os.path.join(engine, "tools", "_fixtures")        # same name, other path -> keep
+                control = os.path.join(engine, "check")                       # ordinary engine dir -> keep
+                for sub in (fixtures, lookalike, control):
+                    os.makedirs(sub)
+                open(os.path.join(fixtures, "bad.json"), "w").close()
+                open(os.path.join(lookalike, "real.py"), "w").close()
+                open(os.path.join(control, "some-rule.json"), "w").close()
+                validate.ROOT, validate.ENGINE_DIR = d, engine
+                inv = module_coherence.engine_file_inventory()
+            self.assertNotIn(".engine/_fixtures/kind-schema/bad.json", inv,
+                             "the committed-test-data .engine/_fixtures/ namespace must be pruned (D-256)")
+            self.assertIn(".engine/tools/_fixtures/real.py", inv,
+                          "a same-named directory elsewhere must stay owned (the path-anchor gotcha — a "
+                          "bare-name '_fixtures' prune would drop it)")
+            self.assertIn(".engine/check/some-rule.json", inv,
+                          "ordinary committed engine files are still inventoried (only the namespace is excluded)")
+        finally:
+            validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
+
     def test_real_repository_is_wiring_coherent_and_approval_blind(self):
         # The committed tree's declared wires are ALL applied -> the forward wiring leg is silent.
         # The mcp leg is APPROVAL-BLIND: it reports the engine-knowledge-graph server applied from the
