@@ -449,6 +449,18 @@ def gather_signals(session_id: str | None = None) -> dict:
     # committed count stands in -> boot raises the loud 'couldn't reach' notice.
     att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh, live_findings=finding_count)
     try:
+        # Boot's rung-1 slice records whether it was rebuilt from a LIVE surface-walk because the committed
+        # graph.json was absent (rung 3, "loudly degraded"). The map is still REACHABLE (orientation works), so
+        # this is NOT the "couldn't reach" degrade att_degraded carries — it is a distinct heads-up that the
+        # committed map file is missing. A second, cheap slice read (the needs_attention reads above are the
+        # knowledge reads; this one is the provenance read) — fresh-committed is two small file reads, and only
+        # the rare graph-absent case pays a re-walk, which is already the degraded path. Degrades QUIETLY to
+        # False: a genuine read failure is already covered by the att_degraded "couldn't reach" notice.
+        _slice = boot_slice.read()
+        map_rebuilt = bool(_slice and _slice.from_live)
+    except Exception:  # noqa: BLE001 — any failure degrades this one signal, never the pack
+        map_rebuilt = False
+    try:
         # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
         # low-stakes (a stranded local checkout cannot reach the protected branch), so it degrades QUIETLY
         # to None — never a "couldn't check your folder" nag; the double-fault is the present-marker floor's.
@@ -507,6 +519,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         "finding_count": finding_count, "register": register,
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
+        # True iff orientation ran on a LIVE-rebuilt map because the committed graph.json is absent (a distinct
+        # heads-up, NOT the att_degraded "couldn't reach": the map is reachable, the committed file is missing)
+        "map_rebuilt": map_rebuilt,
         # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
         "neighborhood": neighborhood,
         "shipped": recently_shipped(),
@@ -653,6 +668,16 @@ def render_dashboard(s: dict) -> str:
         degraded.append(
             f"I couldn't reach {missing} this session, so the priority order below may be incomplete — "
             f"re-ground before you rely on it.")
+
+    if s.get("map_rebuilt"):
+        # The committed project map (graph.json) is absent, so orientation ran on a LIVE rebuild (rung 3). The
+        # map IS reachable — this is deliberately NOT the "couldn't reach" degrade above: it is a distinct
+        # inform + consequence line in peer voice (never an alarm), naming the missing file and the one fix.
+        # The operator chose this rare state earns its own at-boot heads-up rather than only the merge-time
+        # coverage check. .get() so a fixed-signals test fixture without the key never KeyErrors.
+        degraded.append(
+            "I'm running on a rebuilt project map — your committed map file is missing, so I reconstructed it "
+            "by scanning the project. Orientation still works; regenerate the committed map to restore it.")
 
     if degraded:
         out.append("")

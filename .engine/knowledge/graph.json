@@ -3032,7 +3032,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:3f1226e1965239f2f40afad0c0bafa268ed885c2dfa3470f1e33c129fb219330",
+        "fingerprint": "sha256:0740960a8930be4daab4e3daa1d2821cf4b093f93fc0b11a952294c156e17ac8",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -3168,7 +3168,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d268e2f0bd89ac13b3eafb7f281c8f4eff9e990cb619c2cabfed716bd1975c3f",
+        "fingerprint": "sha256:59f69a65e399735839468e404a943ea29ce1e3043ad4b775c310295e646c42d8",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -3202,7 +3202,7 @@
       },
       "slug": "boot_slice",
       "source": {
-        "fingerprint": "sha256:7c70aa90adfe927cad299dd2d964165db96c7448c18efccc56dc3844461e6f0d",
+        "fingerprint": "sha256:f142415a3b6b1d59171aaac922ce2ca9fc5c541a04e7d91f4aba4cc84fc3aae8",
         "path": ".engine/tools/boot_slice.py"
       },
       "status": "active",
@@ -3544,6 +3544,23 @@
       "source": {
         "fingerprint": "sha256:4e94b123da6ea6a3ffb321026d1529a64a4a85ad66500b7bbe6bec7c2cd5379e",
         "path": ".engine/tools/demo_focus_read.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_map_reachability",
+      "name": ".engine/tools/demo_map_reachability.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_map_reachability",
+      "source": {
+        "fingerprint": "sha256:1eb08bb6d4fae3797a8cfa55932115026aceba8569fffb8a58a328f063b1a968",
+        "path": ".engine/tools/demo_map_reachability.py"
       },
       "status": "active",
       "type": "tool"
@@ -4664,7 +4681,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:11dcfe11043044665be5b541623a4bb273a9df44c645500d6dc0e8db671bc056",
+        "fingerprint": "sha256:efa234400a8dbb765ec0a04b7f6af4f54017aa572f39c64396f9f2cd0118d244",
         "path": ".engine/tools/test_attention.py"
       },
       "status": "active",
@@ -4766,7 +4783,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:4ff22bcc862b006a76cbaffe4750e220d94d25e847088e0293860309dcb289cf",
+        "fingerprint": "sha256:935fa4d5beae0d92dd5709a7c06e1e5eefee62fee022d8fdf84db8db8c8c7e0e",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -4800,7 +4817,7 @@
       },
       "slug": "test_boot_slice",
       "source": {
-        "fingerprint": "sha256:97bcdd7d390a7729add49f7f9d15b5f81c3c7b051ceb5508a73bfc2408b76d00",
+        "fingerprint": "sha256:4a613191abbb643a78604e0eb09cdf1e8b573bd6451672f1975398cab7870afc",
         "path": ".engine/tools/test_boot_slice.py"
       },
       "status": "active",

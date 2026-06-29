@@ -75,7 +75,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
-            "live_standing": None, "neighborhood": None}
+            "live_standing": None, "neighborhood": None, "map_rebuilt": False}
 
 
 def _signals(**over):
@@ -116,6 +116,29 @@ class TestDegradedNotice(unittest.TestCase):
         dash = boot.render_dashboard(_signals(att_degraded=["attention"]))
         self.assertIn("I couldn't reach your work-priority ranking this session", dash)
         self.assertNotIn("I couldn't reach attention", dash)   # the internal noun must not reach the operator
+
+    def test_live_rebuild_shows_a_distinct_heads_up_not_a_couldnt_reach(self):
+        # When orientation ran on a LIVE rebuild (the committed graph.json is absent), the dashboard surfaces a
+        # DISTINCT heads-up — inform + consequence, never the "couldn't reach" alarm: the map IS reachable, the
+        # committed file is just missing. This is the operator-chosen separate signal for the graph-absent state.
+        dash = boot.render_dashboard(_signals(map_rebuilt=True))
+        self.assertIn("running on a rebuilt project map", dash)
+        self.assertIn("regenerate the committed map", dash)             # names the one fix
+        self.assertNotIn("couldn't reach your project map", dash)       # NOT the unreachable alarm
+        self.assertNotIn("couldn't reach", dash.lower())               # no degrade-alarm wording when only this
+
+    def test_no_rebuild_heads_up_when_the_committed_map_is_present(self):
+        # The normal case: committed map present (map_rebuilt False/absent) -> no rebuild heads-up at all.
+        self.assertNotIn("rebuilt project map", boot.render_dashboard(_signals()))
+        self.assertNotIn("rebuilt project map", boot.render_dashboard(_signals(map_rebuilt=False)))
+
+    def test_rebuild_heads_up_and_couldnt_reach_can_coexist_distinctly(self):
+        # A degraded substrate AND a live rebuild can fire together; the two read as separate advisories, the
+        # rebuild line never folded into the "couldn't reach" clause (the conflation this whole change undoes).
+        dash = boot.render_dashboard(_signals(att_degraded=["telemetry"], map_rebuilt=True))
+        self.assertIn("I couldn't reach your open-problems list from GitHub this session", dash)
+        self.assertIn("running on a rebuilt project map", dash)
+        self.assertNotIn("couldn't reach your project map", dash)       # the map line stays the rebuild wording
 
 
 class TestPresentMarker(unittest.TestCase):

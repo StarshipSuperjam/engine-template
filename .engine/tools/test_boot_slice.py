@@ -178,6 +178,16 @@ class TestDegradeChain(unittest.TestCase):
         self.assertTrue(all({"id", "predicate", "direction"} <= set(r) for r in rows))   # well-formed
         self.assertEqual(rows, sorted(rows, key=lambda r: (r["id"], r["predicate"], r["direction"])))  # ordered
 
+    def test_read_carries_from_live_provenance(self):
+        # boot renders a distinct heads-up when the committed graph is absent and orientation runs on a live
+        # rebuild — read() carries that as `from_live`. True for a live-built slice (committed graph absent),
+        # False for a committed one. This is the signal boot reads to surface "running on a rebuilt map".
+        gp_absent = os.path.join(tempfile.mkdtemp(), "absent-graph.json")
+        live = boot_slice.read(slice_path=_tmp_slice(self), graph_path=gp_absent)
+        self.assertTrue(live.from_live)                  # committed graph absent -> live rebuild -> flagged
+        committed = boot_slice.read(slice_path=_tmp_slice(self))   # default graph_path = the real committed map
+        self.assertFalse(committed.from_live)            # committed map present -> not a rebuild
+
     def test_read_fails_open_to_none_when_the_loader_raises(self):
         sp = _tmp_slice(self)
         with mock.patch.object(knowledge_index, "_load_graph",
