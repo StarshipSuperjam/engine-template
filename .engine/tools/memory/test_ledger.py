@@ -1,7 +1,7 @@
 """Self-tests for the memory ledger (build slice 1) — the canonical store's integrity machinery.
 
 Run by the checker-of-checkers self-test suite:
-  uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py'
+  uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These assert the locked ledger-integrity law: serialized writes (no torn lines under concurrency),
 line-resilient reads (skip+count malformed, drop a torn trailing record, ignore blank lines), and the

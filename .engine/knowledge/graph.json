@@ -1864,7 +1864,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:5a995ac3a75767e1b0c10aa8bcbee1498e5c11b504b637a64eedff2eefa0896d",
+        "fingerprint": "sha256:2583f191b5b985ea4b4ddd9ae1ab75c0b9da1987f8f68e14537f8c768293f46a",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5134,7 +5134,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:f216a58d6002668ef45fac78411ab791f85b34b9b3af4894cdeaf9b68f5c0287",
+        "fingerprint": "sha256:5248f9a6eaefc69dc6e3557bad14389006252e7adf0c287f5376412f8577fae6",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -5287,7 +5287,7 @@
       },
       "slug": "test_ledger",
       "source": {
-        "fingerprint": "sha256:4875147f4c02650b6c2289529a3145ffc70b4b08ef0bbd42e7bd0763cbfcf3b2",
+        "fingerprint": "sha256:e99334a89d5605713001ad1adfe19ecaa6cee2e6543529d190beefd8a2087632",
         "path": ".engine/tools/memory/test_ledger.py"
       },
       "status": "active",
@@ -5321,7 +5321,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:b7213038699f4c9b01d5c9a60257defd0b4f32908e2071d9fd7178bc666fa9be",
+        "fingerprint": "sha256:3224356d1956e0cb1e03f253a3597065ed90b6cb248e6d785d71841f668e3185",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -5712,7 +5712,7 @@
       },
       "slug": "test_scent_lookup",
       "source": {
-        "fingerprint": "sha256:c77f3c8243a93abab6e3841dcede52c9677e9d0a18331757f7c5cbd26d1843fe",
+        "fingerprint": "sha256:46cc3af26e1f7cdb76d13a843cb42ebfca11a9e4bd4b27e08dcb12d585debfd6",
         "path": ".engine/tools/memory/test_scent_lookup.py"
       },
       "status": "active",
@@ -5746,7 +5746,7 @@
       },
       "slug": "test_search",
       "source": {
-        "fingerprint": "sha256:a2c568861a62474613ed0dc566f5f6d359e64d09bf782ba89d442f138c5c7637",
+        "fingerprint": "sha256:2af98b69dd39c516d362613db6bca433712a4b3d2a2e000b551150f337658628",
         "path": ".engine/tools/memory/test_search.py"
       },
       "status": "active",
