@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -295,10 +296,12 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
-    def test_check_corpus_split_core_two_guards_validators_core_thirtysix(self):
+    def test_check_corpus_split_core_two_guards_validators_core_thirtyseven(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
-        # the self-validation corpus is validators-core's (36 rules: the optional-module catalog schema gate
+        # the self-validation corpus is validators-core's (37 rules: the untracked-surface detector
+        # (engine-template #281 — names a surface file git is not tracking, e.g. sync-conflict cruft) atop
+        # the optional-module catalog schema gate
         # (engine-template #254 — keeps the first-run catalog matching provisioning-catalog.v1.json now that a
         # command-less optional module is offerable) atop the memory-backup pointer public-safety
         # guard (engine-template #224; D-242 — keeps a configured vault pointer from shipping in the public
@@ -381,8 +384,9 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/skill-frontmatter.json",
             ".engine/check/skill-shape.json",
             ".engine/check/state-cursor.json",
+            ".engine/check/untracked-surface.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 36 corpus rules")
+        ], "validators-core owns exactly the 37 corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])
@@ -795,6 +799,174 @@ class TestTopologicalOrder(unittest.TestCase):
     def test_absent_dependency_is_ignored(self):
         # a depends-on a module not in the set -> treated as a root, no crash (mirrors _dependency_cycle)
         self.assertEqual(self._ids([self._m("x", "not-present")]), ["x"])
+
+
+class TestUntrackedSurfaceGuard(unittest.TestCase):
+    """#281: the surface walk reads git, not just the filesystem. The OWNERSHIP inventory is tracked-only
+    (an untracked file raises no spurious local orphan / double-claim), and untracked_surface_findings
+    names every surface file git neither tracks nor ignores — sync-conflict cruft a file-sync tool dropped,
+    or a not-yet-committed new file. Fail-soft: git unavailable -> the inventory is the full walk and the
+    detector returns one explicit 'skipped' note (never a silent all-clear)."""
+
+    @staticmethod
+    def _git(root, *a):
+        subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=False)
+
+    def _init_committed(self, root):
+        """A throwaway git repo with one committed engine tool + a surface catalog naming .claude/skills/.
+        Returns the engine dir. The caller adds untracked files, then points validate.ROOT/ENGINE_DIR/
+        CATALOG_PATH at the fixture."""
+        engine = os.path.join(root, ".engine")
+        os.makedirs(os.path.join(engine, "tools"))
+        os.makedirs(os.path.join(engine, "schemas"))
+        _write(os.path.join(engine, "schemas"), "surface-catalog.json",
+               {"surfaces": {"skill": {"location": ".claude/skills/"}}})
+        _write(os.path.join(engine, "tools"), "real_tool.py", "# committed\n")
+        self._git(root, "init")
+        self._git(root, "add", "-A")
+        self._git(root, "-c", "user.email=e@x", "-c", "user.name=e", "commit", "-m", "base")
+        return engine
+
+    def _run(self, build, check):
+        """Init a committed fixture, let build(root, engine) add files, then run check() with
+        validate.ROOT/ENGINE_DIR/CATALOG_PATH pointed at it; restore the globals after."""
+        saved = (validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH)
+        with tempfile.TemporaryDirectory() as root:
+            engine = self._init_committed(root)
+            validate.ROOT, validate.ENGINE_DIR = root, engine
+            validate.CATALOG_PATH = os.path.join(engine, "schemas", "surface-catalog.json")
+            try:
+                build(root, engine)
+                return check()
+            finally:
+                validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH = saved
+
+    def test_tracked_and_untracked_helpers_split_the_tree(self):
+        def build(root, engine):
+            _write(os.path.join(engine, "tools"), "stray.py", "# untracked\n")
+        tracked, untracked = self._run(
+            build, lambda: (module_coherence._tracked_paths(), module_coherence._untracked_surface_paths()))
+        self.assertIn(".engine/tools/real_tool.py", tracked)
+        self.assertNotIn(".engine/tools/stray.py", tracked)
+        self.assertIn(".engine/tools/stray.py", untracked)
+        self.assertNotIn(".engine/tools/real_tool.py", untracked)
+
+    def test_helpers_return_none_when_git_unavailable(self):
+        # A non-repo tmp dir -> `git ls-files` exits non-zero -> the fail-soft helpers return None.
+        saved = (validate.ROOT, validate.ENGINE_DIR)
+        with tempfile.TemporaryDirectory() as root:
+            validate.ROOT, validate.ENGINE_DIR = root, os.path.join(root, ".engine")
+            try:
+                self.assertIsNone(module_coherence._tracked_paths())
+                self.assertIsNone(module_coherence._untracked_surface_paths())
+            finally:
+                validate.ROOT, validate.ENGINE_DIR = saved
+
+    def test_ownership_inventory_is_tracked_only_so_untracked_raises_no_orphan(self):
+        # The load-bearing #281 fix: an untracked file is excluded from the ownership inventory (no spurious
+        # local orphan), while a TRACKED unclaimed file still orphans (teeth survive for real problems).
+        def build(root, engine):
+            _write(os.path.join(engine, "tools"), "ghost.py", "# untracked, unclaimed\n")
+        inv = self._run(build, module_coherence.engine_file_inventory)
+        self.assertIn(".engine/tools/real_tool.py", inv)
+        self.assertNotIn(".engine/tools/ghost.py", inv)
+        # over an empty claims map, the tracked real_tool.py orphans; the untracked ghost.py never enters.
+        findings = validate.ownership_findings(inv, {}, set(), "hard", "own")
+        msgs = " ".join(f["message"] for f in findings)
+        self.assertIn(".engine/tools/real_tool.py", msgs)
+        self.assertNotIn("ghost.py", msgs)
+
+    def test_inventory_is_full_walk_when_git_unavailable(self):
+        # Fail-soft: with the tracked-set helper forced to None, the inventory falls back to the raw walk
+        # (the prior behavior) so a degraded git never strands the ownership leg.
+        saved_helper = module_coherence._tracked_paths
+        def build(root, engine):
+            _write(os.path.join(engine, "tools"), "stray.py", "# untracked\n")
+            module_coherence._tracked_paths = lambda: None
+        try:
+            inv = self._run(build, module_coherence.engine_file_inventory)
+        finally:
+            module_coherence._tracked_paths = saved_helper
+        self.assertIn(".engine/tools/stray.py", inv)        # full walk includes the untracked file
+
+    def test_detector_names_untracked_surface_file_as_soft(self):
+        def build(root, engine):
+            _write(os.path.join(engine, "tools"), "real_tool 2.py", "# sync-conflict duplicate\n")
+        findings = self._run(build, lambda: module_coherence.untracked_surface_findings("soft"))
+        self.assertTrue(findings)
+        self.assertTrue(all(f["severity"] == "soft" for f in findings))
+        self.assertTrue(any(".engine/tools/real_tool 2.py" in f["message"] for f in findings))
+        self.assertFalse(any("real_tool.py'" in f["message"] for f in findings))  # tracked -> not named
+
+    def test_detector_is_silent_on_a_clean_tree(self):
+        findings = self._run(lambda root, engine: None,
+                             lambda: module_coherence.untracked_surface_findings("soft"))
+        self.assertEqual(findings, [])
+
+    def test_detector_excludes_gitignored_files(self):
+        # A gitignored file is intentional, not cruft -> --exclude-standard keeps it out of the detector,
+        # while a plain untracked file is still named. (Guards against a 'walk minus tracked' false-positive.)
+        def build(root, engine):
+            _write(root, ".gitignore", "ignored.py\n")
+            _write(os.path.join(engine, "tools"), "ignored.py", "# gitignored\n")
+            _write(os.path.join(engine, "tools"), "stray.py", "# plain untracked\n")
+        findings = self._run(build, lambda: module_coherence.untracked_surface_findings("soft"))
+        msgs = " ".join(f["message"] for f in findings)
+        self.assertIn(".engine/tools/stray.py", msgs)
+        self.assertNotIn("ignored.py", msgs)
+
+    def test_detector_reaches_a_cruft_dir_under_a_claude_surface_root(self):
+        # The issue's own example: a duplicated skill DIRECTORY under .claude/skills/. The detector walks the
+        # catalogued .claude/ roots, so it catches this even though no literal `provides` path matches it.
+        def build(root, engine):
+            d = os.path.join(root, ".claude", "skills", "engine-help 2")
+            os.makedirs(d)
+            _write(d, "SKILL.md", "# sync-conflict skill dir\n")
+        findings = self._run(build, lambda: module_coherence.untracked_surface_findings("soft"))
+        self.assertTrue(any(".claude/skills/engine-help 2/SKILL.md" in f["message"] for f in findings))
+
+    def test_detector_returns_a_skip_note_when_git_unavailable(self):
+        # Git-absent must NOT be a silent all-clear: one soft finding saying the check was skipped.
+        saved = (validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH)
+        with tempfile.TemporaryDirectory() as root:
+            engine = os.path.join(root, ".engine")
+            os.makedirs(os.path.join(engine, "schemas"))
+            _write(os.path.join(engine, "schemas"), "surface-catalog.json", {"surfaces": {}})
+            validate.ROOT, validate.ENGINE_DIR = root, engine
+            validate.CATALOG_PATH = os.path.join(engine, "schemas", "surface-catalog.json")
+            try:
+                findings = module_coherence.untracked_surface_findings("soft")
+            finally:
+                validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH = saved
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "soft")
+        self.assertIn("git was unavailable", findings[0]["message"])
+
+    def test_relay_swallows_errors_to_empty_array_and_exits_zero(self):
+        # The custom/script kind turns any non-zero exit into a HARD fail-closed finding regardless of tier,
+        # so the relay must exit 0 + emit valid JSON even when the detector raises (a transient git hiccup
+        # must never become a hard block).
+        import io
+        import contextlib
+        import untracked_surface_check
+        saved = module_coherence.untracked_surface_findings
+        module_coherence.untracked_surface_findings = lambda tier: (_ for _ in ()).throw(RuntimeError("boom"))
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = untracked_surface_check.main()
+        finally:
+            module_coherence.untracked_surface_findings = saved
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(buf.getvalue()), [])
+
+    def test_check_rule_conforms_and_is_soft_in_both_suites(self):
+        rule = validate.load_json(os.path.join(validate.CHECK_DIR, "untracked-surface.json"))
+        schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))
+        self.assertEqual(_errors(schema, rule), [])
+        self.assertEqual(rule["tier"], "soft")
+        self.assertEqual(set(rule["suites"]), {"CI", "audit-prep"})
+        self.assertEqual(rule["params"]["script"], ".engine/tools/untracked_surface_check.py")
 
 
 if __name__ == "__main__":
