@@ -3,7 +3,8 @@
   "target": { "context": "negative-fixtures" },
   "kind": "custom/script",
   "params": {
-    "script": ".engine/tools/hard_check_bite_check.py"
+    "script": ".engine/tools/hard_check_bite_check.py",
+    "pass_token": true
   },
   "tier": "hard",
   "suites": ["CI"],

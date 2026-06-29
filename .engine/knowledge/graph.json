@@ -718,6 +718,31 @@
       "type": "check"
     },
     {
+      "id": "check:disposition-issue-resolution",
+      "kind": "custom/script",
+      "name": ".engine/check/disposition-issue-resolution.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "disposition-issue-resolution",
+      "source": {
+        "fingerprint": "sha256:7dd36c7b32205c029f7ccc0fe2a33bd3e868462bb43036b4c978e7eb50baf6ed",
+        "path": ".engine/check/disposition-issue-resolution.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:doc-frontmatter",
       "kind": "schema",
       "name": ".engine/check/doc-frontmatter.json",
@@ -864,7 +889,7 @@
       },
       "slug": "hard-check-bite",
       "source": {
-        "fingerprint": "sha256:2f3a9f527eeecb80e060f4119021838e2c185b0b7b6a0d0f73e5514466f0e42d",
+        "fingerprint": "sha256:f184d0690b6e0a93994ba08ecc2fa4931443f0b4da70b4bbe40fb4b19e9291ce",
         "path": ".engine/check/hard-check-bite.json"
       },
       "status": "active",
@@ -2638,7 +2663,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:3d3dc31814605fe879966efd04e0b4054d03a0495046ef3dd54cff1230a1370b",
+        "fingerprint": "sha256:73b8a5877ba058e85cc54597b22d907f0495dd1747992fb6d995e064d98c68c5",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4494,6 +4519,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:disposition_issue_resolution_check",
+      "name": ".engine/tools/disposition_issue_resolution_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "disposition_issue_resolution_check",
+      "source": {
+        "fingerprint": "sha256:9aa857aec2121ae73b01de8fbc1936d104b6fd26d073b9e67159f61c9cbae3f9",
+        "path": ".engine/tools/disposition_issue_resolution_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:engine_help",
       "name": ".engine/tools/engine_help.py",
       "owner": "core",
@@ -5854,6 +5896,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_disposition_issue_resolution",
+      "name": ".engine/tools/test_disposition_issue_resolution.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_disposition_issue_resolution",
+      "source": {
+        "fingerprint": "sha256:9b291fe85b405307656c5f158ec5468eeacd965e0e3d04adce8ff73315de73e3",
+        "path": ".engine/tools/test_disposition_issue_resolution.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_doc",
       "name": ".engine/tools/test_doc.py",
       "owner": "core",
@@ -6000,7 +6059,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:add8dbadb802228b7ac8cc06abec2345a979bec23bd63ba76697b71ec65a07f5",
+        "fingerprint": "sha256:11535bad89869276da998f14847695e8cdb57a06fe910075959d5373e2085d13",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -6340,7 +6399,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:66f459e7fee0115bd9f54a0bbd0e3893c3b5457296e195d39815a32592c83778",
+        "fingerprint": "sha256:b912f7a48b3b35e31a21ce3cc9badaee3f27481d4ad16469cd173a5bb9b9a285",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
