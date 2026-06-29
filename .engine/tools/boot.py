@@ -467,6 +467,16 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades that one signal, never the pack
         strand = None
     try:
+        # The behind-origin tail (#335), RELAYED from checkout_health's own detection (boot computes no new
+        # state). This is the engine's one ONLINE boot signal that fetches: a best-effort, tightly bounded
+        # `git fetch` then a clean-fast-forward check. Online-only by nature (a behind checkout cannot be seen
+        # offline), so it degrades SILENTLY to None on no-network / no-remote / a non-default branch — never a
+        # false "behind". boot OFFERS bringing it current; the assistant runs checkout_health.catch_up only on
+        # the operator's consent (the strand model). Lossless by construction (`merge --ff-only`).
+        behind_origin = checkout_health.detect_behind_origin()
+    except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
+        behind_origin = None
+    try:
         # The self-review freshness signal, RELAYED from audit_digest's own detection (boot computes no new
         # state). Called arg-less so it reads the committed digest + today and owns STALENESS_DAYS/the re-arm
         # copy itself — boot never re-detects or re-literals the bound. Low-stakes (a missing digest is the
@@ -526,6 +536,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         "shipped": recently_shipped(),
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
+        # the behind-origin tail (#335): on the default branch + a clean fast-forward would bring in merged
+        # work past the velocity bar, or None (also None offline — the signal is online-only)
+        "behind_origin": behind_origin,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
         # the memory auto-restore offer (#R2, slice 6b): local memory is empty + a backup is configured, or None
@@ -579,6 +592,17 @@ def render_dashboard(s: dict) -> str:
             "this doesn't affect what we build, but your project folder needs attention. Just say the word "
             "and I'll get it healthy again — I'll save anything at risk first (including any work that's "
             "drifted off your branch) to a safe point, so nothing is lost.")
+
+    # The behind-origin tail (#335), surfaced read-only at the strand tier (below the governance alarms — a
+    # behind checkout cannot reach protected `main`). Consequence-led and COUNT-FREE per the design's
+    # "never a count" leaf law, no git verbs, with a concrete consent phrase like every sibling offer. boot
+    # OFFERS; the assistant runs checkout_health.catch_up only on consent. Lossless by construction.
+    if s.get("behind_origin"):
+        pinned.append(
+            "📦 **Your project folder has fallen behind your recent work** — merged updates have landed since "
+            f"you last caught up (most recently on {s['behind_origin']['latest']}), and your folder doesn't "
+            "have them yet. I work in a separate copy, so nothing is broken — when you're ready, say **bring "
+            "it up to date** and I'll bring your folder current safely; nothing you already have will be lost.")
 
     # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier
     # (below the governance alarms — a conflicting PR cannot reach protected `main`, so it is NOT a governance
@@ -733,6 +757,9 @@ def present_marker_line(s: dict) -> str:
         return f"⚠ {PRESENT_MARKER}: {s['finding_count']} open engine finding(s) to review"
     if s["strand"]:   # ranked after the governance alarms + findings; a governance alarm still wins the marker
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
+    if s.get("behind_origin"):   # sibling of strand (folder health), below it: missing updates, not a broken state
+        return (f"⚠ {PRESENT_MARKER}: your project folder has fallen behind recent merged work — say 'bring it "
+                "up to date' and I'll bring it current")
     if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
         return f"⚠ {PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it"
     if s.get("migration_revert"):   # a recovery OFFER (not a ⚠ alarm): the store is ahead of the code after a revert

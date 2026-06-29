@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:fdbe17e9b7a6170bb6e9f532991ef4f984bcfed6b3626b0a5d8c2c2928eb5082",
+        "fingerprint": "sha256:db61752875aee85771221c9ec343f6f1e4e4d96193ad389be6b166320763c514",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -39,7 +39,7 @@
       "role": "plan-review",
       "slug": "design-review-architecture",
       "source": {
-        "fingerprint": "sha256:7a8452b79dc6f8f33a4ccb0e328c76649808b8437e908141b7a0008041419f79",
+        "fingerprint": "sha256:db33a14acadaac2c79b2e538e579ce81676c21bd0be67074595ef341817a244e",
         "path": ".claude/agents/design-review-architecture.md"
       },
       "status": "active",
@@ -62,7 +62,7 @@
       "role": "plan-review",
       "slug": "design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:902b6150d4778445e5218de868c8fef79e95a092de0a48814ee36a1da8fee4f3",
+        "fingerprint": "sha256:7e609bf8ba42821fddb093015eb752575c8baf56f4efef4a85008f9a246f660e",
         "path": ".claude/agents/design-review-feasibility.md"
       },
       "status": "active",
@@ -85,7 +85,7 @@
       "role": "plan-review",
       "slug": "design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:fb945d85a5954053e14b5916467f21280e155faa8821405f595653ddf9661f8c",
+        "fingerprint": "sha256:57aa029fc74db48e3c8be5daaf5d14ce2d6bb93ca73d7fed89b27d169727a8c9",
         "path": ".claude/agents/design-review-product-intent.md"
       },
       "status": "active",
@@ -108,7 +108,7 @@
       "role": "plan-review",
       "slug": "design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:e3deba61e3e3055be4f11ad4271c1d963b9443b2812452463e6bd319fb5cc38b",
+        "fingerprint": "sha256:054cd6529b7c5ffd55ce9724c55a72c60f1c1c8f0e48861dc22bd50930a0f0c8",
         "path": ".claude/agents/design-review-risk-governance.md"
       },
       "status": "active",
@@ -131,7 +131,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:7a1f1a3535e7cd4ad3bd97c0098ef2a355c0b6bf2a8c376f3d5227fd9b0a9554",
+        "fingerprint": "sha256:96f3bc9a1abb1a4408c4bb96dc7bccd92814093560d63b589ad59817affd14a6",
         "path": ".claude/agents/qa-review-security-governance.md"
       },
       "status": "active",
@@ -154,7 +154,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:912f01c77a993c12a5a28840ec21dd2d4da0e167200f454ff50d65b636be6c0c",
+        "fingerprint": "sha256:a736d080d68e203dca9bac25a14277ccfe5cb6e3f552d6ce895c4f90b33149b9",
         "path": ".claude/agents/qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -177,7 +177,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:c826b30ecf6d2490b47694d9284624f9c129b631c8550680ae1a05597f19722f",
+        "fingerprint": "sha256:368a71e9af51e45ad4dda808ff08e271ffbc4ca03d0625cda1e21a6f59df3722",
         "path": ".claude/agents/qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -200,36 +200,11 @@
       "role": "pre-submission-review",
       "slug": "qa-review-usability",
       "source": {
-        "fingerprint": "sha256:eec3f177ecd94278d6be71bcf3fa89d49fc07495dbba192df74f1ee159c50651",
+        "fingerprint": "sha256:e69ca7908add179d339121cbd41ecaccb9c7c19e2d4448a7769c3b40fdd209f2",
         "path": ".claude/agents/qa-review-usability.md"
       },
       "status": "active",
       "type": "agent"
-    },
-    {
-      "id": "check:agent-coherence",
-      "kind": "custom/script",
-      "name": ".engine/check/agent-coherence.json",
-      "owner": "validators-core",
-      "predicates": {
-        "governed_by": [
-          "schema:check.v1"
-        ],
-        "provided_by": [
-          "module:validators-core"
-        ]
-      },
-      "slug": "agent-coherence",
-      "source": {
-        "fingerprint": "sha256:c66350f46d20bc8c8eb406d0c9ab211d29da998c87d345e49fdf3c12c40f202e",
-        "path": ".engine/check/agent-coherence.json"
-      },
-      "status": "active",
-      "suites": [
-        "CI"
-      ],
-      "tier": "hard",
-      "type": "check"
     },
     {
       "id": "check:agent-frontmatter",
@@ -1871,7 +1846,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:3d3dc31814605fe879966efd04e0b4054d03a0495046ef3dd54cff1230a1370b",
+        "fingerprint": "sha256:f763990c60ba68e392a3afbbdfaf9271200165859ce34040138d0cf04862fae8",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2417,7 +2392,7 @@
       },
       "slug": "agent.v1",
       "source": {
-        "fingerprint": "sha256:f7d52b00d7f14b79d072b41d3cbe5c31db1681cdb98c86b734178109a8c98e00",
+        "fingerprint": "sha256:23ce35423e8494fd0d1a4421e2784569ee22d0b3e4bdcadcba4605567d144acd",
         "path": ".engine/schemas/agent.v1.json"
       },
       "status": "active",
@@ -3047,23 +3022,6 @@
       "type": "skill"
     },
     {
-      "id": "tool:agent_coherence_check",
-      "name": ".engine/tools/agent_coherence_check.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "agent_coherence_check",
-      "source": {
-        "fingerprint": "sha256:56916eb4e85d4348199ce563de21748e0e90db455a67a1daa9a11e6b07242c6f",
-        "path": ".engine/tools/agent_coherence_check.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:attention",
       "name": ".engine/tools/attention.py",
       "owner": "core",
@@ -3074,7 +3032,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:0740960a8930be4daab4e3daa1d2821cf4b093f93fc0b11a952294c156e17ac8",
+        "fingerprint": "sha256:3f1226e1965239f2f40afad0c0bafa268ed885c2dfa3470f1e33c129fb219330",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -3210,7 +3168,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:3333b3db8d69d4e79bf9ee75ff374d846513bbb8f983dacab19c2270ac3943ef",
+        "fingerprint": "sha256:64704796585772f9b5ab061ba26b028d8cb5daa3a1dde4c66e9201f166de1688",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -3244,7 +3202,7 @@
       },
       "slug": "boot_slice",
       "source": {
-        "fingerprint": "sha256:f142415a3b6b1d59171aaac922ce2ca9fc5c541a04e7d91f4aba4cc84fc3aae8",
+        "fingerprint": "sha256:7c70aa90adfe927cad299dd2d964165db96c7448c18efccc56dc3844461e6f0d",
         "path": ".engine/tools/boot_slice.py"
       },
       "status": "active",
@@ -3295,7 +3253,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:180c7f7be230fbed2f29362810578bc88740461c71466bc90df862bc8b6433db",
+        "fingerprint": "sha256:1c312abc71f0379aae2d3117774f11b0c82362d694df0cc6be54b0959e5c0dfa",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -3586,23 +3544,6 @@
       "source": {
         "fingerprint": "sha256:4e94b123da6ea6a3ffb321026d1529a64a4a85ad66500b7bbe6bec7c2cd5379e",
         "path": ".engine/tools/demo_focus_read.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:demo_map_reachability",
-      "name": ".engine/tools/demo_map_reachability.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_map_reachability",
-      "source": {
-        "fingerprint": "sha256:1eb08bb6d4fae3797a8cfa55932115026aceba8569fffb8a58a328f063b1a968",
-        "path": ".engine/tools/demo_map_reachability.py"
       },
       "status": "active",
       "type": "tool"
@@ -4706,25 +4647,8 @@
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:87e562e76407960b807e560192df30350e66a08625e8a0ff911b2fae60c52840",
+        "fingerprint": "sha256:5d11f0c5b761a8f04ed871267c260839164211dbd22fc8203b8e70280dc8858c",
         "path": ".engine/tools/test_agent.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
-      "id": "tool:test_agent_coherence_check",
-      "name": ".engine/tools/test_agent_coherence_check.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "test_agent_coherence_check",
-      "source": {
-        "fingerprint": "sha256:762fc1011840c77c5141f4767984ecf1c05ea4e8bf3a67fa42ff3b0fb649218a",
-        "path": ".engine/tools/test_agent_coherence_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -4740,7 +4664,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:efa234400a8dbb765ec0a04b7f6af4f54017aa572f39c64396f9f2cd0118d244",
+        "fingerprint": "sha256:11dcfe11043044665be5b541623a4bb273a9df44c645500d6dc0e8db671bc056",
         "path": ".engine/tools/test_attention.py"
       },
       "status": "active",
@@ -4842,7 +4766,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:acb41c4b6a4b182bf012583b4bb690cfeda601d03541dbe4a37aee86385ec9b1",
+        "fingerprint": "sha256:0ee07aedd09acfcb7ed30cc7da7073a1a345e6e630a21c23f1ebe2d651394d8a",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -4876,7 +4800,7 @@
       },
       "slug": "test_boot_slice",
       "source": {
-        "fingerprint": "sha256:4a613191abbb643a78604e0eb09cdf1e8b573bd6451672f1975398cab7870afc",
+        "fingerprint": "sha256:97bcdd7d390a7729add49f7f9d15b5f81c3c7b051ceb5508a73bfc2408b76d00",
         "path": ".engine/tools/test_boot_slice.py"
       },
       "status": "active",
@@ -4927,7 +4851,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:ac1b5c704644ae1ad00449641c60d4c862374b4f117c093e4298f37b72afd54c",
+        "fingerprint": "sha256:068bd7d5c098b9741f72e3cc77919594cc9a948acceb62c551410a8d5ceeea58",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -5539,7 +5463,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:0ecaf68237707447ccf9a0c1b98b56e989aa93daaff267acbe901896e9be1c4a",
+        "fingerprint": "sha256:dcd02078385f272906405e9fa04ea5829139e0d7333ec3e4300f15429bd755c1",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -5556,7 +5480,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:66f459e7fee0115bd9f54a0bbd0e3893c3b5457296e195d39815a32592c83778",
+        "fingerprint": "sha256:b7ae1a07f1e3cfff5d628e97d321bea07337c41dc89aa9b45ffe8133cf04c642",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -6304,7 +6228,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:4d22028c2cdd69b08a0b96669d32c4a0f48404669c39b51221e2dda2402811da",
+        "fingerprint": "sha256:fc27baf6bda1ce96e289017afe257fcc8eef21fec99547f5cfcd5a4040d8f43e",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
