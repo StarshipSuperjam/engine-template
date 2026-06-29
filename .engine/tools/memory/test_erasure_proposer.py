@@ -470,14 +470,48 @@ class StructuralTests(unittest.TestCase):
         with open(emit.__file__, encoding="utf-8") as fh:
             self.assertNotIn("enact_erasure(", fh.read())
 
-    def test_the_committed_placeholder_is_structurally_inert(self):
-        # The template ships a permanent placeholder proposal whose target CANNOT validate — so a stray read of
-        # main's proposal (between real erasures) is a guaranteed no-op.
+    def test_the_committed_proposal_is_well_formed_and_content_free(self):
+        # The committed proposal carries EXACTLY {target, cost}, and its target is CONTENT-FREE: either the
+        # inert empty string the template ships between erasures, OR a valid content-free record-id shape during
+        # a live erasure proposal. The design LAW (memory/README §Layer-2 + D-007) is that the committed PR
+        # "names the target by a stable, content-free record id … read at the merge identity" — so a live
+        # record-id here is REQUIRED for the flow, not a hazard. The earlier assertion (target can NEVER
+        # validate) contradicted that law and made every erasure PR red engine-ci and so un-mergeable. The real
+        # safety is dynamic, not this file being inert at rest: the observer binds to the immutable merge tree,
+        # acts only on a genuine merge, and dedups per target — it never enacts off a stray read of main's HEAD.
+        # This reframe is STRICTER on content-freeness (it forbids an offset / path / leaked-content target the
+        # old blanket-invalid assertion silently allowed) while permitting the two states the design intends.
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         with open(os.path.join(root, obs._PROPOSAL_PATH), encoding="utf-8") as fh:
-            placeholder = json.load(fh)
-        self.assertEqual(set(placeholder), {"target", "cost"})
-        self.assertFalse(obs._is_record_id(placeholder["target"]))
+            proposal = json.load(fh)
+        self.assertEqual(set(proposal), {"target", "cost"})
+        target = proposal["target"]
+        self.assertTrue(target == "" or obs._is_record_id(target),
+                        "committed proposal target must be inert ('') or a content-free record-id shape, "
+                        f"never anything else (got {target!r})")
+        self.assertIsInstance(proposal["cost"], str)
+
+
+class PrBodyConsentTests(unittest.TestCase):
+    """The auto-opened erasure PR is exempt from the eight-section body check — it carries a deliberate
+    plain consent body, not the engineer template (ci_label_exempt on the engine-erasure label). That
+    exemption removes the only GENERIC check on this body, so its consent essentials are pinned SPECIFICALLY
+    here: an operator reading only this PR body must be able to decide whether to consent. The positive
+    companion to HeadsUpTests, guarding the most consent-critical copy in the engine from a silent hollowing."""
+    def test_the_pr_body_states_the_consent_picture_and_carries_no_jargon(self):
+        body = emit._pr_body({"target": "f729d2c52dbc44be9eadfdc0ac0b51ba",
+                              "cost": "a withdrawn note you set aside DISTINCT-COST-MARKER."})
+        low = body.lower()
+        self.assertIn("DISTINCT-COST-MARKER", body)            # the plain-language cost is shown verbatim
+        self.assertIn("permanently erase", low)                # what merging does
+        self.assertIn("consent", low)                          # merging IS the consent act
+        self.assertIn("close", low)                            # declining = close the PR
+        self.assertIn("loses nothing", low)                    # closing is safe
+        self.assertIn("recoverable", low)                      # still recoverable until erased
+        self.assertIn("a later session", low)                  # erasure is DEFERRED — not immediate on merge,
+        self.assertIn("the moment you merge", low)             # the clause that makes merge consent, not destruction
+        self.assertNotIn("target", low)                        # no engine jargon
+        self.assertNotIn("f729d2c5", low)                      # the opaque record-id never appears in the body
 
 
 if __name__ == "__main__":

@@ -1219,6 +1219,53 @@ def get_pr_author() -> str | None:
     return None
 
 
+def get_pr_labels() -> list:
+    """The PR's label names from the trusted event context (.pull_request.labels[].name), or an
+    EMPTY list when unavailable: a local run, a --pr-body-file invocation, or a malformed/partial
+    event. Read only; the sole consumer is _evaluate()'s ci_label_exempt honoring in the merge-gating
+    suite. Degrades to [] — and therefore to ENFORCING the rule — on any doubt (a non-list labels
+    field, a label without a string name, an unreadable event), never to a falsely-exempt label.
+    Mirrors get_pr_author()'s fail-safe posture: empty means 'no exemption', never 'skip the check'."""
+    event = os.environ.get("GITHUB_EVENT_PATH")
+    if event and os.path.exists(event):
+        try:
+            labels = (load_json(event).get("pull_request") or {}).get("labels")
+            if not isinstance(labels, list):
+                return []                  # absent / type-confused labels → no exemption (enforce)
+            return [lbl["name"] for lbl in labels
+                    if isinstance(lbl, dict) and isinstance(lbl.get("name"), str)]
+        except (OSError, ValueError, AttributeError, TypeError):
+            return []                      # unreadable / malformed / type-confused event → no labels
+    return []
+
+
+def _exemption_note(rule: dict, ctx: dict) -> "str | None":
+    """The disclosed not-applicable note when a merge-gating rule does not bind for THIS pull
+    request — waived by its author (ci_author_exempt) or by a label it carries (ci_label_exempt) —
+    or None when the rule binds normally and its kind must run. Called by _evaluate ONLY in the
+    blocking-gate suite (so the waiver lands exactly where a rule would otherwise block a merge);
+    the by-id run_check() path never reaches here, so the §15 guardrail-weakening guard is never
+    exempt. Exact-match only (no case-folding — silent widening is a spoof concern). Author is
+    checked first; both forms emit a stated pass that names WHY the rule did not apply, never a
+    silent green."""
+    author = ctx.get("pr_author")
+    if author in (rule.get("ci_author_exempt") or []):
+        return (f"NOT APPLICABLE — check '{rule.get('id')}' does not bind for pull requests "
+                f"authored by {author} in the merge gate, so it was not evaluated "
+                f"here (a disclosed not-applicable pass — not a verification). This narrative "
+                f"check is waived for this author only; any guardrail-touching change in the pull "
+                f"request is still gated by the guardrail-ack label the maintainer applies.")
+    matched = sorted(set(ctx.get("pr_labels") or []) & set(rule.get("ci_label_exempt") or []))
+    if matched:
+        return (f"NOT APPLICABLE — check '{rule.get('id')}' does not bind for pull requests "
+                f"labelled '{matched[0]}' in the merge gate, so it was not evaluated here (a "
+                f"disclosed not-applicable pass — not a verification). This narrative check is "
+                f"waived for this single-purpose pull-request class only, which carries its own "
+                f"deliberate plain-language body; any guardrail-touching change in the pull "
+                f"request is still gated by the guardrail-ack label the maintainer applies.")
+    return None
+
+
 def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool = False) -> list:
     """Dispatch every rule that joins `suite` through its kind and return the collected
     findings. The shared core behind both run() (which prints + computes an exit code) and
@@ -1233,21 +1280,18 @@ def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool
     findings = []
     for rule in [r for r in rules if suite in r.get("suites", [])]:
         kind, tier = rule.get("kind"), rule.get("tier", "hard")
-        # Honor ci_author_exempt at the engine layer — before any check-kind runs, so the
-        # closed kinds stay author-agnostic. It binds ONLY in the merge-gating (blocking-gate)
-        # suite (`gates`, derived from the suite's context, not its name): the exemption waives
-        # exactly where a rule would otherwise block a merge. A matched author yields a DISCLOSED
-        # not-applicable pass (a soft note, never gating), never a silent green and never a
-        # workflow skip that would leave the required check pending. Exact-match only (no
-        # case-folding — silent widening is a spoof concern). The by-id run_check() path carries
-        # no suite and so never reaches here: the §15 guardrail-weakening guard is never exempt.
-        if gates and ctx.get("pr_author") in (rule.get("ci_author_exempt") or []):
-            found = [finding("soft",
-                f"NOT APPLICABLE — check '{rule.get('id')}' does not bind for pull requests "
-                f"authored by {ctx.get('pr_author')} in the merge gate, so it was not evaluated "
-                f"here (a disclosed not-applicable pass — not a verification). This narrative "
-                f"check is waived for this author only; any guardrail-touching change in the pull "
-                f"request is still gated by the guardrail-ack label the maintainer applies.")]
+        # Honor ci_author_exempt / ci_label_exempt at the engine layer — before any check-kind
+        # runs, so the closed kinds stay author- and label-agnostic. They bind ONLY in the
+        # merge-gating (blocking-gate) suite (`gates`, derived from the suite's context, not its
+        # name): the exemption waives exactly where a rule would otherwise block a merge. A matched
+        # author OR a matched label yields a DISCLOSED not-applicable pass (a soft note, never
+        # gating), never a silent green and never a workflow skip that would leave the required
+        # check pending. Exact-match only (no case-folding — silent widening is a spoof concern).
+        # The by-id run_check() path carries no suite and so never reaches here: the §15
+        # guardrail-weakening guard is never exempt.
+        exempt_note = _exemption_note(rule, ctx) if gates else None
+        if exempt_note is not None:
+            found = [finding("soft", exempt_note)]
         else:
             fn = REGISTRY.get(kind)
             if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
@@ -1450,7 +1494,8 @@ def main(argv: list) -> int:
             print(f"unknown argument: {argv[i]}", file=sys.stderr)
             return 2
     ctx = {"pr_body": get_pr_body(body_file),     # the same ctx both entry points build
-           "pr_author": get_pr_author()}          # honored by run() for ci_author_exempt (CI gate only)
+           "pr_author": get_pr_author(),           # honored by run() for ci_author_exempt (CI gate only)
+           "pr_labels": get_pr_labels()}           # honored by run() for ci_label_exempt (CI gate only)
     if check_id is not None:
         return run_check(check_id, ctx)
     return run(suite, ctx)
