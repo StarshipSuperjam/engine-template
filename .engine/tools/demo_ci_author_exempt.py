@@ -90,8 +90,9 @@ def main() -> int:
     print("-" * 78)
     flagged = weakening_guard.flagged_changes(
         [{"filename": ".engine/uv.lock", "status": "modified"}])
-    print(f"   guardrail-weakening classifier on a uv.lock change: {flagged}")
-    print("   -> not empty: the maintainer must still apply the `guardrail-ack` label to merge.")
+    print(f"   the guardrail-weakening guard flags the locked-dependency (.engine/uv.lock) change: "
+          f"{'yes' if flagged else 'no'}")
+    print("   -> still flagged: the maintainer must apply the `guardrail-ack` label to merge.")
 
     ok = (rc_bot == 0 and rc_human == 1 and rc_label == 0 and bool(flagged))
     print("\n" + "=" * 78)

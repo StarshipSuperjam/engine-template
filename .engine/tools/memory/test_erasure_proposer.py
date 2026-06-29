@@ -508,6 +508,8 @@ class PrBodyConsentTests(unittest.TestCase):
         self.assertIn("close", low)                            # declining = close the PR
         self.assertIn("loses nothing", low)                    # closing is safe
         self.assertIn("recoverable", low)                      # still recoverable until erased
+        self.assertIn("a later session", low)                  # erasure is DEFERRED — not immediate on merge,
+        self.assertIn("the moment you merge", low)             # the clause that makes merge consent, not destruction
         self.assertNotIn("target", low)                        # no engine jargon
         self.assertNotIn("f729d2c5", low)                      # the opaque record-id never appears in the body
 

@@ -3491,7 +3491,7 @@
       },
       "slug": "demo_ci_author_exempt",
       "source": {
-        "fingerprint": "sha256:24fe0634cb18d854ebd30e9216067628c2663547f26bb19b3de1c6a8c06c6133",
+        "fingerprint": "sha256:e6e862c432cd49c4826c7c0647461a0e124901cb36681c3e86c10fbaef02f01f",
         "path": ".engine/tools/demo_ci_author_exempt.py"
       },
       "status": "active",
@@ -5089,7 +5089,7 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:40d10ac7e4808c0ee5bb6eaf8ceb4c199c6c33c149caba2c260f7614b8ed373c",
+        "fingerprint": "sha256:04216477151ade89fa8b1e9817ad0000c51ceaa2d5a32aeaea9e34e938fa47a3",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",
