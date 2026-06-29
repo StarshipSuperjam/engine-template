@@ -173,7 +173,11 @@ class TestRuleIsLiveAndWellFormed(unittest.TestCase):
         self.assertEqual(rule["suites"], ["CI"])
         self.assertEqual(rule["kind"], "custom/script")
         self.assertEqual(rule["params"]["script"], ".engine/tools/hard_check_bite_check.py")
-        self.assertNotIn("pass_token", rule["params"])  # deferred until a token-needing unit (S6)
+        # S6: the meta-check is a TOKEN CONDUIT. It makes no API call itself, but it must pass GITHUB_TOKEN
+        # to the disposition-issue-resolution grandchild it witnesses live (kind_custom_script strips the token
+        # on every hop unless the rule sets pass_token). Do not "clean this up" — without it the disposition
+        # unit runs token-less, emits unevaluable instead of the aimed unresolved bite, and this meta-check reds.
+        self.assertTrue(rule["params"]["pass_token"])
 
 
 class TestS4LiveRosterBackfill(unittest.TestCase):
@@ -192,6 +196,14 @@ class TestS4LiveRosterBackfill(unittest.TestCase):
                     self.assertTrue(found and all(f["severity"] == "soft" for f in found),
                                     f"{stem}: a not-applicable carve-out must yield only soft notes: {found}")
                     self.assertTrue(any("NOT APPLICABLE" in (f.get("message") or "") for f in found), found)
+                elif stem == "disposition-issue-resolution":
+                    # The roster's first NON-OFFLINE unit (#292): its negative path is a live issue-API query
+                    # against the cited sentinel. With a token it bites (404 -> unresolved); offline/token-less
+                    # it emits the distinct unevaluable, so the aimed bite is witnessable only with a token. The
+                    # live witness is the CI `validate.py --suite CI` run (which has the token); skip otherwise.
+                    if not os.environ.get("GITHUB_TOKEN"):
+                        self.skipTest("disposition-issue-resolution needs a token for its live witness (CI)")
+                    self.assertEqual(hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard"), [])
                 elif stem == "memory-pointer-public-safety":
                     # It reads its fixture via `git show HEAD:`, so it bites only once the fixture is committed
                     # at HEAD (the live witness is the CI run on the committed pull request). Skip until then.
@@ -217,6 +229,12 @@ class TestS5GoLive(unittest.TestCase):
         # The self-entry is in the live roster and is exercised here through its committed target.json.
         stems = {r["id"].split("engine/check/")[-1] for r in _live_hard_script_rules()}
         self.assertIn("hard-check-bite", stems, "the meta-check must be in its own live roster (§15)")
+        # The full evaluate() now includes the NON-OFFLINE disposition-issue-resolution unit (#292), whose live
+        # witness needs a token. Without one its sentinel resolves to unevaluable, not the aimed unresolved bite,
+        # so the full-roster green is a with-token property. The CI `validate.py --suite CI` step (which has the
+        # token) is the real witness; this regression runs there and locally with a token, and skips otherwise.
+        if not os.environ.get("GITHUB_TOKEN"):
+            self.skipTest("full-roster green needs a token for the non-offline disposition unit (CI / local+token)")
         findings = hcb.evaluate()
         # A merge is blocked only by a HARD finding; the disclosed carve-outs are loud SOFT notes by design.
         hard = [f for f in findings if f["severity"] == "hard"]
