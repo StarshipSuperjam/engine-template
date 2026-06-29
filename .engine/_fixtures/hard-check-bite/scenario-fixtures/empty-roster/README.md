@@ -1,5 +1,7 @@
 # `empty-roster/` — the deliberately instance-free roster directory for the live self-run
 
+*Internal fixture note — not operator-facing; the jargon below is for whoever maintains the meta-check.*
+
 When the meta-check goes live (S5) it enumerates itself as one more `custom/script` instance and must run against
 its own seeded mini-scenario instead of re-entering the live check set (which would recurse). The self-fixture's
 `target.json` points the self-run's `ENGINE_ROSTER_DIR` **here** — at this directory — precisely because it holds
