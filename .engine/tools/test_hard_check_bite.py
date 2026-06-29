@@ -1,9 +1,10 @@
 """Tests for the negative-fixture meta-check (#286, D-256…D-260) — hard_check_bite_check.
 
-The meta-check is dormant in this slice (its rule ships suites: []), so these tests ARE its proof for now: they
-drive the testable `evaluate(...)` core against controlled rosters, and drive the whole script through the real
-`validate.run_unit` subprocess path for self-coverage. Assertions are by set-membership on (severity, message
-token), never order/count.
+The meta-check is LIVE in the CI suite (S5): its rule ships suites: ["CI"], so it runs at the merge gate. These
+tests drive the testable `evaluate(...)` core against controlled rosters, drive the whole script through the real
+`validate.run_unit` subprocess path for self-coverage, and assert the FULL live roster (every committed fixture +
+the self-entry via its committed target.json) is clean — the go-live regression. Assertions are by set-membership
+on (severity, message token), never order/count.
 """
 from __future__ import annotations
 import glob as _glob
@@ -141,46 +142,49 @@ class TestRosterBInstances(unittest.TestCase):
 
 class TestSelfCoverageThroughSubprocess(unittest.TestCase):
     """The meta-check runs as one more roster entry through the REAL run_unit subprocess path, pointed at its
-    committed self-fixture mini-scenario — proving §15 self-falsifiability the way it will run live (S5), and
-    that the run terminates (the mini-scenario contains no custom/script instance and not the meta-check itself)."""
+    committed self-fixture mini-scenario — proving §15 self-falsifiability the way it runs live (S5), and that the
+    run terminates (the mini-scenario contains no custom/script instance and not the meta-check itself). It drives
+    the SAME committed target.json the live self-entry uses, so the test and the live configuration cannot drift."""
 
-    def test_meta_check_bites_its_own_self_fixture_via_run_unit(self):
+    def test_meta_check_bites_its_own_self_fixture_via_committed_target(self):
         rule = validate.load_json(RULE_PATH)
-        with tempfile.TemporaryDirectory() as empty_roster:
-            target = {"env": {
-                "ENGINE_ROSTER_KINDS": "presence",
-                "ENGINE_FIXTURE_ROOT": ".engine/_fixtures/hard-check-bite/scenario-fixtures",
-                "ENGINE_ROSTER_DIR": empty_roster,
-            }}
-            passed, found = validate.run_unit(rule, target, {})
+        target = validate.load_json(os.path.join(LIVE_FIXTURES, "hard-check-bite", "target.json"))
+        passed, found = validate.run_unit(rule, target, {})
         self.assertFalse(passed)
         self.assertTrue(any(f["severity"] == "hard" and "did NOT catch" in f["message"] for f in found), found)
 
+    def test_committed_roster_dir_is_instance_free(self):
+        """The committed ENGINE_ROSTER_DIR must hold no top-level *.json — the termination guarantee rests on it,
+        so a stray check file dropped there (which would re-enter the self-run) is caught here, not in CI."""
+        target = validate.load_json(os.path.join(LIVE_FIXTURES, "hard-check-bite", "target.json"))
+        roster_dir = os.path.join(ROOT, target["env"]["ENGINE_ROSTER_DIR"])
+        self.assertEqual(_glob.glob(os.path.join(roster_dir, "*.json")), [],
+                         "the self-run roster dir must stay free of top-level *.json (see its README)")
 
-class TestRuleIsDormantAndWellFormed(unittest.TestCase):
-    """The committed rule is the dormant (suites: []) custom/script meta-check, conforming to check.v1.json."""
 
-    def test_rule_conforms_and_is_dormant(self):
+class TestRuleIsLiveAndWellFormed(unittest.TestCase):
+    """The committed rule is the LIVE (suites: ["CI"]) custom/script meta-check, conforming to check.v1.json."""
+
+    def test_rule_conforms_and_is_live(self):
         from jsonschema import Draft202012Validator
         rule = validate.load_json(RULE_PATH)
         schema = validate.load_json(os.path.join(ROOT, ".engine", "schemas", "check.v1.json"))
         self.assertEqual(list(Draft202012Validator(schema).iter_errors(rule)), [])
-        self.assertEqual(rule["suites"], [])
+        self.assertEqual(rule["suites"], ["CI"])
         self.assertEqual(rule["kind"], "custom/script")
         self.assertEqual(rule["params"]["script"], ".engine/tools/hard_check_bite_check.py")
         self.assertNotIn("pass_token", rule["params"])  # deferred until a token-needing unit (S6)
 
 
 class TestS4LiveRosterBackfill(unittest.TestCase):
-    """S4 real-repo regression: every in-scope hard custom/script INSTANCE either bites its committed fixture
-    or is honored as a disclosed not-applicable carve-out — the roster is whole. The meta-check's own self-entry
-    is excluded (its live self-coverage is wired in S5 and would otherwise re-enter the live roster)."""
+    """Real-repo regression: every in-scope hard custom/script INSTANCE either bites its committed fixture or is
+    honored as a disclosed not-applicable carve-out — the roster is whole. As of S5 the meta-check's own self-entry
+    is INCLUDED: it flows through the generic fixture path, loading its committed target.json so the self-run is
+    pointed at its mini-scenario (and terminates) rather than re-entering the live roster."""
 
     def test_every_hard_instance_bites_or_is_disclosed_na(self):
         for rule in _live_hard_script_rules():
             stem = rule["id"].split("engine/check/")[-1]
-            if stem == "hard-check-bite":
-                continue
             na = os.path.join(LIVE_FIXTURES, stem, "not-applicable.json")
             with self.subTest(check=stem):
                 if os.path.isfile(na):
@@ -201,6 +205,26 @@ class TestS4LiveRosterBackfill(unittest.TestCase):
                 else:
                     self.assertEqual(hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard"), [],
                                      f"{stem}: did not bite its committed fixture")
+
+
+class TestS5GoLive(unittest.TestCase):
+    """The go-live regression: the meta-check, run over the FULL LIVE roster with no overrides (every committed
+    fixture, every disclosed carve-out, AND its own self-entry via the committed target.json), is clean. This is
+    what runs at the merge gate now that the rule is in the CI suite — proving the live check is green over the
+    real repo and that the self-entry both terminates and is non-vacuous through the real subprocess path."""
+
+    def test_full_live_roster_is_clean(self):
+        # The self-entry is in the live roster and is exercised here through its committed target.json.
+        stems = {r["id"].split("engine/check/")[-1] for r in _live_hard_script_rules()}
+        self.assertIn("hard-check-bite", stems, "the meta-check must be in its own live roster (§15)")
+        findings = hcb.evaluate()
+        # A merge is blocked only by a HARD finding; the disclosed carve-outs are loud SOFT notes by design.
+        hard = [f for f in findings if f["severity"] == "hard"]
+        self.assertEqual(hard, [], "the live meta-check must produce no hard finding over the real repo (every "
+                         "covered check bites or is a disclosed carve-out, and the self-entry terminates)")
+        # The carve-outs are surfaced loudly so the reviewer can re-derive them at the gate (not silently skipped).
+        na_notes = [f for f in findings if "NOT APPLICABLE" in (f.get("message") or "")]
+        self.assertEqual(len(na_notes), 4, f"expected the 4 disclosed N/A notes to be surfaced, got: {na_notes}")
 
 
 class TestS4TierFilter(unittest.TestCase):
