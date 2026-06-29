@@ -477,6 +477,17 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         behind_origin = None
     try:
+        # The off-main Stage-1 signal (#342/D-275), RELAYED from checkout_health's own detection (boot computes
+        # no new state). The OFFLINE companion to the behind tail: the operator's top-level checkout PARKED on a
+        # non-default branch, caught every boot on day one (the cheap-to-fix window, before it falls behind). The
+        # gentlest folder-health signal — a gentle invitation, collapse-eligible (anti-habituation). Fires only
+        # when the default branch is KNOWN with confidence, so a pre-persistence checkout raises no false nag;
+        # degrades QUIETLY to None otherwise (an on-default / unknown-default checkout is the normal state). The
+        # behind-the-main-line escalation is the separate ONLINE behind_origin tail above.
+        off_main = checkout_health.detect_off_main()
+    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
+        off_main = None
+    try:
         # The self-review freshness signal, RELAYED from audit_digest's own detection (boot computes no new
         # state). Called arg-less so it reads the committed digest + today and owns STALENESS_DAYS/the re-arm
         # copy itself — boot never re-detects or re-literals the bound. Low-stakes (a missing digest is the
@@ -536,9 +547,13 @@ def gather_signals(session_id: str | None = None) -> dict:
         "shipped": recently_shipped(),
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
-        # the behind-origin tail (#335): on the default branch + a clean fast-forward would bring in merged
-        # work past the velocity bar, or None (also None offline — the signal is online-only)
+        # the behind-origin tail (#335; branch-agnostic for #342): the checkout — on its default branch OR
+        # parked on a side branch — is missing merged work past the velocity bar, or None (also None offline —
+        # the signal is online-only). The Stage-2 firm escalation of the off-main signal below.
         "behind_origin": behind_origin,
+        # the off-main Stage-1 signal (#342): the top-level checkout is parked on a non-default branch (offline,
+        # gentle, collapse-eligible), or None. behind_origin above is its online Stage-2 escalation.
+        "off_main": off_main,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
         # the memory auto-restore offer (#R2, slice 6b): local memory is empty + a backup is configured, or None
@@ -593,17 +608,62 @@ def render_dashboard(s: dict) -> str:
             "and I'll get it healthy again — I'll save anything at risk first (including any work that's "
             "drifted off your branch) to a safe point, so nothing is lost.")
 
-    # The behind-origin tail (#335), surfaced read-only at the strand tier (below the governance alarms — a
-    # behind checkout cannot reach protected `main`). Consequence-led and COUNT-FREE per the design's
-    # "never a count" leaf law, no git verbs, with a concrete consent phrase like every sibling offer. boot
-    # OFFERS; the assistant runs checkout_health.catch_up only on consent. Lossless by construction.
-    if s.get("behind_origin"):
+    # The widened "fifth" folder-health surfacing (#342/D-275): off-main Stage-1 + behind-the-main-line Stage-2,
+    # pinned read-only at the strand tier (below the governance alarms — an off-main/behind checkout cannot reach
+    # protected `main`). COUNT-FREE per the design's "never a count" leaf law, NO git verbs, ONE consent handle
+    # ("bring it up to date") across both stages. boot OFFERS only; the assistant runs the correction on consent
+    # (catch_up on the default, return_to_default off it) — both lossless by construction. Precedence: the FIRM
+    # Stage-2 (missing merged work) supersedes the GENTLE Stage-1 (merely parked) when both are live.
+    behind = s.get("behind_origin")
+    off_main = s.get("off_main")
+    if behind and behind.get("on_default"):
+        # Stage-2 on the DEFAULT branch (#335): behind your own merged main line — the original consequence copy.
         pinned.append(
             "📦 **Your project folder has fallen behind your recent work** — merged updates have landed since "
-            f"you last caught up (most recently on {s['behind_origin']['latest']}), and your folder doesn't "
+            f"you last caught up (most recently on {behind['latest']}), and your folder doesn't "
             "have them yet. I work in a separate copy, so nothing is broken — when you're ready, say **bring "
             "it up to date** and I'll bring your folder current safely; or, if you have unsaved work in the "
             "way, I'll tell you and leave everything untouched. Either way, nothing you already have will be lost.")
+    elif behind:
+        # Stage-2 on a SIDE line of work: the firm escalation. Two tones from the advisory (errs gentle): if the
+        # side line may carry unfinished work, promise to keep it; if it's only an older view, say nothing's lost.
+        # When it escalated from a gentle off-main park already shown, name that lineage (product-S3).
+        lead = ("📦 **The side line of work I flagged earlier is now missing finished work from your main "
+                "project**" if (off_main and off_main.get("worsened"))
+                else "📦 **Your project folder is pointed at a side line of work that's missing finished work "
+                     "from your main project**")
+        if behind.get("advisory") == "merged":
+            tone = "Nothing here is unsaved or lost — your folder is just showing an older view."
+        else:
+            tone = ("There may be unfinished work saved on that side line that isn't in your main project yet, "
+                    "so I'll keep it exactly where it is — nothing deleted.")
+        pinned.append(
+            f"{lead} — your main project moved on most recently on {behind['latest']}. {tone} When you're ready, "
+            "say **bring it up to date** and I'll point your folder back at your main project and bring it "
+            "current; if anything's in the way I'll tell you and change nothing.")
+    elif off_main:
+        # Stage-1 (gentle, OFFLINE): merely parked on a side line, not yet behind — a gentle INVITATION, not a
+        # defect report (the top-level checkout on a side line is anomalous because sessions work in separate
+        # copies — the actor-model premise). Collapse-eligible: TERSE when unchanged since last shown in full
+        # (the `collapsed` flag is set hook-side; the pure status-verb path leaves it absent -> full).
+        if off_main.get("collapsed"):
+            pinned.append(
+                "🧭 Your project folder is still pointed at a side line of work rather than your main project "
+                "(unchanged since last session) — say **bring it up to date** whenever you'd like me to point "
+                "it back; your work on that side line stays exactly where it is.")
+        else:
+            line = ("🧭 **Your project folder is pointed at a side line of work rather than your main project** "
+                    "— nothing's wrong and nothing's at risk; your work on that side line stays exactly where it "
+                    "is. Whenever you like, say **bring it up to date** and I'll point your folder back at your "
+                    "main project.")
+            if off_main.get("first_sighting"):
+                # The disclosure gap (constraint 6): spotting this is a newer check, so a folder reported healthy
+                # for a while isn't silently re-cast as freshly broken. Phrased to NOT assert how long it's been
+                # parked (offline we cannot tell) — only that the CHECK is new, so it may be a long-standing state.
+                line += (" (Spotting a folder parked off its main line is a newer check — earlier sessions "
+                         "couldn't, so you may be seeing a long-standing state for the first time, not something "
+                         "that just broke.)")
+            pinned.append(line)
 
     # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier
     # (below the governance alarms — a conflicting PR cannot reach protected `main`, so it is NOT a governance
@@ -758,9 +818,16 @@ def present_marker_line(s: dict) -> str:
         return f"⚠ {PRESENT_MARKER}: {s['finding_count']} open engine finding(s) to review"
     if s["strand"]:   # ranked after the governance alarms + findings; a governance alarm still wins the marker
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
-    if s.get("behind_origin"):   # sibling of strand (folder health), below it: missing updates, not a broken state
-        return (f"⚠ {PRESENT_MARKER}: your project folder has fallen behind recent merged work — say 'bring it "
+    if s.get("behind_origin") and s["behind_origin"].get("on_default"):
+        # Stage-2 on the DEFAULT branch (#335): the folder IS on its main line, only behind — the headline must
+        # not say it's "off" the main line (that would contradict the dashboard's "fallen behind" line).
+        return (f"⚠ {PRESENT_MARKER}: your project folder has fallen behind your recent work — say 'bring it "
                 "up to date' and I'll bring it current")
+    if s.get("behind_origin") or s.get("off_main"):   # off the main line (parked on a side line, maybe behind too)
+        # ONE tone-neutral headline for the off-main stages; the two tones and the felt consequence live in the
+        # dashboard's pinned line, not the marker (product-S1/S2). Accurate here — the checkout is genuinely off it.
+        return (f"⚠ {PRESENT_MARKER}: your project folder isn't on your main line of work — say 'bring it up "
+                "to date' and I'll sort it out safely")
     if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
         return f"⚠ {PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it"
     if s.get("migration_revert"):   # a recovery OFFER (not a ⚠ alarm): the store is ahead of the code after a revert
@@ -822,13 +889,31 @@ def must_push(s: dict) -> list:
     return [a["full"] for a in _pushed_alarms(s)]
 
 
+def _off_main_value(s: dict):
+    """The off-main ledger value — its STABLE structured identity for the D-269 collapse (never the prose):
+    [the side line it's parked on, whether it has ALSO fallen behind the main line]. A repeat with the same
+    value collapses to a terse reminder; the gentle->behind transition (False->True on the second element) is
+    the worsening _worse detects, which drives the firm Stage-2 line's lineage. None when not off-main."""
+    om = s.get("off_main")
+    if not om:
+        return None
+    return [om.get("branch"), bool(s.get("behind_origin"))]
+
+
 def _worse(key: str, prior, current) -> bool:
     """Whether a changed collapse-eligible condition got WORSE (so it relays full with the 'this got worse'
     wording, never a quiet reminder). Ordered only where 'worse' is meaningful: the open-findings count
-    rising. A gate going on->off is an alarm that was ABSENT last session (no prior entry), so it surfaces
-    as a first-appearance full relay, not a 'worse' transition."""
+    rising; an off-main park escalating to behind-the-main-line. A gate going on->off is an alarm that was
+    ABSENT last session (no prior entry), so it surfaces as a first-appearance full relay, not a 'worse'."""
     if key == "findings":
         return isinstance(prior, int) and isinstance(current, int) and current > prior
+    if key == "off_main":
+        # the off-main Stage-1 park escalating to the behind Stage-2 (missing merged work): same side line,
+        # not-behind -> behind. The value is [side-line, behind?]; worsening is False -> True on the flag. The
+        # length guard contains a corrupted/short ledger value to this one signal (it is read OUTSIDE decide's
+        # try/except, so an IndexError here would suppress the whole briefing, not just degrade this line).
+        return (isinstance(prior, list) and len(prior) >= 2 and isinstance(current, list) and len(current) >= 2
+                and prior[:1] == current[:1] and not prior[1] and bool(current[1]))
     return False
 
 
@@ -840,11 +925,29 @@ def _relay_lines(s: dict) -> list:
     not be read (decide ok=False), every line is the neutral full form, never a misleading 'still'/'worse'."""
     alarms = _pushed_alarms(s)
     eligible = [{"key": a["key"], "value": a["value"]} for a in alarms if a["collapsible"]]
+    # The gentle off-main signal rides this ONE decide() call (blocking B2): it is NOT a pushed governance alarm
+    # (it has no relay line here — it renders only in the dashboard, below governance), but its collapse must use
+    # the same ledger pass. A SECOND decide() call would clobber gate/findings (decide writes only the keys it is
+    # passed), so off-main joins the single eligible set and its outcome is threaded onto `s` for render_dashboard.
+    off_main_value = _off_main_value(s)
+    if off_main_value is not None:
+        eligible.append({"key": "off_main", "value": off_main_value})
     # Always call decide — even with an empty eligible set — so a now-resolved standing alarm is DROPPED
     # from the ledger (verified-fixed), never left to wrongly collapse a later recurrence.
     decision = boot_alarm_ledger.decide(eligible)
     ok = decision.get("ok", False)
     results = decision.get("results", {})
+    # Stamp the off-main collapse outcome onto `s` for the (pure) dashboard renderer — HOOK-SIDE ONLY, so the
+    # status verb (which never calls _relay_lines) leaves these absent and renders the off-main line FULL
+    # (fail-toward-full, arch-S1/S4). `worsened` drives the firm Stage-2 lineage; `first_sighting` the disclosure
+    # gap (gated on ok, so a ledger-read failure never falsely claims a first sighting).
+    if off_main_value is not None:
+        r = results.get("off_main", {"outcome": "full", "prior": None})
+        prior = r.get("prior")
+        s["off_main"] = {**s["off_main"],
+                         "collapsed": r.get("outcome") == "collapse",
+                         "worsened": ok and prior is not None and _worse("off_main", prior, off_main_value),
+                         "first_sighting": ok and prior is None and r.get("outcome") == "full"}
     lines: list = []
     for a in alarms:
         if not a["collapsible"]:

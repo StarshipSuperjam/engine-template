@@ -94,8 +94,24 @@ its default branch but missing recent merged work, the assistant likewise **wait
 by construction: it brings the folder current only along a safe fast-forward, keeping any unsaved changes; if
 unsaved work is in the way it changes nothing and reports that plainly (a `blocked` result), so nothing is lost.
 The assistant relays the plain result — brought current, already up to date, or blocked-with-unsaved-work — and
-never forces. (This signal is online-only and consequence-gated: ordinary small drift stays quiet, and a folder
-parked on a *non-default* branch is a separate state, not yet handled — [issue #342](https://github.com/StarshipSuperjam/engine-template/issues/342).)
+never forces. This signal never alarms on bare distance — only *missing merged work* past the velocity bar.
+
+**A folder parked off its main line is the same shape, widened branch-agnostic (#342/D-275).** The behind signal
+is now two-stage, and a checkout parked on a *non-default* branch is no longer unhandled. **Stage 1 (off-main):**
+boot surfaces, gently, that the top-level folder is pointed at a side line of work rather than the main project —
+caught offline, every session, on day one (before it falls behind). **Stage 2 (behind):** once that folder is
+also missing merged work from the main line, the surfacing escalates to a firm offer naming the felt consequence.
+Either way there is **one consent handle** — the operator says **"bring it up to date"** — and the assistant runs
+the correction that fits the state: `checkout_health.catch_up` when the folder is on its default branch, or
+`checkout_health.return_to_default` when it is parked off it. `return_to_default` is **lossless-or-it-does-not-run**:
+returning to a *named* side line never orphans its commits (the side line keeps them — no rescue needed, unlike the
+detached un-stranding arm), and it switches only when nothing is uncommitted, stashed, or mid-operation; otherwise
+it changes nothing and reports that plainly (a `blocked` result). Having safely returned, it brings the folder
+current along the same safe fast-forward — best-effort, since being back on the main line is already the win. The
+assistant relays the honest result: pointed back and brought current, pointed back but the main line couldn't be
+brought current (the local copy had diverged), already on the main line, or blocked-with-unsaved-work — and never
+forces. (Spotting an off-main park is a newer check; a folder reported healthy before this existed isn't freshly
+broken — the assistant says so plainly the first time it surfaces, rather than implying it just broke.)
 
 **A stranded pull request is the same shape (#136).** When boot surfaces a pull request that can't be merged,
 the assistant likewise **waits for the operator's go-ahead**, then runs the reconcile (`pr_reconcile.reconcile`).
