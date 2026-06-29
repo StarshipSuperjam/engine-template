@@ -894,6 +894,99 @@ class TestCustomScriptKind(unittest.TestCase):
         self.assertEqual(withtok[0]["message"], "TOKEN_SEEN")  # forwarded on opt-in
 
 
+class TestRunUnitSeam(unittest.TestCase):
+    """run_unit (#286, D-256…D-260): drive ONE real check-logic unit against a
+    caller-substituted target so the negative-fixture meta-check can witness that each
+    hard check actually bites. Assertions are by SET-MEMBERSHIP (a finding with the
+    expected severity/text is present) — never order or count. The production
+    run()/run_check()/--check paths never call run_unit and are covered unchanged elsewhere."""
+
+    def test_drives_a_kind_callable_against_a_substituted_path(self):
+        # schema kind: a transient rule + target.path point the REAL kind_schema at a
+        # fixture file under (a substituted) ROOT. A bad file bites; a good one passes —
+        # so the seam runs the real callable, not a reimplementation.
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "schema.json"), "w", encoding="utf-8") as fh:
+                json.dump({"type": "object", "required": ["x"],
+                           "additionalProperties": False, "properties": {"x": {"type": "integer"}}}, fh)
+            with open(os.path.join(d, "bad.json"), "w", encoding="utf-8") as fh:
+                json.dump({"y": 1}, fh)          # missing required "x"
+            with open(os.path.join(d, "good.json"), "w", encoding="utf-8") as fh:
+                json.dump({"x": 1}, fh)
+            unit = _rule(kind="schema", params={"schema": "schema.json"})
+            orig = validate.ROOT
+            validate.ROOT = d
+            try:
+                bad_pass, bad_found = validate.run_unit(unit, {"path": "bad.json"}, {})
+                ok_pass, ok_found = validate.run_unit(unit, {"path": "good.json"}, {})
+            finally:
+                validate.ROOT = orig
+        self.assertFalse(bad_pass)
+        self.assertTrue(any(f["severity"] == "hard" for f in bad_found))
+        self.assertTrue(ok_pass)
+        self.assertFalse(any(f["severity"] == "hard" for f in ok_found))
+
+    def test_coverage_override_aims_the_real_callable_at_a_mini_tree(self):
+        # The named coverage override: run_unit substitutes BOTH the catalog source and the
+        # walk root via ctx, so the REAL kind_coverage (catalog mode) bites a seeded mini-tree
+        # — the same entry point CI runs, not the pure helper.
+        with tempfile.TemporaryDirectory() as tree, tempfile.TemporaryDirectory() as cd:
+            os.makedirs(os.path.join(tree, ".engine", "orphan"))   # present, unclaimed -> orphan
+            catalog = os.path.join(cd, "catalog.json")
+            with open(catalog, "w", encoding="utf-8") as fh:
+                json.dump({"surfaces": {"alpha": {"location": ".engine/alpha/"}}}, fh)  # claimed, absent
+            unit = _rule(kind="coverage", params={"mode": "catalog"}, message="map drift")
+            passed, found = validate.run_unit(
+                unit, {"coverage_catalog": catalog, "coverage_root": tree}, {})
+        msgs = " ".join(f["message"] for f in found)
+        self.assertFalse(passed)
+        self.assertIn("orphan", msgs)   # the present-but-unclaimed directory
+        self.assertIn("alpha", msgs)    # the catalogued-but-absent surface
+
+    def test_custom_script_substitutes_through_env_and_restores(self):
+        # A custom/script reads its target from the environment; run_unit sets the env var
+        # around the child and ALWAYS restores os.environ afterward (whether the key was
+        # absent before, or held a prior value).
+        body = ("import os, json; print(json.dumps([{'severity': 'hard', 'location': None, "
+                "'message': 'SEEDED:' + os.environ.get('ENGINE_PR_BODY_FILE', '<unset>')}]))")
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "s.py"), "w", encoding="utf-8") as fh:
+                fh.write(body)
+            unit = _rule(kind="custom/script", params={"script": "s.py"})
+            orig_root = validate.ROOT
+            validate.ROOT = d
+            saved = os.environ.get("ENGINE_PR_BODY_FILE")
+            os.environ.pop("ENGINE_PR_BODY_FILE", None)   # absent before
+            try:
+                _, found = validate.run_unit(unit, {"env": {"ENGINE_PR_BODY_FILE": "/seeded/path"}}, {})
+                seen_when_absent = "ENGINE_PR_BODY_FILE" in os.environ  # must be restored to absent
+                os.environ["ENGINE_PR_BODY_FILE"] = "/prior"           # prior value before a second run
+                validate.run_unit(unit, {"env": {"ENGINE_PR_BODY_FILE": "/seeded/path"}}, {})
+                restored_prior = os.environ.get("ENGINE_PR_BODY_FILE")
+            finally:
+                validate.ROOT = orig_root
+                os.environ.pop("ENGINE_PR_BODY_FILE", None) if saved is None \
+                    else os.environ.__setitem__("ENGINE_PR_BODY_FILE", saved)
+        self.assertTrue(any(f["message"] == "SEEDED:/seeded/path" for f in found))  # the child saw it
+        self.assertFalse(seen_when_absent)        # restored to absent
+        self.assertEqual(restored_prior, "/prior")  # restored to the prior value
+
+    def test_unregistered_kind_fails_closed(self):
+        passed, found = validate.run_unit(_rule(kind="no-such-kind"), {}, {})
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" and "unregistered" in f["message"]
+                            for f in found))
+
+    def test_does_not_mutate_the_caller_rule_or_ctx(self):
+        # run_unit overlays a substitution onto private copies; the caller's unit and ctx
+        # are left exactly as passed (so a roster loop can reuse them).
+        unit = _rule(kind="coherence", target={"path": "orig"})
+        ctx = {"manifests": []}
+        validate.run_unit(unit, {"path": "swapped", "manifests": [{"id": "x"}]}, ctx)
+        self.assertEqual(unit["target"], {"path": "orig"})
+        self.assertEqual(ctx, {"manifests": []})
+
+
 class TestProtectionReHome(unittest.TestCase):
     """The re-homed protection guard emits finding.v1 JSON: a soft fail-open note with no
     token (local), and a hard finding when the floor is missing (token present, CI)."""

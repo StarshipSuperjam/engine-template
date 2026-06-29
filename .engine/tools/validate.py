@@ -578,17 +578,23 @@ def catalog_coverage_findings(surfaces: dict, present_locations: set, tier: str,
 def _coverage_catalog(rule, ctx):
     """catalog-coverage over the live surface catalog + filesystem (see the pure
     catalog_coverage_findings); non-surface infra directories are passed via
-    params.infra_dirs."""
+    params.infra_dirs. The catalog source and the walk root default to the live globals
+    (CATALOG_PATH / ROOT — what CI runs); run_unit (#286, D-256…D-260) may override BOTH
+    via ctx (coverage_catalog / coverage_root) to point the REAL callable at a seeded
+    mini-tree, so the meta-check witnesses this exact entry point. Production callers pass
+    neither key, so the behaviour is byte-unchanged."""
     tier = rule["tier"]
+    catalog_path = ctx.get("coverage_catalog", CATALOG_PATH)
+    base = ctx.get("coverage_root", ROOT)
     try:
-        surfaces = load_json(CATALOG_PATH).get("surfaces", {})
+        surfaces = load_json(catalog_path).get("surfaces", {})
     except Exception as exc:
         return False, [finding(tier, f"Could not read the surface catalog to check coverage: "
-                       f"{exc}. {rule['message']}", loc(CATALOG_PATH))]
+                       f"{exc}. {rule['message']}", loc(catalog_path))]
     infra = set((rule.get("params") or {}).get("infra_dirs", []))
     present = set()
     for root in (".engine", ".claude"):
-        abs_root = os.path.join(ROOT, root)
+        abs_root = os.path.join(base, root)
         if os.path.isdir(abs_root):
             for name in sorted(os.listdir(abs_root)):
                 if os.path.isdir(os.path.join(abs_root, name)):
@@ -1344,6 +1350,60 @@ def run_check(check_id: str, ctx: dict) -> int:
     report(check_id, findings, True)  # a by-id run always gates
     hard_fired = any(f["severity"] == "hard" for f in findings)
     return 1 if hard_fired else 0
+
+
+def run_unit(unit, target=None, ctx=None):
+    """Run ONE check-logic unit against a caller-substituted target and return its
+    (passed, findings) exactly as production would — the target-substitution affordance the
+    negative-fixture meta-check (#286, D-256…D-260) needs to witness that each hard check
+    actually BITES a seeded bad input. It is NOT a production entry point: run()/run_check()/
+    --check never call it, so those paths and every existing finding are byte-unchanged.
+
+    `unit` is the rule to run — its `kind` selects the REAL REGISTRY callable (a custom/script
+    unit carries params.script). For the closed kinds it is a transient rule the caller crafts;
+    for a custom/script it is the real committed rule. `target` (a dict) substitutes the input
+    by unit class, overlaying only the keys that class reads and leaving the rest of `ctx`:
+      - path:               presence/schema/shape — the fixture glob, set as target.path
+                            (target_files resolves it under ROOT); the real callable is unchanged.
+      - coverage_catalog,
+        coverage_root:      coverage — the catalog source + walk root the real callable reads.
+      - manifests:          coherence — the manifest set the real callable reads (ctx['manifests']).
+      - env:                custom/script — env vars set around the child and restored after, so a
+                            script reading ENGINE_PR_BODY_FILE / a substituted GITHUB_EVENT_PATH
+                            sees the seeded input. (No edit to kind_custom_script — it already
+                            builds its child env from os.environ.)
+    Dispatch mirrors run()/run_check(): an unregistered kind or an erroring callable FAILS CLOSED
+    (a hard finding), so the meta-check witnesses exactly what the gate does."""
+    target = target or {}
+    ctx = dict(ctx or {})
+    rule = dict(unit)
+    if "path" in target:
+        rule["target"] = {**(rule.get("target") or {}), "path": target["path"]}
+    for key in ("coverage_catalog", "coverage_root", "manifests"):
+        if key in target:
+            ctx[key] = target[key]
+    fn = REGISTRY.get(rule.get("kind"))
+    if fn is None:  # dangling kind: fail closed, exactly as run()/run_check()
+        return False, [finding(rule.get("tier", "hard"), f"run_unit: rule '{rule.get('id')}' names "
+                       f"unregistered kind '{rule.get('kind')}'; cannot evaluate (fails closed).")]
+
+    def _call():
+        try:
+            return fn(rule, ctx)
+        except Exception as exc:  # an erroring callable fails closed, exactly as run()/run_check()
+            return False, [finding("hard", f"Check rule '{rule.get('id')}' (kind "
+                           f"'{rule.get('kind')}') errored and could not evaluate: {exc}")]
+
+    env = target.get("env")
+    if not env:
+        return _call()
+    saved = {k: os.environ.get(k) for k in env}      # set the substituted target in the child env...
+    try:
+        os.environ.update({k: str(v) for k, v in env.items()})
+        return _call()
+    finally:                                          # ...and restore os.environ no matter what
+        for k, v in saved.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
 def fmt(f: dict) -> str:
