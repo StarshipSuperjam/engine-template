@@ -119,18 +119,22 @@ def findings(tier: str, body: str, resolver: "IssueResolver") -> list:
             verdict = resolver.classify(n)
         except _Unevaluable:
             # The WAIT red: we couldn't reach the issue service, so the whole run is unevaluable (fail-closed,
-            # never a silent green). One plain note; a re-run clears it.
+            # never a silent green). Plain, and plainly temporary — phrased for an owner who directs rather than
+            # operates (the re-run is an automatic/AI action, not a button to press).
             return [validate.finding(tier,
                     "Couldn't check the follow-up issues cited in this change's Review — the issue service was "
-                    "unreachable. This usually clears on its own; re-run the check. Nothing here is a setting you "
-                    "need to change.")]
+                    "unreachable. This usually clears on its own once the service is back; nothing here is a "
+                    "setting that needs changing.")]
         if verdict == "skip-pr":
             continue
         if verdict == "unresolved":
+            # Phrased so the resolving condition is described, not commanded — and covers the case where #n was
+            # ordinary prose, not a follow-up at all (every #N in the Review section is read as an issue reference).
             out.append(validate.finding(tier,
-                       f"The engine cited follow-up issue #{n} in this change's Review, but #{n} isn't a real "
-                       f"engine-tracked issue — it doesn't exist, or it isn't an engine issue. Either file that "
-                       f"issue or correct the number in the Review section, then this clears."))
+                       f"The Review section for this change refers to #{n}, but #{n} isn't a real engine-tracked "
+                       f"issue — it doesn't exist, or it isn't an engine issue. It clears once that issue is "
+                       f"filed, the number is corrected, or — if #{n} wasn't meant as a follow-up issue — the "
+                       f"reference is reworded. Every #N in the Review section is read as an issue reference."))
         else:
             resolved.append(n)
     if out:
@@ -209,8 +213,8 @@ def main(argv: list) -> int:
             # In CI the token IS the gate; a missing one is a real fail-closed condition, never a silent pass.
             return emit([validate.finding(tier,
                          "Couldn't check the follow-up issues cited in this change's Review — no repository "
-                         "access token was available in CI. Re-run the check; this clears once the run has its "
-                         "token.")])
+                         "access token was available in CI. This clears once the run has its token; nothing here "
+                         "is a setting that needs changing.")])
         # Locally, fail OPEN with a soft note — the CI run, which has a token, is the real gate.
         return emit([validate.finding("soft",
                      "The follow-up issue citations weren't checked here — no repository access token is "

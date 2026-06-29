@@ -732,7 +732,7 @@
       },
       "slug": "disposition-issue-resolution",
       "source": {
-        "fingerprint": "sha256:7dd36c7b32205c029f7ccc0fe2a33bd3e868462bb43036b4c978e7eb50baf6ed",
+        "fingerprint": "sha256:4233b285c29166bf2203592f2227b1b3f672301fc74b2196491d5f058442f24f",
         "path": ".engine/check/disposition-issue-resolution.json"
       },
       "status": "active",
@@ -4529,7 +4529,7 @@
       },
       "slug": "disposition_issue_resolution_check",
       "source": {
-        "fingerprint": "sha256:9aa857aec2121ae73b01de8fbc1936d104b6fd26d073b9e67159f61c9cbae3f9",
+        "fingerprint": "sha256:bcf048e4b39cb22dd4628be313dbb00f9318edc0eecaa4b06ecca0d58b40c312",
         "path": ".engine/tools/disposition_issue_resolution_check.py"
       },
       "status": "active",
