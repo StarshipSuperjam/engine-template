@@ -1,7 +1,7 @@
 """test_scent.py — the per-prompt attention scent handler: scent.py (memory-substrate-sqlite-fts5, slice 5, PR 2).
 
 Run via the engine's CI command:
-    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py'
+    uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 The scent is the M1-completing seam: a UserPromptSubmit hook that injects ATTRIBUTED POINTERS over memory's
 fast lookup. These pin its locked laws: silent on no strong match; attributed pointers NOT content (the injected

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for the seed's checker-of-checkers (validator + the two guards).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock in the load-bearing teeth so a later edit to the trust root cannot
 silently regress them. The deliverable-gate cold review attests that each test's

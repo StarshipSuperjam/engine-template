@@ -1864,7 +1864,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:3ad9ff05ba175cd2b47e3eac8be5c8da1343e77d98231d4c2cc0644ef3711e8a",
+        "fingerprint": "sha256:5a995ac3a75767e1b0c10aa8bcbee1498e5c11b504b637a64eedff2eefa0896d",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4607,7 +4607,7 @@
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:3af5f58539fc0c2a4aff4c2c182e77e1314886d9311153924224faa49b09f6c5",
+        "fingerprint": "sha256:91ae87081aac2f9bfb5ea1c93b725636271769906aee1a85d8bc73cf739261a5",
         "path": ".engine/tools/test_agent.py"
       },
       "status": "active",
@@ -4624,7 +4624,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:ee1038eb5f614dc54219753ee836b61a2411737ddda80484ed5e7d7763721b76",
+        "fingerprint": "sha256:d7d68f19cd315296328813946887c95b71afef038eda6d3fb2bbf7c47f15f507",
         "path": ".engine/tools/test_attention.py"
       },
       "status": "active",
@@ -4777,7 +4777,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:2179119376328ceaf2fc74dfb5a338b4b649462fa95bcb7f45bbefcd17ce31f7",
+        "fingerprint": "sha256:172316133084a9181e09affed394dad91dde0a1a2ac201c9a3f5e6e2f8f2b025",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -4828,7 +4828,7 @@
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:40612d4568ade4e101bfe846779f259906056fed15a4df0990b6e9d81a1eaa36",
+        "fingerprint": "sha256:e8eec1c618fb8ad5c3f36ede541144a577a7c40f1f4ddcc9ffbc537879dc878d",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -4913,7 +4913,7 @@
       },
       "slug": "test_contract",
       "source": {
-        "fingerprint": "sha256:e85fb93f9fb4b39aedf4267012f53f7f772d5597e0b62e8cdefe30c5a4170583",
+        "fingerprint": "sha256:a98a8f6cd5eb008d4d5ac7c73945009ac6cb689b0ce42b386d5760cf5f3cc3ea",
         "path": ".engine/tools/test_contract.py"
       },
       "status": "active",
@@ -4947,7 +4947,7 @@
       },
       "slug": "test_design_review",
       "source": {
-        "fingerprint": "sha256:fcc60559b6778072ec86b4fab520e215ea1219375680ef031d2c14b7c97f3a08",
+        "fingerprint": "sha256:8454122940a487408d2ca301eb5f1a36c892c5f30ce573ec8910c59a4bbdc501",
         "path": ".engine/tools/test_design_review.py"
       },
       "status": "active",
@@ -4964,7 +4964,7 @@
       },
       "slug": "test_doc",
       "source": {
-        "fingerprint": "sha256:72db548894988b8affebf3d773757a70789d0d5e50bbb578a9d5e9ec08be09d8",
+        "fingerprint": "sha256:45d39cf2f683f31c40bdcc121872cdefb965e0f09abdfab18521246bbcd60e48",
         "path": ".engine/tools/test_doc.py"
       },
       "status": "active",
@@ -5066,7 +5066,7 @@
       },
       "slug": "test_first_run_reference_closure",
       "source": {
-        "fingerprint": "sha256:bf6c8c86a04cec3751a5d7f9d97ffbb9b7f7ea2b58776e636879ac6759e4fcf8",
+        "fingerprint": "sha256:134fae4c0076a3e4b4f6cb823b01112622bbdb3279c6022dad84fc8e9d749d5e",
         "path": ".engine/tools/test_first_run_reference_closure.py"
       },
       "status": "active",
@@ -5100,7 +5100,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:d64f6a6648c7899a9829ffc94ca740527443497661eef0725ee443e8377e24d8",
+        "fingerprint": "sha256:166c1452d4d4a1a65f877b88333d428466c3792adcebc725f9a51d9228018a38",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -5168,7 +5168,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:2c6c746cba0a505a6d4afd04f6d16bcc8d6a8b9a00ad9ff2b38ef3828ecccc64",
+        "fingerprint": "sha256:6e947a6b0e17b85511ccfa1659274b0c43a2c96bce307dd3970db83cb23427e4",
         "path": ".engine/tools/test_interface.py"
       },
       "status": "active",
@@ -5185,7 +5185,7 @@
       },
       "slug": "test_issue_author",
       "source": {
-        "fingerprint": "sha256:12771e53e5e8abaa369c574ed5b85761438eb5a48a2b34a452ae4bdbb07984be",
+        "fingerprint": "sha256:7e6d2f4c7a1b031792806f778fb3558c25cef85f1784dba998349fff791d9ab5",
         "path": ".engine/tools/test_issue_author.py"
       },
       "status": "active",
@@ -5236,7 +5236,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:b01a5f499ca8959d4fd236fdefc73cdea33adf5831559dbfbbc5cf4d0fffdf6c",
+        "fingerprint": "sha256:ef3e9316c97fdcf3ab25910522f39da92208da5e6361deeb69b3b0a939f704fd",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -5253,7 +5253,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:14e44d87fcbc621c8eb62b3fe9d92c46a231c125453fbc12f86a385100d3dab1",
+        "fingerprint": "sha256:90a513d198ba02a3ae8ff372b3f576e7f5de2e7594c2f47f9ddf2adadfb6d244",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",
@@ -5270,7 +5270,7 @@
       },
       "slug": "test_knowledge_vocabulary",
       "source": {
-        "fingerprint": "sha256:735b4b86a418ab1973b91ebbcc5534748f1d7d802fefa12dd5506f8d9d45836a",
+        "fingerprint": "sha256:e8d37f540e044938c81578d9f988bbec8ed55af911f2edaf8fce5e9150a7828d",
         "path": ".engine/tools/test_knowledge_vocabulary.py"
       },
       "status": "active",
@@ -5355,7 +5355,7 @@
       },
       "slug": "test_milestone_emit",
       "source": {
-        "fingerprint": "sha256:7eaf05aafe7d7f403881dfc32aeb4c92c2bc40f64fdd79a759d40bedec8d895b",
+        "fingerprint": "sha256:7af85a933f91e539b5665ca075be77b5f103b396a5a9ec0d397455a7e84b7088",
         "path": ".engine/tools/test_milestone_emit.py"
       },
       "status": "active",
@@ -5406,7 +5406,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:00be93cc0b2f71a755275a1cbb44456d6bd2ac8a6e832c3b9ed339c5f6920e9b",
+        "fingerprint": "sha256:f471bf04176dbd60f3f3e6088ac163f1b9c7a62587c814539599e5bb55765a67",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -5423,7 +5423,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:731b744f8c47b6a7ea8eac98effe5041ac89c95334aff2ddb903686031dc3457",
+        "fingerprint": "sha256:9d440ce2a953fbd36be38c999516d5b93be37c3c608872579f9bcc7ef84f5950",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -5440,7 +5440,7 @@
       },
       "slug": "test_operation",
       "source": {
-        "fingerprint": "sha256:82adf6dbb2478bdcc5224995168fe26f1aaed049d7898b5a036f895cc739bae0",
+        "fingerprint": "sha256:fab6df9223ec14b1dc9276ab990ae2a896b9e5db33a73e293a64a8509844b3b0",
         "path": ".engine/tools/test_operation.py"
       },
       "status": "active",
@@ -5491,7 +5491,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:1fe74a60e96ee305eaf4f870c06149711f863f7bc3b6ae522e5832c4fbc3a39f",
+        "fingerprint": "sha256:163ae38a16666ed297d661dfb04671cea8477926448e0d3122ab76caffd3d85c",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
@@ -5559,7 +5559,7 @@
       },
       "slug": "test_qa_review",
       "source": {
-        "fingerprint": "sha256:91f12cd9f37fcea9a8da006b7cf33b4155896562ae93856da2f7ca1b10e4ce3f",
+        "fingerprint": "sha256:d630aa601a1f075bd9204a73f61160b36d96bd3667ccb577e6c3fc99663ff4ff",
         "path": ".engine/tools/test_qa_review.py"
       },
       "status": "active",
@@ -5695,7 +5695,7 @@
       },
       "slug": "test_scent",
       "source": {
-        "fingerprint": "sha256:089534fb11a50dcb340807416c29e19aec03cd6cfe65aeb429a3e32377417d06",
+        "fingerprint": "sha256:dd5da0b6c30071db83584ff84c9bbea6e7324ce5e19d10dc389673ac9ecf42d5",
         "path": ".engine/tools/test_scent.py"
       },
       "status": "active",
@@ -5814,7 +5814,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:a993a3c01bf5e654b3b5064be1ca60195336d68c49e62f7355224994a9b2e4e9",
+        "fingerprint": "sha256:2146a8a174a93527f61d36c1f43761cb8534e5a4aa28dc31f88b712b86968f93",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -5831,7 +5831,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:880256fd6c50f6bf74aa23d377fd703e50cd74041295474c54200a22249f91f9",
+        "fingerprint": "sha256:42a79b42ef144286e269a4a53835a54ef5fd452211f9f8db005f71db22aa4dbf",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",
@@ -5865,7 +5865,7 @@
       },
       "slug": "test_skill",
       "source": {
-        "fingerprint": "sha256:fd3abb1ef1d2110d8f3ee66cabf191f525e92617d6aa74b8d3f12eafb23d89b4",
+        "fingerprint": "sha256:52cf773845a2f3e571c9acab82b2d322d442be5697cff32a68ad9753b9d4d075",
         "path": ".engine/tools/test_skill.py"
       },
       "status": "active",
@@ -5916,7 +5916,7 @@
       },
       "slug": "test_spec_referent",
       "source": {
-        "fingerprint": "sha256:55bfd5b7b9fa5991d8a607424ad97d48b87be8829bb06ed01e18aa41c5536792",
+        "fingerprint": "sha256:983c6867feb4b4f2a425800a3a8822a9313fcb7bbef258b1069df1c9b873d25e",
         "path": ".engine/tools/test_spec_referent.py"
       },
       "status": "active",
@@ -5933,7 +5933,7 @@
       },
       "slug": "test_standing_situation",
       "source": {
-        "fingerprint": "sha256:0780e2c3376a4a8dd7d0044c201dc266f5d43dfc0d0eb293a5997c222c9b96f6",
+        "fingerprint": "sha256:fe6e81aa85886eef459c22e649cddd55616735ed91f9b02b07b8dd4cc724a4dd",
         "path": ".engine/tools/test_standing_situation.py"
       },
       "status": "active",
@@ -5950,7 +5950,7 @@
       },
       "slug": "test_state",
       "source": {
-        "fingerprint": "sha256:7334321977f42593f294097215adb1d937f940d26fcc1fe0add5725fcacdaafd",
+        "fingerprint": "sha256:0c05b26541171e016c7965d972e0b6e7b477a8bc8dbaa5b1937519c4b6e4e3af",
         "path": ".engine/tools/test_state.py"
       },
       "status": "active",
@@ -5984,7 +5984,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:fdc84b7859cf7f809ab3d2d74026a88b941d1275f0a94a23840c7e16a7fb213e",
+        "fingerprint": "sha256:c1b9b84e6e4b8c5f465ae7d719242d823ad838273f5e679ba47479f992dbec25",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
@@ -6035,7 +6035,7 @@
       },
       "slug": "test_uv_group_drift",
       "source": {
-        "fingerprint": "sha256:d2d6987c41256d8727fce2472f152f38b8cf4df3c480bd6c6ad741e8c9d29963",
+        "fingerprint": "sha256:30c808a2cd5bb85a7c51d719fa6ce1c2bcf84f11116c984552981ddf5ab5e42c",
         "path": ".engine/tools/test_uv_group_drift.py"
       },
       "status": "active",
@@ -6069,7 +6069,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:7ad9b25754d5036610a4d13add23e59149baa7939026d9fde2ad6ca2a2186820",
+        "fingerprint": "sha256:49372dd127a91c33bfb949f4295f032b0071fb4f5c6deb26d6e090615ddd422a",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -6086,7 +6086,7 @@
       },
       "slug": "test_work_record",
       "source": {
-        "fingerprint": "sha256:be30d7f03028056cb6f34be2ffdb3d34dec733c7f35491bd94a37fcd1d3c6446",
+        "fingerprint": "sha256:8aff71dcd7a6550820767d7547538c081f7a9ec1b511ee2c151874dfa1f06820",
         "path": ".engine/tools/test_work_record.py"
       },
       "status": "active",

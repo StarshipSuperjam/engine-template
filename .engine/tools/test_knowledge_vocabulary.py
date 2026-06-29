@@ -2,7 +2,7 @@
 """Self-tests for the knowledge-graph entity-type vocabulary guard (engine/check/knowledge-vocabulary,
 issue #131).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock the teeth that close the fingerprint gate's blind spot: the source of truth is the surface
 catalog (surface names + 'module'); the guard discovers every vocabulary site (type enums and entity-id

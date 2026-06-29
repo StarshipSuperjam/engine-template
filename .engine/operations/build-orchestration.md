@@ -59,7 +59,11 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    index files were regenerated and that no work was lost — the operator meets the disclosure, never the
    conflict.
 6. **Pre-submission review — gated behind green validation.** Confirm the validation suite
-   (`.engine/suites.json`) is green first — cold review is not spent on code that fails its checks — then
+   (`.engine/suites.json`) is green first — run `python tools/validate.py --suite CI` and the self-tests
+   `python -m unittest discover -s tools -p 'test_*.py' -b` (the `-b` buffers each test's stdout and replays
+   only a failing test's, so the `Ran N … OK` tail is not buried under demo-test walkthrough output, which the
+   `test_*.py` self-tests emit when they exercise their demos) — cold review is not spent on code that fails
+   its checks — then
    the installed pre-submission passes run cold-context and findings are dispositioned. Validation reruns on
    every change including post-audit fixes; the cold review runs once at the agreed depth and does **not**
    rerun on those fixes unless the operator asks — the Review record states that delta.

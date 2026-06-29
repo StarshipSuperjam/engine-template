@@ -5,7 +5,7 @@ module — never the retired `instantiator`/`test_instantiator` (that is the ver
 prevent; importing them here would make this test the next dangler). All scenarios run against throwaway
 fixture trees with a FAKE removed-asset set, plus one assertion that the real committed repo is closed.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 """
 import contextlib
 import io

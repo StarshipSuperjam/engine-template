@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self-tests for slice 8 — the self-map (surface-level + wiring-graph) + its drift gate.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock the slice-8 defenses: the map is DERIVED (sorted, deterministic, no volatile content);
 it is human-readable Markdown with NO `](` byte-sequence (so link-integrity passes); the fingerprint

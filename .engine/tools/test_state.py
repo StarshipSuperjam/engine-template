@@ -2,7 +2,7 @@
 """Self-tests for slice 9 — the state cursor: the state.v1 schema, the committed genesis
 cursor, and the schema-kind rule that refuses a malformed or shape-invalid cursor.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock the load-bearing teeth: the schema bites on each malformed shape (a missing field,
 an out-of-grammar field, a wrong version stamp, a negative count, a non-UTC timestamp, an empty

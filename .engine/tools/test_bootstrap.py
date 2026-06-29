@@ -1,6 +1,6 @@
 """Tests for the control-plane bootstrap (core slice 25a).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py'
+Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 The GitHub network is the ONLY thing faked (an in-memory transport returning (status, json, headers), and a
 fake label-ensure boundary); every test exercises the real capability-detection, floor-merge, create/repair,
