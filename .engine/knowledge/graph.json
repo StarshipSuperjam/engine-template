@@ -5463,7 +5463,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:dcd02078385f272906405e9fa04ea5829139e0d7333ec3e4300f15429bd755c1",
+        "fingerprint": "sha256:0ecaf68237707447ccf9a0c1b98b56e989aa93daaff267acbe901896e9be1c4a",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
