@@ -14,33 +14,46 @@ Design (systems/infrastructure/provisioning/README.md §"Operator-checkout stran
   - From the session's worktree, resolve the main checkout (`git worktree list` — main listed FIRST — with
     `--git-common-dir` as a fallback) and read its state LOCALLY.
   - **Two binary states, checked every boot, OFFLINE:** a detached `HEAD`; missing engine files
-    (`.claude/settings.json`, `.engine/`). Ordinary *behind-origin* is the NORMAL state of the main and is
-    **never** alarmed; the behind-origin fast-forward is the opt-in, network-gated tail — DEFERRED (this module
-    does NO fast-forward / `--ff-only`).
-  - **The fix is lossless-or-it-does-not-run.** Safe iff `git -C <main> rev-list HEAD --not --branches` empty
-    AND `stash list` empty AND `status --porcelain` clean — decided OFFLINE. The ONLY git mutations are
+    (`.claude/settings.json`, `.engine/`) — `detect_strand`.
+  - **Behind-origin is the ONLINE, consequence-gated tail** — `detect_behind_origin` (#335). When the checkout
+    sits ON its default branch and a clean fast-forward would bring in merged work it is missing, it surfaces a
+    felt consequence (never a bare count). It is the one path that touches the network: a best-effort, tightly
+    bounded `git fetch` (degrades SILENTLY to None offline — the signal is online-only). It fires only past a
+    velocity-relative bar (missing more than ~one active day's worth of merges, computed from the merge-date span
+    of recent merges — data-relative, never the wall clock), so ordinary drift never alarms.
+  - **The strand fix is lossless-or-it-does-not-run.** Safe iff `git -C <main> rev-list HEAD --not --branches`
+    empty AND `stash list` empty AND `status --porcelain` clean — decided OFFLINE. Its ONLY git mutations are
     ADDITIVE-or-post-rescue: `checkout -b` (create a ref), `commit` onto a FRESH rescue branch (saves work),
     `checkout <branch>` (only after at-risk work is rescued), and per-path `checkout HEAD -- <absent path>`
     (restore ONLY currently-absent tracked files). It **NEVER** runs `reset` / `clean` / `checkout -f` /
-    `stash drop` / `push` / `--ff-only` / any force flag (test_checkout_health source-scans for these).
-    Losslessness is a property of THESE operations — a prior `reset`'s reflog-only orphans are git's reflog's,
-    not this fix's. When it cannot safely tell which branch to re-attach to, it **REFUSES** (no mutation)
-    rather than guess.
+    `stash drop` / `push` / any force flag. When it cannot safely tell which branch to re-attach to, it
+    **REFUSES** (no mutation) rather than guess.
+  - **The behind-origin correction is `catch_up`** — `git merge --ff-only origin/<default>`. `--ff-only` is git's
+    own refuse-if-not-a-fast-forward guard: it advances the branch only along a strict-ancestor linear path and
+    ABORTS (no mutation, no loss — keeping any uncommitted edits) if local work would be overwritten. So it is
+    lossless **by construction**, needs no rescue branch and no branch switch (unlike the detached arm), and a
+    diverged branch is refused, never forced. `--ff-only` is the SINGLE sanctioned non-additive git verb; every
+    destructive token stays forbidden (test_checkout_health source-scans for them, and a behavioral test pins
+    that `catch_up` refuses divergence).
   - **Fail-soft = quiet** (detection): any git error / unresolvable main returns None (no strand surfaced) — a
     stranded local checkout cannot reach the protected branch, so it degrades quietly; the double-fault is the
     boot floor's present-marker backstop.
 
-No operator prose lives in the detector's return value (`{"states": [...], "main": <path>}`) — boot renders the
-plain-language line (the leaf law keeps git verbs off the operator surface). The fix returns a structured
-result the runbook/boot relay in plain words.
+No operator prose lives in the detectors' return values (`{"states": [...], "main": <path>}`;
+`{"state": "behind", "missing": N, ...}`) — boot renders the plain-language line (the leaf law keeps git verbs
+off the operator surface). The fixes return a structured result the runbook/boot relay in plain words.
 
 CLI:  python tools/checkout_health.py            # classify THIS repo's main checkout (signal or "healthy")
-      python tools/checkout_health.py unstrand   # dry-run: what the fix WOULD do (no mutation)
+      python tools/checkout_health.py unstrand   # dry-run: what the strand fix WOULD do (no mutation)
       python tools/checkout_health.py unstrand --apply   # repair THIS repo's checkout (only if stranded)
-      python tools/checkout_health.py demo       # detection + a lossless-repair walkthrough on throwaway fixtures
+      python tools/checkout_health.py behind     # report whether the checkout is behind origin (online)
+      python tools/checkout_health.py catchup    # dry-run: what bringing it current WOULD do (no mutation)
+      python tools/checkout_health.py catchup --apply    # bring THIS repo's checkout current (only if behind)
+      python tools/checkout_health.py demo       # detection + repair walkthroughs on throwaway fixtures
 """
 from __future__ import annotations
 
+import datetime
 import os
 import subprocess
 import sys
@@ -52,6 +65,15 @@ _ENGINE_FILES = (os.path.join(".claude", "settings.json"), ".engine")
 # fails for lack of a configured git user on the operator's checkout.
 _RESCUE_PREFIX = "engine-rescue"
 _RESCUE_IDENT = ["-c", "user.email=engine@local", "-c", "user.name=engine"]
+
+# The behind-origin tail's network fetch is best-effort and TIGHTLY bounded — it runs in boot's SessionStart
+# pack, so a slow/hung remote must never stall the boot card. On timeout/offline it degrades to None (the
+# signal is online-only). Single-digit seconds, deliberately far below _run's 30s local-git default.
+_FETCH_TIMEOUT = 6
+# How many recent merges to sample when estimating the project's merge velocity (the staleness bar is
+# velocity-relative). A window by COUNT, normalised by the date SPAN of those merges — data-relative, never
+# the wall clock, so the bar is deterministic and testable.
+_VELOCITY_SAMPLE = 50
 
 
 def _run(cmd: list, cwd: str | None = None, timeout: int = 30) -> str | None:
@@ -245,6 +267,90 @@ def unstrand(cwd: str | None = None, apply: bool = False) -> dict:
     return {"status": "fixed", "main": main, "rescue": rescue, "did": did, "applied": True}
 
 
+# ---- the behind-origin tail: online signal + the fast-forward correction (issue #335) -------
+
+def _days_between(a: str, b: str) -> int:
+    """Whole days between two `YYYY-MM-DD` dates (git `%cs`), or 1 if either is unparseable. Data-relative —
+    no wall clock — so the velocity bar is deterministic."""
+    try:
+        return abs((datetime.date.fromisoformat(b) - datetime.date.fromisoformat(a)).days)
+    except Exception:  # noqa: BLE001 — a malformed/empty date degrades to the 1-day floor, never raises
+        return 1
+
+
+def _velocity_threshold(main: str, upstream: str) -> int:
+    """The felt-consequence bar in MERGES: roughly one active day's worth of merges on `upstream`, from the
+    DATE SPAN of the most recent merges (data-relative, never `--since`/the wall clock). Floor of 1 so a
+    near-idle project still needs MORE THAN one missing merge before the signal speaks. The behind signal
+    fires only when missing merges exceed this — ordinary drift at the project's own pace stays quiet."""
+    dates = [d.strip() for d in (_run(["git", "-C", main, "log", "--merges", "-n", str(_VELOCITY_SAMPLE),
+                                       "--format=%cs", upstream]) or "").splitlines() if d.strip()]
+    if len(dates) < 2:
+        return 1                                   # too little history to estimate a pace -> the floor
+    span = max(1, _days_between(dates[-1], dates[0]))   # %cs is newest-first; oldest..newest of the sample
+    return max(1, round(len(dates) / span))
+
+
+def detect_behind_origin(cwd: str | None = None, *, do_fetch: bool = True) -> dict | None:
+    """ONLINE, READ-ONLY behind-origin signal (#335). Returns a consequence-shaped dict when the operator's
+    main checkout sits ON its default branch and a CLEAN fast-forward would bring in merged work it is missing
+    PAST the velocity bar — else None. Online-only: a fetch failure (offline/timeout) degrades SILENTLY to None.
+
+    Computed only for an otherwise-HEALTHY checkout (reuses detect_strand — a detached / missing-files strand
+    is the strand detector's job) that is ON the default branch ('behind' on a feature branch is the normal
+    working state; a checkout parked on a NON-default branch is the wrong-branch state litigated separately,
+    not this signal). The correction is catch_up(). Return: {"state":"behind","main","branch","missing","latest"}
+    — `missing` is merge commits (merged updates) behind, `latest` the newest one's date (`YYYY-MM-DD`)."""
+    if detect_strand(cwd) is not None:
+        return None                                # a strand is the strand detector's territory, not this tail
+    resolved = _main_checkout(cwd)
+    if not resolved:
+        return None
+    main, detached = resolved
+    if detached:
+        return None
+    default = _default_branch(main)
+    current = (_run(["git", "-C", main, "symbolic-ref", "--quiet", "--short", "HEAD"]) or "").strip()
+    if not default or current != default:
+        return None                                # not on the default branch -> not this signal (wrong-branch)
+    if do_fetch:
+        # best-effort, tightly bounded; updates ONLY the remote-tracking ref (never the working tree or HEAD).
+        # A failure leaves origin/<default> as-is and the clean-ff check below simply finds nothing -> None.
+        _run(["git", "-C", main, "fetch", "--quiet", "origin", default], timeout=_FETCH_TIMEOUT)
+    upstream = f"origin/{default}"
+    # clean fast-forward only: HEAD must be a STRICT ancestor of origin/<default> (behind, not diverged/level).
+    if not _ok(["git", "-C", main, "merge-base", "--is-ancestor", "HEAD", upstream]):
+        return None                                # diverged / unrelated / no upstream -> not a clean behind
+    missing = int((_run(["git", "-C", main, "rev-list", "--merges", "--count", f"HEAD..{upstream}"])
+                   or "0").strip() or "0")
+    if missing <= _velocity_threshold(main, upstream):
+        return None                                # level, or below the felt bar (normal drift) -> quiet
+    latest = (_run(["git", "-C", main, "log", "--merges", "-1", "--format=%cs", f"HEAD..{upstream}"]) or "").strip()
+    return {"state": "behind", "main": main, "branch": default, "missing": missing, "latest": latest}
+
+
+def catch_up(cwd: str | None = None, apply: bool = False, *, do_fetch: bool = True) -> dict:
+    """Bring a behind-but-clean-fast-forwardable main checkout current, on the operator's consent. LOSSLESS by
+    construction: `git merge --ff-only` advances the branch only along a strict-ancestor linear path and ABORTS
+    (no mutation, no loss — uncommitted edits to untouched files are kept) if local work would be overwritten,
+    so there is no rescue branch and no branch switch (unlike unstrand's detached arm), and a diverged branch is
+    refused — never forced. Dry-run (apply=False) reports without mutating. Every mutation targets `git -C
+    <main>` — never the session's own worktree. status ∈ healthy | behind | fixed | blocked."""
+    behind = detect_behind_origin(cwd, do_fetch=do_fetch)
+    if not behind:
+        return {"status": "healthy", "applied": False}     # not behind (or can't tell) -> nothing to do
+    main, default, missing = behind["main"], behind["branch"], behind["missing"]
+    if not apply:
+        return {**behind, "status": "behind", "applied": False}
+    # --ff-only is git's OWN refuse-if-not-a-fast-forward guard (the single sanctioned non-additive verb): it
+    # advances on a strict ancestor and aborts otherwise, so a diverged branch or a clashing local edit can
+    # never be force-merged or clobbered. detect_behind_origin already proved a strict-ancestor clean ff.
+    if _ok(["git", "-C", main, "merge", "--ff-only", f"origin/{default}"]):
+        return {"status": "fixed", "main": main, "branch": default, "brought_in": missing, "applied": True}
+    # git refused: local edits clash with incoming files. Nothing changed, nothing lost — report actionably.
+    return {"status": "blocked", "main": main, "branch": default, "applied": False}
+
+
 # ---- the operator-runnable demo (synthetic fixtures; deterministic) -------------------------
 
 def _fixture(tmp: str, name: str, *, detach: bool, drop_settings: bool) -> str:
@@ -275,6 +381,40 @@ def _stranded_with_at_risk_work(tmp: str) -> str:
     _run(["git", "-C", root, "-c", "user.email=e@x", "-c", "user.name=n",
           "commit", "-q", "-m", "important note (off-branch)"])
     return root
+
+
+def _behind_fixture(tmp: str) -> str:
+    """A throwaway 'origin' advanced by several DATED merge commits + a `work` clone left behind it — so the
+    behind-origin signal can be SEEN firing past the velocity bar and the catch-up bringing it current, all on
+    a LOCAL remote (no network, deterministic). Returns the `work` checkout path."""
+    import subprocess as sp
+    origin = os.path.join(tmp, "origin")
+    os.makedirs(os.path.join(origin, ".claude"))
+    os.makedirs(os.path.join(origin, ".engine"))
+    with open(os.path.join(origin, ".claude", "settings.json"), "w") as fh:
+        fh.write("{}")
+    with open(os.path.join(origin, ".engine", "marker"), "w") as fh:   # a tracked file so .engine survives the clone
+        fh.write("e")
+
+    def g(date: str, *args: str) -> None:
+        env = dict(os.environ, GIT_AUTHOR_DATE=f"{date}T12:00:00", GIT_COMMITTER_DATE=f"{date}T12:00:00")
+        sp.run(["git", "-C", origin, "-c", "user.email=e@x", "-c", "user.name=n", *args],
+               capture_output=True, text=True, check=False, env=env)
+
+    _run(["git", "-C", origin, "init", "-q", "-b", "main"])
+    g("2026-06-01", "add", "-A")
+    g("2026-06-01", "commit", "-q", "-m", "seed")
+    work = os.path.join(tmp, "work")
+    sp.run(["git", "clone", "-q", origin, work], capture_output=True, text=True, check=False)
+    for i, date in enumerate(["2026-06-03", "2026-06-05", "2026-06-07", "2026-06-09"], start=1):
+        _run(["git", "-C", origin, "checkout", "-q", "-b", f"pr{i}", "main"])
+        with open(os.path.join(origin, f"f{i}.txt"), "w") as fh:
+            fh.write(f"pr{i}\n")
+        g(date, "add", "-A")
+        g(date, "commit", "-q", "-m", f"work {i}")
+        _run(["git", "-C", origin, "checkout", "-q", "main"])
+        g(date, "merge", "--no-ff", "-q", "-m", f"Merge pull request #{i}", f"pr{i}")
+    return work
 
 
 # Plain-language renderings of the internal plan/result, for the operator-facing CLI + demo (the structured
@@ -314,18 +454,39 @@ def _demo() -> int:
         note = _run(["git", "-C", root, "show", f"{result['rescue']}:my-important-note.txt"])
         print(f"   Proof it survived — 'my-important-note.txt' on the safe point still reads: {note!r}")
 
-    print("\n3) The plain-language line the operator sees when their folder is stranded (now an OFFER):\n")
+    print("\n3) The behind-origin tail (#335) — your folder is FINE, just missing recently-merged work:\n")
+    with tempfile.TemporaryDirectory() as tmp:
+        work = _behind_fixture(tmp)
+        behind = detect_behind_origin(cwd=work, do_fetch=True)
+        print("   Before: this folder is on its branch and healthy, but merged updates have landed on the")
+        print("   remote that it doesn't have yet. The signal speaks ONLY past the project's own pace (a")
+        print("   velocity bar), never on a bare count:")
+        print(f"      {behind}")
+        result = catch_up(cwd=work, apply=True, do_fetch=False)
+        caught_up = detect_behind_origin(cwd=work, do_fetch=True) is None
+        print(f"   After bringing it up to date (a safe fast-forward): up to date now? {caught_up} "
+              f"(brought in {result.get('brought_in')} merged updates)")
+
+    print("\n4) The plain-language lines the operator sees — a stranded folder, then a behind one (both OFFERS):\n")
     import boot  # lazy: avoids the boot<->checkout_health import cycle (boot is fully loaded by demo time)
     signals = boot.gather_signals()
     signals["strand"] = {"states": ["detached"], "main": "/your/project/folder"}
+    signals["behind_origin"] = None   # show the strand line first, alone
     print(boot.render_dashboard(signals))
-    # Self-check: detection separates a healthy folder from the two stranded shapes, the repair heals the
-    # folder, and the at-risk work survives on the rescue branch (the lossless-repair guarantee).
+    print()
+    signals["strand"] = None          # then the behind line, alone (synthetic — no live network)
+    signals["behind_origin"] = {"state": "behind", "main": "/your/project/folder", "branch": "main",
+                                "missing": 9, "latest": "2026-06-27"}
+    print(boot.render_dashboard(signals))
+    # Self-check: detection separates a healthy folder from the two stranded shapes; the strand repair heals
+    # the folder and the at-risk work survives on the rescue branch; AND the behind tail fires past the bar and
+    # the catch-up brings the folder current (the lossless fast-forward).
     ok = (states.get("healthy") is None and states.get("detached") is not None
-          and states.get("missing") is not None and healed and "DO NOT LOSE THIS" in (note or ""))
+          and states.get("missing") is not None and healed and "DO NOT LOSE THIS" in (note or "")
+          and behind is not None and behind.get("state") == "behind" and caught_up)
     if not ok:
-        print("\nDEMO UNEXPECTED: strand detection, the repair, or the at-risk-work rescue did not behave "
-              "as expected.", file=sys.stderr)
+        print("\nDEMO UNEXPECTED: strand detection/repair, or the behind-origin signal/catch-up, did not "
+              "behave as expected.", file=sys.stderr)
         return 1
     return 0
 
@@ -352,11 +513,35 @@ def _plain_unstrand(apply: bool) -> int:
     return 0
 
 
+def _plain_catch_up(apply: bool) -> int:
+    """The operator-runnable behind-origin CLI over THIS repo's real checkout, in plain words (no git verbs)."""
+    r = catch_up(apply=apply)
+    if r["status"] == "healthy":
+        print("Your project folder is up to date — nothing to bring in.")
+    elif r["status"] == "fixed":
+        print("Brought your project folder up to date — it now has the recent merged work it was missing.")
+    elif r["status"] == "blocked":
+        print("Your project folder is behind, but you have unsaved changes that clash with the incoming work, "
+              "so I left everything untouched — nothing is lost. Save or set those changes aside and ask again.")
+    elif not apply:
+        print("Your project folder has fallen behind — it's missing recent merged work. I can bring it up to "
+              "date safely; re-run with --apply to do it.")
+    else:
+        print("I couldn't bring your project folder up to date safely, so I left it untouched — nothing is lost.")
+    return 0
+
+
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
     if argv and argv[0] == "unstrand":
         return _plain_unstrand(apply="--apply" in argv)
+    if argv and argv[0] == "catchup":
+        return _plain_catch_up(apply="--apply" in argv)
+    if argv and argv[0] == "behind":
+        result = detect_behind_origin()
+        print(result if result else "up to date — not behind origin (or offline)")
+        return 0
     result = detect_strand()
     print(result if result else "healthy — no strand detected")
     return 0

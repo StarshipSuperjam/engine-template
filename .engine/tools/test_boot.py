@@ -74,6 +74,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
             "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
+            "behind_origin": None,
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False}
 
@@ -587,6 +588,67 @@ class TestStrandSurfacing(unittest.TestCase):
                 p.stop()
         self.assertEqual(relayed["strand"], self._STRAND)   # the detector's signal is relayed verbatim
         self.assertIsNone(failed["strand"])                 # a detector failure degrades quietly to None
+
+
+class TestBehindOriginSurfacing(unittest.TestCase):
+    """The behind-origin tail (#335) is surfaced read-only at the strand tier (folder health, below the
+    governance alarms), consequence-led and COUNT-FREE (the design's 'never a count' leaf law), with no git
+    verbs and a concrete consent phrase. boot RELAYS; the assistant runs catch_up on consent."""
+    _BEHIND = {"state": "behind", "main": "/p", "branch": "main", "missing": 9, "latest": "2026-06-27"}
+
+    def test_render_surfaces_the_behind_line_only_when_behind(self):
+        dash = boot.render_dashboard(_signals(behind_origin=self._BEHIND))
+        self.assertIn("fallen behind", dash.lower())
+        self.assertIn("2026-06-27", dash)                        # the felt date
+        self.assertIn("bring it up to date", dash.lower())       # the concrete consent phrase
+        self.assertIn("nothing you already have will be lost", dash.lower())
+        self.assertNotIn("fallen behind", boot.render_dashboard(_signals(behind_origin=None)).lower())
+
+    def test_behind_line_is_count_free_and_has_no_git_verbs(self):
+        # the design's "never a count" + "git verbs never reach the operator surface" laws, on the actual line
+        line = next(ln for ln in boot.render_dashboard(_signals(behind_origin=self._BEHIND)).splitlines()
+                    if "fallen behind" in ln.lower())
+        self.assertNotIn("9", line)                              # the missing-count never appears
+        for verb in ("fast-forward", "ff-only", "fetch", "rebase", "ancestor", "origin/"):
+            self.assertNotIn(verb, line.lower(), f"git verb leaked to the operator surface: {verb}")
+
+    def test_behind_pins_below_the_governance_alarm_and_the_strand(self):
+        pack = boot.render_dashboard(_signals(gate="off", reason="x",
+                                              strand={"states": ["detached"], "main": "/p"},
+                                              behind_origin=self._BEHIND))
+        lines = [ln.lower() for ln in pack.splitlines()]
+        gate = next(i for i, ln in enumerate(lines) if "safety gate is off" in ln)
+        strand = next(i for i, ln in enumerate(lines) if "drifted into a broken state" in ln)
+        behind = next(i for i, ln in enumerate(lines) if "fallen behind" in ln)
+        self.assertLess(gate, behind, "the governance alarm must pin above the behind heads-up")
+        self.assertLess(strand, behind, "a broken-state strand outranks the behind heads-up")
+
+    def test_present_marker_reflects_behind_but_strand_and_governance_outrank(self):
+        self.assertIn("fallen behind recent merged work",
+                      boot.present_marker_line(_signals(behind_origin=self._BEHIND)))
+        self.assertEqual(boot.present_marker_line(_signals(behind_origin=None)),
+                         f"{boot.PRESENT_MARKER}: all clear")
+        # a strand (broken state) still wins the marker over a behind heads-up
+        self.assertIn("needs attention",
+                      boot.present_marker_line(_signals(strand={"states": ["detached"], "main": "/p"},
+                                                        behind_origin=self._BEHIND)))
+
+    def test_behind_is_not_in_the_must_push_set(self):
+        # not governance-critical -> no INFORM marker (relayed via the dashboard heads-up, like the strand)
+        self.assertEqual(boot.must_push(_signals(behind_origin=self._BEHIND)), [])
+
+    def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.checkout_health, "detect_behind_origin", return_value=self._BEHIND):
+                relayed = boot.gather_signals()
+            with mock.patch.object(boot.checkout_health, "detect_behind_origin", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["behind_origin"], self._BEHIND)   # relayed verbatim
+        self.assertIsNone(failed["behind_origin"])                 # a detector/network failure degrades to None
 
 
 class TestPrConflictSurfacing(unittest.TestCase):
