@@ -12,7 +12,7 @@ These lock the load-bearing behaviours a non-engineer cannot read code to verify
   - the module performs NO writes (it is a pure read-only projection).
 Only the network is faked (an injected transport); the derive logic is the REAL one.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 """
 from __future__ import annotations
 import os

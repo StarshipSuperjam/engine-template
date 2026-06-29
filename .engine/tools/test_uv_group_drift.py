@@ -2,7 +2,7 @@
 """Self-tests for slice 25c — the uv-group-drift CI check (engine/check/uv-group-drift) and the
 `sync-groups` fixer it points at.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 The drift detection runs the REAL check against a throwaway fixture engine (via module_manager's
 _redirect_root + _build_fixture — the same fake-only-the-tree discipline the coherence tests use); the

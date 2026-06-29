@@ -3,7 +3,7 @@
 persona template, the live shape + frontmatter validation rules, the catalog flip that wires both in, and
 the pure agent-set coherence leg (validate.agent_coherence_findings).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock: agent.v1 is a well-formed schema with teeth (a missing required field, an unknown extra field,
 or a permissions value outside {read-only, scoped-write} is rejected, and conforming reviewer/worker/audit

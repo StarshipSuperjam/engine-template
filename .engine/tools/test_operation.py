@@ -3,7 +3,7 @@
 committed operation template, the live shape + frontmatter validation rules, and the catalog flip that wires
 both in.
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock: operation.v1 is a well-formed schema with teeth (a missing title, an unknown extra field such as
 an id, or a status outside {active, deprecated, retired} is rejected; representative instances conform) AND

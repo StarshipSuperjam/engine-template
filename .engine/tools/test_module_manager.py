@@ -3,7 +3,7 @@
 PR-1 `add` (fetch/overlay), and slice 25c PR-2 the engine `upgrade`/updater + the migrations machinery
 (select/run, the no-backup guard, the version-stamp check, and the frozen-check-name invariant).
 
-Run: uv run --directory .engine -- python -m unittest discover -s tools -p 'test_*.py' -b
+Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Pure policy (refusals, the derivation, migration select/order, version-stamp detection, the tightened
 migrations schema) is tested directly on fixture data — no disk mutation; the live mutation glue (`remove`,
