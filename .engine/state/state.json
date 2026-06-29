@@ -2,12 +2,12 @@
   "schema_version": 1,
   "standing_situation": {
     "milestone": null,
-    "phase": "Public-repo saved-memory review: replace the flat withhold with a default-safe, informed-consent operator opt-in (issue #238)",
-    "as_of": "2026-06-23T20:25:14Z"
+    "phase": "First-run leaves a generated repo with both CLAUDE.md files \u2014 never swaps in the deployed floor or retires the construction CLAUDE.md (issue #272)",
+    "as_of": "2026-06-28T10:11:35Z"
   },
   "integration_debt": {
-    "open_count": 9,
-    "as_of": "2026-06-23T20:25:14Z",
+    "open_count": 24,
+    "as_of": "2026-06-28T10:11:35Z",
     "register": "https://github.com/StarshipSuperjam/engine-template/issues?q=is:open+label:engine"
   }
 }
