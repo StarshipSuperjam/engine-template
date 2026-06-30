@@ -48,6 +48,10 @@ only, never the whole pack, and the session never halts.
      the terse-versus-full decision, and the write all run in the deterministic hook (`boot_alarm_ledger`),
      never the model, and are **fail-toward-full**: a missing/unreadable/write-failed ledger, or any
      ambiguity, renders the alarm in full (repetition is the tolerable failure; suppression is not).
+     The relay is a **once-per-session act in the grounding reply**: each alarm is named with its
+     consequence in plain words, never wrapped in an invented "boot check" / "before we start setup"
+     preamble, and the "(unchanged since last session)" framing is **not re-surfaced on later turns** of
+     the same session (if asked again, answer plainly without restapling the boot wrapper).
 
 To print the assembled briefing by hand (a debug view of what the hook injects): `python tools/boot.py pack`.
 
