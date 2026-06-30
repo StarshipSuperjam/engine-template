@@ -1,4 +1,4 @@
-<!-- If this PR closes GitHub issue(s): add one `Closes #N` line per issue directly below this comment (the keyword is required for GitHub to auto-close them on merge — "Closes #1, #2" does NOT work). Delete this comment if the PR closes no issue. -->
+<!-- BEFORE OPENING THIS PR — does this change COMPLETE a GitHub issue, including the final slice of a multi-PR effort? If yes, add one `Closes #N` line per issue directly below this comment. Only the `Closes #N` keyword auto-closes the issue on merge — describing the resolution in prose ("resolves / satisfies / finishes #N") does NOT close it, and the issue silently lingers open. One keyword per issue: "Closes #1, #2" closes only #1. If this PR is a slice that does not yet complete the issue, add no Closes line and name the issue it is part of. Delete this comment if the PR closes no issue. -->
 
 > *A green mechanical check below shows this change conforms to the engine's rules — not that it is correct. What covers correctness is the behavioural steps in **Review** and your own read of the change; a green check is never a substitute for that. Your merge is the binding gate.*
 
