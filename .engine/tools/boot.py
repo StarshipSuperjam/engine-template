@@ -205,7 +205,7 @@ def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, s
     try:
         rules = protection_guard.get_json(
             f"/repos/{repo}/rules/branches/{PROTECTED_BRANCH}", token,
-            user_agent=protection_guard._UA)
+            user_agent=protection_guard.UA)  # reuse the protection guard's UA — the same probe, same identity
         if not isinstance(rules, list):   # a 200 with an unexpected body (an error object, null) is NOT
             return "unknown", None         # a confirmation that protection is on -> honest "unknown"
         missing = protection_guard.missing_floor(rules, protection_guard.REQUIRED_CHECKS)

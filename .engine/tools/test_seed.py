@@ -1317,6 +1317,37 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(len(got), 101)  # both pages, not just the first 100
         self.assertEqual(got[-1]["filename"], ".engine/check/pr-body-completeness.json")
 
+    def test_an_off_host_pagination_link_fails_the_fetch_closed(self):
+        """End-to-end §15: a crafted off-host Link header reaching the REAL get_page must raise (the
+        off-host guard now homed in github_client.request), so fetch_all_changed_files fails closed
+        rather than following the link off-host. Only the network boundary (github_client._urlopen) is
+        faked, so the guard is driven through weakening_guard's highest-stakes caller, not in isolation."""
+        import github_client
+
+        class _Resp:
+            def __init__(self, body, link):
+                self._b = json.dumps(body).encode("utf-8")
+                self.headers = {"Link": link}
+
+            def read(self):
+                return self._b
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        orig = github_client._urlopen
+        github_client._urlopen = lambda req, timeout=None: _Resp(
+            [{"filename": "docs/a.md", "status": "modified"}],
+            '<https://evil.example/repos/o/r/pulls/1/files?page=2>; rel="next"')
+        try:
+            with self.assertRaises(ValueError):
+                weakening_guard.fetch_all_changed_files("o/r", 1, "x")
+        finally:
+            github_client._urlopen = orig
+
     def test_weakening_on_a_late_page_is_caught(self):
         """The classifier sees the WHOLE paginated list, so a guardrail edit that lands
         after file 100 is flagged — the behavior the single-page fetch missed."""

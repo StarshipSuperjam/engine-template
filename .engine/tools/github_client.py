@@ -23,9 +23,10 @@ Two deliberate seams preserve each caller's own contract — this module does NO
     callers keep their OWN `urlopen` + `except` transport and call only `request`.
   - `request` takes optional `method` / `data` to serve the write-capable callers (telemetry's issue
     writes, audit_digest's POST-able transport), but it is INERT for a GET caller: Content-Type is set
-    only when `data` is present, so a GET caller's headers are byte-identical to the old read-only
-    builders. The privileged read-only guards call the GET-only `get_json`, never `request` with data,
-    so they gain no write capability.
+    only when `data` is present (correct REST semantics), so a GET carries no Content-Type — identical to
+    the read-only guards, and dropping the (inert) Content-Type the write-capable callers previously set
+    on their own GETs, which GitHub ignores on a bodyless request. The privileged read-only guards call
+    the GET-only `get_json`, never `request` with data, so they gain no write capability.
 
 stdlib-only. `_urlopen` is the injectable network seam a test replaces to run the real request-building,
 guard, pagination, and decode logic offline (there is never a live call in a test).
@@ -34,7 +35,6 @@ from __future__ import annotations
 
 import base64
 import json
-import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -54,9 +54,10 @@ def request(url_or_path: str, token: str, *, user_agent: str, method: str = "GET
 
     THE OFF-HOST GUARD: an absolute URL must point at the GitHub API host — a token-bearing
     `pull_request_target` request must never be redirected off-host by a crafted `Link` header, so an
-    off-host URL raises `ValueError` (the caller fails closed). A relative path is prefixed with the host
-    and never reaches the guard. `data` / `method` serve write-capable callers; `Content-Type` is set
-    ONLY when `data` is present, so a GET caller's headers stay byte-identical to a read-only builder."""
+    off-host URL raises `ValueError` (the caller fails closed). A relative path (every caller passes one
+    `/`-prefixed) is joined to the host and never reaches the guard; the leading `http` is the
+    absolute-URL discriminator, so only a verbatim `Link` URL takes the guarded branch. `data` / `method`
+    serve write-capable callers; `Content-Type` is set ONLY when `data` is present, so a GET carries none."""
     if url_or_path.startswith("http"):
         url = url_or_path
         if urllib.parse.urlparse(url).netloc != API_HOST:

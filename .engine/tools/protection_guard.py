@@ -31,7 +31,7 @@ from github_client import get_json  # noqa: E402 — sibling import after the pa
 # anywhere, is a guardrail-weakening change.
 REQUIRED_CHECKS = ["engine-ci", "engine-guard"]
 
-_UA = "engine-seed-protection-guard"  # this guard's GitHub API User-Agent (was inline in its own GET helper)
+UA = "engine-seed-protection-guard"  # this guard's GitHub API User-Agent; boot reuses it for the same protected-branch probe
 
 
 def missing_floor(rules: list, required_checks: list) -> list:
@@ -91,7 +91,7 @@ def main() -> int:
                       "access token is available, which is normal on your own machine. The "
                       "check that can actually block a bad merge runs in CI."}])
     try:
-        rules = get_json(f"/repos/{repo}/rules/branches/{branch}", token, user_agent=_UA)
+        rules = get_json(f"/repos/{repo}/rules/branches/{branch}", token, user_agent=UA)
     except Exception as e:  # token present but the API could not be read -> fail closed in CI
         return emit([{"severity": tier, "location": None,
                       "message": f"Branch protection could not be verified for '{branch}' "
