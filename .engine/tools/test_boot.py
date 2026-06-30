@@ -1046,6 +1046,18 @@ class TestBriefingRelay(unittest.TestCase):
         self.assertIn(boot.PRESENT_MARKER, pack)            # ...but the instruction still names it
         self.assertIn(boot.RELAY_MARKER, pack)              # ...and the governance alarm is INFORM-marked
 
+    def test_collapse_contract_bounds_the_relay_to_the_grounding_reply(self):
+        # The AI-facing collapse contract must not just say HOW to render a collapsed alarm — it must bound
+        # WHEN: a once-per-session act in this grounding reply, with no invented "boot check" preamble and no
+        # re-surfacing of the "(unchanged since last session)" framing on later turns. This is the guard
+        # against a model restapling the boot wrapper mid-session (the leak the operator caught).
+        with mock.patch.object(boot, "gather_signals",
+                               return_value=_signals(gate="off", reason="no pull request")):
+            pack = boot.assemble_pack()
+        self.assertIn("Relay each alarm once", pack)            # once-per-session bound
+        self.assertIn("do not invent a 'boot check'", pack)    # no invented preamble
+        self.assertIn("later turns of the same session", pack)  # no mid-session re-surfacing
+
     def test_must_push_carries_the_inform_marker_for_governance(self):
         items = boot.must_push(_signals(gate="off", reason="no pull request"))
         self.assertTrue(items)
