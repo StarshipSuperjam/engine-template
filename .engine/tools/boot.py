@@ -72,7 +72,7 @@ import knowledge_gen     # noqa: E402  (REGEN_CMD: the one operator-facing regen
 import boot_alarm_ledger  # noqa: E402  (D-269: the standing-alarm presentation ledger; decide() fail-opens to full)
 import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
-import protection_guard  # noqa: E402  (api_get + missing_floor: the protected-branch evaluation)
+import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
@@ -203,8 +203,9 @@ def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, s
     if not repo or not token:
         return "unknown", None
     try:
-        rules = protection_guard.api_get(
-            f"/repos/{repo}/rules/branches/{PROTECTED_BRANCH}", token)
+        rules = protection_guard.get_json(
+            f"/repos/{repo}/rules/branches/{PROTECTED_BRANCH}", token,
+            user_agent=protection_guard._UA)
         if not isinstance(rules, list):   # a 200 with an unexpected body (an error object, null) is NOT
             return "unknown", None         # a confirmation that protection is on -> honest "unknown"
         missing = protection_guard.missing_floor(rules, protection_guard.REQUIRED_CHECKS)

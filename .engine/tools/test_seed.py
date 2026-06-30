@@ -1181,16 +1181,16 @@ class TestProtectionReHome(unittest.TestCase):
         self.assertEqual(out[0]["severity"], "soft")
 
     def test_missing_floor_emits_hard(self):
-        saved, orig_api = dict(os.environ), protection_guard.api_get
+        saved, orig_api = dict(os.environ), protection_guard.get_json
         os.environ.update({"GITHUB_TOKEN": "x", "GITHUB_REPOSITORY": "o/r",
                            "ENGINE_RULE_TIER": "hard"})
-        protection_guard.api_get = lambda path, token: []  # no rules in force -> floor missing
+        protection_guard.get_json = lambda path, token, **kw: []  # no rules in force -> floor missing
         try:
             rc, out = self._main_json()
         finally:
             os.environ.clear()
             os.environ.update(saved)
-            protection_guard.api_get = orig_api
+            protection_guard.get_json = orig_api
         self.assertEqual(rc, 0)
         self.assertEqual(out[0]["severity"], "hard")
         self.assertIn("not fully in force", out[0]["message"])
@@ -1291,12 +1291,12 @@ class TestWeakeningReHome(unittest.TestCase):
                   'rel="next", <https://api.github.com/repositories/1/pulls/1/files?'
                   'per_page=100&page=9>; rel="last"')
         self.assertEqual(
-            weakening_guard._next_link(header),
+            weakening_guard.next_link(header),
             "https://api.github.com/repositories/1/pulls/1/files?per_page=100&page=2")
         # only rel="last" (the last page) -> no next; and no header at all -> no next
-        self.assertIsNone(weakening_guard._next_link(
+        self.assertIsNone(weakening_guard.next_link(
             '<https://api.github.com/repositories/1/pulls/1/files?page=9>; rel="last"'))
-        self.assertIsNone(weakening_guard._next_link(None))
+        self.assertIsNone(weakening_guard.next_link(None))
 
     def test_fetch_all_changed_files_follows_pagination(self):
         """The loop follows Link: rel="next" across pages and returns EVERY changed file —
@@ -1308,12 +1308,12 @@ class TestWeakeningReHome(unittest.TestCase):
             "/repos/o/r/pulls/1/files?per_page=100": (page1, f'<{page2_url}>; rel="next"'),
             page2_url: (page2, None),
         }
-        orig = weakening_guard._get_page
-        weakening_guard._get_page = lambda url, token: pages[url]
+        orig = weakening_guard.get_page
+        weakening_guard.get_page = lambda url, token, **kw: pages[url]
         try:
             got = weakening_guard.fetch_all_changed_files("o/r", 1, "x")
         finally:
-            weakening_guard._get_page = orig
+            weakening_guard.get_page = orig
         self.assertEqual(len(got), 101)  # both pages, not just the first 100
         self.assertEqual(got[-1]["filename"], ".engine/check/pr-body-completeness.json")
 
