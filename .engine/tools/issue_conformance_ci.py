@@ -32,10 +32,11 @@ Issue is caught only on its next body edit. Cold sessions apply `--label engine`
 and the in-session gate is the first line — widening the trigger would diverge from the locked design.
 
 SELF-CONTAINED TRANSPORT. telemetry.GitHubIssues has no per-Issue label/comment operations (its label is baked
-in at construction and it only opens/updates engine-health Issues), so this tool carries its own small client
-mirroring the audit_digest._http / telemetry._http idiom (same headers, 30s timeout, (status, json) return,
-injectable `_transport` seam) over the per-Issue label and comment operations it needs (label ensure/add/remove,
-comment list/post). telemetry.py is left untouched; the markers are single-sourced from issue_gate.
+in at construction and it only opens/updates engine-health Issues), so this tool carries its own transport — its
+own urlopen + (status, json) return + injectable `_transport` seam (30s timeout), building requests through the
+shared `github_client` (the audit_digest / telemetry idiom) — over the per-Issue label and comment operations it
+needs (label ensure/add/remove, comment list/post). telemetry.py is left untouched; the markers are
+single-sourced from issue_gate.
 
 CLI (operator-runnable, falsifiable — the live net is what the workflow invokes):
   uv run --directory .engine -- python tools/issue_conformance_ci.py demo   # scripted, fake GitHub, self-checks
