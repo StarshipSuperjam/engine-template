@@ -4172,7 +4172,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:b78b445eb4e30207cb0c8287bf7475a49c3f8ef983e6f0f25bcc18999093c12b",
+        "fingerprint": "sha256:b609a2cac607e41e05bdcbd1fead84668c7bf4dbcaf84d750ed192b1127f5d6c",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",

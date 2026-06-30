@@ -531,17 +531,18 @@ def _demo_body() -> bool:
     ledger.append(capture._make_record(
         session_injected, 2, "user",
         "This session is being continued from a previous conversation that ran out of context."))  # back-compat, untagged
-    fuel = [d["text"] for d in read_deltas(session_injected)]
+    tidy_notes = [d["text"] for d in read_deltas(session_injected)]
     resident = [r for r in ledger.iter_records(path=ledger.ledger_path())
                 if isinstance(r, dict) and r.get("session_id") == session_injected]
-    print(f"  Filed 3 notes for '{session_injected}': your real request, a background 'job finished' notice, and")
-    print("  a 'continued from an earlier chat' banner. What the AI reads to tidy this session (its fuel):")
-    for f in fuel:
-        print(f"    - {f}")
+    print(f"  Filed 3 notes for '{session_injected}': your real request, a background")
+    print("  'job finished' notice, and a 'continued from an earlier chat' banner.")
+    print("  What the AI then reads to tidy this session:")
+    for note in tidy_notes:
+        print(f"    - {note}")
     print(f"  Still kept in the cabinet, recoverable — all {len(resident)} notes (nothing was deleted).")
-    injected_skipped = fuel == ["Let's redesign the export to write a manifest first."]
+    injected_skipped = tidy_notes == ["Let's redesign the export to write a manifest first."]
     injected_resident = len(resident) == 3
-    print(f"  => {'The notice and the banner are skipped as tidy-up fuel but still kept — only your real words are summarised.' if (injected_skipped and injected_resident) else '!!! a harness notification leaked into the tidy-up, or a note was lost'}")
+    print(f"  => {'The notice and banner are skipped but kept — only your real words are summarised.' if (injected_skipped and injected_resident) else '!!! a harness notification leaked into the tidy-up, or a note was lost'}")
 
     # The mechanical invariants this practice run proves (NOT the AI's wording, which is judged live): a
     # summary stored+findable, the label kept out of search text, a tidied session dropping off the backlog,
