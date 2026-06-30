@@ -65,11 +65,11 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build)
 import boot  # noqa: E402  (repo_slug, gh_token, PROTECTED_BRANCH — the shared GitHub-context helpers)
 import protection_guard  # noqa: E402  (REQUIRED_CHECKS + missing_floor — the SINGLE home of the floor)
 import telemetry  # noqa: E402  (GitHubIssues.ensure_label — the slice-18 minimal ensure this inherits)
 
-API_ROOT = "https://api.github.com"
 USER_AGENT = "engine-control-plane-bootstrap"
 TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "control-plane-bootstrap.md")
 
@@ -523,16 +523,7 @@ class ControlPlane:
 
     def _http(self, method: str, path: str, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(
-            API_ROOT + path, data=data, method=method,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/json",
-                "User-Agent": USER_AGENT,
-            },
-        )
+        req = github_client.request(path, self.token, user_agent=USER_AGENT, method=method, data=data)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")

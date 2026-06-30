@@ -38,10 +38,10 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402  (finding, section_blocks, get_pr_body, env_override_path, read)
+import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build)
 
 ENGINE_LABEL = "engine"
 _CITATION_RE = re.compile(r"#(\d+)")
-_API_ROOT = "https://api.github.com"
 _USER_AGENT = "engine-disposition-issue-resolution"
 
 
@@ -61,15 +61,7 @@ class IssueResolver:
         self._transport = transport or self._http
 
     def _http(self, method: str, path: str):
-        req = urllib.request.Request(
-            _API_ROOT + path, method=method,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": _USER_AGENT,
-            },
-        )
+        req = github_client.request(path, self.token, user_agent=_USER_AGENT, method=method)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")
