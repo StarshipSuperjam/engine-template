@@ -997,20 +997,17 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
         # (unchanged since last session)" is a standing one already seen — relay it as the brief reminder
         # it is; a new or worsened item is stated in full. If a standing alarm has dropped off entirely
         # since last session, that means the engine re-checked and it is resolved — not that it stopped
-        # watching; say so plainly if the operator asks. This relay is a once-per-session act that belongs
-        # in this grounding reply: name each alarm and its consequence in plain words — never invent a
-        # "boot check" / "before we start setup" preamble or attribute it to "the boot check" — and do not
-        # re-surface the "(unchanged since last session)" / boot-card framing on later turns of the same
-        # session; if the operator asks about it again, answer plainly without restapling the boot wrapper.
+        # watching; say so plainly if the operator asks. The emitted instruction below also bounds WHEN the
+        # relay happens — once, in this grounding reply, with no invented "boot check" preamble and not
+        # re-surfaced on later turns; keep this comment and that emitted text in step.
         out.append("   (An item marked 'still … (unchanged since last session)' is a standing one the "
                    "operator already saw — relay it as a brief reminder, not a fresh alarm; a new or "
                    "worsened item is stated in full. An alarm that dropped off since last session means "
                    "the engine verified it resolved, never that it stopped checking. Relay each alarm "
                    "once, here in this grounding reply, naming the thing and its consequence in plain "
                    "words — do not invent a 'boot check' or 'before we start setup' preamble, and do not "
-                   "re-surface this '(unchanged since last session)' framing on later turns of the same "
-                   "session; if the operator asks about it again, answer plainly without restapling the "
-                   "boot wrapper.)")
+                   "re-surface this framing on later turns of the same session. If the operator asks "
+                   "again, answer plainly, without the boot-time framing.)")
     else:
         out.append("2. No governance alarm to relay this session.")
     out.append("3. Then surface a brief plain-language headline of anything in the status below that needs "
