@@ -521,21 +521,21 @@ class TestGovernanceAlarms(unittest.TestCase):
         # no repo/token -> unknown (never a false "on")
         self.assertEqual(boot.protected_branch_signal(None, None), ("unknown", None))
         # token present, ruleset fully in force -> on
-        with mock.patch.object(boot.protection_guard, "api_get", return_value=[]), \
+        with mock.patch.object(boot.protection_guard, "get_json", return_value=[]), \
              mock.patch.object(boot.protection_guard, "missing_floor", return_value=[]):
             self.assertEqual(boot.protected_branch_signal("o/r", "t"), ("on", None))
         # token present, floor missing -> off (a nag)
-        with mock.patch.object(boot.protection_guard, "api_get", return_value=[]), \
+        with mock.patch.object(boot.protection_guard, "get_json", return_value=[]), \
              mock.patch.object(boot.protection_guard, "missing_floor", return_value=["no pull request"]):
             state, reason = boot.protected_branch_signal("o/r", "t")
             self.assertEqual(state, "off")
             self.assertIn("no pull request", reason)
         # unreachable / auth failure -> unknown, never a false "on"
-        with mock.patch.object(boot.protection_guard, "api_get", side_effect=Exception("boom")):
+        with mock.patch.object(boot.protection_guard, "get_json", side_effect=Exception("boom")):
             self.assertEqual(boot.protected_branch_signal("o/r", "t"), ("unknown", None))
         # a 200 with a non-list body (an error object / null) is NOT a confirmation -> unknown, never "on"
         for body in ({"message": "Not Found"}, None, "nonsense"):
-            with mock.patch.object(boot.protection_guard, "api_get", return_value=body):
+            with mock.patch.object(boot.protection_guard, "get_json", return_value=body):
                 self.assertEqual(boot.protected_branch_signal("o/r", "t"), ("unknown", None),
                                  f"a non-list body ({body!r}) must read unknown, never on")
 
@@ -984,7 +984,7 @@ class TestFailOpen(unittest.TestCase):
         try:
             with mock.patch.object(boot, "repo_slug", return_value="o/r"), \
                  mock.patch.object(boot, "gh_token", return_value="t"), \
-                 mock.patch.object(boot.protection_guard, "api_get", return_value={"message": "x"}):
+                 mock.patch.object(boot.protection_guard, "get_json", return_value={"message": "x"}):
                 pack = boot.assemble_pack()
         finally:
             for p in patchers:

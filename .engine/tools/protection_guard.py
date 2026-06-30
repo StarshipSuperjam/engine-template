@@ -22,13 +22,16 @@ from __future__ import annotations
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling tools dir, for github_client
+from github_client import get_json  # noqa: E402 — sibling import after the path insert
 
 # Frozen required-check names this guard expects the ruleset to bind. These are
 # the literal job names of the seed's two required checks; renaming either one,
 # anywhere, is a guardrail-weakening change.
 REQUIRED_CHECKS = ["engine-ci", "engine-guard"]
+
+UA = "engine-seed-protection-guard"  # this guard's GitHub API User-Agent; boot reuses it for the same protected-branch probe
 
 
 def missing_floor(rules: list, required_checks: list) -> list:
@@ -65,20 +68,6 @@ def missing_floor(rules: list, required_checks: list) -> list:
     return missing
 
 
-def api_get(path: str, token: str):
-    req = urllib.request.Request(
-        "https://api.github.com" + path,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "engine-seed-protection-guard",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
 def emit(findings: list) -> int:
     """Write the finding.v1 array to stdout (the custom/script machine channel) and return
     0 — a successful evaluation, whatever it found. Each finding carries its own severity;
@@ -102,7 +91,7 @@ def main() -> int:
                       "access token is available, which is normal on your own machine. The "
                       "check that can actually block a bad merge runs in CI."}])
     try:
-        rules = api_get(f"/repos/{repo}/rules/branches/{branch}", token)
+        rules = get_json(f"/repos/{repo}/rules/branches/{branch}", token, user_agent=UA)
     except Exception as e:  # token present but the API could not be read -> fail closed in CI
         return emit([{"severity": tier, "location": None,
                       "message": f"Branch protection could not be verified for '{branch}' "

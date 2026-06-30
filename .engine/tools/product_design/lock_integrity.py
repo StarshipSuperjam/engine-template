@@ -44,7 +44,6 @@ Contract: invoked by the validator with NO arguments, it prints a finding.v1 JSO
 A separate `demo` subcommand runs a falsifiable self-check (pure, no network).
 """
 from __future__ import annotations
-import base64
 import json
 import os
 import sys
@@ -58,11 +57,16 @@ if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
 import validate  # noqa: E402 — ROOT (test-redirectable) + the finding.v1 helper
-# Reuse, never re-declare: the settled-status + path grammar from spec_form, and the PUBLIC authenticated-API
-# reader + the acknowledgment-label constant from the §15 weakening guard. Only public surface is imported
-# (api_get / ACK_LABEL), never weakening_guard's private request helpers.
+# Reuse, never re-declare: the settled-status + path grammar from spec_form; the shared authenticated GitHub
+# API client (get_json + base64 decode) from the core github_client module; and the acknowledgment-label
+# constant from the §15 weakening guard — that is guard POLICY, not client logic, so it stays imported there.
 from product_design import spec_form  # noqa: E402
-from weakening_guard import api_get, ACK_LABEL  # noqa: E402
+from github_client import get_json, decode_content  # noqa: E402
+from weakening_guard import ACK_LABEL  # noqa: E402
+
+# This check's GitHub API User-Agent. It previously inherited the weakening guard's UA (it borrowed that
+# module's api_get); now it identifies as itself — an identification-only string GitHub does not gate on.
+_UA = "engine-product-lock-integrity"
 
 # The settled stage, as the raw frontmatter token (engine-internal; never shown to the operator).
 _SETTLED = "locked"
@@ -173,14 +177,14 @@ def _read_base_content(repo: str, base_sha: str, path: str, token: str) -> str:
     filename with a space or other reserved character produces a valid request rather than a false block.
     Raises on any unreadable response so the caller fails closed."""
     quoted = urllib.parse.quote(path, safe="/")
-    obj = api_get(f"/repos/{repo}/contents/{quoted}?ref={base_sha}", token)
+    obj = get_json(f"/repos/{repo}/contents/{quoted}?ref={base_sha}", token, user_agent=_UA)
     if isinstance(obj, dict) and obj.get("encoding") == "base64" and "content" in obj:
-        return base64.b64decode(obj["content"]).decode("utf-8-sig", "replace")
+        return decode_content(obj, codec="utf-8-sig")
     sha = obj.get("sha") if isinstance(obj, dict) else None
     if sha:  # >1 MB: Contents returns empty content / encoding "none"; read the blob by sha (also Contents: read)
-        blob = api_get(f"/repos/{repo}/git/blobs/{sha}", token)
+        blob = get_json(f"/repos/{repo}/git/blobs/{sha}", token, user_agent=_UA)
         if isinstance(blob, dict) and blob.get("encoding") == "base64" and "content" in blob:
-            return base64.b64decode(blob["content"]).decode("utf-8-sig", "replace")
+            return decode_content(blob, codec="utf-8-sig")
     raise RuntimeError(f"could not read {path} at the base commit")
 
 
@@ -198,7 +202,7 @@ def _spec_md_paths_at_base(repo: str, base_sha: str, token: str) -> list:
         directory = queue.pop()
         try:
             quoted = urllib.parse.quote(directory, safe="/")
-            entries = api_get(f"/repos/{repo}/contents/{quoted}?ref={base_sha}", token)
+            entries = get_json(f"/repos/{repo}/contents/{quoted}?ref={base_sha}", token, user_agent=_UA)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 continue  # this directory is absent at base (top-level docs/spec absent => no settled docs)

@@ -113,7 +113,7 @@ class IoTests(unittest.TestCase):
     def setUp(self):
         self._env = dict(os.environ)
         self._root = validate.ROOT
-        self._api = lock_integrity.api_get
+        self._api = lock_integrity.get_json
         self._tmp = tempfile.mkdtemp(prefix="engine-lock-io-")
         validate.ROOT = self._tmp
 
@@ -122,7 +122,7 @@ class IoTests(unittest.TestCase):
         os.environ.clear()
         os.environ.update(self._env)
         validate.ROOT = self._root
-        lock_integrity.api_get = self._api
+        lock_integrity.get_json = self._api
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def _write_head(self, rel: str, body: str):
@@ -142,7 +142,7 @@ class IoTests(unittest.TestCase):
         os.environ["GITHUB_EVENT_PATH"] = path
 
     def _fake_api(self, *, dir_entries=None, dirs=None, files=None, dir_error=None):
-        """A boundary fake for api_get: serves docs/spec directory listings (recursively) and per-file content,
+        """A boundary fake for github_client.get_json: serves docs/spec directory listings (recursively) and per-file content,
         or raises. `dir_entries` is shorthand for the top-level docs/spec listing; `dirs` maps any directory
         path to its entries (nested trees); `files` maps a file path to its content. Unquotes the request path,
         so it exercises the production percent-encoding."""
@@ -151,7 +151,7 @@ class IoTests(unittest.TestCase):
             listings["docs/spec"] = dir_entries
         files = files or {}
 
-        def fake(path, token):
+        def fake(path, token, **kw):
             if "/contents/" not in path:
                 raise AssertionError(f"unexpected api path: {path}")
             p = urllib.parse.unquote(path.split("/contents/", 1)[1].split("?", 1)[0])
@@ -163,7 +163,7 @@ class IoTests(unittest.TestCase):
                 return {"encoding": "base64", "sha": "blob:" + p,
                         "content": base64.b64encode(files[p].encode()).decode()}
             raise urllib.error.HTTPError(path, 404, "Not Found", None, None)
-        lock_integrity.api_get = fake
+        lock_integrity.get_json = fake
 
     def _run(self) -> list:
         buf = io.StringIO()

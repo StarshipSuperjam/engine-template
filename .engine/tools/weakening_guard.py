@@ -39,9 +39,9 @@ from __future__ import annotations
 import json
 import os
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling tools dir, for github_client
+from github_client import get_json, get_page, next_link  # noqa: E402 — sibling import after the path insert
 
 ACK_LABEL = "guardrail-ack"
 # Path prefixes whose files enforce the safety gates.
@@ -76,63 +76,16 @@ def flagged_changes(files: list) -> list:
     return flagged
 
 
-API_HOST = "api.github.com"
 # A generous page bound: ~10k files at 100/page, well past GitHub's ~3000-file listing
 # cap. It exists only to halt a pathological Link cycle — exceeding it raises (the caller
 # fails closed), never silently truncates the file list it then judges.
 MAX_PAGES = 100
 
-
-def _request(url_or_path: str, token: str):
-    """Build the authenticated GitHub API request. Accepts an api.github.com-relative
-    path (e.g. '/repos/o/r/pulls/1/files?per_page=100') OR an absolute https URL taken
-    verbatim from a Link: rel="next" header. An absolute URL must point at the GitHub API
-    host: a token-bearing pull_request_target request must never be redirected off-host by
-    a crafted Link header, so an off-host URL raises (→ fail closed)."""
-    if url_or_path.startswith("http"):
-        url = url_or_path
-        if urllib.parse.urlparse(url).netloc != API_HOST:
-            raise ValueError(f"refusing to follow an off-host pagination link: {url}")
-    else:
-        url = "https://" + API_HOST + url_or_path
-    return urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "engine-seed-weakening-guard",
-        },
-    )
-
-
-def _get_page(url_or_path: str, token: str):
-    """GET one page; return (parsed_body, link_header_or_None). The Link header carries
-    pagination (rel="next") for list endpoints; HTTPMessage.get is case-insensitive."""
-    with urllib.request.urlopen(_request(url_or_path, token), timeout=30) as resp:
-        body = json.loads(resp.read().decode("utf-8"))
-        return body, resp.headers.get("Link")
-
-
-def api_get(path: str, token: str):
-    """GET a single JSON resource (body only) — for non-paginated reads."""
-    body, _ = _get_page(path, token)
-    return body
-
-
-def _next_link(link_header):
-    """The rel="next" URL from a GitHub Link header, or None when there is no next page."""
-    if not link_header:
-        return None
-    for part in link_header.split(","):
-        segments = part.split(";")
-        if len(segments) < 2:
-            continue
-        url = segments[0].strip().lstrip("<").rstrip(">").strip()
-        for param in segments[1:]:
-            if param.strip() == 'rel="next"':
-                return url
-    return None
+# This guard's GitHub API User-Agent (was inline in its own request builder, now homed in
+# github_client). The authenticated request shape + the off-host guard the §15 protection
+# relies on now live in github_client; this guard reads the diff through the GET-only
+# helpers below and never issues a write.
+_UA = "engine-seed-weakening-guard"
 
 
 def fetch_all_changed_files(repo: str, number, token: str) -> list:
@@ -146,9 +99,9 @@ def fetch_all_changed_files(repo: str, number, token: str) -> list:
         pages += 1
         if pages > MAX_PAGES:
             raise RuntimeError(f"changed-files pagination exceeded {MAX_PAGES} pages")
-        page, link = _get_page(url, token)
+        page, link = get_page(url, token, user_agent=_UA)
         files.extend(page)
-        url = _next_link(link)
+        url = next_link(link)
     return files
 
 
@@ -156,7 +109,7 @@ def changed_files_total(repo: str, number, token: str):
     """The pull request's authoritative changed-file count (GET /pulls/{n} -> changed_files).
     This count is the true total and is NOT subject to the files-listing cap, so it is the
     yardstick for whether the paginated listing was complete."""
-    pr = api_get(f"/repos/{repo}/pulls/{number}", token)
+    pr = get_json(f"/repos/{repo}/pulls/{number}", token, user_agent=_UA)
     return pr.get("changed_files")
 
 

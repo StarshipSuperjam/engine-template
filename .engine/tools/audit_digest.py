@@ -39,7 +39,6 @@ freshness signal). finding.v1 + the frontmatter reader are reused from validate.
 precedent.
 """
 from __future__ import annotations
-import base64
 import datetime
 import hashlib
 import json
@@ -50,6 +49,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
+import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build + decode)
 
 
 # The committed digest's home: a file under .engine/audits/ (already a registered infra dir, beside the
@@ -251,7 +251,6 @@ def seal(path: str, generated=None, body: str | None = None) -> dict:
 # GitHub blip), the read degrades to a plain marker so the self-review says — plainly — that it has no
 # earlier reviews to compare against, and never fabricates a trend.
 
-API_ROOT = "https://api.github.com"
 USER_AGENT = "engine-audit-digest"
 
 # The digest's repo-relative path — what the commits/contents API key on (AUDIT_DIGEST_PATH is absolute).
@@ -325,16 +324,7 @@ class _DigestHistory:
 
     def _http(self, method: str, path: str, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(
-            API_ROOT + path, data=data, method=method,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/json",
-                "User-Agent": USER_AGENT,
-            },
-        )
+        req = github_client.request(path, self.token, user_agent=USER_AGENT, method=method, data=data)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")
@@ -367,7 +357,7 @@ class _DigestHistory:
                 "GET", f"/repos/{self.repo}/contents/{self.path}?ref={sha}", None)
             if cstatus >= 400 or payload is None or "content" not in payload:
                 raise DegradedReadError(f"GitHub returned {cstatus} reading a digest at {sha[:8]}")
-            raw = base64.b64decode(payload["content"]).decode("utf-8", "replace")
+            raw = github_client.decode_content(payload, codec="utf-8")
             fm_text, body = _split_text(raw)
             out.append((_generated_of(fm_text), body))
         return out

@@ -3900,7 +3900,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:342b00a79508d844d981dc86dcee6fff9b69b663b72dfc323dc0ac2392486727",
+        "fingerprint": "sha256:e0e4b36a310448d0bde2f7daa11119345c15480efc005aab148a642364975290",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -4002,7 +4002,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:c2cc6eea7825e50fc787057a8b92cde6a7ab3a8229ead24c0a3b2010abc7c0e0",
+        "fingerprint": "sha256:f782825df6b5685b0d69873ac2fab3cc261d8ef08dffc9452eceee00abaf15e4",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4655,6 +4655,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:github_client",
+      "name": ".engine/tools/github_client.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "github_client",
+      "source": {
+        "fingerprint": "sha256:95341865975a1bce73293b7100bc164cb37b313f8e707dfa477e40b59f1bb526",
+        "path": ".engine/tools/github_client.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:hard_check_bite_check",
       "name": ".engine/tools/hard_check_bite_check.py",
       "owner": "core",
@@ -4920,7 +4937,7 @@
       },
       "slug": "lock_integrity",
       "source": {
-        "fingerprint": "sha256:5438ca1d2501cffe2189fcb4224ecfbfa9fc9625f82bc80d298c39ef8f2375a0",
+        "fingerprint": "sha256:473928b4c272ae3c1461abd816fe3ee61238c74f296bd878d2762f5e2f749664",
         "path": ".engine/tools/product_design/lock_integrity.py"
       },
       "status": "active",
@@ -5209,7 +5226,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:607f45d2305bb5028d33d4b38a92fc5b78aa95f8ee6cfd1fe7b28a4c2050220b",
+        "fingerprint": "sha256:2418784a7a425739b6c13298dd5679086beed7a1b74f8c630c95c198267daa6e",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -5481,7 +5498,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:bb97ebabffa6667a3eabb6211585758bf23a0684f5e37cf14116e8393d510a52",
+        "fingerprint": "sha256:e2ef9fda736184b56f34d0866e1910d0bbc816927d850485b7614b72d94f0650",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -5651,7 +5668,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:760e716a7ae967b9aebfb0fd8c31afb249f5c2d83de11ac81f0aba5483fe7dee",
+        "fingerprint": "sha256:911a5c0c6f97901a76ca57894fcda91e0d30cc374189f94ca9941636518128a9",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -6049,6 +6066,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_github_client",
+      "name": ".engine/tools/test_github_client.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_github_client",
+      "source": {
+        "fingerprint": "sha256:7b00c192ab088263ec2b864a96192bd92d84b0a63ffbb74da432633c92afab96",
+        "path": ".engine/tools/test_github_client.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_hard_check_bite",
       "name": ".engine/tools/test_hard_check_bite.py",
       "owner": "core",
@@ -6280,7 +6314,7 @@
       },
       "slug": "test_lock_integrity",
       "source": {
-        "fingerprint": "sha256:c6413f715a40b5c0adeb1b2c4c7e530e0a8a17077c68d76d1c19f2d7996f6aa0",
+        "fingerprint": "sha256:453781661e3ce6d019ed393ce0a47e22a052b8b580882cc2f99a9f5d92dfaadd",
         "path": ".engine/tools/product_design/test_lock_integrity.py"
       },
       "status": "active",
@@ -6790,7 +6824,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:addd2ee6cd397710cd736a0fdc9f009abd683d9e70868c3028d94dfda1e0cc91",
+        "fingerprint": "sha256:c6a05097799944208a8d82e57d7a709bb013d733b27ca698bb4bd6e504df5978",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -7164,7 +7198,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:bed17e42b7a4c5670452cc7ab5b95806e31f08544519167ba4567f16b92924c2",
+        "fingerprint": "sha256:dc3f50211fbf9a217a7ac5ed454ec12ba5509fe3b22c99ebc35e4041edbda824",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
