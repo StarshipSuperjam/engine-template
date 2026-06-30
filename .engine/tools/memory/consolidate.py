@@ -59,7 +59,8 @@ from memory import capture, index, ledger  # noqa: E402
 # `forget` and `index` also use. Importing the NAMES (not the module) avoids shadowing the
 # `store_episodic(..., records=...)` parameter and keeps `consolidate.EPISODIC_KIND` resolving for tests/demo.
 from memory.records import (  # noqa: E402
-    BATCH_KEY, DEFAULT_EPISODIC_TAG, EPISODIC_KIND, MARKER_KIND, MARKER_TAG, RECORD_ID_KEY, new_record_id,
+    BATCH_KEY, DEFAULT_EPISODIC_TAG, EPISODIC_KIND, MARKER_KIND, MARKER_TAG, RECORD_ID_KEY, is_injected_record,
+    new_record_id,
 )
 
 # The closed, Engine-shipped role vocabulary (D-030 / memory/README) — amendable via the grammar, never
@@ -82,10 +83,13 @@ _BACKLOG_ALARM_THRESHOLD = 5             # build-spec leaf: the tidy-up runs off
 
 def read_deltas(session_id: str, *, cwd=None) -> list:
     """The raw turn-delta records for one session, ordered by `seq` — what the in-context AI reads to write a
-    summary. A pure read (the ledger reader is line-resilient, so no lock is needed)."""
+    summary. A pure read (the ledger reader is line-resilient, so no lock is needed). Harness-injected
+    pseudo-turns (issue #274) are skipped as fuel — they stay resident + recoverable in the ledger, but the AI
+    never consolidates a `<task-notification>` or `/compact` continuation summary as if the operator wrote it."""
     out = [
         r for r in ledger.iter_records(path=ledger.ledger_path(cwd))
         if isinstance(r, dict) and r.get("kind") == capture.RECORD_KIND and r.get("session_id") == session_id
+        and not is_injected_record(r)
     ]
     out.sort(key=lambda r: r["seq"] if isinstance(r.get("seq"), int) else 0)
     return out
@@ -94,7 +98,11 @@ def read_deltas(session_id: str, *, cwd=None) -> list:
 # --- Detecting what still needs tidying (the sweep signal — a leaf) ----------------------------
 
 def _scan_sessions(cwd=None):
-    """ONE ledger pass → (session-ids with >=1 raw turn-delta, session-ids with a consolidation marker)."""
+    """ONE ledger pass → (session-ids with >=1 CONSOLIDATABLE raw turn-delta, session-ids with a consolidation
+    marker). A session whose turn-deltas are ALL harness-injected pseudo-turns (issue #274) is NOT counted as
+    having deltas — `read_deltas` would skip them all and yield nothing to store, so a marker would never be
+    written and the session would be re-detected as pending every SessionStart. Detection and the read must
+    agree on what counts as content, or the sweep loops forever on a junk-only session."""
     have_deltas, marked = set(), set()
     for r in ledger.iter_records(path=ledger.ledger_path(cwd)):
         if not isinstance(r, dict):
@@ -103,7 +111,7 @@ def _scan_sessions(cwd=None):
         if not isinstance(sid, str) or not sid:   # skip a missing/empty id — un-consolidatable, never pending
             continue
         kind = r.get("kind")
-        if kind == capture.RECORD_KIND:
+        if kind == capture.RECORD_KIND and not is_injected_record(r):
             have_deltas.add(sid)
         elif kind == MARKER_KIND:
             marked.add(sid)
@@ -512,11 +520,36 @@ def _demo_body() -> bool:
     print("     plain line (a count, never the id codes). (Whether the spawn actually keeps the mechanics off")
     print("     your transcript is a property of the live runtime, proven on the next real session; whether it")
     print("     then writes a good summary is also judged live.)")
+    print("\nPART 6 — the engine's own notifications never get tidied as if YOU had said them")
+    print("-" * 80)
+    session_injected = "session-with-notifications"
+    ledger.append(capture._make_record(
+        session_injected, 0, "user", "Let's redesign the export to write a manifest first."))
+    ledger.append(capture._make_record(
+        session_injected, 1, "user", "<task-notification>\n  a background job finished\n</task-notification>",
+        injected=True))                                  # tagged at capture (the durable path)
+    ledger.append(capture._make_record(
+        session_injected, 2, "user",
+        "This session is being continued from a previous conversation that ran out of context."))  # back-compat, untagged
+    fuel = [d["text"] for d in read_deltas(session_injected)]
+    resident = [r for r in ledger.iter_records(path=ledger.ledger_path())
+                if isinstance(r, dict) and r.get("session_id") == session_injected]
+    print(f"  Filed 3 notes for '{session_injected}': your real request, a background 'job finished' notice, and")
+    print("  a 'continued from an earlier chat' banner. What the AI reads to tidy this session (its fuel):")
+    for f in fuel:
+        print(f"    - {f}")
+    print(f"  Still kept in the cabinet, recoverable — all {len(resident)} notes (nothing was deleted).")
+    injected_skipped = fuel == ["Let's redesign the export to write a manifest first."]
+    injected_resident = len(resident) == 3
+    print(f"  => {'The notice and the banner are skipped as tidy-up fuel but still kept — only your real words are summarised.' if (injected_skipped and injected_resident) else '!!! a harness notification leaked into the tidy-up, or a note was lost'}")
+
     # The mechanical invariants this practice run proves (NOT the AI's wording, which is judged live): a
     # summary stored+findable, the label kept out of search text, a tidied session dropping off the backlog,
-    # and a past untidied session detected while the live one is not.
+    # a past untidied session detected while the live one is not, and the engine's own injected notifications
+    # skipped as tidy-up fuel while staying resident + recoverable.
     return (bool(out) and ok and session_c in before and session_c not in after
-            and session_d in pending and session_live not in pending)
+            and session_d in pending and session_live not in pending
+            and injected_skipped and injected_resident)
 
 
 def _wrap(text: str, width: int) -> list:

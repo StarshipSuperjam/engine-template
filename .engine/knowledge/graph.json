@@ -4070,7 +4070,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:58367bdfa93d99cf19842b7e025b2b3b5115775448299457a5d8bc079766f3db",
+        "fingerprint": "sha256:8772143ebced9f78a0cd7c3f0bfda750a5bd74da995750b6d991d53da7b90786",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -4172,7 +4172,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:1bac56ff5d75b38d1595393a503863ed39512063eb41433967626684df3b14e5",
+        "fingerprint": "sha256:b78b445eb4e30207cb0c8287bf7475a49c3f8ef983e6f0f25bcc18999093c12b",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -5243,7 +5243,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:e99279ae3e51554378cde07f7db5c9d89daa299cae6ad610cc5d6bbd2429226f",
+        "fingerprint": "sha256:0c01c6772a2a6f50eee7c3be6c4d8fb7acdfe3bfd8d8f3a531cc4b3f501ef064",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -5736,7 +5736,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:618c122639770d03af6c4d60fff312eaf785d827b11cb9db622ca8d186e08865",
+        "fingerprint": "sha256:3ae28e8386a3a73c761066618cb592ebbffe8ce7277b21421161ed1ea9d2a680",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -5838,7 +5838,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:6008600533696993eacb0f8bbd3143ff15b7f309b9d547c5bb1d6bdbcfdc512d",
+        "fingerprint": "sha256:0ed4513af790626861d5cc963c219faeea0ed1d1e0cc8e4e75c78d68c4b917a2",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
@@ -6586,7 +6586,7 @@
       },
       "slug": "test_records",
       "source": {
-        "fingerprint": "sha256:2c4b4257e8cd8774cf7bc32a72c76715fda539b7f6b4fcc13ec65293ec720e87",
+        "fingerprint": "sha256:f2b949067904995b3e81be260790b3b77c77a0511c92e496f90eafff04620cda",
         "path": ".engine/tools/memory/test_records.py"
       },
       "status": "active",

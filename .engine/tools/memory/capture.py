@@ -312,11 +312,16 @@ def _release_lock(fd) -> None:
         os.close(fd)
 
 
-def _make_record(session_id: str, seq: int, speaker: str, text: str) -> dict:
+def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected: bool = False) -> dict:
     """The turn-delta record envelope. `ts`/`seq` are INTEGERS on purpose: the derived index's
     record-text projection indexes only string leaves, so integers stay out of the search body. `id` is the
     stable, content-free record id minted at capture (slice 4b) — kept out of the search body too
-    (index._NON_BODY_KEYS)."""
+    (index._NON_BODY_KEYS). `injected` adds `records.INJECTED_TAG` so the consolidation sweep skips a
+    harness-injected pseudo-turn as fuel (issue #274) — the record still lands and stays fully recoverable;
+    the tag (like every tag) is kept out of the search body, and turn-deltas are recall-excluded by kind anyway."""
+    tags = ["transcript", "stop"]
+    if injected:
+        tags.append(records.INJECTED_TAG)
     return {
         "v": RECORD_VERSION,
         "kind": RECORD_KIND,
@@ -326,7 +331,7 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str) -> dict:
         "seq": seq,
         "speaker": speaker,
         "text": text,
-        "tags": ["transcript", "stop"],
+        "tags": tags,
     }
 
 
@@ -374,8 +379,13 @@ def _capture(payload, *, cwd) -> int:
             if _is_noise(text):
                 continue
             speaker = _speaker(rec)
+            # Recognise a harness-injected pseudo-turn on the WHOLE message, before chunking, so every chunk of a
+            # multi-chunk block (e.g. the >4 KB /compact continuation summary) is tagged — not just the first
+            # (issue #274). The record still lands + stays recoverable; consolidation skips it as fuel.
+            injected = records.is_injected_pseudo_turn_text(text)
             for chunk in chunk_text(text):
-                ledger.append(_make_record(session_id, cursor + offset, speaker, chunk), path=ledger_file)
+                ledger.append(_make_record(session_id, cursor + offset, speaker, chunk, injected=injected),
+                              path=ledger_file)
                 appended += 1
         _write_cursor(data_dir, session_id, len(messages))
         return appended

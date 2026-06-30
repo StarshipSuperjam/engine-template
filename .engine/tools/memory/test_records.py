@@ -24,6 +24,48 @@ from memory import capture, consolidate, index, ledger, records  # noqa: E402
 _HEX = set(string.hexdigits.lower())
 
 
+class InjectedPseudoTurnTests(unittest.TestCase):
+    """The harness-injected pseudo-turn predicates (issue #274). `is_injected_pseudo_turn_text` is start-anchored
+    on the two ground-truthed standalone sentinels; `is_injected_record` adds the durable `INJECTED_TAG` path and
+    keeps a back-compat text fallback for records captured before tagging existed."""
+
+    def test_text_matches_the_two_standalone_sentinels(self):
+        self.assertTrue(records.is_injected_pseudo_turn_text("<task-notification>\n<task-id>x</task-id>"))
+        self.assertTrue(records.is_injected_pseudo_turn_text(
+            "This session is being continued from a previous conversation that ran out of context."))
+
+    def test_a_mid_sentence_mention_is_kept(self):
+        # start-anchored: a real turn that merely talks ABOUT a marker is never matched
+        self.assertFalse(records.is_injected_pseudo_turn_text(
+            "what does <task-notification> mean in my transcript?"))
+        self.assertFalse(records.is_injected_pseudo_turn_text(
+            "remind me: this session is being continued from a previous conversation, right?"))
+
+    def test_system_reminder_is_deliberately_not_matched(self):
+        # <system-reminder> fuses with a real human prompt in the same turn, so dropping it would lose content
+        self.assertFalse(records.is_injected_pseudo_turn_text(
+            "<system-reminder>...</system-reminder>\n\nRemember this for me: ship on Friday."))
+
+    def test_non_string_text_is_not_injected(self):
+        self.assertFalse(records.is_injected_pseudo_turn_text(None))
+        self.assertFalse(records.is_injected_pseudo_turn_text(123))
+
+    def test_record_is_injected_by_tag(self):
+        rec = {"kind": "turn-delta", "text": "any chunk text at all", "tags": ["transcript", "stop", records.INJECTED_TAG]}
+        self.assertTrue(records.is_injected_record(rec))
+
+    def test_record_is_injected_by_text_back_compat(self):
+        # a record captured BEFORE tagging existed: no INJECTED_TAG, but its text begins with a marker
+        rec = {"kind": "turn-delta", "text": "<task-notification>\n...", "tags": ["transcript", "stop"]}
+        self.assertTrue(records.is_injected_record(rec))
+
+    def test_a_normal_record_is_not_injected(self):
+        rec = {"kind": "turn-delta", "text": "redesign the export", "tags": ["transcript", "stop"]}
+        self.assertFalse(records.is_injected_record(rec))
+        self.assertFalse(records.is_injected_record(None))
+        self.assertFalse(records.is_injected_record({"text": "see the <task-notification> block for details"}))
+
+
 class _Base(unittest.TestCase):
     """A throwaway temp cabinet via ENGINE_MEMORY_DIR, mirroring test_forget._Base."""
 

@@ -14,7 +14,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools on path
-from memory import capture, index, ledger  # noqa: E402
+from memory import capture, index, ledger, records  # noqa: E402
 
 
 def _msg(role, text):
@@ -358,6 +358,40 @@ class CloseSeamTests(CaptureTestCase):
                 self.fail(f"close relay raised on a real capture failure: {e!r}")
         finally:
             ledger.append = saved
+
+
+class InjectedTagTests(CaptureTestCase):
+    """Capture TAGS a harness-injected pseudo-turn (issue #274) instead of dropping it: it stays resident +
+    recoverable in the ledger (the #333 durability decision), but carries `records.INJECTED_TAG` so the
+    consolidation sweep skips it. Tagging is decided on the WHOLE message before chunking, so every chunk of a
+    multi-chunk block (the >4 KB /compact continuation summary) is tagged — not just the first."""
+
+    def test_a_task_notification_is_tagged_but_still_lands(self):
+        t = self.transcript("s.jsonl", [
+            _msg("user", "redesign the export to write a manifest first"),
+            _msg("user", "<task-notification>\n<task-id>abc</task-id>\n<status>completed</status>\n</task-notification>"),
+        ])
+        n = capture.capture_turn_delta(self.payload(t))
+        self.assertEqual(n, 2)                                          # both land — injected is RESIDENT, not dropped
+        recs = self.records()
+        normal = next(r for r in recs if "redesign" in r["text"])
+        injected = next(r for r in recs if r["text"].startswith("<task-notification>"))
+        self.assertEqual(normal["tags"], ["transcript", "stop"])       # a real turn is untouched
+        self.assertIn(records.INJECTED_TAG, injected["tags"])          # the injected turn is tagged
+
+    def test_a_multi_chunk_continuation_summary_tags_every_chunk(self):
+        body = "\n\n".join(f"Section {i}: " + ("detail " * 40) for i in range(40))   # ~12 KB > the 4 KB chunk cap
+        summary = "This session is being continued from a previous conversation that ran out of context.\n\n" + body
+        t = self.transcript("s.jsonl", [_msg("user", summary)])
+        n = capture.capture_turn_delta(self.payload(t))
+        recs = self.records()
+        self.assertGreater(n, 1)                                       # genuinely chunked, not a single record
+        self.assertTrue(all(records.INJECTED_TAG in r["tags"] for r in recs))   # EVERY chunk tagged, not just the first
+
+    def test_a_real_turn_mentioning_a_marker_is_not_tagged(self):
+        t = self.transcript("s.jsonl", [_msg("user", "what does <task-notification> mean in my transcript?")])
+        capture.capture_turn_delta(self.payload(t))
+        self.assertEqual(self.records()[0]["tags"], ["transcript", "stop"])   # start-anchored: a mention is kept
 
 
 class NoiseFilterTests(CaptureTestCase):

@@ -62,6 +62,22 @@ class ReadDeltasTests(_Base):
         self._delta("A", 0, "user", "note")
         self.assertEqual(consolidate.read_deltas("nope"), [])
 
+    def test_skips_injected_pseudo_turns_but_keeps_real_ones(self):
+        # issue #274: a tagged-injected record (the durable capture path) AND a back-compat text-prefix record
+        # (captured before tagging existed) are both skipped as fuel; genuine turns are kept, in seq order.
+        self._delta("A", 0, "user", "first real note")
+        ledger.append(capture._make_record("A", 1, "user", "<task-notification>\n<id>x</id>", injected=True))
+        ledger.append(capture._make_record(
+            "A", 2, "user", "This session is being continued from a previous conversation."))  # no tag: back-compat
+        self._delta("A", 3, "user", "second real note")
+        self.assertEqual([r["text"] for r in consolidate.read_deltas("A")],
+                         ["first real note", "second real note"])
+
+    def test_keeps_a_real_turn_that_only_mentions_a_marker(self):
+        self._delta("A", 0, "user", "what does <task-notification> mean in my transcript?")
+        self.assertEqual([r["text"] for r in consolidate.read_deltas("A")],
+                         ["what does <task-notification> mean in my transcript?"])
+
 
 class StoreTests(_Base):
     def test_writes_a_typed_episodic_record_and_a_marker(self):
@@ -213,6 +229,19 @@ class DetectTests(_Base):
     def test_ignores_an_empty_session_id(self):
         ledger.append(capture._make_record("", 0, "user", "a weird empty-id record"))
         self.assertEqual(consolidate.detect_unconsolidated(), [])           # empty id never surfaces as pending
+
+    def test_a_session_of_only_injected_pseudo_turns_is_not_pending(self):
+        # else read_deltas yields nothing to store -> no marker is ever written -> the session is re-detected as
+        # pending every SessionStart (a permanent sweep loop). Detection must agree with the read (issue #274).
+        ledger.append(capture._make_record("J", 0, "user", "<task-notification>\n<id>x</id>", injected=True))
+        ledger.append(capture._make_record(
+            "J", 1, "user", "This session is being continued from a previous conversation."))
+        self.assertEqual(consolidate.detect_unconsolidated(), [])
+
+    def test_a_session_with_one_real_delta_among_injected_is_still_pending(self):
+        ledger.append(capture._make_record("M", 0, "user", "<task-notification>\n<id>x</id>", injected=True))
+        self._delta("M", 1, "user", "a genuine note worth tidying")
+        self.assertIn("M", consolidate.detect_unconsolidated())
 
 
 class DirectiveTests(_Base):
