@@ -36,6 +36,44 @@ MARKER_KIND = "consolidated"        # the in-ledger "this session has been tidie
 DEFAULT_EPISODIC_TAG = "episodic"
 MARKER_TAG = "consolidated"
 
+# Harness-injected pseudo-turns (issue #274, folding in #333). Claude Code injects non-conversational blocks as
+# `user`-role transcript turns — a background-agent completion notice (`<task-notification>`) and the `/compact`
+# continuation summary (`This session is being continued from a previous conversation…`). They reach the ledger
+# as ambient `turn-delta` records and are already EXCLUDED FROM RECALL by kind (above), but the consolidation
+# sweep reads the raw ledger, so without a filter the in-context AI would consolidate them as if the operator had
+# said them. The fix is NOT a pre-ledger drop — #333 chose to keep them RESIDENT + recoverable (the durability
+# law: an abandoned session loses the reflection, not the content). Instead capture TAGS them (`INJECTED_TAG`, on
+# every chunk of an injected message, recognised before chunking so a multi-chunk continuation summary is fully
+# tagged) and `consolidate` SKIPS a tagged/injected record as fuel. The prefix set is deliberately the two
+# DISTINCTIVE, ground-truthed standalone sentinels: each is the WHOLE injected message (never fused with a real
+# prompt, confirmed against the live ledger), so a start-anchored match cannot eat conversation. `<system-reminder>`
+# is deliberately EXCLUDED — it fuses with a human prompt in the same turn, so dropping it would lose real content.
+INJECTED_TAG = "injected"               # the tag capture stamps on every chunk of a harness-injected pseudo-turn
+_INJECTED_PSEUDO_TURN_PREFIXES = (
+    "<task-notification>",                                              # background-agent completion notice
+    "This session is being continued from a previous conversation",    # the /compact continuation summary
+)
+
+
+def is_injected_pseudo_turn_text(text) -> bool:
+    """True iff `text` BEGINS with a known harness-injected pseudo-turn marker. Start-anchored (the whole injected
+    message IS the block), so a genuine turn that merely mentions a marker mid-sentence is never matched. Used at
+    CAPTURE, on the whole message before chunking, so every chunk of an injected message is tagged uniformly."""
+    return isinstance(text, str) and text.strip().startswith(_INJECTED_PSEUDO_TURN_PREFIXES)
+
+
+def is_injected_record(record) -> bool:
+    """True iff `record` is a harness-injected pseudo-turn the consolidation sweep should skip as fuel: tagged
+    `INJECTED_TAG` at capture (the durable path — covers every chunk), OR — back-compat for records captured
+    before tagging existed — its text begins with an injected marker. The record stays physically resident and
+    recoverable in the ledger and is already recall-excluded by kind; this only keeps it out of consolidation."""
+    if not isinstance(record, dict):
+        return False
+    tags = record.get("tags")
+    if isinstance(tags, list) and INJECTED_TAG in tags:
+        return True
+    return is_injected_pseudo_turn_text(record.get("text"))
+
 # Provenance keys — envelope fields that are NOT human content, so the derived index keeps them OUT of the
 # search body (index._NON_BODY_KEYS).
 BATCH_KEY = "batch"                 # one id per consolidation pass, stamped on every episodic of that pass AND
