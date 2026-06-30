@@ -59,8 +59,8 @@ if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
 import validate  # noqa: E402 — the finding.v1 helper + ROOT (test-redirectable)
+import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build)
 
-API_ROOT = "https://api.github.com"
 USER_AGENT = "engine-dependency-review"
 _PRICING_URL = "https://github.com/pricing"
 _ENGINE_PREFIX = ".engine/"  # the §13 wall: manifests here are the engine's own tooling, never product deps
@@ -126,16 +126,7 @@ class DependencyReview:
 
     def _http(self, method: str, path: str, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(
-            API_ROOT + path, data=data, method=method,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/json",
-                "User-Agent": USER_AGENT,
-            },
-        )
+        req = github_client.request(path, self.token, user_agent=USER_AGENT, method=method, data=data)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")

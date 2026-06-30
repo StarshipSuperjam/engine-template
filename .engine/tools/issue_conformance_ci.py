@@ -32,10 +32,11 @@ Issue is caught only on its next body edit. Cold sessions apply `--label engine`
 and the in-session gate is the first line — widening the trigger would diverge from the locked design.
 
 SELF-CONTAINED TRANSPORT. telemetry.GitHubIssues has no per-Issue label/comment operations (its label is baked
-in at construction and it only opens/updates engine-health Issues), so this tool carries its own small client
-mirroring the audit_digest._http / telemetry._http idiom (same headers, 30s timeout, (status, json) return,
-injectable `_transport` seam) over the per-Issue label and comment operations it needs (label ensure/add/remove,
-comment list/post). telemetry.py is left untouched; the markers are single-sourced from issue_gate.
+in at construction and it only opens/updates engine-health Issues), so this tool carries its own transport — its
+own urlopen + (status, json) return + injectable `_transport` seam (30s timeout), building requests through the
+shared `github_client` (the audit_digest / telemetry idiom) — over the per-Issue label and comment operations it
+needs (label ensure/add/remove, comment list/post). telemetry.py is left untouched; the markers are
+single-sourced from issue_gate.
 
 CLI (operator-runnable, falsifiable — the live net is what the workflow invokes):
   uv run --directory .engine -- python tools/issue_conformance_ci.py demo   # scripted, fake GitHub, self-checks
@@ -51,9 +52,9 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import issue_author  # noqa: E402
+import github_client  # noqa: E402  (the shared authenticated GitHub API client; request-build)
 import issue_gate    # noqa: E402
 
-API_ROOT = "https://api.github.com"
 USER_AGENT = "engine-issue-conformance"
 
 # The label applied to a non-conforming engine Issue. The design names the signal `needs-reauthoring`
@@ -89,16 +90,7 @@ class IssueConformanceClient:
 
     def _http(self, method: str, path: str, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(
-            API_ROOT + path, data=data, method=method,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/json",
-                "User-Agent": USER_AGENT,
-            },
-        )
+        req = github_client.request(path, self.token, user_agent=USER_AGENT, method=method, data=data)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")

@@ -4053,7 +4053,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:8ed699ea3a47457c7d930b80bd03f8502756f0b0b2bf26ed43d5c02b83cdf591",
+        "fingerprint": "sha256:d1cde224ea91db72daebf5f2ea97ddc6624001c224e10256a8ec577328f76676",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -4529,7 +4529,7 @@
       },
       "slug": "disposition_issue_resolution_check",
       "source": {
-        "fingerprint": "sha256:bcf048e4b39cb22dd4628be313dbb00f9318edc0eecaa4b06ecca0d58b40c312",
+        "fingerprint": "sha256:92063029a9dc55cfd29652079effbaaf9b0079539cfbe76b9dd0eeac0569a065",
         "path": ".engine/tools/disposition_issue_resolution_check.py"
       },
       "status": "active",
@@ -4801,7 +4801,7 @@
       },
       "slug": "issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:34dc46cb824356e75ef386cc3ecb38c30ac51da794b311eef41f177777d14037",
+        "fingerprint": "sha256:1175a7e114bf86167d422d8bdcdc8830c6c703525d80fca3d2244bb97aba0730",
         "path": ".engine/tools/issue_conformance_ci.py"
       },
       "status": "active",
@@ -5022,7 +5022,7 @@
       },
       "slug": "milestone_emit",
       "source": {
-        "fingerprint": "sha256:9d3717c2831dbc9087a9c7a43188bea6dfeb4a0b9a10868f8e5c2079b931fe8f",
+        "fingerprint": "sha256:2a03cc45baecc55a08088ee2af54b680f502b220f95fbbc6f24fe2249b40a9ce",
         "path": ".engine/tools/milestone_emit.py"
       },
       "status": "active",
@@ -5192,7 +5192,7 @@
       },
       "slug": "projects_sync",
       "source": {
-        "fingerprint": "sha256:0fb7fc0b5256efa42a90f715ef5f5bba9ec1122ed9daf8b048582b45f10ce312",
+        "fingerprint": "sha256:bef0404e623dd4339b369669c5424dd3f42f0c9af8f97fc9b4088706a9203be9",
         "path": ".engine/tools/projects_sync/projects_sync.py"
       },
       "status": "active",
@@ -5277,7 +5277,7 @@
       },
       "slug": "review",
       "source": {
-        "fingerprint": "sha256:a613a3030cc3a1b3c845d924fd8483e5eb13dc3c208563d7b479016d4255f87a",
+        "fingerprint": "sha256:1a586c2b2493e76023df23e8e652afe2db9ef01ca0148cc1882e51c2d9076ac3",
         "path": ".engine/tools/dependency_discipline/review.py"
       },
       "status": "active",
@@ -5447,7 +5447,7 @@
       },
       "slug": "spec_referent",
       "source": {
-        "fingerprint": "sha256:c2e06b463c577c4701ea40c7aa75fda9803202d6beb67bd324735c8859bdf95a",
+        "fingerprint": "sha256:a1a142f4a56a6c8c599c5ce931cab0d2cca53034396ec6e038adfe06c8ccd888",
         "path": ".engine/tools/spec_referent.py"
       },
       "status": "active",

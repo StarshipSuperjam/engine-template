@@ -23,9 +23,9 @@ Both verbs are projections of the SAME resolution (consumed, not re-resolved): o
 SELF-CONTAINED ON PURPOSE. This is a CORE tool, but the spec corpus is authored by the OPTIONAL product-design
 module. So it imports NO product-design code — a required tool must not depend on an optional module, or it would
 crash on every repo that never installed product-design. It carries its own minimal markdown parser (a knowing
-duplicate of the trivial bits of `product_design/spec_form.py`) and its own GitHub boundary, mirroring the
-engine's injectable-transport seam (`milestone_emit` / `standing_situation`). The gh-client duplication is the
-shared-client consolidation tracked in engine-template #295 — folded there, not solved here.
+duplicate of the trivial bits of `product_design/spec_form.py`); its GitHub boundary builds requests through the
+shared `github_client` (the gh-client consolidation engine-template #295 began) while keeping its own
+injectable-transport seam (`milestone_emit` / `standing_situation`).
 
 Fail-closed (the load-bearing safety): the work-item body is the one REMOTE read. A read FAILURE (HTTP >= 400, a
 null body, an unreachable host, an unexpected shape) RAISES `SpecReferentError` — it is NEVER read as "no spec ->
@@ -54,9 +54,11 @@ import sys
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling tools dir, for github_client
+import github_client  # noqa: E402 — the shared authenticated GitHub API client; request-build
+
 # ---- constants -------------------------------------------------------------
 
-API_ROOT = "https://api.github.com"
 USER_AGENT = "engine-spec-referent"
 
 # The committed product spec tree, relative to the repository root.
@@ -378,7 +380,7 @@ class GitHubIssues:
     """The Issue-read boundary. Mirrors the engine's injectable-transport seam (`milestone_emit.GitHubMilestones`
     / `standing_situation`): `transport(method, path, body) -> (status, json)` is injectable, so the demo and
     tests fake ONLY the network and run the real resolution. A read failure RAISES `SpecReferentError` (never a
-    silent no-op). Carries its own minimal `_http` — a knowing duplicate tracked for consolidation in #295."""
+    silent no-op). Its `_http` builds the request through the shared `github_client`, keeping its own status/error handling."""
 
     def __init__(self, repo: str, token: str, transport=None):
         self.repo = repo
@@ -387,16 +389,7 @@ class GitHubIssues:
 
     def _http(self, method: str, path: str, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(
-            API_ROOT + path, data=data, method=method,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/json",
-                "User-Agent": USER_AGENT,
-            },
-        )
+        req = github_client.request(path, self.token, user_agent=USER_AGENT, method=method, data=data)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8")
