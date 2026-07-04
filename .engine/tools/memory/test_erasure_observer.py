@@ -33,9 +33,21 @@ def _rid() -> str:
 
 
 def _contents_for(target: str) -> dict:
-    """A base64 contents response carrying a proposal naming `target` (the shape the GitHub contents API returns)."""
+    """A base64 contents response carrying a LEGACY single-target proposal `{"target": …}` (the pre-Slice-B on-disk
+    shape; the observer reads it as a one-note batch — this is the back-compat fixture reused across the suite)."""
     raw = json.dumps({"target": target, "cost": "a plain-language paraphrase"}).encode("utf-8")
     return {"content": base64.b64encode(raw).decode("ascii"), "encoding": "base64"}
+
+
+def _contents_batch(targets: list) -> dict:
+    """A base64 contents response carrying a Slice-B BATCH proposal `{"targets": […], "costs": […]}`."""
+    raw = json.dumps({"targets": list(targets), "costs": ["a paraphrase"] * len(targets)}).encode("utf-8")
+    return {"content": base64.b64encode(raw).decode("ascii"), "encoding": "base64"}
+
+
+def _contents_raw(payload: dict) -> dict:
+    """A base64 contents response carrying an ARBITRARY proposal payload (for the malformed-grammar cases)."""
+    return {"content": base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii"), "encoding": "base64"}
 
 
 def _merged_pr(number: int, sha: str = _GOOD_SHA, body: str = "an editable body") -> dict:
@@ -294,6 +306,87 @@ class UnitTests(unittest.TestCase):
         self.assertFalse(obs._is_genuinely_merged({"merged_at": "x", "merge_commit_sha": ""}))
         self.assertFalse(obs._is_genuinely_merged({"merged_at": None, "merge_commit_sha": "abc"}))
         self.assertFalse(obs._is_genuinely_merged(None))
+
+
+class ReadTargetsTests(_Base):
+    """Slice B: `_read_targets` reads the batch grammar, keeps back-compat with the legacy single, and WHOLE-BATCH
+    REJECTS on any doubt — the faithful generalisation of the single-target fail-SAFE."""
+
+    def test_reads_a_batch_of_ids(self):
+        a, b = _rid(), _rid()
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_batch([a, b])})
+        self.assertEqual(obs._read_targets(gh, _GOOD_SHA), [a, b])
+
+    def test_reads_a_legacy_single_target_as_a_one_note_batch(self):
+        a = _rid()
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_for(a)})
+        self.assertEqual(obs._read_targets(gh, _GOOD_SHA), [a])
+
+    def test_whole_batch_rejects_when_any_element_is_malformed(self):
+        # The operator consented to the committed list; a single corrupt/foreign element voids the ENTIRE batch (a
+        # malformed element implies corruption/tampering, since the proposer only ever writes valid ids) -> erase none.
+        good = _rid()
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_raw({"targets": [good, "not-an-id"]})})
+        self.assertEqual(obs._read_targets(gh, _GOOD_SHA), [])
+
+    def test_rejects_an_empty_batch(self):
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_raw({"targets": []})})
+        self.assertEqual(obs._read_targets(gh, _GOOD_SHA), [])
+
+    def test_rejects_a_proposal_with_neither_key(self):
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_raw({"cost": "x"})})
+        self.assertEqual(obs._read_targets(gh, _GOOD_SHA), [])
+
+
+class BatchEnactTests(_Base):
+    """Slice B: one merged batch PR mints ONE singular marker per target under the SHARED merge SHA, is resumable
+    per target under partial failure, and erases the whole batch in one compaction."""
+
+    def test_a_merged_batch_mints_one_marker_per_target_under_one_sha(self):
+        a, b, c = _rid(), _rid(), _rid()
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_batch([a, b, c])})
+        self.assertEqual(obs.enact_from_merged_prs(gh), [7])             # ONE PR reported, whatever the batch size
+        markers = [r for r in ledger.iter_records()
+                   if isinstance(r, dict) and r.get("kind") == records.ERASURE_KIND]
+        self.assertEqual({m[records.TARGET_KEY] for m in markers}, {a, b, c})   # one marker per target
+        self.assertTrue(all(m[records.MERGE_SHA_KEY] == _GOOD_SHA for m in markers))  # all under the one merge
+
+    def test_a_whole_batch_reject_enacts_nothing(self):
+        good = _rid()
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_raw({"targets": [good, "bad"]})})
+        self.assertEqual(obs.enact_from_merged_prs(gh), [])
+        self.assertEqual(self._targets(), [])                            # not even the valid member is enacted
+
+    def test_partial_enactment_is_resumable_per_target(self):
+        # Mint 2 of 3, "crash", re-run: only the missing 3rd mints (the `seen` set is re-read from the ledger).
+        a, b, c = _rid(), _rid(), _rid()
+        compact.enact_erasure(a, _GOOD_SHA)                             # pretend `a` was minted before the crash
+        compact.enact_erasure(b, _GOOD_SHA)                             # ...and `b` too
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_batch([a, b, c])})
+        self.assertEqual(obs.enact_from_merged_prs(gh), [7])            # the PR is reported (c was newly minted)
+        self.assertEqual(sorted(self._targets()), sorted([a, b, c]))    # exactly one marker each, no double-mint
+        self.assertEqual(len(self._targets()), 3)
+        self.assertEqual(obs.enact_from_merged_prs(gh), [])            # a full re-run mints nothing (all seen)
+        self.assertEqual(len(self._targets()), 3)
+
+    def test_a_merged_batch_erases_the_whole_batch_in_one_compaction(self):
+        # End-to-end: two authorised targets are removed in a single compaction swap; a third, un-authorised note
+        # survives. (Records planted directly with content-free ids; compaction removes exactly the marked pair.)
+        from memory import consolidate
+        keep = consolidate._make_episodic("S", {"role": "decision", "text": "keep me"}, "bk")
+        gone1 = consolidate._make_episodic("S", {"role": "lesson", "text": "erase one"}, "b1")
+        gone2 = consolidate._make_episodic("S", {"role": "lesson", "text": "erase two"}, "b2")
+        for rec in (keep, gone1, gone2):
+            ledger.append(rec)
+        gid1, gid2 = gone1[records.RECORD_ID_KEY], gone2[records.RECORD_ID_KEY]
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_batch([gid1, gid2])})
+        obs.enact_from_merged_prs(gh)
+        report = compact.compact()
+        self.assertEqual(report.get("erased"), 2)                       # both erased in ONE swap
+        remaining = {r.get(records.RECORD_ID_KEY) for r in ledger.iter_records() if isinstance(r, dict)}
+        self.assertIn(keep[records.RECORD_ID_KEY], remaining)           # the un-authorised note survived
+        self.assertNotIn(gid1, remaining)
+        self.assertNotIn(gid2, remaining)
 
 
 class DemoTests(_Base):
