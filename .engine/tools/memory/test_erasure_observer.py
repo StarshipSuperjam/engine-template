@@ -326,11 +326,23 @@ class ReadTargetsTests(_Base):
         # The operator consented to the committed list; a single corrupt/foreign element voids the ENTIRE batch (a
         # malformed element implies corruption/tampering, since the proposer only ever writes valid ids) -> erase none.
         good = _rid()
-        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_raw({"targets": [good, "not-an-id"]})})
+        gh = _gh(prs={7: _merged_pr(7)},
+                 contents={_GOOD_SHA: _contents_raw({"targets": [good, "not-an-id"], "costs": ["x", "y"]})})
         self.assertEqual(obs._read_targets(gh, _GOOD_SHA), [])
 
+    def test_rejects_a_batch_whose_costs_do_not_pin_one_to_one_with_targets(self):
+        # Consumer-side consent-integrity: the operator consents on one cost line per target. A targets/costs length
+        # mismatch (or absent costs) means the committed list and the enumerated body diverged -> erase none. (The
+        # producer structurally cannot emit this; the guard defends against a hand-crafted / corrupted proposal.)
+        a, b = _rid(), _rid()
+        for bad in ({"targets": [a, b], "costs": ["only one"]},          # fewer costs than targets
+                    {"targets": [a, b]}):                                 # costs absent entirely
+            with self.subTest(bad=bad):
+                gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_raw(bad)})
+                self.assertEqual(obs._read_targets(gh, _GOOD_SHA), [])
+
     def test_rejects_an_empty_batch(self):
-        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_raw({"targets": []})})
+        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_raw({"targets": [], "costs": []})})
         self.assertEqual(obs._read_targets(gh, _GOOD_SHA), [])
 
     def test_rejects_a_proposal_with_neither_key(self):
@@ -353,7 +365,8 @@ class BatchEnactTests(_Base):
 
     def test_a_whole_batch_reject_enacts_nothing(self):
         good = _rid()
-        gh = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_raw({"targets": [good, "bad"]})})
+        gh = _gh(prs={7: _merged_pr(7)},
+                 contents={_GOOD_SHA: _contents_raw({"targets": [good, "bad"], "costs": ["x", "y"]})})
         self.assertEqual(obs.enact_from_merged_prs(gh), [])
         self.assertEqual(self._targets(), [])                            # not even the valid member is enacted
 

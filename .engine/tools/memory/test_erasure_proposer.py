@@ -313,6 +313,25 @@ class AutoOpenTests(_Base):
         result = emit.propose(opener=_raise_if_called, transport=transport, root=self._tmp.name)
         self.assertEqual(result["opened"], [])                              # fail-SAFE: declined, no duplicate risk
 
+    def test_declines_when_only_the_dedup_list_is_unreadable_even_if_the_serializer_reads_clean(self):
+        # ISOLATES the cross-PR dedup fail-SAFE from the one-in-flight serializer. `propose()` reads /issues? twice:
+        # state=all (dedup) and state=open (serializer). Here the DEDUP read (state=all) is unreadable (503) but the
+        # serializer read (state=open) is clean-and-empty. If `_proposed_targets(gh) is None` were coalesced to an
+        # empty set (fail-OPEN), a duplicate erasure PR would open. It must DECLINE. (A single "503 on every /issues?"
+        # test cannot catch this: the serializer's own decline masks whether the dedup path declined — D-of-the-gate.)
+        self._retired("an old hidden duplicate", age_days=60, batch="b1")
+
+        def transport(method, path, body):
+            if "state=all" in path:
+                return 503, None                                            # the DEDUP list is unreadable
+            if "state=open" in path:
+                return 200, []                                              # the serializer reads clean (none open)
+            return 404, None
+
+        result = emit.propose(opener=_raise_if_called, transport=transport, root=self._tmp.name)
+        self.assertEqual(result["opened"], [])                              # declined on the dedup doubt alone
+        self.assertIn("no duplicate risk", result["message"].lower())
+
     def test_no_earned_note_opens_nothing(self):
         self._retired("a fresh one", age_days=2, batch="b1")
         result = emit.propose(opener=_raise_if_called, transport=_no_existing_transport()[0], root=self._tmp.name)
@@ -562,12 +581,18 @@ class PrBodyConsentTests(unittest.TestCase):
             self.assertIn(f"MARKER-{i}", body, "every note's own cost line must appear (per-note enumeration)")
         self.assertIn("3 remembered notes", low)               # the scale is stated
         self.assertIn("all-or-nothing", low)                   # merging erases the whole batch
+        self.assertIn("no way to keep just some", low)         # the honest trade: merge-all or keep-all
+        self.assertIn("no per-note pick", low)                 # per-note selection does not exist
         self.assertIn("consent", low)
         self.assertIn("close", low)                            # the safe decline path
         self.assertIn("recoverable", low)
         self.assertNotIn("targets", low)                       # no engine jargon
         for opaque in ("a" * 32, "b" * 32, "c" * 32):
             self.assertNotIn(opaque, low)                      # opaque record-ids never appear in the body
+
+    def test_the_body_refuses_an_empty_batch(self):
+        with self.assertRaises(ValueError):
+            emit._pr_body({"targets": [], "costs": []})
 
 
 class BatchProposeTests(_Base):

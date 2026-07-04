@@ -4580,7 +4580,7 @@
       },
       "slug": "erasure_observer",
       "source": {
-        "fingerprint": "sha256:281191b633c9c5cad5cc12615f6a26a5aa23e9d0207dd7d32c8ff1b26346d526",
+        "fingerprint": "sha256:25739b8768eb2f4ef5b2b35768070cd04da6c2c7021113c7884f9ee8bd3617a3",
         "path": ".engine/tools/memory/erasure_observer.py"
       },
       "status": "active",
@@ -4597,7 +4597,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:392155d611f051a82e36d651c3324f1174d02a1b287105fac953294dc3f7effc",
+        "fingerprint": "sha256:3ca853427ec67294dad6c5e9373d2f4a696036bcac86a9deb598d682a6da6585",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -6008,7 +6008,7 @@
       },
       "slug": "test_erasure_observer",
       "source": {
-        "fingerprint": "sha256:6cf2a5d749fca54576b6916a67ad3650eea11f5acf57cf767f8d55813b170f6a",
+        "fingerprint": "sha256:a26b337c68e1ff438298f14e398350b009d829fca8136570201e13fc90893c8b",
         "path": ".engine/tools/memory/test_erasure_observer.py"
       },
       "status": "active",
@@ -6025,7 +6025,7 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:f1bf7d02d62388af0815e988bd3fc209f20024e57fa11c4a1999569dd3f8a2c0",
+        "fingerprint": "sha256:904ecdc9edc723d4f81888b58d3e60ab068b9eb293775f4d915764936887baf8",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",

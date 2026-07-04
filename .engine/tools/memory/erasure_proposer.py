@@ -320,11 +320,14 @@ def _pr_body(proposal: dict) -> str:
     """The operator-facing pull-request body — plain language, one cost line PER note, no engine jargon, no note
     content. This is the consent surface: merging erases every note listed here (a later session carries it out;
     nothing merges on its own), so the body ENUMERATES each note's plain-language cost — the operator sees the full
-    list they are consenting to erase, never a bare count. For a batch it is all-or-nothing: closing keeps them all.
-    Renders from `costs` (which `write_proposal` pins one-to-one with the committed `targets`), so the list read is
-    exactly the list erased."""
+    list they are consenting to erase, never a bare count. For a batch it is all-or-nothing and stated as such: the
+    choice is merge-all or keep-all — there is no per-note pick, and closing keeps every note (permanently — they
+    are not re-offered). Renders from `costs` (which `write_proposal` pins one-to-one with the committed `targets`),
+    so the list read is exactly the list erased. Raises on an empty batch (the caller never reaches it with none)."""
     costs = proposal.get("costs") or []
     n = len(costs)
+    if n == 0:
+        raise ValueError("refusing to render a consent body for a proposal with no notes")
     if n == 1:
         return (
             "This pull request proposes to **permanently erase one remembered note** from the engine's memory.\n\n"
@@ -341,10 +344,11 @@ def _pr_body(proposal: dict) -> str:
         f"**What each one is** (merging consents to erasing all {n}):\n\n{listed}\n\n"
         f"Merging this pull request is your consent to erase all {n} notes — the single thing the engine can do to "
         f"its memory that cannot be undone. Nothing is erased the moment you merge: a later session carries out the "
-        f"erasure, and nothing merges on its own. This is all-or-nothing: merging erases every note above. If you "
-        f"would rather keep any of them, just **close** this pull request — declining loses nothing (every note stays "
-        f"exactly where it is, still hidden from recall and fully recoverable), and the engine will not raise these "
-        f"same notes again.\n")
+        f"erasure, and nothing merges on its own.\n\n"
+        f"**This is all-or-nothing — there is no way to keep just some.** Merging erases all {n}; closing keeps all "
+        f"{n}. If you would rather keep even one of them, **close** this pull request: nothing is erased, every note "
+        f"stays exactly where it is (still hidden from recall and fully recoverable), and the engine will not offer "
+        f"these {n} notes again. (There is no per-note pick — keeping one means keeping them all.)\n")
 
 
 # --- the auto-open orchestrator ----------------------------------------------------------------------------
@@ -615,8 +619,10 @@ def _demo() -> int:
     print("it labels so a later session can find it. The pull-request body lists one plain line per note, so you see the")
     print("whole batch you are consenting to; merging is all-or-nothing. They are PERMANENTLY erased only because YOU")
     print("merge that pull request; nothing is erased now, and nothing merges on its own. There are two notes here only")
-    print("because the demo planted two — in real use the batch tracks your session backlog, and one merge clears it.")
-    print("Run again and it opens nothing — it never re-pesters you about notes already in front of you. On a fresh")
+    print("because the demo planted two: today the engine only proposes erasing crash-duplicate leftovers, which are")
+    print("rare, so a real batch is usually one note or none. The grammar that clears a real backlog in one merge is")
+    print("here; the larger source that fills those batches comes in a later step. Run again and it opens nothing — it")
+    print("never re-pesters you about notes already in front of you. On a fresh")
     print("project there are no old duplicates, so it proposes nothing; if GitHub is unreachable it simply tries again")
     print(f"next time — nothing breaks. That was a PRACTICE cabinet, thrown away. Vary it: change the note ages or")
     print(f"EARNED_ERASURE_MIN_AGE_DAYS (now {EARNED_ERASURE_MIN_AGE_DAYS}) near the top and re-run — watch the OLD notes")

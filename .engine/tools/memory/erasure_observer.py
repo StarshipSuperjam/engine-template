@@ -116,8 +116,11 @@ def _read_targets(gh, merge_sha: str) -> list:
     record-id shape. WHOLE-BATCH REJECT: one malformed element voids the ENTIRE batch — the operator consented to
     the committed list, so a corrupt/foreign element means act on none and resurface next session (the faithful
     generalisation of the single-target `None`-on-doubt; and since the proposer only ever writes valid ids, a
-    malformed element implies corruption or tampering — exactly when to erase nothing). Reads ONLY the ids — never
-    the operator-facing `costs`, never any ledger content."""
+    malformed element implies corruption or tampering — exactly when to erase nothing). For the batch grammar it
+    also requires a `costs` list of EQUAL length (a structural consent-integrity check — the operator consents on
+    one cost line per target; a `targets`/`costs` mismatch means the committed list and the enumerated body diverged,
+    so erase none). It reads only the ids for enactment and the `costs` LENGTH for that check — never a cost line's
+    content, never any ledger content."""
     data = _get(gh, f"/repos/{gh.repo}/contents/{_PROPOSAL_PATH}?ref={merge_sha}")
     if not isinstance(data, dict) or data.get("encoding") != "base64":
         return []
@@ -132,6 +135,9 @@ def _read_targets(gh, merge_sha: str) -> list:
         return []
     if isinstance(obj.get("targets"), list):
         raw_ids = obj["targets"]
+        costs = obj.get("costs")
+        if not isinstance(costs, list) or len(costs) != len(raw_ids):
+            return []                                            # batch grammar: costs must pin 1:1 with targets
     elif obj.get("target") is not None:
         raw_ids = [obj.get("target")]                            # legacy single-target proposal -> a one-note batch
     else:
@@ -348,9 +354,11 @@ def _demo() -> int:
     print("the pull request you MERGED (not one merely closed) and on what you COMMITTED (not the pull-request text,")
     print("which can be edited after the fact). It tells you once, then never again. This is the ONE thing the engine")
     print("can do to your memory that cannot be undone, and it happens ONLY because you merged that pull request. An")
-    print("un-authorised note is left alone. There are two notes here only because the demo planted two — one merge")
-    print("clears the whole batch. If GitHub is ever unreachable, the engine simply carries on and tries again next")
-    print("session — nothing breaks. That was a PRACTICE cabinet, thrown away.")
+    print("un-authorised note is left alone. There are two notes here only because the demo planted two: today the")
+    print("engine only proposes crash-duplicate leftovers, which are rare, so a real batch is usually one note or none")
+    print("— the grammar that clears a real backlog in one merge is here; the larger source that fills it comes later.")
+    print("If GitHub is ever unreachable, the engine simply carries on and tries again next session — nothing breaks.")
+    print("That was a PRACTICE cabinet, thrown away.")
     return 0 if ok else 1
 
 
