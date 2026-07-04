@@ -56,8 +56,9 @@ from memory import compact, ledger, records  # noqa: E402
 ERASURE_LABEL = "engine-erasure"   # the dedicated label a single-purpose erasure PR carries (the (ii)↔(iii) contract)
 
 # The committed proposal file the observer reads at the PR's merge tree. A COMMITTED path (NOT under the gitignored
-# `.engine/memory/` ledger dir, which could not be committed). Slice (iii) MUST emit `{"target": <id>, "cost": <plain
-# paraphrase>}` here and OWNS this file's main-tree lifecycle; the observer commits nothing here and reads ONLY `target`.
+# `.engine/memory/` ledger dir, which could not be committed). Slice (iii) MUST emit `{"targets": [<id>, …], "costs":
+# [<plain paraphrase>, …]}` here (a legacy single `{"target": <id>, …}` is still read as a one-note batch) and OWNS
+# this file's main-tree lifecycle; the observer commits nothing here and reads ONLY the `targets` ids.
 _PROPOSAL_PATH = ".engine/erasures/proposal.json"
 
 # The content-free record-id shape: `records.new_record_id()` mints a uuid4 hex = exactly 32 lowercase hex chars.
@@ -106,24 +107,44 @@ def _is_record_id(value) -> bool:
     return isinstance(value, str) and _RECORD_ID_RE.match(value) is not None
 
 
-def _read_target(gh, merge_sha: str):
-    """The content-free target id, read from the committed proposal file at the IMMUTABLE merge tree
-    (`?ref=merge_sha`). Returns a validated record id, or None on ANY doubt (fail-SAFE): 404/absent, a directory
-    (a list body), a non-`base64` encoding (the `"none"` GitHub returns for >1 MB blobs), a base64/JSON decode
-    error, a non-object body, or a missing/malformed `target`. Reads ONLY `target` — never the operator-facing
-    `cost`, never any ledger content."""
+def _read_targets(gh, merge_sha: str) -> list:
+    """The content-free target ids, read from the committed proposal file at the IMMUTABLE merge tree
+    (`?ref=merge_sha`). Accepts the batch grammar `{"targets": [id, …]}` and a legacy single `{"target": id}` (read
+    as a one-element batch). Returns a list of validated record ids, or [] on ANY doubt (fail-SAFE): 404/absent, a
+    directory (a list body), a non-`base64` encoding (the `"none"` GitHub returns for >1 MB blobs), a base64/JSON
+    decode error, a non-object body, an empty/absent target list, OR any element that is not the content-free
+    record-id shape. WHOLE-BATCH REJECT: one malformed element voids the ENTIRE batch — the operator consented to
+    the committed list, so a corrupt/foreign element means act on none and resurface next session (the faithful
+    generalisation of the single-target `None`-on-doubt; and since the proposer only ever writes valid ids, a
+    malformed element implies corruption or tampering — exactly when to erase nothing). For the batch grammar it
+    also requires a `costs` list of EQUAL length (a structural consent-integrity check — the operator consents on
+    one cost line per target; a `targets`/`costs` mismatch means the committed list and the enumerated body diverged,
+    so erase none). It reads only the ids for enactment and the `costs` LENGTH for that check — never a cost line's
+    content, never any ledger content."""
     data = _get(gh, f"/repos/{gh.repo}/contents/{_PROPOSAL_PATH}?ref={merge_sha}")
     if not isinstance(data, dict) or data.get("encoding") != "base64":
-        return None
+        return []
     raw = data.get("content")
     if not isinstance(raw, str):
-        return None
+        return []
     try:
         obj = json.loads(base64.b64decode(raw).decode("utf-8"))  # base64 may carry embedded newlines — decode tolerates
     except Exception:  # noqa: BLE001 — a malformed/corrupt proposal is a doubt -> skip (fail-SAFE)
-        return None
-    target = obj.get("target") if isinstance(obj, dict) else None
-    return target if _is_record_id(target) else None
+        return []
+    if not isinstance(obj, dict):
+        return []
+    if isinstance(obj.get("targets"), list):
+        raw_ids = obj["targets"]
+        costs = obj.get("costs")
+        if not isinstance(costs, list) or len(costs) != len(raw_ids):
+            return []                                            # batch grammar: costs must pin 1:1 with targets
+    elif obj.get("target") is not None:
+        raw_ids = [obj.get("target")]                            # legacy single-target proposal -> a one-note batch
+    else:
+        return []
+    if not raw_ids or not all(_is_record_id(t) for t in raw_ids):
+        return []                                                # whole-batch reject: empty or any invalid id -> none
+    return list(raw_ids)
 
 
 # --- dedup + enactment ------------------------------------------------------------------------------------
@@ -142,10 +163,12 @@ def _already_enacted(target: str, *, path: "str | None" = None) -> bool:
 
 
 def enact_from_merged_prs(gh, *, path: "str | None" = None) -> list:
-    """Discover merged `engine-erasure` PRs, enact each not-yet-enacted target, and return the PR numbers NEWLY
-    enacted THIS run (for the one-time heads-up). Pure orchestration over the fail-open reads + the slice-i minter;
-    reads the ledger's existing targets ONCE and dedups in-memory (so two PRs naming one target, or a re-run, never
-    double-mint). Never raises."""
+    """Discover merged `engine-erasure` PRs, enact each not-yet-enacted target in each PR's committed batch, and
+    return the PR numbers NEWLY enacted THIS run (for the one-time heads-up). Pure orchestration over the fail-open
+    reads + the slice-i minter. A merged batch PR mints ONE singular marker per target under the SHARED merge SHA:
+    the ledger's existing targets are read ONCE into `seen` and each mint adds to it, so a partial run (mint some,
+    crash, re-run) re-mints only the missing targets, and two PRs naming one target — or a re-merge — never
+    double-mint. A PR is reported enacted iff at least ONE of its targets was newly minted. Never raises."""
     seen = _erased_targets(path)
     enacted: list = []
     for number in discover_erasure_pr_numbers(gh):
@@ -153,11 +176,14 @@ def enact_from_merged_prs(gh, *, path: "str | None" = None) -> list:
         if not _is_genuinely_merged(pr):
             continue
         merge_sha = pr["merge_commit_sha"]
-        target = _read_target(gh, merge_sha)
-        if target is None or target in seen:
-            continue
-        if compact.enact_erasure(target, merge_sha, path=path) is not None:
-            seen.add(target)
+        newly = False
+        for target in _read_targets(gh, merge_sha):
+            if target in seen:
+                continue
+            if compact.enact_erasure(target, merge_sha, path=path) is not None:
+                seen.add(target)
+                newly = True
+        if newly:
             enacted.append(number)
     return enacted
 
@@ -177,19 +203,20 @@ def _reader():
     return telemetry.GitHubIssues(repo, token)
 
 
-def _heads_up(pr_numbers: list) -> str:
+def _heads_up(pr_numbers: list, note_count: "int | None" = None) -> str:
     """The model-facing relay for a NEW enactment — plain language, the operator's chosen one-time heads-up. Names
-    the PR(s) the operator merged (operator-recognisable, immutable) and NEVER the note's content."""
+    the PR(s) the operator merged (operator-recognisable, immutable) and NEVER the note's content. `note_count` is
+    how many notes those merges scheduled (a single PR may clear a whole batch); it defaults to the PR count for a
+    legacy one-note-per-PR merge."""
     refs = ", ".join(f"#{n}" for n in sorted(set(pr_numbers)))
-    count = len(set(pr_numbers))
-    if count == 1:
-        clause = f"a single-purpose erasure pull request ({refs}), one remembered note is"
-    else:
-        clause = f"single-purpose erasure pull requests ({refs}), {count} remembered notes are"
+    pr_count = len(set(pr_numbers))
+    pr_phrase = "a single-purpose erasure pull request" if pr_count == 1 else "single-purpose erasure pull requests"
+    n = pr_count if note_count is None else note_count
+    notes = "one remembered note is" if n == 1 else f"{n} remembered notes are"
     return (
-        f"INFORM THE USER, in plain language (they asked to be told once): because they merged {clause} now "
-        f"scheduled to be permanently erased at the next memory tidy — the one action on their memory that "
-        f"cannot be undone, happening only because they merged it.")
+        f"INFORM THE USER, in plain language (they asked to be told once): because they merged {pr_phrase} "
+        f"({refs}), {notes} now scheduled to be permanently erased at the next memory tidy — the one action on "
+        f"their memory that cannot be undone, happening only because they merged it.")
 
 
 def _session_start_handler(payload) -> dict:
@@ -201,27 +228,30 @@ def _session_start_handler(payload) -> dict:
         gh = _reader()
         if gh is None:
             return hooks.proceed()                 # no repo/token -> degraded host, silent
+        before = len(_erased_targets())            # how many targets were already scheduled...
         enacted = enact_from_merged_prs(gh)
         if enacted:
-            return hooks.inject(_heads_up(enacted))
+            return hooks.inject(_heads_up(enacted, len(_erased_targets()) - before))  # ...so the delta = notes newly scheduled
     except Exception:  # noqa: BLE001 — fail-open: a fault here must never strand the session start
         return hooks.proceed()
     return hooks.proceed()
 
 
 # --- operator demonstration (REAL observer logic; only the GitHub transport is stubbed) --------------------
-# A walkthrough on a THROWAWAY practice cabinet. It runs the REAL discovery -> genuine-merge -> read-target@tree ->
+# A walkthrough on a THROWAWAY practice cabinet. It runs the REAL discovery -> genuine-merge -> read-targets@tree ->
 # dedup -> enact -> compact path; only the GitHub network is a stub at the injectable seam. It proves: the engine
-# acts on the PR you MERGED (not one merely closed) and on what you COMMITTED (not the editable PR body), erases only
-# that note, and never repeats. Vary which note the merged PR authorises (by its word) at the top and re-run:
+# acts on the PR you MERGED (not one merely closed) and on what you COMMITTED (not the editable PR body), erases the
+# WHOLE batch that one merge authorised (here two notes) in a single tidy, leaves an un-authorised note alone, and
+# never repeats. Two notes here because the demo plants two; one merge clears the whole batch. Re-run to re-read:
 #     uv run --directory .engine --frozen -- python tools/memory/erasure_observer.py demo
 _DEMO_SESSION = "session-observer"
 _DEMO_KEEP_TEXT = "Decided the harbor festival keeps its Saturday fireworks. KEEP-THIS-NOTE."
 _DEMO_KEEP_WORD = "fireworks"
-_DEMO_GONE_TEXT = "Withdrawn idea: move the depot onto the floodplain. ERASE-THIS-NOTE."
-_DEMO_GONE_WORD = "floodplain"
-_DEMO_AUTHORISED = "gone"   # which note the merged PR authorises erasing: "gone" (default) or "keep" — VARY and re-run
-_DEMO_MERGED_PR = 7         # the merged single-purpose erasure PR
+_DEMO_GONE1_TEXT = "Withdrawn idea: move the depot onto the floodplain. ERASE-THIS-NOTE."
+_DEMO_GONE1_WORD = "floodplain"
+_DEMO_GONE2_TEXT = "Withdrawn idea: pave the millpond for extra parking. ERASE-THIS-TOO."
+_DEMO_GONE2_WORD = "millpond"
+_DEMO_MERGED_PR = 7         # the merged single-purpose erasure PR (its committed proposal names BOTH withdrawn notes)
 _DEMO_CLOSED_PR = 8         # a control: CLOSED but NOT merged -> the observer must leave it alone
 _DEMO_MERGE_SHA = "a1b2c3d4e5f600000000000000000000deadbeef"
 
@@ -235,14 +265,18 @@ class _FakeGH:
         self._transport = transport
 
 
-def _stub_transport(*, target_id: str, body_id: str, merged_sha: str = _DEMO_MERGE_SHA):
+def _stub_transport(*, target_id: str = None, targets: "list | None" = None, body_id: str,
+                    merged_sha: str = _DEMO_MERGE_SHA):
     """Answer the three GETs the observer makes: the by-label discovery (a merged PR + a closed-unmerged control,
     both labelled), each `/pulls/{n}`, and the proposal read at the merged PR's tree. The merged PR's BODY names
-    `body_id` (the OTHER note) while the committed proposal names `target_id` — so the demo can prove the observer
-    binds to the merge tree, not the editable body."""
-    proposal = base64.b64encode(
-        json.dumps({"target": target_id, "cost": "a withdrawn idea you decided to drop"}).encode("utf-8")
-    ).decode("ascii")
+    `body_id` (an un-authorised note) while the committed proposal names the authorised target(s) — so the demo can
+    prove the observer binds to the merge tree, not the editable body. Pass `targets=[…]` for the batch grammar
+    `{"targets": […], "costs": […]}`, or `target_id=…` for a legacy single `{"target": …}` (back-compat)."""
+    if targets is not None:
+        payload = {"targets": list(targets), "costs": ["a withdrawn idea you decided to drop"] * len(targets)}
+    else:
+        payload = {"target": target_id, "cost": "a withdrawn idea you decided to drop"}
+    proposal = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
 
     def transport(method, path, body):
         if "/issues?" in path:                                   # the by-label discovery (closed items)
@@ -316,77 +350,73 @@ def _demo() -> int:
 
     print("\n" + "-" * 92)
     print("What this just proved: when you MERGE a single-purpose erasure pull request, the engine schedules exactly")
-    print("the one note you authorised for permanent erasure — and it acts on the pull request you MERGED (not one")
-    print("merely closed) and on what you COMMITTED (not the pull-request text, which can be edited after the fact).")
-    print("It tells you once, then never again. This is the ONE thing the engine can do to your memory that cannot be")
-    print("undone, and it happens ONLY because you merged that pull request. Nothing in the engine yet CREATES such a")
-    print("pull request (that is the next step), so on its own it still erases nothing. If GitHub is ever unreachable,")
-    print("the engine simply carries on and tries again next session — nothing breaks. That was a PRACTICE cabinet,")
-    print("thrown away. Vary it: at the top switch which note the merged pull request authorises (by its word) and")
-    print("re-run — the erase follows what was committed; the note you did not authorise always survives.")
+    print("the batch of notes you authorised for permanent erasure — here two, cleared in one merge — and it acts on")
+    print("the pull request you MERGED (not one merely closed) and on what you COMMITTED (not the pull-request text,")
+    print("which can be edited after the fact). It tells you once, then never again. This is the ONE thing the engine")
+    print("can do to your memory that cannot be undone, and it happens ONLY because you merged that pull request. An")
+    print("un-authorised note is left alone. There are two notes here only because the demo planted two: today the")
+    print("engine only proposes crash-duplicate leftovers, which are rare, so a real batch is usually one note or none")
+    print("— the grammar that clears a real backlog in one merge is here; the larger source that fills it comes later.")
+    print("If GitHub is ever unreachable, the engine simply carries on and tries again next session — nothing breaks.")
+    print("That was a PRACTICE cabinet, thrown away.")
     return 0 if ok else 1
 
 
 def _demo_body() -> bool:
     keep_id = _plant(_DEMO_KEEP_TEXT)
-    gone_id = _plant(_DEMO_GONE_TEXT)
+    gone1_id = _plant(_DEMO_GONE1_TEXT)
+    gone2_id = _plant(_DEMO_GONE2_TEXT)
     _rebuild()
-    if _DEMO_AUTHORISED == "keep":
-        target_id, target_word, other_id, other_word, other_text = (
-            keep_id, _DEMO_KEEP_WORD, gone_id, _DEMO_GONE_WORD, _DEMO_GONE_TEXT)
-    else:
-        target_id, target_word, other_id, other_word, other_text = (
-            gone_id, _DEMO_GONE_WORD, keep_id, _DEMO_KEEP_WORD, _DEMO_KEEP_TEXT)
-    # The merged PR's committed proposal names the AUTHORISED note; its editable BODY names the OTHER note.
-    gh = _FakeGH(_stub_transport(target_id=target_id, body_id=other_id))
+    gone_ids = {gone1_id, gone2_id}
+    # The merged PR's committed proposal names BOTH withdrawn notes (a batch); its editable BODY names the kept note.
+    gh = _FakeGH(_stub_transport(targets=[gone1_id, gone2_id], body_id=keep_id))
 
     # --- PART 1 ------------------------------------------------------------------------------------------
-    print("\nPART 1 — two real notes are on file, both findable")
+    print("\nPART 1 — three real notes are on file, all findable")
     print("-" * 92)
-    found_target = _found(target_word)
-    found_other = _found(other_word)
-    print(f'  the note the merged pull request authorises erasing: search "{target_word}" -> found {found_target}')
-    print(f'  the other note (you did NOT authorise it): search "{other_word}" -> found {found_other}')
-    part1 = found_target == 1 and found_other == 1
-    print(f"  => {'both notes are on file and findable.' if part1 else '!!! a note is missing at the start'}")
+    found_gone1, found_gone2, found_keep = _found(_DEMO_GONE1_WORD), _found(_DEMO_GONE2_WORD), _found(_DEMO_KEEP_WORD)
+    print(f'  the two notes the merged pull request authorises erasing: "{_DEMO_GONE1_WORD}" -> {found_gone1}, "{_DEMO_GONE2_WORD}" -> {found_gone2}')
+    print(f'  the note you did NOT authorise: search "{_DEMO_KEEP_WORD}" -> found {found_keep}')
+    part1 = found_gone1 == 1 and found_gone2 == 1 and found_keep == 1
+    print(f"  => {'all three notes are on file and findable.' if part1 else '!!! a note is missing at the start'}")
 
     # --- PART 2 ------------------------------------------------------------------------------------------
     print(f"\nPART 2 — the engine reads GitHub: it acts on the MERGED pull request (#{_DEMO_MERGED_PR}), not the one")
-    print(f"         merely CLOSED (#{_DEMO_CLOSED_PR})")
+    print(f"         merely CLOSED (#{_DEMO_CLOSED_PR}) — and one merge schedules the WHOLE batch")
     print("-" * 92)
     enacted = enact_from_merged_prs(gh)              # the REAL observer, against the stubbed GitHub
     print(f"  pull requests the engine acted on this session: {enacted}   (it ignored the closed-not-merged one)")
-    print(f"  permanent-erase authorisations now on file: {_slips()}")
+    print(f"  permanent-erase authorisations now on file: {_slips()}   (one per note in the batch, one shared merge)")
     print("  the one-time heads-up the engine would show you:")
     if enacted:
-        print(f"    \"{_heads_up(enacted)[len('INFORM THE USER, in plain language (they asked to be told once): '):]}\"")
-    part2 = enacted == [_DEMO_MERGED_PR] and _slips() == 1
-    print(f"  => {'it acted only on the pull request you merged.' if part2 else '!!! it acted on the wrong pull request, or both, or none'}")
+        print(f"    \"{_heads_up(enacted, _slips())[len('INFORM THE USER, in plain language (they asked to be told once): '):]}\"")
+    part2 = enacted == [_DEMO_MERGED_PR] and _slips() == 2
+    print(f"  => {'it acted only on the pull request you merged, scheduling both notes it named.' if part2 else '!!! it acted on the wrong pull request, or scheduled the wrong count'}")
 
     # --- PART 3 ------------------------------------------------------------------------------------------
     print("\nPART 3 — it acted on what you COMMITTED, not on the pull-request text (which can be edited later)")
     print("-" * 92)
-    scheduled_target = _has_slip_for(target_id)
-    scheduled_other = _has_slip_for(other_id)
-    print(f'  the merged pull request\'s editable text named the OTHER note ("{_snippet(other_text)}")')
-    print(f"  the note actually scheduled is the one named in the committed file: {'the authorised note' if scheduled_target else 'NO'}")
-    print(f"  the note named only in the editable text was left alone: {'yes' if not scheduled_other else 'NO (scheduled it!)'}")
-    part3 = scheduled_target and not scheduled_other
+    scheduled_batch = _has_slip_for(gone1_id) and _has_slip_for(gone2_id)
+    scheduled_keep = _has_slip_for(keep_id)
+    print(f'  the merged pull request\'s editable text named the un-authorised note ("{_snippet(_DEMO_KEEP_TEXT)}")')
+    print(f"  the notes actually scheduled are the ones named in the committed file: {'both authorised notes' if scheduled_batch else 'NO'}")
+    print(f"  the note named only in the editable text was left alone: {'yes' if not scheduled_keep else 'NO (scheduled it!)'}")
+    part3 = scheduled_batch and not scheduled_keep
     print(f"  => {'it bound to what you committed, not to text that can be edited after the fact.' if part3 else '!!! it followed the editable text instead of the committed file'}")
 
     # --- PART 4 ------------------------------------------------------------------------------------------
-    print("\nPART 4 — the tidy erases it (once); the other note is untouched; re-checking GitHub changes nothing")
+    print("\nPART 4 — the tidy erases BOTH in one swap; the un-authorised note is untouched; re-checking changes nothing")
     print("-" * 92)
     report = compact.compact()
-    target_gone = not _present(target_id)
-    found_other_after = _found(other_word)
+    batch_gone = not _present(gone1_id) and not _present(gone2_id)
+    found_keep_after = _found(_DEMO_KEEP_WORD)
     enacted_again = enact_from_merged_prs(gh)        # the SAME merged PR, a later session -> dedup, no re-fire
-    print(f'  the authorised note: search "{target_word}" -> found {_found(target_word)}   (physically gone: {"yes" if target_gone else "NO"})')
-    print(f'  the other note: search "{other_word}" -> found {found_other_after}   (untouched)')
+    print(f'  the authorised notes: "{_DEMO_GONE1_WORD}" -> {_found(_DEMO_GONE1_WORD)}, "{_DEMO_GONE2_WORD}" -> {_found(_DEMO_GONE2_WORD)}   (both physically gone: {"yes" if batch_gone else "NO"})')
+    print(f'  the un-authorised note: search "{_DEMO_KEEP_WORD}" -> found {found_keep_after}   (untouched)')
     print(f"  re-checking GitHub next session acted on: {enacted_again}   (none — already done; you are NOT told again)")
-    part4 = (target_gone and report.get("erased") == 1 and found_other_after == 1
-             and enacted_again == [] and _slips() == 1)
-    print(f"  => {'erased once and only once; the other note survived; no second heads-up.' if part4 else '!!! the wrong note changed, it repeated, or it re-fired the notice'}")
+    part4 = (batch_gone and report.get("erased") == 2 and found_keep_after == 1
+             and enacted_again == [] and _slips() == 2)
+    print(f"  => {'the whole batch erased once and only once; the un-authorised note survived; no second heads-up.' if part4 else '!!! the wrong note changed, it repeated, or it re-fired the notice'}")
 
     return part1 and part2 and part3 and part4
 

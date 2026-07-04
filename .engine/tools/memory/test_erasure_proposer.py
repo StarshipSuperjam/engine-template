@@ -29,8 +29,15 @@ _DAY = 86400
 
 
 def _contents(target: str) -> dict:
-    """A base64 contents response naming `target` (the GitHub contents API shape the observer reads)."""
+    """A base64 contents response naming `target` via the LEGACY single-target shape `{"target": …}` (the observer
+    reads it as a one-note batch — this doubles as back-compat coverage of the pre-Slice-B on-disk grammar)."""
     raw = json.dumps({"target": target, "cost": "a paraphrase"}).encode("utf-8")
+    return {"content": base64.b64encode(raw).decode("ascii"), "encoding": "base64"}
+
+
+def _contents_batch(targets: list) -> dict:
+    """A base64 contents response naming a BATCH via the Slice-B grammar `{"targets": […], "costs": […]}`."""
+    raw = json.dumps({"targets": list(targets), "costs": ["a paraphrase"] * len(targets)}).encode("utf-8")
     return {"content": base64.b64encode(raw).decode("ascii"), "encoding": "base64"}
 
 
@@ -106,21 +113,32 @@ class ProbeTests(_Base):
 # --- the content-free proposal (D-007) ---------------------------------------------------------------------
 
 class ProposalTests(_Base):
-    def test_proposal_is_exactly_target_and_cost(self):
+    def test_proposal_is_exactly_targets_and_costs(self):
         rec = consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, "b")
-        proposal = emit.build_proposal(rec)
-        self.assertEqual(set(proposal), {"target", "cost"})
-        self.assertEqual(proposal["target"], rec[records.RECORD_ID_KEY])
-        self.assertTrue(proposal["cost"])
+        proposal = emit.build_proposal([rec])
+        self.assertEqual(set(proposal), {"targets", "costs"})
+        self.assertEqual(proposal["targets"], [rec[records.RECORD_ID_KEY]])
+        self.assertEqual(len(proposal["costs"]), 1)
+        self.assertTrue(proposal["costs"][0])
+
+    def test_a_batch_carries_one_cost_per_target_in_order(self):
+        recs = [consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, f"b{i}") for i in range(3)]
+        proposal = emit.build_proposal(recs)
+        self.assertEqual(proposal["targets"], [r[records.RECORD_ID_KEY] for r in recs])
+        self.assertEqual(len(proposal["costs"]), len(proposal["targets"]))    # one-to-one, order preserved
 
     def test_cost_leaks_no_content_from_text_session_or_tags(self):
-        # The record handed to build_proposal carries text, session_id AND tags — distinctive tokens in all three
+        # Each record handed to build_proposal carries text, session_id AND tags — distinctive tokens in all three
         # must appear NOWHERE in the serialized proposal (D-007, made to flip — the compact._slip_mentions_word mirror).
-        rec = consolidate._make_episodic(
-            "zzsessionzz", {"role": "lesson", "text": "the qwerty floodgate recipe", "tags": ["mytagxyz"]}, "b")
-        rec["ts"] = int(time.time()) - 60 * _DAY
-        blob = json.dumps(emit.build_proposal(rec), ensure_ascii=False).lower()
-        for token in ("qwerty", "floodgate", "recipe", "zzsessionzz", "mytagxyz"):
+        # Scanned over a BATCH, so a leak from ANY note in the batch flips it red.
+        recs = []
+        for i, marker in enumerate(("qwerty", "floodgate", "zzsessionzz", "mytagxyz")):
+            rec = consolidate._make_episodic(
+                f"zzsession{marker}", {"role": "lesson", "text": f"the {marker} recipe", "tags": [f"tag{marker}"]}, f"b{i}")
+            rec["ts"] = int(time.time()) - 60 * _DAY
+            recs.append(rec)
+        blob = json.dumps(emit.build_proposal(recs), ensure_ascii=False).lower()
+        for token in ("qwerty", "floodgate", "recipe", "zzsession", "mytagxyz"):
             self.assertNotIn(token, blob, f"content token {token!r} leaked into the committed proposal")
 
     def test_cost_never_surfaces_engine_shorthand_role_tokens(self):
@@ -129,46 +147,61 @@ class ProposalTests(_Base):
         # is non-empty and carries no slash.
         for role in consolidate.ROLE_VOCABULARY:
             rec = consolidate._make_episodic("S", {"role": role, "text": "x"}, "b")
-            cost = emit.build_proposal(rec)["cost"].lower()
+            cost = emit.build_proposal([rec])["costs"][0].lower()
             self.assertTrue(cost)
             self.assertNotIn("/", cost, f"a slash from {role!r} surfaced in operator copy")
         for compound in ("rationale/pushback", "dead-end"):
             rec = consolidate._make_episodic("S", {"role": compound, "text": "x"}, "b")
-            self.assertNotIn(compound, emit.build_proposal(rec)["cost"].lower())
+            self.assertNotIn(compound, emit.build_proposal([rec])["costs"][0].lower())
 
     def test_an_unknown_role_degrades_to_a_neutral_phrase(self):
         rec = consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, "b")
         rec["role"] = "some-future-role"
-        self.assertIn("a note", emit.build_proposal(rec)["cost"])
+        self.assertIn("a note", emit.build_proposal([rec])["costs"][0])
 
     def test_build_proposal_refuses_a_record_without_a_content_free_id(self):
         rec = consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, "b")
         rec[records.RECORD_ID_KEY] = "not-a-uuid"
         with self.assertRaises(ValueError):
-            emit.build_proposal(rec)
+            emit.build_proposal([rec])
+
+    def test_build_proposal_refuses_an_empty_batch(self):
+        with self.assertRaises(ValueError):
+            emit.build_proposal([])
 
 
 class WriteProposalTests(_Base):
     def test_writes_the_two_keys_at_the_observer_path(self):
-        rec = consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, "b")
-        dest = emit.write_proposal(emit.build_proposal(rec), root=self._tmp.name)
+        recs = [consolidate._make_episodic("S", {"role": "lesson", "text": "x"}, f"b{i}") for i in range(2)]
+        dest = emit.write_proposal(emit.build_proposal(recs), root=self._tmp.name)
         self.assertEqual(dest, os.path.join(self._tmp.name, obs._PROPOSAL_PATH))
         with open(dest, encoding="utf-8") as fh:
             written = json.load(fh)
-        self.assertEqual(set(written), {"target", "cost"})
-        self.assertEqual(written["target"], rec[records.RECORD_ID_KEY])
+        self.assertEqual(set(written), {"targets", "costs"})
+        self.assertEqual(written["targets"], [r[records.RECORD_ID_KEY] for r in recs])
+        self.assertEqual(len(written["costs"]), len(written["targets"]))
 
     def test_refuses_to_write_a_non_record_id_target(self):
         with self.assertRaises(ValueError):
-            emit.write_proposal({"target": "", "cost": "x"}, root=self._tmp.name)
+            emit.write_proposal({"targets": [""], "costs": ["x"]}, root=self._tmp.name)
+
+    def test_refuses_to_write_an_empty_batch(self):
+        with self.assertRaises(ValueError):
+            emit.write_proposal({"targets": [], "costs": []}, root=self._tmp.name)
+
+    def test_refuses_to_write_costs_that_do_not_match_the_targets(self):
+        rid = "a" * 32
+        with self.assertRaises(ValueError):
+            emit.write_proposal({"targets": [rid], "costs": ["one", "two"]}, root=self._tmp.name)
 
 
 # --- the emitter<->observer round-trip (the load-bearing contract proof) ------------------------------------
 
 class RoundTripTests(_Base):
     def test_the_observer_reads_back_exactly_what_the_proposer_writes(self):
-        rid = self._retired("an old note to erase", age_days=70, batch="b1")
-        proposal = emit.build_proposal(emit.earned_targets()[0])
+        older = self._retired("an old note to erase", age_days=90, batch="b1")
+        younger = self._retired("another old note to erase", age_days=70, batch="b2")
+        proposal = emit.build_proposal(emit.earned_targets())          # the whole earned batch, oldest-first
         dest = emit.write_proposal(proposal, root=self._tmp.name)
         with open(dest, "rb") as fh:
             raw = fh.read()
@@ -178,9 +211,9 @@ class RoundTripTests(_Base):
                 return 200, {"content": base64.b64encode(raw).decode("ascii"), "encoding": "base64"}
             return 404, None
 
-        resolved = obs._read_target(obs._FakeGH(serve), "any-merge-sha")
-        self.assertEqual(resolved, rid)                          # the real observer resolves it to the planted note
-        self.assertTrue(obs._is_record_id(proposal["target"]))
+        resolved = obs._read_targets(obs._FakeGH(serve), "any-merge-sha")
+        self.assertEqual(resolved, [older, younger])               # the real observer resolves the batch, in order
+        self.assertTrue(all(obs._is_record_id(t) for t in proposal["targets"]))
 
     def test_the_emitter_reuses_the_observer_contract_so_it_cannot_drift(self):
         # Single source of truth: the emitter reuses the OBSERVER module's path/label/predicates, so the (ii)<->(iii)
@@ -234,7 +267,7 @@ class AutoOpenTests(_Base):
         transport, labels = _no_existing_transport()
         result = emit.propose(opener=opener, transport=transport, root=self._tmp.name)
         self.assertEqual(result["opened"], [99])
-        self.assertEqual(result["target"], rid)
+        self.assertEqual(result["targets"], [rid])
         self.assertEqual(len(opener.calls), 1)
         self.assertEqual(opener.calls[0]["paths"], [obs._PROPOSAL_PATH])    # SINGLE-PURPOSE: only the proposal staged
         self.assertIn(obs.ERASURE_LABEL, labels)                            # the label was ensured + applied
@@ -279,6 +312,25 @@ class AutoOpenTests(_Base):
 
         result = emit.propose(opener=_raise_if_called, transport=transport, root=self._tmp.name)
         self.assertEqual(result["opened"], [])                              # fail-SAFE: declined, no duplicate risk
+
+    def test_declines_when_only_the_dedup_list_is_unreadable_even_if_the_serializer_reads_clean(self):
+        # ISOLATES the cross-PR dedup fail-SAFE from the one-in-flight serializer. `propose()` reads /issues? twice:
+        # state=all (dedup) and state=open (serializer). Here the DEDUP read (state=all) is unreadable (503) but the
+        # serializer read (state=open) is clean-and-empty. If `_proposed_targets(gh) is None` were coalesced to an
+        # empty set (fail-OPEN), a duplicate erasure PR would open. It must DECLINE. (A single "503 on every /issues?"
+        # test cannot catch this: the serializer's own decline masks whether the dedup path declined — D-of-the-gate.)
+        self._retired("an old hidden duplicate", age_days=60, batch="b1")
+
+        def transport(method, path, body):
+            if "state=all" in path:
+                return 503, None                                            # the DEDUP list is unreadable
+            if "state=open" in path:
+                return 200, []                                              # the serializer reads clean (none open)
+            return 404, None
+
+        result = emit.propose(opener=_raise_if_called, transport=transport, root=self._tmp.name)
+        self.assertEqual(result["opened"], [])                              # declined on the dedup doubt alone
+        self.assertIn("no duplicate risk", result["message"].lower())
 
     def test_no_earned_note_opens_nothing(self):
         self._retired("a fresh one", age_days=2, batch="b1")
@@ -340,7 +392,7 @@ class ApiOpenerTests(_Base):
         transport, _calls = _writable_transport(pr_number=77)
         result = emit.propose(transport=transport, root=self._tmp.name)
         self.assertEqual(result["opened"], [77])
-        self.assertEqual(result["target"], rid)
+        self.assertEqual(result["targets"], [rid])
 
     def test_fails_safe_when_the_base_ref_is_unreadable(self):
         def t(method, path, body):
@@ -431,13 +483,15 @@ class SessionStartTests(_Base):
         self.assertIsInstance(out, dict)
 
     def test_runs_and_relays_a_heads_up_on_a_new_open_and_stamps_the_check(self):
-        with mock.patch.object(emit, "propose", return_value={"opened": [7], "target": "x"}):
+        with mock.patch.object(emit, "propose", return_value={"opened": [7], "targets": ["a" * 32, "b" * 32]}):
             out = emit._session_start_handler({}, now=2_000_000)
-        self.assertIn("#7", json.dumps(out))
+        blob = json.dumps(out)
+        self.assertIn("#7", blob)
+        self.assertIn("2 old notes", blob)                                           # the batch count is relayed
         self.assertEqual(emit._last_check(), 2_000_000)                              # the check was stamped
 
     def test_is_silent_when_nothing_was_opened(self):
-        with mock.patch.object(emit, "propose", return_value={"opened": [], "target": None}):
+        with mock.patch.object(emit, "propose", return_value={"opened": [], "targets": []}):
             out = emit._session_start_handler({}, now=2_000_000)
         self.assertNotIn("#", json.dumps(out))
 
@@ -471,25 +525,28 @@ class StructuralTests(unittest.TestCase):
             self.assertNotIn("enact_erasure(", fh.read())
 
     def test_the_committed_proposal_is_well_formed_and_content_free(self):
-        # The committed proposal carries EXACTLY {target, cost}, and its target is CONTENT-FREE: either the
-        # inert empty string the template ships between erasures, OR a valid content-free record-id shape during
-        # a live erasure proposal. The design LAW (memory/README §Layer-2 + D-007) is that the committed PR
-        # "names the target by a stable, content-free record id … read at the merge identity" — so a live
-        # record-id here is REQUIRED for the flow, not a hazard. The earlier assertion (target can NEVER
-        # validate) contradicted that law and made every erasure PR red engine-ci and so un-mergeable. The real
-        # safety is dynamic, not this file being inert at rest: the observer binds to the immutable merge tree,
-        # acts only on a genuine merge, and dedups per target — it never enacts off a stray read of main's HEAD.
-        # This reframe is STRICTER on content-freeness (it forbids an offset / path / leaked-content target the
-        # old blanket-invalid assertion silently allowed) while permitting the two states the design intends.
+        # The committed proposal carries EXACTLY {targets, costs}, and every target is CONTENT-FREE: the batch is
+        # either the inert empty list the template ships between erasures, OR a list of valid content-free record-id
+        # shapes during a live erasure proposal, with one cost line per target. The design LAW (memory/README
+        # §Layer-2 + D-007) is that the committed PR "names the target(s) by a stable, content-free record id …
+        # read at the merge identity" — so live record-ids here are REQUIRED for the flow, not a hazard (an earlier
+        # blanket "target can NEVER validate" assertion contradicted that law and made every erasure PR red
+        # engine-ci and so un-mergeable). The real safety is dynamic: the observer binds to the immutable merge
+        # tree, acts only on a genuine merge, dedups per target, and WHOLE-BATCH-REJECTS any malformed element — it
+        # never enacts off a stray read of main's HEAD. This is STRICTER on content-freeness (it forbids an offset /
+        # path / leaked-content target) while permitting the two states the design intends.
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         with open(os.path.join(root, obs._PROPOSAL_PATH), encoding="utf-8") as fh:
             proposal = json.load(fh)
-        self.assertEqual(set(proposal), {"target", "cost"})
-        target = proposal["target"]
-        self.assertTrue(target == "" or obs._is_record_id(target),
-                        "committed proposal target must be inert ('') or a content-free record-id shape, "
-                        f"never anything else (got {target!r})")
-        self.assertIsInstance(proposal["cost"], str)
+        self.assertEqual(set(proposal), {"targets", "costs"})
+        targets = proposal["targets"]
+        self.assertIsInstance(targets, list)
+        self.assertTrue(all(obs._is_record_id(t) for t in targets),
+                        "every committed proposal target must be a content-free record-id shape (or the list "
+                        f"empty between erasures), never anything else (got {targets!r})")
+        self.assertIsInstance(proposal["costs"], list)
+        self.assertEqual(len(proposal["costs"]), len(targets), "one cost line per target")
+        self.assertTrue(all(isinstance(c, str) for c in proposal["costs"]))
 
 
 class PrBodyConsentTests(unittest.TestCase):
@@ -499,8 +556,8 @@ class PrBodyConsentTests(unittest.TestCase):
     here: an operator reading only this PR body must be able to decide whether to consent. The positive
     companion to HeadsUpTests, guarding the most consent-critical copy in the engine from a silent hollowing."""
     def test_the_pr_body_states_the_consent_picture_and_carries_no_jargon(self):
-        body = emit._pr_body({"target": "f729d2c52dbc44be9eadfdc0ac0b51ba",
-                              "cost": "a withdrawn note you set aside DISTINCT-COST-MARKER."})
+        body = emit._pr_body({"targets": ["f729d2c52dbc44be9eadfdc0ac0b51ba"],
+                              "costs": ["a withdrawn note you set aside DISTINCT-COST-MARKER."]})
         low = body.lower()
         self.assertIn("DISTINCT-COST-MARKER", body)            # the plain-language cost is shown verbatim
         self.assertIn("permanently erase", low)                # what merging does
@@ -512,6 +569,88 @@ class PrBodyConsentTests(unittest.TestCase):
         self.assertIn("the moment you merge", low)             # the clause that makes merge consent, not destruction
         self.assertNotIn("target", low)                        # no engine jargon
         self.assertNotIn("f729d2c5", low)                      # the opaque record-id never appears in the body
+
+    def test_a_batch_body_enumerates_every_note_and_states_all_or_nothing(self):
+        # The consent surface for a BATCH: the operator reads ONE line per note (never a bare count), so they see
+        # the full list they consent to erase, plus the all-or-nothing nature and the safe decline. This is the
+        # load-bearing property the plan gate flagged — a count-only body would be a weaker consent surface.
+        costs = [f"a withdrawn note number {i} MARKER-{i}." for i in range(3)]
+        body = emit._pr_body({"targets": ["a" * 32, "b" * 32, "c" * 32], "costs": costs})
+        low = body.lower()
+        for i in range(3):
+            self.assertIn(f"MARKER-{i}", body, "every note's own cost line must appear (per-note enumeration)")
+        self.assertIn("3 remembered notes", low)               # the scale is stated
+        self.assertIn("all-or-nothing", low)                   # merging erases the whole batch
+        self.assertIn("no way to keep just some", low)         # the honest trade: merge-all or keep-all
+        self.assertIn("no per-note pick", low)                 # per-note selection does not exist
+        self.assertIn("consent", low)
+        self.assertIn("close", low)                            # the safe decline path
+        self.assertIn("recoverable", low)
+        self.assertNotIn("targets", low)                       # no engine jargon
+        for opaque in ("a" * 32, "b" * 32, "c" * 32):
+            self.assertNotIn(opaque, low)                      # opaque record-ids never appear in the body
+
+    def test_the_body_refuses_an_empty_batch(self):
+        with self.assertRaises(ValueError):
+            emit._pr_body({"targets": [], "costs": []})
+
+
+class BatchProposeTests(_Base):
+    """Slice B: one merge clears the backlog. `propose` bundles ALL currently-earned notes (minus any already
+    scheduled or proposed) into ONE single-purpose pull request, so the operator consents to the whole batch once."""
+
+    def test_batches_all_earned_notes_into_one_pull_request(self):
+        ids = {self._retired(f"old duplicate {i}", age_days=60 + i, batch=f"b{i}") for i in range(3)}
+        opener = _OpenerSpy(number=42)
+        transport, _labels = _no_existing_transport()
+        result = emit.propose(opener=opener, transport=transport, root=self._tmp.name)
+        self.assertEqual(result["opened"], [42])
+        self.assertEqual(len(opener.calls), 1, "ONE pull request clears the whole batch, not one per note")
+        self.assertEqual(set(result["targets"]), ids)
+        self.assertIn("clearing 3 notes", result["message"])
+
+    def test_excludes_an_already_enacted_target_from_the_batch(self):
+        keep = self._retired("still earned", age_days=60, batch="b1")
+        done = self._retired("already scheduled", age_days=90, batch="b2")
+        compact.enact_erasure(done, "somemergesha")                       # a retained marker already targets `done`
+        opener = _OpenerSpy(number=51)
+        transport, _labels = _no_existing_transport()
+        result = emit.propose(opener=opener, transport=transport, root=self._tmp.name)
+        self.assertEqual(set(result["targets"]), {keep})                  # the enacted one is not re-proposed
+        self.assertNotIn(done, result["targets"])
+
+    def test_excludes_an_already_proposed_target_from_the_batch(self):
+        keep = self._retired("still earned", age_days=60, batch="b1")
+        covered = self._retired("already in a PR", age_days=90, batch="b2")
+        opener = _OpenerSpy(number=63)
+
+        def transport(method, path, body):
+            if path.endswith(f"/labels/{obs.ERASURE_LABEL}") and method == "GET":
+                return 404, None
+            if "/issues/" in path and path.endswith("/labels") and method == "POST":
+                return 200, []
+            if path.endswith("/labels") and method == "POST":
+                return 201, {}
+            if "state=open" in path:                                      # serializer: none open
+                return 200, []
+            if "/issues?" in path:                                        # dedup list: one PR covering `covered`
+                return 200, [{"number": 9, "pull_request": {}}]
+            if "/pulls/9" in path:
+                return 200, {"number": 9, "merged_at": None, "merge_commit_sha": None, "head": {"sha": "sha9"}}
+            if "/contents/" in path and "ref=sha9" in path:
+                return 200, _contents(covered)                            # legacy single-target proposal shape
+            return 404, None
+
+        result = emit.propose(opener=opener, transport=transport, root=self._tmp.name)
+        self.assertEqual(set(result["targets"]), {keep})                  # the already-proposed one is excluded
+        self.assertNotIn(covered, result["targets"])
+
+    def test_a_batch_of_already_covered_notes_opens_nothing(self):
+        done = self._retired("already scheduled", age_days=90, batch="b1")
+        compact.enact_erasure(done, "somemergesha")
+        result = emit.propose(opener=_raise_if_called, transport=_no_existing_transport()[0], root=self._tmp.name)
+        self.assertEqual(result["opened"], [])
+        self.assertIn("already scheduled or proposed", result["message"])
 
 
 if __name__ == "__main__":

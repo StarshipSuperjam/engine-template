@@ -14,11 +14,16 @@ The producer NEVER mints the marker itself — it writes a file and opens a PR; 
 invariant `test_forget.py` pins by source scan: the only sanctioned callers of the slice-i minter are `compact` and
 `erasure_observer`, never this file).
 
-D-007 (content-free binding): the committed proposal carries `{"target": <stable content-free record id>, "cost":
-<plain-language paraphrase>}`. `target` is the note's uuid-hex id (reveals nothing about the gitignored content);
-`cost` is built ONLY from content-free metadata (the note's role/kind rendered as plain words + a coarse age bucket) —
-never the note's text, never its session id or tags. A test scans the whole serialized proposal for the note's
-distinctive words and flips red if any leaks.
+D-007 (content-free binding): the committed proposal carries `{"targets": [<stable content-free record id>, …],
+"costs": [<plain-language paraphrase>, …]}` — parallel arrays, `costs[i]` describing `targets[i]`, so one merged
+pull request can clear a whole batch of earned notes in a single consent act (the operator directive: one merge
+clears the backlog). Each `target` is a note's uuid-hex id (reveals nothing about the gitignored content); each
+`cost` is built ONLY from content-free metadata (the note's role/kind rendered as plain words + a coarse age bucket)
+— never the note's text, never its session id or tags. A test scans the whole serialized proposal for every note's
+distinctive words and flips red if any leaks. The committed grammar is what the operator reads (the pull-request
+body enumerates every cost line) and what a later session erases by (the observer reads `targets`), bound to the
+one immutable merge tree — so what was consented and what is erased are provably the same committed artifact. A
+legacy single-target proposal `{"target": id, …}` is still read as a one-note batch (back-compat).
 
 Posture: **deterministic detection, injected emission.** The probe is pure mechanism over the ledger (same ledger +
 same clock -> same selection). The PR-opener is INJECTED (the `module_manager._open_upgrade_pr` discipline) so
@@ -35,6 +40,7 @@ never in the empty-store CI checkout. Run the demo:
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -132,36 +138,55 @@ def _age_phrase(seconds: int) -> str:
     return "over a year ago"
 
 
-def build_proposal(record: dict, *, now: "int | None" = None) -> dict:
-    """The committed proposal `{"target", "cost"}` for one earned note — EXACTLY those two keys, both content-free.
-    `target` is the note's stable id (validated to the observer's record-id shape). `cost` is plain language built
-    ONLY from the note's role (a closed engine vocabulary, rendered to plain words) + a coarse age bucket — never the
-    note's `text`, never its `session_id`/`tags` (D-007). Raises if the record has no valid content-free id."""
-    target = record.get(records.RECORD_ID_KEY)
-    if not observer._is_record_id(target):
-        raise ValueError("refusing to build a proposal for a record without a content-free id")
+def _cost_for(record: dict, now: int) -> str:
+    """The content-free plain-language cost line for ONE earned note — built ONLY from the note's role (a closed
+    engine vocabulary, rendered to plain words) + a coarse age bucket, never the note's `text`/`session_id`/`tags`
+    (D-007). Shared by `build_proposal` (the committed grammar) and `_print_candidates` (the local list)."""
     ts = record.get("ts")
-    now = int(time.time()) if now is None else now
     age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
-    cost = (f"{_role_phrase(record.get('role'))} the engine set aside as a duplicate of a save that didn't finish — "
+    return (f"{_role_phrase(record.get('role'))} the engine set aside as a duplicate of a save that didn't finish — "
             f"{_age_phrase(age)}; already hidden from recall and still fully recoverable until erased.")
-    return {"target": target, "cost": cost}
+
+
+def build_proposal(records_in: list, *, now: "int | None" = None) -> dict:
+    """The committed batch proposal `{"targets": [id, …], "costs": [line, …]}` for one or more earned notes —
+    EXACTLY those two keys, both content-free, and `costs[i]` describes `targets[i]` (parallel, one-to-one). Each
+    `target` is validated to the observer's record-id shape; each `cost` is plain language from the note's role + a
+    coarse age bucket (D-007 — never the note's text/session/tags). Raises on an empty list or any record without a
+    valid content-free id (so an invalid target can never enter the grammar)."""
+    if not records_in:
+        raise ValueError("refusing to build a proposal with no targets")
+    now = int(time.time()) if now is None else now
+    targets: list = []
+    costs: list = []
+    for record in records_in:
+        target = record.get(records.RECORD_ID_KEY)
+        if not observer._is_record_id(target):
+            raise ValueError("refusing to build a proposal for a record without a content-free id")
+        targets.append(target)
+        costs.append(_cost_for(record, now))
+    return {"targets": targets, "costs": costs}
 
 
 def write_proposal(proposal: dict, *, root: "str | None" = None) -> str:
-    """Write the proposal to the observer's fixed committed path under `root` (the repo root by default; a throwaway
-    root in tests/demo). Refuses to write a proposal whose `target` is not a content-free record id (so an invalid
-    target can never land). Overwrites in place — there is only ever one canonical proposal. Returns the path written."""
-    target = proposal.get("target")
-    if not observer._is_record_id(target):
-        raise ValueError("refusing to write a proposal whose target is not a content-free record id")
+    """Write the batch proposal to the observer's fixed committed path under `root` (the repo root by default; a
+    throwaway root in tests/demo). Refuses to write a proposal whose `targets` are not ALL content-free record ids,
+    that is empty, or whose `costs` do not correspond one-to-one to its targets (so an invalid or mismatched batch
+    can never land — the operator must read a cost line for exactly the notes that will be erased). Overwrites in
+    place — there is only ever one canonical proposal. Returns the path written."""
+    targets = proposal.get("targets")
+    costs = proposal.get("costs")
+    if not isinstance(targets, list) or not targets or not all(observer._is_record_id(t) for t in targets):
+        raise ValueError("refusing to write a proposal whose targets are not all content-free record ids")
+    if not isinstance(costs, list) or len(costs) != len(targets):
+        raise ValueError("refusing to write a proposal whose costs do not correspond one-to-one to its targets")
     if root is None:
         import validate  # lazy: only the real write needs the repo root
         root = validate.ROOT
     dest = os.path.join(root, observer._PROPOSAL_PATH)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w", encoding="utf-8") as fh:
-        json.dump({"target": target, "cost": proposal.get("cost", "")}, fh, indent=2, ensure_ascii=False)
+        json.dump({"targets": targets, "costs": [str(c) for c in costs]}, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     return dest
 
@@ -204,8 +229,7 @@ def _proposed_targets(gh):
         ref = pr.get("merge_commit_sha") or (pr.get("head") or {}).get("sha")
         if not isinstance(ref, str) or not ref:
             continue
-        target = observer._read_target(gh, ref)       # reads ONLY the content-free id from the committed proposal
-        if target:
+        for target in observer._read_targets(gh, ref):  # reads ONLY the content-free ids from the committed proposal
             out.add(target)
     return out
 
@@ -280,24 +304,51 @@ def _open_erasure_pr(gh, branch: str, title: str, body: str, content: str):
         return None
 
 
-def _branch_for(target: str) -> str:
-    return f"erasure-{target[:12]}"
+def _branch_for(targets: list) -> str:
+    """A deterministic branch name over the whole target SET (order-independent), so a byte-identical retried batch
+    reuses the same branch (the `_open_erasure_pr` 422-already-exists guard then declines rather than duplicating).
+    Note the real one-at-a-time protection is the in-flight serializer (`_open_erasure_pr_numbers`), not this name."""
+    digest = hashlib.sha1("\n".join(sorted(targets)).encode("utf-8")).hexdigest()
+    return f"erasure-{digest[:12]}"
 
 
-_PR_TITLE = "Erase one remembered note (single-purpose)"
+def _pr_title(n: int) -> str:
+    return f"Erase {n} remembered note{'' if n == 1 else 's'} (single-purpose)"
 
 
 def _pr_body(proposal: dict) -> str:
-    """The operator-facing pull-request body — plain language, the cost paraphrase, no engine jargon, no note content.
-    Draws the consent picture explicitly: merging THIS pull request consents to erasing THIS one note (it does not
-    erase now; a later session does), and declining loses nothing."""
+    """The operator-facing pull-request body — plain language, one cost line PER note, no engine jargon, no note
+    content. This is the consent surface: merging erases every note listed here (a later session carries it out;
+    nothing merges on its own), so the body ENUMERATES each note's plain-language cost — the operator sees the full
+    list they are consenting to erase, never a bare count. For a batch it is all-or-nothing and stated as such: the
+    choice is merge-all or keep-all — there is no per-note pick, and closing keeps every note (permanently — they
+    are not re-offered). Renders from `costs` (which `write_proposal` pins one-to-one with the committed `targets`),
+    so the list read is exactly the list erased. Raises on an empty batch (the caller never reaches it with none)."""
+    costs = proposal.get("costs") or []
+    n = len(costs)
+    if n == 0:
+        raise ValueError("refusing to render a consent body for a proposal with no notes")
+    if n == 1:
+        return (
+            "This pull request proposes to **permanently erase one remembered note** from the engine's memory.\n\n"
+            f"**What it is:** {costs[0]}\n\n"
+            "Merging this pull request is your consent to erase that one note — the single thing the engine can do to "
+            "its memory that cannot be undone. Nothing is erased the moment you merge: a later session carries out "
+            "the erasure, and nothing merges on its own. If you would rather keep the note, just **close** this pull "
+            "request — declining loses nothing (the note stays exactly where it is, still hidden from recall and "
+            "fully recoverable).\n")
+    listed = "\n".join(f"- {c}" for c in costs)
     return (
-        "This pull request proposes to **permanently erase one remembered note** from the engine's memory.\n\n"
-        f"**What it is:** {proposal['cost']}\n\n"
-        "Merging this pull request is your consent to erase that one note — the single thing the engine can do to its "
-        "memory that cannot be undone. Nothing is erased the moment you merge: a later session carries out the "
-        "erasure, and nothing merges on its own. If you would rather keep the note, just **close** this pull request — "
-        "declining loses nothing (the note stays exactly where it is, still hidden from recall and fully recoverable).\n")
+        f"This pull request proposes to **permanently erase {n} remembered notes** from the engine's memory, in one "
+        f"batch.\n\n"
+        f"**What each one is** (merging consents to erasing all {n}):\n\n{listed}\n\n"
+        f"Merging this pull request is your consent to erase all {n} notes — the single thing the engine can do to "
+        f"its memory that cannot be undone. Nothing is erased the moment you merge: a later session carries out the "
+        f"erasure, and nothing merges on its own.\n\n"
+        f"**This is all-or-nothing — there is no way to keep just some.** Merging erases all {n}; closing keeps all "
+        f"{n}. If you would rather keep even one of them, **close** this pull request: nothing is erased, every note "
+        f"stays exactly where it is (still hidden from recall and fully recoverable), and the engine will not offer "
+        f"these {n} notes again. (There is no per-note pick — keeping one means keeping them all.)\n")
 
 
 # --- the auto-open orchestrator ----------------------------------------------------------------------------
@@ -314,47 +365,48 @@ def propose(path: "str | None" = None, *, opener=None, transport=None, root: "st
     is a practice run that writes the proposal but opens nothing (the footgun guard, mirroring module_manager)."""
     earned = earned_targets(path=path, now=now)
     if not earned:
-        return {"opened": [], "target": None, "message": "No notes have earned erasure — nothing to propose."}
-    record = earned[0]
-    target = record[records.RECORD_ID_KEY]
-    if observer._already_enacted(target, path=path):
-        return {"opened": [], "target": target,
-                "message": "The oldest earned note is already scheduled for erasure."}
+        return {"opened": [], "targets": [], "message": "No notes have earned erasure — nothing to propose."}
+    enacted = observer._erased_targets(path)           # ids already scheduled (a retained marker) — a local read
     gh = _reader(transport)
     if gh is None:
-        return {"opened": [], "target": target,
+        return {"opened": [], "targets": [],
                 "message": "Could not reach GitHub; will try again at the next review."}
     proposed = _proposed_targets(gh)
-    if proposed is None:
-        return {"opened": [], "target": target,
+    if proposed is None:                               # host doubt on the dedup list -> DECLINE (fail-SAFE), never
+        return {"opened": [], "targets": [],           # coalesce to empty (that would fail-OPEN into a duplicate open)
                 "message": "Could not check existing erasure pull requests; declined to open (no duplicate risk)."}
-    if target in proposed:
-        return {"opened": [], "target": target,
-                "message": "An erasure pull request already covers this note."}
-    open_already = _open_erasure_pr_numbers(gh)        # the one-in-flight serializer (after the per-target dedup)
-    if open_already is None:
-        return {"opened": [], "target": target,
+    covered = enacted | proposed
+    candidates = [r for r in earned if r[records.RECORD_ID_KEY] not in covered]  # earned, oldest-first, order kept
+    if not candidates:
+        return {"opened": [], "targets": [],
+                "message": "Every earned note is already scheduled or proposed for erasure."}
+    open_already = _open_erasure_pr_numbers(gh)        # the one-in-flight serializer: one erasure PR (one consent
+    if open_already is None:                           # act) in flight at a time — for a batch it holds the WHOLE
+        return {"opened": [], "targets": [],           # next batch until the current one is merged or closed
                 "message": "Could not check existing erasure pull requests; declined to open (no duplicate risk)."}
     if open_already:
-        return {"opened": [], "target": target,
+        return {"opened": [], "targets": [],
                 "message": "An erasure pull request is already open for your review — holding the next one until it is resolved."}
-    proposal = build_proposal(record, now=now)
+    proposal = build_proposal(candidates, now=now)
+    targets = proposal["targets"]
+    n = len(targets)
     if opener is not None:
         # Injected stub (tests/demo): keep the file-backed callable seam — write the proposal where the stub reads it.
         write_proposal(proposal, root=root)
-        number = opener(_branch_for(target), _PR_TITLE, _pr_body(proposal), [observer._PROPOSAL_PATH],
+        number = opener(_branch_for(targets), _pr_title(n), _pr_body(proposal), [observer._PROPOSAL_PATH],
                         repo=None, token=None)
     else:
         # The real, hook-safe path: commit the proposal via the API over `gh` (real or injected transport) — no local
         # write, no working-tree mutation.
         content = json.dumps(proposal, ensure_ascii=False, indent=2) + "\n"
-        number = _open_erasure_pr(gh, _branch_for(target), _PR_TITLE, _pr_body(proposal), content)
+        number = _open_erasure_pr(gh, _branch_for(targets), _pr_title(n), _pr_body(proposal), content)
     if number is None:
-        return {"opened": [], "target": target,
+        return {"opened": [], "targets": targets,
                 "message": "Could not open the pull request; will try again at the next review."}
     labelled = _apply_label(gh, number)
-    return {"opened": [number], "target": target, "proposal": proposal, "labelled": labelled,
-            "message": f"Opened a single-purpose erasure pull request (#{number}) for your review."}
+    return {"opened": [number], "targets": targets, "proposal": proposal, "labelled": labelled,
+            "message": f"Opened a single-purpose erasure pull request (#{number}) clearing "
+                       f"{n} note{'' if n == 1 else 's'} for your review."}
 
 
 # --- the throttled local trigger (a SessionStart hook; fail-open; mirrors erasure_observer) ----------------
@@ -391,17 +443,27 @@ def _record_check(now: int) -> None:
         pass
 
 
-def _heads_up(pr_numbers: list) -> str:
+def _heads_up(pr_numbers: list, note_count: "int | None" = None) -> str:
     """The one-time, model-facing relay for a NEWLY-OPENED erasure pull request — plain language, no ids/jargon beyond
-    the operator-recognisable PR number, never the note's content. Mirrors erasure_observer._heads_up's prefix."""
+    the operator-recognisable PR number, never the note's content. `note_count` (how many notes the batch clears) is
+    stated plainly so the operator knows the scale; the per-note detail is in the pull-request body. Mirrors
+    erasure_observer._heads_up's prefix."""
     refs = ", ".join(f"#{n}" for n in sorted(set(pr_numbers)))
+    if note_count == 1 or note_count is None:
+        scope = "one old note it had already hidden as a duplicate"
+        keep = "the note stays exactly where it is"
+        again = "this same note"
+    else:
+        scope = f"{note_count} old notes it had already hidden as duplicates (each described in the pull request)"
+        keep = "every note stays exactly where it is"
+        again = "these same notes"
     return (
         f"INFORM THE USER, in plain language (they asked to be told once): the engine has opened a single-purpose "
-        f"pull request ({refs}) proposing to permanently erase one old note it had already hidden as a duplicate. "
+        f"pull request ({refs}) proposing to permanently erase {scope}. "
         f"Nothing is erased yet, and nothing erases on its own — it is erased only if they merge that pull request, "
-        f"and even then a later session carries it out. If they would rather keep the note, they can just close the "
-        f"pull request: closing loses nothing — the note stays exactly where it is, hidden from recall and still fully "
-        f"recoverable. The engine will not raise this same note again.")
+        f"and even then a later session carries it out. If they would rather keep them, they can just close the "
+        f"pull request: closing loses nothing — {keep}, hidden from recall and still fully "
+        f"recoverable. The engine will not raise {again} again.")
 
 
 def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
@@ -419,7 +481,7 @@ def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
         _record_check(when)
         opened = result.get("opened") or []
         if opened:
-            return hooks.inject(_heads_up(opened))
+            return hooks.inject(_heads_up(opened, len(result.get("targets") or [])))
     except Exception:  # noqa: BLE001 — fail-open: a fault must never strand the session start
         return hooks.proceed()
     return hooks.proceed()
@@ -439,7 +501,7 @@ def _print_candidates(path: "str | None" = None) -> int:
     print("Each is STILL SAVED and fully recoverable until you merge a pull request to erase it:\n")
     now = int(time.time())
     for r in earned:
-        print(f"  - {build_proposal(r, now=now)['cost']}")
+        print(f"  - {_cost_for(r, now)}")
         print(f"      (its own words, shown only here on your machine: {forget._snippet(r.get('text'))})")
     return 0
 
@@ -465,15 +527,20 @@ def main(argv: list) -> int:
 # A walkthrough on a THROWAWAY practice cabinet + a throwaway working tree. It runs the REAL earned-erasure probe, the
 # REAL proposal builder, the REAL observer's read of the written file, and the REAL auto-open + cross-PR dedup against
 # an in-memory GitHub — only the network and the git/PR open are faked. It proves: the engine picks the OLD hidden
-# duplicate (not the fresh one), describes it in plain words carrying NONE of its text, writes a proposal the live
-# observer accepts, opens ONE labelled pull request, and on a re-run opens NOTHING (it never re-pesters). Vary the ages
-# / the window near the top and re-run:
+# duplicates (not the fresh one), describes EACH in plain words carrying NONE of its text, writes ONE batch proposal the
+# live observer reads back in full, opens ONE labelled pull request clearing them all, and on a re-run opens NOTHING (it
+# never re-pesters). Two notes here because the demo plants two; in real use the batch size tracks the backlog, and one
+# merge consents to the whole batch. Vary the ages / the window near the top and re-run:
 #     uv run --directory .engine --frozen -- python tools/memory/erasure_proposer.py demo
 _DEMO_SESSION = "session-proposer"
 _DEMO_OLD_TEXT = "Lesson: never deploy on a Friday — the rollback ate the whole weekend. RUMBLEDETHUMPS."
 _DEMO_OLD_WORD = "rumbledethumps"       # a distinctive word that must NEVER appear in the committed proposal
 _DEMO_OLD_ROLE = "lesson"
 _DEMO_OLD_AGE_DAYS = 40                  # older than the ~1-month window -> EARNED        (VARY this)
+_DEMO_OLD2_TEXT = "Decision: the archived logs move to cold storage after ninety days. CLAPSHOT."
+_DEMO_OLD2_WORD = "clapshot"            # a second distinctive word that must NEVER appear in the committed proposal
+_DEMO_OLD2_ROLE = "decision"
+_DEMO_OLD2_AGE_DAYS = 35                 # also earned, slightly younger -> the batch holds BOTH (VARY this)
 _DEMO_FRESH_TEXT = "Decided the new launch banner ships in the spring release."
 _DEMO_FRESH_WORD = "banner"
 _DEMO_FRESH_ROLE = "decision"
@@ -547,45 +614,54 @@ def _demo() -> int:
             os.environ.pop("ENGINE_MEMORY_DIR", None)
 
     print("\n" + "-" * 96)
-    print("What this just proved: the engine picks an OLD hidden duplicate (not a recent one), describes it in plain")
-    print("words that carry NONE of the note's text, and opens ONE single-purpose pull request — which it labels so a")
-    print("later session can find it. The note is PERMANENTLY erased only because YOU merge that pull request; nothing")
-    print("is erased now, and nothing merges on its own. Run again and it opens nothing — it never re-pesters you about")
-    print("a note already in front of you. On a fresh project there are no old duplicates, so it proposes nothing; if")
-    print("GitHub is unreachable it simply tries again next time — nothing breaks. That was a PRACTICE cabinet, thrown")
-    print(f"away. Vary it: change the note ages or EARNED_ERASURE_MIN_AGE_DAYS (now {EARNED_ERASURE_MIN_AGE_DAYS}) near")
-    print("the top and re-run — watch the OLD note become earned and the FRESH one stay safe.")
+    print("What this just proved: the engine picks the OLD hidden duplicates (not a recent one), describes EACH in plain")
+    print("words that carry NONE of the note's text, and opens ONE single-purpose pull request clearing them all — which")
+    print("it labels so a later session can find it. The pull-request body lists one plain line per note, so you see the")
+    print("whole batch you are consenting to; merging is all-or-nothing. They are PERMANENTLY erased only because YOU")
+    print("merge that pull request; nothing is erased now, and nothing merges on its own. There are two notes here only")
+    print("because the demo planted two: today the engine only proposes erasing crash-duplicate leftovers, which are")
+    print("rare, so a real batch is usually one note or none. The grammar that clears a real backlog in one merge is")
+    print("here; the larger source that fills those batches comes in a later step. Run again and it opens nothing — it")
+    print("never re-pesters you about notes already in front of you. On a fresh")
+    print("project there are no old duplicates, so it proposes nothing; if GitHub is unreachable it simply tries again")
+    print(f"next time — nothing breaks. That was a PRACTICE cabinet, thrown away. Vary it: change the note ages or")
+    print(f"EARNED_ERASURE_MIN_AGE_DAYS (now {EARNED_ERASURE_MIN_AGE_DAYS}) near the top and re-run — watch the OLD notes")
+    print("become earned and the FRESH one stay safe.")
     return 0 if ok else 1
 
 
 def _demo_body(tree: str) -> bool:
     old_id = _plant_retired(_DEMO_OLD_TEXT, _DEMO_OLD_ROLE, _DEMO_OLD_AGE_DAYS, "batch-old")
+    old2_id = _plant_retired(_DEMO_OLD2_TEXT, _DEMO_OLD2_ROLE, _DEMO_OLD2_AGE_DAYS, "batch-old2")
     _plant_retired(_DEMO_FRESH_TEXT, _DEMO_FRESH_ROLE, _DEMO_FRESH_AGE_DAYS, "batch-fresh")
+    old_ids = {old_id, old2_id}
 
     # --- PART 1 ------------------------------------------------------------------------------------------
-    print(f"\nPART 1 — two hidden duplicates: one ~{_DEMO_OLD_AGE_DAYS} days old, one ~{_DEMO_FRESH_AGE_DAYS} days old")
+    print(f"\nPART 1 — three hidden duplicates: two old enough to have earned erasure, one ~{_DEMO_FRESH_AGE_DAYS} days old")
     print("-" * 96)
     earned = earned_targets()
     picked = [r[records.RECORD_ID_KEY] for r in earned]
     print(f"  the engine considers {len(earned)} note(s) old enough to have earned erasure")
-    print(f'  the OLD note ("...{_DEMO_OLD_WORD}..."): {"selected" if old_id in picked else "NOT selected"}')
-    print(f'  the FRESH note ("...{_DEMO_FRESH_WORD}..."): {"selected" if any(p != old_id for p in picked) else "left alone (too recent)"}')
-    part1 = picked == [old_id]
-    print(f"  => {'only the old hidden duplicate earned erasure.' if part1 else '!!! the wrong set was selected'}")
+    print(f'  the two OLD notes ("...{_DEMO_OLD_WORD}...", "...{_DEMO_OLD2_WORD}..."): {"both selected" if old_ids <= set(picked) else "NOT both selected"}')
+    print(f'  the FRESH note ("...{_DEMO_FRESH_WORD}..."): {"left alone (too recent)" if not any(p not in old_ids for p in picked) else "selected"}')
+    part1 = set(picked) == old_ids
+    print(f"  => {'only the two old hidden duplicates earned erasure.' if part1 else '!!! the wrong set was selected'}")
 
     # --- PART 2 ------------------------------------------------------------------------------------------
-    print("\nPART 2 — the engine describes it in plain words that carry NONE of the note's text")
+    print("\nPART 2 — the engine describes EACH in plain words that carry NONE of the notes' text (one line per note)")
     print("-" * 96)
-    proposal = build_proposal(earned[0])
-    serialized = json.dumps(proposal, ensure_ascii=False)
-    leaked = _DEMO_OLD_WORD.lower() in serialized.lower()
-    print(f'  what the pull request will say: "{proposal["cost"]}"')
-    print(f'  does anything committed contain the note\'s distinctive word "{_DEMO_OLD_WORD}"? {"YES" if leaked else "no"}')
-    part2 = (not leaked) and proposal["target"] == old_id
-    print(f"  => {'the proposal names the note by an opaque tag and a plain description — its words never leak.' if part2 else '!!! the note content leaked, or the wrong note was named'}")
+    proposal = build_proposal(earned)
+    serialized = json.dumps(proposal, ensure_ascii=False).lower()
+    leaked = any(w.lower() in serialized for w in (_DEMO_OLD_WORD, _DEMO_OLD2_WORD))
+    print("  what the pull request will say, one line per note:")
+    for c in proposal["costs"]:
+        print(f'    - "{c}"')
+    print(f'  does anything committed contain either note\'s distinctive word? {"YES" if leaked else "no"}')
+    part2 = (not leaked) and set(proposal["targets"]) == old_ids and len(proposal["costs"]) == len(proposal["targets"])
+    print(f"  => {'the proposal names each note by an opaque tag and a plain description — no words leak, one cost per target.' if part2 else '!!! the note content leaked, or the wrong set was named'}")
 
     # --- PART 3 ------------------------------------------------------------------------------------------
-    print("\nPART 3 — the engine writes the proposal, and the REAL later-session reader accepts exactly it")
+    print("\nPART 3 — the engine writes ONE batch proposal, and the REAL later-session reader reads back BOTH notes")
     print("-" * 96)
     dest = write_proposal(proposal, root=tree)
     with open(dest, "rb") as fh:
@@ -596,28 +672,29 @@ def _demo_body(tree: str) -> bool:
             return 200, {"content": base64.b64encode(raw).decode("ascii"), "encoding": "base64"}
         return 404, None
 
-    resolved = observer._read_target(observer._FakeGH(_serve), "demo-merge-sha")
-    print(f"  wrote the proposal to the committed path: {observer._PROPOSAL_PATH}")
-    print(f"  the later session reads back the SAME note: {'yes' if resolved == old_id else 'NO'}")
-    part3 = resolved == old_id and resolved == proposal["target"]
+    resolved = observer._read_targets(observer._FakeGH(_serve), "demo-merge-sha")
+    print(f"  wrote the batch proposal to the committed path: {observer._PROPOSAL_PATH}")
+    print(f"  the later session reads back the SAME notes: {'yes' if set(resolved) == old_ids else 'NO'}")
+    part3 = set(resolved) == old_ids and set(resolved) == set(proposal["targets"])
     print(f"  => {'the file the engine writes is exactly the file the later session erases by.' if part3 else '!!! the reader did not accept what was written'}")
 
     # --- PART 4 ------------------------------------------------------------------------------------------
-    print("\nPART 4 — the engine opens ONE single-purpose pull request and labels it")
+    print("\nPART 4 — the engine opens ONE single-purpose pull request clearing BOTH notes, and labels it")
     print("-" * 96)
     hub = _DemoHub(tree)
     result = propose(opener=hub.open, transport=hub.transport, root=tree)
     print(f"  {result['message']}")
-    part4 = result["opened"] == [4242] and observer.ERASURE_LABEL in hub._labels and result.get("labelled") is True
-    print(f"  => {'one labelled pull request, opened for your review (it does not merge itself).' if part4 else '!!! it opened the wrong number of pull requests, or did not label it'}")
+    part4 = (result["opened"] == [4242] and set(result["targets"]) == old_ids
+             and observer.ERASURE_LABEL in hub._labels and result.get("labelled") is True)
+    print(f"  => {'one labelled pull request, clearing the whole batch, opened for your review (it does not merge itself).' if part4 else '!!! it opened the wrong number of pull requests, cleared the wrong set, or did not label it'}")
 
     # --- PART 5 ------------------------------------------------------------------------------------------
-    print("\nPART 5 — run the review again: it opens NOTHING (it never re-pesters you about the same note)")
+    print("\nPART 5 — run the review again: it opens NOTHING (it never re-pesters you about notes already in front of you)")
     print("-" * 96)
     again = propose(opener=hub.open, transport=hub.transport, root=tree)
     print(f"  {again['message']}")
     part5 = again["opened"] == []
-    print(f"  => {'a note already in front of you is left alone — no duplicate pull request.' if part5 else '!!! it opened a duplicate pull request'}")
+    print(f"  => {'notes already in front of you are left alone — no duplicate pull request.' if part5 else '!!! it opened a duplicate pull request'}")
 
     # --- PART 6 ------------------------------------------------------------------------------------------
     print(f"\nPART 6 — the weekly throttle: after a check it does not even LOOK again until ~{EARNED_ERASURE_CHECK_INTERVAL_DAYS} days pass")
