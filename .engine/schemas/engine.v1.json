@@ -30,6 +30,11 @@
       "type": "string",
       "minLength": 1
     },
+    "home_repository": {
+      "description": "The engine's home repository as an owner/repo slug (for example StarshipSuperjam/engine-template) — the single coordinate that is the source of truth for where the engine fetches its own updates from, and for where a fork-native deployment escalates a contribution to. A generated repo is detached from its home (no upstream remote), so the engine updates by pulling that home's tagged GitHub releases, never by a git pull and never from this repo's own origin. Seeded from the template's committed manifest and carried forward at first-run setup; because it selects where executable engine code is fetched from, changing it to a different value is a guardrail-weakening change that needs the operator's explicit acknowledgment. Optional: absent in a repository generated before this coordinate shipped, in which case the engine cannot update and says so plainly rather than guessing a home.",
+      "type": "string",
+      "minLength": 1
+    },
     "control_plane": {
       "description": "What the engine did to this repository's branch protection at setup, recorded so a later clean removal can reverse exactly that and nothing of the operator's. Written by the control-plane apply step on a brownfield arrival (and on greenfield, to record that the engine owns its own ruleset). Optional: absent until the gate is turned on, and on a repo whose protection was already fully in force.",
       "type": "object",

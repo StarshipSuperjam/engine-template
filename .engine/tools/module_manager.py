@@ -300,6 +300,12 @@ def remove(module_id: str) -> dict:
 # ---- fetch / overlay (the shared release machinery: add uses it here; the engine updater reuses
 #      it in `upgrade`) ----------------------------------------------------------------------
 
+class _NoPublishedRelease(RuntimeError):
+    """The home is reachable but has NO release to resolve (the releases API returned 200 with no
+    `tag_name`) — a genuine missing-release condition, distinct from a transport failure, so the caller
+    refuses LOUDLY naming the home rather than degrading it as a network problem (#367)."""
+
+
 def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
                         token: str | None = None) -> str:
     """Download the engine's SOURCE archive at the tagged release `ref`, extract it under `dest_dir`, and
@@ -358,8 +364,34 @@ def _resolve_release_ref(ref: str | None, repo: str | None = None, token: str | 
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as resp:
         tag = (_json.loads(resp.read()) or {}).get("tag_name")
     if not tag:
-        raise RuntimeError("the engine repository has no published release to update to.")
+        raise _NoPublishedRelease("the engine repository has no published release to update to.")
     return tag
+
+
+def _home_repository() -> str | None:
+    """The engine's HOME repository slug (`owner/repo`) recorded in the manifest — the single source of
+    truth for where engine updates are fetched from (D-281/D-282; issue #367). None when the manifest
+    records no home (a repo generated before this coordinate shipped). The release-fetch callers pass this
+    as `repo=` so they resolve the HOME, never the deployed repo's own `origin` (which `boot.repo_slug()`
+    returns and which has no engine releases). On a None home the caller REFUSES with a plain remedy and
+    never falls back to origin — the engine does not guess a home."""
+    engine = module_coherence.load_engine_manifest() or {}
+    home = engine.get("home_repository")
+    return home if isinstance(home, str) and home.strip() else None
+
+
+def _release_is_missing(exc: BaseException) -> bool:
+    """Split a release-fetch failure into its two operator-distinct outcomes (three-state resolution,
+    D-281/D-282). True → the home is recorded but UNRESOLVABLE: the release/repo does not exist (HTTP 404
+    — release-less, renamed, or removed home) OR the home is reachable but has no published release at all
+    (`_NoPublishedRelease`, a 200 with no tag) — both refused LOUDLY naming the home. False → a transport
+    failure (offline / DNS / timeout / other status), which DEGRADES to the current version (§5 / R7).
+    urllib raises HTTPError (a URLError subclass) carrying a numeric `.code` for an HTTP status; a bare
+    URLError or socket error carries none."""
+    import urllib.error
+    if isinstance(exc, _NoPublishedRelease):
+        return True
+    return isinstance(exc, urllib.error.HTTPError) and getattr(exc, "code", None) == 404
 
 
 def _within_root(rel: str) -> bool:
@@ -433,14 +465,28 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
             if not target_ref:
                 return {"module_id": module_id, "refused": True, "applied": False,
                         "reason": "could not determine which engine release to fetch the module from."}
+            # A module's files come from the engine's HOME release too, never this repo's own origin
+            # (D-281/D-282; #367). Absent home -> refuse with a remedy; never fall back to origin.
+            home = _home_repository()
+            if not home:
+                return {"module_id": module_id, "refused": True, "applied": False,
+                        "reason": f"This engine has no update home recorded, so it can't fetch '{module_id}'. "
+                                  f"Tell me the repository your engine updates from (for example your-org/your-engine) and I'll "
+                                  f"record it, then you can add the module again. Nothing was changed."}
             tmp = tempfile.mkdtemp(prefix="engine-add-")
             try:
-                release_tree = _fetch_release_tree(target_ref, tmp)
-            except Exception as exc:   # offline / missing release / transport — degrade loud + plain (§5)
-                return {"module_id": module_id, "refused": True, "applied": False,
-                        "reason": f"Couldn't reach the engine's release '{target_ref}' to add "
-                                  f"'{module_id}' — the release may not exist yet, or the network is "
-                                  f"unavailable. Nothing was changed. ({exc})"}
+                release_tree = _fetch_release_tree(target_ref, tmp, repo=home)
+            except Exception as exc:
+                if _release_is_missing(exc):   # recorded home, but no such release/repo -> refuse, NAME it
+                    return {"module_id": module_id, "refused": True, "applied": False,
+                            "reason": f"Couldn't find release '{target_ref}' at your engine's update home, "
+                                      f"{home}, to add '{module_id}' — that home may have no such release, or "
+                                      f"it may have been renamed or removed. Nothing was changed. If the home "
+                                      f"is wrong, update the recorded home and try again."}
+                return {"module_id": module_id, "refused": True, "applied": False,   # transport -> degrade
+                        "reason": f"Couldn't reach your engine's update home, {home}, to add '{module_id}' — "
+                                  f"the network may be down, or the home may not be reachable right now. "
+                                  f"Nothing was changed. ({exc})"}
         candidate_path = os.path.join(release_tree, ".engine", "modules", module_id, "manifest.json")
         if not os.path.isfile(candidate_path):
             return {"module_id": module_id, "refused": True, "applied": False,
@@ -978,15 +1024,30 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         if release_tree is None:
             if not present_ids:
                 return {**result, "refused": True, "reason": "There are no installed modules to update."}
+            # Resolve the engine's HOME from the manifest and fetch the release FROM THE HOME, never from
+            # this repo's own origin (D-281/D-282; #367). Absent home -> refuse with a remedy (three-state).
+            home = _home_repository()
+            if not home:
+                return {**result, "refused": True,
+                        "reason": "This engine has no update home recorded, so it can't check for updates. "
+                                  "Tell me the repository your engine updates from (for example your-org/your-engine) and I'll "
+                                  "record it, then you can update again. The engine is unchanged."}
             tmp = tempfile.mkdtemp(prefix="engine-upgrade-")
             try:
-                target_ref = _resolve_release_ref(ref)        # None/"latest" -> the concrete latest tag
-                release_tree = _fetch_release_tree(target_ref, tmp)
-            except Exception as exc:   # offline / missing release / transport — degrade loud + plain
-                return {**result, "refused": True,
-                        "reason": f"Couldn't reach the engine release '{ref or 'latest'}' to update — the "
-                                  f"release may not exist yet, or the network is unavailable. The engine "
-                                  f"is unchanged and still working. ({exc})"}
+                target_ref = _resolve_release_ref(ref, repo=home)   # None/"latest" -> concrete latest tag
+                release_tree = _fetch_release_tree(target_ref, tmp, repo=home)
+            except Exception as exc:
+                if _release_is_missing(exc):   # recorded home, but no such release/repo -> refuse, NAME it
+                    return {**result, "refused": True,
+                            "reason": f"Couldn't find a release to update to at your engine's update home, "
+                                      f"{home} (looked for '{ref or 'latest'}'). That home may have no "
+                                      f"published releases yet, or it may have been renamed or removed. The "
+                                      f"engine is unchanged. If the home is wrong, update the recorded home "
+                                      f"and try again."}
+                return {**result, "refused": True,   # transport/offline -> DEGRADE to the current version
+                        "reason": f"Couldn't reach your engine's update home, {home}, to check for updates — "
+                                  f"the network may be down, or the home may not be reachable right now. The "
+                                  f"engine is unchanged and still working. ({exc})"}
         # read target versions + capture the CURRENTLY-installed manifests (for wiring deltas) BEFORE the
         # overlay overwrites them
         target_versions, old_by_id = {}, {}
@@ -1542,7 +1603,8 @@ def _build_add_fixture(root: str) -> None:
                 {"id": "base", "version": "0.0.0", "status": "required",
                  "provides": {"tool": [".engine/tools/base_tool.py"]}, "depends": {}})
     _write_json(os.path.join(eng, "engine.json"),
-                {"engine_release": "0.0.0", "packages": {"base": "0.0.0"}, "identity": "solo"})
+                {"engine_release": "0.0.0", "packages": {"base": "0.0.0"}, "identity": "solo",
+                 "home_repository": "acme/engine-home"})   # the update home the fetch resolves + upgrade preserves
     with open(os.path.join(eng, "tools", "base_tool.py"), "w") as fh:
         fh.write("# base\n")
     with open(os.path.join(eng, "uv.lock"), "w") as fh:
@@ -1655,7 +1717,8 @@ def _build_upgrade_fixture(root: str) -> None:
                  "wires": [{"type": "gitignore", "key": "oldcache",
                             "lines": [".engine/base/.oldcache/"]}]})
     _write_json(os.path.join(eng, "engine.json"),
-                {"engine_release": "0.0.0", "packages": {"base": "0.0.0"}, "identity": "solo"})
+                {"engine_release": "0.0.0", "packages": {"base": "0.0.0"}, "identity": "solo",
+                 "home_repository": "acme/engine-home"})   # the update home the fetch resolves + upgrade preserves
     with open(os.path.join(eng, "tools", "base_tool.py"), "w") as fh:
         fh.write("# base v0\n")
     with open(os.path.join(eng, "uv.lock"), "w") as fh:
@@ -1816,6 +1879,31 @@ def upgrade_demo() -> bool:
             for label, good in checks.items():
                 print(f"    [{'ok' if good else 'FAIL'}] {label}")
                 ok = ok and good
+
+            print("\nPart J2 — the update is fetched from the engine's recorded HOME, never this repo's own "
+                  "origin (#367); and with NO home recorded it refuses with a remedy rather than guess a home:")
+            seen = {}
+            saved_fetch2 = globals().get("_fetch_release_tree")
+            globals()["_fetch_release_tree"] = lambda ref, dest, repo=None, token=None: (
+                seen.__setitem__("repo", repo) or (_ for _ in ()).throw(RuntimeError("stop after capture")))
+            try:
+                upgrade(ref="v0.2.0")            # real fetch path -> captures the SOURCE repo, then stops
+            finally:
+                globals()["_fetch_release_tree"] = saved_fetch2
+            from_home = seen.get("repo") == "acme/engine-home"
+            print(f"    [{'ok' if from_home else 'FAIL'}] fetched from the recorded home 'acme/engine-home' "
+                  f"(saw {seen.get('repo')!r}), not this repo's own origin")
+            ok = ok and from_home
+            eng2 = module_coherence.load_engine_manifest()
+            eng2.pop("home_repository", None)    # a repo generated BEFORE the home coordinate shipped
+            _write_json(os.path.join(live, ".engine", "engine.json"), eng2)
+            no_home = upgrade(ref="v0.2.0")
+            asks_to_record = (no_home.get("refused")
+                              and "no update home recorded" in (no_home.get("reason") or ""))
+            print("    -> " + (no_home["reason"] if no_home.get("refused") else "NOT refused?!"))
+            print(f"    [{'ok' if asks_to_record else 'FAIL'}] absent home refuses with a plain remedy, "
+                  f"never falling back to origin")
+            ok = ok and asks_to_record
 
     print("\nPart K — the update RE-RENDERS the code-ownership wall for the new version's engine files, so "
           "a file the new release adds still routes to the operator for review — and the operator's OWN "

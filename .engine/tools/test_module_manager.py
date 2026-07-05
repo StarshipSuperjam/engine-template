@@ -249,6 +249,65 @@ class TestAddSafety(unittest.TestCase):
             self.assertIn("Nothing was changed", res["reason"])
             self.assertNotIn("feat", (engine or {}).get("packages", {}))
 
+    def test_add_fetches_from_the_recorded_home_never_origin(self):
+        # A module's files come from the engine's recorded HOME, never this repo's own origin (#367, D-281).
+        seen = {}
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_add_fixture(live)                 # records home "acme/engine-home"
+                saved = module_manager._fetch_release_tree
+
+                def _spy(ref, dest, repo=None, token=None):
+                    seen["repo"] = repo
+                    raise RuntimeError("stop after capturing the source")
+                module_manager._fetch_release_tree = _spy
+                try:
+                    module_manager.add("feat")
+                finally:
+                    module_manager._fetch_release_tree = saved
+        self.assertEqual(seen.get("repo"), "acme/engine-home")          # the HOME, not boot.repo_slug()/origin
+
+    def test_add_with_no_recorded_home_refuses_with_a_remedy_never_origin(self):
+        called = {"n": 0}
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_add_fixture(live)
+                p = os.path.join(live, ".engine", "engine.json")        # strip the home -> a pre-field engine
+                m = module_manager.validate.load_json(p)
+                m.pop("home_repository", None)
+                module_manager._write_json(p, m)
+                saved = module_manager._fetch_release_tree
+                module_manager._fetch_release_tree = lambda *a, **k: called.__setitem__("n", called["n"] + 1)
+                try:
+                    res = module_manager.add("feat")
+                finally:
+                    module_manager._fetch_release_tree = saved
+        self.assertTrue(res["refused"])
+        self.assertIn("no update home recorded", res["reason"])
+        self.assertEqual(called["n"], 0)                                # never reached a fetch -> never origin
+
+    def test_add_release_missing_at_the_home_is_refused_naming_the_home(self):
+        import urllib.error
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_add_fixture(live)
+                saved = module_manager._fetch_release_tree
+                module_manager._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
+                    urllib.error.HTTPError("u", 404, "Not Found", {}, None))   # a REAL 404 at the home
+                try:
+                    res = module_manager.add("feat")
+                finally:
+                    module_manager._fetch_release_tree = saved
+        self.assertTrue(res["refused"])
+        self.assertIn("acme/engine-home", res["reason"])               # NAMES the home so the operator can check
+        self.assertIn("Nothing was changed", res["reason"])
+
 
 class TestCli(unittest.TestCase):
 
@@ -526,6 +585,106 @@ class TestUpgradeSafety(unittest.TestCase):
             self.assertTrue(res["refused"])
             self.assertIn("Couldn't reach", res["reason"])
             self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.0.0")   # unchanged
+
+    def test_upgrade_resolves_and_fetches_from_the_recorded_home_never_origin(self):
+        # BOTH the latest-ref resolution and the release fetch target the engine's recorded HOME (#367, D-281).
+        seen = {}
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)             # records home "acme/engine-home"
+                sr, sf = module_manager._resolve_release_ref, module_manager._fetch_release_tree
+                module_manager._resolve_release_ref = lambda ref, repo=None, token=None: (
+                    seen.__setitem__("resolve_repo", repo) or "v0.2.0")
+
+                def _spy(ref, dest, repo=None, token=None):
+                    seen["fetch_repo"] = repo
+                    raise RuntimeError("stop after capturing the source")
+                module_manager._fetch_release_tree = _spy
+                try:
+                    module_manager.upgrade()                            # ref=None -> resolve latest FROM THE HOME
+                finally:
+                    module_manager._resolve_release_ref, module_manager._fetch_release_tree = sr, sf
+        self.assertEqual(seen.get("resolve_repo"), "acme/engine-home")
+        self.assertEqual(seen.get("fetch_repo"), "acme/engine-home")
+
+    def test_upgrade_with_no_recorded_home_refuses_with_a_remedy_never_origin(self):
+        called = {"n": 0}
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                p = os.path.join(live, ".engine", "engine.json")        # strip the home -> a pre-field engine
+                m = module_manager.validate.load_json(p)
+                m.pop("home_repository", None)
+                module_manager._write_json(p, m)
+                sf = module_manager._fetch_release_tree
+                module_manager._fetch_release_tree = lambda *a, **k: called.__setitem__("n", called["n"] + 1)
+                try:
+                    res = module_manager.upgrade()
+                finally:
+                    module_manager._fetch_release_tree = sf
+                engine = module_manager.module_coherence.load_engine_manifest()
+        self.assertTrue(res["refused"])
+        self.assertIn("no update home recorded", res["reason"])
+        self.assertEqual(called["n"], 0)                                # never fell through to a fetch (never origin)
+        self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.0.0")   # nothing changed
+
+    def test_upgrade_release_missing_at_the_home_refuses_naming_it_distinct_from_transport(self):
+        import urllib.error
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                sf = module_manager._fetch_release_tree
+                module_manager._fetch_release_tree = lambda *a, **k: (_ for _ in ()).throw(
+                    urllib.error.HTTPError("u", 404, "Not Found", {}, None))   # a REAL 404 at the home
+                try:
+                    missing = module_manager.upgrade(ref="v9.9.9")
+                finally:
+                    module_manager._fetch_release_tree = sf
+        self.assertTrue(missing["refused"])
+        self.assertIn("acme/engine-home", missing["reason"])            # names the home (not just "the release")
+        self.assertNotIn("network", missing["reason"].lower())          # distinct from the transport-degrade wording
+
+    def test_no_published_release_at_the_home_refuses_naming_it_not_transport(self):
+        # A reachable home with NO published release (releases API 200, null tag -> _NoPublishedRelease) is a
+        # missing-release: refused naming the home, not mis-degraded as a network failure (#367 tech review).
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                sr = module_manager._resolve_release_ref
+                module_manager._resolve_release_ref = lambda *a, **k: (_ for _ in ()).throw(
+                    module_manager._NoPublishedRelease("no published release"))
+                try:
+                    res = module_manager.upgrade()   # ref=None -> resolve latest -> no published release
+                finally:
+                    module_manager._resolve_release_ref = sr
+        self.assertTrue(res["refused"])
+        self.assertIn("acme/engine-home", res["reason"])               # names the home
+        self.assertNotIn("network", res["reason"].lower())             # not the transport-degrade wording
+
+    def test_upgrade_preserves_the_recorded_home_across_the_version_bump(self):
+        # Law 1 (D-281): engine.json is preserved-not-overlaid, so a successful upgrade keeps the home while
+        # the module versions DO bump.
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                       opener=lambda **k: opened.append(k) or {"number": 1},
+                                       backup=lambda *a, **k: {"ok": 1})
+                engine = module_manager.module_coherence.load_engine_manifest()
+        self.assertEqual((engine or {}).get("home_repository"), "acme/engine-home")   # preserved
+        self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.2.0")     # but versions bumped
 
     def test_data_migration_without_backup_refuses_the_whole_upgrade_before_overlay(self):
         with tempfile.TemporaryDirectory() as d:

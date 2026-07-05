@@ -14,5 +14,6 @@
     "migration-discipline": "0.0.0-dev",
     "product-design": "0.0.0-dev"
   },
-  "identity": "solo"
+  "identity": "solo",
+  "home_repository": "StarshipSuperjam/engine-template"
 }
