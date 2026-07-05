@@ -4002,7 +4002,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:dbbf0b289c3eba2ec9fa2109ed9d3ebf2537db831a1a73d52cc576f282d14e86",
+        "fingerprint": "sha256:65affa4c9fbc6444cf2b4a60ad01b96db7ecd8c22e49520cd258f651dd4be0c1",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5090,7 +5090,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:4fbe45c37cdb11d3687498fd9ba0a65dac1bfaadcd68cdfe5d21826f732d9be5",
+        "fingerprint": "sha256:54c31bc1cc8002cb02302507353b5f9ac05a439f6a29ac5c6599aa92dadc4147",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -6416,7 +6416,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:14e1070e053e14fe395219d08f1cea170d745d1287f240e57fded5a9a28fd2ec",
+        "fingerprint": "sha256:6037aeeacac7d416a6021d101bce45806d95da3e784b36ddf3f6d16da2292be1",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -6824,7 +6824,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:5be74b0c1650b974996aef474ee0405ac6e962f664f2ea566bbf82000bb4d8bf",
+        "fingerprint": "sha256:84bbed448122c7db5e93edff18b4038ba89a41719b497a5f1929777e247780f0",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -7198,7 +7198,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:10f039162cf8247166f6304d3e11e45e1fdf778f6c182fc86d8215e62d8e62bf",
+        "fingerprint": "sha256:eba6975a722e4e2ff0f0fdf4cddfd9c01bec704eecd7fafb8c94445baee2f89d",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

@@ -686,8 +686,9 @@ def render_dashboard(s: dict) -> str:
         pinned.append(
             "🏠 **I don't have your engine's update home recorded, so I can't check for or fetch engine updates.** "
             "Nothing is wrong with your project and nothing is at risk — updates just can't run until the home is "
-            "recorded. Tell me the repository your engine updates from (its owner/repo) and I'll record it, then "
-            "updates will work. (Recording where the engine updates from is a newer part of the engine, so you may "
+            "recorded. Tell me the repository your engine updates from (for example your-org/your-engine) and I'll "
+            "record it, then updates will work. (Recording where the engine updates from is a newer part of the "
+            "engine, so you may "
             "be seeing this for a long-standing setup for the first time, not something that just broke.)")
 
     # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier

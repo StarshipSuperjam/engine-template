@@ -300,6 +300,12 @@ def remove(module_id: str) -> dict:
 # ---- fetch / overlay (the shared release machinery: add uses it here; the engine updater reuses
 #      it in `upgrade`) ----------------------------------------------------------------------
 
+class _NoPublishedRelease(RuntimeError):
+    """The home is reachable but has NO release to resolve (the releases API returned 200 with no
+    `tag_name`) — a genuine missing-release condition, distinct from a transport failure, so the caller
+    refuses LOUDLY naming the home rather than degrading it as a network problem (#367)."""
+
+
 def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
                         token: str | None = None) -> str:
     """Download the engine's SOURCE archive at the tagged release `ref`, extract it under `dest_dir`, and
@@ -358,7 +364,7 @@ def _resolve_release_ref(ref: str | None, repo: str | None = None, token: str | 
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as resp:
         tag = (_json.loads(resp.read()) or {}).get("tag_name")
     if not tag:
-        raise RuntimeError("the engine repository has no published release to update to.")
+        raise _NoPublishedRelease("the engine repository has no published release to update to.")
     return tag
 
 
@@ -377,11 +383,14 @@ def _home_repository() -> str | None:
 def _release_is_missing(exc: BaseException) -> bool:
     """Split a release-fetch failure into its two operator-distinct outcomes (three-state resolution,
     D-281/D-282). True → the home is recorded but UNRESOLVABLE: the release/repo does not exist (HTTP 404
-    — release-less, renamed, or removed home), which is refused LOUDLY naming the home. False → a transport
+    — release-less, renamed, or removed home) OR the home is reachable but has no published release at all
+    (`_NoPublishedRelease`, a 200 with no tag) — both refused LOUDLY naming the home. False → a transport
     failure (offline / DNS / timeout / other status), which DEGRADES to the current version (§5 / R7).
     urllib raises HTTPError (a URLError subclass) carrying a numeric `.code` for an HTTP status; a bare
     URLError or socket error carries none."""
     import urllib.error
+    if isinstance(exc, _NoPublishedRelease):
+        return True
     return isinstance(exc, urllib.error.HTTPError) and getattr(exc, "code", None) == 404
 
 
@@ -462,7 +471,7 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
             if not home:
                 return {"module_id": module_id, "refused": True, "applied": False,
                         "reason": f"This engine has no update home recorded, so it can't fetch '{module_id}'. "
-                                  f"Tell me the repository your engine updates from (its owner/repo) and I'll "
+                                  f"Tell me the repository your engine updates from (for example your-org/your-engine) and I'll "
                                   f"record it, then you can add the module again. Nothing was changed."}
             tmp = tempfile.mkdtemp(prefix="engine-add-")
             try:
@@ -476,7 +485,8 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
                                       f"is wrong, update the recorded home and try again."}
                 return {"module_id": module_id, "refused": True, "applied": False,   # transport -> degrade
                         "reason": f"Couldn't reach your engine's update home, {home}, to add '{module_id}' — "
-                                  f"the network may be unavailable. Nothing was changed. ({exc})"}
+                                  f"the network may be down, or the home may not be reachable right now. "
+                                  f"Nothing was changed. ({exc})"}
         candidate_path = os.path.join(release_tree, ".engine", "modules", module_id, "manifest.json")
         if not os.path.isfile(candidate_path):
             return {"module_id": module_id, "refused": True, "applied": False,
@@ -1020,7 +1030,7 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
             if not home:
                 return {**result, "refused": True,
                         "reason": "This engine has no update home recorded, so it can't check for updates. "
-                                  "Tell me the repository your engine updates from (its owner/repo) and I'll "
+                                  "Tell me the repository your engine updates from (for example your-org/your-engine) and I'll "
                                   "record it, then you can update again. The engine is unchanged."}
             tmp = tempfile.mkdtemp(prefix="engine-upgrade-")
             try:
@@ -1036,8 +1046,8 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                                       f"and try again."}
                 return {**result, "refused": True,   # transport/offline -> DEGRADE to the current version
                         "reason": f"Couldn't reach your engine's update home, {home}, to check for updates — "
-                                  f"the network may be unavailable. The engine is unchanged and still "
-                                  f"working. ({exc})"}
+                                  f"the network may be down, or the home may not be reachable right now. The "
+                                  f"engine is unchanged and still working. ({exc})"}
         # read target versions + capture the CURRENTLY-installed manifests (for wiring deltas) BEFORE the
         # overlay overwrites them
         target_versions, old_by_id = {}, {}

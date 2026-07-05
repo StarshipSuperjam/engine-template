@@ -650,6 +650,25 @@ class TestUpgradeSafety(unittest.TestCase):
         self.assertIn("acme/engine-home", missing["reason"])            # names the home (not just "the release")
         self.assertNotIn("network", missing["reason"].lower())          # distinct from the transport-degrade wording
 
+    def test_no_published_release_at_the_home_refuses_naming_it_not_transport(self):
+        # A reachable home with NO published release (releases API 200, null tag -> _NoPublishedRelease) is a
+        # missing-release: refused naming the home, not mis-degraded as a network failure (#367 tech review).
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                sr = module_manager._resolve_release_ref
+                module_manager._resolve_release_ref = lambda *a, **k: (_ for _ in ()).throw(
+                    module_manager._NoPublishedRelease("no published release"))
+                try:
+                    res = module_manager.upgrade()   # ref=None -> resolve latest -> no published release
+                finally:
+                    module_manager._resolve_release_ref = sr
+        self.assertTrue(res["refused"])
+        self.assertIn("acme/engine-home", res["reason"])               # names the home
+        self.assertNotIn("network", res["reason"].lower())             # not the transport-degrade wording
+
     def test_upgrade_preserves_the_recorded_home_across_the_version_bump(self):
         # Law 1 (D-281): engine.json is preserved-not-overlaid, so a successful upgrade keeps the home while
         # the module versions DO bump.

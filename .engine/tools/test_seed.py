@@ -1210,11 +1210,12 @@ class TestWeakeningReHome(unittest.TestCase):
 
     _AUTO = object()  # sentinel: derive expected from len(files) unless overridden
 
-    def _main_json(self, event, files, expected=_AUTO):
-        """Drive main() with the two network seams stubbed: the complete changed-file list
-        and the authoritative changed_files count. `expected` defaults to len(files) (a
-        fully-seen PR); pass a larger int to simulate a truncated / over-cap view, or None
-        to simulate the count being unavailable."""
+    def _main_json(self, event, files, expected=_AUTO, base_home=None):
+        """Drive main() with the network seams stubbed: the complete changed-file list, the authoritative
+        changed_files count, and the BASE manifest's recorded home (`base_home`, default None = no home
+        recorded, so a home in the diff reads as a first recording). `expected` defaults to len(files) (a
+        fully-seen PR); pass a larger int to simulate a truncated / over-cap view, or None for the count
+        being unavailable."""
         import contextlib
         import io
         if expected is self._AUTO:
@@ -1222,6 +1223,7 @@ class TestWeakeningReHome(unittest.TestCase):
         saved = dict(os.environ)
         orig_fetch = weakening_guard.fetch_all_changed_files
         orig_count = weakening_guard.changed_files_total
+        orig_home = weakening_guard._read_base_home
         buf = io.StringIO()
         with tempfile.TemporaryDirectory() as d:
             ep = os.path.join(d, "event.json")
@@ -1231,6 +1233,7 @@ class TestWeakeningReHome(unittest.TestCase):
                                "ENGINE_RULE_TIER": "hard", "GITHUB_EVENT_PATH": ep})
             weakening_guard.fetch_all_changed_files = lambda repo, number, token: files
             weakening_guard.changed_files_total = lambda repo, number, token: expected
+            weakening_guard._read_base_home = lambda: base_home
             try:
                 with contextlib.redirect_stdout(buf):
                     rc = weakening_guard.main()
@@ -1239,6 +1242,7 @@ class TestWeakeningReHome(unittest.TestCase):
                 os.environ.update(saved)
                 weakening_guard.fetch_all_changed_files = orig_fetch
                 weakening_guard.changed_files_total = orig_count
+                weakening_guard._read_base_home = orig_home
         return rc, json.loads(buf.getvalue())
 
     def test_no_weakening_is_empty_and_exit_zero(self):
@@ -1274,7 +1278,8 @@ class TestWeakeningReHome(unittest.TestCase):
     def test_home_repoint_is_flagged_as_weakening(self):
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": []}},
-            [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}])
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}],
+            base_home="acme/engine-home")
         self.assertEqual(rc, 0)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "hard")
@@ -1287,39 +1292,71 @@ class TestWeakeningReHome(unittest.TestCase):
     def test_home_repoint_is_cleared_by_the_ack(self):
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
-            [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}])
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}],
+            base_home="acme/engine-home")
         self.assertEqual(out, [])
 
     def test_home_first_recording_is_not_a_repoint(self):
-        # absent -> present (add-only): establishing a home is NOT a redirect and must not demand an ack —
-        # the seeding + back-fill paths add the key, they never change an existing value.
+        # No home in the base (base_home=None) -> the seed/back-fill add is a first recording, not a redirect,
+        # and must not demand an ack.
         patch = ('@@ -1,3 +1,4 @@\n'
                  '   "identity": "solo"\n'
                  '+  ,"home_repository": "acme/engine-home"\n'
                  ' }\n')
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": []}},
-            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}])
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}])   # base_home None
         self.assertEqual(out, [])
 
     def test_home_version_bump_is_not_a_repoint(self):
         # .engine/engine.json legitimately churns on every upgrade (version bumps) with NO home line in the
-        # patch — so it must NOT be flagged (why the manifest is not whole-file guarded).
+        # patch — so even with a home recorded it must NOT be flagged (why it is not whole-file guarded).
         patch = ('@@ -1,3 +1,3 @@\n'
                  '-  "engine_release": "1.0.0",\n'
                  '+  "engine_release": "1.1.0",\n'
                  '   "identity": "solo"\n')
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": []}},
-            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}])
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
         self.assertEqual(out, [])
+
+    def test_home_duplicate_key_injection_is_flagged(self):
+        # #367 security review: a repoint hidden by ADDING a second home_repository key (JSON's last value
+        # wins) shows only a '+' line — the old line-pair match missed it. The fail-closed detector flags any
+        # touch of the home key when a home is already recorded.
+        dup = ('@@ -1,3 +1,4 @@\n'
+               '   "home_repository": "acme/engine-home",\n'          # the original stays as context
+               '+  "home_repository": "evil/look-alike",\n'          # a second key, last-wins -> effective home
+               '   "identity": "solo"\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": dup}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+        self.assertIn("update home", out[0]["message"])
+
+    def test_home_change_with_no_patch_fails_closed(self):
+        # #367 security review: GitHub elides the patch on a large PR. A manifest change we cannot inspect,
+        # with a home recorded, fails CLOSED (demands the ack) rather than passing silently.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified"}],   # no 'patch' field
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+        self.assertIn("guardrail-ack", out[0]["message"])
 
     def test_home_repoint_pure_classifier_reads_only_the_manifest(self):
         files = [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}]
-        self.assertEqual(weakening_guard.home_repoint(files), ("acme/engine-home", "evil/look-alike"))
+        self.assertEqual(weakening_guard.home_repoint(files, "acme/engine-home"),
+                         ("acme/engine-home", "evil/look-alike"))
+        # no base home recorded -> a first recording, never a repoint
+        self.assertIsNone(weakening_guard.home_repoint(files, None))
         # the same patch on a NON-manifest file is ignored — only the manifest carries the home coordinate
         self.assertIsNone(weakening_guard.home_repoint(
-            [{"filename": "docs/x.md", "status": "modified", "patch": self._REPOINT_PATCH}]))
+            [{"filename": "docs/x.md", "status": "modified", "patch": self._REPOINT_PATCH}], "acme/engine-home"))
 
     def test_missing_pr_context_is_hard_fail_closed(self):
         import contextlib

@@ -84,36 +84,70 @@ def flagged_changes(files: list) -> list:
 # redirects where executable engine code is fetched from at the next update — a §15 supply-chain weakening
 # that needs the deliberate ack (D-281/D-282, #367). The manifest is deliberately NOT whole-file guarded:
 # it legitimately churns on every upgrade/add (version bumps) and on first-run setup, so blanket-guarding
-# it would demand an ack on routine updates. Instead this inspects the DIFF PATCH the files API already
-# returns (no head checkout — the base-only trust posture is preserved) for a change to the home value.
+# it would demand an ack on routine updates. Instead the detector compares the diff against the home
+# recorded in the TRUSTED BASE manifest and FAILS CLOSED — so it cannot be falsified by the change it judges.
 ENGINE_MANIFEST_REL = ".engine/engine.json"
 _HOME_VALUE_RE = re.compile(r'"home_repository"\s*:\s*"([^"]*)"')
+# The base manifest on disk. The guard runs on pull_request_target with ONLY the trusted base checked out,
+# so this reads the base value (never head) — the authoritative "what the home is now" the repoint compares
+# against. `<repo>/.engine/engine.json`, three dirnames up from `<repo>/.engine/tools/weakening_guard.py`.
+_BASE_MANIFEST = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".engine", "engine.json")
 
 
-def home_repoint(files: list) -> tuple | None:
-    """A REPOINT of the engine's `home_repository` in the manifest: returns (old, new) when the diff patch
-    removes one home value and adds a DIFFERENT one, else None. A first-time recording (add-only, no removed
-    value) and a version-only bump (no home line in the patch) are NOT repoints and do not flag. Reads only
-    the unified-diff `patch` string GitHub returns per changed file — never the head ref. Bound: relies on
-    the patch being present, which it always is for a file this small; a patch-less modification of the
-    manifest (pathological for a tiny file) is not flagged rather than force an ack on every routine bump."""
+def _read_base_home() -> str | None:
+    """The `home_repository` recorded in the BASE manifest, read from disk (the trusted base checkout, never
+    head). None when absent/unreadable — i.e. no home is recorded yet, so a home appearing in the diff is a
+    first recording, not a repoint."""
+    try:
+        with open(_BASE_MANIFEST, encoding="utf-8") as fh:
+            home = json.load(fh).get("home_repository")
+        return home if isinstance(home, str) and home.strip() else None
+    except Exception:  # noqa: BLE001 — absent / unreadable base manifest -> treated as no home recorded
+        return None
+
+
+def _touches_home_key(patch: str) -> bool:
+    """True iff the unified-diff `patch` adds or removes any line mentioning the `home_repository` key — a
+    SUBSTRING test (not a value regex), so a duplicate-key injection (JSON's last value wins, but the added
+    key line still shows), a value split across lines, and any reformatting of the home line all register as
+    a touch. The `+++`/`---` file headers are excluded."""
+    for line in patch.splitlines():
+        plus = line.startswith("+") and not line.startswith("+++")
+        minus = line.startswith("-") and not line.startswith("---")
+        if (plus or minus) and "home_repository" in line:
+            return True
+    return False
+
+
+def home_repoint(files: list, base_home: str | None) -> tuple | None:
+    """A change to the engine's update home when one is ALREADY recorded (`base_home`) is a §15 repoint —
+    returns (base_home, new_value_or_None) to flag, else None. FAILS CLOSED so the guard cannot be falsified
+    by the change it judges: once a home exists, ANY touch of the `home_repository` key in the manifest diff,
+    and a `patch` too large to be returned at all, both require the ack. This defeats a duplicate-key
+    injection, a value split across lines, and a patch-suppressing bloat — the line-pair match this replaced
+    missed all three (#367 security review). A first recording (no `base_home` yet) is never a repoint, so
+    seeding and back-fill need no ack; a version-only bump (no home line in the patch) does not touch the key
+    and does not flag. `new_value` is the added home value when parseable on one line, else None (the
+    operator message then says 'a different repository')."""
+    if not base_home:
+        return None                        # no home recorded yet -> establishing one is not a repoint
     for f in files:
         if f.get("filename") != ENGINE_MANIFEST_REL:
             continue
         if f.get("status") not in WEAKENING_STATUS:
             continue
-        old = new = None
-        for line in (f.get("patch") or "").splitlines():
-            if line.startswith("-") and not line.startswith("---"):
-                m = _HOME_VALUE_RE.search(line)
-                if m:
-                    old = m.group(1)
-            elif line.startswith("+") and not line.startswith("+++"):
-                m = _HOME_VALUE_RE.search(line)
-                if m:
-                    new = m.group(1)
-        if old is not None and new is not None and old != new:
-            return (old, new)
+        patch = f.get("patch")
+        if not patch:
+            return (base_home, None)        # a manifest change we cannot inspect -> fail closed
+        if _touches_home_key(patch):
+            new = None
+            for line in patch.splitlines():
+                if line.startswith("+") and not line.startswith("+++"):
+                    m = _HOME_VALUE_RE.search(line)
+                    if m and m.group(1) != base_home:
+                        new = m.group(1)
+            return (base_home, new)
     return None
 
 
@@ -226,7 +260,7 @@ def main() -> int:
                       "read every file. Until then, this check blocks the merge."}])
 
     flagged = flagged_changes(files)
-    repoint = home_repoint(files)
+    repoint = home_repoint(files, _read_base_home())
     if not flagged and not repoint:
         return emit([])  # nothing weakens
     if ACK_LABEL in labels:
@@ -240,7 +274,8 @@ def main() -> int:
                      "letting future changes reach the protected branch without being checked.\n")
     if repoint:
         old, new = repoint
-        parts.append(f"Your engine's update home is being changed from {old} to {new}. This changes WHERE "
+        target = new if new else "a different repository (the full change couldn't be read here)"
+        parts.append(f"Your engine's update home is being changed from {old} to {target}. This changes WHERE "
                      f"your engine's own code is fetched from when it updates — a supply-chain change: a "
                      f"wrong or look-alike home could feed your engine altered code at its next update. The "
                      f"engine cannot itself tell a genuine home from a convincing look-alike — only you can "
