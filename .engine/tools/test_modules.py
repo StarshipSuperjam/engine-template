@@ -388,6 +388,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/policy-shape.json",
             ".engine/check/pr-body-completeness.json",
             ".engine/check/provisioning-catalog.json",
+            ".engine/check/release-integrity.json",
             ".engine/check/self-map-drift.json",
             ".engine/check/skill-coherence.json",
             ".engine/check/skill-frontmatter.json",
