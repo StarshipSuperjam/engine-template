@@ -584,6 +584,20 @@ class HeadsUpTests(unittest.TestCase):
         self.assertIn("recoverable", text.lower())
         self.assertNotIn("target", text.lower())                                     # no record-id / engine jargon
 
+    def test_number_agreement_singular_vs_batch(self):
+        # A single-note relay must read singular throughout (no plural "them" against "one note"); a batch, plural.
+        one = emit._heads_up([7], 1)
+        self.assertIn("one old note", one)
+        self.assertNotIn("them", one)                                                # "keep it / erase it", never "them"
+        self.assertNotIn("those notes", one)
+        many = emit._heads_up([7], 3)
+        self.assertIn("3 old notes", many)
+        self.assertIn("them", many)
+
+    def test_relay_says_notes_may_be_offered_again(self):
+        self.assertIn("again", emit._heads_up([7], 2).lower())                        # re-offer: not 'keep forever'
+        self.assertNotIn("will not raise", emit._heads_up([7], 2).lower())
+
 
 # --- structural + the committed placeholder ----------------------------------------------------------------
 

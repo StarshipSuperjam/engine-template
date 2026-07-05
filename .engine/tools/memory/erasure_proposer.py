@@ -168,7 +168,7 @@ def _cost_for(record: dict, now: int) -> str:
     if forget._is_ambient_capture(record):
         return ("a raw turn-by-turn note the engine saved while working, now summarised — the curated summary stays "
                 f"and stands in for it, so erasing gives up only the exact original wording — {_age_phrase(age)}; "
-                "already hidden from recall and recoverable until erased.")
+                "already hidden from recall and still fully recoverable until erased.")
     return (f"{_role_phrase(record.get('role'))} the engine set aside as a duplicate of a save that didn't finish — "
             f"{_age_phrase(age)}; already hidden from recall and still fully recoverable until erased.")
 
@@ -535,20 +535,22 @@ def _heads_up(pr_numbers: list, note_count: "int | None" = None) -> str:
         scope = "one old note it had set aside as safe to remove"
         keep = "the note stays exactly where it is"
         again = "that note"
+        them = "it"
     else:
         # Kind-agnostic on purpose: a batch may mix crash-duplicates and consolidated raw; the per-note kind + cost
         # is in the pull-request body. "Set aside as safe to remove" is true of both classes (both logically retired).
         scope = f"{note_count} old notes it had set aside as safe to remove (each described in the pull request)"
         keep = "every note stays exactly where it is"
         again = "those notes"
+        them = "them"
     return (
         f"INFORM THE USER, in plain language (they asked to be told once): the engine has opened a single-purpose "
         f"pull request ({refs}) proposing to permanently erase {scope}. "
         f"Nothing is erased yet, and nothing erases on its own — it is erased only if they merge that pull request, "
-        f"and even then a later session carries it out. If they would rather keep them, they can just close the "
+        f"and even then a later session carries it out. If they would rather keep {them}, they can just close the "
         f"pull request: closing loses nothing — {keep}, hidden from recall and still fully "
         f"recoverable. Closing is 'not now', not 'keep forever' — the engine may raise {again} again at a later "
-        f"review, until they erase them.")
+        f"review, until they erase {them}.")
 
 
 def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
