@@ -197,5 +197,111 @@ class BuildConformanceTests(unittest.TestCase):
                              f"compact.enact_erasure (the owner) and erasure_observer (the cross-session enactor)")
 
 
+class EarnedConsolidatedRawTests(_Base):
+    """forget.earned_consolidated_raw — the consolidated-session raw-capture erasure class (#274 Slice C). A session's
+    turn-deltas earn erasure once its consolidation is SETTLED (its `consolidated` marker is older than age_days) AND
+    no curated stand-in (an episodic OR the roll-up gist that superseded them) is recalled; injected pseudo-turns and
+    deltas captured after the marker are never yielded, and a marker with no curated stand-in never erases raw."""
+    NOW = 2_000_000_000
+    DAY = 86400
+
+    def _settled(self):
+        return self.NOW - 40 * self.DAY        # a consolidation older than the 30-day window -> gist is stable
+
+    def _delta(self, session, text, ts, *, injected=False):
+        rec = {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+               "session_id": session, "ts": ts, "text": text,
+               "tags": [records.INJECTED_TAG] if injected else []}
+        ledger.append(rec)
+        return rec[records.RECORD_ID_KEY]
+
+    def _episodic_at(self, session, batch, ts, role="decision"):
+        rec = consolidate._make_episodic(session, {"role": role, "text": "a summary"}, batch)
+        rec["ts"] = ts
+        ledger.append(rec)
+        return rec[records.RECORD_ID_KEY]
+
+    def _marker_at(self, session, batch, ts):
+        rec = consolidate._make_marker(session, batch)
+        rec["ts"] = ts
+        ledger.append(rec)
+
+    def _gist_at(self, session, ts):
+        rec = {"v": 1, "kind": records.GIST_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+               "session_id": session, "ts": ts, "text": "a gist", "tags": [records.GIST_TAG]}
+        ledger.append(rec)
+        return rec[records.RECORD_ID_KEY]
+
+    def _reinforce(self, target_id, ts):
+        ledger.append({"v": 1, "kind": records.REINFORCEMENT_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+                       records.TARGET_KEY: target_id, "ts": ts, "tags": [records.REINFORCEMENT_TAG]})
+
+    def _earned(self):
+        return forget.earned_consolidated_raw(now=self.NOW, age_days=30)
+
+    def test_earns_a_settled_sessions_non_injected_raw(self):
+        self._episodic_at("A", "b1", self._settled())
+        self._marker_at("A", "b1", self._settled())
+        d1 = self._delta("A", "hello", self._settled() - self.DAY)
+        d2 = self._delta("A", "world", self._settled() - self.DAY)
+        self.assertEqual({r[records.RECORD_ID_KEY] for r in self._earned().get("A", [])}, {d1, d2})
+
+    def test_keeps_a_young_consolidation(self):
+        self._episodic_at("Y", "b1", self.NOW - 5 * self.DAY)
+        self._marker_at("Y", "b1", self.NOW - 5 * self.DAY)        # consolidated 5 days ago -> gist not yet stable
+        self._delta("Y", "hi", self.NOW - 6 * self.DAY)
+        self.assertNotIn("Y", self._earned())
+
+    def test_a_recalled_episodic_keeps_the_whole_sessions_raw(self):
+        e = self._episodic_at("R", "b1", self._settled())
+        self._marker_at("R", "b1", self._settled())
+        self._delta("R", "hi", self._settled() - self.DAY)
+        self._reinforce(e, self.NOW - self.DAY)                    # the gist (an episodic) is in active use
+        self.assertNotIn("R", self._earned())
+
+    def test_a_recalled_rollup_gist_keeps_the_whole_sessions_raw(self):
+        # risk-S1: once episodics are rolled up they drop from recall, so recall lands on the GIST — an episodic-only
+        # veto would be blind and erase raw whose live stand-in is in use. The veto must see the gist.
+        self._episodic_at("G", "b1", self._settled())
+        self._marker_at("G", "b1", self._settled())
+        g = self._gist_at("G", self._settled())
+        self._delta("G", "hi", self._settled() - self.DAY)
+        self._reinforce(g, self.NOW - self.DAY)
+        self.assertNotIn("G", self._earned())
+
+    def test_injected_pseudo_turns_are_never_yielded(self):
+        self._episodic_at("I", "b1", self._settled())
+        self._marker_at("I", "b1", self._settled())
+        keep = self._delta("I", "a real turn", self._settled() - self.DAY)
+        self._delta("I", "<task-notification> scaffolding", self._settled() - self.DAY, injected=True)
+        self.assertEqual({r[records.RECORD_ID_KEY] for r in self._earned().get("I", [])}, {keep})
+
+    def test_a_delta_captured_after_the_marker_is_never_yielded(self):
+        m_ts = self._settled()
+        self._episodic_at("P", "b1", m_ts)
+        self._marker_at("P", "b1", m_ts)
+        before = self._delta("P", "consolidated fuel", m_ts - self.DAY)
+        self._delta("P", "appended after the pass", m_ts + self.DAY)   # no gist stands in for it
+        self.assertEqual({r[records.RECORD_ID_KEY] for r in self._earned().get("P", [])}, {before})
+
+    def test_a_marker_with_no_curated_stand_in_never_erases_raw(self):
+        self._marker_at("N", "b1", self._settled())               # a marker, but no episodic/gist for the session
+        self._delta("N", "raw with no summary standing in", self._settled() - self.DAY)
+        self.assertNotIn("N", self._earned())
+
+    def test_disjoint_from_duplicates(self):
+        # Session D has BOTH a completed pass (marker) and a crash-orphan episodic (no marker). The orphan episodic
+        # goes through `duplicates`; D's turn-deltas through this class — different kinds, so no record in both.
+        self._episodic_at("D", "done", self._settled())
+        self._marker_at("D", "done", self._settled())
+        d = self._delta("D", "raw", self._settled() - self.DAY)
+        orphan = self._episodic_at("D", "crashed", self._settled())   # batch 'crashed' never got a marker
+        raw_ids = {r[records.RECORD_ID_KEY] for recs in self._earned().values() for r in recs}
+        dup_ids = {r[records.RECORD_ID_KEY] for recs in forget.duplicates().values() for r in recs}
+        self.assertIn(d, raw_ids)
+        self.assertIn(orphan, dup_ids)
+        self.assertEqual(raw_ids & dup_ids, set())
+
+
 if __name__ == "__main__":
     unittest.main()

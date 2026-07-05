@@ -298,6 +298,71 @@ def duplicates(path: "str | None" = None) -> dict:
     return out
 
 
+def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = None, age_days: int) -> dict:
+    """The consolidated sessions' raw `turn-delta` capture that has EARNED physical erasure — the evidence class the
+    design names "a consolidated record's raw once its gist is stable" (memory/README, Active forgetting §3). Grouped
+    by session id, mirroring `duplicates` so the erasure proposer can union the two classes into one batch. A
+    READ-ONLY report; mutates nothing, and the yielded raw stays resident + fully recoverable until an
+    operator-merged erasure carries it out (Layer 2).
+
+    A session earns its raw erased iff — (the FLAG) it carries a `consolidated` marker AND that consolidation is
+    SETTLED: the latest marker is older than `age_days` (its episodic gist has stood in for the raw long enough).
+    "Stable" is judged by age, NEVER by low frecency (README §3): the raw's own usage never enters the decision —
+    turn-deltas are recall-excluded by kind, so they are never reinforced — and recall acts ONLY as the veto below.
+    AND — (the protective VETO) NONE of the session's curated stand-ins is recalled: neither its episodics NOR the
+    gist that later rolled them up. Both carry `session_id`; crucially, after a roll-up recall lands on the GIST (a
+    superseded episodic drops out of recall), so an episodic-only veto would be blind and could erase raw whose live
+    stand-in is in active use. A session with a marker but NO curated stand-in is skipped (no gist -> never erase).
+
+    Yields only the turn-deltas that are (a) NOT harness-injected pseudo-turns — those are withheld from
+    consolidation, so no gist stands in for them (Capture; the injected-skip slice) — and (b) captured no later than
+    that marker (`ts <= marker_ts`): only fuel actually consolidated by the pass, never a delta appended afterward
+    that has no stand-in. Disjoint from `duplicates` by construction: that class yields marker-ABSENT episodics,
+    this yields marker-PRESENT turn-deltas — different kinds, so no record can appear in both (even in a session that
+    has both a completed pass and a crash-orphan)."""
+    src = ledger.ledger_path() if path is None else path
+    now = int(time.time()) if now is None else now
+    cutoff = now - age_days * 86400
+    access = _access_index(src)
+    marker_ts: dict = {}          # session_id -> latest `consolidated` marker ts (the gist-stability clock)
+    curated: dict = {}            # session_id -> [curated stand-in ids: episodics + the gist that rolls them up]
+    deltas: dict = {}             # session_id -> [that session's raw turn-delta records]
+    for record in ledger.iter_records(path=src):
+        if not isinstance(record, dict):
+            continue
+        sid = record.get("session_id")
+        if not sid:
+            continue
+        kind = record.get("kind")
+        if kind == records.MARKER_KIND:
+            ts = record.get("ts")
+            if isinstance(ts, int) and not isinstance(ts, bool):
+                prev = marker_ts.get(sid)
+                marker_ts[sid] = ts if prev is None else max(prev, ts)
+        elif kind in (records.EPISODIC_KIND, records.GIST_KIND):
+            rid = record.get(records.RECORD_ID_KEY)
+            if rid:
+                curated.setdefault(sid, []).append(rid)
+        elif kind == records.AMBIENT_CAPTURE_KIND:
+            deltas.setdefault(sid, []).append(record)
+    out: dict = {}
+    for sid, m_ts in marker_ts.items():
+        stand_ins = curated.get(sid, ())
+        if not stand_ins:
+            continue                                   # a marker but no curated stand-in -> no gist -> never erase
+        if m_ts > cutoff:
+            continue                                   # consolidation not settled yet -> gist not stable -> keep
+        if any(access.get(rid) for rid in stand_ins):
+            continue                                   # a live stand-in (episodic OR its roll-up gist) is recalled
+        earned = [d for d in deltas.get(sid, ())
+                  if not records.is_injected_record(d)                 # injected pseudo-turns have no gist stand-in
+                  and isinstance(d.get("ts"), int) and not isinstance(d.get("ts"), bool)
+                  and d["ts"] <= m_ts]                                 # only fuel actually consolidated by the pass
+        if earned:
+            out[sid] = earned
+    return out
+
+
 def _snippet(text, width: int = 70) -> str:
     text = " ".join(str(text or "").split())
     return text if len(text) <= width else text[: width - 1] + "…"
