@@ -69,6 +69,11 @@ EARNED_ERASURE_CHECK_INTERVAL_DAYS = 7
 
 _DAY = 86400
 
+# A hard backstop on the erasure-PR list page-follow in `_proposed_targets` (100 PRs/page): 50 pages = 5000
+# erasure PRs, far above any realistic lifetime count for a one-in-flight-serialized surface. It only bounds the
+# loop against a misbehaving host that returns a full page forever; a real host stops on the first short page.
+_MAX_PR_PAGES = 50
+
 # A gitignored runtime sidecar under .engine/memory/ (sibling of capture-state.json / ledger-meta.json) holding the
 # last-check timestamp for the throttle. Never committed; resolved via ledger.ledger_dir() so it lands in the throwaway
 # cabinet under tests/demo and the real store in production.
@@ -90,28 +95,40 @@ _ROLE_PHRASE = {
 # --- the earned-erasure probe (deterministic; pure over the ledger) ----------------------------------------
 
 def earned_targets(path: "str | None" = None, *, now: "int | None" = None) -> list:
-    """The already-logically-retired notes that have EARNED physical erasure, oldest first. Deterministic over the
-    ledger (`forget.duplicates` — the crash-duplicate orphans recall already drops): a note earns erasure iff it is
-    logically retired AND its birth-age `now - ts` exceeds `EARNED_ERASURE_MIN_AGE_DAYS` (the only durable temporal
-    field — retirement itself is unstamped) AND it carries zero reinforcement markers ("never recalled" — structurally
-    true for an orphan, kept as a load-bearing safety floor). Returns the records (each carrying its content-free id);
-    ordered oldest `ts` first, then by id (a total, content-free tie-break). Mutates nothing."""
+    """The already-logically-retired notes that have EARNED physical erasure, oldest first — the UNION of two
+    evidence classes the design names, deterministic over the ledger:
+      - `forget.duplicates` — crash-duplicate orphans recall already drops; and
+      - `forget.earned_consolidated_raw` — a consolidated session's raw turn-deltas once its gist is stable (the
+        ~96%-raw reclamation), which carries its OWN gist-settled + recall veto (see that function).
+    A note earns erasure iff it is logically retired AND its birth-age `now - ts` exceeds `EARNED_ERASURE_MIN_AGE_DAYS`
+    (the only durable temporal field) AND it carries zero reinforcement markers ("never recalled" — a load-bearing
+    safety floor; note it is a structural no-op for a turn-delta, which is recall-excluded by kind and so never
+    reinforced — the real recall protection for that class is the session/gist-level veto inside
+    `earned_consolidated_raw`, not this per-record check). Returns the records (each carrying its content-free id),
+    de-duplicated by id (the two classes are disjoint by construction — marker-absent episodics vs marker-present
+    turn-deltas — but the guard is kept cheap and load-bearing). Ordered oldest `ts` first, then by id (a total,
+    content-free tie-break). Mutates nothing."""
     src = ledger.ledger_path() if path is None else path
     now = int(time.time()) if now is None else now
     cutoff = now - EARNED_ERASURE_MIN_AGE_DAYS * _DAY
     access = forget._access_index(src)
     earned: list = []
-    for _sid, recs in forget.duplicates(path).items():
-        for r in recs:
-            rid = r.get(records.RECORD_ID_KEY)
-            ts = r.get("ts")
-            if not observer._is_record_id(rid):
-                continue
-            if not (isinstance(ts, int) and not isinstance(ts, bool)) or ts > cutoff:
-                continue                       # too fresh (or no usable birth time) -> not yet earned
-            if access.get(rid):
-                continue                       # ever recalled -> the safety floor refuses to propose erasing it
-            earned.append(r)
+    seen: set = set()
+    groups = forget.duplicates(path)
+    raw = forget.earned_consolidated_raw(path, now=now, age_days=EARNED_ERASURE_MIN_AGE_DAYS)
+    for source in (groups, raw):
+        for _sid, recs in source.items():
+            for r in recs:
+                rid = r.get(records.RECORD_ID_KEY)
+                ts = r.get("ts")
+                if not observer._is_record_id(rid) or rid in seen:
+                    continue
+                if not (isinstance(ts, int) and not isinstance(ts, bool)) or ts > cutoff:
+                    continue                   # too fresh (or no usable birth time) -> not yet earned
+                if access.get(rid):
+                    continue                   # ever recalled -> the safety floor refuses to propose erasing it
+                seen.add(rid)
+                earned.append(r)
     earned.sort(key=lambda r: (r["ts"], r[records.RECORD_ID_KEY]))
     return earned
 
@@ -139,11 +156,19 @@ def _age_phrase(seconds: int) -> str:
 
 
 def _cost_for(record: dict, now: int) -> str:
-    """The content-free plain-language cost line for ONE earned note — built ONLY from the note's role (a closed
-    engine vocabulary, rendered to plain words) + a coarse age bucket, never the note's `text`/`session_id`/`tags`
-    (D-007). Shared by `build_proposal` (the committed grammar) and `_print_candidates` (the local list)."""
+    """The content-free plain-language cost line for ONE earned note — built ONLY from the note's kind + a coarse age
+    bucket (+ role, for a duplicate), never the note's `text`/`session_id`/`tags` (D-007). Dispatches by kind: a
+    consolidated session's raw turn-by-turn note reads differently from a crash-duplicate, and — the one consent
+    fact this class turns on — names that erasing gives up the verbatim original wording while the curated summary
+    stays (the disclosure floor held until this merge). Shared by `build_proposal` (the committed grammar) and
+    `_print_candidates` (the local list). (A third evidence class should turn this if/else into a {kind: builder}
+    table.)"""
     ts = record.get("ts")
     age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
+    if forget._is_ambient_capture(record):
+        return ("a raw turn-by-turn note the engine saved while working, now summarised — the curated summary stays "
+                f"and stands in for it, so erasing gives up only the exact original wording — {_age_phrase(age)}; "
+                "already hidden from recall and still fully recoverable until erased.")
     return (f"{_role_phrase(record.get('role'))} the engine set aside as a duplicate of a save that didn't finish — "
             f"{_age_phrase(age)}; already hidden from recall and still fully recoverable until erased.")
 
@@ -210,22 +235,39 @@ def _reader(transport=None):
 
 
 def _proposed_targets(gh):
-    """The set of target ids already covered by an `engine-erasure` pull request in ANY state (open / merged / closed)
-    — the cross-PR dedup, so auto-open opens at most ONE pull request per target, ever, and respects a decline. Reads
-    each candidate's proposal at its merge tree (merged) or head (open). Returns the set, or None if the pull-request
-    LIST itself could not be read (host doubt -> the caller DECLINES to open, fail-SAFE). Never raises."""
-    raw = observer._get(gh, f"/repos/{gh.repo}/issues?state=all&labels={observer.ERASURE_LABEL}&per_page=100")
-    if raw is None:
-        return None                                   # could not read the list -> cannot dedup -> decline upstream
-    if not isinstance(raw, list):
-        return set()
+    """The set of target ids already covered by an `engine-erasure` pull request that is OPEN or MERGED — the
+    cross-PR dedup, so auto-open never opens a second pull request for a target already awaiting the operator or
+    already consented. A CLOSED-and-unmerged (declined) pull request is deliberately NOT covered: its targets return
+    to the earned pool and are re-offered at the next check — the operator's decline is "not this time", not "keep
+    forever" (a close still never erases; nothing is lost). Follows pages to exhaustion so a MERGED pull request
+    beyond the first page is never dropped (which would re-propose an already-consented target; a merged-but-not-yet-
+    enacted one is also covered locally by `_erased_targets`, but do not rely on that alone). Reads each candidate's
+    proposal at its merge tree (merged) or head (open). Returns the set, or None if the pull-request LIST could not
+    be read (host doubt -> the caller DECLINES to open, fail-SAFE). Never raises."""
+    items: list = []
+    page = 1
+    while page <= _MAX_PR_PAGES:
+        raw = observer._get(gh, f"/repos/{gh.repo}/issues?state=all&labels={observer.ERASURE_LABEL}"
+                                f"&per_page=100&page={page}")
+        if raw is None:
+            return None                               # could not read the list -> cannot dedup -> decline upstream
+        if not isinstance(raw, list):
+            if page == 1:
+                return set()                          # matches the pre-Slice-C contract for a malformed 1st response
+            break                                     # a malformed later page -> stop; use the pages already read
+        items.extend(raw)
+        if len(raw) < 100:
+            break                                     # a short page is the last page
+        page += 1
     out: set = set()
-    for item in raw:
+    for item in items:
         if not (isinstance(item, dict) and "pull_request" in item and isinstance(item.get("number"), int)):
             continue
         pr = observer._get(gh, f"/repos/{gh.repo}/pulls/{item['number']}")
         if not isinstance(pr, dict):
             continue
+        if pr.get("state") == "closed" and not pr.get("merged_at"):
+            continue                                  # a declined (closed, unmerged) PR -> re-offer, not covered
         ref = pr.get("merge_commit_sha") or (pr.get("head") or {}).get("sha")
         if not isinstance(ref, str) or not ref:
             continue
@@ -269,9 +311,14 @@ def _open_erasure_pr(gh, branch: str, title: str, body: str, content: str):
     SessionStart trigger can never switch the operator's branch out from under a live session, nor hang on a stalled
     `git push`. The PUT commits EXACTLY the one proposal file, so the merge tree the observer reads carries exactly that
     one change (single-purpose). Fail-SAFE throughout: any non-success status, unreadable body, or transport fault ->
-    return None (the caller reports a retry, never a raise from a hook); a pre-existing branch ref (a 422 from a prior
-    partial open) is treated as already-in-flight -> None, so a deterministic branch name can never wedge or duplicate.
-    Returns the new pull-request number, or None."""
+    return None (the caller reports a retry, never a raise from a hook). A pre-existing branch ref (422) is a STALE
+    leftover of a closed/merged erasure PR (the in-flight serializer guarantees no OPEN one when the opener runs), so
+    re-offer replaces it — but only after VERIFYING (never inferring) it backs no open pull request, so a deterministic
+    branch name still can never duplicate. Returns the new pull-request number, or None.
+
+    INVARIANT (keep coupled): the stale-branch replace below is safe ONLY because `propose` runs the in-flight
+    serializer (`_open_erasure_pr_numbers`) before reaching here AND this path re-verifies no open PR backs the
+    branch. A caller that opens without the serializer gate would break that coupling."""
     import boot  # noqa: E402 — lazy: only for the protected-branch name
     base = getattr(boot, "PROTECTED_BRANCH", "main")
     try:
@@ -281,7 +328,20 @@ def _open_erasure_pr(gh, branch: str, title: str, body: str, content: str):
             return None
         status, _ = gh._transport("POST", f"/repos/{gh.repo}/git/refs",
                                   {"ref": f"refs/heads/{branch}", "sha": base_sha})
-        if status not in (200, 201):                 # 422 (ref already exists) or any error -> decline, never wedge
+        if status == 422:                            # branch already exists -> a stale leftover; replace it for re-offer
+            # VERIFY it backs no OPEN pull request before deleting its head — a label POST can fail-open, leaving an
+            # open-but-unlabelled PR the label-filtered serializer cannot see; orphaning its head would let a duplicate
+            # open. Unreadable / malformed / any live PR -> DECLINE (never delete on doubt, never duplicate).
+            owner = gh.repo.split("/")[0]
+            backing = observer._get(gh, f"/repos/{gh.repo}/pulls?head={owner}:{branch}&state=open")
+            if not isinstance(backing, list) or backing:
+                return None
+            del_status, _ = gh._transport("DELETE", f"/repos/{gh.repo}/git/refs/heads/{branch}", None)
+            if del_status not in (200, 204):         # a successful ref delete is 204 No Content
+                return None
+            status, _ = gh._transport("POST", f"/repos/{gh.repo}/git/refs",
+                                      {"ref": f"refs/heads/{branch}", "sha": base_sha})
+        if status not in (200, 201):                 # a non-422 error, or a re-create that still failed -> decline
             return None
         encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
         put = {"message": title, "content": encoded, "branch": branch}
@@ -305,9 +365,10 @@ def _open_erasure_pr(gh, branch: str, title: str, body: str, content: str):
 
 
 def _branch_for(targets: list) -> str:
-    """A deterministic branch name over the whole target SET (order-independent), so a byte-identical retried batch
-    reuses the same branch (the `_open_erasure_pr` 422-already-exists guard then declines rather than duplicating).
-    Note the real one-at-a-time protection is the in-flight serializer (`_open_erasure_pr_numbers`), not this name."""
+    """A deterministic branch name over the whole target SET (order-independent), so a byte-identical batch maps to a
+    stable branch. On a re-offer of the same set, `_open_erasure_pr` finds the stale ref (422) and — after verifying
+    it backs no open PR — replaces it, so re-offer is not blocked by the leftover. The real one-at-a-time protection
+    is the in-flight serializer (`_open_erasure_pr_numbers`), not this name."""
     digest = hashlib.sha1("\n".join(sorted(targets)).encode("utf-8")).hexdigest()
     return f"erasure-{digest[:12]}"
 
@@ -316,14 +377,32 @@ def _pr_title(n: int) -> str:
     return f"Erase {n} remembered note{'' if n == 1 else 's'} (single-purpose)"
 
 
+def _collapse(costs: list) -> list:
+    """Collapse identical cost lines into "{k} notes — {line}" rows (ordered by first appearance), each with its
+    count stated explicitly (never a bare total). A bulk consolidated-raw batch — whose role-less line varies only
+    by the coarse age bucket — reads as a few per-vintage rows instead of thousands of near-identical lines; a
+    crash-duplicate batch (lines vary by role + age) stays one line per note (count 1), preserving the per-note
+    enumeration. Reads ONLY the content-free `costs` — no session id / record id / text — so the committed
+    `targets`/`costs` stay 1:1 and no grouping key ever leaks into the rendered body."""
+    order: list = []
+    counts: dict = {}
+    for c in costs:
+        if c not in counts:
+            order.append(c)
+        counts[c] = counts.get(c, 0) + 1
+    return [f"- {c}" if counts[c] == 1 else f"- {counts[c]} notes — {c}" for c in order]
+
+
 def _pr_body(proposal: dict) -> str:
-    """The operator-facing pull-request body — plain language, one cost line PER note, no engine jargon, no note
-    content. This is the consent surface: merging erases every note listed here (a later session carries it out;
-    nothing merges on its own), so the body ENUMERATES each note's plain-language cost — the operator sees the full
-    list they are consenting to erase, never a bare count. For a batch it is all-or-nothing and stated as such: the
-    choice is merge-all or keep-all — there is no per-note pick, and closing keeps every note (permanently — they
-    are not re-offered). Renders from `costs` (which `write_proposal` pins one-to-one with the committed `targets`),
-    so the list read is exactly the list erased. Raises on an empty batch (the caller never reaches it with none)."""
+    """The operator-facing pull-request body — plain language, no engine jargon, no note content. This is the consent
+    surface: merging erases every note counted here (a later session carries it out; nothing merges on its own), so
+    the body names each note's plain-language cost — the operator sees WHAT they consent to erase, never a bare count.
+    Identical lines collapse to a per-vintage "{k} notes — {line}" row (see `_collapse`), so a bulk raw batch stays
+    legible while a crash-duplicate batch stays one-line-per-note. It is all-or-nothing and stated as such: merge-all
+    or keep-all, no per-note pick; and closing keeps every note FOR NOW — a decline is "not this time", so the engine
+    may offer these notes again at a later review, until the operator erases them (a close still never erases). Renders
+    from `costs` (which `write_proposal` pins one-to-one with the committed `targets`), so the list read is exactly the
+    list erased. Raises on an empty batch (the caller never reaches it with none)."""
     costs = proposal.get("costs") or []
     n = len(costs)
     if n == 0:
@@ -336,19 +415,22 @@ def _pr_body(proposal: dict) -> str:
             "its memory that cannot be undone. Nothing is erased the moment you merge: a later session carries out "
             "the erasure, and nothing merges on its own. If you would rather keep the note, just **close** this pull "
             "request — declining loses nothing (the note stays exactly where it is, still hidden from recall and "
-            "fully recoverable).\n")
-    listed = "\n".join(f"- {c}" for c in costs)
+            "fully recoverable). Closing is 'not now', not 'keep forever' — the engine may offer it again at a later "
+            "review, until you erase it.\n")
+    listed = "\n".join(_collapse(costs))
     return (
         f"This pull request proposes to **permanently erase {n} remembered notes** from the engine's memory, in one "
         f"batch.\n\n"
-        f"**What each one is** (merging consents to erasing all {n}):\n\n{listed}\n\n"
+        f"**What they are** (merging consents to erasing all {n}; identical notes are grouped with a count):\n\n"
+        f"{listed}\n\n"
         f"Merging this pull request is your consent to erase all {n} notes — the single thing the engine can do to "
         f"its memory that cannot be undone. Nothing is erased the moment you merge: a later session carries out the "
         f"erasure, and nothing merges on its own.\n\n"
         f"**This is all-or-nothing — there is no way to keep just some.** Merging erases all {n}; closing keeps all "
-        f"{n}. If you would rather keep even one of them, **close** this pull request: nothing is erased, every note "
-        f"stays exactly where it is (still hidden from recall and fully recoverable), and the engine will not offer "
-        f"these {n} notes again. (There is no per-note pick — keeping one means keeping them all.)\n")
+        f"{n}. If you would rather keep even one of them, **close** this pull request: nothing is erased and every "
+        f"note stays exactly where it is (still hidden from recall and fully recoverable). Closing is 'not now', not "
+        f"'keep forever' — the engine may offer these notes again at a later review, until you erase them. (There is "
+        f"no per-note pick — keeping one means keeping them all.)\n")
 
 
 # --- the auto-open orchestrator ----------------------------------------------------------------------------
@@ -450,20 +532,25 @@ def _heads_up(pr_numbers: list, note_count: "int | None" = None) -> str:
     erasure_observer._heads_up's prefix."""
     refs = ", ".join(f"#{n}" for n in sorted(set(pr_numbers)))
     if note_count == 1 or note_count is None:
-        scope = "one old note it had already hidden as a duplicate"
+        scope = "one old note it had set aside as safe to remove"
         keep = "the note stays exactly where it is"
-        again = "this same note"
+        again = "that note"
+        them = "it"
     else:
-        scope = f"{note_count} old notes it had already hidden as duplicates (each described in the pull request)"
+        # Kind-agnostic on purpose: a batch may mix crash-duplicates and consolidated raw; the per-note kind + cost
+        # is in the pull-request body. "Set aside as safe to remove" is true of both classes (both logically retired).
+        scope = f"{note_count} old notes it had set aside as safe to remove (each described in the pull request)"
         keep = "every note stays exactly where it is"
-        again = "these same notes"
+        again = "those notes"
+        them = "them"
     return (
         f"INFORM THE USER, in plain language (they asked to be told once): the engine has opened a single-purpose "
         f"pull request ({refs}) proposing to permanently erase {scope}. "
         f"Nothing is erased yet, and nothing erases on its own — it is erased only if they merge that pull request, "
-        f"and even then a later session carries it out. If they would rather keep them, they can just close the "
+        f"and even then a later session carries it out. If they would rather keep {them}, they can just close the "
         f"pull request: closing loses nothing — {keep}, hidden from recall and still fully "
-        f"recoverable. The engine will not raise {again} again.")
+        f"recoverable. Closing is 'not now', not 'keep forever' — the engine may raise {again} again at a later "
+        f"review, until they erase {them}.")
 
 
 def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
@@ -497,7 +584,7 @@ def _print_candidates(path: "str | None" = None) -> int:
     if not earned:
         print("No notes have earned erasure — there is nothing to propose removing.")
         return 0
-    print(f"{len(earned)} hidden duplicate note(s) have earned erasure (set aside long enough to be safe to remove).")
+    print(f"{len(earned)} note(s) have earned erasure (set aside long enough to be safe to remove).")
     print("Each is STILL SAVED and fully recoverable until you merge a pull request to erase it:\n")
     now = int(time.time())
     for r in earned:
@@ -545,6 +632,9 @@ _DEMO_FRESH_TEXT = "Decided the new launch banner ships in the spring release."
 _DEMO_FRESH_WORD = "banner"
 _DEMO_FRESH_ROLE = "decision"
 _DEMO_FRESH_AGE_DAYS = 3                 # too fresh -> NOT earned                          (VARY this)
+_DEMO_CR_WORD = "haggisdrop"             # a distinctive word in the raw that must NEVER appear in the committed proposal
+_DEMO_CR_AGE_DAYS = 50                   # a consolidation older than the window -> its raw has EARNED erasure (VARY)
+_DEMO_CR_YOUNG_AGE_DAYS = 5              # a fresh consolidation -> its raw is KEPT (its summary is not yet settled)
 
 
 def _plant_retired(text: str, role: str, age_days: int, batch: str) -> str:
@@ -554,6 +644,37 @@ def _plant_retired(text: str, role: str, age_days: int, batch: str) -> str:
     rec = consolidate._make_episodic(_DEMO_SESSION, {"role": role, "text": text}, batch)
     rec["ts"] = int(time.time()) - age_days * _DAY
     ledger.append(rec)                                  # appended with no closing marker -> retired
+    return rec[records.RECORD_ID_KEY]
+
+
+def _plant_consolidated_raw(session: str, batch: str, age_days: int, *, n: int, word: str) -> list:
+    """Plant a SETTLED consolidated session: an episodic summary + its closing marker (both aged `age_days`) plus `n`
+    raw turn-deltas captured just before it. The summary stands in for the raw; once the consolidation is settled, the
+    raw earns erasure. Returns the turn-delta ids."""
+    from memory import consolidate
+    m_ts = int(time.time()) - age_days * _DAY
+    ep = consolidate._make_episodic(session, {"role": "decision", "text": "a settled summary"}, batch)
+    ep["ts"] = m_ts
+    ledger.append(ep)
+    mk = consolidate._make_marker(session, batch)
+    mk["ts"] = m_ts
+    ledger.append(mk)
+    ids = []
+    for i in range(n):
+        rec = {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+               "session_id": session, "ts": m_ts - _DAY, "text": f"raw turn {i}: {word}", "tags": []}
+        ledger.append(rec)
+        ids.append(rec[records.RECORD_ID_KEY])
+    return ids
+
+
+def _plant_injected_raw(session: str) -> str:
+    """Plant a harness-injected pseudo-turn (tagged injected at capture) — withheld from consolidation, so no summary
+    stands in for it; it must NEVER be proposed for erasure. Returns its id."""
+    rec = {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+           "session_id": session, "ts": int(time.time()) - 60 * _DAY,
+           "text": "<task-notification> harness scaffolding", "tags": [records.INJECTED_TAG]}
+    ledger.append(rec)
     return rec[records.RECORD_ID_KEY]
 
 
@@ -577,7 +698,13 @@ class _DemoHub:
             self._labels.add((body or {}).get("name"))
             return 201, {}
         if "/issues?" in path:
-            return 200, [{"number": n, "pull_request": {}} for n in sorted(self._prs)]
+            # Respect the state filter: the serializer reads state=open (so a CLOSED decline is not "in flight"),
+            # the dedup reads state=all. Mirrors real GitHub so the re-offer path is a genuine falsification.
+            if "state=open" in path:
+                nums = [n for n, pr in self._prs.items() if pr.get("state") != "closed"]
+            else:
+                nums = list(self._prs)
+            return 200, [{"number": n, "pull_request": {}} for n in sorted(nums)]
         m = re.search(r"/pulls/(\d+)", path)
         if m:
             pr = self._prs.get(int(m.group(1)))
@@ -594,9 +721,15 @@ class _DemoHub:
         number = self._next
         self._next += 1
         sha = f"head{number}cafe"
-        self._prs[number] = {"number": number, "merged_at": None, "merge_commit_sha": None, "head": {"sha": sha}}
+        self._prs[number] = {"number": number, "state": "open", "merged_at": None, "merge_commit_sha": None,
+                             "head": {"sha": sha}}
         self._contents[sha] = base64.b64encode(json.dumps(proposal).encode("utf-8")).decode("ascii")
         return number
+
+    def close(self, number):
+        """The operator DECLINES: closes the pull request without merging (state=closed, unmerged)."""
+        if number in self._prs:
+            self._prs[number]["state"] = "closed"
 
 
 def _demo() -> int:
@@ -614,19 +747,18 @@ def _demo() -> int:
             os.environ.pop("ENGINE_MEMORY_DIR", None)
 
     print("\n" + "-" * 96)
-    print("What this just proved: the engine picks the OLD hidden duplicates (not a recent one), describes EACH in plain")
-    print("words that carry NONE of the note's text, and opens ONE single-purpose pull request clearing them all — which")
-    print("it labels so a later session can find it. The pull-request body lists one plain line per note, so you see the")
-    print("whole batch you are consenting to; merging is all-or-nothing. They are PERMANENTLY erased only because YOU")
-    print("merge that pull request; nothing is erased now, and nothing merges on its own. There are two notes here only")
-    print("because the demo planted two: today the engine only proposes erasing crash-duplicate leftovers, which are")
-    print("rare, so a real batch is usually one note or none. The grammar that clears a real backlog in one merge is")
-    print("here; the larger source that fills those batches comes in a later step. Run again and it opens nothing — it")
-    print("never re-pesters you about notes already in front of you. On a fresh")
-    print("project there are no old duplicates, so it proposes nothing; if GitHub is unreachable it simply tries again")
-    print(f"next time — nothing breaks. That was a PRACTICE cabinet, thrown away. Vary it: change the note ages or")
-    print(f"EARNED_ERASURE_MIN_AGE_DAYS (now {EARNED_ERASURE_MIN_AGE_DAYS}) near the top and re-run — watch the OLD notes")
-    print("become earned and the FRESH one stay safe.")
+    print("What this just proved: the engine picks what has EARNED erasure — old crash-duplicate leftovers AND the raw")
+    print("turn-by-turn notes of a session whose summary has settled (the bulk source) — while leaving a recent note, a")
+    print("freshly-consolidated session's raw, and a harness-injected pseudo-turn alone. It describes EACH in plain words")
+    print("that carry NONE of the note's text, and opens ONE single-purpose pull request clearing the whole batch, which")
+    print("it labels so a later session can find it. The body lists the notes (identical ones grouped with a count), so")
+    print("you see the whole batch you are consenting to; merging is all-or-nothing. They are PERMANENTLY erased only")
+    print("because YOU merge that pull request; nothing is erased now, and nothing merges on its own. If you CLOSE a")
+    print("request instead, nothing is lost and the same notes are simply re-offered at a later check — a decline is")
+    print("'not now', never 'keep forever'. On a fresh project there is nothing earned, so it proposes nothing; if GitHub")
+    print(f"is unreachable it simply tries again next time — nothing breaks. That was a PRACTICE cabinet, thrown away.")
+    print(f"Vary it: change the note ages or EARNED_ERASURE_MIN_AGE_DAYS (now {EARNED_ERASURE_MIN_AGE_DAYS}) near the top")
+    print("and re-run — watch the settled notes become earned and the fresh ones stay safe.")
     return 0 if ok else 1
 
 
@@ -710,7 +842,42 @@ def _demo_body(tree: str) -> bool:
     part6 = fresh_look and (not too_soon) and elapsed
     print(f"  => {'it checks at most once a week. Three distinct reasons it stays quiet: nothing earned, a request already open, or simply not yet time.' if part6 else '!!! the throttle did not gate as expected'}")
 
-    return part1 and part2 and part3 and part4 and part5 and part6
+    # --- PART 7 ------------------------------------------------------------------------------------------
+    print("\nPART 7 — the larger source: a CONSOLIDATED session's raw turn-by-turn notes, once its summary is settled")
+    print("-" * 96)
+    cr_ids = _plant_consolidated_raw("session-consol", "batch-consol", _DEMO_CR_AGE_DAYS, n=2, word=_DEMO_CR_WORD)
+    young_ids = _plant_consolidated_raw("session-young", "batch-young", _DEMO_CR_YOUNG_AGE_DAYS, n=1, word="freshraw")
+    inj_id = _plant_injected_raw("session-consol")
+    earned7 = earned_targets()
+    picked7 = {r[records.RECORD_ID_KEY] for r in earned7}
+    raw_only = [r for r in earned7 if r.get("kind") == records.AMBIENT_CAPTURE_KIND]
+    cr_leak = (_DEMO_CR_WORD.lower() in json.dumps(build_proposal(raw_only)).lower()) if raw_only else True
+    print(f"  the settled session's {len(cr_ids)} raw notes earned erasure: {'yes' if set(cr_ids) <= picked7 else 'NO'}")
+    print(f"  the freshly-consolidated session's raw: "
+          f"{'left alone (its summary is not yet settled)' if not (set(young_ids) & picked7) else 'SELECTED'}")
+    print(f"  a harness-injected pseudo-turn: "
+          f"{'left alone (no summary stands in for it)' if inj_id not in picked7 else 'SELECTED'}")
+    print(f"  does anything committed contain the raw's distinctive word (\"...{_DEMO_CR_WORD}...\")? "
+          f"{'YES' if cr_leak else 'no'}")
+    part7 = (set(cr_ids) <= picked7 and not (set(young_ids) & picked7) and inj_id not in picked7 and not cr_leak)
+    print(f"  => {'a settled consolidated session raw earns erasure; a fresh one and an injected pseudo-turn do not, and no words leak.' if part7 else '!!! the wrong raw was selected, or a word leaked'}")
+
+    # --- PART 8 ------------------------------------------------------------------------------------------
+    print("\nPART 8 — you DECLINE (close) a request; the next check RE-OFFERS the same notes (a close is 'not now')")
+    print("-" * 96)
+    hub8 = _DemoHub(tree)
+    first8 = propose(opener=hub8.open, transport=hub8.transport, root=tree)
+    declined = first8["opened"][0] if first8["opened"] else None
+    if declined is not None:
+        hub8.close(declined)                              # the operator closes it WITHOUT merging — a decline
+    reoffer = propose(opener=hub8.open, transport=hub8.transport, root=tree)
+    part8 = (declined is not None and bool(reoffer["opened"]) and reoffer["opened"][0] != declined
+             and set(reoffer["targets"]) == set(first8["targets"]) and bool(first8["targets"]))
+    print(f"  you closed #{declined}; the next check re-offered the same notes in "
+          f"#{reoffer['opened'][0] if reoffer['opened'] else '—'}: {'yes' if part8 else 'NO'}")
+    print(f"  => {'a declined request comes back next time — nothing is stranded, and a close is never forever.' if part8 else '!!! a declined request was not re-offered'}")
+
+    return part1 and part2 and part3 and part4 and part5 and part6 and part7 and part8
 
 
 def _demo_live() -> int:
