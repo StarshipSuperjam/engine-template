@@ -546,6 +546,39 @@ class TestOffMain(unittest.TestCase):
             self.assertIsNone(checkout_health.detect_off_main(cwd=work))
 
 
+class TestAbsentHome(unittest.TestCase):
+    """#367/D-281: an installed engine whose manifest records no update home reads ABSENT-HOME (boot offers to
+    record it); a home recorded, no manifest, or a broken strand all read clean (None)."""
+
+    @staticmethod
+    def _write_manifest(root, home=None):
+        m = {"engine_release": "0.0.0-dev", "packages": {"core": "0.0.0-dev"}, "identity": "solo"}
+        if home is not None:
+            m["home_repository"] = home
+        with open(os.path.join(root, ".engine", "engine.json"), "w") as fh:
+            json.dump(m, fh)
+
+    def test_fires_when_manifest_records_no_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _healthy_repo(tmp, default_branch="main")     # writes a manifest WITHOUT a home
+            r = checkout_health.detect_absent_home(cwd=root)
+            self.assertIsNotNone(r)
+            self.assertEqual(r["state"], "absent-home")
+            self.assertTrue(os.path.samefile(r["main"], root))
+
+    def test_none_when_a_home_is_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _healthy_repo(tmp, default_branch="main")
+            self._write_manifest(root, home="acme/engine-template")   # a home is recorded -> normal state
+            self.assertIsNone(checkout_health.detect_absent_home(cwd=root))
+
+    def test_none_when_no_manifest_present(self):
+        # a checkout with no engine manifest is not an installed engine we can judge -> quiet (None)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _healthy_repo(tmp, branch="main")             # no default_branch -> no manifest written
+            self.assertIsNone(checkout_health.detect_absent_home(cwd=root))
+
+
 class TestReturnToDefault(unittest.TestCase):
     """#342 off-main correction: point a side-branch park back at its default, LOSSLESS — the side-branch work
     stays on its branch; a dirty / paused state BLOCKS with no mutation."""

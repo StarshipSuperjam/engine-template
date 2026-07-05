@@ -383,6 +383,33 @@ def detect_off_main(cwd: str | None = None) -> dict | None:
     return {"state": "off-main", "main": main, "branch": current, "main_branch": default}
 
 
+# ---- the absent update-home signal: the engine can't fetch its own updates (D-281/D-282, #367) ----
+
+def detect_absent_home(cwd: str | None = None) -> dict | None:
+    """OFFLINE, READ-ONLY: does this engine's manifest record NO update home (`home_repository`)? A repo
+    generated before that coordinate shipped carries an installed engine that cannot fetch its own updates —
+    the update path refuses rather than guess a home, and never falls back to this repo's own origin
+    (D-281/D-282, #367). Returns {"state":"absent-home","main"} when the manifest is present and readable but
+    records no home, else None (no manifest / a broken strand / a home already recorded is the normal state).
+    Offline by nature — telling that an update cannot be reached needs no network. boot OFFERS recording the
+    home; the assistant records it on the operator's consent (the strand model)."""
+    st = _resolve_state(cwd)
+    if not st:
+        return None
+    main, detached, missing, _current = st
+    if detached or missing:
+        return None                # a broken strand is the strand detector's territory, not this signal
+    try:
+        with open(os.path.join(main, ".engine", "engine.json"), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except Exception:  # noqa: BLE001 — no manifest / unreadable -> not an installed engine we can judge
+        return None
+    home = manifest.get("home_repository")
+    if isinstance(home, str) and home.strip():
+        return None                # a home is recorded -> the normal state
+    return {"state": "absent-home", "main": main}
+
+
 # ---- the behind-the-main-line tail: online signal + the fast-forward corrections (#335; #342) ----
 
 def _days_between(a: str, b: str) -> int:

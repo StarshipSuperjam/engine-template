@@ -23,17 +23,22 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
    version, replaces the engine's own files with it while **keeping your settings and saved data untouched**,
    turns shared-file settings on or off to match the new version, rebuilds the engine's tools, reshapes any
    saved data the new version needs in a new form, re-checks that everything fits together, and opens the
-   change as a pull request. It is refused, in plain language, and **nothing is changed**, if the release
-   can't be reached (the engine stays on its current version), if a needed change to saved data can't be
-   backed up first (see Notes), or if a required module is missing from the release.
+   change as a pull request. The release is fetched from the engine's **update home** — the repository the
+   engine updates from (see Notes) — never from this repository's own remote. It is refused, in plain
+   language, and **nothing is changed**, if no update home is recorded (the engine tells you plainly and asks
+   you to record it, rather than guess one), if the home has no such release — it may have been renamed or
+   removed (the engine names the home so you can check it), if the network can't be reached (the engine stays
+   on its current version), if a needed change to saved data can't be backed up first (see Notes), or if a
+   required module is missing from the release.
 3. **Review and merge.** The update lands as a pull request with the engine's checks. Merging it is your
    approval; reverting it undoes the update. Until you merge, nothing about the running engine has changed.
 
 ## Done when
 
 The engine is on the new version, your settings and saved data are preserved, and the update's pull request is
-merged — or, if the update was refused, you have been told plainly why (the release couldn't be reached, a
-needed saved-data change had no backup set up, or a module was missing), with nothing changed.
+merged — or, if the update was refused, you have been told plainly why (no update home is recorded, the home
+has no such release or was renamed or removed, the network couldn't be reached, a needed saved-data change had
+no backup set up, or a module was missing), with nothing changed.
 
 ## Notes
 
@@ -53,8 +58,19 @@ pull request, like any other change.
 **Reviewed and reversible.** The update is never applied in place — it always arrives as a pull request behind
 the same review gate as any other change, so you approve it and can undo it.
 
-**Degrades, never pretends.** If the newer version can't be reached, the engine stays on the version it has
-and keeps working; the update is simply not applied, and it says so.
+**Where updates come from — your engine's update home.** Your engine is detached from the repository it was
+created from, so updates don't arrive by an ordinary pull — they are fetched from the engine's **update home**,
+the repository whose published releases your engine updates from, recorded once as part of your engine's own
+record. Because that home decides where your engine's own code comes from, **changing it to a different home is
+treated as a change to a safety setting**: the engine flags it at review and it takes your deliberate
+acknowledgment to approve, exactly like any other change that could weaken a safety gate. If your engine has no
+home recorded yet (an engine set up before this was added), it tells you plainly at the start of a session and
+offers to record it — updates simply wait until it's set, rather than the engine guessing a home.
+
+**Degrades, never pretends.** If the network can't be reached, the engine stays on the version it has and keeps
+working; the update is simply not applied, and it says so. This is different from a home that has **no such
+release** — renamed, removed, or with nothing published yet: there the engine names the home and asks you to
+check it, rather than quietly waiting, because the home itself may be wrong.
 
 **The required safety checks keep their names across versions**, so an update can never break the review gate
 that protects the project.

@@ -1264,6 +1264,63 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(out, [])
 
+    # ---- the engine's update-home repoint is a §15 weakening (content-aware; #367, D-281/D-282) ----
+    _REPOINT_PATCH = ('@@ -1,4 +1,4 @@\n'
+                      '   "identity": "solo",\n'
+                      '-  "home_repository": "acme/engine-home"\n'
+                      '+  "home_repository": "evil/look-alike"\n'
+                      ' }\n')
+
+    def test_home_repoint_is_flagged_as_weakening(self):
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}])
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+        self.assertIn("update home", out[0]["message"])
+        self.assertIn("acme/engine-home", out[0]["message"])   # names old -> new so the operator sees the redirect
+        self.assertIn("evil/look-alike", out[0]["message"])
+        self.assertIn("guardrail-ack", out[0]["message"])
+
+    def test_home_repoint_is_cleared_by_the_ack(self):
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}])
+        self.assertEqual(out, [])
+
+    def test_home_first_recording_is_not_a_repoint(self):
+        # absent -> present (add-only): establishing a home is NOT a redirect and must not demand an ack —
+        # the seeding + back-fill paths add the key, they never change an existing value.
+        patch = ('@@ -1,3 +1,4 @@\n'
+                 '   "identity": "solo"\n'
+                 '+  ,"home_repository": "acme/engine-home"\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}])
+        self.assertEqual(out, [])
+
+    def test_home_version_bump_is_not_a_repoint(self):
+        # .engine/engine.json legitimately churns on every upgrade (version bumps) with NO home line in the
+        # patch — so it must NOT be flagged (why the manifest is not whole-file guarded).
+        patch = ('@@ -1,3 +1,3 @@\n'
+                 '-  "engine_release": "1.0.0",\n'
+                 '+  "engine_release": "1.1.0",\n'
+                 '   "identity": "solo"\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}])
+        self.assertEqual(out, [])
+
+    def test_home_repoint_pure_classifier_reads_only_the_manifest(self):
+        files = [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}]
+        self.assertEqual(weakening_guard.home_repoint(files), ("acme/engine-home", "evil/look-alike"))
+        # the same patch on a NON-manifest file is ignored — only the manifest carries the home coordinate
+        self.assertIsNone(weakening_guard.home_repoint(
+            [{"filename": "docs/x.md", "status": "modified", "patch": self._REPOINT_PATCH}]))
+
     def test_missing_pr_context_is_hard_fail_closed(self):
         import contextlib
         import io

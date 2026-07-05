@@ -204,6 +204,33 @@ class TestConfirm(unittest.TestCase):
                 res = inst.confirm([], "solo", engine_release="1.0.0", default_branch=None)
             self.assertNotIn("default_branch", res["manifest"])
 
+    def test_carries_the_recorded_home_forward_across_setup(self):
+        # #367/D-281: the update home is seeded as data and carried across first-run setup (like the release),
+        # so a generated repo keeps where its engine updates from. Validates against the closed engine schema.
+        import validate as _v
+        schema = _v.load_json(os.path.join(_v.SCHEMAS_DIR, "engine.v1.json"))
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            inst._write_json(inst._engine_manifest_path(d),
+                             {"engine_release": "1.0.0", "packages": {"core": "1.0.0"}, "identity": "solo",
+                              "home_repository": "acme/engine-template"})   # the traveled seed value
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo")   # no home param -> carried forward from the traveled manifest
+            self.assertEqual(res["manifest"]["home_repository"], "acme/engine-template")
+            with open(res["path"], encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh)["home_repository"], "acme/engine-template")
+            self.assertEqual(list(_v.Draft202012Validator(schema).iter_errors(res["manifest"])), [],
+                             "the manifest with home_repository validates against the closed engine schema")
+
+    def test_omits_home_when_none_recorded(self):
+        # A repo with no seeded home leaves the key out (manifest stays valid); the update path then
+        # refuses-with-a-remedy rather than setup guessing a home.
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo", engine_release="1.0.0")
+            self.assertNotIn("home_repository", res["manifest"])
+
     def test_derive_default_branch_prefers_gh_then_degrades_to_none(self):
         # gh is authoritative: a fake transport reports the repo's default branch (scoped to the given slug).
         self.assertEqual(

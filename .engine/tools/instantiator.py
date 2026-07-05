@@ -388,9 +388,11 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     apply phase, not here), the operator's handle when known (the preserved-config owner the apply phase
     renders code-ownership from), and the repo's derived default-branch name when known (the preserved-config
     coordinate offline classification reads — checkout_health's operator-checkout strand model, #342 — instead
-    of a frequently-unset `origin/HEAD`). Each derived field is omitted when None, keeping the manifest valid
-    either way. This is the single committing step; before it, nothing is written. Returns the written path and
-    the manifest. `root`, `engine_release`, `handle`, and `default_branch` are injectable for tests and the demo."""
+    of a frequently-unset `origin/HEAD`), and the engine's update HOME carried forward from the traveled/seed
+    manifest (where the engine fetches its own updates from — D-281/D-282, #367). Each derived/carried field is
+    omitted when None, keeping the manifest valid either way. This is the single committing step; before it,
+    nothing is written. Returns the written path and the manifest. `root`, `engine_release`, `handle`, and
+    `default_branch` are injectable for tests and the demo."""
     kept = set(kept_optional_ids or [])
     packages: dict = {}
     for _rel, manifest in module_coherence.discover_manifests():
@@ -405,6 +407,12 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
         written["handle"] = handle
     if default_branch:
         written["default_branch"] = default_branch
+    # Carry the engine's update HOME forward from the traveled/seed manifest (D-281/D-282, #367): it is
+    # seeded as data in the template and preserved across setup like the release, not derived here. Omitted
+    # when absent so a manifest without it stays valid.
+    home_repository = _existing_home_repository(root)
+    if home_repository:
+        written["home_repository"] = home_repository
     path = _engine_manifest_path(root)
     _write_json(path, written)
     return {"path": path, "manifest": written}
@@ -537,6 +545,20 @@ def _existing_release(root: str | None = None) -> str | None:
     try:
         with open(_engine_manifest_path(root), encoding="utf-8") as fh:
             return json.load(fh).get("engine_release")
+    except Exception:
+        return None
+
+
+def _existing_home_repository(root: str | None = None) -> str | None:
+    """The engine's HOME repository recorded in the traveled/existing manifest, if any — carried FORWARD so
+    first-run setup preserves where the engine updates from (seeded as ground-truth data in the template's
+    committed manifest, never a code constant; D-281/D-282, #367). None when there is no readable manifest
+    or it records no home (a repo generated before this coordinate shipped), in which case the field is
+    simply left out and the update path refuses-with-a-remedy rather than guessing a home."""
+    try:
+        with open(_engine_manifest_path(root), encoding="utf-8") as fh:
+            home = json.load(fh).get("home_repository")
+        return home if isinstance(home, str) and home.strip() else None
     except Exception:
         return None
 

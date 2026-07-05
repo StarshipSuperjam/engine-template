@@ -489,6 +489,14 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         off_main = None
     try:
+        # The absent-update-home signal (#367, D-281/D-282), RELAYED from checkout_health's own OFFLINE
+        # detection (boot computes no new state). A repo generated before the home coordinate shipped has an
+        # installed engine that cannot fetch its own updates; boot OFFERS recording the home. Low-stakes and
+        # the normal state for any repo with a home recorded, so it degrades QUIETLY to None — never a nag.
+        absent_home = checkout_health.detect_absent_home()
+    except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
+        absent_home = None
+    try:
         # The self-review freshness signal, RELAYED from audit_digest's own detection (boot computes no new
         # state). Called arg-less so it reads the committed digest + today and owns STALENESS_DAYS/the re-arm
         # copy itself — boot never re-detects or re-literals the bound. Low-stakes (a missing digest is the
@@ -555,6 +563,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         # the off-main Stage-1 signal (#342): the top-level checkout is parked on a non-default branch (offline,
         # gentle, collapse-eligible), or None. behind_origin above is its online Stage-2 escalation.
         "off_main": off_main,
+        # the absent-update-home signal (#367): the engine's manifest records no home to fetch updates from, or None
+        "absent_home": absent_home,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
         # the memory auto-restore offer (#R2, slice 6b): local memory is empty + a backup is configured, or None
@@ -665,6 +675,20 @@ def render_dashboard(s: dict) -> str:
                          "couldn't, so you may be seeing a long-standing state for the first time, not something "
                          "that just broke.)")
             pinned.append(line)
+
+    # The absent-update-home OFFER (#367, D-281/D-282), surfaced read-only at the strand/offer tier — the engine's
+    # manifest records no home to fetch updates from (a repo generated before that coordinate shipped), so the
+    # update path can't run and refuses rather than guess. NOT a governance alarm (it cannot let anything reach
+    # protected `main`), so it pins below them. boot OFFERS recording the home; the assistant records it on the
+    # operator's consent (the strand model). Includes the newer-check disclosure (constraint 6) so a long-standing
+    # setup isn't recast as freshly broken.
+    if s.get("absent_home"):
+        pinned.append(
+            "🏠 **I don't have your engine's update home recorded, so I can't check for or fetch engine updates.** "
+            "Nothing is wrong with your project and nothing is at risk — updates just can't run until the home is "
+            "recorded. Tell me the repository your engine updates from (its owner/repo) and I'll record it, then "
+            "updates will work. (Recording where the engine updates from is a newer part of the engine, so you may "
+            "be seeing this for a long-standing setup for the first time, not something that just broke.)")
 
     # A pull request stranded on the two derived index files (#136), surfaced read-only at the strand tier
     # (below the governance alarms — a conflicting PR cannot reach protected `main`, so it is NOT a governance
@@ -837,6 +861,9 @@ def present_marker_line(s: dict) -> str:
     if s["restore_offer"]:   # a recovery OFFER (not a ⚠ alarm); ranked last, below every governance/strand signal
         return (f"{PRESENT_MARKER}: your saved memory looks empty — say 'restore my memory' and I'll try to bring "
                 "back your backup")
+    if s.get("absent_home"):   # an OFFER (not a ⚠ alarm): no update home recorded, so engine updates can't run
+        return (f"{PRESENT_MARKER}: I can't fetch engine updates yet — no update home is recorded; tell me the "
+                "repository your engine updates from and I'll record it")
     return f"{PRESENT_MARKER}: all clear"
 
 

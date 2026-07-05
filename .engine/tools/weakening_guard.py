@@ -9,10 +9,13 @@ enforces the restraint (it makes no use of the head ref and the workflow checks
 out only the base).
 
 It flags a change that removes, renames, or modifies a guardrail file (a CI
-workflow, a check rule, an engine tool, or CODEOWNERS). A flagged change blocks
-the merge until the operator applies the distinct, deliberate acknowledgment —
-the `guardrail-ack` label — after reading, in plain language, what protection
-could weaken (control-plane §weakening hard-gate; D-051 / D-134; principles §15).
+workflow, a check rule, an engine tool, or CODEOWNERS), AND a REPOINT of the
+engine's update home in the manifest (`home_repository` in .engine/engine.json) —
+which changes where executable engine code is fetched from at the next update, a
+§15 supply-chain weakening (D-281/D-282, #367). A flagged change blocks the merge
+until the operator applies the distinct, deliberate acknowledgment — the
+`guardrail-ack` label — after reading, in plain language, what protection could
+weaken (control-plane §weakening hard-gate; D-051 / D-134; principles §15).
 
 It now runs as a frozen-named `custom/script` check rule (engine/check/guardrail-weakening),
 invoked BY ID from engine-guard.yml (`validate.py --check`), NOT as part of the CI
@@ -38,6 +41,7 @@ Superseded by the control-plane weakening guard once that module lands.
 from __future__ import annotations
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling tools dir, for github_client
@@ -74,6 +78,43 @@ def flagged_changes(files: list) -> list:
         if status in WEAKENING_STATUS and (is_guardrail(name) or (prev and is_guardrail(prev))):
             flagged.append((status, name if not prev else f"{prev} -> {name}"))
     return flagged
+
+
+# The engine's update HOME lives in the manifest as a single key. A change to its VALUE (a repoint)
+# redirects where executable engine code is fetched from at the next update — a §15 supply-chain weakening
+# that needs the deliberate ack (D-281/D-282, #367). The manifest is deliberately NOT whole-file guarded:
+# it legitimately churns on every upgrade/add (version bumps) and on first-run setup, so blanket-guarding
+# it would demand an ack on routine updates. Instead this inspects the DIFF PATCH the files API already
+# returns (no head checkout — the base-only trust posture is preserved) for a change to the home value.
+ENGINE_MANIFEST_REL = ".engine/engine.json"
+_HOME_VALUE_RE = re.compile(r'"home_repository"\s*:\s*"([^"]*)"')
+
+
+def home_repoint(files: list) -> tuple | None:
+    """A REPOINT of the engine's `home_repository` in the manifest: returns (old, new) when the diff patch
+    removes one home value and adds a DIFFERENT one, else None. A first-time recording (add-only, no removed
+    value) and a version-only bump (no home line in the patch) are NOT repoints and do not flag. Reads only
+    the unified-diff `patch` string GitHub returns per changed file — never the head ref. Bound: relies on
+    the patch being present, which it always is for a file this small; a patch-less modification of the
+    manifest (pathological for a tiny file) is not flagged rather than force an ack on every routine bump."""
+    for f in files:
+        if f.get("filename") != ENGINE_MANIFEST_REL:
+            continue
+        if f.get("status") not in WEAKENING_STATUS:
+            continue
+        old = new = None
+        for line in (f.get("patch") or "").splitlines():
+            if line.startswith("-") and not line.startswith("---"):
+                m = _HOME_VALUE_RE.search(line)
+                if m:
+                    old = m.group(1)
+            elif line.startswith("+") and not line.startswith("+++"):
+                m = _HOME_VALUE_RE.search(line)
+                if m:
+                    new = m.group(1)
+        if old is not None and new is not None and old != new:
+            return (old, new)
+    return None
 
 
 # A generous page bound: ~10k files at 100/page, well past GitHub's ~3000-file listing
@@ -185,21 +226,28 @@ def main() -> int:
                       "read every file. Until then, this check blocks the merge."}])
 
     flagged = flagged_changes(files)
-    if not flagged:
-        return emit([])  # no guardrail-weakening change
+    repoint = home_repoint(files)
+    if not flagged and not repoint:
+        return emit([])  # nothing weakens
     if ACK_LABEL in labels:
         return emit([])  # acknowledged via the label -> cleared (the ack is an INPUT here, D-134)
 
-    listing = "\n".join(f"  - {status}: {shown}" for status, shown in flagged)
-    return emit([{"severity": tier, "location": None,
-                  "message": "GUARDRAIL CHANGE DETECTED — this pull request changes "
-                  "files that enforce your safety gates:\n" + listing + "\n\n"
-                  "If merged unwatched, a safety check could be turned off, renamed, or "
-                  "loosened — letting future changes reach the protected branch without "
-                  "being checked.\n"
-                  f"To approve this deliberately, apply the `{ACK_LABEL}` label to this "
-                  "pull request (one deliberate action, distinct from the merge click). "
-                  "Until then, this check blocks the merge."}])
+    parts = ["GUARDRAIL CHANGE DETECTED — this pull request changes protection you rely on:\n"]
+    if flagged:
+        listing = "\n".join(f"  - {status}: {shown}" for status, shown in flagged)
+        parts.append("Files that enforce your safety gates:\n" + listing + "\n\n"
+                     "If merged unwatched, a safety check could be turned off, renamed, or loosened — "
+                     "letting future changes reach the protected branch without being checked.\n")
+    if repoint:
+        old, new = repoint
+        parts.append(f"Your engine's update home is being changed from {old} to {new}. This changes WHERE "
+                     f"your engine's own code is fetched from when it updates — a supply-chain change: a "
+                     f"wrong or look-alike home could feed your engine altered code at its next update. The "
+                     f"engine cannot itself tell a genuine home from a convincing look-alike — only you can "
+                     f"confirm this is the home you intend.\n")
+    parts.append(f"To approve this deliberately, apply the `{ACK_LABEL}` label to this pull request (one "
+                 "deliberate action, distinct from the merge click). Until then, this check blocks the merge.")
+    return emit([{"severity": tier, "location": None, "message": "\n".join(parts)}])
 
 
 if __name__ == "__main__":
