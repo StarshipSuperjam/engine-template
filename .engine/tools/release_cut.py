@@ -32,8 +32,9 @@ Two subcommands, split so consent attaches to a proposal the writer cannot silen
                  sentinel `0.0.0-dev` sorts below any real release); nothing is ever silently lowered;
                * an ATOMIC staged write: every touched file is written to a temp sibling and
                  schema-re-validated (plus a packages<->manifest equality check) BEFORE any swap, then
-                 all swapped together; on any failure nothing on disk changes (no split-brain — the
-                 §6 "atomic-or-loudly-incomplete" invariant; the reviewed-PR merge is the real
+                 all swapped together; a validation failure changes nothing, and a write error mid-swap
+                 rolls back the files already written and reports loudly (no split-brain — the §6
+                 "atomic-or-loudly-incomplete" invariant; the reviewed-PR merge is the real
                  all-or-nothing unit, this bounds the on-disk window);
                * shape preservation: manifests are loaded, mutated in place, and rewritten with the
                  house 2-space+newline writer, so only version VALUES change — the `home_repository`
@@ -68,21 +69,38 @@ MODULE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "module.v1.json")
 
 
 # --------------------------------------------------------------------------- version ordering
+_VERSION_RE = re.compile(r"^\d+(\.\d+)*(-[0-9A-Za-z.]+)?$")
+
+
+def _valid_version(v: str) -> bool:
+    """A dotted-number version, optionally with a pre-release suffix (1.2.0, 1.0.0-rc1, 0.0.0-dev).
+    The manifest schema only requires a non-empty string, so a free-form value (a typo, a shell
+    fragment) would otherwise pass the schema AND fool the digit-only ordering — the grammar is
+    enforced HERE at the writer so a nonsense version never reaches a release manifest."""
+    return bool(_VERSION_RE.match(v or ""))
+
+
 def _is_prerelease(v: str) -> bool:
     """A version carrying a pre-release suffix (a '-', e.g. the `0.0.0-dev` sentinel or `1.0.0-rc1`)."""
     return "-" in (v or "")
 
 
+def _release_tuple(v: str) -> tuple:
+    """The numeric release identity of a version, the pre-release suffix REMOVED before tupling —
+    otherwise `validate._ver_tuple` folds `-rc1`'s digits into the tuple and a pre-release sorts
+    ABOVE its own release (1.0.0-rc1 -> (1,0,0,1) > (1,0,0))."""
+    return validate._ver_tuple((v or "").split("-", 1)[0])
+
+
 def _strictly_greater(new: str, cur: str) -> bool:
-    """True iff `new` is a strictly higher RELEASE than `cur`, treating any pre-release (the dev
-    sentinel included) as sorting BELOW the release with the same numbers. `validate._ver_tuple`
-    flattens `0.0.0-dev` to (0,0,0) — identical to a real `0.0.0` — so the pre-release marker is
-    compared here, not left to the numeric tuple alone (the plan-review S2 correction)."""
-    nt, ct = validate._ver_tuple(new), validate._ver_tuple(cur)
+    """True iff `new` is a strictly higher RELEASE than `cur`. Compared on the release numbers with the
+    pre-release stripped; on equal numbers a real release outranks a pre-release of the same numbers
+    (so `0.1.0` > `0.0.0-dev` and `1.0.0` > `1.0.0-rc1`), and a pre-release is never taken as greater
+    than another version of the same numbers (conservative — a pre-release progression like rc1 -> rc2
+    is refused rather than risk a silent mis-order; raise-only never lowers)."""
+    nt, ct = _release_tuple(new), _release_tuple(cur)
     if nt != ct:
         return nt > ct
-    # equal numbers: a release outranks a pre-release of the same numbers; two releases (or a
-    # pre-release vs an equal-or-lower pre-release) are not strictly greater.
     return _is_prerelease(cur) and not _is_prerelease(new)
 
 
@@ -107,7 +125,7 @@ def resolve_baseline() -> Baseline:
     try:
         ref = module_manager._resolve_release_ref(None, repo=home)
         return Baseline(ref, False, f"diffing since the last release {ref} of {home}.")
-    except BaseException as exc:  # noqa: BLE001 — module_manager raises bare RuntimeError subclasses
+    except Exception as exc:  # _resolve_release_ref raises RuntimeError subclasses (Exception), never BaseException
         if module_manager._release_is_missing(exc):
             return Baseline(None, True, f"{home} has no published release yet — this is the first cut.")
         raise
@@ -220,8 +238,8 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
 
     if not inventory and not impacts:
         inventory.append("No module added or removed and no new migration since the last release — "
-                         "the mechanical floor is a patch. A contract-silent behavior change would not "
-                         "show here (release-process §7); cross-check against what you shipped.")
+                         "so at most a patch. A behaviour change with no structural signal would not "
+                         "show here; cross-check against what you actually shipped.")
 
     return {
         "mode": "diff",
@@ -338,6 +356,17 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
     engine_cur = engine.get("engine_release", SENTINEL)
     targets = _target_versions(engine_ver, all_ver, packages, present)
 
+    # version grammar: refuse a non-version string at the door (a typo must not reach a manifest)
+    bad_fmt = []
+    if not _valid_version(engine_ver):
+        bad_fmt.append(f"engine version '{engine_ver}' is not a valid version (expected like 1.2.0 or 1.0.0-rc1)")
+    for mid, ver in targets.items():
+        if not _valid_version(ver):
+            bad_fmt.append(f"package '{mid}' version '{ver}' is not a valid version (expected like 1.2.0)")
+    if bad_fmt:
+        return {"applied": False, "reason": "invalid-version", "violations": bad_fmt,
+                "recovery": "use dotted-number versions, optionally with a -prerelease suffix (1.2.0, 1.0.0-rc1)."}
+
     # raise-only: refuse loudly, never silently lower (release-process §3)
     violations = _raise_only_violations(engine_ver, targets, engine_cur, present)
     if violations:
@@ -406,10 +435,22 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
         for _rel, nm in module_new.items():
             _stage(os.path.join(validate.ROOT, _rel), nm)
 
-        # swap together
-        for path, tmp in staged:
-            os.replace(tmp, path)
-        staged = []
+        # swap together; a write error mid-swap rolls back the files already swapped, so the tree is
+        # never left half-written (best-effort atomic — the reviewed-PR merge is the real all-or-
+        # nothing unit, and the release-integrity check catches any residual split-brain at merge).
+        originals = {path: open(path, "rb").read() for path, _tmp in staged}
+        swapped = []
+        try:
+            for path, tmp in staged:
+                os.replace(tmp, path)
+                swapped.append(path)
+            staged = []
+        except OSError as exc:
+            for path in swapped:
+                with open(path, "wb") as fh:
+                    fh.write(originals[path])
+            raise RuntimeError(f"a write error interrupted the cut ({exc}); the files already written were "
+                               f"restored, so no versions changed and nothing was left half-written.")
     finally:
         for _path, tmp in staged:  # any un-swapped temp on an error path
             try:
@@ -439,8 +480,13 @@ def _render_proposal(p: dict) -> str:
         lines.append("  release_cut.py apply --engine <ver> --all <ver>")
     else:
         floor = p["engine_floor_level"]
-        lines.append(f"Mechanical engine floor: at least a {floor} bump "
-                     f"(current {p['current_engine']}). You may raise it, never lower it.")
+        if floor == "none":
+            lines.append(f"No structural change forces a bump — a patch at most (current "
+                         f"{p['current_engine']}). You may still raise it if you shipped a behaviour "
+                         f"change with no structural signal; you can never lower it.")
+        else:
+            lines.append(f"Mechanical engine floor: at least a {floor} bump "
+                         f"(current {p['current_engine']}). You may raise it, never lower it.")
         if p["package_floor"]:
             lines.append("Per-package floors:")
             for mid, ver in p["package_floor"].items():
@@ -467,7 +513,13 @@ def _cmd_apply(args) -> int:
             return 2
         mid, ver = spec.split("=", 1)
         packages[mid.strip()] = ver.strip()
-    proposal = validate.load_json(args.proposal) if args.proposal else None
+    proposal = None
+    if args.proposal:
+        if not os.path.isfile(args.proposal):
+            print(f"CONFIG ERROR: the proposal file '{args.proposal}' does not exist. Pass the path to a "
+                  f"proposal written by `propose --json`.", file=sys.stderr)
+            return 2
+        proposal = validate.load_json(args.proposal)
     result = apply(args.engine, getattr(args, "all"), packages, proposal, args.dry_run)
     if args.json:
         print(json.dumps(result, indent=2))

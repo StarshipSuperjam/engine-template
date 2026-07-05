@@ -86,6 +86,21 @@ class VersionOrdering(unittest.TestCase):
         self.assertTrue(rc._strictly_greater("0.1.1", "0.1.0"))
         self.assertTrue(rc._strictly_greater("1.0.0", "0.9.9"))
 
+    def test_prerelease_sorts_below_its_release(self):
+        # a pre-release must NOT be taken as greater than its own release (else raise-only accepts a downgrade)
+        self.assertFalse(rc._strictly_greater("1.0.0-rc1", "1.0.0"))
+        self.assertTrue(rc._strictly_greater("1.0.0", "1.0.0-rc1"))
+        self.assertTrue(rc._strictly_greater("1.0.0-rc1", "0.9.0"))       # higher numbers still win
+        self.assertFalse(rc._strictly_greater("1.0.0-rc2", "1.0.0-rc1"))  # conservative: rc progression refused
+
+    def test_valid_version_grammar(self):
+        self.assertTrue(rc._valid_version("1.2.0"))
+        self.assertTrue(rc._valid_version("1.0.0-rc1"))
+        self.assertTrue(rc._valid_version("0.0.0-dev"))
+        self.assertFalse(rc._valid_version("99999.total-garbage;rm -rf ~"))
+        self.assertFalse(rc._valid_version("v1.2.0"))
+        self.assertFalse(rc._valid_version(""))
+
 
 class Classify(unittest.TestCase):
     def test_first_cut_derives_no_floor(self):
@@ -119,7 +134,7 @@ class Classify(unittest.TestCase):
             with _Tree(mods):
                 p = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
             self.assertEqual(p["engine_floor_level"], "none")
-            self.assertIn("contract-silent", " ".join(p["change_inventory"]))
+            self.assertIn("no structural signal", " ".join(p["change_inventory"]))
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
@@ -158,8 +173,14 @@ class Apply(unittest.TestCase):
             r = rc.apply("0.2.0", None, {"core": "0.1.0"}, proposal, dry_run=True)
         self.assertFalse(r["applied"])
 
-    def test_rollback_on_validation_failure_writes_nothing(self):
-        # force a schema failure by monkeypatching the validator to report an error
+    def test_invalid_version_refused(self):
+        with _Tree({"core": _module("core")}):
+            r = rc.apply("99999.total-garbage;rm -rf ~", "99999.total-garbage;rm -rf ~", {}, None, dry_run=True)
+        self.assertFalse(r["applied"])
+        self.assertEqual(r["reason"], "invalid-version")
+
+    def test_pre_write_validation_failure_writes_nothing(self):
+        # a validation error fires BEFORE any file is staged — the pre-write refusal path
         with _Tree({"core": _module("core")}) as t:
             orig = rc._schema_ok
             rc._schema_ok = lambda inst, path: ["forced error"]
@@ -171,6 +192,30 @@ class Apply(unittest.TestCase):
             self.assertEqual(r["reason"], "validation")
             self.assertEqual(t.engine()["engine_release"], "0.0.0-dev")   # untouched
             self.assertEqual(t.module_version("core"), "0.0.0-dev")
+
+    def test_swap_failure_rolls_back_all_files(self):
+        # a write error mid-swap must roll back the files already swapped — no split-brain left on disk
+        with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}) as t:
+            real_replace = rc.os.replace
+            calls = {"n": 0}
+
+            def flaky(src, dst):
+                calls["n"] += 1
+                if calls["n"] == 2:            # engine.json swaps (1), the first manifest swap (2) fails
+                    raise OSError("disk full")
+                return real_replace(src, dst)
+
+            rc.os.replace = flaky
+            try:
+                with self.assertRaises(RuntimeError):
+                    rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+            finally:
+                rc.os.replace = real_replace
+            # everything is back at the sentinel — engine.json was restored, no manifest half-written
+            self.assertEqual(t.engine()["engine_release"], "0.0.0-dev")
+            self.assertEqual(t.engine()["packages"]["core"], "0.0.0-dev")
+            self.assertEqual(t.module_version("core"), "0.0.0-dev")
+            self.assertEqual(t.module_version("qa-review"), "0.0.0-dev")
 
 
 if __name__ == "__main__":
