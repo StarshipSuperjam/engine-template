@@ -167,11 +167,19 @@ class Apply(unittest.TestCase):
             self.assertEqual(t.module_version("core"), "0.0.0-dev")
 
     def test_below_confirmed_floor_refused(self):
+        # target 0.1.5 is ABOVE the current 0.1.0 (so raise-only passes) but BELOW the confirmed floor
+        # 0.2.0 — this must be caught by the below-floor guard specifically, not raise-only.
         with _Tree({"core": _module("core", ver="0.1.0")}):
             proposal = {"package_floor": {"core": "0.2.0"}}
-            # target 0.1.0 == current, so not strictly greater -> refused against the floor
-            r = rc.apply("0.2.0", None, {"core": "0.1.0"}, proposal, dry_run=True)
+            r = rc.apply("0.2.0", None, {"core": "0.1.5"}, proposal, dry_run=True)
         self.assertFalse(r["applied"])
+        self.assertEqual(r["reason"], "below-confirmed-floor")
+
+    def test_at_or_above_confirmed_floor_passes(self):
+        with _Tree({"core": _module("core", ver="0.1.0")}):
+            proposal = {"package_floor": {"core": "0.2.0"}}
+            r = rc.apply("0.2.0", None, {"core": "0.2.0"}, proposal, dry_run=True)   # meets the floor
+        self.assertEqual(r["reason"], "dry-run")   # would apply
 
     def test_invalid_version_refused(self):
         with _Tree({"core": _module("core")}):

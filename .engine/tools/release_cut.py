@@ -373,13 +373,15 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
         return {"applied": False, "reason": "raise-only", "violations": violations,
                 "recovery": "choose versions strictly higher than the current ones, then re-run."}
 
-    # not-below-the-confirmed-floor: when a proposal is supplied, the write may only meet or raise it
+    # not-below-the-confirmed-floor: when a proposal is supplied, a target must MEET OR RAISE its
+    # confirmed floor — compared against the floor value, not the current version (raise-only already
+    # covered current). A target strictly below the floor is refused.
     floor_notes = []
     if proposal:
         pf = proposal.get("package_floor", {})
         for mid, floor in pf.items():
-            if mid in targets and not _strictly_greater(targets[mid], present[mid].get("version", SENTINEL)):
-                floor_notes.append(f"'{mid}' below its confirmed floor {floor}")
+            if mid in targets and _strictly_greater(floor, targets[mid]):
+                floor_notes.append(f"'{mid}' version {targets[mid]} is below its confirmed floor {floor}")
         if floor_notes:
             return {"applied": False, "reason": "below-confirmed-floor", "violations": floor_notes,
                     "recovery": "raise the flagged packages to at least their confirmed floor."}
@@ -438,7 +440,11 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
         # swap together; a write error mid-swap rolls back the files already swapped, so the tree is
         # never left half-written (best-effort atomic — the reviewed-PR merge is the real all-or-
         # nothing unit, and the release-integrity check catches any residual split-brain at merge).
-        originals = {path: open(path, "rb").read() for path, _tmp in staged}
+        def _read_bytes(p):
+            with open(p, "rb") as fh:
+                return fh.read()
+
+        originals = {path: _read_bytes(path) for path, _tmp in staged}
         swapped = []
         try:
             for path, tmp in staged:
