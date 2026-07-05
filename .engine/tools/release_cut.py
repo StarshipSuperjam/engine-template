@@ -1,0 +1,515 @@
+#!/usr/bin/env python3
+"""Release-cut classifier + writer — the produce side of the engine's version line
+(wbs/release-process.md; the complement to the consume side the module manager owns).
+
+The engine and every module carry a version (`.engine/engine.json` `engine_release` + the
+`packages` map; each `.engine/modules/<id>/manifest.json` `version`). The module manager
+*consumes* a published release (fetch + overlay + migrate); nothing yet *produces* one — this tool
+is that missing half: it decides the next version from what changed since the last release, and it
+records the chosen versions into the manifests. It does NOT tag, open a PR, or publish a Release —
+that GitHub-facing plumbing is later slices; this is the version-decision core they drive.
+
+Two subcommands, split so consent attaches to a proposal the writer cannot silently drift from:
+
+  propose  — read-only. Resolve the last release baseline from the engine's HOME repo (the #369
+             `home_repository` coordinate — the same source the updater fetches from, so producer
+             and consumer agree on what "a release" is), diff since it, and author:
+               * the mechanical bump FLOOR (release-process §3): a module ADDED => engine >= minor;
+                 a module REMOVED => engine >= major; a new `migrations` entry in a package => that
+                 package >= minor; the engine version = the MAX implied bump;
+               * a plain-language CHANGE INVENTORY (what changed since the last release), so the
+                 maintainer can catch a wrong floor or a missing signal;
+               * where a contract/seam/interface/wiring surface changed, an AI-authored plain-language
+                 IMPACT statement, with the break/no-break behavioral demonstration marked present
+                 (a correlate exists) or "no correlate — release consciously sub-bar, named" (the
+                 §6/§7/D-152 legible gate path; the acceptance-benchmark instrument is not built yet,
+                 and its absence is stated, never faked).
+             It writes nothing.
+
+  apply    — the writer. Records the chosen engine + per-package versions into the manifests, with:
+               * RAISE-ONLY enforcement (release-process §3): every target is compared against the
+                 current on-disk version and a value not strictly greater is REFUSED loudly (the dev
+                 sentinel `0.0.0-dev` sorts below any real release); nothing is ever silently lowered;
+               * an ATOMIC staged write: every touched file is written to a temp sibling and
+                 schema-re-validated (plus a packages<->manifest equality check) BEFORE any swap, then
+                 all swapped together; on any failure nothing on disk changes (no split-brain — the
+                 §6 "atomic-or-loudly-incomplete" invariant; the reviewed-PR merge is the real
+                 all-or-nothing unit, this bounds the on-disk window);
+               * shape preservation: manifests are loaded, mutated in place, and rewritten with the
+                 house 2-space+newline writer, so only version VALUES change — the `home_repository`
+                 line stays byte-identical and the tightened weakening_guard (D-281/D-282) is not
+                 tripped by a version-only cut.
+
+Read-only discovery + the release-ref/fetch/manifest-write helpers are reused from module_coherence
+and module_manager (one present-set reader, one release-ref resolver — no drift).
+
+CLI:
+  python tools/release_cut.py propose [--json] [--baseline-tree DIR]
+  python tools/release_cut.py apply --engine VER [--all VER] [--package id=ver ...] \
+                                    [--proposal FILE] [--dry-run] [--json]
+"""
+from __future__ import annotations
+import argparse
+import json
+import os
+import re
+import sys
+import tempfile
+
+import jsonschema
+
+import validate
+import module_coherence
+import module_manager
+
+SENTINEL = "0.0.0-dev"
+ENGINE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "engine.v1.json")
+MODULE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "module.v1.json")
+
+
+# --------------------------------------------------------------------------- version ordering
+def _is_prerelease(v: str) -> bool:
+    """A version carrying a pre-release suffix (a '-', e.g. the `0.0.0-dev` sentinel or `1.0.0-rc1`)."""
+    return "-" in (v or "")
+
+
+def _strictly_greater(new: str, cur: str) -> bool:
+    """True iff `new` is a strictly higher RELEASE than `cur`, treating any pre-release (the dev
+    sentinel included) as sorting BELOW the release with the same numbers. `validate._ver_tuple`
+    flattens `0.0.0-dev` to (0,0,0) — identical to a real `0.0.0` — so the pre-release marker is
+    compared here, not left to the numeric tuple alone (the plan-review S2 correction)."""
+    nt, ct = validate._ver_tuple(new), validate._ver_tuple(cur)
+    if nt != ct:
+        return nt > ct
+    # equal numbers: a release outranks a pre-release of the same numbers; two releases (or a
+    # pre-release vs an equal-or-lower pre-release) are not strictly greater.
+    return _is_prerelease(cur) and not _is_prerelease(new)
+
+
+# --------------------------------------------------------------------------- baseline resolution
+class Baseline:
+    """The last-release baseline for the diff. `ref` is None in FIRST-CUT mode (the home has no
+    published release yet — the current reality, and the state the v1/beta cut is made from)."""
+    def __init__(self, ref, first_cut: bool, note: str):
+        self.ref = ref
+        self.first_cut = first_cut
+        self.note = note
+
+
+def resolve_baseline() -> Baseline:
+    """The last released tag from the engine's HOME repo (#369 `home_repository`), or a first-cut
+    baseline when the home has no release yet. A TRANSPORT failure (offline/DNS) is not a first cut —
+    it is unknowable, and we say so rather than guess an empty baseline."""
+    home = module_manager._home_repository()
+    if not home:
+        return Baseline(None, True, "no home repository is recorded, so there is no prior release to "
+                                    "diff against — treating this as the first cut.")
+    try:
+        ref = module_manager._resolve_release_ref(None, repo=home)
+        return Baseline(ref, False, f"diffing since the last release {ref} of {home}.")
+    except BaseException as exc:  # noqa: BLE001 — module_manager raises bare RuntimeError subclasses
+        if module_manager._release_is_missing(exc):
+            return Baseline(None, True, f"{home} has no published release yet — this is the first cut.")
+        raise
+
+
+# --------------------------------------------------------------------------- present / baseline sets
+def _present_modules() -> dict:
+    """id -> manifest for every present module (the live tree)."""
+    out = {}
+    for _rel, man in module_coherence.discover_manifests():
+        mid = man.get("id")
+        if mid:
+            out[mid] = man
+    return out
+
+
+def _modules_in_tree(tree_root: str) -> dict:
+    """id -> manifest for every module manifest under a fetched/injected release TREE root (the
+    baseline side of the diff — `discover_manifests` only reads the live tree, so the baseline set
+    is read from the release tree here)."""
+    import glob as _glob
+    out = {}
+    for path in sorted(_glob.glob(os.path.join(tree_root, ".engine", "modules", "*", "manifest.json"))):
+        man = validate.load_json(path)
+        mid = man.get("id")
+        if mid:
+            out[mid] = man
+    return out
+
+
+# --------------------------------------------------------------------------- floor classification
+def _bump_at_least(current: str, level: str) -> str:
+    """The version `current` bumped to at least the given `level` (major|minor). Used to express the
+    mechanical FLOOR as a concrete next version for the change inventory; the maintainer may raise it."""
+    parts = list(validate._ver_tuple(current))
+    while len(parts) < 3:
+        parts.append(0)
+    major, minor, patch = parts[0], parts[1], parts[2]
+    if level == "major":
+        return f"{major + 1}.0.0"
+    if level == "minor":
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def _max_level(a: str, b: str) -> str:
+    order = {"none": 0, "patch": 1, "minor": 2, "major": 3}
+    return a if order[a] >= order[b] else b
+
+
+def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
+    """The proposal: the floor per package + engine, the change inventory, and the impact statements.
+    In first-cut mode there is no baseline to diff, so no delta/floor is derived — the initial version
+    is the maintainer's explicit choice (release-process §7)."""
+    present = _present_modules()
+    engine = module_coherence.load_engine_manifest() or {}
+    inventory: list[str] = []
+    impacts: list[dict] = []
+    package_floor: dict[str, str] = {}
+    engine_level = "none"
+
+    if baseline.first_cut:
+        inventory.append(
+            f"First release: establishes the baseline version for the engine and all "
+            f"{len(present)} installed packages. No prior release exists to diff against, so the "
+            f"initial version is chosen, not derived.")
+        return {
+            "mode": "first-cut",
+            "baseline": None,
+            "baseline_note": baseline.note,
+            "current_engine": engine.get("engine_release"),
+            "engine_floor_level": "none",
+            "package_floor": {},
+            "change_inventory": inventory,
+            "impacts": impacts,
+        }
+
+    # diff mode — compare the present set against the baseline release tree
+    if not baseline_tree:
+        raise RuntimeError(
+            "a prior release exists but no baseline tree was provided to diff against; the release "
+            "workflow fetches it (module_manager._fetch_release_tree), and tests inject a local tree.")
+    was = _modules_in_tree(baseline_tree)
+    added = sorted(set(present) - set(was))
+    removed = sorted(set(was) - set(present))
+
+    for mid in added:
+        inventory.append(f"Added the '{mid}' capability.")
+        engine_level = _max_level(engine_level, "minor")
+    for mid in removed:
+        inventory.append(f"Removed the '{mid}' capability.")
+        engine_level = _max_level(engine_level, "major")
+
+    for mid, man in present.items():
+        old = was.get(mid)
+        if not old:
+            continue
+        new_migs = set((man.get("migrations") or {}).keys())
+        old_migs = set((old.get("migrations") or {}).keys())
+        if new_migs - old_migs:
+            keys = ", ".join(sorted(new_migs - old_migs))
+            inventory.append(f"'{mid}' gained a data/config migration ({keys}).")
+            package_floor[mid] = _bump_at_least(man.get("version", "0.0.0"), "minor")
+
+    # contract / seam / interface / wiring changes carry an AI-authored impact statement
+    impacts = _impact_statements(baseline_tree)
+    if impacts:
+        for im in impacts:
+            engine_level = _max_level(engine_level, im["floor_level"])
+
+    if not inventory and not impacts:
+        inventory.append("No module added or removed and no new migration since the last release — "
+                         "the mechanical floor is a patch. A contract-silent behavior change would not "
+                         "show here (release-process §7); cross-check against what you shipped.")
+
+    return {
+        "mode": "diff",
+        "baseline": baseline.ref,
+        "baseline_note": baseline.note,
+        "current_engine": engine.get("engine_release"),
+        "engine_floor_level": engine_level,
+        "package_floor": package_floor,
+        "change_inventory": inventory,
+        "impacts": impacts,
+    }
+
+
+# --------------------------------------------------------------------------- impact statements (§3 semantic)
+_CONTRACT_GLOBS = (
+    os.path.join(".engine", "contracts"),        # eADR contracts
+    os.path.join(".engine", "interfaces"),        # interface surfaces
+)
+
+
+def _impact_statements(baseline_tree: str) -> list[dict]:
+    """For each changed/added/removed contract or interface surface between the baseline tree and the
+    live tree, an AI-authored plain-language impact statement (what changed · a note that consumers
+    depend on it · why that reads breaking-or-additive), plus the behavioral-correlate marking. The
+    break/no-break demonstration runs "where a behavioral correlate exists" (release-process §3); with
+    no acceptance-benchmark instrument built, none is available, so the marking is honest, not faked."""
+    out: list[dict] = []
+    for sub in _CONTRACT_GLOBS:
+        live_dir = os.path.join(validate.ROOT, sub)
+        base_dir = os.path.join(baseline_tree, sub)
+        live = _dir_bytes(live_dir)
+        base = _dir_bytes(base_dir)
+        for name in sorted(set(live) | set(base)):
+            lb, bb = live.get(name), base.get(name)
+            if lb == bb:
+                continue
+            if bb is None:
+                what, level = f"a new contract surface '{name}' was added", "minor"
+                why = "new surfaces are additive — nothing existing depended on it yet."
+            elif lb is None:
+                what, level = f"the contract surface '{name}' was removed", "major"
+                why = "removing a surface other parts may depend on is a breaking change."
+            else:
+                what, level = f"the contract surface '{name}' changed", "minor"
+                why = ("a changed contract can be additive or breaking depending on which consumers "
+                       "depend on it — read the change against them before confirming.")
+            out.append({
+                "surface": os.path.join(sub, name),
+                "what": what,
+                "why": why,
+                "floor_level": level,
+                "behavioral_demo": "none — no behavioral correlate is available (the acceptance-benchmark "
+                                   "instrument is not built), so this rests on the impact statement and your "
+                                   "confirmation; the release is consciously sub-bar on this signal, named here.",
+            })
+    return out
+
+
+def _dir_bytes(d: str) -> dict:
+    """name -> raw bytes for every file directly under `d` (empty when the dir is absent)."""
+    out = {}
+    if not os.path.isdir(d):
+        return out
+    for name in os.listdir(d):
+        p = os.path.join(d, name)
+        if os.path.isfile(p):
+            with open(p, "rb") as fh:
+                out[name] = fh.read()
+    return out
+
+
+# --------------------------------------------------------------------------- apply (the writer)
+def _target_versions(engine_ver: str, all_ver: str | None, packages: dict, present: dict) -> dict:
+    """The concrete version each package is written to: `--all` sets every present package, an explicit
+    `--package id=ver` overrides, and any package left unspecified keeps its current version."""
+    out = {}
+    for mid, man in present.items():
+        if mid in packages:
+            out[mid] = packages[mid]
+        elif all_ver is not None:
+            out[mid] = all_ver
+        else:
+            out[mid] = man.get("version", SENTINEL)
+    return out
+
+
+def _raise_only_violations(engine_ver: str, targets: dict, engine_cur: str, present: dict) -> list[str]:
+    """Every target that is NOT strictly greater than its current on-disk version — the raise-only
+    guard (release-process §3). A returned non-empty list means the write must be refused."""
+    bad = []
+    if not _strictly_greater(engine_ver, engine_cur):
+        bad.append(f"engine version {engine_ver} is not higher than the current {engine_cur}")
+    for mid, ver in targets.items():
+        cur = present[mid].get("version", SENTINEL)
+        if not _strictly_greater(ver, cur):
+            bad.append(f"package '{mid}' version {ver} is not higher than the current {cur}")
+    return bad
+
+
+def _schema_ok(instance, schema_path: str) -> list[str]:
+    schema = validate.load_json(schema_path)
+    v = jsonschema.Draft202012Validator(schema)
+    return [e.message for e in v.iter_errors(instance)]
+
+
+def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict | None,
+          dry_run: bool) -> dict:
+    """Record the chosen versions atomically. Returns a result dict (applied/refused + the proposed-vs-
+    applied record for traceability). Writes nothing on a raise-only violation or a validation failure."""
+    present = _present_modules()
+    engine = module_coherence.load_engine_manifest()
+    if engine is None:
+        raise RuntimeError("the engine manifest (.engine/engine.json) is missing; cannot cut a release.")
+    engine_cur = engine.get("engine_release", SENTINEL)
+    targets = _target_versions(engine_ver, all_ver, packages, present)
+
+    # raise-only: refuse loudly, never silently lower (release-process §3)
+    violations = _raise_only_violations(engine_ver, targets, engine_cur, present)
+    if violations:
+        return {"applied": False, "reason": "raise-only", "violations": violations,
+                "recovery": "choose versions strictly higher than the current ones, then re-run."}
+
+    # not-below-the-confirmed-floor: when a proposal is supplied, the write may only meet or raise it
+    floor_notes = []
+    if proposal:
+        pf = proposal.get("package_floor", {})
+        for mid, floor in pf.items():
+            if mid in targets and not _strictly_greater(targets[mid], present[mid].get("version", SENTINEL)):
+                floor_notes.append(f"'{mid}' below its confirmed floor {floor}")
+        if floor_notes:
+            return {"applied": False, "reason": "below-confirmed-floor", "violations": floor_notes,
+                    "recovery": "raise the flagged packages to at least their confirmed floor."}
+
+    # stage every touched file, validate ALL before any swap, then swap together (rollback on failure)
+    staged: list[tuple[str, str]] = []  # (target_path, temp_path)
+    errors: list[str] = []
+    try:
+        # engine.json — mutate in place so home_repository/identity/order are byte-preserved
+        new_engine = dict(engine)
+        new_engine["engine_release"] = engine_ver
+        pkgs = dict(new_engine.get("packages", {}))
+        for mid, ver in targets.items():
+            if mid in pkgs:
+                pkgs[mid] = ver
+        new_engine["packages"] = pkgs
+        errors += [f"engine.json: {m}" for m in _schema_ok(new_engine, ENGINE_SCHEMA)]
+
+        # each module manifest — mutate version only
+        module_new: dict[str, dict] = {}
+        for _rel, man in module_coherence.discover_manifests():
+            mid = man.get("id")
+            if mid in targets:
+                nm = dict(man)
+                nm["version"] = targets[mid]
+                module_new[_rel] = nm
+                errors += [f"{_rel}: {m}" for m in _schema_ok(nm, MODULE_SCHEMA)]
+
+        # split-brain guard: engine.json packages[mid] must equal each module manifest version
+        for _rel, nm in module_new.items():
+            mid = nm.get("id")
+            if new_engine["packages"].get(mid) != nm.get("version"):
+                errors.append(f"split-brain: engine.json packages['{mid}']="
+                              f"{new_engine['packages'].get(mid)} != {_rel} version={nm.get('version')}")
+
+        if errors:
+            return {"applied": False, "reason": "validation", "violations": errors,
+                    "recovery": "the computed manifests did not validate; nothing was written."}
+
+        if dry_run:
+            return {"applied": False, "reason": "dry-run", "targets": targets, "engine": engine_ver,
+                    "from_engine": engine_cur}
+
+        # write temps
+        def _stage(path, data):
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+                fh.write("\n")
+            staged.append((path, tmp))
+
+        _stage(module_manager._engine_manifest_path(), new_engine)
+        for _rel, nm in module_new.items():
+            _stage(os.path.join(validate.ROOT, _rel), nm)
+
+        # swap together
+        for path, tmp in staged:
+            os.replace(tmp, path)
+        staged = []
+    finally:
+        for _path, tmp in staged:  # any un-swapped temp on an error path
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+    return {"applied": True, "engine": engine_ver, "from_engine": engine_cur, "targets": targets,
+            "proposed_floor": (proposal or {}).get("package_floor", {})}
+
+
+# --------------------------------------------------------------------------- rendering
+def _render_proposal(p: dict) -> str:
+    lines = ["Release proposal", "================", "", p["baseline_note"], ""]
+    lines.append("What changed since the last release:")
+    for c in p["change_inventory"]:
+        lines.append(f"  - {c}")
+    if p["impacts"]:
+        lines.append("")
+        lines.append("Contract / interface changes (read before confirming):")
+        for im in p["impacts"]:
+            lines.append(f"  - {im['what']}: {im['why']}")
+            lines.append(f"    behavioral check: {im['behavioral_demo']}")
+    lines.append("")
+    if p["mode"] == "first-cut":
+        lines.append("This is the first cut — choose the initial version explicitly, e.g.:")
+        lines.append("  release_cut.py apply --engine <ver> --all <ver>")
+    else:
+        floor = p["engine_floor_level"]
+        lines.append(f"Mechanical engine floor: at least a {floor} bump "
+                     f"(current {p['current_engine']}). You may raise it, never lower it.")
+        if p["package_floor"]:
+            lines.append("Per-package floors:")
+            for mid, ver in p["package_floor"].items():
+                lines.append(f"  - {mid}: at least {ver}")
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- CLI
+def _cmd_propose(args) -> int:
+    baseline = resolve_baseline()
+    proposal = classify(baseline, args.baseline_tree)
+    if args.json:
+        print(json.dumps(proposal, indent=2))
+    else:
+        print(_render_proposal(proposal))
+    return 0
+
+
+def _cmd_apply(args) -> int:
+    packages = {}
+    for spec in args.package or []:
+        if "=" not in spec:
+            print(f"CONFIG ERROR: --package expects id=version, got '{spec}'.", file=sys.stderr)
+            return 2
+        mid, ver = spec.split("=", 1)
+        packages[mid.strip()] = ver.strip()
+    proposal = validate.load_json(args.proposal) if args.proposal else None
+    result = apply(args.engine, getattr(args, "all"), packages, proposal, args.dry_run)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0 if result.get("applied") or result.get("reason") == "dry-run" else 1
+    if result.get("applied"):
+        print(f"Applied: engine {result['from_engine']} -> {result['engine']}; "
+              f"{len(result['targets'])} package version(s) recorded.")
+        return 0
+    if result.get("reason") == "dry-run":
+        print(f"Dry run: engine {result['from_engine']} -> {result['engine']} across "
+              f"{len(result['targets'])} package(s); nothing written.")
+        return 0
+    print(f"Refused ({result['reason']}):", file=sys.stderr)
+    for v in result.get("violations", []):
+        print(f"  - {v}", file=sys.stderr)
+    if result.get("recovery"):
+        print(f"To fix: {result['recovery']}", file=sys.stderr)
+    return 1
+
+
+def main(argv: list) -> int:
+    ap = argparse.ArgumentParser(prog="release_cut.py", description="Decide and record the next engine version.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    pp = sub.add_parser("propose", help="read-only: the proposed bump floor + change inventory")
+    pp.add_argument("--json", action="store_true")
+    pp.add_argument("--baseline-tree", help="a local release tree to diff against (tests/workflow inject this)")
+    pa = sub.add_parser("apply", help="record the chosen versions into the manifests (atomic, raise-only)")
+    pa.add_argument("--engine", required=True, help="the new engine version")
+    pa.add_argument("--all", help="set every present package to this version (the first-cut / uniform case)")
+    pa.add_argument("--package", action="append", help="id=version override for one package (repeatable)")
+    pa.add_argument("--proposal", help="a proposal JSON from `propose` to enforce the confirmed floor against")
+    pa.add_argument("--dry-run", action="store_true", help="compute + validate but write nothing")
+    pa.add_argument("--json", action="store_true")
+    args = ap.parse_args(argv)
+    try:
+        if args.cmd == "propose":
+            return _cmd_propose(args)
+        return _cmd_apply(args)
+    except Exception as exc:  # plain-language failure, never a traceback (release-process §6)
+        print(f"\nRELEASE-CUT ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

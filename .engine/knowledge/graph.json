@@ -1461,6 +1461,31 @@
       "type": "check"
     },
     {
+      "id": "check:release-integrity",
+      "kind": "custom/script",
+      "name": ".engine/check/release-integrity.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "release-integrity",
+      "source": {
+        "fingerprint": "sha256:ba002d49ad9df4d1c074640c84bf16d142d84230cf92665ac468bd12e3f510df",
+        "path": ".engine/check/release-integrity.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:self-map-drift",
       "kind": "custom/script",
       "name": ".engine/check/self-map-drift.json",
@@ -2663,7 +2688,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:73b8a5877ba058e85cc54597b22d907f0495dd1747992fb6d995e064d98c68c5",
+        "fingerprint": "sha256:cbdaa8ffc44306e7fdc3bf6f947d92b78c31b308adcd6f620e45afc819cbc677",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4417,6 +4442,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_release_cut",
+      "name": ".engine/tools/demo_release_cut.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_release_cut",
+      "source": {
+        "fingerprint": "sha256:a963dfd6a289a86d05e40b8e3d4bb6311f0d5bea8bf612ffd12e67da8c4209b4",
+        "path": ".engine/tools/demo_release_cut.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_remember_this",
       "name": ".engine/tools/demo_remember_this.py",
       "owner": "core",
@@ -5245,6 +5287,40 @@
       "source": {
         "fingerprint": "sha256:0c01c6772a2a6f50eee7c3be6c4d8fb7acdfe3bfd8d8f3a531cc4b3f501ef064",
         "path": ".engine/tools/memory/records.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:release_cut",
+      "name": ".engine/tools/release_cut.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "release_cut",
+      "source": {
+        "fingerprint": "sha256:db9ba2292d485f7c5bdf104716fae2c8577617b98b227dd481dbe994e217ddab",
+        "path": ".engine/tools/release_cut.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:release_integrity_check",
+      "name": ".engine/tools/release_integrity_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "release_integrity_check",
+      "source": {
+        "fingerprint": "sha256:e0c4d0cfaaaa7dc26f40a406ef4aca0a78d4881488a0f17b2a9eee3f548a5cfd",
+        "path": ".engine/tools/release_integrity_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -6433,7 +6509,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b912f7a48b3b35e31a21ce3cc9badaee3f27481d4ad16469cd173a5bb9b9a285",
+        "fingerprint": "sha256:4f53f22a6e9a4e4903696030af3becbc9ca3c76dc7f82cbc92d4559b507b6952",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -6588,6 +6664,23 @@
       "source": {
         "fingerprint": "sha256:f2b949067904995b3e81be260790b3b77c77a0511c92e496f90eafff04620cda",
         "path": ".engine/tools/memory/test_records.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_release_cut",
+      "name": ".engine/tools/test_release_cut.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_release_cut",
+      "source": {
+        "fingerprint": "sha256:dcd3864c02cb74159e47eaa7604a7dcc42019dca39960d32a12146ca25468f12",
+        "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
       "type": "tool"
