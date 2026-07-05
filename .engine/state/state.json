@@ -2,12 +2,12 @@
   "schema_version": 1,
   "standing_situation": {
     "milestone": null,
-    "phase": "First-run leaves a generated repo with both CLAUDE.md files \u2014 never swaps in the deployed floor or retires the construction CLAUDE.md (issue #272)",
-    "as_of": "2026-06-28T10:11:35Z"
+    "phase": "Extract a shared GitHub Contents-API client (de-duplicate weakening_guard / audit_digest / lock_integrity) (issue #295)",
+    "as_of": "2026-07-05T09:50:34Z"
   },
   "integration_debt": {
-    "open_count": 24,
-    "as_of": "2026-06-28T10:11:35Z",
+    "open_count": 13,
+    "as_of": "2026-07-05T09:50:34Z",
     "register": "https://github.com/StarshipSuperjam/engine-template/issues?q=is:open+label:engine"
   }
 }
