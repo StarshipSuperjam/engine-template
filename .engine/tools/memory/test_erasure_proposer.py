@@ -69,6 +69,25 @@ class _Base(unittest.TestCase):
         ledger.append(consolidate._make_marker(session, batch))
         return rec[records.RECORD_ID_KEY]
 
+    def _consolidated_raw(self, *, n=2, age_days=60, session="Scr", batch="bcr", text="a consolidated raw note"):
+        """Plant a SETTLED consolidated session: an episodic + its closing marker (both aged `age_days`) and `n` raw
+        turn-deltas captured just before the marker. Returns the turn-delta ids (the consolidated-raw erasure
+        targets that `earned_consolidated_raw` yields once the gist is stable)."""
+        m_ts = int(time.time()) - age_days * _DAY
+        ep = consolidate._make_episodic(session, {"role": "decision", "text": "a summary stands in"}, batch)
+        ep["ts"] = m_ts
+        ledger.append(ep)
+        mk = consolidate._make_marker(session, batch)
+        mk["ts"] = m_ts
+        ledger.append(mk)
+        ids = []
+        for i in range(n):
+            rec = {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+                   "session_id": session, "ts": m_ts - _DAY, "text": f"{text} {i}", "tags": []}
+            ledger.append(rec)
+            ids.append(rec[records.RECORD_ID_KEY])
+        return ids
+
 
 # --- the deterministic probe -------------------------------------------------------------------------------
 
@@ -399,14 +418,65 @@ class ApiOpenerTests(_Base):
             return (404, None)                                     # even the base ref read fails
         self.assertIsNone(emit._open_erasure_pr(obs._FakeGH(t), "br", "t", "b", "c"))
 
-    def test_fails_safe_when_the_branch_ref_already_exists(self):
+    def test_fails_safe_when_the_stale_branch_backing_check_is_unreadable(self):
+        # On a 422 (stale branch), the opener VERIFIES the branch backs no open PR before replacing it. If that check
+        # is unreadable (host doubt), it DECLINES — never delete on doubt, never duplicate.
         def t(method, path, body):
             if "/git/ref/heads/" in path and method == "GET":
                 return 200, {"object": {"sha": "s"}}
-            if path.endswith("/git/refs"):
+            if path.endswith("/git/refs") and method == "POST":
                 return 422, {"message": "Reference already exists"}
+            return 404, None                                                   # the /pulls?head= check is unreadable
+        self.assertIsNone(emit._open_erasure_pr(obs._FakeGH(t), "br", "t", "b", "c"))
+
+    def test_a_stale_branch_with_no_open_pr_is_replaced_and_the_pr_opens(self):
+        # Re-offer: a declined PR's branch lingers, so a same-set re-offer 422s. The opener verifies no open PR backs
+        # it, DELETEs the stale ref (204 No Content), re-creates, and opens the fresh PR.
+        creates = {"n": 0}
+        deletes = {"n": 0}
+
+        def t(method, path, body):
+            if "/git/ref/heads/" in path and method == "GET":
+                return 200, {"object": {"sha": "s"}}
+            if path.endswith("/git/refs") and method == "POST":
+                creates["n"] += 1
+                return (422, {"message": "exists"}) if creates["n"] == 1 else (201, {"ref": (body or {}).get("ref")})
+            if "/pulls?head=" in path and method == "GET":
+                return 200, []                                                 # no open PR backs the branch
+            if "/git/refs/heads/" in path and method == "DELETE":
+                deletes["n"] += 1
+                return 204, None                                               # a successful ref delete is 204
+            if "/contents/" in path and method == "GET":
+                return 200, {"sha": "blob", "content": "", "encoding": "base64"}
+            if "/contents/" in path and method == "PUT":
+                return 201, {}
+            if path.endswith("/pulls") and method == "POST":
+                return 201, {"number": 55}
             return 404, None
-        self.assertIsNone(emit._open_erasure_pr(obs._FakeGH(t), "br", "t", "b", "c"))   # never wedge / duplicate
+
+        self.assertEqual(emit._open_erasure_pr(obs._FakeGH(t), "erasure-x", "t", "b", "c"), 55)
+        self.assertEqual((creates["n"], deletes["n"]), (2, 1), "422 -> delete once -> re-create -> open")
+
+    def test_a_stale_branch_backed_by_an_open_pr_is_never_deleted(self):
+        # The one duplicate hole the plan gate flagged: a label POST can fail-open, leaving an OPEN-but-unlabelled PR
+        # the serializer cannot see. Deleting its head would orphan it and let a DUPLICATE open. So a branch that
+        # backs any open PR is never deleted -> DECLINE.
+        deletes = {"n": 0}
+
+        def t(method, path, body):
+            if "/git/ref/heads/" in path and method == "GET":
+                return 200, {"object": {"sha": "s"}}
+            if path.endswith("/git/refs") and method == "POST":
+                return 422, {"message": "exists"}
+            if "/pulls?head=" in path and method == "GET":
+                return 200, [{"number": 9}]                                    # an OPEN PR backs the branch
+            if "/git/refs/heads/" in path and method == "DELETE":
+                deletes["n"] += 1
+                return 204, None
+            return 404, None
+
+        self.assertIsNone(emit._open_erasure_pr(obs._FakeGH(t), "erasure-x", "t", "b", "c"))
+        self.assertEqual(deletes["n"], 0, "never delete a branch backed by an open PR")
 
     def test_does_not_raise_on_a_transport_fault(self):
         def t(method, path, body):
@@ -651,6 +721,139 @@ class BatchProposeTests(_Base):
         result = emit.propose(opener=_raise_if_called, transport=_no_existing_transport()[0], root=self._tmp.name)
         self.assertEqual(result["opened"], [])
         self.assertIn("already scheduled or proposed", result["message"])
+
+
+class ConsolidatedRawClassTests(_Base):
+    """Slice C: the consolidated-raw evidence class flows through the emitter — `earned_targets` unions it with the
+    crash-duplicate class, the role-less cost line is content-free and names the verbatim it ends, the body collapses
+    identical lines to a per-vintage count, and neither the committed proposal nor the body leaks a session id."""
+
+    def test_earned_targets_unions_both_classes(self):
+        dup = self._retired("an old hidden duplicate", age_days=60, batch="b1")
+        raw = set(self._consolidated_raw(n=2, age_days=60))
+        got = {r[records.RECORD_ID_KEY] for r in emit.earned_targets()}
+        self.assertEqual(got, {dup} | raw)
+
+    def test_a_recalled_consolidated_session_is_withheld(self):
+        raw = set(self._consolidated_raw(n=1, age_days=60, session="Sx", batch="bx"))
+        ep = next(r[records.RECORD_ID_KEY] for r in ledger.iter_records()
+                  if r.get("kind") == records.EPISODIC_KIND and r.get("session_id") == "Sx")
+        forget.record_access(ep)                                  # the session's gist (an episodic) is in active use
+        got = {r[records.RECORD_ID_KEY] for r in emit.earned_targets()}
+        self.assertEqual(got & raw, set())                        # the veto flows through the union
+
+    def test_the_raw_cost_line_is_content_free_and_names_the_verbatim_cost(self):
+        rid = self._consolidated_raw(n=1, age_days=60, text="zebrafluxmigration")[0]
+        rec = next(r for r in ledger.iter_records() if r.get(records.RECORD_ID_KEY) == rid)
+        low = emit._cost_for(rec, int(time.time())).lower()
+        self.assertIn("original wording", low)                    # product-S2: erasing ends the verbatim's recovery
+        self.assertIn("summary", low)                             # the curated summary stays and stands in
+        self.assertIn("recoverable until erased", low)
+        self.assertNotIn("zebrafluxmigration", low)               # D-007: the note's own text never leaks
+        self.assertNotIn("fuel", low)                             # the retired 'fuel' coinage is not reintroduced
+
+    def test_the_committed_proposal_and_body_carry_no_session_id(self):
+        self._consolidated_raw(n=2, age_days=60, session="ZZSECRETSESSION", batch="bcr")
+        proposal = emit.build_proposal(emit.earned_targets())
+        blob = json.dumps(proposal) + emit._pr_body(proposal)
+        self.assertNotIn("ZZSECRETSESSION", blob)                 # arch-S1 / risk-N2: the grouping key never leaks
+
+    def test_the_body_collapses_identical_lines_into_a_counted_row(self):
+        line = "a raw turn-by-turn note the engine saved, now summarised — about a month ago; recoverable until erased."
+        body = emit._pr_body({"targets": ["a" * 32] * 340, "costs": [line] * 340})
+        self.assertIn("340 notes", body)                          # the per-vintage count is stated explicitly
+        self.assertEqual(body.count("about a month ago"), 1)      # collapsed to ONE row, not 340 near-identical lines
+
+    def test_the_body_states_notes_may_be_offered_again(self):
+        body = emit._pr_body({"targets": ["a" * 32, "b" * 32], "costs": ["cost one.", "cost two."]}).lower()
+        self.assertIn("offer these notes again", body)            # re-offer: closing is 'not now', not 'keep forever'
+        self.assertNotIn("will not offer", body)                  # the old permanent-keep promise is gone
+
+    def test_print_candidates_header_is_not_duplicate_specific(self):
+        import contextlib
+        import io
+        self._consolidated_raw(n=1, age_days=60)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            emit._print_candidates()
+        out = buf.getvalue().lower()
+        self.assertIn("earned erasure", out)
+        self.assertNotIn("hidden duplicate", out)                 # the header must not mislabel raw as a duplicate
+
+
+class ReOfferTests(_Base):
+    """Slice C decline semantics (Shane's call): a CLOSED-unmerged (declined) erasure PR is re-offered at the next
+    check; a MERGED one stays covered. A close is 'not this time', not 'keep forever' — and never fail-open."""
+
+    @staticmethod
+    def _labels_ok(method, path):
+        if path.endswith(f"/labels/{obs.ERASURE_LABEL}") and method == "GET":
+            return 404, None
+        if "/issues/" in path and path.endswith("/labels") and method == "POST":
+            return 200, []
+        if path.endswith("/labels") and method == "POST":
+            return 201, {}
+        return None
+
+    def test_a_declined_closed_pr_is_re_offered(self):
+        rid = self._retired("an old hidden duplicate", age_days=60, batch="b1")
+
+        def transport(method, path, body):
+            lbl = self._labels_ok(method, path)
+            if lbl is not None:
+                return lbl
+            if "state=open" in path:                              # serializer: none open (the declined one is closed)
+                return 200, []
+            if "/issues?" in path:                                # dedup list: one CLOSED-unmerged PR that named rid
+                return 200, [{"number": 8, "pull_request": {}}]
+            if "/pulls/8" in path:
+                return 200, {"number": 8, "state": "closed", "merged_at": None,
+                             "merge_commit_sha": None, "head": {"sha": "sha8"}}
+            if "/contents/" in path and "ref=sha8" in path:
+                return 200, _contents(rid)
+            return 404, None
+
+        opener = _OpenerSpy(number=71)
+        result = emit.propose(opener=opener, transport=transport, root=self._tmp.name)
+        self.assertEqual(result["targets"], [rid])                # re-offered, not permanently kept
+        self.assertEqual(result["opened"], [71])
+
+    def test_a_merged_pr_stays_covered(self):
+        rid = self._retired("an old hidden duplicate", age_days=60, batch="b1")
+
+        def transport(method, path, body):
+            if "state=open" in path:
+                return 200, []
+            if "/issues?" in path:
+                return 200, [{"number": 8, "pull_request": {}}]
+            if "/pulls/8" in path:
+                return 200, {"number": 8, "state": "closed", "merged_at": "2026-01-01T00:00:00Z",
+                             "merge_commit_sha": "msha8", "head": {"sha": "sha8"}}
+            if "/contents/" in path and "ref=msha8" in path:
+                return 200, _contents(rid)
+            return 404, None
+
+        result = emit.propose(opener=_raise_if_called, transport=transport, root=self._tmp.name)
+        self.assertEqual(result["opened"], [])                    # merged -> covered -> not re-proposed
+        self.assertIn("already scheduled or proposed", result["message"])
+
+    def test_declines_when_a_later_dedup_page_is_unreadable(self):
+        # risk-N4: the open+merged dedup follows pages. If a LATER page is unreadable, `_proposed_targets` returns
+        # None -> propose DECLINES (fail-safe) rather than dropping a merged-but-unenacted PR and re-proposing it.
+        self._retired("an old hidden duplicate", age_days=60, batch="b1")
+
+        def transport(method, path, body):
+            if "state=open" in path:
+                return 200, []
+            if "state=all" in path and "&page=1" in path:
+                return 200, [{"number": 8, "pull_request": {}}] * 100         # a full page -> a page 2 is fetched
+            if "state=all" in path and "&page=2" in path:
+                return 503, None                                              # the later page is unreadable
+            return 404, None
+
+        result = emit.propose(opener=_raise_if_called, transport=transport, root=self._tmp.name)
+        self.assertEqual(result["opened"], [])
+        self.assertIn("no duplicate risk", result["message"].lower())
 
 
 if __name__ == "__main__":

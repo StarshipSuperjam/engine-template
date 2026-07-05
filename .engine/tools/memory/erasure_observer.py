@@ -354,9 +354,9 @@ def _demo() -> int:
     print("the pull request you MERGED (not one merely closed) and on what you COMMITTED (not the pull-request text,")
     print("which can be edited after the fact). It tells you once, then never again. This is the ONE thing the engine")
     print("can do to your memory that cannot be undone, and it happens ONLY because you merged that pull request. An")
-    print("un-authorised note is left alone. There are two notes here only because the demo planted two: today the")
-    print("engine only proposes crash-duplicate leftovers, which are rare, so a real batch is usually one note or none")
-    print("— the grammar that clears a real backlog in one merge is here; the larger source that fills it comes later.")
+    print("un-authorised note is left alone. A real batch bundles what has earned erasure — old crash-duplicate")
+    print("leftovers and the raw turn-by-turn notes of sessions whose summaries have settled (the bulk source) — so one")
+    print("merge can clear a whole backlog at once; here the demo planted two.")
     print("If GitHub is ever unreachable, the engine simply carries on and tries again next session — nothing breaks.")
     print("That was a PRACTICE cabinet, thrown away.")
     return 0 if ok else 1
