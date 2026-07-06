@@ -22,8 +22,11 @@ allowed-tools: Bash(gh *), Bash(uv run *)
 ## Notes
 
 This is a command you type to connect a progress board. The board is a one-way mirror: the engine keeps
-only its own fields in step and never touches your Status or card moves. You can skip it entirely — the
-engine works the same from your issues and pull requests — and you can delete the board later without
+only its own five fields in step with the real record every session and never touches your Status or card
+moves. Tell the operator plainly that because those five fields are the engine's own, a value they type into
+one will be refreshed back to match the real record at the next sync — to change what those fields show,
+change the underlying issues, pull requests, and state, not the board cell. You can skip the board entirely
+— the engine works the same from your issues and pull requests — and you can delete the board later without
 losing anything. Removing the board or the permission is something you do on GitHub yourself; the engine
 cannot reach back out to undo those.
 

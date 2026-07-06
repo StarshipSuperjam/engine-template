@@ -3034,7 +3034,7 @@
       },
       "slug": "projects-sync-setup",
       "source": {
-        "fingerprint": "sha256:f76599d61e1376ad8beb491dfe3fb45788adcfa6c215459dcbffd7a1fa0fce6b",
+        "fingerprint": "sha256:19acfbfae5df1d14952e32b01c45f71c56d2e5d765a208393b4be5242d24b5f5",
         "path": ".engine/operations/projects-sync-setup.md"
       },
       "status": "active",
@@ -3220,7 +3220,7 @@
       },
       "slug": "migration-discipline",
       "source": {
-        "fingerprint": "sha256:03744195978c86660577e64f03270b01264d82e801d63f7267801defb9d6dc91",
+        "fingerprint": "sha256:3a9e38d1cdb5cf67a4712380e1e23a8eef09b1d349b6dd40941368ab461f9ef3",
         "path": ".engine/policies/migration-discipline.md"
       },
       "status": "active",
@@ -3722,7 +3722,7 @@
       },
       "slug": "engine-board-setup",
       "source": {
-        "fingerprint": "sha256:5bebb34edb33bc2fc0b2f3c62f3deace1930eb082fbadef0e019554de7a03519",
+        "fingerprint": "sha256:1d26c3a763d7a1c42a494bdf1c8735c820b1c0f38a13c65378b89fffad040799",
         "path": ".claude/skills/engine-board-setup/SKILL.md"
       },
       "status": "active",
@@ -5344,7 +5344,7 @@
       },
       "slug": "projects_sync",
       "source": {
-        "fingerprint": "sha256:bef0404e623dd4339b369669c5424dd3f42f0c9af8f97fc9b4088706a9203be9",
+        "fingerprint": "sha256:d6fa32d897b44a1a6c70c9937c8df7660796ca5b1b978e07eec57993cdd3e126",
         "path": ".engine/tools/projects_sync/projects_sync.py"
       },
       "status": "active",
@@ -5701,7 +5701,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:26bf8f92ad17ec007a8ef7ea7631affa130b10ef3a387e172104421378bba845",
+        "fingerprint": "sha256:95cb346dbe3710c2f4bf6bb575175e0aff3d32321bc7edb41de65f42b2b9bea4",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -6789,7 +6789,7 @@
       },
       "slug": "test_projects_sync",
       "source": {
-        "fingerprint": "sha256:f71b4ac0dd3a975646d51fe1600c22867b3d9585d04e7fd49edcbc794c5eb808",
+        "fingerprint": "sha256:df228832648bc99d3fb173ded560cec8adb25cce3da2bfddf9cf13717ea3be5f",
         "path": ".engine/tools/projects_sync/test_projects_sync.py"
       },
       "status": "active",
@@ -7282,7 +7282,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:f29c0efd0ab32ae15d1a7256802aebcc4439e07934e5e6ce46b46b6723c2c3f2",
+        "fingerprint": "sha256:2b1d7821fa63119949df7fb451429cb18e0387861719232ce37aaedbdd51b534",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

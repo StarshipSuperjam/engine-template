@@ -50,9 +50,15 @@ reaches your main branch without passing through you.
   an automatic block. There is **no mechanical detector** that decides whether a migration is destructive; the
   stop-and-ask is the engine recognising the risk itself and bringing anything hard to undo to you — the same
   standing habit it follows before any risky, hard-to-reverse step.
-- **No check is live yet.** A gentle, never-blocking reminder about undo/rollback steps is planned for a later
-  step of this module, for migration tools that have an undo concept; it will not apply to forward-only tools
-  like Supabase, and when it lands the policy will say plainly what it does and does not catch. Until then,
-  this is posture only.
+- **A soft rollback-presence check is live on every pull request.** It runs on each pull request (and before
+  a commit and before close) as a gentle, **never-blocking** nudge. When a migration uses the separate
+  up/down convention — for example `0001_x.up.sql` paired with `0001_x.down.sql` — and has no matching
+  rollback file, it points that out and names the file to add. For forward-only tools (such as Supabase or
+  Prisma) and tools that keep the rollback inside the migration file (such as Rails, Django, or Alembic), it
+  **says so plainly rather than passing silently**, and when there are no migrations yet it says that too. It
+  looks only at whether a separate rollback file is *present*: it never reads your SQL, never judges whether a
+  migration is safe or destructive, and never checks whether a schema change has a migration at all — your
+  pull-request review and the standing posture above cover those. It never blocks a merge and never changes a
+  file; it is a hygiene nudge, not a guarantee.
 - **Your backstop, always:** every migration still appears in the pull request you review and approve — the
   final human gate nothing merges without.
