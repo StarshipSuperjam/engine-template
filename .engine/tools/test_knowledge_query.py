@@ -306,10 +306,16 @@ class TestDegradeSurfacing(unittest.TestCase):
         self.assertIsNone(kq.degrade_message(None))
         self.assertIsNone(kq.degrade_message("committed"))
         absent, corrupt = kq.degrade_message("live"), kq.degrade_message("live-corrupt")
-        self.assertIn("absent", absent)
-        self.assertIn("DAMAGED", corrupt)
+        self.assertIn("missing", absent)                 # absent -> "missing", restore
+        self.assertIn("damaged", corrupt)                # corrupt -> "damaged", replace
+        self.assertIn("replace the damaged file", corrupt)
         self.assertIn(kg.REGEN_CMD, absent)
         self.assertIn(kg.REGEN_CMD, corrupt)
+        # plain "project map" register (boot's), never engine shorthand — one fault, one voice
+        for msg in (absent, corrupt):
+            self.assertIn("project map", msg)
+            self.assertNotIn("LIVE WALK", msg)
+            self.assertNotIn("knowledge graph", msg)
 
     def test_public_ops_return_data_only(self):
         gpath, ipath = self._paths()
@@ -327,7 +333,8 @@ class TestDegradeSurfacing(unittest.TestCase):
                                        index_path=ipath, graph_path=gpath)
         self.assertEqual(result["id"], "module:core")
         self.assertIsNotNone(note)
-        self.assertIn("LIVE WALK", note)
+        self.assertIn("rebuilt", note)                   # the absent-map degrade note, plain-language
+        self.assertIn("missing", note)
 
     def test_with_degrade_is_silent_on_a_committed_read(self):
         gpath, ipath = self._paths()

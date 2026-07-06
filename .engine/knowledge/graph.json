@@ -4996,7 +4996,7 @@
       },
       "slug": "knowledge_query",
       "source": {
-        "fingerprint": "sha256:62300f2328ca00518136f22a8f7e344dd5f29422a851f93e4dd5643028061247",
+        "fingerprint": "sha256:6bc035994ee5d50b2b7afa077ff54d63c227f168d85fd471253fd9f75bae7a7c",
         "path": ".engine/tools/knowledge_query.py"
       },
       "status": "active",
@@ -6458,7 +6458,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:b9e491d31f00e93357fbeeaa9a8b61355dd38dbfc44c775aaf689a6b5178b82a",
+        "fingerprint": "sha256:31d765b4998f894a031f48feb5776e005f83a5b1d300fce170dd8237f7dc81e0",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",

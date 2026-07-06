@@ -223,19 +223,21 @@ def relate(id_a, id_b, *, index_path=None, graph_path=None):
 def degrade_message(source) -> str | None:
     """The operator-facing plain-language line for a DEGRADED read, or None when the read was fully
     fresh/committed. Shared by the CLI (`_note_degrade`) and the MCP transport (`with_degrade`) so the two
-    channels never drift. 'live' = the committed graph is ABSENT (benign in a fresh worktree — regenerate);
-    'live-corrupt' = it is PRESENT but could not be read (a bad write or overlay damaged it) — a distinct
-    fault the operator is named, because the repair reads differently (regenerate to REPLACE the damaged
-    file, not to create a missing one; eADR-0004 'name what is reduced')."""
-    graph = knowledge_gen._display(knowledge_gen.GRAPH_PATH)
+    channels never drift, and phrased in the SAME plain "project map" register boot uses (never engine
+    shorthand like "live walk"/"graph") so one fault reads the same wherever the operator meets it. 'live' =
+    the committed map is MISSING (benign in a fresh worktree — regenerate to restore it); 'live-corrupt' = it
+    is PRESENT but could not be read (a bad write or overlay damaged it) — named distinctly because the
+    repair differs (regenerate to REPLACE the damaged file, not to create a missing one; eADR-0004 'name
+    what is reduced')."""
+    m = knowledge_gen._display(knowledge_gen.GRAPH_PATH)
     if source == "live":
-        return (f"the committed knowledge graph ({graph}) is absent, so this answer came from a LIVE WALK "
-                f"of the on-disk surfaces — regenerate and commit the graph (`{knowledge_gen.REGEN_CMD}`) "
-                f"to restore the committed source.")
+        return (f"your committed project map ({m}) is missing, so this answer came from a map I rebuilt from "
+                f"your live project files — regenerate it with `{knowledge_gen.REGEN_CMD}` and commit the "
+                f"result to restore your saved map.")
     if source == "live-corrupt":
-        return (f"the committed knowledge graph ({graph}) is present but DAMAGED (it could not be read), so "
-                f"this answer came from a LIVE WALK of the on-disk surfaces — regenerate and commit the "
-                f"graph (`{knowledge_gen.REGEN_CMD}`) to replace the damaged file.")
+        return (f"your committed project map ({m}) is present but damaged (I couldn't read it), so this "
+                f"answer came from a map I rebuilt from your live project files — regenerate it with "
+                f"`{knowledge_gen.REGEN_CMD}` and commit the result to replace the damaged file.")
     return None
 
 
@@ -244,9 +246,9 @@ def _note_degrade(source) -> None:
     'committed' = rebuilt from the committed graph (git-native, a quiet note); 'live'/'live-corrupt' = a
     LOUD live-walk fallback (the committed graph is absent / present-but-damaged)."""
     if source == "committed":
-        print(f"(the knowledge query index was absent or stale, so this answer was rebuilt from the "
-              f"committed graph — {knowledge_gen._display(knowledge_gen.GRAPH_PATH)}, the git-native "
-              f"source of truth)", file=sys.stderr)
+        print(f"(the fast lookup index was absent or stale, so this answer was rebuilt from your committed "
+              f"project map — {knowledge_gen._display(knowledge_gen.GRAPH_PATH)}, the saved source of "
+              f"truth)", file=sys.stderr)
         return
     msg = degrade_message(source)
     if msg:
