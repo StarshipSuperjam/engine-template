@@ -195,16 +195,82 @@ def decide(permission: str, reason: str | None = None) -> dict:
 
 # ---- the fail-open-and-flag harness (hooks/README §"Fail-open-and-flag") -----------------------
 
-def _emit_finding(err, severity: str, message: str) -> None:
-    """Surface a fail-open finding in plain language on stderr (the channel the platform shows). The
-    finding is `finding.v1`-shaped; the DURABLE, tracked promotion onto the telemetry remediation
-    loop is telemetry's mechanism (slice 18) — hooks DETECTS and emits, telemetry tracks (the §16
-    detection-vs-relay seam; `owes → 18`)."""
-    f = validate.finding(severity, message)
+# The honest tail appended to a fail-open finding's in-session line — STRICTLY conditional on whether the
+# durable promotion actually landed (#391). The old copy asserted "this was recorded as a problem to fix"
+# unconditionally while nothing recorded anything; that was false. These say what is actually true.
+_RECORDED_TAIL = " This was recorded as a tracked item you'll see at your next start."
+_NOT_RECORDED_TAIL = (" I've noted it here, but could not file it as a tracked item yet — it is not durably "
+                      "recorded until the engine next reaches GitHub.")
+
+
+def _fail_open_source_id(event: str, kind: str) -> str:
+    """The dedup key for a fail-open finding: COARSE (per event + failure-kind, NEVER per-occurrence), so a
+    gate that keeps failing collapses onto ONE tracked Issue via telemetry's source-keyed dedup rather than
+    spamming one per crash. Marker-safe by construction — fixed tokens and the platform event name, never
+    operator input (so it can carry no forged `<!-- engine-signal -->` marker)."""
+    return f"hooks/fail-open/{event}/{kind}"
+
+
+def _promote_fail_open(event: str, kind: str, message: str) -> bool:
+    """Best-effort DURABLE promotion of a fail-open finding to a tracked engine-labelled Issue, via
+    telemetry's out-of-band `promote_finding` — the same "log it" relay `close.py` uses at cap-exhaustion
+    (§16 detection-vs-relay seam; this is the promotion #391 wires, retiring the old `owes → telemetry`).
+
+    Two invariants make this safe to reach from the shared harness:
+      - LAZY imports: `telemetry`/`boot` (and the network) load ONLY here, on a fail-open branch — never on
+        the happy hot path every hook rides (the hooks/README hot-path latency law).
+      - FAIL-SAFE: ANY error is swallowed and returns False. Recording the crash must NEVER re-break the
+        fail-open path into a block or an unhandled crash — that would re-create the exact fail-CLOSED
+        stranding of a non-engineer the whole law (and #390) forbids.
+    Returns True when the Issue was opened/updated; False when offline / unreachable / errored — in which
+    case the finding was still surfaced in-session and the protected-branch merge is the durable backstop.
+    The general triage LOOP that drains and reconciles at scale (auto-close, ambient capture, the refused-
+    cursor and broken-runtime routing) is telemetry's live loop — issues #403 / #412, not here.
+
+    The promoter is INJECTABLE into run_hook (default = this), which is how the demo and the promote/copy
+    behaviour tests exercise it without a network. As a hard SAFETY BACKSTOP for a safety feature, this also
+    refuses to touch live GitHub under a test harness: a fail-open firing in ANY test must never open a real
+    engine Issue (boot.gh_token can resolve a logged-in `gh auth token` even locally). Production hook
+    execution never imports `unittest`; the real wiring is tested directly via `_do_promote_fail_open`."""
+    if "unittest" in sys.modules:   # backstop: never reach live GitHub from a test run
+        return False
+    return _do_promote_fail_open(event, kind, message)
+
+
+def _do_promote_fail_open(event: str, kind: str, message: str) -> bool:
+    """The real promotion wiring (lazy imports, token resolution, `promote_finding`), split out so it is
+    directly testable against a mocked boot+telemetry without the test-harness backstop above."""
+    try:
+        import telemetry  # lazy: keep telemetry's stack + the network off every hook's happy path
+        import boot        # lazy: boot is the single source of the repo slug + GitHub token (close.py seam)
+        repo, token = boot.repo_slug(), boot.gh_token()
+        if not repo or not token:
+            return False
+        now = telemetry.utc_now()
+        record = {"source_id": _fail_open_source_id(event, kind), "severity": telemetry.TRUST_CRITICAL,
+                  "message": message, "first_seen": now, "last_seen": now}
+        return bool(telemetry.promote_finding(telemetry.GitHubIssues(repo, token), record, now))
+    except Exception:  # noqa: BLE001 — recording the crash must NEVER fail-close the gate; degrade silently
+        return False
+
+
+def _emit_finding(err, severity: str, event: str, kind: str, message: str, promote) -> None:
+    """Surface a fail-open finding in plain language on stderr (the channel the platform shows) AND promote
+    it to a durable tracked engine Issue best-effort (#391). `message` is the base statement — what could
+    not run, and that the action was allowed to proceed — carrying NO recording claim; this appends the
+    honest tail conditional on `promote(event, kind, message)` actually landing, so the engine never again
+    tells the operator something was "recorded" when it was not. `promote` is injected (default
+    `_promote_fail_open`) so tests/the demo never reach live GitHub."""
+    try:
+        recorded = bool(promote(event, kind, message))
+    except Exception:  # noqa: BLE001 — belt-and-suspenders: the fail-open guarantee must NOT depend on the
+        recorded = False  #   promoter behaving. Even a misbehaving promoter degrades to surfaced-not-recorded
+        #                     rather than propagating to re-break the fail-open path into a block or a crash.
+    f = validate.finding(severity, message + (_RECORDED_TAIL if recorded else _NOT_RECORDED_TAIL))
     err.write(f["message"] + "\n")
 
 
-def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None) -> int:
+def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promote=None) -> int:
     """Run one hook event under the fail-open-and-flag law and the platform contract. `event` is the
     Claude Code event name (the calling hook script declares it); `handler(payload) -> decision` is the
     owning system's behavior. Returns the process exit code (the caller does `sys.exit(run_hook(...))`).
@@ -225,6 +291,9 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None) -> in
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
     inp = sys.stdin if stdin is None else stdin
+    # The fail-open promoter is injected (default = the real, lazy, fail-safe one) so tests and the demo
+    # never reach live GitHub; production hook scripts call run_hook(event, handler) and get the real one.
+    promote = _promote_fail_open if promote is None else promote
 
     try:
         raw = inp.read()
@@ -233,9 +302,9 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None) -> in
             payload = {}
     except Exception:  # noqa: BLE001 — reading the platform's event must NEVER block: any input the
         #   platform delivers (or fails to) is fail-open, never the operator's fault.
-        _emit_finding(err, "hard",
+        _emit_finding(err, "hard", event, "input",
                       f"The {event} hook could not read its event input, so it could not run; the "
-                      f"action was allowed to proceed and this was recorded as a problem to fix.")
+                      f"action was allowed to proceed.", promote)
         return EXIT_NONBLOCKING
 
     # A forced Stop continuation: the handler still runs (close needs the give-up moment to log a
@@ -250,19 +319,18 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None) -> in
         #   sys.exit() (e.g. exit 2 to force a block) must STILL fail open — the harness owns the exit
         #   code, so a handler bug can never fail-closed and strand a non-engineer. KeyboardInterrupt /
         #   GeneratorExit (not caught here) stay propagating so an operator can still interrupt.
-        _emit_finding(err, "hard",
+        _emit_finding(err, "hard", event, "crash",
                       f"A safety check on the {event} step could not run ({type(exc).__name__}); the "
-                      f"action was allowed to proceed and this was recorded as a problem to fix. The "
-                      f"work was not verified by that check.")
+                      f"action was allowed to proceed. The work was not verified by that check.", promote)
         return EXIT_NONBLOCKING
 
     if forced_stop and isinstance(decision, dict) and decision.get("action") == "block":
         decision = proceed()   # no-re-block guarantee, by construction (the harness, not the handler)
 
-    return _translate(event, decision or proceed(), out, err)
+    return _translate(event, decision or proceed(), out, err, promote)
 
 
-def _translate(event: str, decision, out, err) -> int:
+def _translate(event: str, decision, out, err, promote) -> int:
     """Pure translation of a handler decision → (exit code, stdout/stderr writes). Enforces the block
     budget: a block is honored (exit 2) ONLY on a block-eligible event; anywhere else it is a misuse
     that fails open and flags rather than blocks."""
@@ -270,10 +338,9 @@ def _translate(event: str, decision, out, err) -> int:
 
     if action == "block":
         if event not in BLOCK_ELIGIBLE_EVENTS:
-            _emit_finding(err, "hard",
+            _emit_finding(err, "hard", event, "block-misuse",
                           f"A {event} hook tried to hard-block, but only {sorted(BLOCK_ELIGIBLE_EVENTS)} "
-                          f"may block; the action was allowed to proceed and this was recorded as a "
-                          f"problem to fix.")
+                          f"may block; the action was allowed to proceed.", promote)
             return EXIT_NONBLOCKING
         err.write((decision.get("reason") or "") + "\n")
         return EXIT_BLOCK
@@ -288,10 +355,10 @@ def _translate(event: str, decision, out, err) -> int:
     if action == "decide":
         perm = decision.get("permissionDecision")
         if event != "PreToolUse" or perm not in PERMISSION_DECISIONS:
-            _emit_finding(err, "hard",
+            _emit_finding(err, "hard", event, "decide-misuse",
                           f"A {event} hook returned a permission decision {perm!r}, which is only valid "
                           f"as one of {sorted(PERMISSION_DECISIONS)} on a PreToolUse hook; the action was "
-                          f"allowed to proceed and this was recorded as a problem to fix.")
+                          f"allowed to proceed.", promote)
             return EXIT_NONBLOCKING
         result = {"hookEventName": "PreToolUse", "permissionDecision": perm}
         if decision.get("reason"):
@@ -304,12 +371,28 @@ def _translate(event: str, decision, out, err) -> int:
 
 # ---- the operator-runnable demo (a throwaway fixture; no registered hook exists until slice 20) ----
 
-def _run_capture(event: str, handler, payload: dict):
+def _demo_promoter(event: str, kind: str, message: str):
+    """The demo's fail-open promoter: runs the REAL `telemetry.promote_finding` relay against a FAKE GitHub
+    transport (only the network is faked — the demo-fidelity rule), so the demo shows the finding actually
+    being promoted and the honest "recorded" copy WITHOUT touching live GitHub. Returns the (fake) Issue
+    number, so the demo renders the promoted case."""
+    import telemetry
+    fake = telemetry._FakeGitHub()
+    gh = telemetry.GitHubIssues("you/your-project", "demo-token", transport=fake.transport)
+    now = telemetry.utc_now()
+    record = {"source_id": _fail_open_source_id(event, kind), "severity": telemetry.TRUST_CRITICAL,
+              "message": message, "first_seen": now, "last_seen": now}
+    return telemetry.promote_finding(gh, record, now)
+
+
+def _run_capture(event: str, handler, payload: dict, promote=None):
     """Run the REAL committed harness with a fixture handler over a synthetic payload, capturing its
-    stdout/stderr — so the demo exercises the shipped run_hook, not a reimplementation."""
+    stdout/stderr — so the demo exercises the shipped run_hook, not a reimplementation. The fail-open
+    promoter is the demo one (real relay, faked network) so the demo can never open a live Issue."""
     import io
     out, err = io.StringIO(), io.StringIO()
-    code = run_hook(event, handler, stdin=io.StringIO(json.dumps(payload)), stdout=out, stderr=err)
+    code = run_hook(event, handler, stdin=io.StringIO(json.dumps(payload)), stdout=out, stderr=err,
+                    promote=_demo_promoter if promote is None else promote)
     return code, out.getvalue(), err.getvalue()
 
 
@@ -333,8 +416,9 @@ def _demo(_argv: list) -> int:
     code, _out, err = _run_capture("PreToolUse", lambda p: (_ for _ in ()).throw(RuntimeError("boom")),
                                    {"hook_event_name": "PreToolUse"})
     print(f"    exit code = {code}  (not 2, so NON-blocking — the tool runs)")
-    print(f"    plain-language finding on stderr: {err.strip()!r}\n")
-    c2 = code
+    print(f"    finding on stderr — now PROMOTED to a tracked Issue with the honest 'recorded' copy (#391): "
+          f"{err.strip()!r}\n")
+    c2, crash_err = code, err
 
     print("(2b) A block requested on a NON-eligible event (PostToolUse) — the budget rejects it, "
           "fail-open:")
@@ -343,6 +427,14 @@ def _demo(_argv: list) -> int:
     print(f"    exit code = {code}  (not 2 — only PreToolUse/Stop may block)")
     print(f"    finding on stderr: {err.strip()!r}\n")
     c2b = code
+
+    print("(2c) The SAME crash but with GitHub UNREACHABLE (offline) — the copy stays HONEST and never")
+    print("     claims a record that did not happen (this is the exact state the old code lied about):")
+    code, _out, err = _run_capture("PreToolUse", lambda p: (_ for _ in ()).throw(RuntimeError("boom")),
+                                   {"hook_event_name": "PreToolUse"}, promote=lambda *a: False)
+    print(f"    exit code = {code}  (still NON-blocking)")
+    print(f"    honest offline copy on stderr: {err.strip()!r}\n")
+    offline_err = err
 
     import tempfile
     print("(3) The hook LAUNCHER (.engine/tools/hook-runner.sh) — the wait/exec preamble lives here now,")
@@ -373,17 +465,26 @@ def _demo(_argv: list) -> int:
                            env={**os.environ, "ENGINE_HOOK_WAIT_POLLS": "3",
                                 "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})
         print(f"      never   → stdout={r.stdout.strip()!r} exit={r.returncode}  "
-              f"(ran nothing; no system-Python fallback)\n")
+              f"(ran nothing; no system-Python fallback)")
+        print(f"                #391: instead of exiting SILENTLY, the launcher now names the absent runtime "
+              f"on stderr (NON-blocking): {r.stderr.strip()!r}\n")
         never_out = r.stdout
+        never_err = r.stderr
 
-    print("All three proceeded without a hard block except the one deliberate, eligible block — the "
-          "fail-open floor holds.")
-    print("(The plain-language operator surfacing in the PR Validation section and boot orientation is "
-          "rendered by later slices; here the failure is EMITTED as a finding.)")
-    # Self-check: the eligible block returns exit 2; a crashing handler and a block on a non-eligible event
-    # both proceed (not 2); and the launcher execs a present interpreter but runs nothing when it never
-    # appears (no system-Python fallback).
-    ok = (c1 == 2 and c2 != 2 and c2b != 2 and "RAN" in present_out and not never_out.strip())
+    print("All three fail-open cases proceeded without a hard block except the one deliberate, eligible")
+    print("block — and (#391) the crash/budget findings were PROMOTED to a tracked engine Issue (shown here")
+    print("against a faked GitHub) and the missing-runtime case named its absent runtime. The fail-open")
+    print("floor holds, and the operator is now told rather than left blind.")
+    print("(#391 wired the promotion shown above; boot orientation carries any promoted finding via its "
+          "open-findings register, and the PR Validation line is surfaced at submit per build-orchestration. "
+          "The live triage LOOP that reconciles and auto-closes at scale is telemetry's — #403/#412.)")
+    # Self-check (a demo that can FAIL): the eligible block returns exit 2; a crashing handler and a block on
+    # a non-eligible event both proceed (not 2); the launcher execs a present interpreter but runs nothing on
+    # an absent one (no fallback); AND #391 — the crash finding was promoted with the honest "recorded" copy,
+    # and the missing-runtime case NAMED its absent runtime on stderr instead of exiting silently.
+    ok = (c1 == 2 and c2 != 2 and c2b != 2 and "RAN" in present_out and not never_out.strip()
+          and "recorded as a tracked item" in crash_err and "not durably" in offline_err
+          and "runtime is not ready" in never_err)
     if not ok:
         print("\nDEMO UNEXPECTED: the hooks fail-open contract or the launcher's no-fallback behaviour did "
               "not hold.", file=sys.stderr)

@@ -186,3 +186,11 @@ green means *not applicable*, never *checked and passed*. Keep that distinct fro
 label the operator actively applies, which still gates the locked-dependency change (changing pinned
 dependencies is exactly what a person should consciously approve). Every other check still runs; the merge
 stays the operator's.
+
+**A fail-open finding is surfaced in the Validation section.** When filling the pull request's **Validation**
+section, surface any open **fail-open finding** the engine is carrying — a safety gate that could *not run*
+(a crashed hook or an unhealthy tool-runtime), promoted to a tracked engine finding and carried at boot — as
+a **named line, distinct from an ordinary pass or fail**: "*a safety check could not run on this change:
+what it would have checked; this work was not verified for X*." It is **non-blocking** and only informs the
+operator's consent at the merge — never a new gate. If none is open, say nothing; this is a surfacing duty,
+not a section to always fill (`systems/infrastructure/hooks/README.md` §Fail-open-and-flag).

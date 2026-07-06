@@ -2754,7 +2754,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:ecb23bf5bcf55b5d956c7baee71a50d2a875ba482e1ce079cd497ad20c31b98c",
+        "fingerprint": "sha256:d03e37afe11fdb42211c562a94de9870a046cd3406c7ef2446fe88a15a6e8132",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4851,7 +4851,7 @@
       },
       "slug": "hook-runner",
       "source": {
-        "fingerprint": "sha256:8bae58f07954e17fd3b7647d00b2cca4f270d4abd71a8f5f344c25e5054ff94c",
+        "fingerprint": "sha256:9c115fa98aa24a1d54dfb59c8c8dcac18b3e38651a16b0cf2f5929df19ac4bc5",
         "path": ".engine/tools/hook-runner.sh"
       },
       "status": "active",
@@ -4868,7 +4868,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:16560ab8588046d2aef0cd40846634e385231f46578e007489dd71fc20c28c5e",
+        "fingerprint": "sha256:b71492096a6a33fbdae9e188a4b8d0f1dfae8a987369d846393a3d80f68d1810",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -6347,7 +6347,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:79e6574d345aa8f4a556ec616eefb2187c14e27609d81204c3fdde3f0bc71af1",
+        "fingerprint": "sha256:b259aef05a325a08bb9df32906e4eb72c44add868cdf4a9f6b3ca33bc32aefdc",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
