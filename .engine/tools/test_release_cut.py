@@ -226,5 +226,74 @@ class Apply(unittest.TestCase):
             self.assertEqual(t.module_version("qa-review"), "0.0.0-dev")
 
 
+class RenderPRBody(unittest.TestCase):
+    def test_first_cut_body_has_inventory_versions_subbar_and_guidance(self):
+        with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}):
+            proposal = rc.classify(rc.Baseline(None, True, "no prior release"), None)
+            applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+        body = rc.render_pr_body(proposal, applied)
+        self.assertIn("0.0.0-dev → 0.1.0", body)                    # the version move
+        self.assertIn("First release", body)                        # the change inventory carried through
+        self.assertIn("Every capability (2)", body)                 # uniform targets collapse to one line
+        self.assertIn("sub-bar", body.lower())                      # the gate-path line (no benchmark built)
+        self.assertIn("Before you merge", body)                     # the §3 confirm/raise/reject guidance
+        self.assertIn("close this and run the release again", body)  # the raise + missing-signal backstop
+        # maintainer-facing register (§8): no internal machinery vocabulary leaks
+        for banned in ("release-cut", "bump rule", "version production", "first-cut", "engine_floor"):
+            self.assertNotIn(banned, body)
+
+    def test_gate_path_three_states_are_visibly_distinct(self):
+        passed, subbar, errored = (rc._gate_path_line("passed"), rc._gate_path_line("sub-bar"),
+                                   rc._gate_path_line("errored"))
+        self.assertEqual(len({passed, subbar, errored}), 3)         # §6: never look alike
+        self.assertIn("passed", passed.lower())
+        self.assertIn("errored", errored.lower())
+        self.assertIn("sub-bar", subbar.lower())
+        for s in (passed, subbar, errored):
+            self.assertTrue(s.strip())
+
+    def test_diff_body_lists_impacts_and_itemises_varied_versions(self):
+        proposal = {"change_inventory": ["Added the 'x' capability."],
+                    "impacts": [{"what": "the contract surface 'c' changed", "why": "read it against consumers"}]}
+        applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0",
+                   "targets": {"core": "0.2.0", "qa-review": "0.1.5"}}
+        body = rc.render_pr_body(proposal, applied)
+        self.assertIn("Interface changes", body)                    # impacts surfaced
+        self.assertIn("qa-review: → 0.1.5", body)                   # itemised (not collapsed — versions differ)
+        self.assertNotIn("Every capability", body)
+
+    def test_pr_body_subcommand_reads_files_and_prints(self):
+        # the CLI seam the workflow drives: proposal + applied files in, body on stdout
+        d = tempfile.mkdtemp()
+        try:
+            _write(os.path.join(d, "proposal.json"),
+                   {"change_inventory": ["First release."], "impacts": []})
+            _write(os.path.join(d, "applied.json"),
+                   {"applied": True, "engine": "0.1.0", "from_engine": "0.0.0-dev", "targets": {"core": "0.1.0"}})
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = rc.main(["pr-body", "--proposal", os.path.join(d, "proposal.json"),
+                                "--applied", os.path.join(d, "applied.json")])
+            self.assertEqual(code, 0)
+            self.assertIn("0.0.0-dev → 0.1.0", buf.getvalue())
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class BaselineTreeSeam(unittest.TestCase):
+    def test_injected_tree_wins_and_never_fetches(self):
+        # an injected tree short-circuits the fetch (the test/`--baseline-tree` path stays network-free)
+        tree, cleanup = rc._baseline_tree_for(rc.Baseline("v0.0.9", False, "diff"), "/some/injected/tree")
+        self.assertEqual(tree, "/some/injected/tree")
+        self.assertIsNone(cleanup)
+
+    def test_first_cut_needs_no_tree(self):
+        tree, cleanup = rc._baseline_tree_for(rc.Baseline(None, True, "first cut"), None)
+        self.assertIsNone(tree)
+        self.assertIsNone(cleanup)
+
+
 if __name__ == "__main__":
     unittest.main()

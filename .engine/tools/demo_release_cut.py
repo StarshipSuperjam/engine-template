@@ -11,6 +11,9 @@ tree — nothing here reimplements the tool, and every step asserts an outcome t
   4. ATOMIC WRITE — a real cut records the versions and leaves the home_repository line
      byte-identical (so a version-only cut never trips the guard on the update home).
   5. ROLLBACK — a write whose validation fails leaves every file untouched (no split-brain).
+  6. RELEASE-PR BODY — the propose + apply results render the maintainer's evidence bundle: the version
+     move, a legible readiness line (sub-bar, since no benchmark is built), the confirm/raise/reject
+     guidance, and three readiness states that read distinct (the §6 legibility invariant).
 
   uv run --directory .engine -- python tools/demo_release_cut.py
 """
@@ -118,13 +121,30 @@ def main() -> int:
         print("\n5. ROLLBACK: a write whose validation fails")
         print(f"   applied={r3['applied']}  reason={r3.get('reason')}  engine still {still['engine_release']}")
         ok &= (not r3["applied"] and still["engine_release"] == "0.0.0-dev")
+
+        # 6. RELEASE-PR BODY: the maintainer's evidence bundle ------------------------------
+        root4 = _tree({"core": _module("core"), "qa-review": _module("qa-review")})
+        trees.append(root4)
+        validate.ROOT, validate.ENGINE_DIR = root4, os.path.join(root4, ".engine")
+        p6 = rc.classify(rc.Baseline(None, True, "no prior release"), None)
+        a6 = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+        body = rc.render_pr_body(p6, a6)
+        states = {rc._gate_path_line(s) for s in ("passed", "sub-bar", "errored")}
+        print("\n6. RELEASE-PR BODY (the maintainer's evidence bundle)")
+        print(f"   carries the version move 0.0.0-dev -> 0.1.0 = {'0.0.0-dev → 0.1.0' in body}")
+        print(f"   readiness stated sub-bar (no benchmark built) = {'sub-bar' in body.lower()}")
+        print(f"   confirm/raise/reject guidance present         = {'Before you merge' in body}")
+        print(f"   the three readiness states read distinct      = {len(states) == 3}")
+        ok &= ("0.0.0-dev → 0.1.0" in body and "sub-bar" in body.lower()
+               and "Before you merge" in body and len(states) == 3)
     finally:
         validate.ROOT, validate.ENGINE_DIR = saved
         for t in trees:
             shutil.rmtree(t, ignore_errors=True)
 
     print("\n" + ("DEMO PASSED: the classifier derived the right floors, refused a non-raise, wrote "
-                  "atomically preserving the update home, and rolled back a failed write."
+                  "atomically preserving the update home, rolled back a failed write, and rendered a "
+                  "legible release-PR body with three distinct readiness states."
                   if ok else "DEMO DID NOT BEHAVE AS EXPECTED — see above."))
     return 0 if ok else 1
 
