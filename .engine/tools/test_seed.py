@@ -12,6 +12,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -510,6 +511,163 @@ class TestWeakeningClassifier(unittest.TestCase):
             {"filename": "README.md", "status": "modified"},
         ]
         self.assertEqual(weakening_guard.flagged_changes(files), [])
+
+    def test_validator_and_guard_are_permanent_floor_members(self):
+        # D-268 build-owe 5 — the self-protection property that must NOT silently lapse: the validator and this
+        # guard are guarded regardless of the derived set (validate.py is the sole home of the 5 built-in HARD
+        # check kinds, which carry no params.script and so are unreachable by the derived clause).
+        for p in (".engine/tools/validate.py", ".engine/tools/weakening_guard.py"):
+            self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
+
+    def test_settings_json_and_ruleset_proxy_are_floored(self):
+        # The live hole D-268 closed (settings.json wires the enforcement hooks) + the ruleset-applying proxy.
+        for p in (".claude/settings.json", ".engine/tools/bootstrap.py"):
+            self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
+
+    def test_enforcement_hook_gates_are_floored(self):
+        # The hand-listed enforcement-hook gates (build-owe 3 audit) — not check-scripts, guarded by the floor.
+        # Includes BOTH block-budget members: modes.py (PreToolUse write-gate) and close.py (Stop disposition gate).
+        for p in (".engine/tools/modes.py", ".engine/tools/close.py", ".engine/tools/hook-runner.sh",
+                  ".engine/tools/hooks.py", ".engine/tools/issue_gate.py", ".engine/tools/github_client.py",
+                  ".engine/tools/wiring.py", ".engine/tools/security_floor.py"):
+            self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
+
+    def test_non_gate_tooling_is_not_guarded(self):
+        # The over-firing D-268 fixes: benign tools (boot, memory, telemetry, status, the self-review renderer,
+        # attention) are NOT guarded when the derived set does not name them — the whole point of the narrowing.
+        derived = frozenset({".engine/tools/protection_guard.py"})
+        for p in (".engine/tools/boot.py", ".engine/tools/engine_status.py",
+                  ".engine/tools/memory/consolidate.py", ".engine/tools/telemetry.py",
+                  ".engine/tools/self_map.py", ".engine/tools/scent.py",
+                  ".engine/tools/audit_digest.py", "README.md", "src/app.py"):
+            self.assertFalse(weakening_guard.is_guardrail(p, derived_scripts=derived), p)
+
+    def test_check_script_is_guarded_by_presence_only(self):
+        # A check rule's enforcement script is guarded BY PRESENCE in the derived set — and NOT when absent.
+        p = ".engine/tools/product_design/lock_integrity.py"
+        self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset({p})))
+        self.assertFalse(weakening_guard.is_guardrail(p, derived_scripts=frozenset()))
+
+    def test_blanket_tools_prefix_dropped_but_fail_safe_restores_it(self):
+        # The blanket .engine/tools/ prefix is GONE from the static roster (a non-gate tool is guarded only if the
+        # derived set names it), but the None fail-safe sentinel restores whole-dir coverage.
+        self.assertFalse(weakening_guard.is_guardrail(".engine/tools/boot.py", derived_scripts=frozenset()))
+        self.assertTrue(weakening_guard.is_guardrail(".engine/tools/boot.py", derived_scripts=None))
+
+
+def _write_check_json(path, obj):
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh)
+
+
+class TestWeakeningDerivedSet(unittest.TestCase):
+    """The derived-by-presence clause (D-268/§14) + its ALL-OR-NOTHING fail-safe. The derivation reads the base
+    check dir on disk; these tests inject a temp dir the way TestWeakeningReHome monkeypatches _read_base_home."""
+
+    def test_derives_params_script_from_check_jsons(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write_check_json(os.path.join(d, "a.json"),
+                              {"kind": "custom/script", "params": {"script": ".engine/tools/a.py"}})
+            _write_check_json(os.path.join(d, "b.json"), {"kind": "presence"})  # no params.script -> skipped
+            _write_check_json(os.path.join(d, "c.json"),
+                              {"kind": "custom/script", "params": {"script": ".engine/tools/sub/c.py"}})
+            self.assertEqual(weakening_guard._derive_check_scripts(d),
+                             {".engine/tools/a.py", ".engine/tools/sub/c.py"})
+
+    def test_one_malformed_json_collapses_whole_derivation_to_none(self):
+        # ALL-OR-NOTHING: a single corrupt rule returns None (the fail-safe sentinel), NEVER a partial set that
+        # would silently drop the broken rule's own script from the guarded set (the fail-open D-268 rejects).
+        with tempfile.TemporaryDirectory() as d:
+            _write_check_json(os.path.join(d, "good.json"), {"params": {"script": ".engine/tools/good.py"}})
+            with open(os.path.join(d, "bad.json"), "w", encoding="utf-8") as fh:
+                fh.write("{ not valid json")
+            self.assertIsNone(weakening_guard._derive_check_scripts(d))
+
+    def test_missing_check_dir_is_the_fail_safe_sentinel(self):
+        self.assertIsNone(weakening_guard._derive_check_scripts(os.path.join(tempfile.gettempdir(), "no-such-check")))
+
+    def test_fail_safe_none_guards_the_whole_tools_dir(self):
+        # When derivation fails, is_guardrail falls back to the blanket .engine/tools/ — never drops a gate.
+        for p in (".engine/tools/anything.py", ".engine/tools/sub/deep/x.py", ".engine/tools/hook-runner.sh"):
+            self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=None), p)
+        self.assertFalse(weakening_guard.is_guardrail("README.md", derived_scripts=None))
+
+    def test_live_check_dir_covers_real_scattered_enforcement_scripts(self):
+        # Against the REAL base .engine/check dir: representative scattered enforcement scripts (a top-level guard
+        # and two subpackage check-scripts) are guarded by presence, proving the derivation reaches the subpackages.
+        derived = weakening_guard._derive_check_scripts()
+        self.assertIsNotNone(derived)
+        for p in (".engine/tools/protection_guard.py",
+                  ".engine/tools/product_design/lock_integrity.py",
+                  ".engine/tools/dependency_discipline/pinning.py"):
+            self.assertIn(p, derived, p)
+
+
+class TestEnforcementHookGuardCoverage(unittest.TestCase):
+    """Drift detector (D-268 / issue #250): every hook wired on a block-eligible event (PreToolUse / Stop) in
+    .claude/settings.json whose handler CAN emit a merge-relevant block MUST be guarded (in the weakening_guard
+    floor). A NEW block-capable hook wired without being floored fails this test, converting the silent fail-open
+    (an un-guarded new gate) into a loud CI failure at hook-add time.
+
+    'Can block' is read from the hook's OWN CODE, not a hand-maintained non-gate allowlist (which is exactly what
+    let close.py slip in the first draft — it was allowlisted as 'never blocks' when it HARD-BLOCKS the turn).
+    hooks.py defines only two block channels: hooks.block (exit 2) and hooks.decide (the structured deny). A hook
+    whose source references neither genuinely cannot deny (a pure regenerator / housekeeping) and need not be
+    floored; one that references either must be. SessionStart / PostToolUse / PreCompact / UserPromptSubmit hooks
+    are not block-eligible events and are out of scope."""
+
+    ENFORCEMENT_EVENTS = ("PreToolUse", "Stop")
+    BLOCK_PRIMITIVES = ("hooks.block", "hooks.decide")  # the ONLY two deny channels (hooks.py) — grep-derivable
+    # Handler paths are extracted from the hook command strings; this regex encodes the "every engine tool is a
+    # .py or .sh" assumption. A future non-py/sh handler (a .js, a binary) would not match — so wiring one is a
+    # DELIBERATE decision that must also extend this regex, not a silent coverage gap.
+    _SCRIPT_RE = re.compile(r"\.engine/tools/[\w./-]+\.(?:py|sh)")
+
+    def _root(self):
+        return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(weakening_guard.__file__))))
+
+    def _settings(self):
+        with open(os.path.join(self._root(), ".claude", "settings.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _can_block(self, script_rel: str) -> bool:
+        """True iff the hook handler's committed source references a block channel (so it can deny). Fail-safe:
+        an unreadable handler is treated as block-capable (it must then be floored)."""
+        try:
+            with open(os.path.join(self._root(), script_rel), encoding="utf-8") as fh:
+                src = fh.read()
+        except OSError:
+            return True
+        return any(prim in src for prim in self.BLOCK_PRIMITIVES)
+
+    def test_every_block_capable_enforcement_hook_is_floored(self):
+        settings = self._settings()
+        derived = weakening_guard._derive_check_scripts()
+        unguarded = []
+        for event in self.ENFORCEMENT_EVENTS:
+            for matcher in settings.get("hooks", {}).get(event, []):
+                for hook in matcher.get("hooks", []):
+                    for script in self._SCRIPT_RE.findall(hook.get("command", "")):
+                        if self._can_block(script) and not weakening_guard.is_guardrail(script, derived):
+                            unguarded.append((event, script))
+        self.assertEqual(unguarded, [],
+                         "block-capable enforcement hook(s) wired in settings.json but NOT guarded: "
+                         f"{unguarded} — a hook that can emit hooks.block/hooks.decide can turn a gate off; add it "
+                         "to _FLOOR_ENFORCEMENT_HOOKS in weakening_guard.py")
+
+    def test_both_block_budget_gates_are_covered(self):
+        # Ground the drift detector against the two real block-budget members, so it can't pass vacuously: modes.py
+        # (PreToolUse write-gate, denies via hooks.decide) and close.py (Stop disposition gate, denies via
+        # hooks.block) are BOTH wired on their events, BOTH block-capable, and BOTH floored.
+        settings = self._settings()
+        wired = {(ev, s) for ev in self.ENFORCEMENT_EVENTS
+                 for m in settings.get("hooks", {}).get(ev, [])
+                 for h in m.get("hooks", []) for s in self._SCRIPT_RE.findall(h.get("command", ""))}
+        self.assertIn(("PreToolUse", ".engine/tools/modes.py"), wired)
+        self.assertIn(("Stop", ".engine/tools/close.py"), wired)
+        for gate in (".engine/tools/modes.py", ".engine/tools/close.py"):
+            self.assertTrue(self._can_block(gate), gate)
+            self.assertTrue(weakening_guard.is_guardrail(gate, frozenset()), gate)
 
 
 class TestProtectionFloor(unittest.TestCase):

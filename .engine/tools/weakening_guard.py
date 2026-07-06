@@ -8,8 +8,12 @@ This is an authoring invariant: the trigger grants the privilege, this script
 enforces the restraint (it makes no use of the head ref and the workflow checks
 out only the base).
 
-It flags a change that removes, renames, or modifies a guardrail file (a CI
-workflow, a check rule, an engine tool, or CODEOWNERS), AND a REPOINT of the
+It flags a change that removes, renames, or modifies a guardrail file — a file
+that constitutes or configures an enforcement gate (a CI workflow, a check rule,
+a check rule's enforcement SCRIPT discovered by presence, an enforcement HOOK or
+the config that wires it, the validator, the ruleset-applying operation, or
+CODEOWNERS), defined by that PROPERTY rather than a path-prefix list (D-268), so
+benign edits to non-gate tooling no longer demand the ack — AND a REPOINT of the
 engine's update home in the manifest (`home_repository` in .engine/engine.json) —
 which changes where executable engine code is fetched from at the next update, a
 §15 supply-chain weakening (D-281/D-282, #367). A flagged change blocks the merge
@@ -48,34 +52,124 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling to
 from github_client import get_json, get_page, next_link  # noqa: E402 — sibling import after the path insert
 
 ACK_LABEL = "guardrail-ack"
-# Path prefixes whose files enforce the safety gates.
-GUARDRAIL_PREFIXES = (".github/workflows/", ".engine/check/", ".engine/tools/")
-# Exact-path guardrails: CODEOWNERS (reserved); the tool-runtime lockfiles, which
-# define the runtime every guard and the validator execute in (foundation artifacts);
-# and the suite declarations, which decide WHICH suite blocks the merge — a loosened
-# context there (e.g. CI -> local-nudge) would silently un-gate the CI check, so a
-# change to it must be acknowledged like any other guardrail weakening (core slice 4).
-GUARDRAIL_EXACT = (".github/CODEOWNERS", ".engine/pyproject.toml", ".engine/uv.lock",
-                   ".engine/suites.json")
+# The guarded set is defined by a PROPERTY, not a path-prefix list (D-268): a committed file that constitutes
+# or configures an enforcement gate — one whose change could remove, disable, rename, or loosen a check, a
+# permission/enforcement hook, or a branch protection. Non-gate tooling (session boot, memory, telemetry, the
+# self-review renderer) is NOT guarded — flagging benign edits there trained the rubber-stamping §15/D-051 exist
+# to prevent. The concrete roster is realized as: these two prefixes + the permanent floor below + every check
+# rule's script DISCOVERED BY PRESENCE (see _derive_check_scripts). Fail-safe: an uncertain file resolves as
+# covered. The blanket `.engine/tools/` prefix was REMOVED here — its enforcement scripts are now guarded by
+# presence, its enforcement hooks by the floor, and everything else is correctly non-gate.
+GUARDRAIL_PREFIXES = (".github/workflows/", ".engine/check/")
+
+# The PERMANENT FLOOR — exact paths that constitute or configure an enforcement gate and are NOT discoverable as
+# a check rule's `params.script`. Grouped by why each is guarded.
+_FLOOR_ENFORCEMENT_CONFIG = (
+    ".github/CODEOWNERS",         # the review-ownership wall (reserved)
+    ".engine/pyproject.toml",     # the tool-runtime the validator + every guard execute in
+    ".engine/uv.lock",            # (foundation artifacts — a change here changes what code runs)
+    ".engine/suites.json",        # decides WHICH suite blocks the merge — loosening it (CI -> local-nudge) is a killswitch
+    ".claude/settings.json",      # wires the PreToolUse write-gate + the other enforcement hooks (D-268: was ABSENT —
+)                                 # a live hole; a PR gutting those hooks passed the guard with NO ack)
+# The validator + this guard. validate.py is ALSO the sole home of the 5 built-in HARD check kinds
+# (presence/schema/shape/coverage/coherence): those carry no `params.script`, so the derived clause below
+# structurally cannot reach them — they are guarded ONLY by validate.py being floored here. weakening_guard.py is
+# additionally a check-script (doubly guarded), keeping the guard's own set-defining code in-set (the D-268
+# self-protection property: the guard is not falsifiable by the change it judges).
+_FLOOR_VALIDATOR = (".engine/tools/validate.py", ".engine/tools/weakening_guard.py")
+# The provisioning ruleset-applying operation — the §15 "ruleset-affecting file". The branch ruleset does not
+# travel as a file, so its APPLYING CODE is the guarded proxy (D-268): gutting it could apply a weakened ruleset
+# with no on-disk correlate to surface it.
+_FLOOR_RULESET_PROXY = (".engine/tools/bootstrap.py",)
+# Enforcement-HOOK logic: files whose weakening loosens a live RUNTIME gate with NO on-disk floored correlate to
+# surface it (unlike CODEOWNERS/settings.json CONTENT, whose weakenings appear as flagged diffs to those floored
+# files). Hand-listed because they are not check-scripts and CANNOT be derived from settings.json: it wires gate
+# hooks (modes.py, close.py) and non-gate hooks (boot/memory/telemetry) IDENTICALLY, so deriving all of them would
+# re-guard the non-gate hooks and reintroduce the over-firing D-268 fixes. Both block-budget members are here:
+# modes.py (PreToolUse write-gate) and close.py (Stop finding-disposition gate) — the only two hooks that can emit
+# a merge-relevant deny. A drift-detector test (test_seed.py) fails CI if a NEW PreToolUse/Stop hook whose code
+# can emit a block (via hooks.block or hooks.decide) is wired in settings.json but not floored here — the
+# gate-vs-non-gate call is DERIVED from the hook's own code, not a hand-maintained allowlist that could rot.
+_FLOOR_ENFORCEMENT_HOOKS = (
+    ".engine/tools/modes.py",          # the Explore/Build write-gate (PreToolUse block-budget member)
+    ".engine/tools/close.py",          # the finding-disposition gate (Stop block-budget member; HARD-BLOCKS the turn)
+    ".engine/tools/hook-runner.sh",    # the launcher EVERY hook runs through
+    ".engine/tools/hooks.py",          # the hook-law substrate: block budget + fail-open harness
+    ".engine/tools/issue_gate.py",     # the engine-Issue reroute matcher the write-gate consults
+    ".engine/tools/github_client.py",  # the off-host/auth substrate BOTH §15 guards depend on
+    ".engine/tools/wiring.py",         # the sole mutator of settings.json / CODEOWNERS / hook registrations
+    ".engine/tools/security_floor.py", # configures secret-scanning / push-protection
+)
+GUARDRAIL_EXACT = (_FLOOR_ENFORCEMENT_CONFIG + _FLOOR_VALIDATOR + _FLOOR_RULESET_PROXY
+                   + _FLOOR_ENFORCEMENT_HOOKS)
 # A pure addition strengthens; removal/rename/modification/copy can weaken.
 # 'copied' is in GitHub's file-status enum — without it, a weakened *copy* of a
 # guardrail file would slip through ungated.
 WEAKENING_STATUS = {"removed", "renamed", "modified", "changed", "copied"}
 
+# The base check-rule directory on disk. Like _BASE_MANIFEST, this reads from the TRUSTED BASE checkout (the guard
+# runs on pull_request_target with only the base checked out), NEVER the PR head/diff — so a PR cannot repoint or
+# delete a check rule to un-guard the very script it is weakening in the same PR: the base copy still points at
+# that script, and the `.engine/check/` edit is independently flagged. A future change to scan the head/diff copy
+# would REOPEN that hole. `<repo>/.engine/check`, three dirnames up from `<repo>/.engine/tools/weakening_guard.py`
+# — the same anchor as _read_base_home, kept local so the guard stays import-light under pull_request_target
+# (github_client + stdlib only; it deliberately does NOT import the validate.py dispatcher).
+_BASE_CHECK_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".engine", "check")
+_BLANKET_TOOLS_PREFIX = ".engine/tools/"  # the fail-safe fallback coverage (the pre-D-268 blanket)
+_DERIVE = object()  # sentinel: is_guardrail/flagged_changes derive the check-script set from disk (the default)
 
-def is_guardrail(path: str) -> bool:
-    return path.startswith(GUARDRAIL_PREFIXES) or path in GUARDRAIL_EXACT
+
+def _derive_check_scripts(check_dir: str | None = None) -> set | None:
+    """The enforcement scripts guarded BY PRESENCE (D-268/§14): every `.engine/check/*.json` rule's
+    `params.script` path, read from the base checkout. Returns the set of repo-relative script paths, or None on
+    ANY read/parse failure — the fail-safe sentinel telling the caller to fall back to guarding ALL of
+    `.engine/tools/`. The failure is ALL-OR-NOTHING: a single unreadable/corrupt rule collapses the WHOLE
+    derivation to the blanket fallback, never a partial set, so a broken rule can never silently drop its own
+    script from the guarded set (the fail-open D-268 rejects)."""
+    check_dir = check_dir if check_dir is not None else _BASE_CHECK_DIR
+    scripts: set = set()
+    try:
+        for fn in sorted(os.listdir(check_dir)):
+            if not fn.endswith(".json"):
+                continue
+            with open(os.path.join(check_dir, fn), encoding="utf-8") as fh:
+                data = json.load(fh)
+            script = (data.get("params") or {}).get("script")
+            if isinstance(script, str) and script.strip():
+                scripts.add(script)
+    except Exception:  # noqa: BLE001 — ANY failure -> None -> caller guards the whole tools dir (fail-safe)
+        return None
+    return scripts
 
 
-def flagged_changes(files: list) -> list:
-    """Pure classifier: the guardrail files this diff removes, renames, modifies,
-    or copies. Returns a list of (status, shown_path)."""
+def is_guardrail(path: str, derived_scripts=_DERIVE) -> bool:
+    """True iff `path` is a guarded file: a floor member, under a guarded prefix, or an enforcement script
+    discovered by presence in the base check rules. `derived_scripts` defaults to deriving from disk; tests pass
+    an explicit set (or None for the fail-safe sentinel). A None derived set -> also guard all of
+    `.engine/tools/` (fail-safe when the check dir could not be read)."""
+    if derived_scripts is _DERIVE:
+        derived_scripts = _derive_check_scripts()
+    if path.startswith(GUARDRAIL_PREFIXES) or path in GUARDRAIL_EXACT:
+        return True
+    if derived_scripts is None:
+        return path.startswith(_BLANKET_TOOLS_PREFIX)  # fail-safe: derivation failed -> guard the whole dir
+    return path in derived_scripts
+
+
+def flagged_changes(files: list, derived_scripts=_DERIVE) -> list:
+    """Classifier: the guardrail files this diff removes, renames, modifies, or copies. Returns a list of
+    (status, shown_path). Derives the check-script set ONCE and threads it through is_guardrail (one disk scan
+    per run, not per file)."""
+    if derived_scripts is _DERIVE:
+        derived_scripts = _derive_check_scripts()
     flagged = []
     for f in files:
         name = f.get("filename", "")
         status = f.get("status", "")
         prev = f.get("previous_filename", "")
-        if status in WEAKENING_STATUS and (is_guardrail(name) or (prev and is_guardrail(prev))):
+        if status in WEAKENING_STATUS and (is_guardrail(name, derived_scripts)
+                                           or (prev and is_guardrail(prev, derived_scripts))):
             flagged.append((status, name if not prev else f"{prev} -> {name}"))
     return flagged
 
