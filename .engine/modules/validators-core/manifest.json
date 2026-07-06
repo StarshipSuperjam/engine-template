@@ -21,6 +21,7 @@
       ".engine/check/doc-frontmatter.json",
       ".engine/check/doc-shape.json",
       ".engine/check/engine-manifest.json",
+      ".engine/check/first-run-assets.json",
       ".engine/check/first-run-reference-closure.json",
       ".engine/check/hard-check-bite.json",
       ".engine/check/in-tool-demo-failure-path.json",

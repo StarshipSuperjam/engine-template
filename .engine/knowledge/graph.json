@@ -827,6 +827,31 @@
       "type": "check"
     },
     {
+      "id": "check:first-run-assets",
+      "kind": "schema",
+      "name": ".engine/check/first-run-assets.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "first-run-assets",
+      "source": {
+        "fingerprint": "sha256:c2b9de2c15d5b95c6ef5e9c16df1449b3ec3190f19ab057540637dddc52dac15",
+        "path": ".engine/check/first-run-assets.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:first-run-reference-closure",
       "kind": "custom/script",
       "name": ".engine/check/first-run-reference-closure.json",
@@ -2688,7 +2713,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:37c8057eb3e3f8ee4094fc88e585bd0ce2eaababf7f05712157ac31388dc4570",
+        "fingerprint": "sha256:3bf65e5703441f987f9289ebc124d0f31a9e23312166f490f1160cb1a45e6aa1",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -3406,6 +3431,23 @@
       "source": {
         "fingerprint": "sha256:419082466a61b370b693db078d65e4b3f210ec1fd9b269673e8d75c28e6e7891",
         "path": ".engine/schemas/finding.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:first-run-assets.v1",
+      "name": ".engine/schemas/first-run-assets.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "first-run-assets.v1",
+      "source": {
+        "fingerprint": "sha256:131a5c97c17716f31f9823c85741b252d7a7820f71595fd35d3c149ea7f94169",
+        "path": ".engine/schemas/first-run-assets.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -4741,7 +4783,7 @@
       },
       "slug": "first_run_reference_closure_check",
       "source": {
-        "fingerprint": "sha256:7bfa869fea9333dd69ee7565092560408272f8d7a4d4aff0b3437027f9e9f247",
+        "fingerprint": "sha256:c7db862047a71d40ea57cc91b4d42817fd084c60076b97971a9ed2c2995d0045",
         "path": ".engine/tools/first_run_reference_closure_check.py"
       },
       "status": "active",
@@ -6237,7 +6279,7 @@
       },
       "slug": "test_first_run_reference_closure",
       "source": {
-        "fingerprint": "sha256:b6874fcdc07167cb115f27e396c8f0337c65d253403427c81d6f76bdbaefddbe",
+        "fingerprint": "sha256:8338fbaafee7fec09fb332f74116c8fdeae9cb09a0e6db4bacdad923b6ff94e9",
         "path": ".engine/tools/test_first_run_reference_closure.py"
       },
       "status": "active",
@@ -6628,7 +6670,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:4f53f22a6e9a4e4903696030af3becbc9ca3c76dc7f82cbc92d4559b507b6952",
+        "fingerprint": "sha256:56a49dad34cb54afb49e42d1a6f5b1a83874d45b3507c1ac6943bdc0ed158a40",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
