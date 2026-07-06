@@ -4476,6 +4476,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_release_pr_mergeable",
+      "name": ".engine/tools/demo_release_pr_mergeable.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_release_pr_mergeable",
+      "source": {
+        "fingerprint": "sha256:0da2a483f79b50c3879c0ce064744eceb6934a72d52a5879d33e0892b22f71a0",
+        "path": ".engine/tools/demo_release_pr_mergeable.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_release_terminal",
       "name": ".engine/tools/demo_release_terminal.py",
       "owner": "core",
@@ -4860,7 +4877,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:5d06d3638c181a313468fd15e05adacb603c4ab9dc87e1f7adfd1d6f9dd0f2d2",
+        "fingerprint": "sha256:7ce00fbce0f6e38401673ab649b1f0fa38efc7800c3370ecfb27a3e76325f85b",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -5370,7 +5387,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:ce8b1cbe2cf67b97ebd54e8a6850eec60326538ac4485ed25aaf18fca33eaf24",
+        "fingerprint": "sha256:ffd2a024241c4f6e32d7b775eafa59a2fb243ff55fd6da2037e9033f332995f8",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -6815,7 +6832,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:9920827a82f78713137039504b435583b4244b5605931e7ac7d68821f368cd0a",
+        "fingerprint": "sha256:7a780f50d26ff793efc11c293a227317ba7b54892184c68c1b5e53f269c7da60",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",

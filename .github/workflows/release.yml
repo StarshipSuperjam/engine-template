@@ -7,13 +7,15 @@
 #
 # PRESENT-BUT-INERT UNTIL ARMED. The workflow ships committed in every repo, but a real run needs a one-time
 # maintainer setup: a repository secret `RELEASE_PAT` — a fine-grained personal access token scoped to THIS
-# repository only, with Contents: read and write and Pull requests: read and write. It is needed because a
-# pull request opened with the built-in GITHUB_TOKEN does NOT run the required `engine-ci` check (GitHub's
-# recursion guard suppresses it), so it would hang un-mergeable; a token that is a distinct identity does run
-# it. That token is the repo's first long-lived credential: if it leaked it would let someone push branches
-# and open pull requests under the maintainer's identity — so it is scoped to one repo, least-privilege, and
-# best given a short expiry. With no `RELEASE_PAT` set, the first step below fails with a plain-language
-# recovery and NOTHING is changed.
+# repository only, with Pull requests: read and write (and nothing else — Metadata: read is added
+# automatically). That one permission is all it needs: this workflow uses the PAT solely to OPEN the release
+# pull request (the branch itself is pushed with the built-in GITHUB_TOKEN, so the PAT needs no Contents
+# access). It is needed because a pull request opened with the built-in GITHUB_TOKEN does NOT run the required
+# `engine-ci` check (GitHub's recursion guard suppresses it), so it would hang un-mergeable; a token that is a
+# distinct identity does run it. That token is the repo's first long-lived credential: if it leaked it would
+# let someone open pull requests under the maintainer's identity — so it is scoped to one repo, least-privilege,
+# and best given an expiry. With no `RELEASE_PAT` set, the first step below fails with a plain-language recovery
+# and NOTHING is changed.
 #
 # NOT EXERCISED END-TO-END DURING TEMPLATE CONSTRUCTION. This construction repo has no `RELEASE_PAT` and no
 # prior release, and opening a real release pull request IS the first actual cut. So this file is validated by
@@ -57,7 +59,7 @@ jobs:
           RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
         run: |
           if [ -z "${RELEASE_PAT}" ]; then
-            echo "::error::This release needs a credential that is not set up yet. Add a fine-grained personal access token as the repository secret RELEASE_PAT — scoped to THIS repository only, with Contents: read and write and Pull requests: read and write — then run this again. Nothing was changed."
+            echo "::error::This release needs a credential that is not set up yet. Add a fine-grained personal access token as the repository secret RELEASE_PAT — scoped to THIS repository only, with Pull requests: read and write — then run this again. Nothing was changed."
             exit 1
           fi
       - name: Check out the repository
@@ -142,6 +144,18 @@ jobs:
               --engine "${target}" --proposal "${RUNNER_TEMP}/proposal.json" --json \
               > "${RUNNER_TEMP}/applied.json"
           fi
+      # The version write above changed .engine/engine.json and every module manifest. Two GENERATED maps mirror
+      # those versions — the knowledge graph (.engine/knowledge/graph.json) and the self-map (.engine/self-map.md)
+      # — so they are now stale, and their CI drift checks (knowledge-coverage, self-map-drift) would turn the
+      # release pull request red. Regenerate both from the just-written manifests so the release commit is
+      # self-consistent — exactly the refresh the in-session PreToolUse hook does on any surface edit. This must
+      # run AFTER the manifests are written and BEFORE the branch commit below (git add -A stages the refreshed
+      # maps into the release commit).
+      - name: Refresh the generated maps to match the new versions
+        run: |
+          set -euo pipefail
+          uv run --directory .engine --frozen -- python tools/knowledge_gen.py generate
+          uv run --directory .engine --frozen -- python tools/self_map.py generate
       # Render the pull-request body from the proposal + the recorded versions — the maintainer's whole evidence
       # bundle, authored by the tool (never composed in this shell) so the readiness legibility has one home.
       - name: Write the release pull-request summary

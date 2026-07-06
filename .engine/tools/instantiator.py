@@ -1297,6 +1297,7 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_focus_read.py",
     ".engine/tools/demo_reverse_adjacency.py",
     ".engine/tools/demo_remember_this.py",
+    ".engine/tools/demo_release_pr_mergeable.py",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
 )

@@ -275,11 +275,25 @@ class RenderPRBody(unittest.TestCase):
         self.assertIn("First release", body)                        # the change inventory carried through
         self.assertIn("Every capability (2)", body)                 # uniform targets collapse to one line
         self.assertIn("no automated check", body.lower())           # the gate-path line (no benchmark built)
-        self.assertIn("Before you merge", body)                     # the §3 confirm/raise/reject guidance
+        self.assertIn("## Review", body)                            # the §3 confirm/raise/reject guidance
         self.assertIn("close this and run the release again", body)  # the raise + missing-signal backstop
         # maintainer-facing register (§8): no internal machinery vocabulary leaks
         for banned in ("release-cut", "bump rule", "version production", "first-cut", "engine_floor"):
             self.assertNotIn(banned, body)
+
+    def test_body_carries_all_eight_required_sections_filled(self):
+        # The release pull request must clear the same `pr-body-completeness` gate every engine pull request
+        # meets (a RELEASE_PAT-opened PR is not author-exempt) — otherwise the release PR is un-mergeable.
+        # Assert against the REAL check logic (validate.section_presence_findings), never a reimplementation,
+        # so the test tracks the gate it protects.
+        with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}):
+            proposal = rc.classify(rc.Baseline(None, True, "no prior release"), None)
+            applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+        body = rc.render_pr_body(proposal, applied)
+        required = ["Purpose", "Scope", "Out of scope", "Risk", "Validation",
+                    "Review", "Files of interest", "Claude involvement"]
+        findings = validate.section_presence_findings(body, required, "hard", "", "pull-request body")
+        self.assertEqual(findings, [], f"release body missing/empty required sections: {findings}")
 
     def test_gate_path_three_states_are_visibly_distinct(self):
         passed, subbar, errored = (rc._gate_path_line("passed"), rc._gate_path_line("sub-bar"),
