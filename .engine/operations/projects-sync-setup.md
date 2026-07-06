@@ -63,3 +63,9 @@ appear on it. The board then refreshes at the start of each session (about every
   `gh auth refresh --remove-scopes project` to take the permission back.
 - The engine only ever **adds its own already-labelled work** and writes **its own five fields**. It never
   changes a card's Status, column, or position — those are yours and GitHub's built-in automation's.
+- **The engine's five fields are its own, and it keeps them in step with the real record every session.** So
+  if you type your own value into one of them — say a different *Known issues* count — the engine will set it
+  back to match the real record at the next sync. That is expected, not a bug, and it's called out here so it
+  never surprises you: to change what those five fields show, change the underlying work they mirror (the
+  issues, pull requests, and engine state), not the board cell. Everything else on the board — your Status,
+  your card moves, your own board text — stays yours and is never touched.

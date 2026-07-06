@@ -154,6 +154,44 @@ class TestQueryOps(unittest.TestCase):
         self.assertEqual(kq._relate(self.conn, "check:c1", "check:c1"), ["check:c1"])
 
 
+class TestRelateBfs(unittest.TestCase):
+    """U04: relate is a genuine node-visited BFS. The prior path-materializing recursive CTE enumerated
+    every simple path and hung combinatorially through a high-degree hub; a BFS with a per-node visited set
+    returns a shortest path in O(V+E). This fixture — a hub cross-linked to many leaves that also link both
+    endpoints — has factorially-many simple paths (which would swamp the old query) but a trivial BFS."""
+
+    def _hub_graph(self, leaves=60):
+        # a and b each connect to the hub AND to every leaf; every leaf connects to the hub: many alternate
+        # routes, shortest a-hub-b / a-leaf_i-b are all length 3. relate must return length 3, fast.
+        ents = [_entity("module:core", "module", "core", ".engine/modules/core/manifest.json", {}),
+                _entity("check:a", "check", "core", ".engine/check/a.json",
+                        {"provided_by": ["module:core"]}),
+                _entity("check:b", "check", "core", ".engine/check/b.json",
+                        {"provided_by": ["module:core"]})]
+        for i in range(leaves):
+            # each leaf targets a, b and the hub — undirected, these become the cross-links that explode
+            # the old all-simple-paths walk.
+            ents.append(_entity(f"schema:l{i}", "schema", "core", f".engine/schemas/l{i}.json",
+                                {"provided_by": ["module:core"], "targets": ["check:a", "check:b"]}))
+        return {"schema_version": 1, "entities": ents}
+
+    def test_relate_through_high_degree_hub_returns_a_shortest_path(self):
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        gpath = os.path.join(tmp.name, "graph.json"); ipath = os.path.join(tmp.name, "index.sqlite")
+        with open(gpath, "w", encoding="utf-8") as fh:
+            json.dump(self._hub_graph(), fh)
+        ki.build_index(ipath, gpath)
+        conn = __import__("sqlite3").connect(ipath); conn.row_factory = __import__("sqlite3").Row
+        self.addCleanup(conn.close)
+        path = kq._relate(conn, "check:a", "check:b")
+        self.assertIsNotNone(path)
+        self.assertEqual(path[0], "check:a")
+        self.assertEqual(path[-1], "check:b")
+        self.assertEqual(len(path), 3)                    # a - (a leaf or the hub) - b, the shortest
+        # deterministic (sorted neighbours): the same query yields the same path across runs
+        self.assertEqual(kq._relate(conn, "check:a", "check:b"), path)
+
+
 class TestDegradeToGitNative(unittest.TestCase):
     """The four-rung degrade cascade (knowledge/README.md:51): a fresh index answers; a missing/stale
     index rebuilds from the committed graph (rung 2); an ABSENT committed graph rebuilds from a LIVE WALK
@@ -225,6 +263,87 @@ class TestDegradeToGitNative(unittest.TestCase):
         self.assertIsInstance(cm.exception.__cause__, RuntimeError)
         self.assertIn("simulated live-walk failure", str(cm.exception.__cause__))
 
+    def test_corrupt_committed_graph_degrades_like_absence(self):
+        # U05a: a PRESENT but unreadable committed graph (merge markers / a truncated regen) must degrade to
+        # the LIVE WALK exactly as absence does — never a raw JSONDecodeError crash — but tagged distinctly
+        # ('live-corrupt') so the operator signal names a DAMAGED file, not a missing one.
+        with open(self.graph_path, "w", encoding="utf-8") as fh:
+            fh.write('{"schema_version": 1, "entities": [\n<<<<<<< HEAD truncated merge marker\n')
+        path, source = ki.ensure_index(self.index_path, self.graph_path)
+        self.assertEqual(source, "live-corrupt")
+        self.assertTrue(os.path.isfile(path))
+        # still answers off the live walk (module:core is always derived from the core manifest)
+        e = kq.get_entity("module:core", index_path=self.index_path, graph_path=self.graph_path)
+        self.assertEqual(e["id"], "module:core")
+        # while the committed graph stays corrupt, every ensure re-walks (never wrongly deemed fresh)
+        _p, source2 = ki.ensure_index(self.index_path, self.graph_path)
+        self.assertEqual(source2, "live-corrupt")
+
+    def test_corrupt_and_live_walk_failure_reports_unavailable(self):
+        # rung 4 for the corrupt case: committed graph present-but-unreadable AND the live walk also fails
+        # -> KnowledgeUnavailable naming 'present but unreadable' (reported, not crashed).
+        with open(self.graph_path, "w", encoding="utf-8") as fh:
+            fh.write("not json at all")
+        def _boom():
+            raise RuntimeError("simulated live-walk failure")
+        with mock.patch.object(kg, "canonical_graph", _boom):
+            with self.assertRaises(ki.KnowledgeUnavailable) as cm:
+                ki.ensure_index(self.index_path, self.graph_path)
+        self.assertIn("present but unreadable", str(cm.exception))
+        self.assertIsInstance(cm.exception.__cause__, RuntimeError)
+
+
+class TestDegradeSurfacing(unittest.TestCase):
+    """U05c: the degrade `source` is carried through _with_conn so the MCP/library boundary can surface it,
+    while the four public ops stay DATA-ONLY (attention / the boot slice consume plain results in
+    comprehensions — a tuple return would break them)."""
+
+    def _paths(self):
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        return (os.path.join(tmp.name, "graph.json"), os.path.join(tmp.name, "index.sqlite"))
+
+    def test_degrade_message_distinguishes_absent_from_corrupt(self):
+        self.assertIsNone(kq.degrade_message(None))
+        self.assertIsNone(kq.degrade_message("committed"))
+        absent, corrupt = kq.degrade_message("live"), kq.degrade_message("live-corrupt")
+        self.assertIn("missing", absent)                 # absent -> "missing", restore
+        self.assertIn("damaged", corrupt)                # corrupt -> "damaged", replace
+        self.assertIn("replace the damaged file", corrupt)
+        self.assertIn(kg.REGEN_CMD, absent)
+        self.assertIn(kg.REGEN_CMD, corrupt)
+        # plain "project map" register (boot's), never engine shorthand — one fault, one voice
+        for msg in (absent, corrupt):
+            self.assertIn("project map", msg)
+            self.assertNotIn("LIVE WALK", msg)
+            self.assertNotIn("knowledge graph", msg)
+
+    def test_public_ops_return_data_only(self):
+        gpath, ipath = self._paths()
+        with open(gpath, "w", encoding="utf-8") as fh:
+            json.dump(_fixture_graph(), fh)
+        self.assertIsInstance(kq.get_entity("check:c1", index_path=ipath, graph_path=gpath), dict)
+        self.assertIsInstance(kq.find(index_path=ipath, graph_path=gpath), list)
+        self.assertIsInstance(kq.neighbors("check:c1", index_path=ipath, graph_path=gpath), list)
+        self.assertIsInstance(kq.relate("check:c1", "schema:s1", index_path=ipath, graph_path=gpath), list)
+
+    def test_with_degrade_carries_a_note_on_a_live_walk(self):
+        # absent committed graph at the temp path -> live walk -> with_degrade returns a non-None note.
+        gpath, ipath = self._paths()
+        result, note = kq.with_degrade(lambda c: kq._get_entity(c, "module:core"),
+                                       index_path=ipath, graph_path=gpath)
+        self.assertEqual(result["id"], "module:core")
+        self.assertIsNotNone(note)
+        self.assertIn("rebuilt", note)                   # the absent-map degrade note, plain-language
+        self.assertIn("missing", note)
+
+    def test_with_degrade_is_silent_on_a_committed_read(self):
+        gpath, ipath = self._paths()
+        with open(gpath, "w", encoding="utf-8") as fh:
+            json.dump(_fixture_graph(), fh)
+        _r, note = kq.with_degrade(lambda c: kq._get_entity(c, "check:c1"),
+                                   index_path=ipath, graph_path=gpath)
+        self.assertIsNone(note)
+
 
 class TestMcpServer(unittest.IsolatedAsyncioTestCase):
     """The graph-query MCP server, headless (in-process) — no Claude Desktop, no subprocess. The
@@ -252,6 +371,26 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         expected = kq.neighbors("schema:check.v1", direction="in")
         self.assertEqual({n["id"] for n in data["neighbors"]}, {n["id"] for n in expected})
         self.assertTrue(len(data["neighbors"]) >= 1)
+
+    async def test_tool_surfaces_a_degraded_key_when_the_read_is_degraded(self):
+        # U05c: when with_degrade yields a note (a live-walk read), the tool response carries it under a
+        # `degraded` key so the in-session caller relays it. Force the note at the boundary; the real _merge
+        # wiring in the tool attaches it.
+        import knowledge_mcp_server as srv
+        real = kq.with_degrade
+        def fake(fn, **kw):
+            result, _ = real(fn, **kw)
+            return result, "KNOWLEDGE DEGRADED: test note"
+        with mock.patch.object(kq, "with_degrade", fake):
+            data = self._tool_result_json(await srv.server.call_tool("get-entity", {"id": "module:core"}))
+        self.assertEqual(data["entity"]["id"], "module:core")
+        self.assertEqual(data["degraded"], "KNOWLEDGE DEGRADED: test note")
+
+    async def test_tool_has_no_degraded_key_on_a_fresh_committed_read(self):
+        # The real committed graph is present in this checkout, so a normal read carries no degrade note.
+        import knowledge_mcp_server as srv
+        data = self._tool_result_json(await srv.server.call_tool("get-entity", {"id": "module:core"}))
+        self.assertNotIn("degraded", data)
 
 
 class TestEnrichedEntities(unittest.TestCase):

@@ -117,9 +117,52 @@ class TestClosureScan(unittest.TestCase):
                    survivors={"survivor.py": "import removed_mod\n"}, create_removed_py=False)
             self.assertEqual(frc.check(d), [])  # post-setup tree: machinery gone, nothing to close over
 
-    def test_noop_when_manifest_is_unreadable(self):
+    def test_fails_closed_when_the_manifest_is_missing(self):
+        # The removed-files list is PERMANENT (it never self-retires), so a missing one is a fault, never a
+        # legitimate state — the check must fail closed, not silently pass (§7: a guard can never silently pass).
         with tempfile.TemporaryDirectory() as d:
             os.makedirs(os.path.join(d, ".engine", "tools"))
+            findings = frc.check(d)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "hard")
+        self.assertEqual(findings[0]["location"]["file"],
+                         os.path.join(".engine", "provisioning", "first-run-assets.json"))
+
+    def test_fails_closed_when_the_manifest_is_malformed(self):
+        with tempfile.TemporaryDirectory() as d:
+            prov = os.path.join(d, ".engine", "provisioning")
+            os.makedirs(prov)
+            os.makedirs(os.path.join(d, ".engine", "tools"))
+            with open(os.path.join(prov, "first-run-assets.json"), "w", encoding="utf-8") as fh:
+                fh.write("{ this is not valid")           # unparseable → cannot compute the removed set
+            findings = frc.check(d)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "hard")
+
+    def test_fails_closed_when_the_manifest_is_structurally_malformed(self):
+        # Present and valid JSON but the wrong shape — a JSON array, the `files` key absent, or `files` not a list.
+        # The check can't compute the removed set, so it fails closed with the plain-language finding, never a raw
+        # traceback and never a green pass (which would lean entirely on the sibling schema check).
+        for bad in ("[]", '{"directories": []}', '{"files": 5}', '{"files": "nope"}', '{"files": null}'):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as d:
+                prov = os.path.join(d, ".engine", "provisioning")
+                os.makedirs(prov)
+                os.makedirs(os.path.join(d, ".engine", "tools"))
+                with open(os.path.join(prov, "first-run-assets.json"), "w", encoding="utf-8") as fh:
+                    fh.write(bad)
+                findings = frc.check(d)
+                self.assertEqual(len(findings), 1, bad)
+                self.assertEqual(findings[0]["severity"], "hard", bad)
+
+    def test_empty_files_list_is_a_valid_nothing_to_remove_set_not_a_fault(self):
+        # A present, well-formed manifest with an empty `files` list is a legitimate 'nothing to remove' state,
+        # not a fault — it must stay green (only a missing/unreadable/mis-shaped manifest fails closed).
+        with tempfile.TemporaryDirectory() as d:
+            prov = os.path.join(d, ".engine", "provisioning")
+            os.makedirs(prov)
+            os.makedirs(os.path.join(d, ".engine", "tools"))
+            with open(os.path.join(prov, "first-run-assets.json"), "w", encoding="utf-8") as fh:
+                json.dump({"files": [], "directories": []}, fh)
             self.assertEqual(frc.check(d), [])
 
 
@@ -132,6 +175,17 @@ class TestFindingIsPlainLanguage(unittest.TestCase):
         self.assertIn("first", msg)  # names the adopter's first check / new project
         for shorthand in ("reference-closure", "retire-set", "import graph", "collection-time",
                           "closed under", "static"):
+            self.assertNotIn(shorthand, msg, f"operator shorthand leaked: {shorthand!r}")
+
+    def test_the_manifest_fault_message_states_the_consequence_without_engineer_shorthand(self):
+        # The missing/damaged-list finding has a DIFFERENT remedy (restore the file in this PR), so it carries its
+        # own plain-language copy — held to the same no-shorthand bar as the dangling-reference message above.
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".engine", "tools"))
+            msg = frc.check(d)[0]["message"].lower()
+        self.assertIn("first", msg)  # names the new project's first run
+        for shorthand in ("manifest", "reference-closure", "retire-set", "fail-closed", "fail closed",
+                          "unreadable", "closed under", "import graph"):
             self.assertNotIn(shorthand, msg, f"operator shorthand leaked: {shorthand!r}")
 
 

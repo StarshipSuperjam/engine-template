@@ -827,6 +827,31 @@
       "type": "check"
     },
     {
+      "id": "check:first-run-assets",
+      "kind": "schema",
+      "name": ".engine/check/first-run-assets.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "first-run-assets",
+      "source": {
+        "fingerprint": "sha256:791e15b6f4407fab23189724f8c86af00c55d77d03ada3d42f4f4732fb1958b3",
+        "path": ".engine/check/first-run-assets.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:first-run-reference-closure",
       "kind": "custom/script",
       "name": ".engine/check/first-run-reference-closure.json",
@@ -2688,7 +2713,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:37c8057eb3e3f8ee4094fc88e585bd0ce2eaababf7f05712157ac31388dc4570",
+        "fingerprint": "sha256:3bf65e5703441f987f9289ebc124d0f31a9e23312166f490f1160cb1a45e6aa1",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -3009,7 +3034,7 @@
       },
       "slug": "projects-sync-setup",
       "source": {
-        "fingerprint": "sha256:f76599d61e1376ad8beb491dfe3fb45788adcfa6c215459dcbffd7a1fa0fce6b",
+        "fingerprint": "sha256:19acfbfae5df1d14952e32b01c45f71c56d2e5d765a208393b4be5242d24b5f5",
         "path": ".engine/operations/projects-sync-setup.md"
       },
       "status": "active",
@@ -3195,7 +3220,7 @@
       },
       "slug": "migration-discipline",
       "source": {
-        "fingerprint": "sha256:03744195978c86660577e64f03270b01264d82e801d63f7267801defb9d6dc91",
+        "fingerprint": "sha256:3a9e38d1cdb5cf67a4712380e1e23a8eef09b1d349b6dd40941368ab461f9ef3",
         "path": ".engine/policies/migration-discipline.md"
       },
       "status": "active",
@@ -3406,6 +3431,23 @@
       "source": {
         "fingerprint": "sha256:419082466a61b370b693db078d65e4b3f210ec1fd9b269673e8d75c28e6e7891",
         "path": ".engine/schemas/finding.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:first-run-assets.v1",
+      "name": ".engine/schemas/first-run-assets.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "first-run-assets.v1",
+      "source": {
+        "fingerprint": "sha256:131a5c97c17716f31f9823c85741b252d7a7820f71595fd35d3c149ea7f94169",
+        "path": ".engine/schemas/first-run-assets.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -3680,7 +3722,7 @@
       },
       "slug": "engine-board-setup",
       "source": {
-        "fingerprint": "sha256:5bebb34edb33bc2fc0b2f3c62f3deace1930eb082fbadef0e019554de7a03519",
+        "fingerprint": "sha256:1d26c3a763d7a1c42a494bdf1c8735c820b1c0f38a13c65378b89fffad040799",
         "path": ".claude/skills/engine-board-setup/SKILL.md"
       },
       "status": "active",
@@ -4027,7 +4069,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:65affa4c9fbc6444cf2b4a60ad01b96db7ecd8c22e49520cd258f651dd4be0c1",
+        "fingerprint": "sha256:00903c8fee6d9c49f6b714b90eb3a57989d2bcf17ed70a0126b448ea1a488120",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4061,7 +4103,7 @@
       },
       "slug": "boot_slice",
       "source": {
-        "fingerprint": "sha256:f142415a3b6b1d59171aaac922ce2ca9fc5c541a04e7d91f4aba4cc84fc3aae8",
+        "fingerprint": "sha256:9fb1abeea5d1a350b6d628b1db3d06af3133836c7275c99aa900abfb5792dad0",
         "path": ".engine/tools/boot_slice.py"
       },
       "status": "active",
@@ -4741,7 +4783,7 @@
       },
       "slug": "first_run_reference_closure_check",
       "source": {
-        "fingerprint": "sha256:7bfa869fea9333dd69ee7565092560408272f8d7a4d4aff0b3437027f9e9f247",
+        "fingerprint": "sha256:919d21b4636b00951a16288556a1088f4ae353034c254bbf95e23b6fb15e9a3b",
         "path": ".engine/tools/first_run_reference_closure_check.py"
       },
       "status": "active",
@@ -4945,7 +4987,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:87dff74dc19d2b8008ac266dfe3a71606366b5929d2e00756136da8a78d23390",
+        "fingerprint": "sha256:bf22e9099083169577ef74abdbab74d8581d9f9e4a023b28c182216b0c7f7e2b",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -4962,7 +5004,7 @@
       },
       "slug": "knowledge_index",
       "source": {
-        "fingerprint": "sha256:62ea2edee6a074688d15db3a1de5af61508dec03dd69d88548e7e042c6a0e101",
+        "fingerprint": "sha256:23522595a8d4e62e6b7f14514c3de8beb153ad083cd54235d9b1c6c8edfb2d8a",
         "path": ".engine/tools/knowledge_index.py"
       },
       "status": "active",
@@ -4979,7 +5021,7 @@
       },
       "slug": "knowledge_mcp_server",
       "source": {
-        "fingerprint": "sha256:c0a9fbe8fbcebf083686722436c102b83339d4afff42913462d0371fbda650ef",
+        "fingerprint": "sha256:0b5df87f6e23643291b6cb8fcad2b69cbccc4f56fb1b61e81d4e92d18a8d6ae4",
         "path": ".engine/tools/knowledge_mcp_server.py"
       },
       "status": "active",
@@ -4996,7 +5038,7 @@
       },
       "slug": "knowledge_query",
       "source": {
-        "fingerprint": "sha256:8148b75ba0cdbcecd07d2e018d529173e384313f3ff51034e11dc80d745e9aa3",
+        "fingerprint": "sha256:6bc035994ee5d50b2b7afa077ff54d63c227f168d85fd471253fd9f75bae7a7c",
         "path": ".engine/tools/knowledge_query.py"
       },
       "status": "active",
@@ -5302,7 +5344,7 @@
       },
       "slug": "projects_sync",
       "source": {
-        "fingerprint": "sha256:bef0404e623dd4339b369669c5424dd3f42f0c9af8f97fc9b4088706a9203be9",
+        "fingerprint": "sha256:d6fa32d897b44a1a6c70c9937c8df7660796ca5b1b978e07eec57993cdd3e126",
         "path": ".engine/tools/projects_sync/projects_sync.py"
       },
       "status": "active",
@@ -5659,7 +5701,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:26bf8f92ad17ec007a8ef7ea7631affa130b10ef3a387e172104421378bba845",
+        "fingerprint": "sha256:95cb346dbe3710c2f4bf6bb575175e0aff3d32321bc7edb41de65f42b2b9bea4",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -5846,7 +5888,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:911a5c0c6f97901a76ca57894fcda91e0d30cc374189f94ca9941636518128a9",
+        "fingerprint": "sha256:398b7e445d1d7c88579da18bb5288b59c94e4af22ec2fcc3f9bcf7edd072c79f",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -5880,7 +5922,7 @@
       },
       "slug": "test_boot_slice",
       "source": {
-        "fingerprint": "sha256:f050a326a3a86344180bc55023887385b5c9a876e488a40fbaeb651b7e350a85",
+        "fingerprint": "sha256:78461f285b7d093e89b4ce2de1ef6cdb12810f6aa5d4e6fd23a43ccb6e35babe",
         "path": ".engine/tools/test_boot_slice.py"
       },
       "status": "active",
@@ -6237,7 +6279,7 @@
       },
       "slug": "test_first_run_reference_closure",
       "source": {
-        "fingerprint": "sha256:b6874fcdc07167cb115f27e396c8f0337c65d253403427c81d6f76bdbaefddbe",
+        "fingerprint": "sha256:2231db2f1a76471a77a60168aab411c61684e223cbe981048b69df8ec7a267ae",
         "path": ".engine/tools/test_first_run_reference_closure.py"
       },
       "status": "active",
@@ -6441,7 +6483,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:32b84b8240f716d81bd08333773456f5fbc1ffa43ea77ecda9ad66afd9e81626",
+        "fingerprint": "sha256:d1456a4dc732984f0aa885a4fed733afedcbbce68dceb25e24f4a4855b8f5ac1",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -6458,7 +6500,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:c7376cafff8365fb43e965db02fd6617313078cd5a567d483f01140718e7d26f",
+        "fingerprint": "sha256:31d765b4998f894a031f48feb5776e005f83a5b1d300fce170dd8237f7dc81e0",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",
@@ -6628,7 +6670,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:4f53f22a6e9a4e4903696030af3becbc9ca3c76dc7f82cbc92d4559b507b6952",
+        "fingerprint": "sha256:56a49dad34cb54afb49e42d1a6f5b1a83874d45b3507c1ac6943bdc0ed158a40",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -6747,7 +6789,7 @@
       },
       "slug": "test_projects_sync",
       "source": {
-        "fingerprint": "sha256:f71b4ac0dd3a975646d51fe1600c22867b3d9585d04e7fd49edcbc794c5eb808",
+        "fingerprint": "sha256:df228832648bc99d3fb173ded560cec8adb25cce3da2bfddf9cf13717ea3be5f",
         "path": ".engine/tools/projects_sync/test_projects_sync.py"
       },
       "status": "active",
@@ -7240,7 +7282,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:f29c0efd0ab32ae15d1a7256802aebcc4439e07934e5e6ce46b46b6723c2c3f2",
+        "fingerprint": "sha256:2b1d7821fa63119949df7fb451429cb18e0387861719232ce37aaedbdd51b534",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

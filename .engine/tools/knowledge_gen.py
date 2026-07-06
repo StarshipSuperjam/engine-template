@@ -460,10 +460,23 @@ def read_committed(path: str):
 
 
 def write_graph(text: str, path: str) -> None:
-    """Write the graph verbatim (newline='' so the LF content is not platform-translated)."""
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="") as fh:
+    """Write the graph verbatim (newline='' so the LF content is not platform-translated), ATOMICALLY: a
+    regen killed mid-write must never leave a truncated graph.json (the corrupt-input producer the reader
+    now tolerates in knowledge_index._load_graph). Write a temp then os.replace — mirroring the index's
+    atomic build_index. The temp lives in a `.cache/` dir BESIDE the target (derived from the target's own
+    directory, so a test/demo scratch path stays self-contained): `.cache/` is on the same filesystem —
+    so os.replace is an atomic rename, never a cross-device failure — and is gitignored + pruned from the
+    ownership walk, so a crash-orphaned temp is invisible to git and never a false ownership orphan."""
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    cache = os.path.join(parent, ".cache")
+    os.makedirs(cache, exist_ok=True)
+    tmp = os.path.join(cache, f"{os.path.basename(path)}.building.{os.getpid()}")
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
+    os.replace(tmp, path)
 
 
 def generate(path: str | None = None) -> dict:

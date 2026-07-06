@@ -459,6 +459,10 @@ def gather_signals(session_id: str | None = None) -> dict:
     # into boot), so a read failure leaves map_rebuilt False and is covered instead by the "couldn't reach" path.
     source = boot_slice.read()
     map_rebuilt = bool(source and getattr(source, "from_live", False))
+    # The same read distinguishes the committed map being ABSENT (map_rebuilt) from present-but-DAMAGED
+    # (map_corrupt) — both ran orientation on a live rebuild, but the operator's repair reads differently, so
+    # each earns its own honestly-named heads-up (eADR-0004 'name what is reduced'). Mutually exclusive.
+    map_corrupt = bool(source and getattr(source, "from_corrupt", False))
     att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh, live_findings=finding_count, source=source)
     try:
         # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
@@ -551,6 +555,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         # True iff orientation ran on a LIVE-rebuilt map because the committed graph.json is absent (a distinct
         # heads-up, NOT the att_degraded "couldn't reach": the map is reachable, the committed file is missing)
         "map_rebuilt": map_rebuilt,
+        # True iff orientation ran on a LIVE-rebuilt map because the committed graph.json is present but DAMAGED
+        # (a distinct heads-up from the absent case above — same live rebuild, different repair for the operator)
+        "map_corrupt": map_corrupt,
         # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
         "neighborhood": neighborhood,
         "shipped": recently_shipped(),
@@ -791,6 +798,17 @@ def render_dashboard(s: dict) -> str:
             "I'm running on a rebuilt project map — your committed map file is missing. Orientation still "
             f"works, but regenerate it with `{knowledge_gen.REGEN_CMD}` and commit the result to restore "
             "your saved map.")
+
+    if s.get("map_corrupt"):
+        # The committed project map (graph.json) is PRESENT but could not be read (damaged — e.g. a regen
+        # killed mid-write, or merge markers). Orientation ran on a LIVE rebuild (rung 3), same as the absent
+        # case above, but the repair differs: regenerating REPLACES the damaged file. A distinct inform +
+        # consequence line in peer voice — naming the damage (not a "missing" file, which would point at the
+        # wrong fix) and the one command. .get() so a fixed-signals test fixture without the key never KeyErrors.
+        degraded.append(
+            "I'm running on a rebuilt project map — your committed map file is present but damaged, so I "
+            f"couldn't read it. Orientation still works, but regenerate it with `{knowledge_gen.REGEN_CMD}` "
+            "and commit the result to replace the damaged file.")
 
     if degraded:
         out.append("")

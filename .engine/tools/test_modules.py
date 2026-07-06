@@ -372,6 +372,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/doc-frontmatter.json",
             ".engine/check/doc-shape.json",
             ".engine/check/engine-manifest.json",
+            ".engine/check/first-run-assets.json",
             ".engine/check/first-run-reference-closure.json",
             ".engine/check/hard-check-bite.json",
             ".engine/check/in-tool-demo-failure-path.json",
@@ -396,7 +397,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/state-cursor.json",
             ".engine/check/untracked-surface.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 40 corpus rules")
+        ], "validators-core owns exactly the 41 corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])

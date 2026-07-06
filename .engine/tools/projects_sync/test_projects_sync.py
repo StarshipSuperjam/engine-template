@@ -120,10 +120,12 @@ class TestGraphQL(_Base):
 
 
 class TestSync(_Base):
-    def test_never_configured_is_a_silent_no_op(self):
-        # No config file in the temp ROOT -> NOT_CONFIGURED, and no GraphQL is ever constructed.
+    def test_never_configured_makes_no_network_call(self):
+        # No config file in the temp ROOT -> NOT_CONFIGURED, and no GraphQL is ever constructed (the sync
+        # itself is a pure no-op; the handler is what surfaces the plain-language setup next step).
         result = ps.sync(force=True, config=None, signals=_signals(), gql=None, items=[])
         self.assertEqual(result["status"], ps.NOT_CONFIGURED)
+        self.assertIn("engine-board-setup", result["message"])
 
     def test_writes_only_engine_fields_on_engine_items(self):
         rec, gql = _gql()
@@ -258,8 +260,16 @@ class TestHookHandler(_Base):
         self.assertEqual(out.get("action"), "inject")
         self.assertIn("do this one thing", out.get("context", ""))
 
-    def test_clean_and_unconfigured_stay_silent(self):
-        for status in (ps.SYNCED, ps.NOT_CONFIGURED, ps.SKIPPED):
+    def test_never_configured_surfaces_the_setup_next_step(self):
+        # A never-configured board no-ops for a reason the operator can act on -> disclose the next step,
+        # not stay silent (the board-absent case is owed a plain-language next step).
+        out = self._handler({"status": ps.NOT_CONFIGURED, "message": "Run /engine-board-setup to create one"})
+        self.assertEqual(out.get("action"), "inject")
+        self.assertIn("engine-board-setup", out.get("context", ""))
+
+    def test_clean_and_skipped_stay_silent(self):
+        # A clean sync (the board is the surface) and a debounce skip surface nothing.
+        for status in (ps.SYNCED, ps.SKIPPED):
             out = self._handler({"status": status, "message": "ignored"})
             self.assertEqual(out.get("action"), "proceed")
 
