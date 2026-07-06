@@ -2494,12 +2494,12 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:fa818055f227f079f274ee50f79ab9d01f34d04eba4ec1559b681e40c9b27aa8",
+        "fingerprint": "sha256:d8126676c2f3e9ca3472bf9c0ed146903b5df25008be44f54dea1c909698ea90",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:core",
@@ -2508,12 +2508,12 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a2da6be72bafdc7f03f04d45dd79ca956e0bc66586970814cda7ad7f5bd48a53",
+        "fingerprint": "sha256:b52f9806293d6fec950e700896cd1fce7d700e1e6a4eb6fec0246bf5a2d1fa61",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:dependency-discipline",
@@ -2526,12 +2526,12 @@
       },
       "slug": "dependency-discipline",
       "source": {
-        "fingerprint": "sha256:441c0184c2d3d1dc8f6059fb3e19298e9dcf59dde31281b67b0ad7f1a32f15d3",
+        "fingerprint": "sha256:befa0842ae54a1344291cfebd1a053c7651ac327465fb89172b81a1c374fa670",
         "path": ".engine/modules/dependency-discipline/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:design-review",
@@ -2544,12 +2544,12 @@
       },
       "slug": "design-review",
       "source": {
-        "fingerprint": "sha256:fc1f5b2e1112261ddf4ec5e0e288da7e7189fa073da72b93ae68886dc19e95e7",
+        "fingerprint": "sha256:faba4087dc059f60d31c676d4a74e42a10a108c733c0b236801f6ae08a6a8020",
         "path": ".engine/modules/design-review/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:external-contribution",
@@ -2562,12 +2562,12 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:0cf2af03bd173206acfdebcd2a5832c1ba72d781f4ae57ed2aa46645663a18d2",
+        "fingerprint": "sha256:99ed68c640f803adb217bee0a110a542cff8970dd68cc0037f46fe7fd674c649",
         "path": ".engine/modules/external-contribution/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:github-projects-sync",
@@ -2580,12 +2580,12 @@
       },
       "slug": "github-projects-sync",
       "source": {
-        "fingerprint": "sha256:d3a0908d8eefb4153447656dabd5f905a56df616db96b2f3edaaa060419d8cbf",
+        "fingerprint": "sha256:b839ce08d64a436a4abb32d72e767e7127768e0016d8e584ccc4af28089cec88",
         "path": ".engine/modules/github-projects-sync/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:memory-substrate-sqlite-fts5",
@@ -2598,12 +2598,12 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:eccdca7d8c2c1a6695729f0225325cd444b27c30f41a7ef31edf9f0bc22c83bf",
+        "fingerprint": "sha256:f184d64901830df4382193c510a22f3ee31309d671c7913af0955c8ad4005cee",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:migration-discipline",
@@ -2616,12 +2616,12 @@
       },
       "slug": "migration-discipline",
       "source": {
-        "fingerprint": "sha256:db06e7d733306264ae696044d3569c5bedc209f71a0c14110a1ae301e4c8ac61",
+        "fingerprint": "sha256:0af5064637839a6711d5d31bd3d7e4331bf5a88accbb4c7aa3908fa040892447",
         "path": ".engine/modules/migration-discipline/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:product-design",
@@ -2634,12 +2634,12 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:8e68260f5cccd7353cbc8fbc94e1e34194f529b93b082fc2d26ed24a5cbfc5aa",
+        "fingerprint": "sha256:a1d02f8f94b49d51b5ab84e675acd2cec33a63df09277b7b5289ec7c8a0e4164",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:qa-review",
@@ -2652,12 +2652,12 @@
       },
       "slug": "qa-review",
       "source": {
-        "fingerprint": "sha256:2f4c6ec3006c2f8af45801ebbee72f63f41d7a4821b7f94f3d23532a411c0a62",
+        "fingerprint": "sha256:83d94101abfc19e4d720e8d10a6966089009f5613ce0935b1bb520dc1aa13356",
         "path": ".engine/modules/qa-review/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:routine-mode",
@@ -2670,12 +2670,12 @@
       },
       "slug": "routine-mode",
       "source": {
-        "fingerprint": "sha256:fb2e5d9de597dfca3f8fdb1748736ee9ba18e3fa5ed500a21fb4bb34cb1ea50a",
+        "fingerprint": "sha256:f162465e691787b9fa127938586a8bda443529da38e44f5c3a3c38448e5071b9",
         "path": ".engine/modules/routine-mode/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "module:validators-core",
@@ -2688,12 +2688,12 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:cbdaa8ffc44306e7fdc3bf6f947d92b78c31b308adcd6f620e45afc819cbc677",
+        "fingerprint": "sha256:37c8057eb3e3f8ee4094fc88e585bd0ce2eaababf7f05712157ac31388dc4570",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.0.0-dev"
+      "version": "0.1.0"
     },
     {
       "id": "operation:boot-session-start",

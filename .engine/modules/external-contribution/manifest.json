@@ -1,13 +1,23 @@
 {
   "id": "external-contribution",
-  "version": "0.0.0-dev",
+  "version": "0.1.0",
   "status": "optional",
   "provides": {
-    "policy": [".engine/policies/external-contribution.md"],
-    "check": [".engine/check/upstream-clean.json"],
-    "tool": [".engine/tools/external_contribution/*.py"],
-    "operation": [".engine/operations/external-contribution-submit.md"]
+    "policy": [
+      ".engine/policies/external-contribution.md"
+    ],
+    "check": [
+      ".engine/check/upstream-clean.json"
+    ],
+    "tool": [
+      ".engine/tools/external_contribution/*.py"
+    ],
+    "operation": [
+      ".engine/operations/external-contribution-submit.md"
+    ]
   },
   "wires": [],
-  "depends": { "core": "" }
+  "depends": {
+    "core": ""
+  }
 }

@@ -1,11 +1,18 @@
 {
   "id": "dependency-discipline",
-  "version": "0.0.0-dev",
+  "version": "0.1.0",
   "status": "optional",
   "provides": {
-    "policy": [".engine/policies/dependency-discipline.md"],
-    "check": [".engine/check/dependency-pinning.json", ".engine/check/dependency-review.json"],
-    "tool": [".engine/tools/dependency_discipline/*.py"]
+    "policy": [
+      ".engine/policies/dependency-discipline.md"
+    ],
+    "check": [
+      ".engine/check/dependency-pinning.json",
+      ".engine/check/dependency-review.json"
+    ],
+    "tool": [
+      ".engine/tools/dependency_discipline/*.py"
+    ]
   },
   "wires": [],
   "depends": {

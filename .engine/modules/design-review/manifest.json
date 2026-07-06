@@ -1,6 +1,6 @@
 {
   "id": "design-review",
-  "version": "0.0.0-dev",
+  "version": "0.1.0",
   "status": "optional",
   "provides": {
     "agent": [
@@ -11,5 +11,7 @@
     ]
   },
   "wires": [],
-  "depends": { "core": "" }
+  "depends": {
+    "core": ""
+  }
 }

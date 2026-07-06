@@ -1,11 +1,17 @@
 {
   "id": "migration-discipline",
-  "version": "0.0.0-dev",
+  "version": "0.1.0",
   "status": "optional",
   "provides": {
-    "policy": [".engine/policies/migration-discipline.md"],
-    "check": [".engine/check/migration-rollback.json"],
-    "tool": [".engine/tools/migration_discipline/*.py"]
+    "policy": [
+      ".engine/policies/migration-discipline.md"
+    ],
+    "check": [
+      ".engine/check/migration-rollback.json"
+    ],
+    "tool": [
+      ".engine/tools/migration_discipline/*.py"
+    ]
   },
   "wires": [],
   "depends": {
