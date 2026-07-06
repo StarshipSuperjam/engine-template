@@ -30,7 +30,7 @@
       "matcher": "startup",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py\" session-start"
       }
     },
     {
@@ -39,7 +39,7 @@
       "matcher": "resume",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py\" session-start"
       }
     },
     {
@@ -48,7 +48,7 @@
       "matcher": "clear",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py\" session-start"
       }
     },
     {
@@ -57,7 +57,7 @@
       "matcher": "startup",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_observer.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_observer.py\" session-start"
       }
     },
     {
@@ -66,7 +66,7 @@
       "matcher": "resume",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_observer.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_observer.py\" session-start"
       }
     },
     {
@@ -75,7 +75,7 @@
       "matcher": "clear",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_observer.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_observer.py\" session-start"
       }
     },
     {
@@ -84,7 +84,7 @@
       "matcher": "startup",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py\" session-start"
       }
     },
     {
@@ -93,7 +93,7 @@
       "matcher": "resume",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py\" session-start"
       }
     },
     {
@@ -102,7 +102,7 @@
       "matcher": "clear",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/erasure_proposer.py\" session-start"
       }
     },
     {
@@ -111,7 +111,7 @@
       "matcher": "startup",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/backup_vault.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/backup_vault.py\" session-start"
       }
     },
     {
@@ -120,7 +120,7 @@
       "matcher": "resume",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/backup_vault.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/backup_vault.py\" session-start"
       }
     },
     {
@@ -129,7 +129,7 @@
       "matcher": "clear",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/backup_vault.py session-start"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/backup_vault.py\" session-start"
       }
     },
     {
@@ -138,7 +138,7 @@
       "matcher": "",
       "hook": {
         "type": "command",
-        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" ${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py pre-compact"
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/memory/consolidate.py\" pre-compact"
       }
     },
     {

@@ -2508,7 +2508,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:b52f9806293d6fec950e700896cd1fce7d700e1e6a4eb6fec0246bf5a2d1fa61",
+        "fingerprint": "sha256:13e5aa1bb15a8d7bb9f130b4de4f200403e73c13ca3bf99d40943c6adb25ea1c",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -2580,7 +2580,7 @@
       },
       "slug": "github-projects-sync",
       "source": {
-        "fingerprint": "sha256:b839ce08d64a436a4abb32d72e767e7127768e0016d8e584ccc4af28089cec88",
+        "fingerprint": "sha256:629f6a40ca465a2382920e89925d8ce14ee965938db04844a148a0515fb7dfe9",
         "path": ".engine/modules/github-projects-sync/manifest.json"
       },
       "status": "optional",
@@ -2598,7 +2598,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:f184d64901830df4382193c510a22f3ee31309d671c7913af0955c8ad4005cee",
+        "fingerprint": "sha256:c57dd309898992667c4a1fc3aaab6e706447c13d52088c7d420aa33d3eccf448",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -4826,7 +4826,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:f6ef883942d89ac30b79bcf85080da1b975fd4e28f529d2b524a72db90d68406",
+        "fingerprint": "sha256:16560ab8588046d2aef0cd40846634e385231f46578e007489dd71fc20c28c5e",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -6305,7 +6305,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:e2c4e18fc2096414e4cf99a4919661517f17556923a1ecbe7e77688e6bc460aa",
+        "fingerprint": "sha256:79e6574d345aa8f4a556ec616eefb2187c14e27609d81204c3fdde3f0bc71af1",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
