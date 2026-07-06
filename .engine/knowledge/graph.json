@@ -2709,7 +2709,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:d90d6fc411f942130ab0026d167b6675bb55adcb0687213361d08b991ccee17e",
+        "fingerprint": "sha256:e7f5b9b0b43da48f9d9895526ecc444741658414c51fabebeee92c1b784f919b",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",

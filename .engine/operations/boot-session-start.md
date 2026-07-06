@@ -84,45 +84,32 @@ its sole write is this presentation ledger.
 impact check — what depends on a part, what checks or governs it — or when a part is unfamiliar, the
 session can query the project's own map; when and how is `.engine/operations/knowledge-impact-check.md`.
 
-**The un-stranding repair is operator-consented and lossless.** The assistant **waits for the operator to
-say yes** — it never runs the repair un-asked. Only then does it run the un-stranding fix
-(`checkout_health.unstrand`), the deployed-floor never-strand-main rule's one sanctioned write to the operator
-checkout. It is **lossless-or-it-does-not-run**: it saves anything at risk — work that has drifted off the
-branch, or unsaved changes — to a safe point first, then re-attaches the folder to its branch and restores the
-missing engine files; if it cannot safely tell where to put the folder, it refuses rather than guess, and the
-assistant says so. The assistant relays the plain-language result.
+**Boot's repair offers share one contract; each carries its own loss semantics.** When boot surfaces a
+recoverable problem it **only surfaces and offers** — the assistant **waits for the operator's explicit
+go-ahead** and never runs a repair un-asked. Every repair is **lossless-or-it-does-not-run**: it protects
+anything at risk first, or refuses/blocks rather than guess, and the assistant relays the plain-language result
+and never forces. What differs is *what* each protects and *how* it declines:
 
-**A folder that has merely fallen behind is the same shape (#335).** When boot surfaces that the folder is on
-its default branch but missing recent merged work, the assistant likewise **waits for the operator to say**
-"bring it up to date", then runs the catch-up (`checkout_health.catch_up`). It is **lossless-or-it-does-not-run**
-by construction: it brings the folder current only along a safe fast-forward, keeping any unsaved changes; if
-unsaved work is in the way it changes nothing and reports that plainly (a `blocked` result), so nothing is lost.
-The assistant relays the plain result — brought current, already up to date, or blocked-with-unsaved-work — and
-never forces. This signal never alarms on bare distance — only *missing merged work* past the velocity bar.
-
-**A folder parked off its main line is the same shape, widened branch-agnostic (#342/D-275).** The behind signal
-is now two-stage, and a checkout parked on a *non-default* branch is no longer unhandled. **Stage 1 (off-main):**
-boot surfaces, gently, that the top-level folder is pointed at a side line of work rather than the main project —
-caught offline, every session, on day one (before it falls behind). **Stage 2 (behind):** once that folder is
-also missing merged work from the main line, the surfacing escalates to a firm offer naming the felt consequence.
-Either way there is **one consent handle** — the operator says **"bring it up to date"** — and the assistant runs
-the correction that fits the state: `checkout_health.catch_up` when the folder is on its default branch, or
-`checkout_health.return_to_default` when it is parked off it. `return_to_default` is **lossless-or-it-does-not-run**:
-returning to a *named* side line never orphans its commits (the side line keeps them — no rescue needed, unlike the
-detached un-stranding arm), and it switches only when nothing is uncommitted, stashed, or mid-operation; otherwise
-it changes nothing and reports that plainly (a `blocked` result). Having safely returned, it brings the folder
-current along the same safe fast-forward — best-effort, since being back on the main line is already the win. The
-assistant relays the honest result: pointed back and brought current, pointed back but the main line couldn't be
-brought current (the local copy had diverged), already on the main line, or blocked-with-unsaved-work — and never
-forces. (Spotting an off-main park is a newer check; a folder reported healthy before this existed isn't freshly
-broken — the assistant says so plainly the first time it surfaces, rather than implying it just broke.)
-
-**A stranded pull request is the same shape (#136).** When boot surfaces a pull request that can't be merged,
-the assistant likewise **waits for the operator's go-ahead**, then runs the reconcile (`pr_reconcile.reconcile`).
-The reconcile first checks whether the clash is confined to the engine's two internal index files — the
-knowledge graph and the self-map, the only files a clash on which is *spurious* (both sides are regenerations
-of one source tree). If so, it reconciles the pull request against the latest default branch, regenerates those
-two files from the reconciled tree, and keeps both pieces of work, **lossless-or-it-does-not-run**. If anything
-but those two files clashed, it changes nothing, restores the branch exactly as it was, and routes the operator
-to a plain-language decision rather than touching a real conflict. The assistant relays the plain result, and
-never claims the merge is now guaranteed — a later change can still land first.
+- **A stranded checkout — un-stranding (`checkout_health.unstrand`).** The deployed-floor never-strand-main
+  rule's one sanctioned write to the operator checkout: it rescues at-risk work — commits drifted off the branch,
+  or unsaved changes — to a safe point first, then re-attaches the folder and restores the missing engine files.
+  If it cannot safely tell where to re-attach the folder, it refuses rather than guess.
+- **A folder merely fallen behind — catch-up (`checkout_health.catch_up`, #335).** On its default branch but
+  missing merged work, brought current only along a safe fast-forward, keeping unsaved changes; if unsaved work is
+  in the way it changes nothing (a `blocked` result). This signal never alarms on bare distance — only *missing
+  merged work* past the velocity bar.
+- **A folder parked off its main line — return (`checkout_health.return_to_default`, #342/D-275).** The behind
+  signal is two-stage: **Stage 1 (off-main)** surfaces gently, caught offline on day one, that the folder points
+  at a side line rather than the main project; **Stage 2 (behind)** escalates to a firm offer once it is also
+  missing merged work. One consent handle — "bring it up to date" — runs whichever fits: `catch_up` on the default
+  branch, `return_to_default` when parked off it. Returning to a *named* side line never orphans its commits (the
+  side line keeps them — no rescue needed, unlike the detached un-stranding arm); it switches only when nothing is
+  uncommitted, stashed, or mid-operation, then fast-forwards best-effort (being back on the main line is already
+  the win). Spotting an off-main park is a newer check — a folder healthy before it existed isn't freshly broken,
+  and the assistant says so the first time it surfaces.
+- **A stranded pull request — reconcile (`pr_reconcile.reconcile`, #136).** A pull request that can't be merged:
+  the reconcile acts only when the clash is confined to the engine's two internal index files — the knowledge
+  graph and the self-map, the one clash that is *spurious* (both sides regenerate from one source tree) —
+  reconciling against the latest default branch, regenerating those two files, and keeping both pieces of work. If
+  anything else clashed it changes nothing, restores the branch exactly, and routes the operator to a
+  plain-language decision. It never claims the merge is now guaranteed — a later change can still land first.
