@@ -4459,6 +4459,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_release_terminal",
+      "name": ".engine/tools/demo_release_terminal.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_release_terminal",
+      "source": {
+        "fingerprint": "sha256:f98888d3dc335a49cb2c377bd6e71c000821163d2cbc414b65707851ee50cf43",
+        "path": ".engine/tools/demo_release_terminal.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_remember_this",
       "name": ".engine/tools/demo_remember_this.py",
       "owner": "core",
@@ -5149,7 +5166,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:54c31bc1cc8002cb02302507353b5f9ac05a439f6a29ac5c6599aa92dadc4147",
+        "fingerprint": "sha256:2c527ba9a7f09e68fb2d4bfd59ec93fa8a37e7110dc3f4898c44affe250a0055",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -5355,6 +5372,23 @@
       "source": {
         "fingerprint": "sha256:e0c4d0cfaaaa7dc26f40a406ef4aca0a78d4881488a0f17b2a9eee3f548a5cfd",
         "path": ".engine/tools/release_integrity_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:release_terminal",
+      "name": ".engine/tools/release_terminal.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "release_terminal",
+      "source": {
+        "fingerprint": "sha256:4b611c9fda70a1c4e589b012428c4bf500dc8f96bbf7339415a88a9f13f5eca2",
+        "path": ".engine/tools/release_terminal.py"
       },
       "status": "active",
       "type": "tool"
@@ -6526,7 +6560,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:6037aeeacac7d416a6021d101bce45806d95da3e784b36ddf3f6d16da2292be1",
+        "fingerprint": "sha256:b8cabfc2892448c01aa394fd128a5139be03c3d1788312b242fd63bab06caaac",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -6732,6 +6766,23 @@
       "source": {
         "fingerprint": "sha256:9920827a82f78713137039504b435583b4244b5605931e7ac7d68821f368cd0a",
         "path": ".engine/tools/test_release_cut.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_release_terminal",
+      "name": ".engine/tools/test_release_terminal.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_release_terminal",
+      "source": {
+        "fingerprint": "sha256:51c7fe46c8b8b9aeb1d9aff0330f3729a14a9f1349c54313617d18f9ca1d8eeb",
+        "path": ".engine/tools/test_release_terminal.py"
       },
       "status": "active",
       "type": "tool"

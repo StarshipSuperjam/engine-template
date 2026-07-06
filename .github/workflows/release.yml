@@ -63,8 +63,10 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # A full clone (all history + tags). The tag-at-the-merge-commit step (a later slice) needs it, and a
+          # A full clone (all history + tags) so the version decision can diff against the last released tag; a
           # shallow clone would silently distort any history-dependent step. Mandatory per the release spec.
+          # (The tag + GitHub Release on merge is published by release-publish.yml via the GitHub API, keyed to
+          # the merge commit SHA — it needs no local history, so this depth is for the diff here, not the tag.)
           fetch-depth: 0
       - name: Set up uv (pinned)
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0

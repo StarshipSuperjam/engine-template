@@ -856,7 +856,12 @@ def _bump_engine_manifest(target_versions: dict, engine_release: str) -> dict:
     release's, PRESERVING identity and any other operator-owned keys (engine.json is operator config, not
     overlaid). Returns the new manifest."""
     engine = module_coherence.load_engine_manifest() or {"packages": {}}
-    engine["engine_release"] = engine_release
+    # Release tags are v-prefixed (`v0.1.0` — the git/GitHub convention and what the maintainer sees), but
+    # `engine_release` is stored BARE so it matches the bare per-package versions below; otherwise the
+    # manifest would carry the engine version as `v0.1.0` and every package as `0.1.0` — a self-inconsistent
+    # store the next cut's floor derivation would then oscillate. Strip a single leading `v` (comparison
+    # already v-strips, so nothing behavioural changes — this only keeps the stored form consistent).
+    engine["engine_release"] = engine_release[1:] if engine_release.startswith("v") else engine_release
     pkgs = engine.setdefault("packages", {})
     for mid, ver in target_versions.items():
         if mid in pkgs:
