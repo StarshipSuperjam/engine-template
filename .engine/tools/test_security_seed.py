@@ -14,6 +14,7 @@ import validate            # noqa: E402
 import instantiator as inst  # noqa: E402
 import module_coherence    # noqa: E402
 import demo_security_seed  # noqa: E402
+import quiet_call          # noqa: E402  (capture the demo walkthrough so it can't bury the summary)
 import test_instantiator as ti  # noqa: E402  (reuse the apply fixture harness)
 
 _SEED_REL = os.path.join(".engine", "provisioning", "security-seed.md")
@@ -144,7 +145,7 @@ class TestSecuritySeedOwnershipAndDisclosure(unittest.TestCase):
 
 class TestSecuritySeedDemo(unittest.TestCase):
     def test_demo_passes(self):
-        self.assertEqual(demo_security_seed.main(), 0)
+        self.assertEqual(quiet_call.run(demo_security_seed.main), 0)
 
 
 if __name__ == "__main__":

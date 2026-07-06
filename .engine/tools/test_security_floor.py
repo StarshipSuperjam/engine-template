@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import security_floor as sf  # noqa: E402
 import protection_guard      # noqa: E402
 import demo_security_floor   # noqa: E402
+import quiet_call            # noqa: E402  (capture the demo walkthrough so it can't bury the summary)
 
 REPO = "you/your-project"
 
@@ -162,7 +163,7 @@ class TestDisclosureIsPlainLanguage(unittest.TestCase):
 
 class TestSecurityFloorDemo(unittest.TestCase):
     def test_demo_passes(self):
-        self.assertEqual(demo_security_floor.main(), 0)
+        self.assertEqual(quiet_call.run(demo_security_floor.main), 0)
 
 
 if __name__ == "__main__":
