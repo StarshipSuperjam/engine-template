@@ -17,6 +17,7 @@ import unittest
 
 import issue_author
 import issue_gate
+import quiet_call  # capture a demo walkthrough's stdout so it can't bury the suite summary
 
 # A conforming body is whatever the helper actually renders (couples the test to the real contract output).
 CONFORMING = issue_author.render_engine_issue_body(what_this_is="a demo item", whats_next="nothing to do")
@@ -202,7 +203,7 @@ class TestHelperCoupling(unittest.TestCase):
 
 class TestDemo(unittest.TestCase):
     def test_demo_self_check_passes(self):
-        self.assertEqual(issue_gate.main(["demo"]), 0)
+        self.assertEqual(quiet_call.run(issue_gate.main, ["demo"]), 0)
 
 
 if __name__ == "__main__":

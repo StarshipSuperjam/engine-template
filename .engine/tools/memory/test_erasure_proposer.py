@@ -22,6 +22,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 from memory import compact, consolidate, erasure_observer as obs  # noqa: E402
 from memory import erasure_proposer as emit, forget, ledger, records  # noqa: E402
 
@@ -572,7 +573,7 @@ class SessionStartTests(_Base):
 
     def test_the_offline_demo_never_reaches_the_real_opener(self):
         with mock.patch.object(emit, "_open_erasure_pr", side_effect=AssertionError("the real opener was reached")):
-            ok = emit._demo_body(self._tmp.name)                                     # injects a stub opener
+            ok = quiet_call.run(emit._demo_body, self._tmp.name)                     # injects a stub opener
         self.assertTrue(ok)
 
 

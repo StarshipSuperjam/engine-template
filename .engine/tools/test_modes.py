@@ -22,6 +22,7 @@ from unittest import mock
 
 import hooks
 import modes
+import quiet_call  # capture a demo/CLI walkthrough's stdout so it can't bury the suite summary
 import validate
 
 
@@ -496,7 +497,7 @@ class TestResolveSession(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
                 mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "cli-env-session"}):
-            self.assertEqual(modes.main(["set-build"]), 0)
+            self.assertEqual(quiet_call.run(modes.main, ["set-build"]), 0)
             self.assertEqual(modes.current_stance("cli-env-session"), modes.BUILD)
 
     def test_set_build_makes_the_gate_allow_writes_for_that_session(self):
@@ -506,7 +507,7 @@ class TestResolveSession(unittest.TestCase):
         # on, independent of how the platform sources the id into --session.
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp):
-            self.assertEqual(modes.main(["set-build", "--session", "sX"]), 0)
+            self.assertEqual(quiet_call.run(modes.main, ["set-build", "--session", "sX"]), 0)
             allow = modes.handler({"session_id": "sX", "tool_name": "Edit", "tool_input": {}})
             self.assertTrue(_allow(allow), "the gate allows a write for the session that entered Build")
             other = modes.handler({"session_id": "sOther", "tool_name": "Edit", "tool_input": {}})

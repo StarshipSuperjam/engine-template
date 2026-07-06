@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import telemetry         # noqa: E402
 import audit_soft_promote as asp  # noqa: E402
+import quiet_call        # noqa: E402  (capture a CLI walkthrough's stdout so it can't bury the suite summary)
 
 _NOW = "2026-06-05T01:00:00Z"
 _UPSTREAM = "engine-template project"   # the load-bearing machinery caveat marker
@@ -152,7 +153,7 @@ class TestMain(unittest.TestCase):
     def test_missing_env_is_a_usage_error(self):
         os.environ.pop("GITHUB_REPOSITORY", None)
         os.environ.pop("GITHUB_TOKEN", None)
-        self.assertEqual(asp.main([]), 2)
+        self.assertEqual(quiet_call.run(asp.main, []), 2)
 
     def test_main_is_fail_open_on_an_unexpected_error(self):
         os.environ["GITHUB_REPOSITORY"] = "o/r"
@@ -162,7 +163,7 @@ class TestMain(unittest.TestCase):
         def boom(*a, **k):
             raise RuntimeError("unexpected")
         asp.promote = boom
-        self.assertEqual(asp.main([]), 0)   # a crash never fails the self-review
+        self.assertEqual(quiet_call.run(asp.main, []), 0)   # a crash never fails the self-review
 
 
 class TestRealCollectProvenance(unittest.TestCase):

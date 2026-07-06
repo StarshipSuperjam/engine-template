@@ -20,6 +20,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools on sys.path
 from product_design import coverage  # noqa: E402
 from product_design import spec_form  # noqa: E402
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 
 
 def _cap(status: str) -> str:
@@ -247,10 +248,10 @@ class CoverageFindingsTests(unittest.TestCase):
 
 class DispatchTests(unittest.TestCase):
     def test_demo_passes(self):
-        self.assertEqual(coverage.demo(), 0)
+        self.assertEqual(quiet_call.run(coverage.demo), 0)
 
     def test_main_routes_demo(self):
-        self.assertEqual(coverage.main(["demo"]), 0)
+        self.assertEqual(quiet_call.run(coverage.main, ["demo"]), 0)
 
     def test_emit_findings_prints_a_json_array(self):
         buf = io.StringIO()

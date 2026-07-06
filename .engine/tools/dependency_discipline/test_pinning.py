@@ -12,6 +12,7 @@ from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools on sys.path
 from dependency_discipline import pinning  # noqa: E402
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 import validate  # noqa: E402
 
 
@@ -122,7 +123,7 @@ class PinningTests(unittest.TestCase):
 
     # --- the falsifiable demo passes on the happy path -------------------------------------------
     def test_demo_passes(self):
-        self.assertEqual(pinning.demo(), 0)
+        self.assertEqual(quiet_call.run(pinning.demo), 0)
 
     # --- the no-arg dispatch emits a JSON array (the custom/script contract) ----------------------
     def test_emit_findings_prints_a_json_array_and_returns_zero(self):
@@ -138,7 +139,7 @@ class PinningTests(unittest.TestCase):
             self.assertIn("location", f)
 
     def test_main_routes_demo_and_bare_invocation(self):
-        self.assertEqual(pinning.main(["demo"]), 0)
+        self.assertEqual(quiet_call.run(pinning.main, ["demo"]), 0)
         buf = io.StringIO()
         with redirect_stdout(buf):
             self.assertEqual(pinning.main([]), 0)

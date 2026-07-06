@@ -17,6 +17,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 from memory import compact, ledger, records  # noqa: E402
 
 
@@ -72,7 +73,7 @@ class EnactErasureTests(_Base):
 
 class DemoTests(_Base):
     def test_demo_erase_runs_clean(self):
-        self.assertEqual(compact._demo_erase(), 0)
+        self.assertEqual(quiet_call.run(compact._demo_erase), 0)
 
 
 if __name__ == "__main__":

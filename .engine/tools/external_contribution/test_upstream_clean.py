@@ -12,6 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from external_contribution import upstream_clean_check  # noqa: E402
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 
 # A small engine-owned set covering both legs: a module-provided file and two foundation-infra files.
 OWNED = [
@@ -62,7 +63,7 @@ class TestUpstreamClean(unittest.TestCase):
         self.assertTrue(fs and all(f["severity"] != "hard" for f in fs))
 
     def test_demo_self_check_passes_on_real_logic(self):
-        self.assertEqual(upstream_clean_check.demo(), 0)
+        self.assertEqual(quiet_call.run(upstream_clean_check.demo), 0)
 
 
 if __name__ == "__main__":

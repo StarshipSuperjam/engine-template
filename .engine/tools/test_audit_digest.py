@@ -18,6 +18,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import audit_digest  # noqa: E402
+import quiet_call    # noqa: E402  (capture a CLI walkthrough's stdout so it can't bury the suite summary)
 import validate      # noqa: E402
 
 BODY = "# Engine self-review\n\nI looked things over; here is what I found.\n"
@@ -177,7 +178,7 @@ class TestSealCLI(unittest.TestCase):
     def test_body_file_seals_the_files_contents_as_the_body(self):
         with tempfile.TemporaryDirectory() as d:
             digest = os.path.join(d, "audit-digest.md")
-            rc = audit_digest.main(["seal", digest, "--body-file", self._bodyfile(d)])
+            rc = quiet_call.run(audit_digest.main, ["seal", digest, "--body-file", self._bodyfile(d)])
             self.assertEqual(rc, 0)
             self.assertEqual(audit_digest.check(digest)["severity"], "note")
             _fm, body = audit_digest.split(digest)
@@ -188,7 +189,7 @@ class TestSealCLI(unittest.TestCase):
         # (argv[2]) — even when it sits BEFORE the positionals.
         with tempfile.TemporaryDirectory() as d:
             digest = os.path.join(d, "audit-digest.md")
-            rc = audit_digest.main(["seal", "--body-file", self._bodyfile(d), digest, "2026-06-01"])
+            rc = quiet_call.run(audit_digest.main, ["seal", "--body-file", self._bodyfile(d), digest, "2026-06-01"])
             self.assertEqual(rc, 0)
             fm, _body = audit_digest.split(digest)
             self.assertEqual(audit_digest._iso(fm["generated"]), "2026-06-01")

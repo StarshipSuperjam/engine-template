@@ -21,6 +21,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import hooks  # noqa: E402
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 from memory import capture, consolidate, index, ledger, records, rollup  # noqa: E402
 
 _DAY = 86400
@@ -143,7 +144,7 @@ class CombinedSweepTests(_Base):
 class DemoTests(_Base):
     def test_demo_sweep_runs_clean(self):
         # the operator demo drives the REAL handler on throwaway cabinets; it must exit 0 (no !!! regression)
-        self.assertEqual(rollup._demo_sweep(), 0)
+        self.assertEqual(quiet_call.run(rollup._demo_sweep), 0)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from external_contribution import submit  # noqa: E402
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 import telemetry  # noqa: E402
 
 OWNED = [
@@ -199,7 +200,7 @@ class TestSubmitFlow(unittest.TestCase):
 
 class TestDemo(unittest.TestCase):
     def test_demo_self_check_passes_on_real_logic(self):
-        self.assertEqual(submit.demo(), 0)
+        self.assertEqual(quiet_call.run(submit.demo), 0)
 
 
 if __name__ == "__main__":
