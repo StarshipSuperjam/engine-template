@@ -91,7 +91,8 @@ def main() -> int:
         # above the copy's current engine version. This works whether the repo is at the construction sentinel
         # or at an already-published release; cutting the SAME version would be a no-op that regenerates
         # nothing, so the defect + fix would not show.
-        current = json.load(open(os.path.join(engine, "engine.json")))["engine_release"]
+        with open(os.path.join(engine, "engine.json")) as fh:
+            current = json.load(fh)["engine_release"]
         version = release_cut._bump_at_least(current, "minor")
 
         # 1. THE DEFECT — record the versions, DON'T regenerate the maps: the two generated maps go stale.

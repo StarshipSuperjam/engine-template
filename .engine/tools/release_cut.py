@@ -657,6 +657,9 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
                     "it will need attention. What changed is listed under Scope above.")
     impacts = proposal.get("impacts") or []
     if impacts:
+        if risk:             # a breaking-change bullet precedes this intro — a blank line keeps the intro from
+            risk.append("")  # being absorbed into that bullet as a lazy markdown continuation (the two would
+                             # otherwise fuse, hiding the interface-changes signpost on the highest-stakes release).
         risk.append("Interface changes to read before you merge:")
         risk += [f"- {im.get('what', '')}: {im.get('why', '')}" for im in impacts]
     else:
