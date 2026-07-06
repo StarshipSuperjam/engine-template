@@ -79,7 +79,9 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
 7. **Submit — mark the draft ready and hand to the human gate.** Fill the pull-request contract including
    the **Review** section by **reading `.github/pull_request_template.md` in full, never grepping it for
    headers** — each section is a bold summary line, then bullets, then an italic `*Impact:*` line, none of
-   which a header scan reveals. **Mark the pull request ready** (`gh pr ready`) — the act that submits it —
+   which a header scan reveals. **Run the close-linkage pre-flight** (`close_linkage_preflight.py check`) and
+   fold its lines into Review, applying any disclosed defang it emits (see Notes). **Mark the pull request
+   ready** (`gh pr ready`) — the act that submits it —
    **only once** validation is green, the pre-submission review is clean (no unresolved `blocking` or
    `serious` finding), and every post-review fix is pushed; until then it stays a **draft**, which cannot be
    merged. A build session is **done when the pull request is submitted**; merge-and-walk leaves nothing
@@ -152,6 +154,21 @@ checked for you" — or a plain reason-named line when nothing is operator-runna
 check go on the engine's account). It is an offer for when the change matters, not a duty, and an unrun step is a
 promise, not proof — never beside a green check. The resolution holds with or without the optional product-design
 module; a read failure is surfaced loudly, never read as "no description".
+
+**The close-linkage pre-flight.** At submit, before marking ready, the orchestrator compares what the pull
+request **will** close — GitHub's computed linkage (`gh pr view --json closingIssuesReferences`, `gh api
+graphql` beneath it) **plus** the closing keywords in the integrated commit messages, which that field does
+not reflect — against what the pull request **declares**: a deliberate `Closes #N` line versus a `Part of #N`
+dependency in its own Scope/Out-of-scope. Two contradictions are decidable without guessing intent: an issue
+the change will close while declaring itself only *part of* it, and the comma-trap (`Closes #1, #2` links only
+`#1`). **Detect-and-surface, never silent-and-unilateral:** the default is a plain Review line the operator
+reads at the merge; only an **unambiguously-accidental, body-sourced** keyword (declared *part of*, no
+deliberate close line, uniquely locatable) is **neutralized** — a minimal keyword-only edit of the engine's
+own PR body, never a narrative rewrite, never product scope — and the removal is **disclosed** in Review. A
+commit-sourced or cross-repo close is surfaced, never defanged; an unreadable will-close set fails closed to
+the could-not-read line, never a false "nothing will close". It is **not a gate** — the comparison is
+mechanical but rides the AI-authored Review record at its posture tier, bounded by the operator's own GitHub
+"will close" view. `close_linkage_preflight.py check --pr N --base REF` emits the lines and any defanged body.
 
 **Some pieces are owned elsewhere, not authored here.** The **routine entry** (`/engine-routine` and its
 procedure — the scope-lock read at boot and per commit, the first-fire echo, the misfire-as-Issue) is the
