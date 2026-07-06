@@ -18,6 +18,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import first_run_reference_closure_check as frc  # noqa: E402
 import demo_first_run_reference_closure as demo  # noqa: E402
+import quiet_call  # noqa: E402
 
 
 def _build(root, *, files, survivors, create_removed_py=True, directories=None):
@@ -136,9 +137,9 @@ class TestFindingIsPlainLanguage(unittest.TestCase):
 
 class TestDemoRunsGreen(unittest.TestCase):
     def test_demo_passes(self):
-        import contextlib
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(demo.main(), 0)
+        # Route through quiet_call.run so the demo's walkthrough is captured at the call site — a direct
+        # demo.main() here would flood the run without `-b` (the papercut quiet_call exists to end).
+        self.assertEqual(quiet_call.run(demo.main), 0)
 
 
 if __name__ == "__main__":

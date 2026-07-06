@@ -15,6 +15,7 @@ import module_coherence    # noqa: E402
 import module_manager      # noqa: E402
 import protection_guard    # noqa: E402
 import demo_actionlint     # noqa: E402
+import quiet_call          # noqa: E402  (capture the demo walkthrough so it can't bury the summary)
 
 WORKFLOW_REL = ".github/workflows/actionlint.yml"
 
@@ -66,16 +67,16 @@ class TestActionlintDemo(unittest.TestCase):
     """The demo exercises the real linter; here we pin its always-true and skip-if-absent legs."""
 
     def test_advisory_block_holds_without_a_linter(self):
-        self.assertTrue(demo_actionlint._advisory_guarantee_holds())
+        self.assertTrue(quiet_call.run(demo_actionlint._advisory_guarantee_holds))
 
     def test_demo_main_exits_zero(self):
-        self.assertEqual(demo_actionlint.main(), 0)
+        self.assertEqual(quiet_call.run(demo_actionlint.main), 0)
 
     @unittest.skipUnless(shutil.which("actionlint"), "the real actionlint binary is not installed")
     def test_real_linter_catches_broken_workflow_and_passes_clean(self):
-        self.assertTrue(demo_actionlint._lint_broken_workflow(),
+        self.assertTrue(quiet_call.run(demo_actionlint._lint_broken_workflow),
                         "a workflow that waits on an undefined job must be caught by the real linter")
-        self.assertTrue(demo_actionlint._lint_clean_workflow(),
+        self.assertTrue(quiet_call.run(demo_actionlint._lint_clean_workflow),
                         "a correct workflow must come back clean")
 
 
