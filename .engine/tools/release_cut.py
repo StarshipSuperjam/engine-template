@@ -632,20 +632,29 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
             "",
             "## Risk",
             _gate_path_line(gate_state)]
+    # A release the engine classifies as a major/breaking change (a removed capability, or a
+    # backward-incompatible interface change) carries its weight HERE, under the heading a cautious
+    # reviewer reads for "what's risky" — not only as a neutral line up in Scope.
+    if proposal.get("engine_floor_level") == "major":
+        out += ["", "**This release makes a breaking change.** Something an earlier version provided was "
+                "removed, or changed in a way that is not backward-compatible — so anything that relied on it "
+                "will need attention. What changed is listed under Scope above."]
     impacts = proposal.get("impacts") or []
     if impacts:
         out += ["", "Interface changes to read before you merge:"]
         for im in impacts:
             out.append(f"- {im.get('what', '')}: {im.get('why', '')}")
     else:
-        out += ["", "No interface changes were detected. The summary can only show changes it detects "
-                "mechanically, so your own knowledge of what you shipped is the backstop (see Review)."]
+        out += ["", "No changes to interface contract files were detected — this does not cover a removed "
+                "capability or a data migration, which would be listed under Scope. The summary can only show "
+                "changes it detects mechanically, so your own knowledge of what you shipped is the backstop "
+                "(see Review)."]
     out += ["",
             "## Validation",
             "The version decision and the manifest write are produced by the engine's own release tooling "
             "and checked by `engine-ci` on this pull request — the mechanical floor. A green check shows "
-            "this release conforms to the engine's rules (the versions agree across the manifests, the "
-            f"generated maps are in sync, this summary is complete); it does **not** judge whether {engine} "
+            "this release conforms to the engine's rules (the versions agree across all the files that record "
+            f"them, the generated maps are in sync, this summary is complete); it does **not** judge whether {engine} "
             "is the right version to release. That judgment is yours.",
             "",
             "## Review",

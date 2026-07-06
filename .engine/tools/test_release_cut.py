@@ -295,6 +295,22 @@ class RenderPRBody(unittest.TestCase):
         findings = validate.section_presence_findings(body, required, "hard", "", "pull-request body")
         self.assertEqual(findings, [], f"release body missing/empty required sections: {findings}")
 
+    def test_major_removal_surfaces_breaking_change_under_risk(self):
+        # a removed capability is a breaking change (engine_floor_level 'major') — the Risk section, not only
+        # the neutral Scope inventory, must say so, so a reviewer scanning "Risk" is not under-warned.
+        proposal = {"change_inventory": ["Removed the 'legacy' capability."], "impacts": [],
+                    "engine_floor_level": "major", "engine_floor_version": "1.0.0"}
+        applied = {"applied": True, "engine": "1.0.0", "from_engine": "0.3.0", "targets": {"core": "1.0.0"}}
+        body = rc.render_pr_body(proposal, applied)
+        risk = body.split("## Risk", 1)[1].split("## Validation", 1)[0]
+        self.assertIn("breaking change", risk.lower())   # the warning is WITHIN the Risk section
+        # a non-breaking release must NOT cry wolf
+        minor = rc.render_pr_body({"change_inventory": ["Added the 'x' capability."], "impacts": [],
+                                   "engine_floor_level": "minor"},
+                                  {"applied": True, "engine": "0.4.0", "from_engine": "0.3.0",
+                                   "targets": {"core": "0.4.0"}})
+        self.assertNotIn("breaking change", minor.lower())
+
     def test_gate_path_three_states_are_visibly_distinct(self):
         passed, subbar, errored = (rc._gate_path_line("passed"), rc._gate_path_line("sub-bar"),
                                    rc._gate_path_line("errored"))
