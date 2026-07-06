@@ -105,6 +105,30 @@ class StoreTests(_Base):
         self.assertIn("auth", rec["tags"])
         self.assertEqual(rec["tags"].count("episodic"), 1)
 
+    def test_topic_and_entity_tags_are_persisted(self):
+        # #235: the AI now assigns topic/entity tags to each summary — both a plain topic and a verbatim entity
+        # ref (canonical case preserved) must land, so a later pass can cluster on them across sessions.
+        consolidate.store_episodic("S", [{"role": "decision", "text": "t", "tags": ["rollup", "eADR-0031"]}])
+        rec = self._records(consolidate.EPISODIC_KIND)[0]
+        self.assertEqual(rec["tags"][0], "episodic")
+        self.assertIn("rollup", rec["tags"])
+        self.assertIn("eADR-0031", rec["tags"])   # entity ref kept verbatim, not lowercased
+
+    def test_tags_are_stripped_so_padded_variants_collapse(self):
+        # #235: tags exist to be matched across sessions by exact string, so store them stripped — " rollup "
+        # and "rollup" must land as one topic, not two that would fail to cluster.
+        consolidate.store_episodic("S", [{"role": "decision", "text": "t", "tags": [" rollup ", "rollup"]}])
+        rec = self._records(consolidate.EPISODIC_KIND)[0]
+        self.assertIn("rollup", rec["tags"])
+        self.assertNotIn(" rollup ", rec["tags"])
+        self.assertEqual(rec["tags"].count("rollup"), 1)
+
+    def test_absent_or_empty_tags_is_accepted(self):
+        # Untagged is legal — a thread with no clear topic stays untagged rather than forcing an invented tag.
+        self.assertEqual(consolidate.store_episodic("S1", [{"role": "intent", "text": "t"}])["status"], "ok")
+        self.assertEqual(
+            consolidate.store_episodic("S2", [{"role": "intent", "text": "t", "tags": []}])["status"], "ok")
+
     def test_source_seqs_kept_only_when_given(self):
         consolidate.store_episodic("S", [{"role": "intent", "text": "t", "source_seqs": [0, 2, "5"]}])
         rec = self._records(consolidate.EPISODIC_KIND)[0]
@@ -163,6 +187,30 @@ class RejectionTests(_Base):
 
     def test_missing_session_id_is_rejected(self):
         self.assertEqual(consolidate.store_episodic("", [{"role": "lesson", "text": "t"}])["status"], "rejected")
+
+    def test_a_non_list_tags_field_rejects_the_whole_batch(self):
+        # #235: reject-not-coerce — a bare-string tags field is malformed, so nothing is written (not silently
+        # coerced into a one-tag list).
+        report = consolidate.store_episodic("S", [{"role": "decision", "text": "t", "tags": "auth"}])
+        self.assertEqual(report["status"], "rejected")
+        self.assertEqual(self._records(), [])
+
+    def test_an_empty_or_whitespace_tag_rejects_the_whole_batch(self):
+        for bad in ("", "   "):
+            report = consolidate.store_episodic("S", [{"role": "decision", "text": "t", "tags": ["ok", bad]}])
+            self.assertEqual(report["status"], "rejected", repr(bad))
+            self.assertEqual(self._records(), [])
+
+    def test_a_non_string_tag_rejects_the_whole_batch(self):
+        report = consolidate.store_episodic("S", [{"role": "decision", "text": "t", "tags": ["ok", 7]}])
+        self.assertEqual(report["status"], "rejected")
+        self.assertEqual(self._records(), [])
+
+    def test_too_many_tags_are_rejected(self):
+        over = [f"t{i}" for i in range(consolidate._MAX_TAGS + 1)]
+        report = consolidate.store_episodic("S", [{"role": "decision", "text": "t", "tags": over}])
+        self.assertEqual(report["status"], "rejected")
+        self.assertEqual(self._records(), [])
 
 
 class SearchTests(_Base):
@@ -332,6 +380,17 @@ class DirectiveTests(_Base):
         self.assertIn("consolidate.py store <session-id>", text)           # the store verb
         for role in consolidate.ROLE_VOCABULARY:
             self.assertIn(role, text)                                      # the closed label set travels with it
+
+    def test_directive_asks_for_topic_tags_and_the_store_format_carries_them(self):
+        # #235: the fuel step — the directive must ask the subagent to assign topic/entity tags AND the store
+        # format it hands over must include the tags field, or nothing would ever produce the tags a later
+        # cross-session roll-up clusters on.
+        text = consolidate._consolidation_directive(["s0"])
+        low = text.lower()
+        self.assertIn("topic/entity tags", low)                            # the tag-assignment instruction
+        self.assertIn("across sessions", low)                              # …stated as the cross-session purpose
+        self.assertIn("omit the list", low)                                # …omit-rather-than-invent discipline
+        self.assertIn("\"tags\"", text)                                    # the store format includes the field
 
     def test_the_stalled_backlog_alarm_is_the_main_loops_job(self):
         # Plan-gate serious: the suppressed subagent's output is not shown to the operator, so the one
