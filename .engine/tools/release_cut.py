@@ -44,16 +44,26 @@ Two subcommands, split so consent attaches to a proposal the writer cannot silen
 Read-only discovery + the release-ref/fetch/manifest-write helpers are reused from module_coherence
 and module_manager (one present-set reader, one release-ref resolver — no drift).
 
+A third subcommand renders the maintainer's evidence:
+
+  pr-body  — read-only. Render the release pull request's body from a `propose` JSON + an `apply` result
+             JSON: the change inventory, the versions actually recorded, a legible §6 gate-path line
+             (passed / consciously-sub-bar / errored — the three read as distinct), and the confirm/raise/
+             reject guidance that makes the PR review the §3 consent act. Authored HERE, never in workflow
+             bash, so the gate-path legibility has one home.
+
 CLI:
   python tools/release_cut.py propose [--json] [--baseline-tree DIR]
   python tools/release_cut.py apply --engine VER [--all VER] [--package id=ver ...] \
                                     [--proposal FILE] [--dry-run] [--json]
+  python tools/release_cut.py pr-body --proposal FILE --applied FILE [--gate-state STATE]
 """
 from __future__ import annotations
 import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 
@@ -131,6 +141,29 @@ def resolve_baseline() -> Baseline:
         raise
 
 
+def _baseline_tree_for(baseline: Baseline, injected: str | None) -> tuple:
+    """The baseline release tree to diff against, and a temp dir to clean up (or None). An INJECTED local
+    tree always wins (tests and an explicit `--baseline-tree` pass one, so `propose` never reaches the
+    network in a test). Otherwise, in diff mode, the tree is fetched from the home's release tarball at the
+    resolved ref via the module_manager network boundary — a TESTED Python caller (like the other release
+    helpers), never a private symbol reached from workflow bash. First-cut mode diffs nothing, so no tree."""
+    if injected:
+        return injected, None
+    if baseline.first_cut:
+        return None, None
+    home = module_manager._home_repository()
+    tmp = tempfile.mkdtemp(prefix="release-baseline-")
+    try:
+        tree = module_manager._fetch_release_tree(baseline.ref, tmp, repo=home)
+    except BaseException:
+        # the fetch can raise (transport failure, non-200, a malformed tarball) BEFORE the temp dir is
+        # returned to the caller's finally — clean it up here so a failed fetch never strands a temp dir
+        # (the caller only removes what it receives back).
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    return tree, tmp
+
+
 # --------------------------------------------------------------------------- present / baseline sets
 def _present_modules() -> dict:
     """id -> manifest for every present module (the live tree)."""
@@ -198,6 +231,7 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
             "baseline_note": baseline.note,
             "current_engine": engine.get("engine_release"),
             "engine_floor_level": "none",
+            "engine_floor_version": None,   # first cut: no prior release, so no mechanical floor to meet
             "package_floor": {},
             "change_inventory": inventory,
             "impacts": impacts,
@@ -241,12 +275,20 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
                          "so at most a patch. A behaviour change with no structural signal would not "
                          "show here; cross-check against what you actually shipped.")
 
+    # The concrete mechanical floor version: the minimum next engine version a minor/major signal forces
+    # (None when nothing structural fired — a patch is discretionary, so raise-only alone bounds it). This is
+    # what `apply` enforces the chosen version against and what the PR body shows the maintainer to check.
+    current_engine = engine.get("engine_release", SENTINEL)
+    engine_floor_version = (_bump_at_least(current_engine, engine_level)
+                            if engine_level in ("minor", "major") else None)
+
     return {
         "mode": "diff",
         "baseline": baseline.ref,
         "baseline_note": baseline.note,
-        "current_engine": engine.get("engine_release"),
+        "current_engine": current_engine,
         "engine_floor_level": engine_level,
+        "engine_floor_version": engine_floor_version,
         "package_floor": package_floor,
         "change_inventory": inventory,
         "impacts": impacts,
@@ -378,13 +420,21 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
     # covered current). A target strictly below the floor is refused.
     floor_notes = []
     if proposal:
+        # the ENGINE floor: a minor/major bump forced by what changed since the last release (a module added
+        # or removed, an interface changed) must be MET, not just be higher than the current version. Without
+        # this, a removed-module major floor could be undercut by a patch bump — the §3 "catch a wrong floor"
+        # backstop. None when nothing structural fired (a patch is discretionary; raise-only bounds it).
+        engine_floor = proposal.get("engine_floor_version")
+        if engine_floor and _strictly_greater(engine_floor, engine_ver):
+            floor_notes.append(f"engine version {engine_ver} is below the mechanical floor {engine_floor} "
+                               f"that what changed since the last release requires")
         pf = proposal.get("package_floor", {})
         for mid, floor in pf.items():
             if mid in targets and _strictly_greater(floor, targets[mid]):
                 floor_notes.append(f"'{mid}' version {targets[mid]} is below its confirmed floor {floor}")
         if floor_notes:
             return {"applied": False, "reason": "below-confirmed-floor", "violations": floor_notes,
-                    "recovery": "raise the flagged packages to at least their confirmed floor."}
+                    "recovery": "raise the engine and any flagged packages to at least their mechanical floor."}
 
     # stage every touched file, validate ALL before any swap, then swap together (rollback on failure)
     staged: list[tuple[str, str]] = []  # (target_path, temp_path)
@@ -500,14 +550,111 @@ def _render_proposal(p: dict) -> str:
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------- release-PR body (§6 legibility)
+def _gate_path_line(state: str) -> str:
+    """The §6 legible gate-path line: the three release-readiness states must read as VISIBLY DISTINCT, never
+    alike. Only `sub-bar` is reachable today — no acceptance-benchmark instrument is built, so nothing measures
+    a release — but `passed`/`errored` are rendered here structurally so a future benchmark reads legibly
+    rather than as a retrofit (the standing §6 invariant, not a one-of-three accident)."""
+    if state == "passed":
+        return ("**Release readiness — passed.** The engine was exercised against its readiness check and met "
+                "the bar for this release.")
+    if state == "errored":
+        return ("**Release readiness — could not be checked (it errored).** The readiness check did not run to "
+                "completion, so readiness is unproven — treat this release as unverified until it runs clean.")
+    return ("**Release readiness — no automated check ran (this is on purpose).** There is no automated "
+            "readiness check built yet, so this release was not measured against one. It rests on the summary "
+            "below and your own read — not a machine check. This is a deliberate, recorded choice, not a "
+            "passed check.")
+
+
+def _version_lines(applied: dict) -> list:
+    """Plain-language 'what versions this sets' — collapsed to one line when every capability moves to the
+    engine's own new version (the uniform first-cut case), else itemised so a per-capability difference shows."""
+    engine = applied.get("engine")
+    from_engine = applied.get("from_engine")
+    targets = applied.get("targets") or {}
+    # the first cut moves from the construction sentinel `0.0.0-dev`, which is internal and means nothing to the
+    # maintainer — say "no earlier version" instead of surfacing it.
+    from_shown = "no earlier version" if from_engine == SENTINEL else from_engine
+    lines = [f"- Engine: {from_shown} → {engine}"]
+    if targets and all(v == engine for v in targets.values()):
+        lines.append(f"- Every capability ({len(targets)}): → {engine}")
+    else:
+        for mid in sorted(targets):
+            lines.append(f"- {mid}: → {targets[mid]}")
+    return lines
+
+
+def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -> str:
+    """The release pull request's body — the maintainer's whole evidence bundle, authored HERE (never
+    composed in workflow bash) so the §6 gate-path legibility has one home. It takes both the `propose` JSON
+    (the change inventory + interface impacts) and the `apply` result JSON (the versions actually recorded),
+    and closes with the confirm/raise/reject guidance that makes the PR review the §3 consent act: the merge
+    is the go-ahead, and a wrong or missing signal is caught by closing and re-running with the right version.
+    Maintainer-facing register (§8): one engine version moving vX→vY — no 'release-cut'/'bump'/'version
+    production' vocabulary."""
+    engine = applied.get("engine")
+    from_engine = applied.get("from_engine")
+    # this body IS the maintainer's consent surface, so it must never author a "None → None" release: a refused
+    # or malformed apply result carries no versions and cannot be rendered as a release.
+    if not engine:
+        raise RuntimeError("cannot render a release summary: the apply result recorded no engine version "
+                           "(the release was refused or the result is malformed).")
+    # the construction sentinel `0.0.0-dev` is internal — never surface it to the maintainer (see _version_lines)
+    from_shown = "no earlier version" if from_engine == SENTINEL else from_engine
+    out = [f"# A new engine version: {from_shown} → {engine}", "",
+           "This pull request records a new version of your engine. **Merging it is your go-ahead to release "
+           f"{engine};** closing it releases nothing and changes none of your settings.", "",
+           "## What changed since the last release"]
+    for c in proposal.get("change_inventory", []):
+        out.append(f"- {c}")
+    impacts = proposal.get("impacts") or []
+    if impacts:
+        out += ["", "## Interface changes to read before you merge"]
+        for im in impacts:
+            out.append(f"- {im.get('what', '')}: {im.get('why', '')}")
+    out += ["", "## The versions this sets"] + _version_lines(applied)
+    floor_v = proposal.get("engine_floor_version")
+    if floor_v:
+        out.append(f"- The least this release could be is **{floor_v}** — that is what the changes above "
+                   f"require; a higher version is fine, a lower one is not.")
+    out += ["", "## Release readiness", "", _gate_path_line(gate_state)]
+    out += ["", "## Before you merge",
+            f"- **Go ahead** — if the summary above matches what you built, merge this. That merge is your "
+            f"consent to release {engine}.",
+            "- **Want a higher version** — close this and run the release again with a higher version number "
+            "(a release can only ever go up, never down).",
+            "- **Something's missing** — if you know you changed something that is not listed above (for "
+            "example you removed a capability but do not see it here), close this and run the release again "
+            "with the version you know it should be. The summary can only show changes it can detect "
+            "mechanically, so your own knowledge of what you shipped is the backstop.",
+            "",
+            "_Closing this pull request leaves behind the `release/…` branch it was opened from. That branch "
+            "is not a release — nothing is released until you merge — and it is safe to delete._"]
+    return "\n".join(out)
+
+
 # --------------------------------------------------------------------------- CLI
 def _cmd_propose(args) -> int:
     baseline = resolve_baseline()
-    proposal = classify(baseline, args.baseline_tree)
+    tree, cleanup = _baseline_tree_for(baseline, args.baseline_tree)
+    try:
+        proposal = classify(baseline, tree)
+    finally:
+        if cleanup:
+            shutil.rmtree(cleanup, ignore_errors=True)
     if args.json:
         print(json.dumps(proposal, indent=2))
     else:
         print(_render_proposal(proposal))
+    return 0
+
+
+def _cmd_pr_body(args) -> int:
+    proposal = validate.load_json(args.proposal)
+    applied = validate.load_json(args.applied)
+    print(render_pr_body(proposal, applied, args.gate_state))
     return 0
 
 
@@ -559,10 +706,18 @@ def main(argv: list) -> int:
     pa.add_argument("--proposal", help="a proposal JSON from `propose` to enforce the confirmed floor against")
     pa.add_argument("--dry-run", action="store_true", help="compute + validate but write nothing")
     pa.add_argument("--json", action="store_true")
+    pb = sub.add_parser("pr-body", help="render the release pull-request body from a proposal + apply-result")
+    pb.add_argument("--proposal", required=True, help="the proposal JSON written by `propose --json`")
+    pb.add_argument("--applied", required=True, help="the result JSON written by `apply --json`")
+    pb.add_argument("--gate-state", default="sub-bar", choices=["passed", "sub-bar", "errored"],
+                    help="the acceptance-benchmark outcome to render (only 'sub-bar' is reachable until the "
+                         "benchmark is built)")
     args = ap.parse_args(argv)
     try:
         if args.cmd == "propose":
             return _cmd_propose(args)
+        if args.cmd == "pr-body":
+            return _cmd_pr_body(args)
         return _cmd_apply(args)
     except Exception as exc:  # plain-language failure, never a traceback (release-process §6)
         print(f"\nRELEASE-CUT ERROR: {exc}", file=sys.stderr)

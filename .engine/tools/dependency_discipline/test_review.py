@@ -131,6 +131,23 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(len(fs), 1)
         self.assertEqual(fs[0]["severity"], "hard")
 
+    def test_workflow_action_unidentifiable_license_is_not_blocked(self):
+        # a GitHub Action (declared in a workflow file) carries no SPDX license in GitHub's graph, so its
+        # 'unknown' license must NOT block — else every new workflow is permanently un-mergeable.
+        action = {"change_type": "added", "manifest": ".github/workflows/release.yml",
+                  "name": "actions/checkout", "version": "v7.0.0", "license": "NOASSERTION", "vulnerabilities": []}
+        self.assertEqual(self._find(_Canned([action], visibility="public")), [],
+                         "a workflow action's unidentifiable license must not block (license carve-out)")
+
+    def test_vulnerable_workflow_action_still_blocks(self):
+        # the carve-out is LICENSE-only: a vulnerable action running in CI is a real supply-chain risk.
+        action = {"change_type": "added", "manifest": ".github/workflows/release.yml",
+                  "name": "evil/action", "version": "v1", "license": "NOASSERTION", "vulnerabilities": [_ADVISORY]}
+        fs = self._find(_Canned([action], visibility="public"))
+        self.assertEqual(len(fs), 1)
+        self.assertEqual(fs[0]["severity"], "hard")
+        self.assertIn("GHSA-test-1234", fs[0]["message"])
+
     def test_copyleft_blocks_hard_on_private(self):
         fs = self._find(_Canned([_COPYLEFT_CHANGE], visibility="private"))
         self.assertEqual(len(fs), 1)
