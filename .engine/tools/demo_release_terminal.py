@@ -114,6 +114,23 @@ def main() -> int:
            and len(failing.created_refs()) == 1 and "re-run" in r4.get("recovery", "").lower()
            and bool(failing.comments()) and "did not finish" in failing.comments()[0])
 
+    # 5. TRANSIENT-FAILURE LEGIBILITY -------------------------------------------------------------
+    #    A GitHub read failure mid-publish (a transient blip) must STILL reach the merged PR with a plain
+    #    recovery — not vanish into a red Actions run the maintainer never opens.
+    blip = _FakeGitHub(latest="__none__")
+    _orig = blip.transport
+
+    def _flaky(method, path, body=None):
+        if path.endswith("/releases/latest"):
+            return 500, None                 # an unexpected read failure -> the client raises PublishError
+        return _orig(method, path, body)
+    r5 = rt.run(rt.TerminalCutClient("acme/engine-home", "tok", transport=_flaky), "0.1.0", COMMIT, pr_number=11)
+    print("\n5. TRANSIENT-FAILURE LEGIBILITY (GitHub unreachable mid-publish)")
+    print(f"   published={r5['published']}  reason={r5.get('reason')}")
+    print(f"   the failure still reached the PR = {blip.comments()[:1] and 'did not finish' in blip.comments()[0]}")
+    ok &= (not r5["published"] and r5["reason"] == "errored"
+           and bool(blip.comments()) and "did not finish" in blip.comments()[0])
+
     print("\n" + ("DEMO PASSED: the publisher tagged the exact merge commit, published the Release, no-op'd an "
                   "already-published re-run, refused a wrong-commit tag without overwriting it, and surfaced a "
                   "failed publish with a plain re-run recovery on the pull request."

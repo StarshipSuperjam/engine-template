@@ -17,14 +17,15 @@ The §6 invariants this enforces:
   * The tag lands on the EXACT reviewed merge commit. `POST /releases` with `target_commitish` is
     documented "unused if the git tag already exists," so a dangling tag at a wrong commit would be
     silently honored — defeating the guarantee. Instead the tag is created via the Git Data API
-    (`POST /git/refs`, pinned to the merge SHA — the `backup_vault._create_tag` primitive), and an
-    existing tag's REAL commit is resolved (`/git/ref/tags/…`, annotated tags dereferenced) and
+    (`POST /git/refs`, pinned to the merge SHA — the `memory/backup_vault._create_tag` primitive), and
+    an existing tag's REAL commit is resolved (`/git/ref/tags/…`, annotated tags dereferenced) and
     compared: a tag on a different commit is REFUSED, never overwritten.
   * Atomic-or-loudly-incomplete. Tag-create and Release-create are two steps; a re-run CONVERGES —
     keyed on the tag's real resolved SHA it completes a half-done publish (tag made, Release missing)
-    rather than double-failing, and a fully-done publish is a clean no-op. Every non-success path exits
-    non-zero with a plain-language recovery (no traceback) AND posts that recovery to the merged PR,
-    because the Actions run log is not where a non-engineer looks after merging.
+    rather than double-failing, and a fully-done publish is a clean no-op. Every non-success outcome —
+    a refusal, an unfinished publish, or a transient read/transport failure — exits non-zero with a
+    plain-language recovery (no traceback) AND (when a PR number is present) posts that recovery to the
+    merged PR, because the Actions run log is not where a non-engineer looks after merging.
   * The version actually moved. Before publishing, the version is checked strictly-greater than the
     repo's current `/releases/latest` (first cut — no latest — is allowed). This makes "it moved" a
     real gate, not an accident of the idempotency probe, and refuses an arbitrary/typo version or a
@@ -116,7 +117,7 @@ class TerminalCutClient:
 
     def create_tag_ref(self, tag: str, commit_sha: str) -> "int | None":
         """Create refs/tags/<tag> -> commit_sha via the Git Data API (pins the EXACT commit; the
-        backup_vault._create_tag primitive). Returns the HTTP status: 200/201 created; 409/422 a name
+        memory/backup_vault._create_tag primitive). Returns the HTTP status: 200/201 created; 409/422 a name
         collision (a ref already exists — the caller re-resolves and compares, never overwrites)."""
         status, _ = self._transport("POST", f"/repos/{self.repo}/git/refs",
                                      {"ref": f"refs/tags/{tag}", "sha": commit_sha})
@@ -156,21 +157,32 @@ def _release_notes(tag: str) -> str:
             f"{release_cut._gate_path_line('sub-bar')}")
 
 
-def _comment_body(result: dict) -> str:
+def _rerun_hint(run_url: "str | None") -> str:
+    """How to finish an unfinished publish, in terms a non-engineer can act on: a direct link to re-run when
+    the workflow passed its run URL, else where to find the control (the Actions tab is not where he starts)."""
+    if run_url:
+        return f" To finish it, re-run this workflow here: {run_url} — re-running is safe."
+    return (" To finish it, open this repository's **Actions** tab, find the most recent "
+            "\"Publish a merged engine release\" run, and re-run it — re-running is safe.")
+
+
+def _comment_body(result: dict, run_url: "str | None" = None) -> str:
     """The plain-language comment posted back to the merged release PR — the legible surface a non-engineer
-    actually sees after merging (the Actions run log is not). One home for the release/failure prose; the
-    same `message`/`recovery` the CLI prints, so the two never diverge."""
+    actually sees after merging (the Actions run log is not). One home for the release/failure prose. Every
+    non-success outcome — including a transient read/transport failure (`errored`) — lands here with a
+    recovery, so the §6 legibility promise holds on the PR for every path, not only the decided refusals."""
     tag = result.get("tag") or "the new version"
     if result.get("published"):
         if result.get("reason") == "already-published":
-            return (f"**Engine version {tag} is already released.** This run found it already published and "
-                    f"made no change — nothing to do.")
+            return (f"**Engine version {tag} was already published**, so nothing changed — there is nothing "
+                    f"for you to do.")
         return (f"**Engine version {tag} is now released.** Your instances can upgrade to it. "
                 f"You do not need to do anything else.")
-    if result.get("reason") in ("tag-create-failed", "release-create-failed"):
-        return (f"**The version was merged, but publishing {tag} did not finish.** {result.get('message', '')} "
-                f"You can re-run this workflow run to finish it — re-running is safe, and nothing else you did "
-                f"is lost.")
+    # the "did not finish" family — a failed tag/Release step, or a transient failure while checking state.
+    # The version merged but no release landed; the maintainer is told, on the PR, how to finish it safely.
+    if result.get("reason") in ("tag-create-failed", "release-create-failed", "errored"):
+        return (f"**The version was merged, but publishing {tag} did not finish.** {result.get('message', '')}"
+                f"{_rerun_hint(run_url)} Nothing else you did is lost.")
     if result.get("reason") == "nothing-to-publish":
         return (f"**No release was published.** {result.get('message', '')} This is expected if this branch "
                 f"did not set a new engine version.")
@@ -216,7 +228,7 @@ def publish(client: TerminalCutClient, engine_release: str, commit_sha: str) -> 
             return {"published": False, "reason": "not-newer", "tag": tag,
                     "message": f"version {tag} is older than the current latest release {latest}, so it was "
                                f"not published (a release can only ever go up).",
-                    "recovery": "if this should be a new release, cut it again with a higher version number."}
+                    "recovery": "if this should be a new release, run the release again with a higher version number."}
 
     # 4. the tag must land on the EXACT reviewed merge commit (Git Data API, not target_commitish).
     existing_sha = client.tag_commit_sha(tag)
@@ -262,14 +274,26 @@ def _bare(tag: str) -> str:
     return tag[1:] if tag.startswith("v") else tag
 
 
-def run(client: TerminalCutClient, engine_release: str, commit_sha: str, pr_number: "int | None") -> dict:
+def run(client: TerminalCutClient, engine_release: str, commit_sha: str, pr_number: "int | None",
+        run_url: "str | None" = None) -> dict:
     """Publish, then announce the outcome on the merged PR (both success AND failure — the §6 legibility
     surface). A comment failure is NOTED, never allowed to flip the publish verdict: the published Release
     is the durable success artifact, and a missing comment is a legibility gap, not a publish failure."""
-    result = publish(client, engine_release, commit_sha)
+    try:
+        result = publish(client, engine_release, commit_sha)
+    except PublishError as exc:
+        # a read/transport failure mid-publish (an unreachable host or an unexpected status while checking
+        # the release/tag state) — the most likely real-world failure, a transient GitHub blip. Convert it to
+        # a loud result so the recovery STILL reaches the merged PR (the §6 legibility promise holds for this
+        # path too, not only the decided refusals — the raise otherwise reaches only the Actions log).
+        result = {"published": False, "reason": "errored", "tag": None,
+                  "message": "publishing did not finish — GitHub could not be reached or returned an "
+                             "unexpected error while checking the release.",
+                  "recovery": "re-running is safe and nothing you did is lost.",
+                  "error_detail": str(exc)}
     if pr_number:
         try:
-            status = client.post_pr_comment(pr_number, _comment_body(result))
+            status = client.post_pr_comment(pr_number, _comment_body(result, run_url))
             result["announced"] = isinstance(status, int) and status < 400
             if not result["announced"]:
                 result["announce_error"] = f"GitHub returned {status} posting the comment"
@@ -306,9 +330,10 @@ def _cmd_publish(args) -> int:
         return 2
     engine_release = engine.get("engine_release", SENTINEL)
     pr_number = int(args.pr) if args.pr else None
+    run_url = os.environ.get("RUN_URL", "").strip() or None   # the workflow's own run URL, for a re-run link
 
     client = TerminalCutClient(repo, token)
-    result = run(client, engine_release, args.commit, pr_number)
+    result = run(client, engine_release, args.commit, pr_number, run_url=run_url)
 
     # plain-language outcome to the run log (the PR comment carries the same words to the maintainer)
     print(result.get("message", ""))

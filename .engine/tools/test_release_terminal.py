@@ -246,6 +246,14 @@ class Prose(unittest.TestCase):
         self.assertIn("released", published.lower())
         self.assertIn("did not finish", failed.lower())
 
+    def test_a_did_not_finish_comment_links_the_run_url_when_present_else_names_the_actions_tab(self):
+        failed = {"published": False, "reason": "errored", "tag": None, "message": "GitHub was unreachable."}
+        with_url = rt._comment_body(failed, run_url="https://gh.example/run/9")
+        without = rt._comment_body(failed)
+        self.assertIn("https://gh.example/run/9", with_url)   # a direct re-run link when the workflow passes it
+        self.assertIn("Actions", without)                     # else point at where the control lives
+        self.assertIn("did not finish", with_url.lower())
+
 
 class ExitCode(unittest.TestCase):
     def test_published_and_noop_are_zero_refusals_are_one(self):
@@ -253,6 +261,31 @@ class ExitCode(unittest.TestCase):
         self.assertEqual(rt._exit_code({"published": False, "reason": "nothing-to-publish"}), 0)
         self.assertEqual(rt._exit_code({"published": False, "reason": "not-newer"}), 1)
         self.assertEqual(rt._exit_code({"published": False, "reason": "release-create-failed"}), 1)
+
+
+class RaisedFailureLegibility(unittest.TestCase):
+    """A transient read/transport failure (a PublishError raised mid-publish) must STILL reach the merged PR
+    with a plain recovery — the §6 legibility promise holds for the raise-path, not only decided refusals."""
+
+    def _flaky_on_latest(self, fake):
+        orig = fake.transport
+
+        def flaky(method, path, body=None):
+            if path.endswith("/releases/latest"):
+                return 500, None            # an unexpected read failure -> the client raises PublishError
+            return orig(method, path, body)
+        return flaky
+
+    def test_a_transient_read_failure_still_comments_the_recovery_on_the_pr(self):
+        fake = _FakeGitHub(latest="__none__")
+        client = rt.TerminalCutClient("acme/engine-home", "tok", transport=self._flaky_on_latest(fake))
+        r = rt.run(client, "0.1.0", COMMIT, pr_number=42)
+        self.assertFalse(r["published"])
+        self.assertEqual(r["reason"], "errored")            # converted to a loud result, not propagated away
+        self.assertEqual(rt._exit_code(r), 1)               # a loud non-zero stop
+        bodies = fake.comment_bodies()
+        self.assertEqual(len(bodies), 1)                    # the recovery reached the PR (the §6 promise)
+        self.assertIn("did not finish", bodies[0])
 
 
 class LatestReadFailure(unittest.TestCase):

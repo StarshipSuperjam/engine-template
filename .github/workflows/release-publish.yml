@@ -67,6 +67,9 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          # This run's own URL, so a failed publish can give the maintainer a direct "re-run it here" link in
+          # the plain-language comment it posts back onto the merged pull request.
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           uv run --directory .engine --frozen -- python tools/release_terminal.py publish \
