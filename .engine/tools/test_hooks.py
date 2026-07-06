@@ -29,6 +29,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -113,10 +114,12 @@ class TestInterpreterPath(unittest.TestCase):
         # ${CLAUDE_PROJECT_DIR}-rooted venv interpreter named as its first argument, then the
         # ${CLAUDE_PROJECT_DIR}-rooted script. The wait/exec mechanics live in the launcher; the command
         # stays legible. Byte-exact so a drift is caught.
+        # The script PATH token is double-quoted (#390) so a spaced project dir does not word-split; the
+        # interpreter and launcher tokens have always been quoted. Hand-derived to the intended form.
         self.assertEqual(
             hooks.hook_command("tools/some_hook.py", "posix"),
             'sh "${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh" '
-            '"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" ${CLAUDE_PROJECT_DIR}/tools/some_hook.py')
+            '"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" "${CLAUDE_PROJECT_DIR}/tools/some_hook.py"')
 
 
 class TestHookCommandWaitWrapper(unittest.TestCase):
@@ -164,12 +167,47 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
         self.assertIn(".engine/.venv/Scripts/python.exe",
                       hooks.hook_command(".engine/tools/boot.py", "nt"))
 
-    def test_trailing_args_survive_the_unquoted_tail(self):
-        # the footgun guard: the arg word (` hook` / ` accept-hook`) stays the final, word-splittable token.
-        self.assertTrue(hooks.hook_command(".engine/tools/knowledge_gen.py hook", "posix")
-                        .rstrip().endswith(" hook"))
-        self.assertTrue(hooks.hook_command(".engine/tools/modes.py accept-hook", "posix")
-                        .rstrip().endswith(" accept-hook"))
+    def test_trailing_args_stay_bare_words_after_the_quoted_path(self):
+        # the footgun guard, post-#390: the script PATH is now double-quoted, but the arg word (` hook` /
+        # ` accept-hook`) stays OUTSIDE the quotes as the final, word-splittable token — so it still reaches
+        # the launcher as its own positional param. The two conditions together (quoted path, bare arg) are
+        # exactly what makes both a spaced project dir AND arg-passing work.
+        kg = hooks.hook_command(".engine/tools/knowledge_gen.py hook", "posix")
+        self.assertTrue(kg.rstrip().endswith('knowledge_gen.py" hook'), kg)   # path quoted, arg bare
+        modes = hooks.hook_command(".engine/tools/modes.py accept-hook", "posix")
+        self.assertTrue(modes.rstrip().endswith('modes.py" accept-hook'), modes)
+
+    def test_spaced_project_dir_delivers_the_intact_script_path_and_arg(self):
+        # #390 regression, driven through the REAL committed launcher and the REAL `sh -c` substitution:
+        # a project directory whose path contains a space used to word-split the UNQUOTED script tail, so the
+        # launcher forwarded a truncated path, python exited 2, and the platform read that exit-2 as a
+        # fail-CLOSED BLOCK on every tool call and turn-end. This runs the rendered command under `sh -c`
+        # with a spaced ${CLAUDE_PROJECT_DIR} and an ARG-BEARING wire, and asserts the interpreter receives
+        # the WHOLE spaced path as ONE argument plus the arg. It FAILS on the pre-#390 unquoted form (the
+        # path would split into two args, yielding three output lines), which is what makes it a real
+        # falsification rather than a string-shape assertion.
+        with tempfile.TemporaryDirectory() as base:
+            proj = os.path.join(base, "my project")                     # the space is the whole point
+            tools_dir = os.path.join(proj, ".engine", "tools")
+            venv_bin = os.path.join(proj, ".engine", ".venv", "bin")
+            os.makedirs(tools_dir)
+            os.makedirs(venv_bin)
+            shutil.copy(self.WRAPPER, os.path.join(tools_dir, "hook-runner.sh"))   # the real launcher
+            interp = os.path.join(venv_bin, "python")                   # a stub that echoes each argv word
+            with open(interp, "w") as fh:
+                fh.write('#!/bin/sh\nfor a in "$@"; do printf \'%s\\n\' "$a"; done\n')
+            os.chmod(interp, 0o755)
+            open(os.path.join(tools_dir, "modes.py"), "w").close()      # a stub script so the path exists
+
+            cmd = hooks.hook_command(".engine/tools/modes.py accept-hook", "posix")
+            r = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, timeout=10,
+                               env={**os.environ, "CLAUDE_PROJECT_DIR": proj,
+                                    "ENGINE_HOOK_WAIT_POLLS": "3", "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(
+                r.stdout.splitlines(),
+                [os.path.join(proj, ".engine/tools/modes.py"), "accept-hook"],
+                "the interpreter must receive the intact spaced script path as ONE arg, then the bare arg")
 
     def test_launcher_waits_then_execs_when_the_interpreter_appears_late(self):
         # the race, simulated deterministically against the REAL committed launcher: the interpreter is
