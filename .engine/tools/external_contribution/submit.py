@@ -236,8 +236,8 @@ def _unverified_narration(upstream_repo: str) -> str:
     return (
         f"I couldn't read what this contribution would carry to {upstream_repo} — git didn't answer, so I "
         "can't check whether any of the Engine's own files would ride along. I won't tell you it's clean when "
-        "I couldn't look, and I won't open a pull request on a project you don't own on a diff I couldn't "
-        "inspect. This is usually a temporary git hiccup; sort that out and tell me, and I'll re-check."
+        "I couldn't look, and I won't open a pull request on a project you don't own on a change I couldn't "
+        "check. This is usually a temporary git hiccup; sort that out and tell me, and I'll re-check."
     )
 
 
@@ -305,9 +305,13 @@ def _unverified_record(now: str) -> dict:
     no `location` (nothing to point at — the diff itself is what could not be read)."""
     return {
         "source_id": "external-contribution/unverified-diff",
+        # This message is operator-facing: telemetry.issue_title uses its first sentence verbatim and
+        # issue_body embeds it. Keep it plain-language (no "diff"/backstage vocabulary), matching the
+        # in-session narration and the sibling stalled-submission record.
         "severity": telemetry.PERSISTENT_BENIGN,
-        "message": "Could not read the outgoing diff (git was unavailable), so the contribution's cleanliness "
-                   "could not be verified; the submission was held rather than opened on an unchecked diff.",
+        "message": "Couldn't check what a contribution would carry before opening it, because git wasn't "
+                   "available. The submission was held rather than opened without that check — nothing was "
+                   "sent.",
         "location": None,
         "first_seen": now,
         "last_seen": now,
@@ -571,9 +575,10 @@ def demo() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("DEMO PASSED — a leaked engine file halts the submission; a clean contribution is only PREPARED "
-          "until you authorize it; on your go-ahead it opens following the host's template (or the engine's "
-          "fallback shape); and an unreachable upstream degrades to a drafted submission, nothing lost.")
+    print("DEMO PASSED — an unreadable diff is held rather than narrated clean or opened; a leaked engine "
+          "file halts the submission; a clean contribution is only PREPARED until you authorize it; on your "
+          "go-ahead it opens following the host's template (or the engine's fallback shape); and an "
+          "unreachable upstream degrades to a drafted submission, nothing lost.")
     return 0
 
 

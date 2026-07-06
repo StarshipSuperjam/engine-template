@@ -5302,7 +5302,7 @@
       },
       "slug": "projects_sync",
       "source": {
-        "fingerprint": "sha256:158a9d7dd2185251a74f2934c2113ddbe96d2d22e698026d4ddb92f3f20c4a8f",
+        "fingerprint": "sha256:d6fa32d897b44a1a6c70c9937c8df7660796ca5b1b978e07eec57993cdd3e126",
         "path": ".engine/tools/projects_sync/projects_sync.py"
       },
       "status": "active",
@@ -5659,7 +5659,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:c9addbf576ff53cbc347c153533152830dcb03899755e33ce7387115a90549eb",
+        "fingerprint": "sha256:95cb346dbe3710c2f4bf6bb575175e0aff3d32321bc7edb41de65f42b2b9bea4",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",

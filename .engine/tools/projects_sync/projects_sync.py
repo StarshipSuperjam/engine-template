@@ -599,18 +599,23 @@ def _demo_body() -> int:
                                     "acme/widgets", "engine")
     if disc != ["ISSUE_1", "ISSUE_2"]:
         failures.append(f"item discovery did not resolve engine node ids: {disc}")
-    # A never-configured board is a SILENT no-op (anti-nag).
-    if sync(force=True, config=None, signals=signals, gql=gql, items=[]).get("status") != NOT_CONFIGURED:
-        # config=None falls through to load_config(); in a clean checkout there is no board file
-        pass
+    # A never-configured board no-ops, but now DISCLOSES the plain-language setup next step (it used to be
+    # silent). Under the throwaway ROOT there is no board config, so drive the REAL SessionStart handler and
+    # prove it surfaces the setup step rather than staying silent.
+    nc = sync(force=True, config=None, signals=signals, gql=gql, items=[])
+    if nc.get("status") != NOT_CONFIGURED:
+        failures.append(f"a never-configured board should be NOT_CONFIGURED, got {nc.get('status')}")
+    decided = _session_start_handler({"session_id": "demo"})
+    if decided.get("action") != "inject" or "engine-board-setup" not in decided.get("context", ""):
+        failures.append(f"a never-configured board should surface the setup step, got {decided}")
 
     if failures:
         print("DEMO FAILED — the projection broke an invariant:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("DEMO PASSED — the engine wrote only its own fields on its own labeled items, idempotently, and "
-          "degraded cleanly on a board error.")
+    print("DEMO PASSED — the engine wrote only its own fields on its own labeled items, idempotently, "
+          "degraded cleanly on a board error, and a never-configured board surfaced its setup next step.")
     return 0
 
 
