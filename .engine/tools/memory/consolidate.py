@@ -77,6 +77,11 @@ _BACKLOG_ALARM_THRESHOLD = 5             # build-spec leaf: the tidy-up runs off
                                          # this deep means the tidy has stalled, so the MAIN loop breaks silence
                                          # with ONE plain line — a silent failure must not hide (the
                                          # 21-untidied-sessions failure mode, PR #203).
+_MAX_TAGS = 8                            # build-spec leaf (#235): the reject-not-coerce ceiling on the
+                                         # topic/entity tags the AI may attach to one summary. The directive asks
+                                         # for 1–4; 8 is the hard cap so a summary is anchored by a few stable
+                                         # topics, never a tag dumping-ground that would blur cross-session
+                                         # relatedness (the tags are what roll-up later clusters on).
 
 
 # --- Reading the raw notes (what the AI consolidates) -----------------------------------------
@@ -133,9 +138,11 @@ def detect_unconsolidated(live_session_id=None, *, cwd=None) -> list:
 # --- Writing the tidied summaries (idempotent, race-safe, reject-not-coerce) -------------------
 
 def _validate(records) -> "str | None":
-    """None if every record is a well-formed {role in the closed vocabulary, non-empty text}; else a plain
-    rejection reason. REJECT-not-coerce and WHOLE-BATCH-atomic: one bad record stores nothing (the engine
-    never silently guesses a label it was not given)."""
+    """None if every record is a well-formed {role in the closed vocabulary, non-empty text, and — if present —
+    a `tags` list of ≤ `_MAX_TAGS` non-empty strings}; else a plain rejection reason. REJECT-not-coerce and
+    WHOLE-BATCH-atomic: one bad record stores nothing (the engine never silently guesses a label, nor quietly
+    drops a malformed tag list, that it was not given cleanly). `tags` absent or empty is valid — a thread with
+    no clear topic stays untagged rather than forcing an invented tag (#235)."""
     if not isinstance(records, (list, tuple)) or not records:
         return "no summaries to store"
     for i, rec in enumerate(records):
@@ -147,6 +154,14 @@ def _validate(records) -> "str | None":
         text = rec.get("text")
         if not isinstance(text, str) or not text.strip():
             return f"summary {i} has empty text"
+        tags = rec.get("tags")
+        if tags is not None:
+            if not isinstance(tags, (list, tuple)):
+                return f"summary {i} has a tags field that is not a list"
+            if len(tags) > _MAX_TAGS:
+                return f"summary {i} has more than {_MAX_TAGS} tags"
+            if not all(isinstance(t, str) and t.strip() for t in tags):
+                return f"summary {i} has a malformed tag (each tag must be a non-empty string)"
     return None
 
 
@@ -158,6 +173,7 @@ def _make_episodic(session_id: str, rec: dict, batch: str) -> dict:
     now = int(time.time())
     tags = [DEFAULT_EPISODIC_TAG]
     for t in rec.get("tags") or []:
+        t = t.strip() if isinstance(t, str) else t   # store stripped so " rollup " and "rollup" cluster as one (#235)
         if isinstance(t, str) and t and t not in tags:
             tags.append(t)
     out = {
@@ -271,11 +287,18 @@ def _consolidation_directive(pending: list) -> str:
         "notes, write a short compact summary of each meaningful thread (what was explored; what was decided "
         "or rejected, and why; what the operator prefers or learned), choose ONE label per summary from "
         f"{{{', '.join(ROLE_VOCABULARY)}}}. "
+        "For each summary ALSO assign a short list of topic/entity tags — 1 to 4 lowercase tokens naming what "
+        "the thread is ABOUT (a subsystem, feature, file area, or concept, e.g. `rollup`, `erasure`, "
+        "`backup`), plus any Engine entity it names verbatim (an eADR/eDEC id like `eADR-0031`, kept in its "
+        "canonical case). These tags are what a later pass uses to relate notes ACROSS sessions; they are NOT "
+        "the label. Prefer stable nouns you would reuse across sessions over one-off phrases, keep the whole "
+        "list to at most 8 tags, and omit the list rather than invent a tag. "
         "If the operator explicitly asked to remember something (\"remember X\", \"always do Y\"), the "
         "subagent must preserve THAT as its own summary typed `preference` — a durable operator instruction, "
         "never folded into another thread's summary and never dropped as a passing note. The subagent then "
         "stores the summaries with `… consolidate.py store <session-id>` (a JSON array of "
-        "{\"role\": …, \"text\": …} on stdin). This is reflection, not re-litigation — be terse. The "
+        "{\"role\": …, \"text\": …, \"tags\": [\"…\", …]} on stdin; tags may be an empty list). This is "
+        "reflection, not re-litigation — be terse. The "
         "operator's request always comes first; the subagent keeps the mechanics off the main transcript — "
         "but do it this session, not someday."
     )
@@ -455,9 +478,13 @@ def _demo_body() -> bool:
     out = _filed_summary(capture._demo_distinctive_word(_DEMO_SUMMARY_A["text"]))
     print(f"  Stored: {report}")
     if out:
+        topics = [t for t in out.get("tags", []) if t != DEFAULT_EPISODIC_TAG]
         print(f"    label:   {out['role']}")
         print(f"    summary: {out['text']}")
-    print("  => The filing around the AI's summary works (stored, labelled, readable back). Whether the")
+        print(f"    topics:  {topics}   (the topic tags the AI would assign — like the summary, these are a")
+        print("             hand-written SAMPLE here; kept out of search text, they are what a later roll-up")
+        print("             pass uses to relate this note to others ACROSS sessions)")
+    print("  => The filing around the AI's summary works (stored, labelled, TAGGED, readable back). Whether the")
     print("     summary itself is GOOD is judged live on your real sessions.")
 
     print("\nPART 2 — a tidied summary is findable by its own words")
