@@ -14,13 +14,20 @@ Capturing the demo's stdout AT THE CALL SITE makes the first run clean on ANY in
 not, `discover` or single-file — so the flag is no longer load-bearing for a legible summary. (`-b`
 stays the CI default as general belt-and-suspenders; this just stops a dropped flag from mattering.)
 
-Pass the demo function as a REFERENCE — `quiet_call.run(demo_x.some_fn)` — never a call
-(`demo_x.some_fn()`): a direct call prints before the helper can capture it. The durability guard in
-test_quiet_call.py fails the suite if any `test_*.py` calls a demo function directly again, so the
-clean-first-run property is enforced, not just cleaned up once.
+Pass the callable as a REFERENCE — `quiet_call.run(demo_x.some_fn)` — never a call
+(`demo_x.some_fn()`): a direct call prints before the helper can capture it.
 
-stdout only: stderr is left alone, so a demo's failure diagnostic — and its non-zero return — still
-reach the runner; only the success-path walkthrough is captured and discarded.
+Scope of the durability guard (test_quiet_call.py): it keys on the `demo_*` MODULE NAME, so it fails the
+suite only if a `test_*.py` calls a `demo_*`-module function directly again. It does NOT cover a tool's
+own printing leg reached under its real name — `pinning.demo()`, `compact._demo_trigger()`,
+`modes.main(["set-build"])`, `audit_digest.main(["seal", …])`, etc. For those shapes the capture here is a
+convention this helper provides, not a guarded invariant; a future test that adds such a leg unwrapped
+re-floods with nothing red to stop it (the deliberate wrap-only scope — the reminder lives in build memory).
+
+stdout only: stderr and exceptions are left alone, so a crashing demo still fails loudly. But a demo that
+signals failure by RETURN VALUE while printing its diagnostic to stdout (e.g. compact.py's `!!!` lines) has
+that diagnostic captured too — the test still fails on the return value, but to read the walkthrough behind
+a bare `1 != 0`, re-run the demo directly (each is `__main__`-runnable).
 """
 from __future__ import annotations
 

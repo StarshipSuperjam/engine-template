@@ -17,6 +17,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import boot_slice          # noqa: E402
+import quiet_call          # noqa: E402  (capture a CLI walkthrough's stdout so it can't bury the suite summary)
 import knowledge_query     # noqa: E402
 import knowledge_index     # noqa: E402
 import knowledge_gen       # noqa: E402
@@ -252,7 +253,7 @@ class TestShimContract(unittest.TestCase):
 
 class TestCli(unittest.TestCase):
     def test_status_and_unknown_command(self):
-        self.assertEqual(boot_slice.main(["status"]), 0)
+        self.assertEqual(quiet_call.run(boot_slice.main, ["status"]), 0)
         self.assertEqual(boot_slice.main(["bogus"]), 2)
 
 

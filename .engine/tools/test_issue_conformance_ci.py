@@ -23,6 +23,7 @@ import module_manager           # noqa: E402
 import issue_author             # noqa: E402
 import issue_gate               # noqa: E402
 import issue_conformance_ci as icc   # noqa: E402
+import quiet_call                     # noqa: E402  (capture a demo/CLI walkthrough's stdout so it can't bury the suite summary)
 
 WORKFLOW_REL = ".github/workflows/engine-issue-conformance.yml"
 
@@ -296,24 +297,24 @@ class TestRunFailContract(unittest.TestCase):
 
     def test_no_event_exits_zero(self):
         self._env()  # GITHUB_EVENT_PATH unset
-        self.assertEqual(icc.main([]), 0)
+        self.assertEqual(quiet_call.run(icc.main, []), 0)
 
     def test_non_engine_issue_exits_zero(self):
         path = self._event_file({"issue": {"number": 1, "labels": [{"name": "bug"}], "body": FREE_TEXT}})
         self._env(GITHUB_EVENT_PATH=path, GITHUB_TOKEN="tok", GITHUB_REPOSITORY="o/r")
-        self.assertEqual(icc.main([]), 0)
+        self.assertEqual(quiet_call.run(icc.main, []), 0)
 
     def test_engine_issue_without_token_exits_one(self):
         path = self._event_file({"issue": {"number": 1, "labels": ENGINE, "body": FREE_TEXT}})
         self._env(GITHUB_EVENT_PATH=path)  # engine-labelled but no token/repo → visible failure
-        self.assertEqual(icc.main([]), 1)
+        self.assertEqual(quiet_call.run(icc.main, []), 1)
 
     def test_conforming_engine_issue_exits_zero_without_network(self):
         # a conforming, unflagged engine Issue makes reconcile a pure no-op → no transport call → no network,
         # so _run returns 0 even with a dummy token.
         path = self._event_file({"issue": {"number": 1, "labels": ENGINE, "body": CONFORMING}})
         self._env(GITHUB_EVENT_PATH=path, GITHUB_TOKEN="dummy", GITHUB_REPOSITORY="o/r")
-        self.assertEqual(icc.main([]), 0)
+        self.assertEqual(quiet_call.run(icc.main, []), 0)
 
     def test_engine_issue_api_failure_exits_one(self):
         # the fail-LOUD contract: a token-present engine Issue whose GitHub write fails mid-reconcile must
@@ -323,12 +324,12 @@ class TestRunFailContract(unittest.TestCase):
         self._env(GITHUB_EVENT_PATH=path, GITHUB_TOKEN="tok", GITHUB_REPOSITORY="o/r")
         with mock.patch.object(icc.IssueConformanceClient, "_http",
                                lambda self, method, path, body=None: (500, None)):
-            self.assertEqual(icc.main([]), 1)
+            self.assertEqual(quiet_call.run(icc.main, []), 1)
 
 
 class TestDemo(unittest.TestCase):
     def test_demo_self_check_passes(self):
-        self.assertEqual(icc.main(["demo"]), 0)
+        self.assertEqual(quiet_call.run(icc.main, ["demo"]), 0)
 
 
 if __name__ == "__main__":

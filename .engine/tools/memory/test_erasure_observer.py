@@ -23,6 +23,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import hooks  # noqa: E402
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 from memory import compact, erasure_observer as obs, ledger, records  # noqa: E402
 
 _GOOD_SHA = "a1b2c3d4e5f600000000000000000000deadbeef"
@@ -404,7 +405,7 @@ class BatchEnactTests(_Base):
 
 class DemoTests(_Base):
     def test_demo_runs_clean(self):
-        self.assertEqual(obs._demo(), 0)
+        self.assertEqual(quiet_call.run(obs._demo), 0)
 
 
 if __name__ == "__main__":

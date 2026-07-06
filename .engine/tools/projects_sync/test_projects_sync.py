@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 import validate  # noqa: E402
 from projects_sync import projects_sync as ps  # noqa: E402
 
@@ -265,7 +266,7 @@ class TestHookHandler(_Base):
 
 class TestDemo(_Base):
     def test_demo_passes_clean(self):
-        self.assertEqual(ps._demo(), 0)
+        self.assertEqual(quiet_call.run(ps._demo), 0)
 
 
 if __name__ == "__main__":

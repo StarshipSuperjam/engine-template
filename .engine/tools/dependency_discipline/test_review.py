@@ -12,6 +12,7 @@ from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools on sys.path
 from dependency_discipline import review  # noqa: E402
+import quiet_call  # noqa: E402  (capture a demo walkthrough's stdout so it can't bury the suite summary)
 import validate  # noqa: E402
 
 
@@ -410,14 +411,14 @@ class ReviewGateTests(unittest.TestCase):
             self.assertIn("location", f)
 
     def test_main_routes_demo_and_bare_invocation(self):
-        self.assertEqual(review.main(["demo"]), 0)
+        self.assertEqual(quiet_call.run(review.main, ["demo"]), 0)
         buf = io.StringIO()
         with redirect_stdout(buf):
             self.assertEqual(review.main([]), 0)
         self.assertIsInstance(json.loads(buf.getvalue()), list)
 
     def test_demo_passes(self):
-        self.assertEqual(review.demo(), 0)
+        self.assertEqual(quiet_call.run(review.demo), 0)
 
     # --- the rule json declares the contract the script depends on --------------------------------
     def test_rule_json_declares_hard_pass_token_suites_and_allow_lists(self):
