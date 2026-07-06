@@ -603,24 +603,61 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
                            "(the release was refused or the result is malformed).")
     # the construction sentinel `0.0.0-dev` is internal — never surface it to the maintainer (see _version_lines)
     from_shown = "no earlier version" if from_engine == SENTINEL else from_engine
+    # The body carries the eight sections the pull-request-completeness gate requires (## Purpose … ##
+    # Claude involvement), each filled with release-appropriate content — so the release pull request the
+    # workflow opens passes the same completeness bar every engine pull request meets, rather than skipping
+    # it. The section names are the contract; the content is release-shaped.
     out = [f"# A new engine version: {from_shown} → {engine}", "",
-           "This pull request records a new version of your engine. **Merging it is your go-ahead to release "
-           f"{engine};** closing it releases nothing and changes none of your settings.", "",
-           "## What changed since the last release"]
-    for c in proposal.get("change_inventory", []):
-        out.append(f"- {c}")
-    impacts = proposal.get("impacts") or []
-    if impacts:
-        out += ["", "## Interface changes to read before you merge"]
-        for im in impacts:
-            out.append(f"- {im.get('what', '')}: {im.get('why', '')}")
-    out += ["", "## The versions this sets"] + _version_lines(applied)
+           "## Purpose",
+           f"This pull request records a new version of your engine: **{from_shown} → {engine}**. "
+           f"**Merging it is your go-ahead to release {engine};** closing it releases nothing and changes "
+           "none of your settings.",
+           "",
+           "## Scope",
+           "The versions this release sets:"]
+    out += _version_lines(applied)
     floor_v = proposal.get("engine_floor_version")
     if floor_v:
-        out.append(f"- The least this release could be is **{floor_v}** — that is what the changes above "
+        out.append(f"- The least this release could be is **{floor_v}** — that is what the changes below "
                    f"require; a higher version is fine, a lower one is not.")
-    out += ["", "## Release readiness", "", _gate_path_line(gate_state)]
-    out += ["", "## Before you merge",
+    out += ["", "What changed since the last release:"]
+    for c in proposal.get("change_inventory", []):
+        out.append(f"- {c}")
+    out += ["",
+            "## Out of scope",
+            "Merging records these versions and, once merged, publishes the release your instances can "
+            "upgrade to. It does **not** change how your engine behaves beyond the version stamp, does not "
+            "migrate any of your data, and does not touch your own settings or content. A release only ever "
+            "moves the version up, never down.",
+            "",
+            "## Risk",
+            _gate_path_line(gate_state)]
+    # A release the engine classifies as a major/breaking change (a removed capability, or a
+    # backward-incompatible interface change) carries its weight HERE, under the heading a cautious
+    # reviewer reads for "what's risky" — not only as a neutral line up in Scope.
+    if proposal.get("engine_floor_level") == "major":
+        out += ["", "**This release makes a breaking change.** Something an earlier version provided was "
+                "removed, or changed in a way that is not backward-compatible — so anything that relied on it "
+                "will need attention. What changed is listed under Scope above."]
+    impacts = proposal.get("impacts") or []
+    if impacts:
+        out += ["", "Interface changes to read before you merge:"]
+        for im in impacts:
+            out.append(f"- {im.get('what', '')}: {im.get('why', '')}")
+    else:
+        out += ["", "No changes to interface contract files were detected — this does not cover a removed "
+                "capability or a data migration, which would be listed under Scope. The summary can only show "
+                "changes it detects mechanically, so your own knowledge of what you shipped is the backstop "
+                "(see Review)."]
+    out += ["",
+            "## Validation",
+            "The version decision and the manifest write are produced by the engine's own release tooling "
+            "and checked by `engine-ci` on this pull request — the mechanical floor. A green check shows "
+            "this release conforms to the engine's rules (the versions agree across all the files that record "
+            f"them, the generated maps are in sync, this summary is complete); it does **not** judge whether {engine} "
+            "is the right version to release. That judgment is yours.",
+            "",
+            "## Review",
             f"- **Go ahead** — if the summary above matches what you built, merge this. That merge is your "
             f"consent to release {engine}.",
             "- **Want a higher version** — close this and run the release again with a higher version number "
@@ -629,6 +666,16 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
             "example you removed a capability but do not see it here), close this and run the release again "
             "with the version you know it should be. The summary can only show changes it can detect "
             "mechanically, so your own knowledge of what you shipped is the backstop.",
+            "",
+            "## Files of interest",
+            "This pull request records versions into `.engine/engine.json` and each installed module's "
+            "`.engine/modules/<id>/manifest.json`, and refreshes the generated maps that mirror them "
+            "(`.engine/knowledge/graph.json`, `.engine/self-map.md`). Those are the only files it changes.",
+            "",
+            "## Claude involvement",
+            "The engine's release workflow prepared this pull request: it computed the version, recorded it "
+            "into the manifests, regenerated the derived maps, and opened this for your review. The version "
+            "follows the engine's release process; nothing is published until you merge.",
             "",
             "_Closing this pull request leaves behind the `release/…` branch it was opened from. That branch "
             "is not a release — nothing is released until you merge — and it is safe to delete._"]
