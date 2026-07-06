@@ -2729,7 +2729,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:87c0ea35b291ee2b5d1319f19cc0df91f8b24d92228879300973f5c325d427cf",
+        "fingerprint": "sha256:ecb23bf5bcf55b5d956c7baee71a50d2a875ba482e1ce079cd497ad20c31b98c",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4131,6 +4131,23 @@
       "source": {
         "fingerprint": "sha256:bc9272c5c91a682c85ce8f0d0d2bf0cb1d9aa7889a9fb1764886141dc845cc0c",
         "path": ".engine/tools/close.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:close_linkage_preflight",
+      "name": ".engine/tools/close_linkage_preflight.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "close_linkage_preflight",
+      "source": {
+        "fingerprint": "sha256:3522265190ab1d640e75fe332ae0d58bda8175f0207966564739efdf41c3996a",
+        "path": ".engine/tools/close_linkage_preflight.py"
       },
       "status": "active",
       "type": "tool"
@@ -5916,6 +5933,23 @@
       "source": {
         "fingerprint": "sha256:e0b5c4f7115f1e564871185de851b666b5c3687619768bd0a949961c4b6bd692",
         "path": ".engine/tools/test_close.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_close_linkage_preflight",
+      "name": ".engine/tools/test_close_linkage_preflight.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_close_linkage_preflight",
+      "source": {
+        "fingerprint": "sha256:21c2130554fad6142e83f70d89626cb94072e7ad02af48de1bf6c0f8adde54a9",
+        "path": ".engine/tools/test_close_linkage_preflight.py"
       },
       "status": "active",
       "type": "tool"
