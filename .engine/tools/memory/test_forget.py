@@ -232,6 +232,15 @@ class EarnedConsolidatedRawTests(_Base):
         ledger.append(rec)
         return rec[records.RECORD_ID_KEY]
 
+    def _cross_gist(self, sentinel, source_ids, ts):
+        # a CROSS-SESSION gist (#235): its session_id is a `tag:`/`sim:` cluster sentinel, and its source_ids name
+        # the raw episodes (in real sessions) it rolled up.
+        rec = {"v": 1, "kind": records.GIST_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+               "session_id": sentinel, "ts": ts, "text": "a cluster gist", "tags": [records.GIST_TAG],
+               records.SOURCE_IDS_KEY: list(source_ids)}
+        ledger.append(rec)
+        return rec[records.RECORD_ID_KEY]
+
     def _reinforce(self, target_id, ts):
         ledger.append({"v": 1, "kind": records.REINFORCEMENT_KIND, records.RECORD_ID_KEY: records.new_record_id(),
                        records.TARGET_KEY: target_id, "ts": ts, "tags": [records.REINFORCEMENT_TAG]})
@@ -268,6 +277,36 @@ class EarnedConsolidatedRawTests(_Base):
         self._delta("G", "hi", self._settled() - self.DAY)
         self._reinforce(g, self.NOW - self.DAY)
         self.assertNotIn("G", self._earned())
+
+    def test_a_recalled_cross_session_gist_keeps_every_source_sessions_raw(self):
+        # #235: a cross-session gist carries a "tag:" sentinel, not a real session; its raws came from A and B.
+        # Recall on that ONE gist must veto erasure of BOTH sessions' turn-deltas — else fuel alive in an
+        # actively-recalled cluster gist would be erased. (The fix credits the gist via its source_ids.)
+        eA = self._episodic_at("A", "b1", self._settled())
+        self._marker_at("A", "b1", self._settled())
+        self._delta("A", "hi from A", self._settled() - self.DAY)
+        eB = self._episodic_at("B", "b2", self._settled())
+        self._marker_at("B", "b2", self._settled())
+        self._delta("B", "hi from B", self._settled() - self.DAY)
+        g = self._cross_gist("tag:auth", [eA, eB], self._settled())
+        self._reinforce(g, self.NOW - self.DAY)                    # the cluster gist is in active use
+        earned = self._earned()
+        self.assertNotIn("A", earned)
+        self.assertNotIn("B", earned)
+
+    def test_an_unrecalled_cross_session_gist_still_lets_settled_raw_be_earned(self):
+        # …and the credit is recall-gated, not a blanket block: an UN-recalled cross-session gist must not stop a
+        # settled session's raw from being earned (the fix must not over-veto).
+        eA = self._episodic_at("A", "b1", self._settled())
+        self._marker_at("A", "b1", self._settled())
+        dA = self._delta("A", "hi from A", self._settled() - self.DAY)
+        eB = self._episodic_at("B", "b2", self._settled())
+        self._marker_at("B", "b2", self._settled())
+        dB = self._delta("B", "hi from B", self._settled() - self.DAY)
+        self._cross_gist("tag:auth", [eA, eB], self._settled())    # present but NOT recalled
+        earned = self._earned()
+        self.assertEqual({r[records.RECORD_ID_KEY] for r in earned.get("A", [])}, {dA})
+        self.assertEqual({r[records.RECORD_ID_KEY] for r in earned.get("B", [])}, {dB})
 
     def test_injected_pseudo_turns_are_never_yielded(self):
         self._episodic_at("I", "b1", self._settled())

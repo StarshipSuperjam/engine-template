@@ -45,8 +45,11 @@ class _Base(unittest.TestCase):
             os.environ[ledger.ENV_DIR] = self._prev
         self._tmp.cleanup()
 
-    def _episodic(self, text, *, age_days=0, role="decision", session_id="S", batchless=True):
-        rec = consolidate._make_episodic(session_id, {"role": role, "text": text}, "b")
+    def _episodic(self, text, *, age_days=0, role="decision", session_id="S", batchless=True, tags=None):
+        payload = {"role": role, "text": text}
+        if tags is not None:
+            payload["tags"] = tags
+        rec = consolidate._make_episodic(session_id, payload, "b")
         if batchless:
             rec.pop(records.BATCH_KEY, None)
         rec["ts"] = int(time.time()) - age_days * _DAY
@@ -391,6 +394,102 @@ class DetectTests(_Base):
             self.assertNotIn(aged_gist, {r[records.RECORD_ID_KEY] for r in recs})
 
 
+class TagClusterDetectTests(_Base):
+    # #235: cold episodics that share a TOPIC tag across sessions pre-group into a `tag:<tag>` cross-session
+    # cluster, in precedence over the coarse per-session group. Fixtures plant tagged cold episodics directly.
+    def test_a_shared_tag_across_sessions_forms_a_cross_session_cluster(self):
+        ids = [self._episodic(f"auth note {i} word{i}", age_days=25, session_id=s, tags=["auth"])
+               [records.RECORD_ID_KEY] for i, s in enumerate(("A", "B", "C"))]
+        groups = rollup.detect_rollup_candidates()
+        self.assertIn("tag:auth", groups)
+        self.assertEqual({r[records.RECORD_ID_KEY] for r in groups["tag:auth"]}, set(ids))
+        for s in ("A", "B", "C"):                       # no single session reaches _MIN_GROUP on its own
+            self.assertNotIn(s, groups)
+
+    def test_a_same_session_only_tag_is_not_a_cross_session_cluster(self):
+        # three cold "auth" notes ALL in session S — a per-session group, never a tag cluster (fails _TAG_MIN_SESSIONS).
+        for i in range(3):
+            self._episodic(f"auth note {i} word{i}", age_days=25, session_id="S", tags=["auth"])
+        groups = rollup.detect_rollup_candidates()
+        self.assertNotIn("tag:auth", groups)
+        self.assertIn("S", groups)
+        self.assertEqual(len(groups["S"]), 3)
+
+    def test_the_structural_episodic_tag_never_clusters(self):
+        # cold notes across sessions carrying ONLY the structural "episodic" tag must not fuse into one cluster.
+        for i, s in enumerate(("A", "B", "C")):
+            self._episodic(f"note {i} word{i}", age_days=25, session_id=s)     # no topic tags
+        groups = rollup.detect_rollup_candidates()
+        self.assertFalse(any(k.startswith("tag:") for k in groups))
+
+    def test_untagged_same_session_grouping_is_unchanged(self):
+        # the legacy path: untagged cold notes still group by session exactly as before (guards the 175 legacy notes).
+        ids = self._raws(3, age_days=25, session_id="S")
+        groups = rollup.detect_rollup_candidates()
+        self.assertIn("S", groups)
+        self.assertEqual({r[records.RECORD_ID_KEY] for r in groups["S"]}, set(ids))
+        self.assertFalse(any(k.startswith("tag:") for k in groups))
+
+    def test_precedence_a_tag_cluster_claims_its_notes_from_the_session_group(self):
+        # S has 3 tagged + 3 untagged cold notes; a note in B shares the tag, so tag:auth is cross-session and
+        # claims S's three tagged notes. S's own group must then hold ONLY its untagged notes — disjoint source_ids.
+        auth = [self._episodic(f"auth S {i} w{i}", age_days=25, session_id="S", tags=["auth"])
+                [records.RECORD_ID_KEY] for i in range(3)]
+        plain = [self._episodic(f"plain S {i} w{i}", age_days=25, session_id="S")[records.RECORD_ID_KEY]
+                 for i in range(3)]
+        self._episodic("auth B word", age_days=25, session_id="B", tags=["auth"])
+        groups = rollup.detect_rollup_candidates()
+        self.assertIn("tag:auth", groups)
+        self.assertIn("S", groups)
+        cluster_ids = {r[records.RECORD_ID_KEY] for r in groups["tag:auth"]}
+        s_ids = {r[records.RECORD_ID_KEY] for r in groups["S"]}
+        self.assertTrue(set(auth) <= cluster_ids)          # the tagged notes went to the cluster
+        self.assertEqual(s_ids, set(plain))                # S keeps only its untagged notes
+        self.assertEqual(cluster_ids & s_ids, set())       # …and the two groups are disjoint
+        all_ids = [r[records.RECORD_ID_KEY] for recs in groups.values() for r in recs]
+        self.assertEqual(len(all_ids), len(set(all_ids)))  # every group's source ids are disjoint across the pass
+
+    def test_grouping_is_deterministic_derive_twice_and_compare(self):
+        # the grouping must be a pure function of the ledger — same ledger, same {key: sorted(ids)} both times,
+        # independent of dict/set iteration order (mirrors the repo's derive-twice flake idiom).
+        for i, s in enumerate(("A", "B", "C")):
+            self._episodic(f"auth {s} w{i}", age_days=25, session_id=s, tags=["auth", "billing"])
+            self._episodic(f"plain {s} w{i}", age_days=25, session_id=s)
+        first = {k: sorted(r[records.RECORD_ID_KEY] for r in v) for k, v in rollup.detect_rollup_candidates().items()}
+        second = {k: sorted(r[records.RECORD_ID_KEY] for r in v) for k, v in rollup.detect_rollup_candidates().items()}
+        self.assertEqual(first, second)
+
+    def test_a_note_with_two_tags_is_claimed_by_the_lexicographically_smallest(self):
+        # deterministic multi-tag tie-break: a note tagged both "auth" and "billing", each a valid cross-session
+        # cluster, is claimed by "tag:auth" (smaller key), never both.
+        shared = self._episodic("shared word0", age_days=25, session_id="A", tags=["auth", "billing"])[records.RECORD_ID_KEY]
+        for i, s in enumerate(("B", "C")):
+            self._episodic(f"auth {s} w{i}", age_days=25, session_id=s, tags=["auth"])
+            self._episodic(f"billing {s} w{i}", age_days=25, session_id=s, tags=["billing"])
+        groups = rollup.detect_rollup_candidates()
+        in_auth = shared in {r[records.RECORD_ID_KEY] for r in groups.get("tag:auth", [])}
+        in_billing = shared in {r[records.RECORD_ID_KEY] for r in groups.get("tag:billing", [])}
+        self.assertTrue(in_auth)
+        self.assertFalse(in_billing)
+
+
+class TagGistProvenanceTests(_Base):
+    # #235: rolling up a cross-session cluster stamps the gist's session_id with the sentinel key and supersedes
+    # raws that came from DIFFERENT real sessions — the cross-session capability end to end.
+    def test_a_cross_session_gist_carries_the_sentinel_and_supersedes_cross_session_raws(self):
+        ids = [self._episodic(f"auth note {i} word{i}", age_days=25, session_id=s, tags=["auth"])
+               [records.RECORD_ID_KEY] for i, s in enumerate(("A", "B", "C"))]
+        self.assertIn("tag:auth", rollup.detect_rollup_candidates())
+        report = self._rollup(ids, session_id="tag:auth")            # what the CLI hands store_gist for a cluster
+        self.assertEqual(report["status"], "ok")
+        gist_id = self._gist_id("tag:auth")
+        self.assertIsNotNone(gist_id)                                # the gist carries the "tag:auth" sentinel
+        live = self._live_ids()
+        self.assertIn(gist_id, live)                                 # …is recall-visible
+        for rid in ids:
+            self.assertNotIn(rid, live)                              # …and every cross-session raw is retired
+
+
 class DirectiveTests(_Base):
     # #280: the roll-up directive shares the SessionStart handler with consolidation and shipped the same
     # JSON-dumping read/store CLI, so it flooded the operator's chat identically. It must use the same
@@ -407,9 +506,19 @@ class DirectiveTests(_Base):
         text = rollup.rollup_directive(groups)
         for sid in groups:
             self.assertIn(sid, text)                                        # the exact ids travel with the prompt
-        self.assertIn("rollup.py read <session-id>", text)                  # the read verb
-        self.assertIn("rollup.py store <session-id>", text)                 # the store verb
+        self.assertIn("rollup.py read <group>", text)                       # the read verb (group = session or tag cluster)
+        self.assertIn("rollup.py store <group>", text)                      # the store verb
         self.assertIn("source_ids", text)                                  # roll-up's distinct contract is kept
+
+    def test_directive_names_a_tag_cluster_as_cross_session_not_a_session(self):
+        # #235: a `tag:` group key is a cross-session cluster, not a single session — the directive must say so,
+        # and must use the group-generic read/store verb (the CLI passes the key through either way).
+        text = rollup.rollup_directive({"tag:auth": [], "sess-b": []})
+        self.assertIn("tag:auth", text)                                    # the cluster id travels with the prompt
+        self.assertIn("cross-session", text.lower())                       # …explained as a cross-session cluster
+        self.assertIn("rollup.py read <group>", text)                      # the group-generic verb
+        plain = rollup.rollup_directive({"sess-a": [], "sess-b": []})       # a session-only backlog
+        self.assertNotIn("cross-session", plain.lower())                   # …adds no cross-session note
 
     def test_directive_has_no_stalled_backlog_alarm(self):
         # Roll-up is the "can wait" path: it must never proactively surface a line to the operator.

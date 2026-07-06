@@ -1,9 +1,11 @@
 """rollup.py — gist roll-up: AI-judged second-order consolidation of old episodes (memory-substrate, slice 4d-ii).
 
 Active forgetting's first move (memory/README): a perpetual project cannot only accumulate. A deferred,
-AI-judged maintenance pass **consolidates old, related, low-frecency EPISODIC summaries of one session into a
-compact GIST and logically retires the raw episodes** — the SECOND-order consolidation (episode→gist), exactly
-parallel to slice-3b's first-order (delta→episode). This module is **Layer 1**: *reversible, mechanical,
+AI-judged maintenance pass **consolidates old, related, low-frecency EPISODIC summaries into a compact GIST and
+logically retires the raw episodes** — the SECOND-order consolidation (episode→gist), exactly parallel to
+slice-3b's first-order (delta→episode). "Related" is pre-grouped for the AI by a cross-session shared-topic-tag
+cluster or, failing that, the coarse same-session group (#235); a cross-session gist carries a `tag:`/`sim:`
+cluster key as its `session_id` (its real-session provenance lives in `source_ids`). This module is **Layer 1**: *reversible, mechanical,
 memory-autonomous* tidying that needs no human gate because **nothing is lost** — a retired raw is excluded from
 recall but stays resident + fully recoverable in the one ledger (physical erasure is Layer-2/4e, audit-gated).
 
@@ -30,8 +32,9 @@ session-groups to judge — a hook cannot think, so it cannot ride a non-AI hook
 list names — `Stop`, `PreCompact`, `SessionStart`): that handler injects ONE combined background directive — the
 consolidation backlog and, via `rollup_directive`, the roll-up backlog — so the operator's first turn is never
 split by two competing asks. On a young ledger there are still no old, low-frecency episodes, so the sweep finds no
-candidates and the directive stays silent. The selection floors (COLD tier, group-by-session, ≥3 per group,
-episodics only) are build-spec leaves recorded with the maintainer.
+candidates and the directive stays silent. The selection floors (COLD tier; grouping — a cross-session
+shared-topic-tag cluster, then the coarse per-session group; ≥3 per group; episodics only) are build-spec leaves
+recorded with the maintainer.
 
 Leaf discipline (principle §16): the detect/store functions RETURN a report and render no operator-facing prose
 (the demo is the one operator surface). stdlib + the cycle-free `memory` set (forget / ledger / records / score);
@@ -57,11 +60,24 @@ from memory import forget, ledger, records, score  # noqa: E402
 # --- Build-spec leaves (the roll-up selection floors) -----------------------------------------------------
 # A candidate is a raw EPISODIC (not a gist — v1 keeps the link single-hop raw→gist; recursive meta-gist is a
 # deferred concern), not already superseded, that scores into the COLD tier (≈16–30 days untouched — "old +
-# low-frecency", not yet ARCHIVED, which 4c already index-excludes). Grouped by `session_id` (the deterministic
-# coarse "related" pre-filter; the AI judges true relatedness within the group). A group needs >= _MIN_GROUP raws
-# (a "gist" of one raw is a rename). All recorded with the maintainer; richer relatedness deferred.
+# low-frecency", not yet ARCHIVED, which 4c already index-excludes). The eligible pool is then pre-grouped by a
+# "related" signal for the AI to judge WITHIN each group, in a fixed PRECEDENCE so each candidate lands in exactly
+# ONE group (disjoint source_ids per pass): (1) a cross-session SHARED-TOPIC-TAG cluster (`tag:<tag>`, #235 — the
+# richer relatedness signal), then (2) the coarse per-session group (the original floor, the fallback for untagged
+# notes). A group needs >= _MIN_GROUP raws (a "gist" of one raw is a rename); a cross-session cluster must
+# additionally span >= _TAG_MIN_SESSIONS distinct real sessions (else it is just a per-session group in disguise).
+# All recorded with the maintainer. (A lexical-similarity cluster — `sim:<id8>` — slots between (1) and (2) in
+# slice C.)
 _MIN_GROUP = 3
+_TAG_MIN_SESSIONS = 2     # a cross-session tag cluster must span >= this many real sessions to count as cross-session
 _MAX_DIRECTIVE_IDS = 8    # cap the directive's id enumeration (mirrors consolidate._MAX_DIRECTIVE_IDS)
+
+# Tags that are STRUCTURAL, not topics — never a clustering signal (they mark a record's kind/provenance, and
+# every episodic carries DEFAULT_EPISODIC_TAG, so clustering on any of them would fuse unrelated notes). #235.
+_NON_TOPIC_TAGS = frozenset({
+    records.DEFAULT_EPISODIC_TAG, records.GIST_TAG, records.MARKER_TAG, records.INJECTED_TAG,
+    records.REINFORCEMENT_TAG, records.SUPERSEDED_KIND, records.ROLLUP_KIND, records.ERASURE_TAG,
+})
 
 
 class _InjectedCrash(Exception):
@@ -71,18 +87,17 @@ class _InjectedCrash(Exception):
 
 # --- Detecting candidates (the selection leaf) ------------------------------------------------------------
 
-def detect_rollup_candidates(*, cwd=None, now: "int | None" = None) -> dict:
-    """Group the raw EPISODIC records eligible for roll-up by session: COLD-tier (`score.tier`), not already
-    superseded, not a crashed-pass orphan, in a group of >= _MIN_GROUP. A DETECT leaf — returns
-    `{session_id: [record, ...]}` and renders no operator prose. The mechanism selects candidates
-    deterministically; the in-context AI judges the roll-up (the gist text + which raws cohere) in-session."""
+def _eligible_cold_episodics(*, cwd=None, now: "int | None" = None) -> list:
+    """The flat pool of raw EPISODIC records eligible for roll-up: COLD-tier (`score.tier`), not already
+    superseded, not a crashed-pass orphan, carrying a real `session_id`. Computed once (one ledger scan) and
+    shared by the grouping passes below."""
     src = ledger.ledger_path(cwd)
     now = int(time.time()) if now is None else now
     access_index = forget._access_index(src)
     closed = forget._closed_batches(src)
     closed_rollup = forget._closed_rollup_batches(src)
     superseded = set(forget._superseded_by_map(src, closed_rollup))
-    groups: dict = {}
+    pool: list = []
     for record in ledger.iter_records(path=src):
         if not isinstance(record, dict) or record.get("kind") != records.EPISODIC_KIND:
             continue
@@ -97,14 +112,64 @@ def detect_rollup_candidates(*, cwd=None, now: "int | None" = None) -> dict:
         sid = record.get("session_id")
         if not isinstance(sid, str) or not sid:
             continue
-        groups.setdefault(sid, []).append(record)
-    return {sid: recs for sid, recs in groups.items() if len(recs) >= _MIN_GROUP}
+        pool.append(record)
+    return pool
+
+
+def _distinct_sessions(recs) -> int:
+    return len({r.get("session_id") for r in recs})
+
+
+def _tag_clusters(candidates: list) -> list:
+    """Cross-session shared-topic-tag buckets as `[("tag:<tag>", [record, ...]), ...]`, in sorted-tag order — so a
+    note carrying two clustering tags is claimed deterministically by the lexicographically-smallest one. Only
+    TOPIC tags cluster; the structural tags (`_NON_TOPIC_TAGS`, incl. the `episodic` tag every note carries) are
+    skipped, else every episodic would fuse into one bucket. The floors (_MIN_GROUP, _TAG_MIN_SESSIONS) are
+    applied by the caller after overlap-claiming."""
+    buckets: dict = {}
+    for r in candidates:
+        for t in r.get("tags") or []:
+            if not isinstance(t, str):
+                continue
+            t = t.strip()                                # defensive: a padded tag never forms a `tag: ` bucket
+            if t and t not in _NON_TOPIC_TAGS:
+                buckets.setdefault(t, []).append(r)
+    return [(records.TAG_SESSION_PREFIX + t, recs) for t, recs in sorted(buckets.items())]
+
+
+def detect_rollup_candidates(*, cwd=None, now: "int | None" = None) -> dict:
+    """Pre-group the eligible cold EPISODIC records for roll-up, in a fixed PRECEDENCE so each candidate lands in
+    exactly ONE group (disjoint `source_ids` per pass): (1) cross-session shared-topic-tag clusters keyed
+    `tag:<tag>` (#235 — each spanning >= _TAG_MIN_SESSIONS real sessions), then (2) the coarse per-session group
+    (the fallback for whatever a richer signal did not claim). A DETECT leaf — returns `{group_key: [record, ...]}`
+    and renders no operator prose; a key is a real session id (uuid hex) or a `tag:` cluster sentinel, which cannot
+    collide. Every group needs >= _MIN_GROUP raws. The mechanism selects deterministically; the in-context AI
+    judges the roll-up (the gist text + which raws cohere) in-session."""
+    candidates = _eligible_cold_episodics(cwd=cwd, now=now)
+    claimed: set = set()
+    groups: dict = {}
+    # (1) cross-session shared-tag clusters — the richer signal, highest precedence.
+    for key, recs in _tag_clusters(candidates):
+        members = [r for r in recs if r.get(records.RECORD_ID_KEY) not in claimed]
+        if len(members) >= _MIN_GROUP and _distinct_sessions(members) >= _TAG_MIN_SESSIONS:
+            groups[key] = members
+            claimed.update(r.get(records.RECORD_ID_KEY) for r in members)
+    # (2) per-session groups — the coarse fallback for whatever a richer signal did not claim (legacy behavior).
+    by_session: dict = {}
+    for r in candidates:
+        if r.get(records.RECORD_ID_KEY) in claimed:
+            continue
+        by_session.setdefault(r.get("session_id"), []).append(r)
+    for sid, recs in by_session.items():
+        if len(recs) >= _MIN_GROUP:
+            groups[sid] = recs
+    return groups
 
 
 def read_candidates(session_id: str, *, cwd=None, now: "int | None" = None) -> list:
-    """The roll-up candidate episodes for one session as `[{id, role, text}, ...]` — what the in-context AI
-    reads to write a gist and name its `source_ids`. A pure read (no lock); empty if the session is not a
-    candidate group."""
+    """The roll-up candidate episodes for one GROUP — a real session id or a `tag:<tag>` cross-session cluster key
+    (#235) — as `[{id, role, text}, ...]`, what the in-context AI reads to write a gist and name its `source_ids`.
+    A pure read (no lock); empty if the key is not a candidate group."""
     recs = detect_rollup_candidates(cwd=cwd, now=now).get(session_id, [])
     return [{"id": r.get(records.RECORD_ID_KEY), "role": r.get("role"), "text": r.get("text")} for r in recs]
 
@@ -270,18 +335,30 @@ def rollup_directive(groups: dict) -> str:
     n = len(ids)
     shown = ids[:_MAX_DIRECTIVE_IDS]
     listed = ", ".join(shown) + (f", and {n - len(shown)} more" if n > len(shown) else "")
-    sessions = "1 earlier session has" if n == 1 else f"{n} earlier sessions have"
+    count = "1 group of" if n == 1 else f"{n} groups of"
+    each = "" if n == 1 else "each "
+    has_cross = any(records.is_cross_session_sentinel(k) for k in ids)
+    has_session = any(not records.is_cross_session_sentinel(k) for k in ids)
+    if has_cross and has_session:
+        cross_note = (" A group id beginning `tag:` is a CROSS-SESSION cluster of notes that share a topic tag "
+                      "(not a single session); the others are single sessions — roll each group into one summary "
+                      "either way.")
+    elif has_cross:
+        cross_note = (" A group id beginning `tag:` is a CROSS-SESSION cluster of notes that share a topic tag "
+                      "(not a single session) — roll each cluster into one summary.")
+    else:
+        cross_note = ""
     return (
         "Background memory upkeep — older notes ready to summarize. NOT urgent, and NOT to be done before the "
-        f"operator's actual request. {sessions} a cluster of old, unused notes ({listed}) that can be rolled into "
-        "one short summary each. At a natural pause, AFTER you have served the operator's current request, SPAWN "
-        "A SUBAGENT (the Task tool) to do the read/store so its tool calls and output stay off the operator's "
-        "main transcript — only a brief task card may show; when it returns, relay NOTHING to the operator about "
-        f"it. Hand the subagent these session ids: {listed}, and this instruction: for each id, run "
-        "`.engine/.venv/bin/python .engine/tools/memory/rollup.py read <session-id>` to read that session's old "
-        "notes (each carries its id), decide which genuinely cohere, write ONE compact summary of the cluster, "
+        f"operator's actual request. There {'is' if n == 1 else 'are'} {count} old, unused notes ({listed}) that "
+        f"can {each}be rolled into one short summary.{cross_note} At a natural pause, AFTER you have served the "
+        "operator's current request, SPAWN A SUBAGENT (the Task tool) to do the read/store so its tool calls and "
+        "output stay off the operator's main transcript — only a brief task card may show; when it returns, relay "
+        f"NOTHING to the operator about it. Hand the subagent these group ids: {listed}, and this instruction: for "
+        "each id, run `.engine/.venv/bin/python .engine/tools/memory/rollup.py read <group>` to read that group's "
+        "old notes (each carries its id), decide which genuinely cohere, write ONE compact summary of the cluster, "
         "choose ONE label from "
-        f"{{{', '.join(consolidate.ROLE_VOCABULARY)}}}, and store it with `… rollup.py store <session-id>` — a JSON "
+        f"{{{', '.join(consolidate.ROLE_VOCABULARY)}}}, and store it with `… rollup.py store <group>` — a JSON "
         "array of {\"role\": …, \"text\": …, \"source_ids\": [the ids of the exact notes this summary replaces]} on "
         "stdin. Name only the ids actually read and folded in; the originals are filed away, never erased. "
         "The operator's request always comes first; this can wait turns or whole sessions. Do not announce it "
@@ -373,11 +450,16 @@ _DEMO_GIST = {"role": "decision",
 _DEMO_GIST_WORD = "almanac"
 
 
-def _make_old_episode(role: str, text: str, age_days: int, session_id: str = _DEMO_SESSION) -> dict:
+def _make_old_episode(role: str, text: str, age_days: int, session_id: str = _DEMO_SESSION,
+                      tags: "list | None" = None) -> dict:
     """A real episodic through the live factory, made BATCHLESS (always-live, never a crashed-pass orphan) and
-    back-dated by `age_days` so the demo can age it without sleeping."""
+    back-dated by `age_days` so the demo can age it without sleeping. Optional topic `tags` let the demo plant a
+    cross-session shared-tag cluster (#235)."""
     from memory import consolidate  # lazy
-    rec = consolidate._make_episodic(session_id, {"role": role, "text": text}, "demo-batch")
+    payload = {"role": role, "text": text}
+    if tags is not None:
+        payload["tags"] = tags
+    rec = consolidate._make_episodic(session_id, payload, "demo-batch")
     rec.pop(records.BATCH_KEY, None)
     rec["ts"] = int(time.time()) - age_days * _DEMO_DAY
     return rec
@@ -601,7 +683,44 @@ def _demo_body() -> bool:
              and kept_text is not None and _DEMO_KEEP_PHRASE in kept_text)
     print(f"  => {'the tidy kept every original, kept the link, and erased nothing.' if part3 else '!!! the tidy lost a note, broke the link, or re-surfaced an original'}")
 
-    return part1 and part2a and part2b and part3
+    # --- PART 4 ------------------------------------------------------------------------------------------
+    print("\nPART 4 — notes from DIFFERENT sessions that share a topic tag roll up together (#235)")
+    print("-" * 88)
+    tag_sessions = ("session-mon", "session-wed", "session-fri")
+    tag_word = "harvest"
+    cross_ids = []
+    for i, sess in enumerate(tag_sessions):
+        rec = _make_old_episode("observation",
+                                 f"Noted the {tag_word} yield looked strong in plot {i} — grapes{i}.",
+                                 _DEMO_AGE_DAYS, session_id=sess, tags=[tag_word])
+        cross_ids.append(rec[records.RECORD_ID_KEY])
+        ledger.append(rec)
+    _rebuild()
+    cluster_key = records.TAG_SESSION_PREFIX + tag_word
+    cluster = detect_rollup_candidates().get(cluster_key, [])
+    spanned = len({r.get("session_id") for r in cluster})
+    print(f"  filed 1 old '{tag_word}'-tagged note in each of {len(tag_sessions)} different sessions "
+          f"({', '.join(tag_sessions)}).")
+    print(f"  no single session has {_MIN_GROUP} such notes — so grouping by session alone would roll up NONE.")
+    print(f"  instead the engine groups them by their shared topic into one cluster '{cluster_key}': "
+          f"{len(cluster)} notes spanning {spanned} sessions.")
+    report4 = store_gist(cluster_key,
+                         [{"role": "observation",
+                           "text": f"Across the week the {tag_word} came in strong everywhere.",
+                           records.SOURCE_IDS_KEY: cross_ids}])
+    cross_gist = _gist_id_for(cluster_key)
+    live4 = _live_ids()
+    filed_away = sum(1 for rid in cross_ids if rid not in live4)
+    readable = sum(1 for rid in cross_ids if _read_text(rid) is not None)
+    print(f"  ...the AI files ONE summary for the whole cluster. status: {report4['status']}")
+    print(f"  the cross-session originals are now filed away (still saved): {filed_away} of {len(cross_ids)}")
+    print(f"  each original still reads back from the cabinet by its id: {readable} of {len(cross_ids)}")
+    part4 = (len(cluster) == len(tag_sessions) and spanned == len(tag_sessions)
+             and cross_gist is not None and cross_gist in live4
+             and filed_away == len(cross_ids) and readable == len(cross_ids))
+    print(f"  => {'notes from three different sessions, sharing a topic, rolled into one summary — all still saved.' if part4 else '!!! the cross-session cluster did not form or an original was lost'}")
+
+    return part1 and part2a and part2b and part3 and part4
 
 
 # --- demo-sweep: the live SessionStart reminder (the caller), and its silence ------------------------------
