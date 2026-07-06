@@ -1,11 +1,17 @@
 {
   "id": "github-projects-sync",
-  "version": "0.0.0-dev",
+  "version": "0.1.0",
   "status": "optional",
   "provides": {
-    "tool": [".engine/tools/projects_sync/*.py"],
-    "operation": [".engine/operations/projects-sync-setup.md"],
-    "skill": [".claude/skills/engine-board-setup/SKILL.md"]
+    "tool": [
+      ".engine/tools/projects_sync/*.py"
+    ],
+    "operation": [
+      ".engine/operations/projects-sync-setup.md"
+    ],
+    "skill": [
+      ".claude/skills/engine-board-setup/SKILL.md"
+    ]
   },
   "wires": [
     {

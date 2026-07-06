@@ -1,11 +1,20 @@
 {
   "id": "audit-library",
-  "version": "0.0.0-dev",
+  "version": "0.1.0",
   "status": "required",
   "provides": {
-    "agent": [".claude/agents/audit.md"],
-    "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md", ".engine/audits/audit-digest.md"]
+    "agent": [
+      ".claude/agents/audit.md"
+    ],
+    "audits": [
+      ".engine/audits/concern-list.json",
+      ".engine/audits/self-review-setup.md",
+      ".engine/audits/audit-digest.md"
+    ]
   },
   "wires": [],
-  "depends": { "core": "", "validators-core": "" }
+  "depends": {
+    "core": "",
+    "validators-core": ""
+  }
 }
