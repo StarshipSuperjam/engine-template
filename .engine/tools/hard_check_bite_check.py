@@ -190,7 +190,7 @@ def _na_note(unit, na_path: str, tier: str) -> list:
                 f"when it has no failure path that can be triggered in CI. Either add a real fixture, or correct "
                 f"the disclosure's recorded reason.")]
     reason = disclosure.get("reason", "")
-    return [validate.finding("soft", f"NOT APPLICABLE — '{unit}' is exempt from a negative fixture: "
+    return [validate.disclosed_noop(f"NOT APPLICABLE — '{unit}' is exempt from a negative fixture: "
             f"{_NA_PROPERTY}. Recorded reason: {reason} This carve-out is disclosed here and re-derived at the "
             f"review gate; it is not a proof that the check bites.")]
 

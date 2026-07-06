@@ -245,19 +245,19 @@ def findings(tier: str, root: "str | None" = None) -> list:
     # (3) Forward-only / no-rollback-concept frameworks, only when no separate rollback artifact was found.
     forward_only = _forward_only_frameworks(root, info)
     if forward_only:
-        return [validate.finding(tier, _forward_only_message(forward_only), None)]
+        return [validate.disclosed_noop(_forward_only_message(forward_only), None)]
 
     # (4) Frameworks that keep the rollback inside each migration file.
     in_file = _in_file_frameworks(root, info)
     if in_file:
-        return [validate.finding(tier, _in_file_message(in_file), None)]
+        return [validate.disclosed_noop(_in_file_message(in_file), None)]
 
     # (5) A migrations directory exists but matched no known tool and carried no separate rollback files.
     if info["migration_dir"]:
-        return [validate.finding(tier, _GENERIC_DETECTED_MESSAGE, None)]
+        return [validate.disclosed_noop(_GENERIC_DETECTED_MESSAGE, None)]
 
     # (6) No migrations at all — a calm no-op said plainly, never a silent pass.
-    return [validate.finding(tier, _NO_OP_MESSAGE, None)]
+    return [validate.disclosed_noop(_NO_OP_MESSAGE, None)]
 
 
 def emit_findings() -> int:

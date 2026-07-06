@@ -569,14 +569,19 @@ def findings(block_tier: str = "hard", *, event_path: "str | None" = None,
     repo = repo or os.environ.get("GITHUB_REPOSITORY")
     token = token or os.environ.get("GITHUB_TOKEN")
     if not base or not head or not repo or not token:
-        return [validate.finding("soft", _NO_CONTEXT_MESSAGE, None)]
+        return [validate.disclosed_noop(_NO_CONTEXT_MESSAGE, None)]
 
     client = client or DependencyReview(repo, token)
     try:
         changes = client.compare(base, head)
     except _Unavailable:
+        # NOT a disclosed_noop: the review was applicable (a real PR to screen) but its data was
+        # unavailable — the security gate is effectively off and the operator must weigh paying for
+        # it. A could-not-evaluate disclosure stays visible in full, never folded into "nothing to do".
         return [validate.finding("soft", _UNAVAILABLE_MESSAGE, None)]
     except DegradedReadError:
+        # NOT a disclosed_noop: a fail-open — the dependency change went unscreened ("treat this
+        # change as unreviewed"). This must stay visible, never collapsed as a benign no-op.
         return [validate.finding("soft", _DEGRADED_MESSAGE, None)]
 
     out = []

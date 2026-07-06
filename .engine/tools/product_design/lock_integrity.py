@@ -254,14 +254,14 @@ def emit_findings() -> int:
     # No credentials / no event => local or non-PR context: FAIL OPEN soft (never a false local block); the CI
     # run, which always has both, performs the real check. Mirrors protection_guard's local-soft posture.
     if not (repo and token and event_path and os.path.exists(event_path)):
-        return _emit([validate.finding("soft", _NO_CONTEXT_MESSAGE, None)])
+        return _emit([validate.disclosed_noop(_NO_CONTEXT_MESSAGE, None)])
     try:
         with open(event_path, encoding="utf-8") as fh:
             event = json.load(fh)
         pr = event.get("pull_request")
         if not pr:
             # Not a pull-request event: nothing to evaluate => soft (non-blocking), never a false block.
-            return _emit([validate.finding("soft", _NO_CONTEXT_MESSAGE, None)])
+            return _emit([validate.disclosed_noop(_NO_CONTEXT_MESSAGE, None)])
         base_sha = ((pr.get("base") or {}).get("sha")) or ""
         if not base_sha:
             # A pull request with no readable base => fail closed (only reachable in CI).

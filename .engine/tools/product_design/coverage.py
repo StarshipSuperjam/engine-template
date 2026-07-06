@@ -144,7 +144,7 @@ def findings(tier: str, root: "str | None" = None) -> list:
 
     # Disclosed no-op: no spec tree at all — always soft, never silent.
     if not os.path.isdir(spec_root):
-        return [validate.finding("soft", _NO_SPEC_MESSAGE, None)]
+        return [validate.disclosed_noop(_NO_SPEC_MESSAGE, None)]
 
     # Which capabilities are settled? (spec_form._capability_doc_rels already excludes the index + build-plan.)
     settled = []
@@ -158,7 +158,7 @@ def findings(tier: str, root: "str | None" = None) -> list:
     # No build order yet: a soft note, never a block — a build may proceed without one.
     if not bp_exists:
         if not settled:
-            return [validate.finding("soft", _NOTHING_SETTLED_MESSAGE, None)]
+            return [validate.disclosed_noop(_NOTHING_SETTLED_MESSAGE, None)]
         return [validate.finding("soft", _no_build_plan_message(len(settled)), {"file": bp_rel, "line": None})]
 
     # A build order exists — evaluate its structure and its coverage of the settled capabilities (hard teeth).

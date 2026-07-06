@@ -40,6 +40,16 @@ class TestSoftFindingsFeed(unittest.TestCase):
         self.assertIn("over its 120-line budget", out)
         self.assertNotIn("missing the required section", out)
 
+    def test_disclosed_noop_is_excluded(self):
+        # A disclosed no-op ("not applicable here, nothing to do") is never a standing nudge to
+        # trim, so it must not reach this feed even if such a rule ever joins audit-prep (#322).
+        self._stub([{"severity": "soft", "message": "dependency pinning isn't active here",
+                     "location": None, "not_applicable": True},
+                    {"severity": "soft", "message": "over its 120-line budget", "location": None}])
+        out = asf.render()
+        self.assertIn("over its 120-line budget", out)
+        self.assertNotIn("isn't active here", out)
+
     def test_clean_read_is_a_clear_not_a_gap(self):
         self._stub([])
         out = asf.render()

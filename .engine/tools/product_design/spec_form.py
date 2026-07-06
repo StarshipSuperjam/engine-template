@@ -342,7 +342,7 @@ def findings(tier: str, root: "str | None" = None) -> list:
 
     # Disclosed no-op: no spec tree, or an empty one (no index and no documents) — always soft, never silent.
     if not os.path.isdir(spec_root) or (not has_index and not doc_rels):
-        return [validate.finding("soft", _NO_OP_MESSAGE, None)]
+        return [validate.disclosed_noop(_NO_OP_MESSAGE, None)]
 
     out = []
     here = {"file": _INDEX_REL, "line": None}
