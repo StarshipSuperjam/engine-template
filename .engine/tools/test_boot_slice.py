@@ -188,6 +188,19 @@ class TestDegradeChain(unittest.TestCase):
         self.assertTrue(live.from_live)                  # committed graph absent -> live rebuild -> flagged
         committed = boot_slice.read(slice_path=_tmp_slice(self))   # default graph_path = the real committed map
         self.assertFalse(committed.from_live)            # committed map present -> not a rebuild
+        self.assertFalse(committed.from_corrupt)
+
+    def test_read_carries_from_corrupt_provenance(self):
+        # A committed map that is PRESENT but unreadable (damaged) rebuilds live too, but boot names it
+        # differently from the absent case — read() carries `from_corrupt` (not `from_live`) so boot renders
+        # "present but damaged" rather than "missing" (the repair differs; eADR-0004 'name what is reduced').
+        gp = os.path.join(tempfile.mkdtemp(), "corrupt-graph.json")
+        with open(gp, "w", encoding="utf-8") as fh:
+            fh.write('{"schema_version": 1, "entities": [\n<<<<<<< truncated\n')
+        shim = boot_slice.read(slice_path=_tmp_slice(self), graph_path=gp)
+        self.assertTrue(shim.from_corrupt)               # present-but-damaged -> flagged as corrupt
+        self.assertFalse(shim.from_live)                 # NOT the absent-map signal
+        self.assertTrue(shim.neighbors("module:core", edge_filter=WALK, direction="both"))  # still answers
 
     def test_read_fails_open_to_none_when_the_loader_raises(self):
         sp = _tmp_slice(self)

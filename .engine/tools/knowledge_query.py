@@ -20,6 +20,7 @@ also fails is knowledge reported unavailable in plain language, never a crash. T
 no-Claude-Desktop demo path.
 """
 from __future__ import annotations
+import collections
 import json
 import os
 import sys
@@ -131,76 +132,125 @@ def _neighbors(conn, entity_id: str, edge_filter=None, direction="out", depth=1)
 
 
 def _relate(conn, id_a: str, id_b: str):
-    """The shortest undirected edge path id_a..id_b as a list of ids (inclusive), or None. BFS via a
-    recursive CTE over an undirected edge view; the path string is '>'-delimited and the cycle guard
-    rejects revisiting a node (ids contain no '>')."""
+    """The shortest undirected edge path id_a..id_b as a list of ids (inclusive), or None.
+
+    A genuine breadth-first search with a per-NODE visited set (D-116's committed-JSON BFS floor): each
+    node is expanded at most once, so the walk is O(V+E) and returns promptly even through a high-degree
+    hub (module:core, in-degree ~250) — where the previous path-materializing recursive CTE enumerated
+    every simple path as its own row and hung combinatorially. relate is the deliberate PULL that
+    traverses ALL edge kinds including `supersedes` (D-203): the adjacency is built from every edge row,
+    unfiltered — only the cold-start `neighbors` walk is pinned to WALK_EDGE_KINDS. Deterministic:
+    neighbours are visited in sorted id order, so among equal-length shortest paths the chosen one is
+    stable. Returns None when either endpoint is unknown or the two are unconnected; [id] for
+    id_a==id_b iff that entity exists."""
     if id_a == id_b:
         return [id_a] if _get_entity(conn, id_a) else None
-    max_depth = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
-    sql = """
-    WITH RECURSIVE
-      uedges(a, b) AS (
-        SELECT src_id, dst_id FROM edges
-        UNION
-        SELECT dst_id, src_id FROM edges
-      ),
-      walk(node, path, d) AS (
-        SELECT ?, ?, 0
-        UNION
-        SELECT u.b, w.path || '>' || u.b, w.d+1
-          FROM walk w JOIN uedges u ON u.a = w.node
-         WHERE w.d < ? AND instr(w.path || '>', u.b || '>') = 0
-      )
-    SELECT path FROM walk WHERE node=? ORDER BY d LIMIT 1
-    """
-    row = conn.execute(sql, (id_a, id_a, max_depth, id_b)).fetchone()
-    return row["path"].split(">") if row else None
+    if _get_entity(conn, id_a) is None or _get_entity(conn, id_b) is None:
+        return None                                    # an unknown endpoint cannot be connected
+    # Undirected adjacency, loaded once from EVERY edge row (all kinds — relate PULLs supersedes, D-203).
+    adjacency: dict = {}
+    for src, dst in conn.execute("SELECT src_id, dst_id FROM edges"):
+        adjacency.setdefault(src, set()).add(dst)
+        adjacency.setdefault(dst, set()).add(src)
+    # BFS: the per-node `parent` map doubles as the visited set (a node is enqueued at most once, so the
+    # walk is bounded by |V|), and reconstructs the shortest path on first reaching id_b.
+    parent = {id_a: None}
+    frontier = collections.deque([id_a])
+    while frontier:
+        node = frontier.popleft()
+        if node == id_b:
+            path = []
+            while node is not None:
+                path.append(node)
+                node = parent[node]
+            return path[::-1]
+        for nxt in sorted(adjacency.get(node, ())):
+            if nxt not in parent:
+                parent[nxt] = node
+                frontier.append(nxt)
+    return None
 
 
 # ---- public ops: open a fresh index, query, close (returns data only) -----------------------
 
 def _with_conn(fn, index_path, graph_path):
-    # The library ops return DATA ONLY: the degrade `source` is deliberately discarded here, so a
-    # library/MCP caller answers from a live-walk fallback with no degrade flag in the response. Surfacing
-    # a degraded read loudly is the CLI's job below (and boot's, at its slice) — not an op-set change.
-    conn, _source = knowledge_index.connect(index_path, graph_path)
+    """Run fn over a fresh index connection; return (result, source), where source is the degrade rung the
+    read came through — None (index was fresh) / 'committed' / 'live' (committed graph absent) /
+    'live-corrupt' (committed graph present but unreadable). The public ops below unpack and return DATA
+    ONLY (their callers — attention, the boot slice — consume plain results). The degrade `source` is
+    carried here so the boundaries that WANT it can surface it: the CLI (`_note_degrade`) and the MCP
+    transport (`with_degrade`)."""
+    conn, source = knowledge_index.connect(index_path, graph_path)
     try:
-        return fn(conn)
+        return fn(conn), source
     finally:
         conn.close()
 
 
+def with_degrade(fn, *, index_path=None, graph_path=None):
+    """The degrade-aware boundary the MCP transport uses: returns (result, degrade_note_or_None) — the note
+    is the operator-facing plain-language line for a degraded read, None when the read was fully
+    fresh/committed. Mirrors knowledge_index.connect's stable (payload, source) shape, confining the
+    degrade-aware return to the one boundary that surfaces it rather than threading a variant return
+    through every public op."""
+    result, source = _with_conn(fn, index_path, graph_path)
+    return result, degrade_message(source)
+
+
 def get_entity(entity_id, *, index_path=None, graph_path=None):
-    return _with_conn(lambda c: _get_entity(c, entity_id), index_path, graph_path)
+    result, _source = _with_conn(lambda c: _get_entity(c, entity_id), index_path, graph_path)
+    return result
 
 
 def find(type=None, path_glob=None, owner=None, *, index_path=None, graph_path=None):
-    return _with_conn(lambda c: _find(c, type, path_glob, owner), index_path, graph_path)
+    result, _source = _with_conn(lambda c: _find(c, type, path_glob, owner), index_path, graph_path)
+    return result
 
 
 def neighbors(entity_id, edge_filter=None, direction="out", depth=1, *, index_path=None, graph_path=None):
-    return _with_conn(lambda c: _neighbors(c, entity_id, edge_filter, direction, depth),
-                      index_path, graph_path)
+    result, _source = _with_conn(lambda c: _neighbors(c, entity_id, edge_filter, direction, depth),
+                                 index_path, graph_path)
+    return result
 
 
 def relate(id_a, id_b, *, index_path=None, graph_path=None):
-    return _with_conn(lambda c: _relate(c, id_a, id_b), index_path, graph_path)
+    result, _source = _with_conn(lambda c: _relate(c, id_a, id_b), index_path, graph_path)
+    return result
 
 
 # ---- CLI (the operator's no-Claude-Desktop demo path) ---------------------------------------
 
+def degrade_message(source) -> str | None:
+    """The operator-facing plain-language line for a DEGRADED read, or None when the read was fully
+    fresh/committed. Shared by the CLI (`_note_degrade`) and the MCP transport (`with_degrade`) so the two
+    channels never drift. 'live' = the committed graph is ABSENT (benign in a fresh worktree — regenerate);
+    'live-corrupt' = it is PRESENT but could not be read (a bad write or overlay damaged it) — a distinct
+    fault the operator is named, because the repair reads differently (regenerate to REPLACE the damaged
+    file, not to create a missing one; eADR-0004 'name what is reduced')."""
+    graph = knowledge_gen._display(knowledge_gen.GRAPH_PATH)
+    if source == "live":
+        return (f"the committed knowledge graph ({graph}) is absent, so this answer came from a LIVE WALK "
+                f"of the on-disk surfaces — regenerate and commit the graph (`{knowledge_gen.REGEN_CMD}`) "
+                f"to restore the committed source.")
+    if source == "live-corrupt":
+        return (f"the committed knowledge graph ({graph}) is present but DAMAGED (it could not be read), so "
+                f"this answer came from a LIVE WALK of the on-disk surfaces — regenerate and commit the "
+                f"graph (`{knowledge_gen.REGEN_CMD}`) to replace the damaged file.")
+    return None
+
+
 def _note_degrade(source) -> None:
     """Surface a degraded read on stderr (the operator/CLI channel). None = the index was fresh (silent);
-    'committed' = rebuilt from the committed graph (git-native); 'live' = a LOUD live-walk fallback."""
+    'committed' = rebuilt from the committed graph (git-native, a quiet note); 'live'/'live-corrupt' = a
+    LOUD live-walk fallback (the committed graph is absent / present-but-damaged)."""
     if source == "committed":
         print(f"(the knowledge query index was absent or stale, so this answer was rebuilt from the "
               f"committed graph — {knowledge_gen._display(knowledge_gen.GRAPH_PATH)}, the git-native "
               f"source of truth)", file=sys.stderr)
-    elif source == "live":
-        print(f"KNOWLEDGE DEGRADED: the committed graph "
-              f"({knowledge_gen._display(knowledge_gen.GRAPH_PATH)}) is absent, so this answer came from "
-              f"a LIVE WALK of the on-disk surfaces — regenerate and commit the graph "
-              f"(`{knowledge_gen.REGEN_CMD}`) to restore the committed source.", file=sys.stderr)
+        return
+    msg = degrade_message(source)
+    if msg:
+        print(f"KNOWLEDGE DEGRADED: {msg}", file=sys.stderr)
 
 
 def main(argv: list) -> int:

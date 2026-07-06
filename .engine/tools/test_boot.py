@@ -76,7 +76,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
             "behind_origin": None, "off_main": None,
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
-            "live_standing": None, "neighborhood": None, "map_rebuilt": False}
+            "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False}
 
 
 def _signals(**over):
@@ -142,6 +142,26 @@ class TestDegradedNotice(unittest.TestCase):
         self.assertIn("I couldn't reach your open-problems list from GitHub this session", dash)
         self.assertIn("running on a rebuilt project map", dash)
         self.assertNotIn("couldn't reach your project map", dash)       # the map line stays the rebuild wording
+
+    def test_corrupt_map_shows_a_damaged_heads_up_naming_the_right_repair(self):
+        # map_corrupt (committed map PRESENT but unreadable) surfaces a distinct heads-up: it names the file
+        # as DAMAGED (not missing — which would point at the wrong fix) and says regenerate REPLACES it.
+        dash = boot.render_dashboard(_signals(map_corrupt=True))
+        self.assertIn("running on a rebuilt project map", dash)
+        self.assertIn("present but damaged", dash)
+        self.assertIn("replace the damaged file", dash)
+        self.assertIn("knowledge_gen.py generate", dash)               # the canonical command, committed
+        self.assertNotIn("your committed map file is missing", dash)   # NOT the absent-map wording
+        self.assertNotIn("couldn't reach", dash.lower())               # not the unreachable alarm
+
+    def test_absent_and_corrupt_map_render_distinct_nouns(self):
+        # The two live-rebuild causes never cross: absent -> "missing", damaged -> "present but damaged".
+        absent = boot.render_dashboard(_signals(map_rebuilt=True))
+        self.assertIn("your committed map file is missing", absent)
+        self.assertNotIn("present but damaged", absent)
+        corrupt = boot.render_dashboard(_signals(map_corrupt=True))
+        self.assertIn("present but damaged", corrupt)
+        self.assertNotIn("your committed map file is missing", corrupt)
 
 
 class TestPresentMarker(unittest.TestCase):
