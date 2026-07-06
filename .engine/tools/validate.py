@@ -1539,22 +1539,23 @@ def report(suite: str, findings: list, gates: bool) -> None:
     hard = [f for f in findings if f["severity"] == "hard"]
     soft = [f for f in findings if f["severity"] != "hard"]
     # Partition soft notes so an actionable one stands out from the dormant "nothing to do" ones.
-    # A finding WITHOUT the `not_applicable` marker defaults to actionable (`.get`, never `[]`) —
-    # the fail-safe is a disclosed no-op shown in full (harmless noise), never an actionable note
-    # hidden. The dormant notes stay DISCLOSED (a named, counted summary line, never a silent
-    # skip); their full boilerplate prose is what collapses.
-    actionable = [f for f in soft if not f.get("not_applicable")]
-    noop = [f for f in soft if f.get("not_applicable")]
-    displayed = len(actionable) + (1 if noop else 0)
+    # Only a no-op we can NAME (it carries a source_rule) is collapsed into the summary line; an
+    # actionable note — OR a marked no-op with no source rule to name (the by-id `--check` path does
+    # not set one, and a single deliberately-invoked check is never noise) — renders in full. A
+    # finding WITHOUT the marker defaults to actionable (`.get`, never `[]`), so the fail-safe is a
+    # note shown in full (harmless), never an actionable note hidden. The collapsed no-ops stay
+    # DISCLOSED (named + counted, never a silent skip); only their boilerplate prose folds away.
+    collapsible, shown = [], []
+    for f in soft:
+        (collapsible if f.get("not_applicable") and f.get("source_rule") else shown).append(f)
+    displayed = len(shown) + (1 if collapsible else 0)
     if displayed:
         print(f"\nnotes ({displayed}):")
-        for f in actionable:
+        for f in shown:
             print("  - " + fmt(f))
-        if noop:
-            names = list(dict.fromkeys(str(f["source_rule"]) for f in noop if f.get("source_rule")))
-            suffix = (": " + ", ".join(names)) if names else ""
-            count = len(names) if names else len(noop)
-            print(f"  - {count} check(s) not applicable here (nothing to do){suffix}")
+        if collapsible:
+            names = list(dict.fromkeys(str(f["source_rule"]) for f in collapsible))
+            print(f"  - {len(names)} check(s) not applicable here (nothing to do): " + ", ".join(names))
     if hard and gates:
         print(f"\nFAIL ({len(hard)} hard finding(s)) [suite: {suite}] — blocks the merge:")
         for f in hard:

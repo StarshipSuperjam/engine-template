@@ -5302,7 +5302,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:2418784a7a425739b6c13298dd5679086beed7a1b74f8c630c95c198267daa6e",
+        "fingerprint": "sha256:1a6019d8b173753eb7e5163ba05ca55c62b31c282592ca4cc7e32e801ac75157",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -5421,7 +5421,7 @@
       },
       "slug": "review",
       "source": {
-        "fingerprint": "sha256:f06ef246d0ceea40ca40dce1c7a9a5701391cabd68db81683417d8334b5810f4",
+        "fingerprint": "sha256:f970d9a5d9de0756e125f8b501f38d82bd3165f76e1c0ecfe6490415a6822a05",
         "path": ".engine/tools/dependency_discipline/review.py"
       },
       "status": "active",
@@ -6703,6 +6703,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_protection_guard",
+      "name": ".engine/tools/test_protection_guard.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_protection_guard",
+      "source": {
+        "fingerprint": "sha256:80ec87ce7f8ebe895ad31c02486a86d716da137ca82a45593f65dfc74b279c28",
+        "path": ".engine/tools/test_protection_guard.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_qa_review",
       "name": ".engine/tools/test_qa_review.py",
       "owner": "core",
@@ -6815,7 +6832,7 @@
       },
       "slug": "test_review",
       "source": {
-        "fingerprint": "sha256:dd8a0c94c817020b80ae6a35a728b6438369916f22db83e734ce1a055ebe2a05",
+        "fingerprint": "sha256:eb913135b385b1f44c277cd419b35f0ae1e378c4a9e8f632d5d9115576d9527e",
         "path": ".engine/tools/dependency_discipline/test_review.py"
       },
       "status": "active",
@@ -7257,7 +7274,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:78b81b6effea4dcd28d033fa486c97117644c6f81579171f2000b52259a8a0b2",
+        "fingerprint": "sha256:706db056f11e7bbc6ec85f2d242dbbd2b6e35b36cc830306b8116e79319d2601",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -7376,7 +7393,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:03c6fd69078821487d2a935cf2858e8d6a9f7db8ff4b9d0e407b0e19bd1d9c56",
+        "fingerprint": "sha256:a8558ee50255cf13d36a1edd617424e24609668196a987090d56490e58a07a91",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

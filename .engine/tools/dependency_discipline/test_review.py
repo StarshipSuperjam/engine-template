@@ -214,6 +214,9 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(fs[0]["severity"], "soft")
         self.assertIn("GitHub Code Security", fs[0]["message"])
         self.assertIn("$30", fs[0]["message"])
+        # A could-not-evaluate disclosure (the security gate is off) must stay VISIBLE — never marked
+        # not_applicable, or the validator would collapse it into "nothing to do" (#322 review).
+        self.assertFalse(fs[0].get("not_applicable"))
 
     def test_degraded_read_discloses_transient_and_names_no_cost(self):
         fs = self._find(_Canned(review.DegradedReadError("boom")))
@@ -222,6 +225,8 @@ class ReviewGateTests(unittest.TestCase):
         self.assertIn("temporary", fs[0]["message"].lower())
         self.assertNotIn("$30", fs[0]["message"], "a transient read failure must not mention a price")
         self.assertNotIn("Code Security", fs[0]["message"])
+        # A fail-open ("treat this change as unreviewed") must stay VISIBLE, never collapsed (#322 review).
+        self.assertFalse(fs[0].get("not_applicable"))
 
     def test_no_pull_request_context_discloses_soft_no_op_without_using_client(self):
         missing = os.path.join(self._tmp, "missing.json")  # never created
@@ -231,6 +236,8 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(len(fs), 1)
         self.assertEqual(fs[0]["severity"], "soft")
         self.assertIn("nothing for it to review", fs[0]["message"])
+        # Genuinely not-applicable (no PR to compare) — marked so the validator collapses it (#322).
+        self.assertIs(fs[0].get("not_applicable"), True)
         self.assertFalse(client.called, "the client must not be constructed/used when there's no PR to compare")
 
     def test_corrupt_event_degrades_to_soft_no_op_not_fail_closed(self):

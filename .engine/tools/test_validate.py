@@ -203,10 +203,24 @@ class TestReportPartitioning(unittest.TestCase):
         self.assertIn("a plain soft note with no marker", out)
         self.assertNotIn("not applicable here", out)
 
-    def test_noop_without_source_rule_collapses_to_bare_count(self):
-        out = self._render([validate.disclosed_noop("x"), validate.disclosed_noop("y")])
-        self.assertIn("2 check(s) not applicable here (nothing to do)", out)
-        self.assertNotIn("nothing to do):", out)               # no name suffix when no source_rule
+    def test_noop_without_source_rule_renders_in_full(self):
+        # An unnameable no-op (e.g. the by-id --check path, which sets no source_rule) must render in
+        # full — never collapse to a nameless "nothing to do" line that strips the check's prose.
+        out = self._render([validate.disclosed_noop("this check is dormant, here is why")])
+        self.assertIn("notes (1):", out)
+        self.assertIn("this check is dormant, here is why", out)
+        self.assertNotIn("not applicable here (nothing to do)", out)
+
+    def test_run_check_shows_a_dormant_check_note_in_full(self):
+        # End-to-end: the operator runs one dormant check by id to learn what it is. That path sets no
+        # source_rule, so its no-op must print in full (its name + prose), not a nameless summary line.
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = validate.run_check("engine/check/dependency-pinning", {})
+        out = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("isn't active here yet", out)            # the check's own explanation, in full
+        self.assertNotIn("not applicable here (nothing to do)", out)
 
     def test_hard_and_clean_paths_unchanged(self):
         hard = self._render([validate.finding("hard", "a blocking problem")], gates=True)

@@ -86,7 +86,10 @@ def main() -> int:
         # Local / no credentials: FAIL OPEN with a soft note — a soft finding never blocks,
         # and the CI run (which has a token) performs the real check. Mirrors the presence
         # kind's fail-open-locally posture; never a false local block.
-        return emit([{"severity": "soft", "location": None,
+        # A disclosed not-applicable: on a local run there is no token, so the real check runs in CI
+        # and there is nothing to do here. Marked so the validator collapses it away from actionable
+        # notes (#322); the marker rides through the custom/script boundary's allow-list.
+        return emit([{"severity": "soft", "location": None, "not_applicable": True,
                       "message": "Branch protection was not checked here — no repository "
                       "access token is available, which is normal on your own machine. The "
                       "check that can actually block a bad merge runs in CI."}])
