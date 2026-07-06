@@ -95,18 +95,20 @@ and never forces. What differs is *what* each protects and *how* it declines:
   or unsaved changes — to a safe point first, then re-attaches the folder and restores the missing engine files.
   If it cannot safely tell where to re-attach the folder, it refuses rather than guess.
 - **A folder merely fallen behind — catch-up (`checkout_health.catch_up`, #335).** On its default branch but
-  missing merged work, brought current only along a safe fast-forward, keeping unsaved changes; if unsaved work is
-  in the way it changes nothing (a `blocked` result). This signal never alarms on bare distance — only *missing
-  merged work* past the velocity bar.
+  missing merged work, brought current only along a safe fast-forward, keeping unsaved changes — the result is
+  brought current, already up to date, or (if unsaved work is in the way) `blocked`, changing nothing. This signal
+  never alarms on bare distance — only *missing merged work* past the velocity bar.
 - **A folder parked off its main line — return (`checkout_health.return_to_default`, #342/D-275).** The behind
-  signal is two-stage: **Stage 1 (off-main)** surfaces gently, caught offline on day one, that the folder points
-  at a side line rather than the main project; **Stage 2 (behind)** escalates to a firm offer once it is also
-  missing merged work. One consent handle — "bring it up to date" — runs whichever fits: `catch_up` on the default
-  branch, `return_to_default` when parked off it. Returning to a *named* side line never orphans its commits (the
-  side line keeps them — no rescue needed, unlike the detached un-stranding arm); it switches only when nothing is
-  uncommitted, stashed, or mid-operation, then fast-forwards best-effort (being back on the main line is already
-  the win). Spotting an off-main park is a newer check — a folder healthy before it existed isn't freshly broken,
-  and the assistant says so the first time it surfaces.
+  signal is two-stage: **Stage 1 (off-main)** surfaces gently — caught offline, every session, on day one — that
+  the folder points at a side line rather than the main project; **Stage 2 (behind)** escalates to a firm offer
+  once it is also missing merged work. One consent handle — "bring it up to date" — runs whichever fits: `catch_up`
+  on the default branch, `return_to_default` when parked off it. Returning to a *named* side line never orphans its
+  commits (the side line keeps them — no rescue needed, unlike the detached un-stranding arm); it switches only
+  when nothing is uncommitted, stashed, or mid-operation, then fast-forwards best-effort. The honest result is
+  pointed back and brought current, pointed back but the main line couldn't be brought current (the local copy had
+  diverged), already on the main line, or blocked-with-unsaved-work — being back on the main line is already the
+  win. Spotting an off-main park is a newer check — a folder healthy before it existed isn't freshly broken, and
+  the assistant says so the first time it surfaces.
 - **A stranded pull request — reconcile (`pr_reconcile.reconcile`, #136).** A pull request that can't be merged:
   the reconcile acts only when the clash is confined to the engine's two internal index files — the knowledge
   graph and the self-map, the one clash that is *spurious* (both sides regenerate from one source tree) —
