@@ -4069,7 +4069,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:65affa4c9fbc6444cf2b4a60ad01b96db7ecd8c22e49520cd258f651dd4be0c1",
+        "fingerprint": "sha256:00903c8fee6d9c49f6b714b90eb3a57989d2bcf17ed70a0126b448ea1a488120",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4103,7 +4103,7 @@
       },
       "slug": "boot_slice",
       "source": {
-        "fingerprint": "sha256:f142415a3b6b1d59171aaac922ce2ca9fc5c541a04e7d91f4aba4cc84fc3aae8",
+        "fingerprint": "sha256:9fb1abeea5d1a350b6d628b1db3d06af3133836c7275c99aa900abfb5792dad0",
         "path": ".engine/tools/boot_slice.py"
       },
       "status": "active",
@@ -4987,7 +4987,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:87dff74dc19d2b8008ac266dfe3a71606366b5929d2e00756136da8a78d23390",
+        "fingerprint": "sha256:bf22e9099083169577ef74abdbab74d8581d9f9e4a023b28c182216b0c7f7e2b",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -5004,7 +5004,7 @@
       },
       "slug": "knowledge_index",
       "source": {
-        "fingerprint": "sha256:62ea2edee6a074688d15db3a1de5af61508dec03dd69d88548e7e042c6a0e101",
+        "fingerprint": "sha256:23522595a8d4e62e6b7f14514c3de8beb153ad083cd54235d9b1c6c8edfb2d8a",
         "path": ".engine/tools/knowledge_index.py"
       },
       "status": "active",
@@ -5021,7 +5021,7 @@
       },
       "slug": "knowledge_mcp_server",
       "source": {
-        "fingerprint": "sha256:c0a9fbe8fbcebf083686722436c102b83339d4afff42913462d0371fbda650ef",
+        "fingerprint": "sha256:0b5df87f6e23643291b6cb8fcad2b69cbccc4f56fb1b61e81d4e92d18a8d6ae4",
         "path": ".engine/tools/knowledge_mcp_server.py"
       },
       "status": "active",
@@ -5038,7 +5038,7 @@
       },
       "slug": "knowledge_query",
       "source": {
-        "fingerprint": "sha256:8148b75ba0cdbcecd07d2e018d529173e384313f3ff51034e11dc80d745e9aa3",
+        "fingerprint": "sha256:6bc035994ee5d50b2b7afa077ff54d63c227f168d85fd471253fd9f75bae7a7c",
         "path": ".engine/tools/knowledge_query.py"
       },
       "status": "active",
@@ -5888,7 +5888,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:911a5c0c6f97901a76ca57894fcda91e0d30cc374189f94ca9941636518128a9",
+        "fingerprint": "sha256:398b7e445d1d7c88579da18bb5288b59c94e4af22ec2fcc3f9bcf7edd072c79f",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -5922,7 +5922,7 @@
       },
       "slug": "test_boot_slice",
       "source": {
-        "fingerprint": "sha256:f050a326a3a86344180bc55023887385b5c9a876e488a40fbaeb651b7e350a85",
+        "fingerprint": "sha256:78461f285b7d093e89b4ce2de1ef6cdb12810f6aa5d4e6fd23a43ccb6e35babe",
         "path": ".engine/tools/test_boot_slice.py"
       },
       "status": "active",
@@ -6483,7 +6483,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:32b84b8240f716d81bd08333773456f5fbc1ffa43ea77ecda9ad66afd9e81626",
+        "fingerprint": "sha256:d1456a4dc732984f0aa885a4fed733afedcbbce68dceb25e24f4a4855b8f5ac1",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -6500,7 +6500,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:c7376cafff8365fb43e965db02fd6617313078cd5a567d483f01140718e7d26f",
+        "fingerprint": "sha256:31d765b4998f894a031f48feb5776e005f83a5b1d300fce170dd8237f7dc81e0",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",

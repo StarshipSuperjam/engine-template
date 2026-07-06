@@ -15,10 +15,12 @@ recursive CTEs, with no third-party dependency.
 Degrade chain (knowledge/README.md:51) — these are the QUERY path's four rungs (rung-1 fast cache = this
 SQLite index; the boot path's rung-1 is its own boot-slice cache, and rungs 2-4 are shared): a fresh
 index answers; a missing/stale index is rebuilt from the committed graph; if the committed graph is
-ABSENT, the index is rebuilt from a LIVE WALK of the surfaces (knowledge_gen.canonical_graph() — loudly
-degraded, so a fresh worktree or the D-024 upgrade-overlay window still answers); and only if that live
-walk also fails is knowledge reported unavailable (the query layer reports it in plain language, never a
-crash, never blocking boot).
+ABSENT — or PRESENT BUT UNREADABLE (corrupt: merge markers, a truncated regen) — the index is rebuilt
+from a LIVE WALK of the surfaces (knowledge_gen.canonical_graph() — loudly degraded, so a fresh worktree,
+the D-024 upgrade-overlay window, or a damaged file still answers); and only if that live walk also fails
+is knowledge reported unavailable (the query layer reports it in plain language, never a crash, never
+blocking boot). The absent and corrupt cases carry distinct degrade sources ('live' vs 'live-corrupt') so
+the operator-facing signal names a missing file and a damaged one differently.
 """
 from __future__ import annotations
 import hashlib
@@ -105,35 +107,50 @@ def graph_fingerprint(graph_path: str | None = None) -> str | None:
 
 def _load_graph(graph_path: str):
     """The graph to index, as (graph_dict, source) — the degrade chain's middle rungs:
-      'committed' — the committed graph is present → rebuild the index from it (rung 2).
-      'live'      — the committed graph is ABSENT → fall back to a LIVE WALK of the surfaces
-                    (knowledge_gen.canonical_graph(), rung 3), so a fresh worktree or the D-024
-                    upgrade-overlay window still answers (loudly degraded).
-    Only ABSENCE (read_committed -> None) triggers the live walk; a present-but-corrupt committed graph
-    still raises from json.loads (unchanged — its validity is the CI knowledge-coverage gate's job).
-    Raises KnowledgeUnavailable only when the committed graph is absent AND the live walk also fails
-    (rung 4) — reported, never crashed, so the read path never blocks boot (README:51)."""
+      'committed'    — the committed graph is present AND parses → rebuild the index from it (rung 2).
+      'live'         — the committed graph is ABSENT → fall back to a LIVE WALK of the surfaces
+                       (knowledge_gen.canonical_graph(), rung 3), so a fresh worktree or the D-024
+                       upgrade-overlay window still answers (loudly degraded).
+      'live-corrupt' — the committed graph is PRESENT but UNREADABLE (merge markers, a truncated regen) →
+                       fall back to the LIVE WALK exactly as absence does, but tagged distinctly so the
+                       degrade signal names a DAMAGED file, not a missing one: the repair differs and the
+                       operator relies on an honest signal (eADR-0004 'name what is reduced').
+    A corrupt committed graph USED to raise a raw JSONDecodeError here (its validity deferred to the CI
+    knowledge-coverage gate) — but that gate only fires at merge, while a reader hitting a mid-write
+    truncation between commit and gate must not crash the query/boot path (README:51 'report unavailable,
+    without blocking boot'). So corrupt now degrades like absence rather than raising. The producer of that
+    corruption is closed in the same change: knowledge_gen.write_graph now writes graph.json atomically.
+    Raises KnowledgeUnavailable only when the LIVE WALK itself also fails (rung 4) — reported, never
+    crashed, so the read path never blocks boot."""
     text = knowledge_gen.read_committed(graph_path)
+    corrupt = False
     if text is not None:
-        return json.loads(text), "committed"
+        try:
+            return json.loads(text), "committed"
+        except (json.JSONDecodeError, ValueError):
+            corrupt = True                             # present but unreadable → degrade like absence
     try:
-        return json.loads(knowledge_gen.canonical_graph()), "live"
+        return json.loads(knowledge_gen.canonical_graph()), ("live-corrupt" if corrupt else "live")
     except Exception as exc:                            # rung 4: the read path must never block boot
+        state = "present but unreadable" if corrupt else "absent"
         raise KnowledgeUnavailable(
-            f"the committed knowledge graph ({knowledge_gen._display(graph_path)}) is absent and a "
+            f"the committed knowledge graph ({knowledge_gen._display(graph_path)}) is {state} and a "
             f"live walk of the surfaces also failed: {exc}") from exc
 
 
 def build_index(index_path: str | None = None, graph_path: str | None = None):
     """(Re)build the SQLite index; return (index_path, source) — source is 'committed' (built from the
-    committed graph, rung 2) or 'live' (built from a LIVE WALK of the surfaces, rung 3). Builds into a
+    committed graph, rung 2), 'live' (built from a LIVE WALK because the committed graph is absent, rung 3),
+    or 'live-corrupt' (a LIVE WALK because the committed graph is present but unreadable). Builds into a
     temp file then atomically replaces, so a reader never sees a half-built index. Raises
-    KnowledgeUnavailable only when the committed graph is absent AND the live walk also fails (rung 4)."""
+    KnowledgeUnavailable only when the live walk itself also fails (rung 4)."""
     index_path = INDEX_PATH if index_path is None else index_path
     graph_path = knowledge_gen.GRAPH_PATH if graph_path is None else graph_path
     graph, source = _load_graph(graph_path)
-    # The staleness key: the committed graph's byte-fingerprint, or the live-walk sentinel (never a
-    # real fp, never the None graph_fingerprint() gives while the committed graph is absent).
+    # The staleness key: the committed graph's byte-fingerprint, or the live-walk sentinel for BOTH live
+    # rungs ('live' and 'live-corrupt'). A corrupt committed file still has a real byte-fingerprint, so the
+    # sentinel (not that fingerprint) is what keeps a corrupt-sourced index from ever being deemed fresh —
+    # it re-walks each query and self-heals the moment graph.json is regenerated.
     fp = graph_fingerprint(graph_path) if source == "committed" else LIVE_WALK_FINGERPRINT
     os.makedirs(os.path.dirname(index_path) or ".", exist_ok=True)
     # A process-unique temp name so two concurrent rebuilds of the same index (e.g. parallel test
@@ -195,9 +212,10 @@ def is_fresh(index_path: str | None = None, graph_path: str | None = None) -> bo
 
 def ensure_index(index_path: str | None = None, graph_path: str | None = None):
     """Return (index_path, source) — `source` is None when the index was already fresh; otherwise it
-    names what this call rebuilt from: 'committed' (the committed graph, rung 2) or 'live' (a LIVE WALK
-    of the surfaces, rung 3), so the query layer can surface a degraded read. Raises KnowledgeUnavailable
-    only when the committed graph is absent AND the live walk also fails (rung 4)."""
+    names what this call rebuilt from: 'committed' (the committed graph, rung 2), 'live' (a LIVE WALK
+    because the committed graph is absent, rung 3), or 'live-corrupt' (a LIVE WALK because it is present
+    but unreadable), so the query layer can surface a degraded read. Raises KnowledgeUnavailable only when
+    the live walk itself also fails (rung 4)."""
     index_path = INDEX_PATH if index_path is None else index_path
     graph_path = knowledge_gen.GRAPH_PATH if graph_path is None else graph_path
     if is_fresh(index_path, graph_path):
@@ -207,7 +225,8 @@ def ensure_index(index_path: str | None = None, graph_path: str | None = None):
 
 def connect(index_path: str | None = None, graph_path: str | None = None):
     """A read connection to a fresh index (ensuring it first). Returns (sqlite3.Connection, source) —
-    source is None (already fresh) / 'committed' / 'live' (see ensure_index). The caller closes it."""
+    source is None (already fresh) / 'committed' / 'live' / 'live-corrupt' (see ensure_index). The caller
+    closes it."""
     path, source = ensure_index(index_path, graph_path)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row

@@ -413,6 +413,21 @@ class TestGenerateCheckIO(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
+    def test_write_graph_is_atomic_and_leaves_no_committable_orphan(self):
+        # U05b: write_graph writes a temp then os.replace -> the target is byte-identical (newline=''
+        # preserved) and no orphan temp is left beside it; the transient temp lives in the gitignored,
+        # ownership-pruned .cache/ dir, never a sibling of graph.json that could be committed.
+        text = knowledge_gen.canonical_graph()
+        knowledge_gen.write_graph(text, self.path)
+        with open(self.path, encoding="utf-8", newline="") as fh:
+            self.assertEqual(fh.read(), text)             # byte-identical round-trip
+        # the only entries in the dir are the target and the .cache/ scratch dir — no *.building.* orphan
+        self.assertEqual(set(os.listdir(self._tmp.name)) - {"graph.json", ".cache"}, set())
+        # a second write overwrites cleanly (proves os.replace, not append)
+        knowledge_gen.write_graph(text, self.path)
+        with open(self.path, encoding="utf-8", newline="") as fh:
+            self.assertEqual(fh.read(), text)
+
     def test_generate_then_check_is_in_sync(self):
         # Freeze ONE live derivation so generate() and the following check() compare the same content
         # (check() re-derives canonical_graph() internally). Re-deriving per call made this depend on the

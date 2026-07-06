@@ -165,12 +165,15 @@ class Slice:
         self._adjacency = data.get("adjacency") or {}
         self.WALK_EDGE_KINDS = knowledge_index.WALK_EDGE_KINDS
         self.EDGE_KINDS = knowledge_index.EDGE_KINDS
-        # Provenance for boot's render: True iff this slice was rebuilt from a LIVE surface-walk because the
-        # committed graph.json was absent (rung 3, "loudly degraded") rather than from the committed map. The
-        # map is still reachable (orientation works), so this is NOT a "couldn't reach" degrade — boot surfaces
-        # it as a distinct heads-up. `read()` sets it from the build source; a directly-constructed Slice
-        # defaults to False (committed). See knowledge/README degrade chain + boot_slice module docstring.
+        # Provenance for boot's render: True iff this slice was rebuilt from a LIVE surface-walk rather than
+        # from the committed map (rung 3, "loudly degraded"). The map is still reachable (orientation works),
+        # so this is NOT a "couldn't reach" degrade — boot surfaces it as a distinct heads-up. The two live
+        # rungs are carried separately so boot names the cause: `from_live` = the committed graph.json was
+        # ABSENT (regenerate); `from_corrupt` = it was PRESENT but DAMAGED (regenerate to replace it). `read()`
+        # sets them from the build source; a directly-constructed Slice defaults both to False (committed).
+        # See knowledge/README degrade chain + boot_slice module docstring.
         self.from_live = False
+        self.from_corrupt = False
 
     def find(self):
         """knowledge_query.find()-shaped, ordered by id (its `ORDER BY id`). Carries the two fields derive_focus
@@ -212,10 +215,13 @@ def read(slice_path: str | None = None, graph_path: str | None = None):
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         s = Slice(data)
-        # `ensure` returns 'committed'/'live' (what it rebuilt from) or None (the slice was already fresh — only
-        # a committed slice is ever fresh, a live one never is, line 105-109). So 'live' is the one case the
-        # committed map was absent and we are on the rebuilt fallback — carry that to boot's render.
+        # `ensure` returns 'committed'/'live'/'live-corrupt' (what it rebuilt from) or None (the slice was
+        # already fresh — only a committed slice is ever fresh, a live one never is, line 105-109). Both live
+        # rungs mean orientation ran on the rebuilt fallback; they are carried SEPARATELY so boot names the
+        # cause honestly: 'live' = committed map ABSENT (regenerate), 'live-corrupt' = present but DAMAGED
+        # (regenerate to replace it) — a distinct repair the operator relies on (eADR-0004 'name what is reduced').
         s.from_live = (source == "live")
+        s.from_corrupt = (source == "live-corrupt")
         return s
     except Exception:
         return None
