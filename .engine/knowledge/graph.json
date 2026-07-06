@@ -5370,7 +5370,7 @@
       },
       "slug": "review",
       "source": {
-        "fingerprint": "sha256:1a586c2b2493e76023df23e8e652afe2db9ef01ca0148cc1882e51c2d9076ac3",
+        "fingerprint": "sha256:007885832f002e932cc001c3b0be879d318c09764105502e92e88c26879f52e1",
         "path": ".engine/tools/dependency_discipline/review.py"
       },
       "status": "active",
@@ -6730,7 +6730,7 @@
       },
       "slug": "test_review",
       "source": {
-        "fingerprint": "sha256:26f438dcc09dbb497b164ac51d89bc5c6121294960e66bc9ba7170631206bfd9",
+        "fingerprint": "sha256:dd8a0c94c817020b80ae6a35a728b6438369916f22db83e734ce1a055ebe2a05",
         "path": ".engine/tools/dependency_discipline/test_review.py"
       },
       "status": "active",

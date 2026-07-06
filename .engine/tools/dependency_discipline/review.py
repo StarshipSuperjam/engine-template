@@ -42,6 +42,13 @@ Engine/product wall (§13): the dependency-review API reports the whole reposito
 check filters out any change whose `manifest` is under `.engine/` — it gates the PRODUCT's own dependencies,
 never the engine's walled internal tooling.
 
+GitHub Actions carve-out (license only): GitHub's dependency graph reports NO SPDX license for the Actions
+ecosystem, so an action declared in a workflow file (`.github/workflows/`) always classifies as an
+unidentifiable license — and `unknown` has no per-package accept-path. Gating it would permanently block any
+change that adds a workflow action for a data-availability artifact, not a real license risk. So the LICENSE
+gate is skipped for workflow-declared actions; the VULNERABILITY gate still applies (a vulnerable action runs
+in CI with a token — a real supply-chain risk worth blocking).
+
 Contract: invoked by the validator with NO arguments, it prints a finding.v1 JSON array to stdout and exits 0.
 A separate `demo` subcommand runs a falsifiable self-check over a fake transport.
 """
@@ -64,6 +71,12 @@ import github_client  # noqa: E402  (the shared authenticated GitHub API client;
 USER_AGENT = "engine-dependency-review"
 _PRICING_URL = "https://github.com/pricing"
 _ENGINE_PREFIX = ".engine/"  # the §13 wall: manifests here are the engine's own tooling, never product deps
+# GitHub Actions are declared only in workflow files. GitHub's dependency graph carries NO SPDX license for the
+# Actions ecosystem, so every action classifies as an unidentifiable license — and there is no per-package
+# accept-path for 'unknown'. License-gating them would permanently block any change that adds an action for a
+# data-availability artifact, not a real license risk. So the LICENSE gate is skipped for workflow-declared
+# actions; the VULNERABILITY gate still applies (a vulnerable action running in CI is a real supply-chain risk).
+_WORKFLOW_PREFIX = ".github/workflows/"
 
 # The strong-copyleft / source-disclosure deny-set, by SPDX *base* identifier (the `-only` / `-or-later` / `+`
 # variants normalize to these). Strong copyleft (GPL, AGPL) can require publishing your own source if you
@@ -583,6 +596,13 @@ def findings(block_tier: str = "hard", *, event_path: "str | None" = None,
         if kept:
             out.append(validate.finding(block_tier, _vuln_message(change, kept), location))
 
+        # the LICENSE gate does not apply to a GitHub Action (declared in a workflow file): GitHub's dependency
+        # graph reports no SPDX license for the Actions ecosystem, so it always classifies 'unknown', which has
+        # no accept-path — gating it would permanently block adding an action for a data artifact, not a real
+        # license risk. The vulnerability gate above still ran for it.
+        if isinstance(manifest, str) and manifest.startswith(_WORKFLOW_PREFIX):
+            continue
+
         status, ids = _license_status(change.get("license"), allow_licenses)
         if status == "accepted":
             accepted_licenses.update(ids)
@@ -666,6 +686,10 @@ def demo() -> int:
                                license="(MIT OR Apache-2.0) AND GPL-3.0")
         unknown_lic = {"change_type": "added", "manifest": "package.json", "name": "mystery-pkg",
                        "version": "1.0.0", "license": "NOASSERTION", "vulnerabilities": []}
+        action_no_license = {"change_type": "added", "manifest": ".github/workflows/release.yml",
+                             "name": "actions/checkout", "version": "v7.0.0", "license": "NOASSERTION",
+                             "vulnerabilities": []}                          # a workflow action: license unknowable
+        action_vuln = dict(action_no_license, name="evil/action", vulnerabilities=[adv])  # but a vuln still bites
 
         def run(client, *, allow_ghsas=(), allow_licenses=()):
             return findings("hard", event_path=event, repo="o/r", token="t", client=client,
@@ -704,6 +728,11 @@ def demo() -> int:
             ("an unidentifiable license blocks even on a PUBLIC repo",
              lambda: run(_Canned([unknown_lic], visibility="public")),
              lambda fs: one_hard(fs) and "no license could be identified" in fs[0]["message"]),
+            ("a workflow action with an unidentifiable license is NOT license-blocked (no SPDX for Actions)",
+             lambda: run(_Canned([action_no_license], visibility="public")), lambda fs: fs == []),
+            ("a VULNERABLE workflow action is still blocked (the carve-out is license-only)",
+             lambda: run(_Canned([action_vuln], visibility="public")),
+             lambda fs: one_hard(fs) and "GHSA-demo-0000" in fs[0]["message"]),
             ("an accepted license passes with a soft accept-note (no hard)",
              lambda: run(_Canned([copyleft], visibility="private"), allow_licenses=["GPL-3.0-or-later"]),
              lambda fs: one_soft(fs, "accepted")),
