@@ -346,7 +346,13 @@ class TestLiveDerivationAttributes(unittest.TestCase):
 
     def test_module_carries_status_and_version(self):
         m = self.by_id["module:core"]
-        self.assertEqual((m.get("status"), m.get("version")), ("required", "0.0.0-dev"))
+        # The derived module entity carries the module's REAL declared version. Read the expected value from
+        # the source of truth (core's manifest) rather than pinning the construction-time sentinel, so this
+        # attribute test stays correct after a release cut bumps the version (it does not — the whole point of
+        # a cut is that this version moves off 0.0.0-dev, and a hardcoded sentinel here would fail every cut).
+        core_version = validate.load_json(
+            os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))["version"]
+        self.assertEqual((m.get("status"), m.get("version")), ("required", core_version))
 
     def test_every_entity_has_status_and_tier_and_title_are_well_scoped(self):
         for e in self.by_id.values():
