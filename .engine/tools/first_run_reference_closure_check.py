@@ -43,17 +43,21 @@ _PRUNE_DIRS = {"__pycache__", ".venv", ".pytest_cache", ".cache", ".uv"}
 def _load_removed(root: str):
     """The removed first-run asset set, read from the committed manifest as plain data (never by importing the
     instantiator). Returns (removed_files, removed_modules): repo-relative file paths, and the bare module names
-    of the removed `.py` files (an `import <name>` of which a survivor must not carry). Returns (None, None) if
-    the manifest is missing, unreadable, or malformed; check() turns that into a hard fail-closed finding — the
-    check cannot compute the removed set without it, and the manifest is permanent (it never self-retires), so a
-    missing one is always a fault, never a legitimate state. The manifest's own shape (a `files` list, a
-    `directories` list) is separately governed by the engine/check/first-run-assets schema check."""
+    of the removed `.py` files (an `import <name>` of which a survivor must not carry). Returns (None, None) when
+    the manifest is missing, unreadable, not valid JSON, or structurally malformed (not a JSON object, or its
+    `files` is not a list) — anything that stops this check computing the removed set; check() turns that into one
+    hard fail-closed finding. The manifest is permanent (it never self-retires), so a missing one is always a
+    fault, never a legitimate state. A present-but-empty `files` list is NOT a fault — it is a valid 'nothing to
+    remove' set. The manifest's own shape is separately governed by the engine/check/first-run-assets schema
+    check; this leg fails closed on any shape it cannot read, so a bad manifest never reaches a raw traceback."""
     try:
         with open(os.path.join(root, _MANIFEST_REL), encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
         return None, None
-    files = [f for f in data.get("files", []) if isinstance(f, str)]
+    if not isinstance(data, dict) or not isinstance(data.get("files"), list):
+        return None, None          # structurally malformed — route through the plain-language fault finding
+    files = [f for f in data["files"] if isinstance(f, str)]
     modules = {os.path.splitext(os.path.basename(f))[0] for f in files if f.endswith(".py")}
     return set(files), modules
 

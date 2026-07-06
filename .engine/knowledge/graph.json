@@ -841,7 +841,7 @@
       },
       "slug": "first-run-assets",
       "source": {
-        "fingerprint": "sha256:c2b9de2c15d5b95c6ef5e9c16df1449b3ec3190f19ab057540637dddc52dac15",
+        "fingerprint": "sha256:791e15b6f4407fab23189724f8c86af00c55d77d03ada3d42f4f4732fb1958b3",
         "path": ".engine/check/first-run-assets.json"
       },
       "status": "active",
@@ -4783,7 +4783,7 @@
       },
       "slug": "first_run_reference_closure_check",
       "source": {
-        "fingerprint": "sha256:c7db862047a71d40ea57cc91b4d42817fd084c60076b97971a9ed2c2995d0045",
+        "fingerprint": "sha256:919d21b4636b00951a16288556a1088f4ae353034c254bbf95e23b6fb15e9a3b",
         "path": ".engine/tools/first_run_reference_closure_check.py"
       },
       "status": "active",
@@ -6279,7 +6279,7 @@
       },
       "slug": "test_first_run_reference_closure",
       "source": {
-        "fingerprint": "sha256:8338fbaafee7fec09fb332f74116c8fdeae9cb09a0e6db4bacdad923b6ff94e9",
+        "fingerprint": "sha256:2231db2f1a76471a77a60168aab411c61684e223cbe981048b69df8ec7a267ae",
         "path": ".engine/tools/test_first_run_reference_closure.py"
       },
       "status": "active",

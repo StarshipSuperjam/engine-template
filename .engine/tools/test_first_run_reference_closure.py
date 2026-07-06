@@ -139,6 +139,32 @@ class TestClosureScan(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["severity"], "hard")
 
+    def test_fails_closed_when_the_manifest_is_structurally_malformed(self):
+        # Present and valid JSON but the wrong shape — a JSON array, the `files` key absent, or `files` not a list.
+        # The check can't compute the removed set, so it fails closed with the plain-language finding, never a raw
+        # traceback and never a green pass (which would lean entirely on the sibling schema check).
+        for bad in ("[]", '{"directories": []}', '{"files": 5}', '{"files": "nope"}', '{"files": null}'):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as d:
+                prov = os.path.join(d, ".engine", "provisioning")
+                os.makedirs(prov)
+                os.makedirs(os.path.join(d, ".engine", "tools"))
+                with open(os.path.join(prov, "first-run-assets.json"), "w", encoding="utf-8") as fh:
+                    fh.write(bad)
+                findings = frc.check(d)
+                self.assertEqual(len(findings), 1, bad)
+                self.assertEqual(findings[0]["severity"], "hard", bad)
+
+    def test_empty_files_list_is_a_valid_nothing_to_remove_set_not_a_fault(self):
+        # A present, well-formed manifest with an empty `files` list is a legitimate 'nothing to remove' state,
+        # not a fault — it must stay green (only a missing/unreadable/mis-shaped manifest fails closed).
+        with tempfile.TemporaryDirectory() as d:
+            prov = os.path.join(d, ".engine", "provisioning")
+            os.makedirs(prov)
+            os.makedirs(os.path.join(d, ".engine", "tools"))
+            with open(os.path.join(prov, "first-run-assets.json"), "w", encoding="utf-8") as fh:
+                json.dump({"files": [], "directories": []}, fh)
+            self.assertEqual(frc.check(d), [])
+
 
 class TestFindingIsPlainLanguage(unittest.TestCase):
     def test_the_message_states_the_consequence_without_engineer_shorthand(self):
