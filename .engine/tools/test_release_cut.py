@@ -295,6 +295,23 @@ class RenderPRBody(unittest.TestCase):
         findings = validate.section_presence_findings(body, required, "hard", "", "pull-request body")
         self.assertEqual(findings, [], f"release body missing/empty required sections: {findings}")
 
+    def test_body_follows_the_pr_template_form_not_just_headers(self):
+        # The completeness gate only checks the eight HEADERS are present; a header-only body passes it but is
+        # not a template-conforming body. Every section must carry the repo template's shape — a bold one-line
+        # summary AND an *Impact:* line — so the release body reads like every other engine pull request's.
+        proposal = {"change_inventory": ["First release."], "impacts": []}
+        applied = {"applied": True, "engine": "0.1.0", "from_engine": "0.0.0-dev", "targets": {"core": "0.1.0"}}
+        body = rc.render_pr_body(proposal, applied)
+        sections = ["Purpose", "Scope", "Out of scope", "Risk", "Validation",
+                    "Review", "Files of interest", "Claude involvement"]
+        for i, name in enumerate(sections):
+            seg = body.split(f"## {name}", 1)[1]
+            if i + 1 < len(sections):
+                seg = seg.split(f"## {sections[i + 1]}", 1)[0]
+            lines = [ln for ln in seg.splitlines() if ln.strip()]
+            self.assertTrue(lines and lines[0].startswith("**"), f"{name}: no bold summary line")
+            self.assertTrue(any(ln.startswith("*Impact:") for ln in lines), f"{name}: no *Impact:* line")
+
     def test_major_removal_surfaces_breaking_change_under_risk(self):
         # a removed capability is a breaking change (engine_floor_level 'major') — the Risk section, not only
         # the neutral Scope inventory, must say so, so a reviewer scanning "Risk" is not under-warned.
@@ -310,6 +327,20 @@ class RenderPRBody(unittest.TestCase):
                                   {"applied": True, "engine": "0.4.0", "from_engine": "0.3.0",
                                    "targets": {"core": "0.4.0"}})
         self.assertNotIn("breaking change", minor.lower())
+
+    def test_major_release_with_impacts_separates_interface_list_from_breaking_bullet(self):
+        # The highest-stakes case: a breaking release that ALSO touches interface contracts. The "Interface
+        # changes to read before you merge:" intro must sit on its own line with a blank line before it —
+        # otherwise markdown treats it as a lazy continuation of the breaking-change bullet above and fuses
+        # them, hiding the interface-changes signpost on exactly the release that most needs reading.
+        proposal = {"change_inventory": ["Removed the 'legacy' capability."],
+                    "impacts": [{"what": "the contract surface 'c' changed", "why": "read it against consumers"}],
+                    "engine_floor_level": "major", "engine_floor_version": "1.0.0"}
+        applied = {"applied": True, "engine": "1.0.0", "from_engine": "0.3.0", "targets": {"core": "1.0.0"}}
+        lines = rc.render_pr_body(proposal, applied).splitlines()
+        idx = lines.index("Interface changes to read before you merge:")
+        self.assertEqual(lines[idx - 1], "")                                  # a blank line precedes the intro
+        self.assertTrue(any("breaking change" in ln.lower() for ln in lines[:idx]))  # the breaking bullet is above
 
     def test_gate_path_three_states_are_visibly_distinct(self):
         passed, subbar, errored = (rc._gate_path_line("passed"), rc._gate_path_line("sub-bar"),

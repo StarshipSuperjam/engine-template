@@ -33,9 +33,9 @@ import subprocess
 import sys
 import tempfile
 
-import validate  # only to locate the real repo root (validate.ROOT)
+import release_cut  # for the strictly-greater next-version bump (_bump_at_least); a pure version function
+import validate     # to locate the real repo root (validate.ROOT)
 
-VERSION = "0.1.0"
 # The exact finding signatures the live run (PR #378) produced — the three checks Part A drives to green.
 GRAPH_SIG = "knowledge/graph.json) is out of date"   # knowledge-coverage: the graph is stale
 SELFMAP_SIG = "self-map.md) is out of date"           # self-map-drift: the self-map is stale
@@ -87,13 +87,21 @@ def main() -> int:
     try:
         _copy_repo(copy)
 
+        # A real cut always moves the version UP from wherever the repo is now — so bump to the next version
+        # above the copy's current engine version. This works whether the repo is at the construction sentinel
+        # or at an already-published release; cutting the SAME version would be a no-op that regenerates
+        # nothing, so the defect + fix would not show.
+        with open(os.path.join(engine, "engine.json")) as fh:
+            current = json.load(fh)["engine_release"]
+        version = release_cut._bump_at_least(current, "minor")
+
         # 1. THE DEFECT — record the versions, DON'T regenerate the maps: the two generated maps go stale.
         _, applied_json, _ = _run(engine, "release_cut.py", "apply",
-                                  "--engine", VERSION, "--all", VERSION, "--json")
+                                  "--engine", version, "--all", version, "--json")
         defect = _validate(engine)
         graph_stale = GRAPH_SIG in defect
         selfmap_stale = SELFMAP_SIG in defect
-        print("1. THE DEFECT — bump every manifest to 0.1.0, no regen (what PR #378 hit):")
+        print(f"1. THE DEFECT — bump every manifest {current} → {version}, no regen (the stale-maps defect PR #378 hit):")
         print(f"   knowledge graph went stale  = {graph_stale}")
         print(f"   self-map went stale         = {selfmap_stale}")
         ok &= graph_stale and selfmap_stale
@@ -115,7 +123,7 @@ def main() -> int:
         #    the exact suite + failure PR #384 hit, which the tree-only Step 2 check cannot see.
         st_code, st_out, st_err = _selftest(engine, "test_knowledge")
         selftests_pass = st_code == 0
-        print("\n3. THE SELF-TEST LAYER — the 0.1.0 tree passes the version-derivation self-tests engine-ci runs:")
+        print(f"\n3. THE SELF-TEST LAYER — the {version} tree passes the version-derivation self-tests engine-ci runs:")
         print(f"   test_knowledge green on the bumped tree = {selftests_pass}")
         if not selftests_pass:
             tail = (st_out + st_err).strip().splitlines()
@@ -125,9 +133,8 @@ def main() -> int:
         # 4. THE BODY FIX — render the release PR body and run it through the real pr-body-completeness gate.
         with open(os.path.join(engine, "applied.json"), "w") as fh:
             fh.write(applied_json)
-        proposal = {"mode": "first-cut", "impacts": [], "engine_floor_version": None,
-                    "change_inventory": ["First release: establishes the baseline version for the engine "
-                                         "and all installed packages."]}
+        proposal = {"impacts": [], "engine_floor_version": None,
+                    "change_inventory": [f"Records the engine and all installed packages at {version}."]}
         with open(os.path.join(engine, "proposal.json"), "w") as fh:
             json.dump(proposal, fh)
         _, body_md, _ = _run(engine, "release_cut.py", "pr-body",
@@ -149,7 +156,7 @@ def main() -> int:
         print(f"   incomplete body flagged by pr-body-completeness = {body_check_bites}")
         ok &= body_check_bites
 
-        print("\n" + ("DEMO PASSED: a 0.1.0 cut goes red on stale maps; regenerating the maps clears them, the "
+        print("\n" + (f"DEMO PASSED: a {version} cut goes red on stale maps; regenerating the maps clears them, the "
                       "bumped tree passes the version-derivation self-tests, and the rendered eight-section body "
                       "clears pr-body-completeness — the release PR is mergeable, and the body gate still bites "
                       "an incomplete body."
