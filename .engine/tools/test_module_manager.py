@@ -522,6 +522,32 @@ class TestVersionStamp(unittest.TestCase):
             "ledger", "0.2.0", "0.2.0", "cmd", now="2026-01-01T00:00:00Z", github=gh))
 
 
+class TestEngineReleaseNormalization(unittest.TestCase):
+    """The stored engine_release stays BARE even when the resolved release ref is v-prefixed, so the manifest
+    never carries the engine as `v0.1.0` while the packages read `0.1.0` (the tag-grammar round-trip fix)."""
+
+    def test_a_v_prefixed_tag_is_stored_bare_and_consistent_with_the_packages(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                module_manager._bump_engine_manifest({"base": "0.2.0"}, "v0.2.0")   # v-prefixed ref in
+                engine = module_manager.module_coherence.load_engine_manifest()
+        self.assertEqual((engine or {}).get("engine_release"), "0.2.0")             # stored bare, not "v0.2.0"
+        self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.2.0")   # matches the package form
+
+    def test_a_bare_ref_is_stored_unchanged(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                module_manager._bump_engine_manifest({"base": "0.2.0"}, "0.2.0")    # already bare -> no double-strip
+                engine = module_manager.module_coherence.load_engine_manifest()
+        self.assertEqual((engine or {}).get("engine_release"), "0.2.0")
+
+
 class TestMigrationsSchema(unittest.TestCase):
     """The tightened module.v1.json `migrations` shape: a well-formed entry passes, a malformed one fails
     the same schema the hard/CI module-manifest check enforces."""

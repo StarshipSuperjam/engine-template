@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""Unit tests for release_terminal — the terminal-cut publisher (tag + GitHub Release on merge).
+
+The network is faked by a programmable transport double (the issue_conformance_ci idiom): every test runs
+the REAL publish logic offline. Covered: the sentinel / pre-release / invalid-version loud no-ops; the
+strictly-greater-than-latest guard (older refused, equal falls through to idempotency, first-cut allowed);
+the git-refs tag pinned to the exact merge commit; the wrong-commit refusal (never an overwrite); an
+annotated tag dereferenced before the comparison; Release idempotency (already-published no-op, and a
+half-done publish converging on re-run); the tag/Release create-failure split-brain recovery; and the
+plain-language PR comment posted on BOTH success and failure."""
+import unittest
+
+import release_terminal as rt
+
+COMMIT = "a" * 40
+OTHER = "b" * 40
+
+
+class _FakeGitHub:
+    """A programmable GitHub transport: (method, path, body) -> (status, json). Mutable state, so a create
+    is visible to a later read and the real idempotency/convergence logic runs end to end."""
+
+    def __init__(self, *, latest="__none__", tags=None, releases=None, annotated=None,
+                 create_ref_status=201, create_release_status=201, comment_status=201):
+        self.latest = latest                      # "__none__" -> 404 (no published release); else a tag string
+        self.tags = dict(tags or {})              # lightweight tag -> commit sha
+        self.annotated = dict(annotated or {})    # annotated tag -> (tag_object_sha, commit_sha)
+        self.releases = set(releases or [])       # tags carrying a published Release
+        self.create_ref_status = create_ref_status
+        self.create_release_status = create_release_status
+        self.comment_status = comment_status
+        self.calls = []
+
+    def transport(self, method, path, body=None):
+        self.calls.append((method, path, body))
+        if path.endswith("/releases/latest"):
+            return (404, None) if self.latest == "__none__" else (200, {"tag_name": self.latest})
+        if "/git/ref/tags/" in path:
+            tag = path.rsplit("/", 1)[1]
+            if tag in self.annotated:
+                return 200, {"object": {"sha": self.annotated[tag][0], "type": "tag"}}
+            if tag in self.tags:
+                return 200, {"object": {"sha": self.tags[tag], "type": "commit"}}
+            return 404, None
+        if "/git/tags/" in path:                  # deref an annotated tag object -> its commit
+            tag_obj = path.rsplit("/", 1)[1]
+            for _t, (ts, commit) in self.annotated.items():
+                if ts == tag_obj:
+                    return 200, {"object": {"sha": commit, "type": "commit"}}
+            return 404, None
+        if method == "POST" and path.endswith("/git/refs"):
+            if self.create_ref_status in (200, 201):
+                self.tags[body["ref"].rsplit("/", 1)[1]] = body["sha"]
+            return self.create_ref_status, None
+        if "/releases/tags/" in path:
+            tag = path.rsplit("/", 1)[1]
+            return (200, {"tag_name": tag}) if tag in self.releases else (404, None)
+        if method == "POST" and path.endswith("/releases"):
+            if self.create_release_status in (200, 201):
+                self.releases.add(body["tag_name"])
+            return self.create_release_status, None
+        if method == "POST" and "/comments" in path:
+            return self.comment_status, {"id": 1}
+        raise AssertionError(f"unexpected call {method} {path}")
+
+    # ---- introspection
+    def comment_bodies(self):
+        return [b["body"] for (m, p, b) in self.calls if m == "POST" and "/comments" in p]
+
+    def created_refs(self):
+        return [b for (m, p, b) in self.calls if m == "POST" and p.endswith("/git/refs")]
+
+    def created_releases(self):
+        return [b for (m, p, b) in self.calls if m == "POST" and p.endswith("/releases")]
+
+
+def _client(fake):
+    return rt.TerminalCutClient("acme/engine-home", "tok", transport=fake.transport)
+
+
+class NoOpGuards(unittest.TestCase):
+    def test_sentinel_is_a_loud_no_op_touching_no_network(self):
+        fake = _FakeGitHub()
+        r = rt.publish(_client(fake), rt.SENTINEL, COMMIT)
+        self.assertFalse(r["published"])
+        self.assertEqual(r["reason"], "nothing-to-publish")
+        self.assertEqual(fake.calls, [])                    # refused BEFORE any API call
+
+    def test_prerelease_is_a_loud_no_op(self):
+        fake = _FakeGitHub()
+        r = rt.publish(_client(fake), "0.1.0-rc1", COMMIT)
+        self.assertEqual(r["reason"], "nothing-to-publish")
+        self.assertEqual(fake.calls, [])
+
+    def test_invalid_version_is_refused_before_any_write(self):
+        fake = _FakeGitHub()
+        r = rt.publish(_client(fake), "not-a-version", COMMIT)
+        self.assertFalse(r["published"])
+        self.assertEqual(r["reason"], "invalid-version")
+        self.assertEqual(fake.calls, [])
+
+
+class StrictlyGreaterGuard(unittest.TestCase):
+    def test_first_cut_with_no_latest_is_allowed(self):
+        fake = _FakeGitHub(latest="__none__")
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertTrue(r["published"])
+        self.assertEqual(r["tag"], "v0.1.0")
+
+    def test_a_newer_version_publishes(self):
+        fake = _FakeGitHub(latest="v0.1.0")
+        r = rt.publish(_client(fake), "0.2.0", COMMIT)
+        self.assertTrue(r["published"])
+
+    def test_an_older_version_is_refused_and_writes_nothing(self):
+        fake = _FakeGitHub(latest="v0.2.0")
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertFalse(r["published"])
+        self.assertEqual(r["reason"], "not-newer")
+        self.assertEqual(fake.created_refs(), [])           # no tag created
+        self.assertEqual(fake.created_releases(), [])       # no release created
+
+    def test_a_version_equal_to_latest_falls_through_to_idempotency_not_refused(self):
+        # the fully-published re-run: latest == this version. It must NOT be refused as "not newer" — it must
+        # reach the already-published no-op (the reordering this test locks in).
+        fake = _FakeGitHub(latest="v0.1.0", tags={"v0.1.0": COMMIT}, releases={"v0.1.0"})
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertTrue(r["published"])
+        self.assertEqual(r["reason"], "already-published")
+
+
+class ExactCommitTagging(unittest.TestCase):
+    def test_fresh_publish_creates_the_tag_at_the_exact_merge_commit(self):
+        fake = _FakeGitHub(latest="__none__")
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertTrue(r["published"])
+        refs = fake.created_refs()
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0], {"ref": "refs/tags/v0.1.0", "sha": COMMIT})   # pinned to the merge SHA
+        self.assertEqual(fake.created_releases()[0]["tag_name"], "v0.1.0")
+
+    def test_a_tag_on_a_different_commit_is_refused_never_overwritten(self):
+        fake = _FakeGitHub(latest="__none__", tags={"v0.1.0": OTHER})
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertFalse(r["published"])
+        self.assertEqual(r["reason"], "tag-conflict")
+        self.assertEqual(fake.created_refs(), [])           # never tried to move/overwrite the tag
+        self.assertEqual(fake.created_releases(), [])
+
+    def test_an_annotated_tag_is_dereferenced_before_the_commit_comparison(self):
+        # an annotated tag object points at the commit; the publisher must compare the COMMIT, not the tag
+        # object sha. Here the annotated tag resolves to the merge commit -> it matches, so publish proceeds.
+        fake = _FakeGitHub(latest="__none__", annotated={"v0.1.0": ("t" * 40, COMMIT)})
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertTrue(r["published"])                     # tag already correct -> just publishes the Release
+        self.assertEqual(fake.created_refs(), [])           # tag already existed, none created
+
+
+class ReleaseIdempotency(unittest.TestCase):
+    def test_already_published_is_a_clean_no_op(self):
+        fake = _FakeGitHub(latest="v0.1.0", tags={"v0.1.0": COMMIT}, releases={"v0.1.0"})
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertTrue(r["published"])
+        self.assertEqual(r["reason"], "already-published")
+        self.assertEqual(fake.created_releases(), [])       # did NOT re-create the Release
+
+    def test_a_half_done_publish_converges_on_re_run(self):
+        # the tag was created by a prior failed run but the Release never landed: latest is still absent, the
+        # tag matches the commit -> the re-run creates the missing Release and completes.
+        fake = _FakeGitHub(latest="__none__", tags={"v0.1.0": COMMIT}, releases=set())
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertTrue(r["published"])
+        self.assertEqual(r["reason"], "published")
+        self.assertEqual(fake.created_refs(), [])           # tag already there
+        self.assertEqual(len(fake.created_releases()), 1)   # Release created this run
+
+    def test_a_lost_tag_create_race_is_reconciled_against_the_existing_tag(self):
+        # create_tag returns 422 (a ref appeared between the read and the create); the publisher re-resolves
+        # and, finding it on the SAME commit, proceeds rather than failing.
+        fake = _FakeGitHub(latest="__none__", create_ref_status=422)
+        fake.tags["v0.1.0"] = COMMIT                        # the racing ref, already at the right commit
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertTrue(r["published"])
+
+
+class CreateFailures(unittest.TestCase):
+    def test_tag_create_failure_is_a_loud_recoverable_stop(self):
+        fake = _FakeGitHub(latest="__none__", create_ref_status=500)
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertFalse(r["published"])
+        self.assertEqual(r["reason"], "tag-create-failed")
+        self.assertIn("re-run", r["recovery"].lower())
+        self.assertEqual(fake.created_releases(), [])       # never reached the Release step
+
+    def test_release_create_failure_names_the_split_brain_and_recovery(self):
+        fake = _FakeGitHub(latest="__none__", create_release_status=500)
+        r = rt.publish(_client(fake), "0.1.0", COMMIT)
+        self.assertFalse(r["published"])
+        self.assertEqual(r["reason"], "release-create-failed")
+        self.assertIn("re-run", r["recovery"].lower())
+        self.assertEqual(len(fake.created_refs()), 1)       # the tag WAS created (the split-brain the msg names)
+
+
+class Announce(unittest.TestCase):
+    def test_run_comments_the_success_onto_the_merged_pr(self):
+        fake = _FakeGitHub(latest="__none__")
+        r = rt.run(_client(fake), "0.1.0", COMMIT, pr_number=42)
+        self.assertTrue(r["published"])
+        self.assertTrue(r["announced"])
+        bodies = fake.comment_bodies()
+        self.assertEqual(len(bodies), 1)
+        self.assertIn("v0.1.0 is now released", bodies[0])
+
+    def test_run_comments_the_failure_onto_the_merged_pr(self):
+        fake = _FakeGitHub(latest="v0.2.0")                 # an older version -> refused
+        r = rt.run(_client(fake), "0.1.0", COMMIT, pr_number=42)
+        self.assertFalse(r["published"])
+        bodies = fake.comment_bodies()
+        self.assertEqual(len(bodies), 1)
+        self.assertIn("did not publish a release", bodies[0])
+
+    def test_a_comment_failure_does_not_flip_a_successful_publish(self):
+        fake = _FakeGitHub(latest="__none__", comment_status=500)
+        r = rt.run(_client(fake), "0.1.0", COMMIT, pr_number=42)
+        self.assertTrue(r["published"])                     # the Release is the durable success artifact
+        self.assertFalse(r["announced"])
+        self.assertIn("500", r["announce_error"])
+
+
+class Prose(unittest.TestCase):
+    def test_release_notes_are_plain_carry_the_readiness_line_and_no_jargon(self):
+        notes = rt._release_notes("v0.1.0")
+        self.assertIn("v0.1.0", notes)
+        self.assertIn("no automated check", notes.lower())          # the §6 readiness line
+        for banned in ("terminal cut", "release-cut", "release_cut", "target_commitish"):
+            self.assertNotIn(banned, notes)
+
+    def test_comment_bodies_read_distinct_across_outcomes(self):
+        published = rt._comment_body({"published": True, "reason": "published", "tag": "v0.1.0"})
+        already = rt._comment_body({"published": True, "reason": "already-published", "tag": "v0.1.0"})
+        failed = rt._comment_body({"published": False, "reason": "release-create-failed", "tag": "v0.1.0",
+                                   "message": "the release could not be published."})
+        refused = rt._comment_body({"published": False, "reason": "not-newer", "tag": "v0.1.0",
+                                    "message": "it is older.", "recovery": "cut it again higher."})
+        self.assertEqual(len({published, already, failed, refused}), 4)
+        self.assertIn("released", published.lower())
+        self.assertIn("did not finish", failed.lower())
+
+
+class ExitCode(unittest.TestCase):
+    def test_published_and_noop_are_zero_refusals_are_one(self):
+        self.assertEqual(rt._exit_code({"published": True, "reason": "published"}), 0)
+        self.assertEqual(rt._exit_code({"published": False, "reason": "nothing-to-publish"}), 0)
+        self.assertEqual(rt._exit_code({"published": False, "reason": "not-newer"}), 1)
+        self.assertEqual(rt._exit_code({"published": False, "reason": "release-create-failed"}), 1)
+
+
+class LatestReadFailure(unittest.TestCase):
+    def test_an_unreadable_latest_release_raises_rather_than_assuming_first_cut(self):
+        # a 500 on /releases/latest must NOT be misread as "no release -> first cut" (which would let an older
+        # version publish). It raises PublishError -> the CLI surfaces a loud plain error.
+        fake = _FakeGitHub()
+        fake.latest = "__none__"
+        orig = fake.transport
+
+        def boom(method, path, body=None):
+            if path.endswith("/releases/latest"):
+                return 500, None
+            return orig(method, path, body)
+        client = rt.TerminalCutClient("acme/engine-home", "tok", transport=boom)
+        with self.assertRaises(rt.PublishError):
+            rt.publish(client, "0.1.0", COMMIT)
+
+
+if __name__ == "__main__":
+    unittest.main()
