@@ -15,6 +15,7 @@ import module_coherence    # noqa: E402
 import module_manager      # noqa: E402
 import protection_guard    # noqa: E402
 import demo_secret_scan    # noqa: E402
+import quiet_call          # noqa: E402  (capture the demo walkthrough so it can't bury the summary)
 
 WORKFLOW_REL = ".github/workflows/secret-scan.yml"
 DEPENDABOT_REL = ".github/dependabot.yml"
@@ -81,16 +82,16 @@ class TestSecretScanDemo(unittest.TestCase):
     """The demo exercises the real scanner; here we pin its always-true and skip-if-absent legs."""
 
     def test_advisory_block_holds_without_a_scanner(self):
-        self.assertTrue(demo_secret_scan._advisory_guarantee_holds())
+        self.assertTrue(quiet_call.run(demo_secret_scan._advisory_guarantee_holds))
 
     def test_demo_main_exits_zero(self):
-        self.assertEqual(demo_secret_scan.main(), 0)
+        self.assertEqual(quiet_call.run(demo_secret_scan.main), 0)
 
     @unittest.skipUnless(shutil.which("gitleaks"), "the real gitleaks binary is not installed")
     def test_real_scanner_catches_planted_secret_and_passes_clean(self):
-        self.assertTrue(demo_secret_scan._scan_planted_secret(),
+        self.assertTrue(quiet_call.run(demo_secret_scan._scan_planted_secret),
                         "the planted fake token must be found by the real scanner")
-        self.assertTrue(demo_secret_scan._scan_clean_file(),
+        self.assertTrue(quiet_call.run(demo_secret_scan._scan_clean_file),
                         "a file with no secrets must come back clean")
 
 
