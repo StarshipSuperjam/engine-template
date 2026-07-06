@@ -20,14 +20,17 @@
 # its GRAMMAR (the actionlint workflow lints it) and by read-review, NOT by a run; the version-decision, the
 # manifest write, and the pull-request-body rendering it drives ARE unit-tested and demoed (release_cut.py /
 # test_release_cut.py / demo_release_cut.py). The first end-to-end run is the first release itself.
-name: release
+name: Release a new engine version
+# The maintainer sees this line, not the comment above, when this runs — so it says plainly what pressing
+# "Run workflow" does: it opens a pull request to review and merge; nothing is released until that merge.
+run-name: Release ${{ inputs.engine_version || 'the next version' }} — opens a pull request for you to review and merge
 
 on:
   workflow_dispatch:
     inputs:
       engine_version:
-        description: "The new engine version, like 0.1.0 (a release can only ever go up, never down)."
-        required: true
+        description: "The new engine version, like 0.1.0. Leave blank to use the smallest version the changes require. A release can only ever go up, never down."
+        required: false
         type: string
 
 # Only the built-in GITHUB_TOKEN's scope is governed here: it pushes the release branch, so it needs
@@ -104,16 +107,37 @@ jobs:
           ENGINE_VERSION: ${{ inputs.engine_version }}
         run: |
           set -euo pipefail
-          mode="$(uv run --directory .engine --frozen -- python -c "import json; print(json.load(open('${RUNNER_TEMP}/proposal.json'))['mode'])")"
+          # Read a field from the proposal. `if ! var=$(...)` catches a read failure in THIS shell (not a
+          # swallowed subshell exit), so a corrupt proposal fails with a plain message, never a raw traceback.
+          proposal_field() {
+            uv run --directory .engine --frozen -- python -c \
+              "import json,sys; print(json.load(open('${RUNNER_TEMP}/proposal.json')).get(sys.argv[1]) or '')" "$1"
+          }
+          if ! mode="$(proposal_field mode)" || ! floor="$(proposal_field engine_floor_version)"; then
+            echo "::error::Could not read the release proposal this run produced (it may be malformed). Nothing was changed. Run this again."
+            exit 1
+          fi
+          # Resolve the engine version: the maintainer's value if given, otherwise the smallest the changes force.
+          if [ -n "${ENGINE_VERSION}" ]; then
+            target="${ENGINE_VERSION}"
+          elif [ "${mode}" = "first-cut" ]; then
+            echo "::error::This is the first release, so there is no earlier version to work from — run this again and enter the version to start at, like 0.1.0. Nothing was changed."
+            exit 1
+          elif [ -n "${floor}" ]; then
+            target="${floor}"
+          else
+            echo "::error::Nothing that changed since the last release forces a particular version, so there is no default to use — run this again and enter the version you want, like 1.0.1. Nothing was changed."
+            exit 1
+          fi
           if [ "${mode}" = "first-cut" ]; then
             # The first cut establishes every capability's baseline at the engine's own new version.
             uv run --directory .engine --frozen -- python tools/release_cut.py apply \
-              --engine "${ENGINE_VERSION}" --all "${ENGINE_VERSION}" --json > "${RUNNER_TEMP}/applied.json"
+              --engine "${target}" --all "${target}" --json > "${RUNNER_TEMP}/applied.json"
           else
-            # A later cut enforces the per-capability floors the proposal computed; the engine version may be
-            # raised to the dispatched value but never lowered below the mechanical floor.
+            # A later cut enforces the mechanical engine floor AND the per-capability floors the proposal
+            # computed: the version may be raised above the floor, and a value below it is refused (not lowered).
             uv run --directory .engine --frozen -- python tools/release_cut.py apply \
-              --engine "${ENGINE_VERSION}" --proposal "${RUNNER_TEMP}/proposal.json" --json \
+              --engine "${target}" --proposal "${RUNNER_TEMP}/proposal.json" --json \
               > "${RUNNER_TEMP}/applied.json"
           fi
       # Render the pull-request body from the proposal + the recorded versions — the maintainer's whole evidence

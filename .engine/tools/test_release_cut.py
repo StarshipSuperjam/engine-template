@@ -32,9 +32,9 @@ def _module(mid, ver="0.0.0-dev", migrations=None):
 
 class _Tree:
     """A temp engine tree (engine.json + module manifests) with validate.ROOT pointed at it."""
-    def __init__(self, modules, home="acme/engine-home"):
+    def __init__(self, modules, home="acme/engine-home", engine_release="0.0.0-dev"):
         self.root = tempfile.mkdtemp()
-        engine = {"engine_release": "0.0.0-dev",
+        engine = {"engine_release": engine_release,
                   "packages": {mid: m["version"] for mid, m in modules.items()},
                   "identity": "solo", "home_repository": home}
         _write(os.path.join(self.root, ".engine", "engine.json"), engine)
@@ -138,6 +138,21 @@ class Classify(unittest.TestCase):
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
+    def test_diff_sets_concrete_engine_floor_version(self):
+        base = _baseline_tree({"core": _module("core"), "legacy": _module("legacy")})
+        try:
+            with _Tree({"core": _module("core")}, engine_release="1.0.0"):
+                p = rc.classify(rc.Baseline("v0.9.0", False, "diff"), base)
+            self.assertEqual(p["engine_floor_level"], "major")       # a removal forces a major
+            self.assertEqual(p["engine_floor_version"], "2.0.0")     # concrete major floor from current 1.0.0
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_first_cut_has_no_engine_floor_version(self):
+        with _Tree({"core": _module("core")}):
+            p = rc.classify(rc.Baseline(None, True, "first cut"), None)
+        self.assertIsNone(p["engine_floor_version"])
+
 
 class Apply(unittest.TestCase):
     def test_raise_only_refuses_non_increase(self):
@@ -180,6 +195,29 @@ class Apply(unittest.TestCase):
             proposal = {"package_floor": {"core": "0.2.0"}}
             r = rc.apply("0.2.0", None, {"core": "0.2.0"}, proposal, dry_run=True)   # meets the floor
         self.assertEqual(r["reason"], "dry-run")   # would apply
+
+    def test_engine_below_mechanical_floor_refused(self):
+        # a removed capability forces a major floor (2.0.0); dispatching 1.0.1 is ABOVE current (1.0.0), so
+        # raise-only passes — the ENGINE-floor gate must still refuse it as below the mechanical floor.
+        with _Tree({"core": _module("core", ver="1.0.0")}, engine_release="1.0.0"):
+            proposal = {"engine_floor_version": "2.0.0", "package_floor": {}}
+            r = rc.apply("1.0.1", "1.0.1", {}, proposal, dry_run=True)
+        self.assertFalse(r["applied"])
+        self.assertEqual(r["reason"], "below-confirmed-floor")
+        self.assertTrue(any("mechanical floor 2.0.0" in v for v in r["violations"]))
+
+    def test_engine_at_mechanical_floor_passes(self):
+        with _Tree({"core": _module("core", ver="1.0.0")}, engine_release="1.0.0"):
+            proposal = {"engine_floor_version": "2.0.0", "package_floor": {}}
+            r = rc.apply("2.0.0", "2.0.0", {}, proposal, dry_run=True)   # meets the mechanical floor
+        self.assertEqual(r["reason"], "dry-run")   # would apply
+
+    def test_no_engine_floor_when_proposal_omits_it(self):
+        # a None/absent engine_floor_version imposes no engine floor (raise-only still applies)
+        with _Tree({"core": _module("core", ver="1.0.0")}, engine_release="1.0.0"):
+            proposal = {"engine_floor_version": None, "package_floor": {}}
+            r = rc.apply("1.0.1", "1.0.1", {}, proposal, dry_run=True)
+        self.assertEqual(r["reason"], "dry-run")   # would apply — no floor to breach
 
     def test_invalid_version_refused(self):
         with _Tree({"core": _module("core")}):
@@ -232,10 +270,11 @@ class RenderPRBody(unittest.TestCase):
             proposal = rc.classify(rc.Baseline(None, True, "no prior release"), None)
             applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
         body = rc.render_pr_body(proposal, applied)
-        self.assertIn("0.0.0-dev → 0.1.0", body)                    # the version move
+        self.assertIn("no earlier version → 0.1.0", body)           # the version move (sentinel hidden)
+        self.assertNotIn("0.0.0-dev", body)                         # the internal sentinel never leaks
         self.assertIn("First release", body)                        # the change inventory carried through
         self.assertIn("Every capability (2)", body)                 # uniform targets collapse to one line
-        self.assertIn("sub-bar", body.lower())                      # the gate-path line (no benchmark built)
+        self.assertIn("no automated check", body.lower())           # the gate-path line (no benchmark built)
         self.assertIn("Before you merge", body)                     # the §3 confirm/raise/reject guidance
         self.assertIn("close this and run the release again", body)  # the raise + missing-signal backstop
         # maintainer-facing register (§8): no internal machinery vocabulary leaks
@@ -248,7 +287,7 @@ class RenderPRBody(unittest.TestCase):
         self.assertEqual(len({passed, subbar, errored}), 3)         # §6: never look alike
         self.assertIn("passed", passed.lower())
         self.assertIn("errored", errored.lower())
-        self.assertIn("sub-bar", subbar.lower())
+        self.assertIn("no automated check", subbar.lower())
         for s in (passed, subbar, errored):
             self.assertTrue(s.strip())
 
@@ -261,6 +300,25 @@ class RenderPRBody(unittest.TestCase):
         self.assertIn("Interface changes", body)                    # impacts surfaced
         self.assertIn("qa-review: → 0.1.5", body)                   # itemised (not collapsed — versions differ)
         self.assertNotIn("Every capability", body)
+
+    def test_body_shows_mechanical_floor_when_present(self):
+        proposal = {"change_inventory": ["Removed the 'legacy' capability."], "impacts": [],
+                    "engine_floor_version": "2.0.0"}
+        applied = {"applied": True, "engine": "2.0.0", "from_engine": "1.0.0", "targets": {"core": "2.0.0"}}
+        body = rc.render_pr_body(proposal, applied)
+        self.assertIn("least this release could be is **2.0.0**", body)
+
+    def test_body_refuses_a_none_release(self):
+        # a refused apply result carries no engine version — it must NOT render a "None → None" release
+        with self.assertRaises(RuntimeError):
+            rc.render_pr_body({"change_inventory": []}, {"applied": False, "reason": "raise-only"})
+
+    def test_first_cut_body_hides_the_dev_sentinel(self):
+        proposal = {"change_inventory": ["First release."], "impacts": []}
+        applied = {"applied": True, "engine": "0.1.0", "from_engine": "0.0.0-dev", "targets": {"core": "0.1.0"}}
+        body = rc.render_pr_body(proposal, applied)
+        self.assertIn("no earlier version → 0.1.0", body)
+        self.assertNotIn("0.0.0-dev", body)
 
     def test_pr_body_subcommand_reads_files_and_prints(self):
         # the CLI seam the workflow drives: proposal + applied files in, body on stdout
@@ -277,7 +335,7 @@ class RenderPRBody(unittest.TestCase):
                 code = rc.main(["pr-body", "--proposal", os.path.join(d, "proposal.json"),
                                 "--applied", os.path.join(d, "applied.json")])
             self.assertEqual(code, 0)
-            self.assertIn("0.0.0-dev → 0.1.0", buf.getvalue())
+            self.assertIn("no earlier version → 0.1.0", buf.getvalue())
         finally:
             shutil.rmtree(d, ignore_errors=True)
 

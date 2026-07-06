@@ -131,11 +131,12 @@ def main() -> int:
         body = rc.render_pr_body(p6, a6)
         states = {rc._gate_path_line(s) for s in ("passed", "sub-bar", "errored")}
         print("\n6. RELEASE-PR BODY (the maintainer's evidence bundle)")
-        print(f"   carries the version move 0.0.0-dev -> 0.1.0 = {'0.0.0-dev → 0.1.0' in body}")
-        print(f"   readiness stated sub-bar (no benchmark built) = {'sub-bar' in body.lower()}")
+        print(f"   version move shown, sentinel hidden           = {'no earlier version → 0.1.0' in body and '0.0.0-dev' not in body}")
+        print(f"   readiness stated (no automated check ran)     = {'no automated check' in body.lower()}")
         print(f"   confirm/raise/reject guidance present         = {'Before you merge' in body}")
         print(f"   the three readiness states read distinct      = {len(states) == 3}")
-        ok &= ("0.0.0-dev → 0.1.0" in body and "sub-bar" in body.lower()
+        ok &= ("no earlier version → 0.1.0" in body and "0.0.0-dev" not in body
+               and "no automated check" in body.lower()
                and "Before you merge" in body and len(states) == 3)
     finally:
         validate.ROOT, validate.ENGINE_DIR = saved
