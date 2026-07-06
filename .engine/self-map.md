@@ -9,7 +9,7 @@
 > It does not show whether each part *works* or is well designed — that is your review and each
 > module's own checks, never something this map attests.
 
-Engine release `0.0.0-dev` · identity `solo`
+Engine release `0.1.0` · identity `solo`
 
 ## Surfaces
 
@@ -48,7 +48,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `validators-core` → `core`
 - `audit-library` → `core`, `validators-core`
 
-### `core` — version `0.0.0-dev` (required)
+### `core` — version `0.1.0` (required)
 
 - depends on: nothing
 - provides:
@@ -70,7 +70,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/*.py`, `.engine/tools/*.sh`
 - wires: gitignore, hook, mcp
 
-### `dependency-discipline` — version `0.0.0-dev` (optional)
+### `dependency-discipline` — version `0.1.0` (optional)
 
 - depends on: `core`
 - provides:
@@ -79,14 +79,14 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/dependency_discipline/*.py`
 - wires: none (this module adds no shared-state edits)
 
-### `design-review` — version `0.0.0-dev` (optional)
+### `design-review` — version `0.1.0` (optional)
 
 - depends on: `core`
 - provides:
   - agent: `.claude/agents/design-review-architecture.md`, `.claude/agents/design-review-feasibility.md`, `.claude/agents/design-review-product-intent.md`, `.claude/agents/design-review-risk-governance.md`
 - wires: none (this module adds no shared-state edits)
 
-### `external-contribution` — version `0.0.0-dev` (optional)
+### `external-contribution` — version `0.1.0` (optional)
 
 - depends on: `core`
 - provides:
@@ -96,7 +96,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/external_contribution/*.py`
 - wires: none (this module adds no shared-state edits)
 
-### `github-projects-sync` — version `0.0.0-dev` (optional)
+### `github-projects-sync` — version `0.1.0` (optional)
 
 - depends on: `core`
 - provides:
@@ -105,7 +105,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/projects_sync/*.py`
 - wires: gitignore, hook
 
-### `memory-substrate-sqlite-fts5` — version `0.0.0-dev` (required)
+### `memory-substrate-sqlite-fts5` — version `0.1.0` (required)
 
 - depends on: `core`
 - provides:
@@ -114,7 +114,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/memory/*.py`
 - wires: gitignore, hook, mcp
 
-### `migration-discipline` — version `0.0.0-dev` (optional)
+### `migration-discipline` — version `0.1.0` (optional)
 
 - depends on: `core`
 - provides:
@@ -123,7 +123,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/migration_discipline/*.py`
 - wires: none (this module adds no shared-state edits)
 
-### `product-design` — version `0.0.0-dev` (optional)
+### `product-design` — version `0.1.0` (optional)
 
 - depends on: `core`
 - provides:
@@ -135,14 +135,14 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/product_design/*.py`
 - wires: none (this module adds no shared-state edits)
 
-### `qa-review` — version `0.0.0-dev` (optional)
+### `qa-review` — version `0.1.0` (optional)
 
 - depends on: `core`
 - provides:
   - agent: `.claude/agents/qa-review-security-governance.md`, `.claude/agents/qa-review-spec-conformance.md`, `.claude/agents/qa-review-technical-integrity.md`, `.claude/agents/qa-review-usability.md`
 - wires: none (this module adds no shared-state edits)
 
-### `routine-mode` — version `0.0.0-dev` (required)
+### `routine-mode` — version `0.1.0` (required)
 
 - depends on: `core`
 - provides:
@@ -150,14 +150,14 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - skill: `.claude/skills/engine-routine/SKILL.md`
 - wires: none (this module adds no shared-state edits)
 
-### `validators-core` — version `0.0.0-dev` (required)
+### `validators-core` — version `0.1.0` (required)
 
 - depends on: `core`
 - provides:
   - check: `.engine/check/agent-coherence.json`, `.engine/check/agent-frontmatter.json`, `.engine/check/agent-shape.json`, `.engine/check/audit-concern-list.json`, `.engine/check/audit-digest-fingerprint.json`, `.engine/check/audit-digest-staleness.json`, `.engine/check/catalog-coverage.json`, `.engine/check/conduct-frontmatter.json`, `.engine/check/conduct-shape.json`, `.engine/check/conduct-weakening-guard.json`, `.engine/check/contract-frontmatter.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/disposition-issue-resolution.json`, `.engine/check/doc-frontmatter.json`, `.engine/check/doc-shape.json`, `.engine/check/engine-manifest.json`, `.engine/check/first-run-reference-closure.json`, `.engine/check/hard-check-bite.json`, `.engine/check/in-tool-demo-failure-path.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/knowledge-vocabulary.json`, `.engine/check/link-integrity.json`, `.engine/check/memory-pointer-public-safety.json`, `.engine/check/module-manifest.json`, `.engine/check/operation-frontmatter.json`, `.engine/check/operation-shape.json`, `.engine/check/policy-frontmatter.json`, `.engine/check/policy-override-stale.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/provisioning-catalog.json`, `.engine/check/release-integrity.json`, `.engine/check/self-map-drift.json`, `.engine/check/skill-coherence.json`, `.engine/check/skill-frontmatter.json`, `.engine/check/skill-shape.json`, `.engine/check/state-cursor.json`, `.engine/check/untracked-surface.json`, `.engine/check/uv-group-drift.json`
 - wires: none (this module adds no shared-state edits)
 
-### `audit-library` — version `0.0.0-dev` (required)
+### `audit-library` — version `0.1.0` (required)
 
 - depends on: `core`, `validators-core`
 - provides:

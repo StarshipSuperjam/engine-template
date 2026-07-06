@@ -1,12 +1,22 @@
 {
   "id": "core",
-  "version": "0.0.0-dev",
+  "version": "0.1.0",
   "status": "required",
   "provides": {
-    "check": [".engine/check/guardrail-weakening.json", ".engine/check/protection.json"],
-    "schema": [".engine/schemas/*.json"],
-    "tool": [".engine/tools/*.py", ".engine/tools/*.sh"],
-    "interface": [".engine/interfaces/*.json"],
+    "check": [
+      ".engine/check/guardrail-weakening.json",
+      ".engine/check/protection.json"
+    ],
+    "schema": [
+      ".engine/schemas/*.json"
+    ],
+    "tool": [
+      ".engine/tools/*.py",
+      ".engine/tools/*.sh"
+    ],
+    "interface": [
+      ".engine/interfaces/*.json"
+    ],
     "operation": [
       ".engine/operations/boot-session-start.md",
       ".engine/operations/build-orchestration.md",
@@ -32,11 +42,21 @@
       ".claude/skills/engine-tune/SKILL.md",
       ".claude/skills/.gitkeep"
     ],
-    "agent": [".claude/agents/.gitkeep"],
-    "doc": [".engine/docs/getting-started.md"],
-    "state": [".engine/state/*.json"],
-    "knowledge": [".engine/knowledge/*.json"],
-    "contract": [".engine/contracts/*.md"],
+    "agent": [
+      ".claude/agents/.gitkeep"
+    ],
+    "doc": [
+      ".engine/docs/getting-started.md"
+    ],
+    "state": [
+      ".engine/state/*.json"
+    ],
+    "knowledge": [
+      ".engine/knowledge/*.json"
+    ],
+    "contract": [
+      ".engine/contracts/*.md"
+    ],
     "policy": [
       ".engine/policies/attention.md",
       ".engine/policies/contract-threshold.md",
@@ -44,10 +64,20 @@
       ".engine/policies/finding-disposition.md",
       ".engine/policies/triage-threshold.md"
     ],
-    "conduct": [".engine/conduct/defaults.md"],
-    "template": [".engine/templates/*.md"],
-    "foundation": [".engine/suites.json", ".engine/self-map.md"],
-    "provisioning": [".engine/provisioning/first-run-assets.json", ".engine/provisioning/module-catalog.json"]
+    "conduct": [
+      ".engine/conduct/defaults.md"
+    ],
+    "template": [
+      ".engine/templates/*.md"
+    ],
+    "foundation": [
+      ".engine/suites.json",
+      ".engine/self-map.md"
+    ],
+    "provisioning": [
+      ".engine/provisioning/first-run-assets.json",
+      ".engine/provisioning/module-catalog.json"
+    ]
   },
   "wires": [
     {

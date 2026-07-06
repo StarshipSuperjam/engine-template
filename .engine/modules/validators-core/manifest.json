@@ -1,6 +1,6 @@
 {
   "id": "validators-core",
-  "version": "0.0.0-dev",
+  "version": "0.1.0",
   "status": "required",
   "provides": {
     "check": [
@@ -48,5 +48,7 @@
     ]
   },
   "wires": [],
-  "depends": { "core": "" }
+  "depends": {
+    "core": ""
+  }
 }
