@@ -145,11 +145,22 @@ def hook_command(script_relpath: str, os_name: str | None = None) -> str:
     rooted" stays witnessable in the diff; only the wait/exec MECHANICS moved into the launcher — the
     invocation FORM is hooks' (D-156); the command's internal STRUCTURE (inline vs. launcher) is an
     unspecified build-spec leaf. Shell-form (no `args`), so Claude Code runs it under `sh -c` (macOS/Linux)
-    / Git Bash (Windows); `${CLAUDE_PROJECT_DIR}` is substituted before the shell sees it, and the script +
-    any trailing args stay the UNQUOTED tail so they word-split into the launcher's positional params. The
-    settings.json registration itself is wiring's (slice 20)."""
+    / Git Bash (Windows); `${CLAUDE_PROJECT_DIR}` is substituted before the shell sees it. The script PATH
+    is DOUBLE-QUOTED so a project directory whose path contains a space (a common iCloud/OneDrive/"My Drive"
+    layout) resolves as a single token: unquoted, it word-splits under `sh -c`, the launcher forwards a
+    truncated path, CPython exits 2, and the platform reads that exit-2 as a BLOCK — fail-CLOSED on every
+    tool call and turn-end, the exact stranding the fail-open law forbids (#390). Any trailing args
+    (`accept-hook`, `hook`, `session-start`, ...) stay OUTSIDE the quotes as the bare tail so they still
+    word-split into the launcher's positional params. `${CLAUDE_PROJECT_DIR}` expanding to a spaced path
+    inside the double quotes does NOT re-split (a parameter expansion in double quotes is field-split-exempt),
+    which is why the already-quoted interpreter token has always survived a spaced path and only the bare
+    script tail did not. The settings.json registration itself is wiring's (slice 20)."""
     interp = interpreter_path(os_name)
-    return f'sh "{HOOK_RUNNER}" "{interp}" {PROJECT_DIR_VAR}/{script_relpath}'
+    # `script_relpath` is the script PATH plus any trailing args, space-joined (e.g. "modes.py accept-hook").
+    # Quote ONLY the path token; leave the args as the bare, still-word-splittable tail (see docstring, #390).
+    script_path, _, script_args = script_relpath.partition(" ")
+    args_tail = f" {script_args}" if script_args else ""
+    return f'sh "{HOOK_RUNNER}" "{interp}" "{PROJECT_DIR_VAR}/{script_path}"{args_tail}'
 
 
 # ---- the decision vocabulary a handler returns (the hook-script contract, normalized) ----------
