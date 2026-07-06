@@ -43,14 +43,21 @@ _PRUNE_DIRS = {"__pycache__", ".venv", ".pytest_cache", ".cache", ".uv"}
 def _load_removed(root: str):
     """The removed first-run asset set, read from the committed manifest as plain data (never by importing the
     instantiator). Returns (removed_files, removed_modules): repo-relative file paths, and the bare module names
-    of the removed `.py` files (an `import <name>` of which a survivor must not carry). Returns (None, None) if
-    the manifest is unreadable — the check then degrades to a pass (manifest presence is another check's job)."""
+    of the removed `.py` files (an `import <name>` of which a survivor must not carry). Returns (None, None) when
+    the manifest is missing, unreadable, not valid JSON, or structurally malformed (not a JSON object, or its
+    `files` is not a list) — anything that stops this check computing the removed set; check() turns that into one
+    hard fail-closed finding. The manifest is permanent (it never self-retires), so a missing one is always a
+    fault, never a legitimate state. A present-but-empty `files` list is NOT a fault — it is a valid 'nothing to
+    remove' set. The manifest's own shape is separately governed by the engine/check/first-run-assets schema
+    check; this leg fails closed on any shape it cannot read, so a bad manifest never reaches a raw traceback."""
     try:
         with open(os.path.join(root, _MANIFEST_REL), encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
         return None, None
-    files = [f for f in data.get("files", []) if isinstance(f, str)]
+    if not isinstance(data, dict) or not isinstance(data.get("files"), list):
+        return None, None          # structurally malformed — route through the plain-language fault finding
+    files = [f for f in data["files"] if isinstance(f, str)]
     modules = {os.path.splitext(os.path.basename(f))[0] for f in files if f.endswith(".py")}
     return set(files), modules
 
@@ -114,14 +121,28 @@ def _message(survivor: str, kind: str, target: str) -> str:
         f"the code later names the missing file.")
 
 
+def _manifest_fault_message() -> str:
+    """Operator-facing finding for a missing, damaged, or unreadable removed-files list. Plain words, no engineer
+    shorthand: the consequence (this safety check cannot run, so it cannot pass), the concrete file, and the fix
+    (restore or repair it). custom/script surfaces only this per-finding message, so it carries the whole story."""
+    return (
+        f"The engine can't read the list of setup files it removes when a project is first created "
+        f"(`{_MANIFEST_REL}`). Without that list this safety check can't confirm a new project won't break on its "
+        f"first run, so it can't pass. This usually means the file was deleted, or its contents were damaged, in "
+        f"this change. Restore it — it is permanent data that should always be present, so recover it from the "
+        f"project's history — or fix its contents, then re-run this check.")
+
+
 def check(root: str | None = None) -> list:
     """Every surviving reference to a removed first-run asset, as a list of `hard` findings (empty = closed).
-    No-ops to a pass when the manifest is unreadable, or when the first-run machinery is already removed (no
-    removed Python module is present on disk — the adopter's post-setup tree)."""
+    Fails closed (one hard finding) when the removed-files list is missing, unreadable, or malformed — the check
+    cannot do its job without it, and the list is permanent (it never self-retires), so a missing one is always a
+    fault. Still no-ops to a pass in the separate, legitimate post-setup state: the first-run machinery is already
+    removed (no removed Python module is present on disk — the adopter's post-setup tree)."""
     root = root or validate.ROOT
     removed_files, removed_modules = _load_removed(root)
     if removed_files is None:
-        return []
+        return [validate.finding("hard", _manifest_fault_message(), {"file": _MANIFEST_REL, "line": None})]
     removed_py = [f for f in removed_files if f.endswith(".py")]
     if removed_py and not any(os.path.isfile(os.path.join(root, f)) for f in removed_py):
         return []  # machinery already removed (post-setup tree) — nothing left to be closed over
