@@ -33,6 +33,10 @@ DOC_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "doc.v1.json"
 TEMPLATE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "template.v1.json"))
 TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "doc.md")
 SHAPE_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "doc-shape.json"))
+# The shape-spec now lives ONLY in the template frontmatter (single source: catalog -> template -> shape ->
+# instance); the rule no longer inlines it. kind_shape resolves it via the catalog, which a temp-dir fixture
+# cannot resolve to a surface, so _run_kind stubs _template_shape_spec to this committed template's spec.
+SHAPE_SPEC = validate.frontmatter(TEMPLATE_PATH)
 FM_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "doc-frontmatter.json"))
 DOCS_DIR = os.path.join(validate.ENGINE_DIR, "docs")
 STATUS_ENUM = DOC_SCHEMA["properties"]["status"]["enum"]
@@ -55,14 +59,18 @@ def _errors(schema, instance):
 
 
 def _run_kind(kind_fn, rule, files):
-    """Run a kind callable with validate.target_files stubbed to `files`, so a fixture can be targeted
-    directly (the test_operation.py / test_contract.py pattern)."""
-    orig = validate.target_files
+    """Run a kind callable with validate.target_files stubbed to `files` (so a fixture is targeted directly) and
+    _template_shape_spec stubbed to the surface's committed template spec (so a temp-dir fixture the catalog
+    cannot resolve to a surface still shape-checks against the real template). The spec stub is inert for
+    non-shape kinds."""
+    orig_tf, orig_ss = validate.target_files, validate._template_shape_spec
     validate.target_files = lambda r: list(files)
+    validate._template_shape_spec = lambda rel: SHAPE_SPEC
     try:
         return kind_fn(rule, {})
     finally:
-        validate.target_files = orig
+        validate.target_files = orig_tf
+        validate._template_shape_spec = orig_ss
 
 
 def _write(d, name, text):
@@ -121,12 +129,11 @@ class TestTemplate(unittest.TestCase):
         with open(TEMPLATE_PATH, encoding="utf-8") as fh:
             body = fh.read()
         self.assertEqual(validate.section_order(body),
-                         SHAPE_RULE["params"]["required_sections"] + SHAPE_RULE["params"]["allowed_sections"])
+                         SHAPE_SPEC["required_sections"] + SHAPE_SPEC.get("allowed_sections", []))
 
-    def test_template_shape_spec_matches_shape_rule_params_no_drift(self):
-        """The committed template's shape-spec frontmatter and the doc-shape rule's params must stay
-        byte-identical — so the authoring scaffold and the machine-read rule cannot silently diverge."""
-        self.assertEqual(validate.frontmatter(TEMPLATE_PATH), SHAPE_RULE["params"])
+    # (Retired: the per-surface template-vs-rule-params no-drift test. The shape-spec now has a SINGLE source —
+    # the template frontmatter — read directly by kind_shape via the catalog, so there is no second copy on the
+    # rule to drift from. The standing engine/check/template-shape-spec check governs the template spec's shape.)
 
     def test_template_shape_spec_is_a_well_formed_template_v1(self):
         self.assertEqual(_errors(TEMPLATE_SCHEMA, validate.frontmatter(TEMPLATE_PATH)), [])

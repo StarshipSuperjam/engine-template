@@ -40,6 +40,8 @@ TEMPLATE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "templat
 TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "policy.md")
 POLICIES_DIR = os.path.join(validate.ENGINE_DIR, "policies")
 SHAPE_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "policy-shape.json"))
+# Shape-spec now lives ONLY in the template frontmatter (single source: catalog -> template -> shape -> instance).
+SHAPE_SPEC = validate.frontmatter(TEMPLATE_PATH)
 CT_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "contract-threshold.json"))
 FM_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "policy-frontmatter.json"))
 STATUS_ENUM = POLICY_SCHEMA["properties"]["status"]["enum"]
@@ -89,12 +91,14 @@ def _errors(schema, instance):
 def _run_kind(kind_fn, rule, files):
     """Run a kind callable with validate.target_files stubbed to `files`, so a fixture under a temp dir
     can be targeted directly (the test_seed.py / test_contract.py pattern)."""
-    orig = validate.target_files
+    orig_tf, orig_ss = validate.target_files, validate._template_shape_spec
     validate.target_files = lambda r: list(files)
+    validate._template_shape_spec = lambda rel: SHAPE_SPEC
     try:
         return kind_fn(rule, {})
     finally:
-        validate.target_files = orig
+        validate.target_files = orig_tf
+        validate._template_shape_spec = orig_ss
 
 
 def _write(d, name, text):
@@ -204,14 +208,13 @@ class TestTemplate(unittest.TestCase):
     def test_template_body_has_exactly_the_required_sections_in_order(self):
         body = validate.read(TEMPLATE_PATH)
         self.assertEqual(validate.section_order(body),
-                         SHAPE_RULE["params"]["required_sections"] + SHAPE_RULE["params"]["allowed_sections"])
+                         SHAPE_SPEC["required_sections"] + SHAPE_SPEC.get("allowed_sections", []))
 
-    def test_template_frontmatter_shape_spec_matches_the_rule_params_no_drift(self):
-        """The authoring scaffold the human reads and the machine-read rule cannot silently diverge."""
-        self.assertEqual(_template_frontmatter_shape_spec(TEMPLATE_PATH), SHAPE_RULE["params"])
+    # (Retired: template-vs-rule-params no-drift. The shape-spec's single source is the template frontmatter,
+    # read by kind_shape via the catalog; no rule copy remains to drift from.)
 
-    def test_rule_params_are_a_well_formed_template_v1(self):
-        self.assertEqual(_errors(TEMPLATE_SCHEMA, SHAPE_RULE["params"]), [])
+    def test_template_shape_spec_is_a_well_formed_template_v1(self):
+        self.assertEqual(_errors(TEMPLATE_SCHEMA, SHAPE_SPEC), [])
 
 
 class TestPolicyShapeRule(unittest.TestCase):

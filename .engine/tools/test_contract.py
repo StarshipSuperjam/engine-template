@@ -33,6 +33,8 @@ TEMPLATE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "templat
 TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "contract.md")
 RULE_PATH = os.path.join(validate.CHECK_DIR, "contract-shape.json")
 RULE = validate.load_json(RULE_PATH)
+# Shape-spec now lives ONLY in the template frontmatter (single source: catalog -> template -> shape -> instance).
+SHAPE_SPEC = validate.frontmatter(TEMPLATE_PATH)
 FM_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "contract-frontmatter.json"))
 CONTRACTS_DIR = os.path.join(validate.ENGINE_DIR, "contracts")
 STATUS_ENUM = CONTRACT_SCHEMA["properties"]["status"]["enum"]
@@ -57,12 +59,14 @@ def _errors(schema, instance):
 def _run_kind(kind_fn, rule, files):
     """Run a kind callable with validate.target_files stubbed to `files`, so a fixture under a temp dir
     can be targeted directly (the test_seed.py pattern)."""
-    orig = validate.target_files
+    orig_tf, orig_ss = validate.target_files, validate._template_shape_spec
     validate.target_files = lambda r: list(files)
+    validate._template_shape_spec = lambda rel: SHAPE_SPEC
     try:
         return kind_fn(rule, {})
     finally:
-        validate.target_files = orig
+        validate.target_files = orig_tf
+        validate._template_shape_spec = orig_ss
 
 
 def _write(d, name, text):
@@ -130,17 +134,17 @@ class TestTemplate(unittest.TestCase):
         with open(TEMPLATE_PATH, encoding="utf-8") as fh:
             body = fh.read()
         self.assertEqual(validate.section_order(body),
-                         RULE["params"]["required_sections"] + RULE["params"]["allowed_sections"])
+                         SHAPE_SPEC["required_sections"] + SHAPE_SPEC.get("allowed_sections", []))
 
-    def test_rule_params_match_template_v1_worked_example_no_drift(self):
-        """The contract-shape rule's params, and template.v1's committed worked example, must stay
-        byte-identical — so the locked example, the machine-read rule, and the authoring scaffold cannot
-        silently diverge."""
-        self.assertEqual(RULE["params"], TEMPLATE_SCHEMA["examples"][0])
+    def test_template_shape_spec_matches_template_v1_worked_example_no_drift(self):
+        """The contract template's shape-spec frontmatter (now the single source kind_shape reads) and
+        template.v1's committed worked example must stay byte-identical — so the locked example and the
+        authoring-and-checked scaffold cannot silently diverge."""
+        self.assertEqual(SHAPE_SPEC, TEMPLATE_SCHEMA["examples"][0])
 
     def test_template_shape_spec_is_a_well_formed_template_v1(self):
-        # the rule params ARE the template's machine-read shape-spec; it must conform to template.v1.
-        self.assertEqual(_errors(TEMPLATE_SCHEMA, RULE["params"]), [])
+        # the template frontmatter IS the machine-read shape-spec; it must conform to template.v1.
+        self.assertEqual(_errors(TEMPLATE_SCHEMA, SHAPE_SPEC), [])
 
 
 class TestCheckRule(unittest.TestCase):

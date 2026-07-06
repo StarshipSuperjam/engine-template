@@ -34,6 +34,9 @@ OPERATION_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "operat
 TEMPLATE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "template.v1.json"))
 TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "operation.md")
 SHAPE_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "operation-shape.json"))
+# Shape-spec now lives ONLY in the template frontmatter (single source: catalog -> template -> shape -> instance).
+# The rule keeps only length_budget_overrides (a rule-only, instance-specific recorded budget raise).
+SHAPE_SPEC = validate.frontmatter(TEMPLATE_PATH)
 FM_RULE = validate.load_json(os.path.join(validate.CHECK_DIR, "operation-frontmatter.json"))
 OPS_DIR = os.path.join(validate.ENGINE_DIR, "operations")
 STATUS_ENUM = OPERATION_SCHEMA["properties"]["status"]["enum"]
@@ -59,12 +62,14 @@ def _errors(schema, instance):
 def _run_kind(kind_fn, rule, files):
     """Run a kind callable with validate.target_files stubbed to `files`, so a fixture can be targeted
     directly (the test_agent.py / test_contract.py pattern)."""
-    orig = validate.target_files
+    orig_tf, orig_ss = validate.target_files, validate._template_shape_spec
     validate.target_files = lambda r: list(files)
+    validate._template_shape_spec = lambda rel: SHAPE_SPEC
     try:
         return kind_fn(rule, {})
     finally:
-        validate.target_files = orig
+        validate.target_files = orig_tf
+        validate._template_shape_spec = orig_ss
 
 
 def _write(d, name, text):
@@ -123,18 +128,14 @@ class TestTemplate(unittest.TestCase):
         with open(TEMPLATE_PATH, encoding="utf-8") as fh:
             body = fh.read()
         self.assertEqual(validate.section_order(body),
-                         SHAPE_RULE["params"]["required_sections"] + SHAPE_RULE["params"]["allowed_sections"])
+                         SHAPE_SPEC["required_sections"] + SHAPE_SPEC.get("allowed_sections", []))
 
-    def test_template_shape_spec_matches_shape_rule_params_no_drift(self):
-        """The committed template's shape-spec frontmatter and the operation-shape rule's GRAMMAR params must
-        stay byte-identical — so the authoring scaffold and the machine-read rule cannot silently diverge.
-        length_budget_overrides is a rule-only field (instance-specific, recorded budget raises keyed to a
-        named operation); it is deliberately absent from the template, which carries only the grammar every
-        operation shares, so it is excluded from the no-drift comparison but asserted not to leak into the
-        scaffold."""
-        grammar = {k: v for k, v in SHAPE_RULE["params"].items() if k != "length_budget_overrides"}
-        self.assertEqual(validate.frontmatter(TEMPLATE_PATH), grammar)
+    def test_length_budget_overrides_is_a_rule_only_field_absent_from_the_template(self):
+        # The instance-specific recorded budget raise lives ONLY on the (guarded) rule; template.v1 forbids it
+        # (additionalProperties:false), so it can never leak into the unguarded template scaffold. (The former
+        # template-vs-rule-params no-drift test is retired: the shape-spec's single source is now the template.)
         self.assertNotIn("length_budget_overrides", validate.frontmatter(TEMPLATE_PATH))
+        self.assertIn("length_budget_overrides", SHAPE_RULE["params"])
 
     def test_template_shape_spec_is_a_well_formed_template_v1(self):
         self.assertEqual(_errors(TEMPLATE_SCHEMA, validate.frontmatter(TEMPLATE_PATH)), [])

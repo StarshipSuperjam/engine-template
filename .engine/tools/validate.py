@@ -115,6 +115,7 @@ META_SCHEMA_URI = "https://json-schema.org/draft/2020-12/schema"
 
 LINK_RE = re.compile(r"\]\(([^)]+)\)")
 HEADING_RE = re.compile(r"^##\s+(.*?)\s*$")          # a level-2 (## ) heading; ### does not match
+FENCE_RE = re.compile(r"^\s*(?:```|~~~)")             # a fenced-code-block delimiter (``` or ~~~); toggles in/out
 PLACEHOLDER_RE = re.compile(r"^<[^>]*>$")             # a prompt token (decoration stripped), e.g. <why this exists>
 LIST_MARKER_RE = re.compile(r"^[-*+]\s+")             # a leading unordered-list bullet marker
 EMPHASIS_RE = re.compile(r"^(\*\*|__|\*|_)(.+?)\1$")  # a surrounding bold/italic emphasis wrapper
@@ -255,11 +256,28 @@ def target_files(rule: dict) -> list:
     return sorted(p for p in matched if os.path.isfile(p))
 
 
+def _body_without_frontmatter(text: str) -> str:
+    """The prose body with a leading YAML frontmatter block (`---` ... `---`) removed.
+    Templates govern the body only (templates/README.md), so frontmatter is neither a
+    section nor counted against the body length budget. A file with no opening `---`
+    fence is returned unchanged; a `---` thematic break in the body stays in the body
+    (only the first two fences are consumed — the same split the `frontmatter` reader uses)."""
+    if not text.startswith("---"):
+        return text
+    parts = text.split("---", 2)          # maxsplit=2: keep any later `---` in the body
+    return parts[2] if len(parts) >= 3 else text
+
+
 def section_blocks(body: str) -> dict:
-    """{heading_text: section_body} for each level-2 heading in the body."""
-    blocks, current, buf = {}, None, []
+    """{heading_text: section_body} for each level-2 heading in the body. A `## ` line
+    inside a fenced code block (``` or ~~~) is code, not a heading, and is not counted."""
+    blocks, current, buf, in_fence = {}, None, [], False
     for line in body.splitlines():
-        m = HEADING_RE.match(line)
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            m = None
+        else:
+            m = None if in_fence else HEADING_RE.match(line)
         if m:
             if current is not None:
                 blocks[current] = "\n".join(buf)
@@ -272,8 +290,15 @@ def section_blocks(body: str) -> dict:
 
 
 def section_order(body: str) -> list:
-    """The level-2 heading texts in the order they appear in the body."""
-    return [m.group(1) for line in body.splitlines() if (m := HEADING_RE.match(line))]
+    """The level-2 heading texts in order, skipping any `## ` inside a fenced code block."""
+    order, in_fence = [], False
+    for line in body.splitlines():
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if not in_fence and (m := HEADING_RE.match(line)):
+            order.append(m.group(1))
+    return order
 
 
 def _placeholder_only(line: str) -> bool:
@@ -389,6 +414,21 @@ def _governing_schema(rule: dict, rel_path: str):
     return load_json(os.path.normpath(os.path.join(base, ref)))
 
 
+def _template_shape_spec(rel_path: str):
+    """The shape-spec (required_sections / allowed_sections / length_budget) for a target file,
+    read from its surface's TEMPLATE frontmatter — the single source the AI authors from and the
+    validator checks (templates/README.md: catalog -> template -> shape rules -> instance, so
+    authored-from and checked-against cannot drift). The catalog surface record's `template`
+    reference (relative to the schemas dir, exactly like `governing_schema`) names the template;
+    its frontmatter carries the template.v1 spec. Returns None when the surface has no template
+    (a non-prose or template-less surface) — the caller treats that as a misconfigured shape rule."""
+    rec = _surface_record_for(rel_path)
+    ref = rec.get("template") if rec else None
+    if not ref:
+        return None
+    return frontmatter(os.path.normpath(os.path.join(SCHEMAS_DIR, ref)))
+
+
 def kind_schema(rule, ctx):
     """A structured file — or a prose file's YAML frontmatter — conforms to its governing
     JSON Schema (2020-12). Validates the PARSED data, not raw text. The loader is chosen by
@@ -441,25 +481,38 @@ def kind_shape(rule, ctx):
     a missing required or an out-of-allowed section is the rule's tier (hard for a
     governance-critical surface, soft for a lighter one). LENGTH only nudges — over
     the budget is always SOFT, never the rule's hard tier (templates/README.md). The
-    shape-spec is read from params (required_sections, allowed_sections, length_budget),
-    the template.v1 grammar; reading it from a template file's frontmatter arrives
-    with the first authored template (a later slice; it needs frontmatter parsing).
-    An optional params.length_budget_overrides {rel: {budget, why}} carries a recorded,
-    consented higher ceiling for one named operation (the override lives in this guarded
-    rule, not the operation's own unguarded frontmatter, so raising a budget stays a
-    deliberate act needing the operator's sign-off); an entry that is malformed (no integer
-    budget, no recorded why) or names a file that no longer exists fails at the rule's tier,
-    so a stale or unexplained override cannot rot into a silent grant."""
+    shape-spec (required_sections, allowed_sections, length_budget) is read from the
+    surface's TEMPLATE frontmatter via the catalog (catalog -> template -> shape -> instance),
+    so the thing the AI authors from is the thing the validator checks and the two cannot
+    drift. The frontmatter and any fenced code block are excluded from both section detection
+    and the length count — templates govern the prose body only. An optional
+    params.length_budget_overrides {rel: {budget, why}} stays on the (guarded) rule, not the
+    template, and carries a recorded, consented higher ceiling for one named operation (raising
+    a budget stays a deliberate act needing the operator's sign-off); an entry that is malformed
+    (no integer budget, no recorded why) or names a file that no longer exists fails at the
+    rule's tier, so a stale or unexplained override cannot rot into a silent grant."""
     tier = rule["tier"]
     params = rule.get("params") or {}
-    required = params.get("required_sections", [])
-    allowed = set(required) | set(params.get("allowed_sections", []))
-    budget = params.get("length_budget")
     overrides = params.get("length_budget_overrides") or {}
     findings = []
     for path in target_files(rule):
         rel = os.path.relpath(path, ROOT)
-        body = read(path)
+        # The shape-spec's single source is the surface's TEMPLATE (catalog -> template). A target that is NOT a
+        # catalogued surface — the negative-fixture meta-check's seeded input — has no template and falls back to
+        # an inlined spec carried on the rule itself; a target that is neither catalogued nor carries an inlined
+        # spec is a misconfigured rule. Every live shape rule targets a catalogued surface, so it single-sources
+        # from the template; the inlined-spec fallback is exercised only by the meta-check fixture.
+        spec = _template_shape_spec(rel)
+        if spec is None:
+            spec = params
+        required = spec.get("required_sections")
+        if required is None:
+            findings.append(finding(tier, f"'{rel}' cannot be shape-checked: its surface names no template in the "
+                            f"catalog and the rule carries no inlined shape-spec. {rule['message']}", loc(path)))
+            continue
+        allowed = set(required) | set(spec.get("allowed_sections", []))
+        budget = spec.get("length_budget")
+        body = _body_without_frontmatter(read(path))
         present = section_order(body)
         present_set = set(present)
         # required present
