@@ -63,7 +63,12 @@ import issue_author  # noqa: E402 — render_engine_issue_body (the degradation 
 
 def _run_git(args: list) -> str | None:
     """Run a local read-only git command; stripped stdout, or None on any failure (missing binary, not a repo,
-    non-zero exit, timeout). Never raises — the flow degrades rather than crashing."""
+    non-zero exit, timeout). Never raises — the flow degrades rather than crashing.
+
+    LOAD-BEARING contract: `None` means "could not run / failed", and `""` (empty string) means "ran cleanly,
+    no output". `outgoing_diff_status` relies on this distinction to tell an *uninspected* diff (git failed)
+    apart from a genuinely *clean* one (git ran, no changed paths) — collapsing the two would re-open the
+    fail-open-AND-flag hole where an unread diff is narrated as clean. A refactor must preserve it."""
     try:
         out = subprocess.run(["git", *args], capture_output=True, text=True, timeout=10, check=False)
         return out.stdout.strip() if out.returncode == 0 else None
@@ -71,19 +76,33 @@ def _run_git(args: list) -> str | None:
         return None
 
 
-def outgoing_diff(base: str, *, run=_run_git) -> list:
-    """The repo-relative paths the contribution would carry upstream: the COMMITTED diff of the current branch
-    against the upstream's default branch — `git diff --name-only <base>...HEAD` (three-dot: against the
-    merge-base, "what this branch adds"). `base` is the upstream's default ref (e.g. `upstream/main`),
-    injectable through `run` for offline tests.
+def outgoing_diff_status(base: str, *, run=_run_git) -> tuple[list, bool]:
+    """The outgoing contribution's changed paths AND whether the diff was actually inspected.
+
+    Returns `(paths, inspected)`:
+      - git FAILED (`run` returns None)     -> `([], False)` — UNINSPECTED; the diff is unknown, not clean.
+      - git ran, diff empty (`run` == "")   -> `([], True)`  — inspected and genuinely clean.
+      - git ran, has paths                  -> `(sorted set, True)`.
+
+    The paths are the COMMITTED diff of the current branch against the upstream's default branch —
+    `git diff --name-only <base>...HEAD` (three-dot: against the merge-base, "what this branch adds"). `base`
+    is the upstream's default ref (e.g. `upstream/main`), injectable through `run` for offline tests.
 
     DELIBERATELY UNCAPPED. Unlike `work_record.changed_paths` (which caps at 50 for orientation), this feeds a
-    safety check: a cap could let a leaked engine path sort past it and slip through the intersection. Returns
-    the full sorted, de-duplicated set. Fail-open: a None from `run` yields []."""
+    safety check: a cap could let a leaked engine path sort past it and slip through the intersection. The
+    `inspected` flag is the fail-open-AND-flag guard (D-016-family / hooks fail-open-and-flag): the clean
+    check still fails open to `[]`, but a caller must never narrate cleanliness on an uninspected diff."""
     out = run(["diff", "--name-only", f"{base}...HEAD"])
-    if not out:
-        return []
-    return sorted({p for p in out.splitlines() if p})
+    if out is None:            # git failed — NOT inspected (distinct from a clean, empty diff)
+        return [], False
+    return sorted({p for p in out.splitlines() if p}), True
+
+
+def outgoing_diff(base: str, *, run=_run_git) -> list:
+    """The changed-path list only (fail-open: `[]` on either a git failure or a clean diff). A thin wrapper
+    over `outgoing_diff_status` for the callers that only need the leak-check intersection; the submission
+    flow uses the status form so it can refuse to narrate cleanliness on an uninspected diff."""
+    return outgoing_diff_status(base, run=run)[0]
 
 
 # ---- the engine-clean check (the live caller of Slice 1's predicate) --------------------------
@@ -210,6 +229,18 @@ def _prepared_narration(upstream_repo: str, head: str, base: str) -> str:
     )
 
 
+def _unverified_narration(upstream_repo: str) -> str:
+    """The pause narration when the outgoing diff could not be inspected. It refuses to assert cleanliness on
+    an unread diff (the fail-open-AND-flag honesty rule) and holds the one-way outward act rather than open a
+    pull request on a project the operator doesn't own with the contents unchecked."""
+    return (
+        f"I couldn't read what this contribution would carry to {upstream_repo} — git didn't answer, so I "
+        "can't check whether any of the Engine's own files would ride along. I won't tell you it's clean when "
+        "I couldn't look, and I won't open a pull request on a project you don't own on a diff I couldn't "
+        "inspect. This is usually a temporary git hiccup; sort that out and tell me, and I'll re-check."
+    )
+
+
 def _leak_narration(upstream_repo: str, offending: list) -> str:
     """The submission's own pause narration — distinct from the Slice-1 check message (which is a merge-gate
     nudge that 'never blocks'). Opening a pull request is a one-way outward act, so the submission tool holds
@@ -267,6 +298,22 @@ def _leak_record(finding: dict, now: str) -> dict:
     }
 
 
+def _unverified_record(now: str) -> dict:
+    """A finding-record.v1 for when the outgoing diff could not be inspected (git unavailable). Fail-open-AND-
+    flag: the submission is held rather than opened on an unread diff, and the failure is promoted so it is
+    surfaced, never silent. Persistent-but-benign — a recurring local-tooling hiccup, not a trust weakening;
+    no `location` (nothing to point at — the diff itself is what could not be read)."""
+    return {
+        "source_id": "external-contribution/unverified-diff",
+        "severity": telemetry.PERSISTENT_BENIGN,
+        "message": "Could not read the outgoing diff (git was unavailable), so the contribution's cleanliness "
+                   "could not be verified; the submission was held rather than opened on an unchecked diff.",
+        "location": None,
+        "first_seen": now,
+        "last_seen": now,
+    }
+
+
 def _promote(record: dict, now: str, *, github=_UNSET):
     """Best-effort durable tracking of one finding. Returns the Issue number on success, or False when GitHub
     is unavailable (the concern was already surfaced in-session). `github` is injectable for the demo/tests
@@ -318,6 +365,9 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
     """Prepare (and, on an explicit affirmative decision, open) a cross-fork contribution pull request.
 
     Returns a result dict whose `status` is one of:
+      - `"unverified-diff"` — the outgoing diff could NOT be inspected (git unavailable); STOPPED before
+        submitting. Refuses to narrate cleanliness on an unread diff. Carries the plain-language `narration`
+        and `promoted` (the fail-open-AND-flag telemetry trace).
       - `"halted-unclean"` — the outgoing diff carries engine-owned files; STOPPED before submitting. Carries
         the findings, the plain-language `narration`, and `promoted` (the telemetry-on-fire result).
       - `"prepared"`       — clean, but no affirmative decision yet; the pull request is NOT opened. Carries
@@ -333,8 +383,19 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
     """
     now = now or telemetry.utc_now()
 
+    # 0. Refuse to assert cleanliness on an UNINSPECTED diff (fail-open-AND-flag). A git failure yields
+    #    changed=[] just like a clean diff, so without this an unread diff would narrate "carries no engine
+    #    files" and open a one-way pull request on an unchecked change. Hold, and promote the failure.
+    changed, inspected = outgoing_diff_status(base, run=run)
+    if not inspected:
+        promoted = _promote(_unverified_record(now), now, github=github)
+        return {
+            "status": "unverified-diff",
+            "promoted": promoted,
+            "narration": _unverified_narration(upstream_repo),
+        }
+
     # 1. Keep the contribution clean — a HARD stop, over the uncapped outgoing diff. (RISK-S2 / B1)
-    changed = outgoing_diff(base, run=run)
     owned_resolved = _resolve_owned(owned)
     findings = upstream_clean_check.findings("soft", changed=changed, owned=owned_resolved)
     if findings:
@@ -388,11 +449,12 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
 
 def demo() -> int:
     """Prove the submission flow over injected boundaries — and PRINT the actual operator-facing narration so
-    a reviewer reads the words, not just PASS/FALSE. Cases: a leaked engine path halts before submit; a clean
-    diff with no decision PREPARES (does not open); a clean diff + decision + a present upstream template
-    SUBMITS and follows the host's form; no template falls back to the engine's shape; an unreachable upstream
-    DEGRADES to a drafted submission. RETURNS NON-ZERO if any invariant breaks. Fully offline: every boundary
-    is injected (git `run`, template `root`, `owned`, `gh_run`, `github`=None), so no git/gh/network runs."""
+    a reviewer reads the words, not just PASS/FALSE. Cases: git unreadable HOLDS the diff as uninspected
+    (never narrated clean, never opened); a leaked engine path halts before submit; a clean diff with no
+    decision PREPARES (does not open); a clean diff + decision + a present upstream template SUBMITS and
+    follows the host's form; no template falls back to the engine's shape; an unreachable upstream DEGRADES to
+    a drafted submission. RETURNS NON-ZERO if any invariant breaks. Fully offline: every boundary is injected
+    (git `run`, template `root`, `owned`, `gh_run`, `github`=None), so no git/gh/network runs."""
     import shutil
     import tempfile
 
@@ -427,6 +489,20 @@ def demo() -> int:
     print("(This is a dry run against a pretend project — no real repository is touched and nothing is "
           "sent. It shows what the engine would say and do at each point.)\n")
     try:
+        # Case 0 — git can't be read: the diff is UNINSPECTED, so the flow refuses to narrate cleanliness
+        #          and never opens a PR, even with the decision given (confirm=True).
+        r0 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+                    title="Fix the thing", summary="Fixes the thing.",
+                    run=lambda args: None,  # a git that fails on every call
+                    root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
+        print("--- git couldn't be read: held, not narrated clean, not opened ---")
+        print(r0["narration"], "\n")
+        if r0["status"] != "unverified-diff" or "args" in recorded:
+            failures.append(f"unverified case: expected unverified-diff and NO pr create, got {r0['status']} "
+                            f"/ recorded={recorded}")
+        if "carry no engine" in r0["narration"] or "no engine files" in r0["narration"]:
+            failures.append("unverified case: narrated cleanliness on an uninspected diff")
+
         # Case 1 — a leaked engine path halts before submit, fires telemetry-on-fire, never opens a PR.
         r1 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",

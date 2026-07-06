@@ -68,6 +68,12 @@ class TestOutgoingDiff(unittest.TestCase):
     def test_fail_open_on_none(self):
         self.assertEqual(submit.outgoing_diff("upstream/main", run=lambda args: None), [])
 
+    def test_status_distinguishes_uninspected_from_clean(self):
+        # LOAD-BEARING: git failure (None) must read as UNINSPECTED, not as a clean empty diff ("").
+        self.assertEqual(submit.outgoing_diff_status("upstream/main", run=lambda args: None), ([], False))
+        self.assertEqual(submit.outgoing_diff_status("upstream/main", run=lambda args: ""), ([], True))
+        self.assertEqual(submit.outgoing_diff_status("upstream/main", run=_run(["a.py"])), (["a.py"], True))
+
     def test_uncapped_so_a_late_sorting_leak_is_never_dropped(self):
         # 60 product files that sort BEFORE an engine path, plus the engine path — all must be returned (no
         # 50-cap), else the intersection could miss the leak. (ARCH-S2)
@@ -158,6 +164,19 @@ class TestSubmitFlow(unittest.TestCase):
         self.assertEqual(r["promoted"], 99)              # telemetry-on-fire promoted the leak
         self.assertEqual(len(opened), 1)
         self.assertIn(".engine/check/upstream-clean.json", r["narration"])
+
+    def test_unreadable_diff_is_not_asserted_clean(self):
+        # git fails -> the diff is UNINSPECTED. Even with the decision given (confirm=True), the flow must
+        # refuse to narrate cleanliness, never open a PR, and promote the failure (fail-open-AND-flag).
+        opened = []
+        rec = {}
+        r = submit.submit(**self.BASE, run=lambda args: None, owned=OWNED, root=self.root,
+                          gh_run=_gh_ok(rec), github=_fake_github(opened), confirm=True)
+        self.assertEqual(r["status"], "unverified-diff")
+        self.assertNotIn("args", rec)                    # gh pr create was NOT reached
+        self.assertNotIn("carry no engine", r["narration"])   # never asserts clean on an unread diff
+        self.assertEqual(r["promoted"], 99)              # the failure was promoted, not swallowed
+        self.assertEqual(len(opened), 1)
 
     def test_clean_without_confirm_is_prepared_not_opened(self):
         rec = {}

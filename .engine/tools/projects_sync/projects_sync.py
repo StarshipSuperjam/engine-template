@@ -75,7 +75,7 @@ ENGINE_FIELD_NAMES = (FIELD_BUILDING, FIELD_NEXT, FIELD_REVIEW, FIELD_ISSUES, FI
 DEBOUNCE_SECONDS = 15 * 60
 
 # Sync outcomes (the handler decides disclosure from these).
-NOT_CONFIGURED = "not-configured"   # no board set up yet -> SILENT no-op (anti-nag)
+NOT_CONFIGURED = "not-configured"   # no board set up yet -> disclose the plain-language next step (setup)
 SKIPPED = "skipped"                 # within the debounce window -> silent
 SYNCED = "synced"                   # wrote the engine fields -> silent (the board is the surface)
 DEGRADED = "degraded"              # configured but the board could not be reached -> disclose the fix
@@ -343,10 +343,11 @@ def sync(*, force: bool = False, session_id: str | None = None, config: dict | N
     NEVER raises and NEVER blocks. Every injectable argument lets tests/the demo run the real logic with
     the network and clock faked.
 
-    Order: a never-configured board is a SILENT no-op; the debounce skips a recent sync; otherwise gather
-    the projection, resolve the board credential, idempotently add the engine-labeled items, and write the
-    engine fields on them. A board the engine cannot reach (deleted, scope lapsed, GitHub down) returns
-    DEGRADED with the one plain-language fix — never an error."""
+    Order: a never-configured board returns NOT_CONFIGURED with the plain-language setup next step (the
+    handler surfaces it); the debounce skips a recent sync; otherwise gather the projection, resolve the
+    board credential, idempotently add the engine-labeled items, and write the engine fields on them. A
+    board the engine cannot reach (deleted, scope lapsed, GitHub down) returns DEGRADED with the one
+    plain-language fix — never an error."""
     cfg = config if config is not None else load_config()
     if cfg is None:
         return {"status": NOT_CONFIGURED,
@@ -409,12 +410,14 @@ def sync(*, force: bool = False, session_id: str | None = None, config: dict | N
 # ---- the wired SessionStart hook (non-blocking, fail-open, mode-agnostic) -----------------------
 
 def _session_start_handler(payload) -> dict:
-    """The SessionStart sweep: a debounced, best-effort sync. SILENT on a never-configured board, a
-    debounce skip, or a clean sync (the board itself is the surface); DISCLOSES the one plain-language fix
-    only when a board that WAS set up cannot be reached. Read-only, so it runs in every stance."""
+    """The SessionStart sweep: a debounced, best-effort sync. DISCLOSES the one plain-language next step
+    whenever the board no-ops for a reason the operator can act on — a never-configured board
+    (NOT_CONFIGURED: "run /engine-board-setup") or a board that WAS set up but cannot be reached (DEGRADED).
+    SILENT on a debounce skip or a clean sync (the board itself is the surface). Read-only, so it runs in
+    every stance."""
     session_id = (payload or {}).get("session_id") if isinstance(payload, dict) else None
     result = sync(session_id=session_id)
-    if result.get("status") == DEGRADED:
+    if result.get("status") in (DEGRADED, NOT_CONFIGURED):
         return hooks.inject(result.get("message", ""))
     return hooks.proceed()
 
