@@ -313,6 +313,8 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
     gist that later rolled them up. Both carry `session_id`; crucially, after a roll-up recall lands on the GIST (a
     superseded episodic drops out of recall), so an episodic-only veto would be blind and could erase raw whose live
     stand-in is in active use. A session with a marker but NO curated stand-in is skipped (no gist -> never erase).
+    A CROSS-SESSION gist (a `tag:`/`sim:` cluster, #235) carries a sentinel `session_id`, not a real one, so it is
+    credited to EACH real session named by its `source_ids` — the veto stays whole for every session that fed it.
 
     Yields only the turn-deltas that are (a) NOT harness-injected pseudo-turns — those are withheld from
     consolidation, so no gist stands in for them (Capture; the injected-skip slice) — and (b) captured no later than
@@ -327,6 +329,8 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
     marker_ts: dict = {}          # session_id -> latest `consolidated` marker ts (the gist-stability clock)
     curated: dict = {}            # session_id -> [curated stand-in ids: episodics + the gist that rolls them up]
     deltas: dict = {}             # session_id -> [that session's raw turn-delta records]
+    id_to_session: dict = {}      # record id -> real session_id (episodics/gists), to resolve cross-session gists
+    cross_gists: list = []        # (gist_id, source_ids) for gists keyed to a cross-session cluster sentinel (#235)
     for record in ledger.iter_records(path=src):
         if not isinstance(record, dict):
             continue
@@ -342,9 +346,24 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
         elif kind in (records.EPISODIC_KIND, records.GIST_KIND):
             rid = record.get(records.RECORD_ID_KEY)
             if rid:
-                curated.setdefault(sid, []).append(rid)
+                id_to_session[rid] = sid
+                if kind == records.GIST_KIND and records.is_cross_session_sentinel(sid):
+                    # A cross-session gist (`tag:`/`sim:` sentinel) has no single real session — defer its credit
+                    # to the erasure veto until after the scan, when every source raw's real session is known.
+                    cross_gists.append((rid, record.get(records.SOURCE_IDS_KEY) or ()))
+                else:
+                    curated.setdefault(sid, []).append(rid)
         elif kind == records.AMBIENT_CAPTURE_KIND:
             deltas.setdefault(sid, []).append(record)
+    # Credit each cross-session gist as a live stand-in for EVERY real session that fed it (#235): after a roll-up,
+    # recall lands on the gist, so an episodic-only veto keyed to the sentinel would leave a contributing session's
+    # raw turn-deltas erasure-eligible while their content is alive in an actively-recalled gist. Resolving the
+    # gist's source_ids back to their real sessions keeps the protective veto whole for each of them.
+    for gist_id, source_ids in cross_gists:
+        for src_id in source_ids:
+            real_sid = id_to_session.get(src_id)
+            if real_sid and gist_id not in curated.setdefault(real_sid, []):
+                curated[real_sid].append(gist_id)
     out: dict = {}
     for sid, m_ts in marker_ts.items():
         stand_ins = curated.get(sid, ())

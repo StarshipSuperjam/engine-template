@@ -166,6 +166,23 @@ ERASURE_TAG = "operator-adjudicated-erasure"     # the marker's tag (kept out of
 # key OUT of the search body too (index._NON_BODY_KEYS) — belt-and-suspenders, since scored copies are never indexed.
 SCORE_KEY = "score"
 
+# Cross-session roll-up cluster sentinels (slice 5, #235). Roll-up's coarse "related" pre-filter was group-by-
+# session; the richer signal relates COLD episodes ACROSS sessions — a shared-topic-tag cluster (`tag:<tag>`) or a
+# lexical-similarity cluster (`sim:<id8>`). Such a gist has no single originating session, so it carries the
+# CLUSTER KEY as its `session_id` — a non-empty string, so every store/veto invariant that assumes a session_id
+# still holds. The gist's real-session provenance is NOT lost: it lives in SOURCE_IDS_KEY, from which
+# `forget.earned_consolidated_raw` recovers each contributing real session to credit the erasure veto. A real work
+# session id is a uuid hex, so it can never collide with these `<prefix>:` sentinels.
+TAG_SESSION_PREFIX = "tag:"      # a gist rolling up a cross-session shared-topic-tag cluster (slice B)
+SIM_SESSION_PREFIX = "sim:"      # a gist rolling up a cross-session lexical-similarity cluster (slice C)
+_CROSS_SESSION_SENTINEL_PREFIXES = (TAG_SESSION_PREFIX, SIM_SESSION_PREFIX)
+
+
+def is_cross_session_sentinel(session_id) -> bool:
+    """True iff `session_id` is a roll-up CLUSTER key (a gist that folds notes from MORE than one real session),
+    not a real work session. Its contributing real sessions are recoverable from the gist's SOURCE_IDS_KEY."""
+    return isinstance(session_id, str) and session_id.startswith(_CROSS_SESSION_SENTINEL_PREFIXES)
+
 
 def new_record_id() -> str:
     """Mint a fresh content-free record id (a uuid4 hex). Distinct per call; reveals nothing about content."""

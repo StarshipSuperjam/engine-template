@@ -4758,7 +4758,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:c521984b37b9ed8dbe429b6aa32500a1887e28b5c402dc24c6018726701fbaa7",
+        "fingerprint": "sha256:fb97c9b74e075f0c096bd6a014b497ef892f1c53e3f96b05d749a5ca59856d25",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -5370,7 +5370,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:0c01c6772a2a6f50eee7c3be6c4d8fb7acdfe3bfd8d8f3a531cc4b3f501ef064",
+        "fingerprint": "sha256:3097b24457af86918846dafcf14b0dac251874bc67705aea9535c8faa77bd01d",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -5489,7 +5489,7 @@
       },
       "slug": "rollup",
       "source": {
-        "fingerprint": "sha256:42b03a64d9c0b282d96606c1294e41b292e3ebf9d4a68159bb6a661272e95464",
+        "fingerprint": "sha256:c1f0901befa6f4726f110a730fc38cc1492932fc1dbda5db52b0d381653e6fb9",
         "path": ".engine/tools/memory/rollup.py"
       },
       "status": "active",
@@ -6254,7 +6254,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:86d884a09acf010070b4ef9b061c5e87e0c3313b08eb56e4d6a40ae1d0870635",
+        "fingerprint": "sha256:3ab53c234445bbf882cee8158da2574a7c38e6369876acb3aaf0eaceac00e4d6",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -6917,7 +6917,7 @@
       },
       "slug": "test_rollup",
       "source": {
-        "fingerprint": "sha256:76bf9851ba8a0b25d028a290f14b3e4d58b6ad0468bdf8c20763dc3fa20467c4",
+        "fingerprint": "sha256:2f230db782f0ac7eb7da2a0dd203ef64af56ef2c50fa85931384577ec6a85eb5",
         "path": ".engine/tools/memory/test_rollup.py"
       },
       "status": "active",
