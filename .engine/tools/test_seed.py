@@ -525,9 +525,10 @@ class TestWeakeningClassifier(unittest.TestCase):
             self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
 
     def test_enforcement_hook_gates_are_floored(self):
-        # The 7 hand-listed enforcement-hook gates (build-owe 3 audit) — not check-scripts, guarded by the floor.
-        for p in (".engine/tools/modes.py", ".engine/tools/hook-runner.sh", ".engine/tools/hooks.py",
-                  ".engine/tools/issue_gate.py", ".engine/tools/github_client.py",
+        # The hand-listed enforcement-hook gates (build-owe 3 audit) — not check-scripts, guarded by the floor.
+        # Includes BOTH block-budget members: modes.py (PreToolUse write-gate) and close.py (Stop disposition gate).
+        for p in (".engine/tools/modes.py", ".engine/tools/close.py", ".engine/tools/hook-runner.sh",
+                  ".engine/tools/hooks.py", ".engine/tools/issue_gate.py", ".engine/tools/github_client.py",
                   ".engine/tools/wiring.py", ".engine/tools/security_floor.py"):
             self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
 
@@ -603,53 +604,70 @@ class TestWeakeningDerivedSet(unittest.TestCase):
 
 
 class TestEnforcementHookGuardCoverage(unittest.TestCase):
-    """Drift detector (D-268 / issue #250): every enforcement-eligible hook wired in .claude/settings.json whose
-    handler is an engine tool must be CLASSIFIED — either guarded (in the weakening_guard floor / derived set) or
-    explicitly named a non-gate here. A NEW blocking hook added to settings.json without classification fails this
-    test, converting the silent fail-open (an un-guarded new gate) into a loud CI failure at hook-add time. Only
-    PreToolUse / Stop hooks can emit a blocking decision; SessionStart / PostToolUse / PreCompact /
-    UserPromptSubmit hooks cannot deny and are not gates."""
+    """Drift detector (D-268 / issue #250): every hook wired on a block-eligible event (PreToolUse / Stop) in
+    .claude/settings.json whose handler CAN emit a merge-relevant block MUST be guarded (in the weakening_guard
+    floor). A NEW block-capable hook wired without being floored fails this test, converting the silent fail-open
+    (an un-guarded new gate) into a loud CI failure at hook-add time.
+
+    'Can block' is read from the hook's OWN CODE, not a hand-maintained non-gate allowlist (which is exactly what
+    let close.py slip in the first draft — it was allowlisted as 'never blocks' when it HARD-BLOCKS the turn).
+    hooks.py defines only two block channels: hooks.block (exit 2) and hooks.decide (the structured deny). A hook
+    whose source references neither genuinely cannot deny (a pure regenerator / housekeeping) and need not be
+    floored; one that references either must be. SessionStart / PostToolUse / PreCompact / UserPromptSubmit hooks
+    are not block-eligible events and are out of scope."""
 
     ENFORCEMENT_EVENTS = ("PreToolUse", "Stop")
-    # Enforcement-event hook handlers that are explicitly NON-gate: pure derived-file regenerators / housekeeping
-    # that never emit a deny. Adding to this list is a deliberate, reviewed act (it is what this test forces).
-    KNOWN_NON_GATE_HOOKS = frozenset({
-        ".engine/tools/knowledge_gen.py",  # regenerates the knowledge graph; a mutation, never a block
-        ".engine/tools/self_map.py",       # regenerates the self-map; a mutation, never a block
-        ".engine/tools/close.py",          # session-close housekeeping (Stop); never a block
-    })
+    BLOCK_PRIMITIVES = ("hooks.block", "hooks.decide")  # the ONLY two deny channels (hooks.py) — grep-derivable
+    # Handler paths are extracted from the hook command strings; this regex encodes the "every engine tool is a
+    # .py or .sh" assumption. A future non-py/sh handler (a .js, a binary) would not match — so wiring one is a
+    # DELIBERATE decision that must also extend this regex, not a silent coverage gap.
     _SCRIPT_RE = re.compile(r"\.engine/tools/[\w./-]+\.(?:py|sh)")
 
+    def _root(self):
+        return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(weakening_guard.__file__))))
+
     def _settings(self):
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(weakening_guard.__file__))))
-        with open(os.path.join(root, ".claude", "settings.json"), encoding="utf-8") as fh:
+        with open(os.path.join(self._root(), ".claude", "settings.json"), encoding="utf-8") as fh:
             return json.load(fh)
 
-    def test_every_enforcement_hook_handler_is_classified(self):
+    def _can_block(self, script_rel: str) -> bool:
+        """True iff the hook handler's committed source references a block channel (so it can deny). Fail-safe:
+        an unreadable handler is treated as block-capable (it must then be floored)."""
+        try:
+            with open(os.path.join(self._root(), script_rel), encoding="utf-8") as fh:
+                src = fh.read()
+        except OSError:
+            return True
+        return any(prim in src for prim in self.BLOCK_PRIMITIVES)
+
+    def test_every_block_capable_enforcement_hook_is_floored(self):
         settings = self._settings()
         derived = weakening_guard._derive_check_scripts()
-        unclassified = []
+        unguarded = []
         for event in self.ENFORCEMENT_EVENTS:
             for matcher in settings.get("hooks", {}).get(event, []):
                 for hook in matcher.get("hooks", []):
                     for script in self._SCRIPT_RE.findall(hook.get("command", "")):
-                        if script in self.KNOWN_NON_GATE_HOOKS:
-                            continue
-                        if not weakening_guard.is_guardrail(script, derived):
-                            unclassified.append((event, script))
-        self.assertEqual(unclassified, [],
-                         "enforcement-hook handler(s) wired in settings.json but neither guarded nor classified "
-                         f"non-gate: {unclassified} — add a genuine gate to the weakening_guard floor, or a "
-                         "non-gate to KNOWN_NON_GATE_HOOKS after confirming it cannot block a tool call")
+                        if self._can_block(script) and not weakening_guard.is_guardrail(script, derived):
+                            unguarded.append((event, script))
+        self.assertEqual(unguarded, [],
+                         "block-capable enforcement hook(s) wired in settings.json but NOT guarded: "
+                         f"{unguarded} — a hook that can emit hooks.block/hooks.decide can turn a gate off; add it "
+                         "to _FLOOR_ENFORCEMENT_HOOKS in weakening_guard.py")
 
-    def test_the_write_gate_is_actually_covered(self):
-        # Ground the drift detector: modes.py (the Explore/Build write-gate) IS wired PreToolUse and IS guarded,
-        # so the detector is exercising a real gate, not vacuously passing.
+    def test_both_block_budget_gates_are_covered(self):
+        # Ground the drift detector against the two real block-budget members, so it can't pass vacuously: modes.py
+        # (PreToolUse write-gate, denies via hooks.decide) and close.py (Stop disposition gate, denies via
+        # hooks.block) are BOTH wired on their events, BOTH block-capable, and BOTH floored.
         settings = self._settings()
-        wired = {s for m in settings.get("hooks", {}).get("PreToolUse", [])
+        wired = {(ev, s) for ev in self.ENFORCEMENT_EVENTS
+                 for m in settings.get("hooks", {}).get(ev, [])
                  for h in m.get("hooks", []) for s in self._SCRIPT_RE.findall(h.get("command", ""))}
-        self.assertIn(".engine/tools/modes.py", wired)
-        self.assertTrue(weakening_guard.is_guardrail(".engine/tools/modes.py", frozenset()))
+        self.assertIn(("PreToolUse", ".engine/tools/modes.py"), wired)
+        self.assertIn(("Stop", ".engine/tools/close.py"), wired)
+        for gate in (".engine/tools/modes.py", ".engine/tools/close.py"):
+            self.assertTrue(self._can_block(gate), gate)
+            self.assertTrue(weakening_guard.is_guardrail(gate, frozenset()), gate)
 
 
 class TestProtectionFloor(unittest.TestCase):

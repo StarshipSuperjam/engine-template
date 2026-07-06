@@ -84,12 +84,15 @@ _FLOOR_RULESET_PROXY = (".engine/tools/bootstrap.py",)
 # Enforcement-HOOK logic: files whose weakening loosens a live RUNTIME gate with NO on-disk floored correlate to
 # surface it (unlike CODEOWNERS/settings.json CONTENT, whose weakenings appear as flagged diffs to those floored
 # files). Hand-listed because they are not check-scripts and CANNOT be derived from settings.json: it wires gate
-# hooks (modes.py) and non-gate hooks (boot/memory/telemetry) IDENTICALLY, so deriving all of them would re-guard
-# the non-gate hooks and reintroduce the over-firing D-268 fixes. Deciding gate-vs-non-gate is irreducible
-# judgment. A drift-detector test (test_seed.py) fails CI if a new PreToolUse/Stop hook script is wired in
-# settings.json but classified in neither this floor nor the test's explicit non-gate allowlist.
+# hooks (modes.py, close.py) and non-gate hooks (boot/memory/telemetry) IDENTICALLY, so deriving all of them would
+# re-guard the non-gate hooks and reintroduce the over-firing D-268 fixes. Both block-budget members are here:
+# modes.py (PreToolUse write-gate) and close.py (Stop finding-disposition gate) — the only two hooks that can emit
+# a merge-relevant deny. A drift-detector test (test_seed.py) fails CI if a NEW PreToolUse/Stop hook whose code
+# can emit a block (via hooks.block or hooks.decide) is wired in settings.json but not floored here — the
+# gate-vs-non-gate call is DERIVED from the hook's own code, not a hand-maintained allowlist that could rot.
 _FLOOR_ENFORCEMENT_HOOKS = (
-    ".engine/tools/modes.py",          # the Explore/Build write-gate (PreToolUse)
+    ".engine/tools/modes.py",          # the Explore/Build write-gate (PreToolUse block-budget member)
+    ".engine/tools/close.py",          # the finding-disposition gate (Stop block-budget member; HARD-BLOCKS the turn)
     ".engine/tools/hook-runner.sh",    # the launcher EVERY hook runs through
     ".engine/tools/hooks.py",          # the hook-law substrate: block budget + fail-open harness
     ".engine/tools/issue_gate.py",     # the engine-Issue reroute matcher the write-gate consults
