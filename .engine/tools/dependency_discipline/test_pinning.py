@@ -47,6 +47,8 @@ class PinningTests(unittest.TestCase):
         self.assertEqual(fs[0]["severity"], "soft")
         self.assertIsNone(fs[0]["location"])
         self.assertIn("isn't active here yet", fs[0]["message"])
+        # Marked as a disclosed no-op so the validator can collapse it away from actionable notes (#322).
+        self.assertIs(fs[0].get("not_applicable"), True)
 
     # --- §13 wall: the engine's own .engine/ tooling is never a product dependency ----------------
     def test_engine_walled_tooling_is_not_a_product_dependency(self):

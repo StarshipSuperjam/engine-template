@@ -44,7 +44,11 @@ def render() -> str:
         return ("CURRENTLY-FIRING SOFT FINDINGS: could not be read this run "
                 f"({exc}). Treat this concern as not reviewed and say so plainly in your digest; "
                 "do not read this as 'nothing is firing'.")
-    soft = [f for f in findings if f.get("severity") != "hard"]
+    # Defensive: a disclosed no-op (a check reporting "not applicable here, nothing to do") is by
+    # definition never a standing nudge to trim, so it must never reach this feed. None of the current
+    # `audit-prep` rules emit one, so this filters nothing today — it keeps the feed honest if such a
+    # rule is ever added to the suite later.
+    soft = [f for f in findings if f.get("severity") != "hard" and not f.get("not_applicable")]
     if not soft:
         return ("No standing soft validator findings are firing this run — every catalogued "
                 "surface is within its budget and shape. This is a clean read, not a gap.")

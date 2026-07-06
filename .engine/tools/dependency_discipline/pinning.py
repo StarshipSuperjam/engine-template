@@ -102,7 +102,7 @@ def findings(tier: str, root: "str | None" = None) -> list:
             detected.append((eco, manifest))
 
     if not detected:
-        return [validate.finding(tier, _NO_OP_MESSAGE, None)]
+        return [validate.disclosed_noop(_NO_OP_MESSAGE, None)]
 
     out = []
     for eco, manifest in detected:

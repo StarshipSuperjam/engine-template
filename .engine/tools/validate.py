@@ -127,6 +127,17 @@ def finding(severity: str, message: str, location: dict | None = None) -> dict:
     return {"severity": severity, "message": message, "location": location}
 
 
+def disclosed_noop(message: str, location: dict | None = None) -> dict:
+    """A DISCLOSED not-applicable finding: a check reporting "this doesn't apply in this
+    context, nothing to do" — a disclosed no-op, never a silent skip (the design's
+    disclosed-not-applicable grammar). Always `soft` (a no-op is by definition non-gating), and
+    carries the optional `not_applicable` marker so report() can collapse these dormant notes
+    away from the actionable ones. The marker is an additive finding.v1 key (the base fixes no
+    closed property set); a finding WITHOUT it defaults to actionable, so the fail-safe is a
+    no-op shown in full, never an actionable note hidden."""
+    return {"severity": "soft", "message": message, "location": location, "not_applicable": True}
+
+
 def env_override_path(var: str, default: "str | None" = None) -> "str | None":
     """Resolve an input-substitution env var to a path — the one shared seam the negative-fixture
     meta-check's custom/script units use (#286, D-256…D-260). When `var` is set and non-empty,
@@ -321,8 +332,8 @@ def kind_presence(rule, ctx):
     if target.get("context") == "pull-request-body":
         body = ctx.get("pr_body")
         if body is None:
-            return True, [finding("soft", "PR body not available; completeness not "
-                                  "evaluated here (the CI run evaluates it).")]
+            return True, [disclosed_noop("PR body not available; completeness not "
+                                         "evaluated here (the CI run evaluates it).")]
         findings = section_presence_findings(body, sections, tier,
                                              rule["message"], "pull-request body")
         return (len(findings) == 0), findings
@@ -1202,7 +1213,14 @@ def kind_custom_script(rule, ctx):
         if not isinstance(f, dict):
             return False, [finding("hard", f"Check '{rule.get('id')}' produced a malformed finding "
                            f"(not an object); cannot verify (fails closed).")]
-        findings.append(finding(f.get("severity", tier), f.get("message", ""), f.get("location")))
+        # Reconstruct on the finding.v1 base with an EXPLICIT allow-list — severity, message,
+        # location, plus the optional `not_applicable` disclosed-no-op marker — so a script's
+        # disclosed_noop() survives re-ingestion (report() can collapse it) while no other
+        # author-controllable key leaks through this trust boundary.
+        rebuilt = finding(f.get("severity", tier), f.get("message", ""), f.get("location"))
+        if f.get("not_applicable"):
+            rebuilt["not_applicable"] = True
+        findings.append(rebuilt)
     return (not any(f["severity"] == "hard" for f in findings)), findings
 
 
@@ -1340,6 +1358,10 @@ def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool
         # guardrail-weakening guard is never exempt.
         exempt_note = _exemption_note(rule, ctx) if gates else None
         if exempt_note is not None:
+            # NOT a disclosed_noop: this is a check WAIVED in the merge-gating context (an exempt
+            # author/label), a consequential disclosure that must stay prominent in the CI log — never
+            # collapsed into the dormant "nothing to do" summary. It also never fires on a clean local
+            # run, so it is outside the soft-note noise #322 targets.
             found = [finding("soft", exempt_note)]
         else:
             fn = REGISTRY.get(kind)
@@ -1396,7 +1418,9 @@ def run(suite: str, ctx: dict) -> int:
     except Exception as exc:  # a broken check rule file halts loudly (config error), in plain language
         print(f"\nCONFIG ERROR: cannot load the check rules: {exc}", file=sys.stderr)
         return 2
-    findings = _evaluate(rules, suite, gates, ctx)
+    # with_source so report() can name the checks whose disclosed-no-op notes it collapses;
+    # the extra source_rule/source_kind keys are inert for the hard/actionable render paths.
+    findings = _evaluate(rules, suite, gates, ctx, with_source=True)
     report(suite, findings, gates)
     # Gate on the authoritative signal — any hard-severity finding — but only where
     # the suite's context is a blocking-gate. A callable's verdict flag is advisory;
@@ -1514,10 +1538,23 @@ def fmt(f: dict) -> str:
 def report(suite: str, findings: list, gates: bool) -> None:
     hard = [f for f in findings if f["severity"] == "hard"]
     soft = [f for f in findings if f["severity"] != "hard"]
-    if soft:
-        print(f"\nnotes ({len(soft)}):")
-        for f in soft:
+    # Partition soft notes so an actionable one stands out from the dormant "nothing to do" ones.
+    # A finding WITHOUT the `not_applicable` marker defaults to actionable (`.get`, never `[]`) —
+    # the fail-safe is a disclosed no-op shown in full (harmless noise), never an actionable note
+    # hidden. The dormant notes stay DISCLOSED (a named, counted summary line, never a silent
+    # skip); their full boilerplate prose is what collapses.
+    actionable = [f for f in soft if not f.get("not_applicable")]
+    noop = [f for f in soft if f.get("not_applicable")]
+    displayed = len(actionable) + (1 if noop else 0)
+    if displayed:
+        print(f"\nnotes ({displayed}):")
+        for f in actionable:
             print("  - " + fmt(f))
+        if noop:
+            names = list(dict.fromkeys(str(f["source_rule"]) for f in noop if f.get("source_rule")))
+            suffix = (": " + ", ".join(names)) if names else ""
+            count = len(names) if names else len(noop)
+            print(f"  - {count} check(s) not applicable here (nothing to do){suffix}")
     if hard and gates:
         print(f"\nFAIL ({len(hard)} hard finding(s)) [suite: {suite}] — blocks the merge:")
         for f in hard:

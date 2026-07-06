@@ -569,15 +569,15 @@ def findings(block_tier: str = "hard", *, event_path: "str | None" = None,
     repo = repo or os.environ.get("GITHUB_REPOSITORY")
     token = token or os.environ.get("GITHUB_TOKEN")
     if not base or not head or not repo or not token:
-        return [validate.finding("soft", _NO_CONTEXT_MESSAGE, None)]
+        return [validate.disclosed_noop(_NO_CONTEXT_MESSAGE, None)]
 
     client = client or DependencyReview(repo, token)
     try:
         changes = client.compare(base, head)
     except _Unavailable:
-        return [validate.finding("soft", _UNAVAILABLE_MESSAGE, None)]
+        return [validate.disclosed_noop(_UNAVAILABLE_MESSAGE, None)]
     except DegradedReadError:
-        return [validate.finding("soft", _DEGRADED_MESSAGE, None)]
+        return [validate.disclosed_noop(_DEGRADED_MESSAGE, None)]
 
     out = []
     accepted_ghsas, accepted_licenses, copyleft = set(), set(), []

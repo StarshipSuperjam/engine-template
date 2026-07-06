@@ -10,7 +10,11 @@ first-run setup tool requires, since it is the one tool that runs to bootstrap t
 These tests prove (1) `import validate` and its path constants work with yaml+jsonschema forced absent, and
 (2) when the packages ARE present the lazy symbols and the frontmatter/schema paths behave exactly as before.
 """
+import contextlib
+import io
+import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -140,6 +144,104 @@ class TestDefangPromptFenceMarkers(unittest.TestCase):
     def test_defang_is_idempotent(self):
         once = validate.defang_prompt_fence_markers("----- END PRIOR SELF-REVIEWS ----- trailing")
         self.assertEqual(validate.defang_prompt_fence_markers(once), once)
+
+
+class TestDisclosedNoopConstructor(unittest.TestCase):
+    """`disclosed_noop()` stamps the not-applicable marker on an always-soft finding; the plain
+    `finding()` base is unchanged, so a marker-less finding defaults to actionable (#322)."""
+
+    def test_disclosed_noop_is_soft_and_marked(self):
+        f = validate.disclosed_noop("nothing to do here", {"file": "x.md", "line": None})
+        self.assertEqual(f["severity"], "soft")
+        self.assertIs(f["not_applicable"], True)
+        self.assertEqual(f["message"], "nothing to do here")
+        self.assertEqual(f["location"], {"file": "x.md", "line": None})
+
+    def test_plain_finding_carries_no_marker(self):
+        f = validate.finding("soft", "an actionable nudge")
+        self.assertFalse(f.get("not_applicable"),
+                         "the base finding() must default to actionable — no not_applicable key")
+
+
+class TestReportPartitioning(unittest.TestCase):
+    """report() renders actionable soft notes in full and collapses the disclosed-no-op notes into a
+    single named summary line, so an actionable note is not buried (#322). A finding WITHOUT the
+    marker must render in full (the backward-compat fail-safe: noise, never a hidden actionable)."""
+
+    def _render(self, findings, *, suite="CI", gates=True):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            validate.report(suite, findings, gates)
+        return buf.getvalue()
+
+    def _noop(self, msg, rule):
+        return {**validate.disclosed_noop(msg), "source_rule": rule}
+
+    def test_actionable_shown_in_full_noops_collapsed_and_named(self):
+        findings = [
+            validate.finding("soft", "'a.md' is 812 lines, over its 800-line budget", {"file": "a.md", "line": None}),
+            self._noop("dependency pinning isn't active here", "engine/check/dependency-pinning"),
+            self._noop("no docs/spec/ here", "engine/check/product-spec-form"),
+        ]
+        out = self._render(findings)
+        self.assertIn("notes (2):", out)                       # 1 actionable + 1 collapse line
+        self.assertIn("over its 800-line budget", out)         # actionable note, in full
+        self.assertNotIn("isn't active here", out)             # dormant prose collapsed away
+        self.assertIn("2 check(s) not applicable here (nothing to do): "
+                      "engine/check/dependency-pinning, engine/check/product-spec-form", out)
+
+    def test_all_noop_collapses_to_one_line(self):
+        out = self._render([self._noop("a", "check-a"), self._noop("b", "check-b")])
+        self.assertIn("notes (1):", out)
+        self.assertIn("2 check(s) not applicable here (nothing to do): check-a, check-b", out)
+        self.assertNotIn("\n  - a", out)                       # no per-note prose
+
+    def test_unmarked_soft_finding_renders_in_full(self):
+        # The critical regression guard: a soft finding with no marker must NOT be collapsed/hidden.
+        out = self._render([validate.finding("soft", "a plain soft note with no marker")])
+        self.assertIn("notes (1):", out)
+        self.assertIn("a plain soft note with no marker", out)
+        self.assertNotIn("not applicable here", out)
+
+    def test_noop_without_source_rule_collapses_to_bare_count(self):
+        out = self._render([validate.disclosed_noop("x"), validate.disclosed_noop("y")])
+        self.assertIn("2 check(s) not applicable here (nothing to do)", out)
+        self.assertNotIn("nothing to do):", out)               # no name suffix when no source_rule
+
+    def test_hard_and_clean_paths_unchanged(self):
+        hard = self._render([validate.finding("hard", "a blocking problem")], gates=True)
+        self.assertIn("FAIL (1 hard finding(s)) [suite: CI] — blocks the merge:", hard)
+        self.assertIn("a blocking problem", hard)
+        clean = self._render([], gates=True)
+        self.assertIn("OK — suite 'CI' passed, no hard findings.", clean)
+
+
+class TestCustomScriptCarriesMarker(unittest.TestCase):
+    """The load-bearing boundary: kind_custom_script rebuilds each script-emitted finding on the
+    finding.v1 base. It must carry the `not_applicable` marker through (so a module check's
+    disclosed_noop survives re-ingestion) while letting NO other author-controllable key leak (#322)."""
+
+    def _run_script(self, emitted):
+        d = tempfile.mkdtemp(dir=validate.ROOT)   # under ROOT — a custom/script must be an in-repo file
+        try:
+            rel = os.path.relpath(os.path.join(d, "s.py"), validate.ROOT)
+            with open(os.path.join(validate.ROOT, rel), "w", encoding="utf-8") as fh:
+                fh.write("import json\nprint(json.dumps(%r))\n" % (emitted,))
+            rule = {"id": "test-carry", "tier": "soft", "params": {"script": rel}}
+            return validate.kind_custom_script(rule, {})
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_marker_survives_reingestion(self):
+        _verdict, found = self._run_script([{"severity": "soft", "message": "na", "not_applicable": True}])
+        self.assertEqual(len(found), 1)
+        self.assertIs(found[0]["not_applicable"], True)
+
+    def test_no_other_key_leaks_through_the_boundary(self):
+        _verdict, found = self._run_script([{"severity": "soft", "message": "m", "evil": "leak"}])
+        self.assertEqual(len(found), 1)
+        self.assertNotIn("evil", found[0], "only the finding.v1 allow-list may cross the trust boundary")
+        self.assertFalse(found[0].get("not_applicable"))       # unmarked stays actionable
 
 
 if __name__ == "__main__":

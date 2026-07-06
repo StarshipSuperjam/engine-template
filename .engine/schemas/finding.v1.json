@@ -14,6 +14,10 @@
       "minLength": 1,
       "description": "A clear, complete, plain-language statement of the finding — what is wrong, why it matters, and how to fix it — written so both a person and the engine can act on it, explaining any technical term rather than assuming it. The schema requires a message to be present; whether it truly meets that clarity bar is a judgment, not something this check can measure."
     },
+    "not_applicable": {
+      "type": "boolean",
+      "description": "Optional. True when this finding is a disclosed no-op — a check reporting that it does not apply in this context and there is nothing to do (never a silent skip). Absent or false means the finding is actionable. A reader that groups findings uses this to keep dormant 'nothing to do' notes from burying the actionable ones; nothing depends on it being present, so a finding without it is treated as actionable."
+    },
     "location": {
       "type": ["object", "null"],
       "description": "Where the finding is, or null when it has no file location (for example, a finding about a whole document or one not tied to a file). When present, it points to a file and, optionally, a line.",

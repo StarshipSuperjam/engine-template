@@ -208,12 +208,12 @@ def main(argv: list) -> int:
                          "access token was available in CI. This clears once the run has its token; nothing here "
                          "is a setting that needs changing.")])
         # Locally, fail OPEN with a soft note — the CI run, which has a token, is the real gate.
-        return emit([validate.finding("soft",
+        return emit([validate.disclosed_noop(
                      "The follow-up issue citations weren't checked here — no repository access token is "
                      "available, which is normal on your own machine. The check that can block a bad citation "
                      "runs in CI.")])
     if body is None:
-        return emit([validate.finding("soft",
+        return emit([validate.disclosed_noop(
                      "No pull request body was available to read, so the Review section's issue citations "
                      "weren't checked here. The check runs against the pull request in CI.")])
     return emit(findings(tier, body, IssueResolver(repo, token)))
