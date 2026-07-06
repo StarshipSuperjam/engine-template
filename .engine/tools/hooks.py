@@ -428,6 +428,14 @@ def _demo(_argv: list) -> int:
     print(f"    finding on stderr: {err.strip()!r}\n")
     c2b = code
 
+    print("(2c) The SAME crash but with GitHub UNREACHABLE (offline) — the copy stays HONEST and never")
+    print("     claims a record that did not happen (this is the exact state the old code lied about):")
+    code, _out, err = _run_capture("PreToolUse", lambda p: (_ for _ in ()).throw(RuntimeError("boom")),
+                                   {"hook_event_name": "PreToolUse"}, promote=lambda *a: False)
+    print(f"    exit code = {code}  (still NON-blocking)")
+    print(f"    honest offline copy on stderr: {err.strip()!r}\n")
+    offline_err = err
+
     import tempfile
     print("(3) The hook LAUNCHER (.engine/tools/hook-runner.sh) — the wait/exec preamble lives here now,")
     print("    so the command Claude Code DISPLAYS after a hook fires is short instead of a wall of shell:")
@@ -475,7 +483,8 @@ def _demo(_argv: list) -> int:
     # an absent one (no fallback); AND #391 — the crash finding was promoted with the honest "recorded" copy,
     # and the missing-runtime case NAMED its absent runtime on stderr instead of exiting silently.
     ok = (c1 == 2 and c2 != 2 and c2b != 2 and "RAN" in present_out and not never_out.strip()
-          and "recorded as a tracked item" in crash_err and "runtime is not ready" in never_err)
+          and "recorded as a tracked item" in crash_err and "not durably" in offline_err
+          and "runtime is not ready" in never_err)
     if not ok:
         print("\nDEMO UNEXPECTED: the hooks fail-open contract or the launcher's no-fallback behaviour did "
               "not hold.", file=sys.stderr)

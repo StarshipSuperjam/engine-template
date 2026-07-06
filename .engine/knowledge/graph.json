@@ -4826,7 +4826,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:adc1cc8c43376a71d20847a4c404e028c95a81960e0aa00d538282d256a462a9",
+        "fingerprint": "sha256:b71492096a6a33fbdae9e188a4b8d0f1dfae8a987369d846393a3d80f68d1810",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
