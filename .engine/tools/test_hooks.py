@@ -36,6 +36,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hooks     # noqa: E402
@@ -503,6 +504,101 @@ class TestDemoRuns(unittest.TestCase):
             code = hooks.main(["demo"])
         self.assertEqual(code, 0)
         self.assertIn("fail-open", buf.getvalue())
+
+
+class TestFailOpenPromotion(unittest.TestCase):
+    """#391: a fail-open finding is PROMOTED to a tracked engine Issue (best-effort, fail-safe), and the
+    in-session copy is HONEST about whether that landed — the old unconditional 'this was recorded as a
+    problem to fix' (which recorded nothing) is gone."""
+
+    @staticmethod
+    def _crash(_payload):
+        raise RuntimeError("boom")
+
+    def _run(self, promote):
+        out, err = io.StringIO(), io.StringIO()
+        code = hooks.run_hook("PreToolUse", self._crash, stdin=io.StringIO("{}"),
+                              stdout=out, stderr=err, promote=promote)
+        return code, err.getvalue()
+
+    def test_promoted_finding_says_recorded(self):
+        code, err = self._run(promote=lambda *a: 4242)      # a landed promotion returns the Issue number
+        self.assertEqual(code, hooks.EXIT_NONBLOCKING)
+        self.assertIn("recorded as a tracked item", err)
+        self.assertNotIn("not durably", err)
+
+    def test_offline_finding_says_not_recorded_and_never_lies(self):
+        code, err = self._run(promote=lambda *a: False)     # offline / unreachable -> not durably tracked
+        self.assertEqual(code, hooks.EXIT_NONBLOCKING)
+        self.assertIn("not durably", err)
+        self.assertNotIn("recorded as a tracked item", err)
+        self.assertNotIn("recorded as a problem to fix", err)   # the old false copy is gone entirely
+
+    def test_a_promoter_that_itself_throws_never_fails_the_gate_closed(self):
+        # belt-and-suspenders: recording the crash must NEVER re-break the fail-open path into a block/crash.
+        def boom_promote(*_a):
+            raise OSError("disk full")
+        code, err = self._run(promote=boom_promote)
+        self.assertEqual(code, hooks.EXIT_NONBLOCKING)      # still non-blocking, never exit 2
+        self.assertIn("not durably", err)                   # degrades to surfaced-not-recorded
+
+    def test_source_id_is_coarse_and_marker_safe(self):
+        a = hooks._fail_open_source_id("PreToolUse", "crash")
+        self.assertEqual(a, hooks._fail_open_source_id("PreToolUse", "crash"))   # recurrences -> ONE Issue
+        self.assertEqual(a, "hooks/fail-open/PreToolUse/crash")
+        self.assertNotEqual(a, hooks._fail_open_source_id("Stop", "crash"))
+        for bad in ("<!--", "-->", "\n"):                   # cannot forge telemetry's dedup marker
+            self.assertNotIn(bad, a)
+
+    def test_real_promoter_refuses_live_github_under_a_test_harness(self):
+        # the SAFETY BACKSTOP: the real promoter must never open a live Issue from a test run.
+        self.assertIn("unittest", sys.modules)
+        self.assertFalse(hooks._promote_fail_open("PreToolUse", "crash", "msg"))
+
+    def test_do_promote_offline_returns_false(self):
+        import boot
+        with mock.patch.object(boot, "repo_slug", return_value="o/r"), \
+             mock.patch.object(boot, "gh_token", return_value=None):
+            self.assertFalse(hooks._do_promote_fail_open("Stop", "crash", "m"))
+
+    def test_do_promote_calls_promote_finding_with_a_trust_critical_sourced_record(self):
+        import boot
+        import telemetry
+        captured = {}
+
+        def fake_pf(_gh, record, _now):
+            captured["record"] = record
+            return 77
+        with mock.patch.object(boot, "repo_slug", return_value="o/r"), \
+             mock.patch.object(boot, "gh_token", return_value="tok"), \
+             mock.patch.object(telemetry, "GitHubIssues", return_value=object()), \
+             mock.patch.object(telemetry, "promote_finding", side_effect=fake_pf):
+            got = hooks._do_promote_fail_open("PreToolUse", "input", "could not read input")
+        self.assertTrue(got)                                # a landed promotion -> truthy
+        self.assertEqual(captured["record"]["source_id"], "hooks/fail-open/PreToolUse/input")
+        self.assertEqual(captured["record"]["severity"], telemetry.TRUST_CRITICAL)
+        self.assertEqual(captured["record"]["message"], "could not read input")
+
+
+class TestMissingRuntimeReadout(unittest.TestCase):
+    """#391: when the venv interpreter never appears, the launcher NAMES the absent runtime on stderr and
+    stays NON-blocking, instead of exiting silently (the missing-runtime variant of fail-open-and-flag)."""
+
+    WRAPPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hook-runner.sh")
+
+    def test_names_the_absent_runtime_and_stays_non_blocking(self):
+        with tempfile.TemporaryDirectory() as td:
+            interp = os.path.join(td, "python")             # never created -> never appears
+            r = subprocess.run(["sh", self.WRAPPER, interp, os.path.join(td, "boot.py")],
+                               capture_output=True, text=True, timeout=10,
+                               env={**os.environ, "ENGINE_HOOK_WAIT_POLLS": "3",
+                                    "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})
+            self.assertEqual(r.stdout, "")                  # still ran nothing (no system-Python fallback)
+            self.assertNotEqual(r.returncode, 2)            # NON-blocking (never the platform's block code)
+            self.assertNotEqual(r.returncode, 0)            # and did not silently succeed
+            self.assertIn("private Python runtime is not ready", r.stderr)   # names the absent runtime
+            self.assertIn(interp, r.stderr)                 # the concrete path, for a literate operator
+            self.assertIn("not a block", r.stderr)          # tells the operator it did not block
 
 
 if __name__ == "__main__":
