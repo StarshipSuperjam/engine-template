@@ -249,7 +249,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # github.ref_name, NOT github.event.repository.default_branch: the `schedule` trigger carries no
+          # event payload, so `github.event.repository` is empty there and the read would silently fall back
+          # to "main". A scheduled run always runs on the default branch, so github.ref_name IS that branch —
+          # populated on both schedule and workflow_dispatch, so a non-"main" default branch reads correctly.
+          GITHUB_DEFAULT_BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           # The first live "signal of record": read the default branch head's CI check-runs and reconcile the

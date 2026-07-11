@@ -202,10 +202,9 @@ def issue_body(record: dict, first_seen: str, last_seen: str) -> str:
     )
     whats_next = (
         "Usually nothing right now. When a session next works on the engine it can prepare a fix for you to "
-        "review and merge, the same way you already do — the engine never changes anything here on its own. "
-        "This item is a flag, not a repair: once the underlying problem is actually fixed and no longer "
-        "showing up, the engine stops flagging it and closes this item for you automatically. If it lingers "
-        "and you want it sorted sooner, just say so."
+        "review and merge, the same way you already do — the engine never changes anything in your project "
+        "on its own. This is a flag, not a repair: it stays visible until the underlying problem is resolved. "
+        "If it lingers and you want it sorted sooner, just say so."
     )
     body = issue_author.render_engine_issue_body(what_this_is=what_this_is, whats_next=whats_next)
     return _with_tracking_trailers(body, record["source_id"], first_seen, last_seen)
@@ -243,12 +242,12 @@ class Plan:
 
 
 def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, now: str, *,
-              authoritative) -> Plan:
+              authoritative, live: bool = False) -> Plan:
     """The pure loop. Inputs: the finding-records observed THIS run; the currently-open engine Issues
     (each {number, title, body, source_id}); the cross-run cache keyed by source_id
-    ({persist, absent, issue, first_seen, severity}); the effective thresholds; the clock value; and
+    ({persist, absent, issue, first_seen, severity}); the effective thresholds; the clock value;
     `authoritative` — the source-ids this pass may auto-resolve (a set, or AUTHORITATIVE_ALL; REQUIRED, no
-    claim-all default — see AUTHORITATIVE_ALL). Returns a Plan. No IO, no clock — deterministic given inputs.
+    claim-all default — see AUTHORITATIVE_ALL); and `live`. Returns a Plan. No IO, no clock — deterministic.
 
     Dedup is two-layer: an open Issue is matched to a signal by the source-id marker recovered from
     its body (open_issues[*].source_id), and the cache's remembered issue number is the fast path /
@@ -258,7 +257,17 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
     Auto-resolve is SOURCE-SCOPED: an open Issue whose source-id this pass is not `authoritative` for is
     another source's signal, so it is carried forward with its prior counts UNTOUCHED — never absent-counted
     and never closed. This is what lets a partial live pass (e.g. a CI-only run) run safely without silently
-    retiring the out-of-band Issues (hooks fail-open, module-manager, restore-vault) it never observed."""
+    retiring the out-of-band Issues (hooks fail-open, module-manager, restore-vault) it never observed.
+
+    `live` distinguishes the two state substrates. A CACHE-ACCRUED signal (live=False — the ambient local
+    check-fires) uses the persistence/auto-resolve LATENCY: it promotes only after its cross-pass `persist`
+    count crosses the threshold and resolves only after `auto_resolve` absent observations, both counted in
+    the gitignored cross-run cache. A LIVE-DERIVED signal (live=True — read fresh from a DURABLE source each
+    pass, e.g. the GitHub CI check-runs) carries its state in the durable Issue itself, not the ephemeral
+    cache, so it promotes on the FIRST observed occurrence and resolves on the FIRST observed clearance — the
+    cross-pass counters cannot be relied on for it (the driver runs on an ephemeral runner that wipes the
+    cache each pass) and are not needed (the live read IS the current truth). Severity still classifies the
+    signal; `live` only sets which substrate gates its latency."""
     persistence = int(thresholds.get("persistence", 0))
     auto_resolve = int(thresholds.get("auto_resolve", 0))
     plan = Plan()
@@ -283,7 +292,9 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
         if existing is not None:
             entry["issue"] = existing["number"]
             plan.to_update.append((existing["number"], issue_body(record, first_seen, now)))
-        elif promotion_due(record, persist, persistence):
+        elif live or promotion_due(record, persist, persistence):
+            # A live-derived signal promotes on first observation (its state is the durable Issue, not the
+            # ephemeral cache the persistence count needs); a cache-accrued one waits for promotion_due.
             entry["issue"] = None  # assigned by the caller once the Issue is created
             plan.to_open.append((sid, issue_title(record), issue_body(record, first_seen, now)))
         plan.next_counts[sid] = entry
@@ -303,7 +314,9 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
                                      "severity": prev.get("severity")}
             continue
         absent = int(prev.get("absent", 0)) + 1
-        if resolution_due(absent, auto_resolve):
+        if live or resolution_due(absent, auto_resolve):
+            # A live-derived signal's Issue closes as soon as the durable source shows it clear (no
+            # cross-pass absent count is available or needed); a cache-accrued one waits for resolution_due.
             plan.to_close.append(issue["number"])
             # dropped from next_counts — the signal is gone and its Issue is closing
         else:
@@ -418,8 +431,12 @@ class GitHubIssues:
         checks' set (which would let the caller wrongly auto-resolve a still-red check's Issue)."""
         out, page = [], 1
         while True:
+            # filter=latest (GitHub's default, requested explicitly) returns only the MOST RECENT run per
+            # check name, so a re-run's fresh green supersedes a stale red of the same name — the current
+            # outcome, which is what a live-derived signal reconciles against.
             status, data = self._transport(
-                "GET", f"/repos/{self.repo}/commits/{ref}/check-runs?per_page=100&page={page}", None)
+                "GET", f"/repos/{self.repo}/commits/{ref}/check-runs?filter=latest&per_page=100&page={page}",
+                None)
             if status >= 400 or not isinstance(data, dict) or "check_runs" not in data:
                 raise DegradedReadError(f"GitHub returned {status} reading check-runs for {ref}")
             runs = data["check_runs"]
@@ -561,14 +578,15 @@ class Report:
 
 
 def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now: str,
-        state_path: str | None = None, *, authoritative) -> Report:
+        state_path: str | None = None, *, authoritative, live: bool = False) -> Report:
     """One telemetry pass: ensure the label, read the open engine Issues, reconcile, apply the Plan's
     writes, persist the cache, and compute the refreshed State debt + the render-only pressure line.
 
     `authoritative` (REQUIRED — see AUTHORITATIVE_ALL) is the set of source-ids this pass may auto-resolve;
     it is threaded to reconcile so a partial live pass never closes an Issue it did not observe. A caller
     that could not build a complete records set (a failed/partial read) MUST pass frozenset() so the pass
-    closes nothing.
+    closes nothing. `live` (threaded to reconcile) marks a durable-read signal (e.g. the CI check-runs) that
+    promotes/resolves on first observation rather than via the cache-accrued persistence latency.
 
     Fail-open / degrade is honoured for EVERY GitHub call, not only the read: any GitHub failure —
     ensure-label, the list read, OR a write — whether a 4xx auth/scope error or a transient 5xx/outage,
@@ -586,7 +604,8 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
         count, as_of = read_state_debt(state_path or DEFAULT_STATE_PATH)
         return Report(degraded=True, degraded_line=degraded_readout(count, as_of))
 
-    plan = reconcile(records, open_issues, cache.load(), thresholds, now, authoritative=authoritative)
+    plan = reconcile(records, open_issues, cache.load(), thresholds, now,
+                     authoritative=authoritative, live=live)
     opened = updated = closed = 0
     try:
         for sid, title, body in plan.to_open:
@@ -672,12 +691,18 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
 # lets a live pass declare exactly which sources it observed and is authoritative to auto-resolve.
 CI_NAMESPACE = "ci/"
 
-# The check-run conclusions that count as "not passing" — a definitively-failed outcome. `success`,
-# `neutral`, and `skipped` are fine; `None` (still running) is not a failure. A one-off red on one merged
-# head does not persist (the head moves and the sid is check-name-keyed, so a real recurring red is what
-# crosses the persistence threshold), so this rides the PERSISTENT_BENIGN latency, never trust-critical
-# (the check RAN and reported — it is not a "could not run" signal).
+# The check-run conclusions that count as "not passing" — a definitively-failed outcome — and, separately,
+# the one that counts as a definitive PASS. A CI signal is severity PERSISTENT_BENIGN (the check RAN and
+# reported — not a "could not run" signal), but it is a LIVE-DERIVED signal (read fresh from the durable
+# GitHub record each pass), so it promotes on first observed failure and resolves on first observed pass —
+# its state lives in the durable Issue, not the ephemeral cache the persistence latency would need.
 CI_NOT_PASSING = frozenset({"failure", "timed_out", "cancelled", "action_required"})
+CI_PASSING = frozenset({"success"})
+# Only a DEFINITIVE conclusion (a pass or a failure) makes a check authoritative — i.e. lets this pass
+# auto-resolve a stale Issue for it. `skipped` / `neutral` / `None` (still running) / anything else is
+# INDETERMINATE: it neither promotes (it is not a failure) nor authorises auto-resolve (it is not a
+# definitive pass), so a formerly-red Issue is carried forward, never wrongly closed on a check that merely
+# stopped running.
 
 
 def _ci_message(name: str) -> str:
@@ -708,13 +733,19 @@ def derive_ci_records(github: GitHubIssues, ref: str, now: str):
     records, authoritative = [], set()
     for run_obj in runs:
         name = run_obj.get("name")
+        if not isinstance(name, str) or not name:   # a check-run always has a name; skip a malformed one
+            continue
         sid = f"{CI_NAMESPACE}{name}"
         if not source_id_is_marker_safe(sid):
             continue
-        authoritative.add(sid)
-        if run_obj.get("conclusion") in CI_NOT_PASSING:
+        conclusion = run_obj.get("conclusion")
+        if conclusion in CI_NOT_PASSING:
+            authoritative.add(sid)
             records.append({"source_id": sid, "severity": PERSISTENT_BENIGN,
                             "message": _ci_message(name), "location": None})
+        elif conclusion in CI_PASSING:
+            authoritative.add(sid)   # a definitive pass -> authoritative so any stale red Issue resolves
+        # else: indeterminate (skipped/neutral/still-running) -> neither promoted nor authoritative
     return records, authoritative
 
 
@@ -830,9 +861,10 @@ def _demo(_argv) -> int:
         print("    │ " + line)
     print("    └─ (the last line is an invisible marker; it does not render in GitHub)")
 
-    print("\n(8) The FIRST live signal source — your main branch's CI checks. A red check is tracked once it")
-    print("    keeps failing; when it is green again the item auto-resolves; and a CI-only pass NEVER touches")
-    print("    an unrelated item it did not look at (the source-scoping safety rail):")
+    print("\n(8) The FIRST live signal source — your main branch's CI checks. Read fresh from the durable")
+    print("    GitHub record each pass, a failing check is tracked at once and clears the moment it is green")
+    print("    — with NO reliance on a saved counter; and a CI-only pass NEVER touches an unrelated item it")
+    print("    did not look at (the source-scoping safety rail):")
     ci_fake = _FakeGitHub(check_runs=[{"name": "engine-ci", "conclusion": "failure"},
                                       {"name": "actionlint", "conclusion": "success"}])
     ci_gh = GitHubIssues("you/your-project", "demo-token", transport=ci_fake.transport)
@@ -848,17 +880,17 @@ def _demo(_argv) -> int:
     oob_open = lambda: any(i["state"] == "open" and "fail-open" in i["body"] for i in ci_fake.issues.values())
     ci_open = lambda: any(i["state"] == "open" and "main branch" in i["body"] for i in ci_fake.issues.values())
     print(f"    an unrelated 'gate could not run' item is open: {oob_open()}")
-    for k in range(3):   # the red check must persist across the threshold before it is tracked
-        recs, auth = derive_ci_records(ci_gh, "main", cclock[k])
-        run(ci_gh, recs, ci_cache, th, cclock[k], authoritative=auth)
-    print(f"    the red check is now tracked: {ci_open()}   (unrelated item still untouched: {oob_open()})")
+    recs, auth = derive_ci_records(ci_gh, "main", cclock[0])
+    run(ci_gh, recs, ci_cache, th, cclock[0], authoritative=auth, live=True)   # one pass: red -> tracked
+    print(f"    a failing check is tracked on the first pass: {ci_open()}   "
+          f"(unrelated item untouched: {oob_open()})")
+    os.remove(ci_cache.path)                        # the saved counter is wiped, as the ephemeral runner does
     ci_fake.check_runs = [{"name": "engine-ci", "conclusion": "success"},
                           {"name": "actionlint", "conclusion": "success"}]
-    for k in range(3, 6):   # once green, the authoritative-but-absent signal auto-resolves
-        recs, auth = derive_ci_records(ci_gh, "main", cclock[k])
-        run(ci_gh, recs, ci_cache, th, cclock[k], authoritative=auth)
-    print(f"    it is green again, so the item auto-resolves: {not ci_open()}   "
-          f"(and the unrelated item was NEVER closed by these CI passes: {oob_open()})")
+    recs, auth = derive_ci_records(ci_gh, "main", cclock[1])
+    run(ci_gh, recs, ci_cache, th, cclock[1], authoritative=auth, live=True)   # one pass: green -> resolved
+    print(f"    green again, so it clears on the very next pass — even with the counter wiped: {not ci_open()}   "
+          f"(and the unrelated item was NEVER closed: {oob_open()})")
     ci_ok = (not ci_open()) and oob_open()
     for path in (cache.path, ci_cache.path):
         try:
@@ -869,8 +901,9 @@ def _demo(_argv) -> int:
           "real; that it writes correctly to your REAL GitHub is confirmed the first time it runs live.")
     # Self-check: ONE issue opens only when the benign signal crosses the threshold (3rd fire), re-fires
     # never duplicate it, a distinct trust-critical signal opens a 2nd, an unreachable GitHub degrades
-    # in-band (never a silent or wrong zero), and the CI source promotes-then-auto-resolves while a
-    # CI-scoped pass never closes the unrelated out-of-band item.
+    # in-band (never a silent or wrong zero), and the LIVE CI source is tracked on the first failing pass
+    # and clears on the first green pass EVEN WITH THE CACHE WIPED, while never closing the unrelated
+    # out-of-band item.
     ok = open2 == 1 and open3 == 1 and open4 == 2 and bool(r6.degraded_line) and ci_ok
     if not ok:
         print("\nDEMO UNEXPECTED: the triage open/dedup/critical-open counts or the offline degrade line "
@@ -968,9 +1001,10 @@ def _refresh_cli(argv: list) -> int:
 def _run_cli(argv: list) -> int:
     """The live triage verb — the driver the scheduled audit-prep workflow invokes each pass. Reads the main
     branch's CI check-runs (the first signal of record) and reconciles the engine-labelled issues for the
-    `ci/` source: a check that keeps failing is promoted; one that is green again auto-resolves. Reads
+    `ci/` source: a failing check is tracked, and once it is green again its item auto-resolves. Reads
     GITHUB_REPOSITORY + GITHUB_TOKEN (the GitHub token, never the Claude OAuth token) and the default branch
-    from GITHUB_DEFAULT_BRANCH (falling back to 'main').
+    from GITHUB_DEFAULT_BRANCH (the workflow passes `github.ref_name`, which on a scheduled run is the
+    default branch; falls back to 'main' when unset).
 
     SAFETY: auto-resolve is scoped to the `ci/` source-ids OBSERVED this pass, so it never touches an
     out-of-band issue (a hooks fail-open alarm, a migration/resurrection finding); and a failed OR partial CI
@@ -994,10 +1028,18 @@ def _run_cli(argv: list) -> int:
         records, authoritative = derive_ci_records(gh, branch, now)
     except DegradedReadError:
         records, authoritative, ci_read_failed = [], frozenset(), True
-    report = run(gh, records, cache, load_thresholds(), now, authoritative=authoritative)
+    # CI is a LIVE-DERIVED signal (read fresh from the durable GitHub record each pass): promote on the
+    # first observed failure, resolve on the first observed pass, keyed off the durable Issue set — NOT the
+    # gitignored stream cache, which this ephemeral scheduled runner wipes every run.
+    report = run(gh, records, cache, load_thresholds(), now, authoritative=authoritative, live=True)
     if report.degraded:
-        print("Could not reach GitHub to run the engine's CI-health triage; nothing was changed. "
-              "The digest still commits.")
+        if report.opened or report.updated or report.closed:
+            print(f"GitHub became unreachable partway through the engine's CI-health triage; opened="
+                  f"{report.opened}, updated={report.updated}, closed={report.closed} before it failed — "
+                  "the next pass reconciles the rest. The digest still commits.")
+        else:
+            print("Could not reach GitHub to run the engine's CI-health triage; nothing was changed. "
+                  "The digest still commits.")
         return 0
     if ci_read_failed:
         print("Could not read your main branch's CI checks this run; left every tracked item untouched. "

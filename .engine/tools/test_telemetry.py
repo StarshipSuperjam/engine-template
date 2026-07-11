@@ -872,17 +872,18 @@ class TestSourceScopedAutoResolve(unittest.TestCase):
 
 class TestCIReader(unittest.TestCase):
     """derive_ci_records — the FIRST signal of record (the main branch head's CI check-runs). A not-passing
-    check becomes a benign record; every OBSERVED check (any conclusion) is authoritative; an ABSENT check is
-    neither (absent != failing, absent != resolved); a read failure RAISES (never a partial 'all clear');
-    and a crafted check name that is not marker-safe is skipped, never crashing the pass."""
+    check becomes a benign record; only a check in a DEFINITIVE state (a pass or a failure) is authoritative
+    to auto-resolve; an INDETERMINATE check (skipped/neutral/still-running) and an ABSENT one are neither
+    promoted nor authoritative (so a merely-stopped check never closes a still-broken item); a read failure
+    RAISES (never a partial 'all clear'); and a crafted or missing check name is skipped, never crashing."""
 
-    def test_failing_checks_become_records_all_observed_are_authoritative(self):
+    def test_failing_promotes_and_a_definitive_pass_is_authoritative(self):
         f = FakeGH(check_runs=[{"name": "engine-ci", "conclusion": "failure"},
                                {"name": "actionlint", "conclusion": "success"}])
         records, authoritative = telemetry.derive_ci_records(gh(f), "main", T[0])
-        self.assertEqual([r["source_id"] for r in records], ["ci/engine-ci"])
+        self.assertEqual([r["source_id"] for r in records], ["ci/engine-ci"])     # the failure is a record
         self.assertEqual(records[0]["severity"], telemetry.PERSISTENT_BENIGN)
-        self.assertEqual(authoritative, {"ci/engine-ci", "ci/actionlint"})
+        self.assertEqual(authoritative, {"ci/engine-ci", "ci/actionlint"})        # both are definitive
 
     def test_absent_check_is_neither_promoted_nor_authoritative(self):
         # A squash/merge head carrying only some checks: an ABSENT check is neither a record (absent !=
@@ -892,12 +893,17 @@ class TestCIReader(unittest.TestCase):
         self.assertEqual(records, [])
         self.assertNotIn("ci/engine-ci", authoritative)
 
-    def test_only_definitive_failures_promote(self):
+    def test_indeterminate_conclusions_are_neither_promoted_nor_authoritative(self):
+        # skipped / neutral / still-running are INDETERMINATE: not a failure (don't promote) and not a
+        # definitive pass (don't authorise auto-resolve), so a formerly-red item is never wrongly closed on
+        # a check that merely stopped running. Only the definitive failure `a` is a record AND authoritative.
         f = FakeGH(check_runs=[{"name": "a", "conclusion": "failure"}, {"name": "b", "conclusion": "neutral"},
                                {"name": "c", "conclusion": "skipped"}, {"name": "d", "conclusion": None}])
         records, authoritative = telemetry.derive_ci_records(gh(f), "main", T[0])
-        self.assertEqual([r["source_id"] for r in records], ["ci/a"])       # only the definitive failure
-        self.assertEqual(authoritative, {"ci/a", "ci/b", "ci/c", "ci/d"})   # every observed check is authoritative
+        self.assertEqual([r["source_id"] for r in records], ["ci/a"])
+        self.assertEqual(authoritative, {"ci/a"})                       # b/c/d are indeterminate -> excluded
+        for indeterminate in ("ci/b", "ci/c", "ci/d"):
+            self.assertNotIn(indeterminate, authoritative)
 
     def test_read_failure_raises_never_a_partial_all_clear(self):
         f = FakeGH(fail_checks=503)
@@ -910,6 +916,13 @@ class TestCIReader(unittest.TestCase):
         records, authoritative = telemetry.derive_ci_records(gh(f), "main", T[0])
         self.assertEqual([r["source_id"] for r in records], ["ci/ok-check"])   # the crafted name is dropped
         self.assertEqual(authoritative, {"ci/ok-check"})                        # and not authoritative either
+
+    def test_a_check_run_without_a_name_is_skipped(self):
+        f = FakeGH(check_runs=[{"name": "ok-check", "conclusion": "failure"},
+                               {"conclusion": "failure"}, {"name": None, "conclusion": "failure"}])
+        records, authoritative = telemetry.derive_ci_records(gh(f), "main", T[0])
+        self.assertEqual([r["source_id"] for r in records], ["ci/ok-check"])   # nameless runs dropped, no crash
+        self.assertEqual(authoritative, {"ci/ok-check"})
 
 
 class TestRunCLI(unittest.TestCase):
@@ -924,8 +937,8 @@ class TestRunCLI(unittest.TestCase):
     def test_ci_read_failure_claims_frozenset_so_nothing_is_closed(self):
         captured = {}
 
-        def fake_run(github, records, cache, thresholds, now, state_path=None, *, authoritative):
-            captured["records"], captured["authoritative"] = records, authoritative
+        def fake_run(github, records, cache, thresholds, now, state_path=None, *, authoritative, live=False):
+            captured["records"], captured["authoritative"], captured["live"] = records, authoritative, live
             return telemetry.Report(degraded=False, opened=0, updated=0, closed=0)
 
         with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "tok"}, clear=True), \
@@ -937,6 +950,7 @@ class TestRunCLI(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(captured["records"], [])
         self.assertEqual(captured["authoritative"], frozenset())   # claim NOTHING on a failed/partial read
+        self.assertTrue(captured["live"])                          # the CI driver runs the live-derived path
 
     def test_run_verb_reports_the_triage_counts_and_exits_zero(self):
         with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "tok"}, clear=True), \
@@ -947,6 +961,58 @@ class TestRunCLI(unittest.TestCase):
             rc = telemetry.main(["run"])
         self.assertEqual(rc, 0)
         self.assertIn("opened=1", out.getvalue())
+
+
+class TestCILiveLoop(unittest.TestCase):
+    """The CI signal end-to-end as a LIVE-DERIVED signal (the permanent regression for what the demo shows):
+    a failing check is tracked on the FIRST pass and clears on the FIRST green pass — keyed off the durable
+    Issue set, so it works EVEN WITH THE STREAM CACHE WIPED between passes (the ephemeral-runner reality) —
+    a merely-skipped check never closes a still-broken item, and an out-of-band Issue is never touched. Drives
+    the REAL derive_ci_records + run(live=True) over the fake transport; only the network is faked."""
+
+    def _ci_open(self, f):
+        return any(i["state"] == "open" and "main branch" in i["body"] for i in f.issues.values())
+
+    def _pass(self, f, cache, now):
+        g = gh(f)
+        recs, auth = telemetry.derive_ci_records(g, "main", now)
+        telemetry.run(g, recs, cache, TH, now, authoritative=auth, live=True)
+
+    def test_promotes_on_first_red_and_resolves_on_first_green_across_a_cache_wipe(self):
+        f = FakeGH(labels={"engine"}, check_runs=[{"name": "engine-ci", "conclusion": "failure"}])
+        cache_path = _tmpcache()
+        self._pass(f, telemetry.Cache(cache_path), T[0])                 # red -> tracked immediately
+        self.assertTrue(self._ci_open(f))
+        self.assertEqual(f.open_count(), 1)
+        try:                                                             # the ephemeral runner wipes the cache
+            os.remove(cache_path)
+        except OSError:
+            pass
+        f.check_runs = [{"name": "engine-ci", "conclusion": "success"}]
+        self._pass(f, telemetry.Cache(cache_path), T[1])                 # green -> clears on the very next pass
+        self.assertFalse(self._ci_open(f))
+        self.assertEqual(f.open_count(), 0)
+
+    def test_a_skipped_check_does_not_close_a_still_open_item(self):
+        # A formerly-red check that goes `skipped` is INDETERMINATE (not a definitive pass), so it is not
+        # authoritative and its item is carried forward, never wrongly closed on a check that merely stopped.
+        f = FakeGH(labels={"engine"}, check_runs=[{"name": "engine-ci", "conclusion": "failure"}])
+        cache_path = _tmpcache()
+        self._pass(f, telemetry.Cache(cache_path), T[0])
+        self.assertTrue(self._ci_open(f))
+        f.check_runs = [{"name": "engine-ci", "conclusion": "skipped"}]
+        self._pass(f, telemetry.Cache(cache_path), T[1])
+        self.assertTrue(self._ci_open(f), "a skipped (not passed) check must not auto-close the open item")
+
+    def test_a_ci_pass_never_closes_an_out_of_band_issue(self):
+        f = FakeGH(labels={"engine"}, check_runs=[{"name": "engine-ci", "conclusion": "success"}])
+        telemetry.promote_finding(gh(f), {"source_id": "hooks/fail-open/PreToolUse/modes",
+                                          "severity": "trust-critical", "message": "A gate could not run.",
+                                          "location": None, "first_seen": T[0], "last_seen": T[0]}, T[0])
+        self.assertEqual(f.open_count(), 1)
+        for k in range(4):
+            self._pass(f, telemetry.Cache(_tmpcache()), T[k])
+        self.assertEqual(f.open_count(), 1)   # the out-of-band trust-critical issue is untouched
 
 
 # ---- helpers ---------------------------------------------------------------
