@@ -196,14 +196,20 @@ def _fold_supersession(record, superseded_by_map: dict):
 
 
 def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: int,
-                          closed_rollup: set, superseded_by_map: dict, erasure_targets: set) -> str:
+                          closed_rollup: set, superseded_by_map: dict, erasure_targets: set,
+                          torn_raw: "bytes | None" = None) -> str:
     """Write the folded, marker-pruned ledger to a fresh temp in `data_dir`, fsynced. Drops ONLY `reinforcement`
     markers AND CLOSED-batch `superseded` markers (both folded away into carried fields); every recall-content
     record (turn-delta, episodic, gist) + every `consolidated` marker + every UN-closed (crashed-pass)
     `superseded` marker survives (the Layer-1 fold never erases recall content, and an inert supersession is never
     folded — passed through verbatim so a crashed roll-up's hiding is never baked in). The ONE exception is
     Layer-2 (slice 4e): a recall record whose stable id is in `erasure_targets` (a VALID merge-gated marker names
-    it) is physically dropped — the single irreversible act; the marker itself is retained. Returns the temp path."""
+    it) is physically dropped — the single irreversible act; the marker itself is retained.
+
+    A torn trailing fragment (`torn_raw`, from `ledger.read`) is PRESERVED: re-emitted verbatim as the final,
+    un-terminated bytes — exactly as a normal read leaves it — so the whole-ledger swap never erases a crash-torn
+    tail that a later append could heal (the ledger-integrity law: compaction is bound by the read law, not a
+    privileged path around it). Returns the temp path."""
     tmp = os.path.join(data_dir, _TEMP_PREFIX + uuid.uuid4().hex + _TEMP_SUFFIX)
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
@@ -216,6 +222,14 @@ def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: in
             folded = _fold_supersession(folded, superseded_by_map)
             line = json.dumps(folded, ensure_ascii=False, separators=(",", ":")) + "\n"
             os.write(fd, line.encode("utf-8"))
+        if torn_raw:
+            # Preserve the torn trailing fragment verbatim, un-terminated (no record terminator) — so the new
+            # ledger ends in the same healable tail the old one did, and the next append heals it as always.
+            # Looped like ledger.append (unlike the folded-record writes above): these are the exact recoverable
+            # bytes this fix exists to preserve, so a partial write must never truncate the healable fragment.
+            view = memoryview(torn_raw)
+            while view:
+                view = view[os.write(fd, view):]
         ledger._durable_fsync(fd)
     finally:
         os.close(fd)
@@ -247,7 +261,11 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
     try:
         _reap_temps(data_dir)                          # recovery: clear any prior-crash leftover, under the lock
         t0 = int(time.time()) if now is None else now
-        raw = list(ledger.iter_records(path=target))
+        # Read via the read-law reader (not the silent-skip iterator): it counts a malformed line and captures the
+        # exact bytes of a torn trailing fragment, so the whole-ledger swap can preserve/report them instead of
+        # erasing recoverable recall with erased:0. `records` is byte-identical to the old iter_records list here.
+        health = ledger.read(path=target)
+        raw = health.records
         access_index = forget._access_index(target)
         closed_rollup = forget._closed_rollup_batches(target)          # slice 4d-ii: roll-up batches a marker closed
         superseded_by_map = forget._superseded_by_map(target, closed_rollup)   # raw id -> gist id (closed batches only)
@@ -258,7 +276,8 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
                      and isinstance(r.get(records.RECORD_ID_KEY), str)
                      and (access_index.get(r.get(records.RECORD_ID_KEY))
                           or r.get(records.RECORD_ID_KEY) in superseded_by_map))
-        tmp = _write_compacted_temp(data_dir, raw, access_index, t0, closed_rollup, superseded_by_map, erasure_targets)
+        tmp = _write_compacted_temp(data_dir, raw, access_index, t0, closed_rollup, superseded_by_map,
+                                    erasure_targets, torn_raw=health.torn_raw)
         if _crash_after == "write":
             raise _InjectedCrash("write")              # power-cut: temp left, OLD ledger intact, gen unbumped
         ledger.bump_generation(for_path=target)        # bump BEFORE the swap (the crash-safe ordering)
@@ -267,7 +286,12 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
             raise _InjectedCrash("swap")               # power-cut: NEW ledger in place, gen bumped, index stale
         from memory import index                       # lazy: index imports forget; import at use, not load
         index.rebuild(ledger_file=target, index_file=index_dst)
+        # `malformed`/`torn_preserved` make the pass honest about the read law: a malformed line is skipped-and-
+        # counted (never a silent erased:0), a torn tail is preserved for a later append to heal. boot's memory-
+        # health readout surfaces a rotting ledger from its OWN read; compaction stays a pure local pass (no
+        # network here), so the count is reported, not promoted from under the lock.
         return {"status": "ok", "folded": folded, "pruned": pruned, "erased": erased,
+                "malformed": health.malformed, "torn_preserved": bool(health.torn_raw),
                 "generation": ledger.generation(for_path=target)}
     finally:
         capture._release_lock(lock_fd)                 # the OS frees the flock on a real power-cut; mirror it

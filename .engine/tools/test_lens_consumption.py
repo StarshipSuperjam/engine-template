@@ -6,7 +6,7 @@ Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools
 
 These lock the CONSUMER's contract (the pure diff leg validate.dangling_lens_findings is locked in
 test_agent.py): the fenced consumed-review-lenses block in build-orchestration.md parses to exactly the
-eight installed lens tokens; a MISSING or EMPTY block fails CLOSED (raises → the custom/script kind's
+nine installed lens tokens; a MISSING or EMPTY block fails CLOSED (raises → the custom/script kind's
 hard finding) rather than passing an unjudged roster as "nothing dangling"; the live repository is clean
 (every installed review is consumed); and the demo runs its real fail-then-pass.
 """
@@ -23,7 +23,7 @@ import validate  # noqa: E402
 import lens_consumption_check as lc  # noqa: E402
 
 EXPECTED = {"product-intent", "architecture", "feasibility", "risk-governance",
-            "spec-conformance", "usability", "technical-integrity", "security-governance"}
+            "spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"}
 
 _GOOD_NOTES = (
     "Some prose with an unrelated `backtick` token.\n\n"
@@ -31,12 +31,12 @@ _GOOD_NOTES = (
     "consumed-review-lenses:\n"
     "  plan-review gate: product-intent, architecture, feasibility, risk-governance\n"
     "  product-design spec-lock ceremony: product-intent, architecture, feasibility, risk-governance\n"
-    "  pre-submission gate: spec-conformance, usability, technical-integrity, security-governance\n"
+    "  pre-submission gate: spec-conformance, divergence-hunter, usability, technical-integrity, security-governance\n"
     "```\n")
 
 
 class TestConsumedParse(unittest.TestCase):
-    def test_fenced_block_yields_exactly_the_eight_tokens(self):
+    def test_fenced_block_yields_exactly_the_nine_tokens(self):
         self.assertEqual(lc._consumed_from_notes(_GOOD_NOTES), EXPECTED)
 
     def test_ignores_unrelated_backticked_prose(self):

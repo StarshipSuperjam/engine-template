@@ -544,6 +544,15 @@ def gather_signals(session_id: str | None = None) -> dict:
         migration_revert = _rv.detect_migration_revert(github=gh)
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         migration_revert = None
+    try:
+        # The memory-health signal (#396 U07b), RELAYED from memory's own LOCAL read (no network; boot computes
+        # no new state). Reads the live ledger and reports how many lines are unreadable — a rotting store that
+        # would otherwise lose recall line by line with no signal. Lazy import (memory off the cold-start path).
+        # Degrades QUIETLY to None on any read fault, and to 0 on a clean/torn-only ledger — the normal state.
+        from memory import ledger_health
+        ledger_malformed = ledger_health.detect_ledger_malformed()
+    except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        ledger_malformed = None
     # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
@@ -586,6 +595,8 @@ def gather_signals(session_id: str | None = None) -> dict:
         "restore_offer": restore_offer,
         # the code-older-than-data offer (D-264 #303): the store is ahead of the engine after a reverted update, or None
         "migration_revert": migration_revert,
+        # the memory-health count (#396 U07b): unreadable lines in the live ledger (>0 -> a rot heads-up), 0/None otherwise
+        "ledger_malformed": ledger_malformed,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
         "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
@@ -822,6 +833,19 @@ def render_dashboard(s: dict) -> str:
             "I'm running on a rebuilt project map — your committed map file is present but damaged, so I "
             f"couldn't read it. Orientation still works, but regenerate it with `{knowledge_gen.REGEN_CMD}` "
             "and commit the result to replace the damaged file.")
+
+    malformed = s.get("ledger_malformed")
+    if malformed:
+        # #396 U07b: one or more unreadable lines in the saved-memory ledger — a genuine rot signal. Fires ONLY
+        # on a positive count (a torn trailing line is the normal, self-healing post-crash state and is NOT
+        # surfaced). Peer voice with reassurance + a remedy: a non-engineer can't hand-fix a gitignored store, so
+        # name that the rest of recall is intact and point at the backup, not a raw alarm. .get() so a
+        # fixed-signals test fixture without the key never KeyErrors.
+        count = f"{malformed} unreadable line" + ("" if malformed == 1 else "s")
+        degraded.append(
+            f"Your saved memory has {count}, which I read past safely — everything I could read is intact. "
+            "This clears on its own as your memory is tidied; if you keep seeing it, ask me to restore your "
+            "memory from your backup.")
 
     if degraded:
         out.append("")

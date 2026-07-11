@@ -67,11 +67,16 @@ class LedgerRead:
     `malformed` counts complete lines that failed to parse (each skipped, never halting the read).
     `torn_trailing` is True when the final line lacked its terminating newline — a half-written
     record from a crash mid-append, dropped rather than read back as real.
+    `torn_raw` carries that trailing fragment's EXACT bytes when `torn_trailing` (else None), so a
+    caller that rewrites the ledger (compaction) can re-emit it verbatim and preserve it for a later
+    append to heal — never silently erasing recoverable recall. Raw bytes, not decoded text, so a
+    fragment that split a multibyte character at the crash point round-trips unchanged.
     """
 
     records: list = field(default_factory=list)
     malformed: int = 0
     torn_trailing: bool = False
+    torn_raw: "bytes | None" = None
 
 
 def _git_common_root(cwd: str | None = None) -> str | None:
@@ -167,7 +172,8 @@ def read(*, path: str | None = None) -> LedgerRead:
     """Read every intact record from the ledger, line-resilient, returning a read-health report.
 
     Skips and counts a malformed (complete-but-unparseable) line; skips blank lines without counting
-    them; drops a torn trailing line (a record whose terminating newline never landed) and flags it.
+    them; drops a torn trailing line (a record whose terminating newline never landed), flags it, and
+    captures its exact bytes in `torn_raw` so a rewriter can preserve it (a later append heals it).
     A missing ledger file reads as empty — the substrate ships empty.
     """
     target = path or ledger_path()
@@ -188,6 +194,14 @@ def read(*, path: str | None = None) -> LedgerRead:
                 result.records.append(json.loads(stripped))
             except ValueError:
                 result.malformed += 1
+    if result.torn_trailing:
+        # Capture the trailing fragment's EXACT bytes (everything after the last record terminator) —
+        # not the errors="replace" decoding above, which would mangle a fragment that split a multibyte
+        # character at the crash point. A cheap tail-read, only on the rare torn path.
+        with open(target, "rb") as fb:
+            blob = fb.read()
+        cut = blob.rfind(b"\n")
+        result.torn_raw = blob[cut + 1:] if cut != -1 else blob
     return result
 
 

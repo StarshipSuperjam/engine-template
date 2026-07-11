@@ -116,12 +116,16 @@ account and the operator's merge is the real gate. A trivial fast-path build fil
 review; the `lens-consumption` check reads it and goes red if a review is installed that no stage runs.
 product-design's spec-lock ceremony is the plan-review four's **second consumer** (it runs the same four on
 a description, when installed). Machine-read — the tokens are lens names, **never operator-facing wording**.
+At the pre-submission gate `spec-conformance` and `divergence-hunter` are a **coupled pair** — the systematic
+conformance pass and its adversarial partner, run as two decorrelated cold contexts against a `locked`
+requirement, never one without the other: a depth that runs the conformance lens runs the hunter with it, and
+where nothing is `locked` to check against, both are the same disclosed no-op.
 
 ```text
 consumed-review-lenses:
   plan-review gate: product-intent, architecture, feasibility, risk-governance
   product-design spec-lock ceremony: product-intent, architecture, feasibility, risk-governance
-  pre-submission gate: spec-conformance, usability, technical-integrity, security-governance
+  pre-submission gate: spec-conformance, divergence-hunter, usability, technical-integrity, security-governance
 ```
 
 **The stranded-conflict case is not yet self-healing.** A sibling pull request can merge mid-flight after

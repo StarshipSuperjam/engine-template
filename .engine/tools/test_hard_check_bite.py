@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
@@ -306,6 +307,71 @@ class TestEnvOverridePathSeam(unittest.TestCase):
     def test_absolute_used_as_is(self):
         os.environ[self.VAR] = "/abs/path.json"
         self.assertEqual(validate.env_override_path(self.VAR), "/abs/path.json")
+
+
+class TestModuleKindBite(unittest.TestCase):
+    """Leg 3 (#405): a module-provided kind is rostered from the same resolved registry the dispatcher reads, and
+    its bite is proven by a GENERIC driver (the fixture declares its own target) — not the closed-kind driver,
+    which would raise on a non-core kind. Proven with a synthetic kind in a temp dir via the ENGINE_KIND_DIR seam;
+    a present kind with no fixture fails closed."""
+
+    _KIND = (
+        "def check(rule, ctx):\n"
+        "    if ctx.get('value') == 'bad':\n"
+        "        return False, [{'severity': 'hard', 'message': 'foo caught bad input', 'location': None}]\n"
+        "    return True, []\n"
+    )
+
+    def _kind_dir(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        d = os.path.join(tmp, "mymod")
+        os.makedirs(d)
+        _write(os.path.join(d, "kind_foo.py"), self._KIND)
+        return tmp
+
+    def test_discovered_kind_is_rostered_and_its_fixture_bites(self):
+        kind_dir = self._kind_dir()
+        with tempfile.TemporaryDirectory() as fix, tempfile.TemporaryDirectory() as chk:
+            fdir = os.path.join(fix, "kind-foo")
+            _write(os.path.join(fdir, "rule.json"),
+                   json.dumps({"id": "f/foo", "kind": "foo", "tier": "hard", "message": "m"}))
+            _write(os.path.join(fdir, "target.json"), json.dumps({"ctx": {"value": "bad"}}))
+            _write(os.path.join(fdir, "expect.json"),
+                   json.dumps({"severity": "hard", "message_contains": "foo caught bad input"}))
+            with mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": kind_dir}):
+                # The kind IS in the resolved roster (evaluate's default registry = resolved_registry())...
+                self.assertIn("foo", validate.resolved_registry())
+                found = hcb.evaluate(check_dir=chk, fixture_root=fix, kinds=["foo"])
+        self.assertEqual(found, [], f"the discovered kind's fixture should bite green: {found}")
+
+    def test_discovered_kind_missing_fixture_fails_closed(self):
+        kind_dir = self._kind_dir()
+        with tempfile.TemporaryDirectory() as empty_fix, tempfile.TemporaryDirectory() as chk, \
+                mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": kind_dir}):
+            found = hcb.evaluate(check_dir=chk, fixture_root=empty_fix, kinds=["foo"])
+        self.assertTrue(any(f["severity"] == "hard" and "no negative test fixture" in f["message"]
+                            for f in found), found)
+
+    def test_discovered_kind_non_biting_fixture_fails_closed(self):
+        kind_dir = self._kind_dir()
+        with tempfile.TemporaryDirectory() as fix, tempfile.TemporaryDirectory() as chk:
+            fdir = os.path.join(fix, "kind-foo")
+            _write(os.path.join(fdir, "rule.json"),
+                   json.dumps({"id": "f/foo", "kind": "foo", "tier": "hard", "message": "m"}))
+            _write(os.path.join(fdir, "target.json"), json.dumps({"ctx": {"value": "fine"}}))  # not bad -> no bite
+            _write(os.path.join(fdir, "expect.json"),
+                   json.dumps({"severity": "hard", "message_contains": "foo caught bad input"}))
+            with mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": kind_dir}):
+                found = hcb.evaluate(check_dir=chk, fixture_root=fix, kinds=["foo"])
+        self.assertTrue(any(f["severity"] == "hard" and "did NOT catch" in f["message"] for f in found), found)
+
+    def test_live_roster_is_unchanged_when_no_module_kind_is_present(self):
+        # With no ENGINE_KIND_DIR, the meta-check rosters exactly the core kinds + custom/script — no module kind.
+        env = {k: v for k, v in os.environ.items() if k != "ENGINE_KIND_DIR"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            roster = sorted(validate.resolved_registry())
+        self.assertEqual(roster, sorted(validate.REGISTRY))
 
 
 if __name__ == "__main__":

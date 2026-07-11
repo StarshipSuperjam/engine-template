@@ -355,5 +355,189 @@ class TestLocalTriggers(unittest.TestCase):
             self.assertEqual(validate._demo([]), 0)
 
 
+# ---- module-provided check-kind discovery by presence (leg 3 of #405; D-044/D-119) ----------
+# A synthetic kind's `check(rule, ctx)`: SOFT-returning so run_check on it exits 0 (a dangling kind would be
+# HARD -> exit 1), which cleanly distinguishes "the discovered kind ran" from "nothing dispatched".
+_SOFT_KIND = (
+    "def check(rule, ctx):\n"
+    "    return True, [{'severity': 'soft', 'message': 'foo ran on ' + str(ctx.get('value')), 'location': None}]\n"
+)
+_HARD_ON_BAD_KIND = (
+    "def check(rule, ctx):\n"
+    "    if ctx.get('value') == 'bad':\n"
+    "        return False, [{'severity': rule.get('tier', 'hard'), 'message': 'foo caught a bad value', 'location': None}]\n"
+    "    return True, []\n"
+)
+
+
+def _write_kind(base: str, module: str, name: str, body: str) -> None:
+    d = os.path.join(base, module)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, f"kind_{name}.py"), "w", encoding="utf-8") as fh:
+        fh.write(body)
+
+
+class TestModuleKindDiscovery(unittest.TestCase):
+    """Leg 3: a module adds a validation kind by dropping `.engine/tools/<module>/kind_<name>.py`, discovered by
+    presence and merged UNDER the closed core (core always wins). Proven with a SYNTHETIC kind in a temp dir — no
+    committed kind ships in v1 — via the ENGINE_KIND_DIR seam both the dispatcher and the meta-check read."""
+
+    def _kind_dir(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        return tmp
+
+    def test_production_has_no_module_kinds(self):
+        # No kind_*.py ships in v1, so the LIVE registry is exactly the closed core.
+        self.assertEqual(validate.resolved_registry(), validate.REGISTRY)
+
+    def test_discovers_and_merges_over_core(self):
+        tmp = self._kind_dir()
+        _write_kind(tmp, "mymod", "foo", _SOFT_KIND)
+        reg = validate.resolved_registry(kind_dir=tmp)
+        self.assertIn("foo", reg)
+        for core in validate.REGISTRY:  # every core kind still present...
+            self.assertIn(core, reg)
+        self.assertIs(reg["schema"], validate.REGISTRY["schema"])  # ...and unchanged
+
+    def test_top_level_kind_file_is_not_discovered(self):
+        # Discovery is ONE level deep (module-subdir ownership); a top-level kind file is not a module kind.
+        tmp = self._kind_dir()
+        with open(os.path.join(tmp, "kind_top.py"), "w", encoding="utf-8") as fh:
+            fh.write(_SOFT_KIND)
+        self.assertNotIn("top", validate.resolved_registry(kind_dir=tmp))
+
+    def test_run_unit_dispatches_a_discovered_kind(self):
+        tmp = self._kind_dir()
+        _write_kind(tmp, "mymod", "foo", _HARD_ON_BAD_KIND)
+        rule = {"id": "x", "kind": "foo", "tier": "hard"}
+        with mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": tmp}):
+            bad_passed, bad_found = validate.run_unit(rule, {"ctx": {"value": "bad"}}, {})
+            ok_passed, ok_found = validate.run_unit(rule, {"ctx": {"value": "fine"}}, {})
+        self.assertFalse(bad_passed)
+        self.assertTrue(any(f["severity"] == "hard" and "foo caught" in f["message"] for f in bad_found))
+        self.assertTrue(ok_passed)
+        self.assertEqual(ok_found, [])
+
+    def test_run_check_dispatches_a_discovered_kind(self):
+        tmp = self._kind_dir()
+        _write_kind(tmp, "mymod", "foo", _SOFT_KIND)
+        saved = validate.load_rules
+        validate.load_rules = lambda: [{"id": "engine/check/foo-rule", "kind": "foo", "tier": "hard",
+                                        "message": "m", "suites": ["CI"]}]
+        self.addCleanup(setattr, validate, "load_rules", saved)
+        # WITH the kind dir the discovered kind runs (soft -> exit 0 and its message appears); WITHOUT it, the
+        # kind is dangling and fails closed (hard -> exit 1, the unregistered-kind message). This distinguishes
+        # "dispatched the discovered kind" from a look-alike exit code.
+        with mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": tmp}), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            rc_present = validate.run_check("engine/check/foo-rule", {})
+        self.assertEqual(rc_present, 0)
+        self.assertIn("foo ran", out.getvalue())
+        with mock.patch.dict(os.environ, {k: v for k, v in os.environ.items() if k != "ENGINE_KIND_DIR"},
+                             clear=True), contextlib.redirect_stdout(io.StringIO()) as out2:
+            rc_absent = validate.run_check("engine/check/foo-rule", {})
+        self.assertEqual(rc_absent, 1)
+        self.assertIn("unregistered kind", out2.getvalue())
+
+    def test_core_name_collision_never_shadows_core(self):
+        # A module file named for a core kind must NOT override it (the core set is closed).
+        tmp = self._kind_dir()
+        _write_kind(tmp, "evilmod", "schema", "def check(rule, ctx):\n    return True, []\n")
+        reg = validate.resolved_registry(kind_dir=tmp)
+        self.assertIs(reg["schema"], validate.REGISTRY["schema"])  # the real core schema, not the module file
+        faults = validate.kind_discovery_findings(kind_dir=tmp)
+        self.assertTrue(any(f["severity"] == "hard" and "core kind 'schema'" in f["message"] for f in faults), faults)
+
+    def test_duplicate_kind_name_is_unresolvable_and_fails_closed(self):
+        tmp = self._kind_dir()
+        _write_kind(tmp, "modA", "dup", _SOFT_KIND)
+        _write_kind(tmp, "modB", "dup", _SOFT_KIND)
+        reg = validate.resolved_registry(kind_dir=tmp)
+        self.assertNotIn("dup", reg)  # ambiguous -> bound to neither
+        faults = validate.kind_discovery_findings(kind_dir=tmp)
+        self.assertTrue(any(f["severity"] == "hard" and "already provided by" in f["message"] for f in faults), faults)
+        verdict, found = validate._run_kind(reg, {"id": "d", "kind": "dup", "tier": "hard"}, {})
+        self.assertFalse(verdict)  # a rule of the unresolvable kind hits the fail-closed dangling path
+        self.assertTrue(any("unregistered kind" in f["message"] for f in found))
+
+    def test_unimportable_kind_is_a_fault_not_a_crash(self):
+        tmp = self._kind_dir()
+        _write_kind(tmp, "modbad", "boom", "raise RuntimeError('kaboom')\n")
+        reg = validate.resolved_registry(kind_dir=tmp)  # must NOT raise
+        self.assertNotIn("boom", reg)
+        faults = validate.kind_discovery_findings(kind_dir=tmp)
+        self.assertTrue(any("could not be imported" in f["message"] for f in faults), faults)
+
+    def test_missing_check_attribute_is_a_fault(self):
+        tmp = self._kind_dir()
+        _write_kind(tmp, "modnofn", "nofn", "VALUE = 1  # no check() callable\n")
+        self.assertNotIn("nofn", validate.resolved_registry(kind_dir=tmp))
+        faults = validate.kind_discovery_findings(kind_dir=tmp)
+        self.assertTrue(any("no `check(rule, ctx)`" in f["message"] for f in faults), faults)
+
+    def test_malformed_return_fails_closed_cleanly(self):
+        # A kind that returns anything other than (bool, [finding.v1, ...]) must fail closed with a clean finding,
+        # never crash the annotation/report/gate loops that iterate the findings OUTSIDE the dispatch try. This
+        # covers BOTH the outer shape (not a list) AND a list of dicts that are not finding.v1 (no severity/message).
+        for label, body in (
+                ("not a list", "def check(rule, ctx):\n    return True, 'not a list'\n"),
+                ("empty dict", "def check(rule, ctx):\n    return True, [{}]\n"),
+                ("no severity", "def check(rule, ctx):\n    return True, [{'foo': 'bar'}]\n"),
+                ("bad severity", "def check(rule, ctx):\n    return True, [{'severity': 'weird', 'message': 'x'}]\n"),
+                ("no message", "def check(rule, ctx):\n    return True, [{'severity': 'hard'}]\n")):
+            with self.subTest(shape=label):
+                tmp = self._kind_dir()
+                _write_kind(tmp, "modw", "weird", body)
+                with mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": tmp}):
+                    reg = validate.resolved_registry()
+                    verdict, found = validate._run_kind(reg, {"id": "w", "kind": "weird", "tier": "hard"}, {})
+                self.assertFalse(verdict)
+                self.assertTrue(any(f["severity"] == "hard" and "could not evaluate" in f["message"] for f in found))
+
+    def test_malformed_finding_does_not_crash_the_gate(self):
+        # The downstream gate/report loops hard-index severity/message; drive a malformed kind through run_check
+        # (the by-id gate) and confirm it fails closed (exit 1) WITHOUT raising, not a KeyError traceback.
+        tmp = self._kind_dir()
+        _write_kind(tmp, "modw", "weird", "def check(rule, ctx):\n    return True, [{'foo': 'bar'}]\n")
+        saved = validate.load_rules
+        validate.load_rules = lambda: [{"id": "engine/check/weird-rule", "kind": "weird", "tier": "hard",
+                                        "message": "m", "suites": ["CI"]}]
+        self.addCleanup(setattr, validate, "load_rules", saved)
+        with mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": tmp}), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(validate.run_check("engine/check/weird-rule", {}), 1)  # fail-closed, no crash
+
+    def test_kind_discovery_findings_also_restores_the_core_registry(self):
+        # The restore lives in _discover_module_kinds, so BOTH resolved_registry AND kind_discovery_findings undo an
+        # import-time mutation of the core registry — not just the former (deliverable-gate finding).
+        tmp = self._kind_dir()
+        _write_kind(tmp, "modevil", "sneaky",
+                    "import validate\n"
+                    "validate.REGISTRY['schema'] = lambda rule, ctx: (True, [])\n"
+                    "def check(rule, ctx):\n    return True, []\n")
+        real_schema = validate.REGISTRY["schema"]
+        validate.kind_discovery_findings(kind_dir=tmp)
+        self.assertIs(validate.REGISTRY["schema"], real_schema)
+
+    def test_demo_kinds_self_check_passes(self):
+        # The operator-runnable discovery demo is a falsification that can fail; it uses a temp dir and the REAL
+        # resolver (no reimplementation). stdout is captured so its prints never bury the suite's OK summary.
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(validate._demo_kinds([]), 0)
+
+    def test_discovered_kind_cannot_mutate_the_core_registry(self):
+        # A kind whose IMPORT monkeypatches validate.REGISTRY must not neuter core — not in the resolved
+        # registry it returns, and not persisting into the live REGISTRY for the next run.
+        tmp = self._kind_dir()
+        _write_kind(tmp, "modevil", "sneaky",
+                    "import validate\n"
+                    "validate.REGISTRY['schema'] = lambda rule, ctx: (True, [])\n"
+                    "def check(rule, ctx):\n    return True, []\n")
+        real_schema = validate.REGISTRY["schema"]
+        reg = validate.resolved_registry(kind_dir=tmp)
+        self.assertIs(reg["schema"], real_schema)              # returned registry: core intact
+        self.assertIs(validate.REGISTRY["schema"], real_schema)  # live registry: mutation undone
+
+
 if __name__ == "__main__":
     unittest.main()

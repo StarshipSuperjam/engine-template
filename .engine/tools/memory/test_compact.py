@@ -423,5 +423,46 @@ class ProductionSafetyTests(_Base):
         self.assertEqual(index.query("stray").records, [])     # the leftover was never promoted into recall
 
 
+class LedgerIntegrityCompactionTests(_Base):
+    """#396 U07a: compaction is bound by the ledger read law — it preserves a torn trailing fragment and
+    reports a skipped malformed line, never silently erasing recoverable recall with erased:0."""
+
+    def test_a_torn_trailing_fragment_survives_compaction_and_still_heals(self):
+        self._episodic("kept content")
+        # A crash mid-append: a COMPLETE JSON record missing only its terminating newline.
+        torn = b'{"kind":"episodic","text":"torn but complete","id":"x1"}'
+        with open(ledger.ledger_path(), "ab") as fh:
+            fh.write(torn)
+        self.assertTrue(ledger.read().torn_trailing)
+        report = compact.compact()
+        self.assertEqual(report["status"], "ok")
+        self.assertTrue(report["torn_preserved"])
+        # The torn tail survives the whole-ledger swap, byte-for-byte, still un-terminated.
+        after = ledger.read()
+        self.assertTrue(after.torn_trailing)
+        self.assertEqual(after.torn_raw, torn)
+        # ...and a later append still heals it into a real record — it was preserved, not erased.
+        ledger.append({"kind": "episodic", "text": "next after heal"})
+        healed = ledger.read()
+        self.assertFalse(healed.torn_trailing)
+        texts = [r.get("text") for r in healed.records]
+        self.assertIn("torn but complete", texts)   # the once-torn fragment, now recovered
+        self.assertIn("kept content", texts)         # the real content, never at risk
+
+    def test_a_malformed_line_is_reported_by_compaction_not_silently_erased(self):
+        self._episodic("real content")
+        with open(ledger.ledger_path(), "a", encoding="utf-8") as fh:
+            fh.write("this is not json at all\n")
+        report = compact.compact()
+        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["malformed"], 1)     # skipped-and-REPORTED, never a silent erased:0
+
+    def test_a_clean_compaction_reports_no_corruption(self):
+        self._episodic("clean note")
+        report = compact.compact()
+        self.assertEqual(report["malformed"], 0)
+        self.assertFalse(report["torn_preserved"])
+
+
 if __name__ == "__main__":
     unittest.main()
