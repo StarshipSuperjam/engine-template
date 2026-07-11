@@ -5,6 +5,7 @@
   "provides": {
     "agent": [
       ".claude/agents/qa-review-spec-conformance.md",
+      ".claude/agents/qa-review-divergence-hunter.md",
       ".claude/agents/qa-review-usability.md",
       ".claude/agents/qa-review-technical-integrity.md",
       ".claude/agents/qa-review-security-governance.md"

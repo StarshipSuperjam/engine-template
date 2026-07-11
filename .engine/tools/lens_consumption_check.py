@@ -12,7 +12,7 @@ left as a check-only signal (agents/README §Coherence; the D-023 dangling-check
 
 This is the "build-orchestration slice" the agent grammar's dangling-lens posture was deferred to: the
 consumed set (which gate consumes which lens) is build orchestration's to record, and this consumer
-diffs the installed personas against it. Today installed == consumed (the four plan-review + four
+diffs the installed personas against it. Today installed == consumed (the four plan-review + five
 pre-submission lenses are all consumed), so the check is green; it bites only when a review persona is
 installed carrying a lens no stage lists.
 
