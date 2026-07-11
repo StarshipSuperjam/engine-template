@@ -121,15 +121,20 @@ class TestQaReviewRosterCoherence(unittest.TestCase):
         self.assertTrue(LENSES.issubset(lenses),
                         f"the pre-submission-review roster must carry all five lenses; saw {sorted(lenses)}")
 
-    def test_divergence_hunter_is_consumed_and_paired_with_spec_conformance(self):
-        # D-291/D-292: divergence-hunter is the fifth pre-submission lens, coupled to spec-conformance.
-        # Both must appear in build-orchestration's consumed-review-lenses set, or the hard lens-consumption
-        # check reds (a lens installed but run by no stage). This locks the pair as consumed, so neither
-        # the systematic pass nor its adversarial partner can be installed yet silently never run.
-        import lens_consumption_check
-        consumed = lens_consumption_check.consumed_lenses()
-        self.assertIn("divergence-hunter", consumed, "divergence-hunter must be recorded as consumed")
-        self.assertIn("spec-conformance", consumed, "its coupled partner spec-conformance must be consumed too")
+    def test_divergence_hunter_paired_with_spec_conformance_at_pre_submission(self):
+        # D-291/D-292: divergence-hunter is the fifth pre-submission lens, COUPLED to spec-conformance —
+        # the two run together at the pre-submission gate, never one without the other. Assert both appear
+        # on the SAME `pre-submission gate:` line of build-orchestration's consumed-review-lenses block: a
+        # flat-union membership check would still pass if the two were split across different gate lines, so
+        # this reads the line itself (which also proves neither dangles — both sit on a consumed line).
+        path = os.path.join(validate.ROOT, ".engine", "operations", "build-orchestration.md")
+        with open(path, encoding="utf-8") as fh:
+            notes = validate.section_blocks(fh.read()).get("Notes", "")
+        pre_submission = next(
+            (ln for ln in notes.splitlines() if ln.strip().startswith("pre-submission gate:")), "")
+        self.assertIn("spec-conformance", pre_submission, "spec-conformance must run at the pre-submission gate")
+        self.assertIn("divergence-hunter", pre_submission,
+                      "its coupled partner divergence-hunter must run at the same gate")
 
 
 class TestQaReviewInstallRecord(unittest.TestCase):

@@ -131,7 +131,7 @@
       "role": "pre-submission-review",
       "slug": "qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:9e9f64e7e17a6d4342fa738fe3abf93f476920676b815fbf2658b990e1a91012",
+        "fingerprint": "sha256:ec3e97c1266f0dda2896a5b64502f6d57ffda28c715054924b4e0e85c35eaf5d",
         "path": ".claude/agents/qa-review-divergence-hunter.md"
       },
       "status": "active",
@@ -5181,7 +5181,7 @@
       },
       "slug": "lens_consumption_check",
       "source": {
-        "fingerprint": "sha256:d8a9d9e5fae4849f5ca0f9a59bad80395bcfed23e7c0db3969b7c27807460886",
+        "fingerprint": "sha256:54d0d7d4c1e02fe6828ab6aac2415c57784a39fdcd511091a6a5e920b9655e93",
         "path": ".engine/tools/lens_consumption_check.py"
       },
       "status": "active",
@@ -6694,7 +6694,7 @@
       },
       "slug": "test_lens_consumption",
       "source": {
-        "fingerprint": "sha256:165c1961a2fde432f3c1d2a54093e6f459bf66c2baea01b9283668f03c50ac6b",
+        "fingerprint": "sha256:6e837e2561dbfcfe8302f639831d7130dce84914c331724aa29b7b30d554dbac",
         "path": ".engine/tools/test_lens_consumption.py"
       },
       "status": "active",
@@ -6983,7 +6983,7 @@
       },
       "slug": "test_qa_review",
       "source": {
-        "fingerprint": "sha256:3f0529ec0736a96177ab80e47e78e0d584a1ad58e04c2a4fdaef55694823e481",
+        "fingerprint": "sha256:89f1083d64c18d17d60c84973b7bf70e82251db363f43335774fbd2e8decc465",
         "path": ".engine/tools/test_qa_review.py"
       },
       "status": "active",

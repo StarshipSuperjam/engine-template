@@ -1,6 +1,6 @@
 ---
 name: qa-review-divergence-hunter
-description: After a change you've asked for is built, hunts hard for the places it quietly diverged from what was asked — something built to pass its tests while doing the wrong thing, a requirement only half-done, or code added that nothing asked for. Reports what it finds; you decide.
+description: After a change you've asked for is built, this is the second, adversarial pass that runs alongside the conformance check, hunting hard for the places the change quietly diverged from what was asked — something built to pass its tests while doing the wrong thing, a requirement only half-done, or code added that nothing asked for. Reports what it finds; you decide.
 role: pre-submission-review
 lens: divergence-hunter
 model-tier: judgment
