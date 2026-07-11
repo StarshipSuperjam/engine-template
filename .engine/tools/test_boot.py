@@ -77,7 +77,8 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
             "behind_origin": None, "off_main": None,
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
-            "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False}
+            "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
+            "ledger_malformed": None}
 
 
 def _signals(**over):
@@ -169,6 +170,24 @@ class TestDegradedNotice(unittest.TestCase):
         corrupt = boot.render_dashboard(_signals(map_corrupt=True))
         self.assertIn("present but damaged", corrupt)
         self.assertNotIn("your committed map file is missing", corrupt)
+
+    def test_a_rotting_ledger_shows_a_memory_health_heads_up_with_a_remedy(self):
+        # #396 U07b: a positive unreadable-line count surfaces a peer-voice heads-up that reassures (rest of
+        # recall intact) and names a remedy (the backup) — never a bare alarm a non-engineer can't act on.
+        dash = boot.render_dashboard(_signals(ledger_malformed=3))
+        self.assertIn("Your saved memory has 3 unreadable lines", dash)
+        self.assertIn("the rest of your recall is intact", dash)
+        self.assertIn("backup can restore a clean copy", dash)
+
+    def test_the_memory_health_heads_up_is_singular_for_one_line(self):
+        dash = boot.render_dashboard(_signals(ledger_malformed=1))
+        self.assertIn("1 unreadable line.", dash)          # no plural 's'
+        self.assertNotIn("1 unreadable lines", dash)
+
+    def test_a_healthy_ledger_shows_no_memory_health_heads_up(self):
+        # The normal state (0 / None) — and a torn-only ledger (gathered as 0) — surface nothing.
+        for clean in (_signals(), _signals(ledger_malformed=0), _signals(ledger_malformed=None)):
+            self.assertNotIn("unreadable line", boot.render_dashboard(clean))
 
 
 class TestPresentMarker(unittest.TestCase):
