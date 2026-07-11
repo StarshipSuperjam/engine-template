@@ -194,8 +194,10 @@ def read_state() -> tuple[dict | None, bool]:
 def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, str | None]:
     """The protected-branch governance signal, RELAYED from protection_guard (the control-plane's own
     evaluation), in three honest states:
-      ("off", reason)       -> the gate is NOT in force: a pinned governance alarm (a NAG — boot does not
-                               apply the fix; the one-click apply is provisioning, slice 25).
+      ("off", reason)       -> the gate is NOT in force: a pinned governance alarm that OFFERS the fix.
+                               boot stays read-only and only offers; the assistant runs the already-built,
+                               idempotent one-click apply (bootstrap.ControlPlane.apply) on the operator's
+                               consent — the shared repair-offer contract (boot-session-start.md).
       ("on", None)          -> the gate fully bites: no alarm.
       ("unknown", None)     -> boot could not verify it (no token/repo/unreachable): a clear degraded line
                                that must NEVER read as a green all-clear.
@@ -216,19 +218,25 @@ def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, s
     return "on", None
 
 
-def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str | None]:
+def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str | None, list | None]:
     """The engine's open self-monitoring findings, RELAYED read-only from telemetry's debt register
     (the engine-labelled open Issues) via telemetry's own reader — NEVER the write loop. Returns
-    (count, register_url): count is None when the register could not be read (degraded), 0 when the
-    register is reachable and empty. Boot only reads; telemetry owns the register and its triage."""
+    (count, register_url, fingerprint): count is None when the register could not be read (degraded), 0
+    when the register is reachable and empty. `fingerprint` is the STRUCTURED-CONDITION identity of the
+    open set — a SORTED list of each finding's stable identity (its source_id, else `#<issue-number>`) —
+    the value the anti-habituation ledger compares, so a close+open at EQUAL count reads as CHANGED and
+    is never mis-collapsed to "unchanged" (D-269 / R19). Duplicates are PRESERVED (two open Issues sharing
+    one source_id keep both tokens, so closing one still moves the fingerprint); None when degraded, so it
+    tracks `count` (both real together, both None together). Boot only reads; telemetry owns the register."""
     if not repo or not token:
-        return None, None
+        return None, None, None
     try:
         gh = telemetry.GitHubIssues(repo, token)
         issues = gh.list_open_engine_issues()
-        return len(issues), gh.issues_query_url()
+        fingerprint = sorted((i.get("source_id") or f"#{i['number']}") for i in issues)
+        return len(issues), gh.issues_query_url(), fingerprint
     except Exception:  # noqa: BLE001 — DegradedReadError or any transport failure -> unknown (degraded)
-        return None, None
+        return None, None, None
 
 
 # ---- attention (consume the ranked partition; resolve member ids to plain language) ---------
@@ -443,7 +451,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     state, refused = read_state()
     repo, token = repo_slug(), gh_token()
     gate, reason = protected_branch_signal(repo, token)
-    finding_count, register = open_findings(repo, token)
+    finding_count, register, finding_fingerprint = open_findings(repo, token)
     debt_count, debt_as_of = telemetry.read_state_debt(STATE_PATH)
     # The GitHub reader for attention's in-flight work-record read (open PRs). None without a repo/token ->
     # attention falls back to the local-git floor (the working branch). Construction does no I/O (telemetry.py).
@@ -549,7 +557,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     return {
         "state": state, "refused": refused,
         "gate": gate, "reason": reason,
-        "finding_count": finding_count, "register": register,
+        "finding_count": finding_count, "register": register, "finding_fingerprint": finding_fingerprint,
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
         # True iff orientation ran on a LIVE-rebuilt map because the committed graph.json is absent (a distinct
@@ -597,10 +605,15 @@ def render_dashboard(s: dict) -> str:
     degraded: list[str] = []      # the consolidated "what I couldn't refresh / verify" notice
 
     if s["gate"] == "off":
+        # boot OFFERS the fix here and stays READ-ONLY; the assistant runs the already-built, idempotent
+        # bootstrap.ControlPlane.apply(branch=PROTECTED_BRANCH) on the operator's consent — the shared
+        # repair-offer contract (boot-session-start.md). boot never imports bootstrap (bootstrap imports
+        # boot -> a cycle) and never applies the fix itself: read-only of canonical state (D-269).
         pinned.append(
             f"⛔ **Your safety gate is off** — `{PROTECTED_BRANCH}` isn't protected, so unreviewed work "
-            f"could reach your main branch ({s['reason']}). It needs re-enabling; an automated one-click "
-            f"fix is coming, but for now turn branch protection back on in your repository settings.")
+            f"could reach your main branch ({s['reason']}). Say **turn my safety gate back on** and I'll "
+            f"re-enable branch protection for you — you'll approve a one-time GitHub permission, and I never "
+            f"ask you to type commands yourself.")
     elif s["gate"] == "unknown":
         degraded.append(
             f"I couldn't verify your safety gate from here (no GitHub access), so **don't assume "
@@ -853,7 +866,7 @@ def present_marker_line(s: dict) -> str:
     already-detected signals (boot computes no new state); a couldn't-verify gate NEVER reads as a green
     all-clear (degrade-loud)."""
     if s["gate"] == "off":
-        return "⚠ Protected branch is off"
+        return "⚠ Your safety gate is off"   # same noun as the dashboard + the unknown-gate marker below
     if s["gate"] == "unknown":
         return f"⚠ {PRESENT_MARKER}: couldn't verify the safety gate"
     if s["refused"]:
@@ -902,10 +915,17 @@ def _pushed_alarms(s: dict) -> list:
     A fixed relay over detected signals; routine status carries no marker (it is pulled via the status verb)."""
     alarms: list = []
     if s["gate"] == "off":
+        # full + terse BOTH carry the fix offer (spec: the terse collapse "still carries the offer to fix
+        # it"). The offer is a plain-language handle — the assistant runs bootstrap.ControlPlane.apply on
+        # consent (boot-session-start.md); it names the one-time GitHub permission, never an over-promised
+        # silent flip. terse keeps a COMPACT handle so the collapse still buys brevity.
         full = (f"{RELAY_MARKER} their safety gate is off — `{PROTECTED_BRANCH}` isn't protected, so "
-                f"unreviewed work could reach the main branch ({s['reason']}); it needs re-enabling.")
+                f"unreviewed work could reach the main branch ({s['reason']}); tell them they can say "
+                f"'turn my safety gate back on' and the engine will re-enable branch protection for them "
+                f"(they approve a one-time GitHub permission — never a typed command).")
         terse = (f"{RELAY_MARKER} their safety gate is still off (unchanged since last session) — "
-                 f"unreviewed work could still reach `{PROTECTED_BRANCH}`; it still needs re-enabling.")
+                 f"unreviewed work could still reach `{PROTECTED_BRANCH}`; the fix still stands: they can "
+                 f"say 'turn my safety gate back on' and the engine re-enables it.")
         alarms.append({"key": "gate", "value": ["off", s["reason"]], "collapsible": True,
                        "full": full, "terse": terse, "worse": full})
     elif s["gate"] == "unknown":
@@ -923,7 +943,11 @@ def _pushed_alarms(s: dict) -> list:
                  f"engine's own health to review (unchanged since last session): {s['register']}")
         worse = (f"{RELAY_MARKER} there are now {s['finding_count']} open engine finding(s) about the "
                  f"engine's own health to review — this has grown since last session: {s['register']}")
-        alarms.append({"key": "findings", "value": s["finding_count"], "collapsible": True,
+        # The ledger fingerprint is the STRUCTURED-CONDITION identity SET (finding_fingerprint), not the bare
+        # count — so a close+open at equal count is seen as changed and relays full, never a false "unchanged"
+        # (D-269 / R19). The display copy still reads the count. `.get` keeps synthetic test dicts fail-soft;
+        # gather_signals always populates the key (and tracks count, so a real count>=1 carries a real list).
+        alarms.append({"key": "findings", "value": s.get("finding_fingerprint"), "collapsible": True,
                        "full": full, "terse": terse, "worse": worse})
     return alarms
 
@@ -949,11 +973,16 @@ def _off_main_value(s: dict):
 
 def _worse(key: str, prior, current) -> bool:
     """Whether a changed collapse-eligible condition got WORSE (so it relays full with the 'this got worse'
-    wording, never a quiet reminder). Ordered only where 'worse' is meaningful: the open-findings count
-    rising; an off-main park escalating to behind-the-main-line. A gate going on->off is an alarm that was
-    ABSENT last session (no prior entry), so it surfaces as a first-appearance full relay, not a 'worse'."""
+    wording, never a quiet reminder). Ordered only where 'worse' is meaningful: the open-findings SET
+    growing (more open problems); an off-main park escalating to behind-the-main-line. A gate going on->off
+    is an alarm that was ABSENT last session (no prior entry), so it is a first-appearance full relay, not a
+    'worse'."""
     if key == "findings":
-        return isinstance(prior, int) and isinstance(current, int) and current > prior
+        # The value is now the identity SET (a list); worse = more open problems = the set grew. The list
+        # guards are load-bearing: an OLD gitignored ledger holding the pre-upgrade INT count must NOT reach
+        # len(int) here (this runs OUTSIDE decide's try/except) — an int prior fails the guard -> neutral
+        # full relay (fail-toward-full), never a crash that would suppress the whole briefing.
+        return isinstance(prior, list) and isinstance(current, list) and len(current) > len(prior)
     if key == "off_main":
         # the off-main Stage-1 park escalating to the behind Stage-2 (missing merged work): same side line,
         # not-behind -> behind. The value is [side-line, behind?]; worsening is False -> True on the flag. The

@@ -44,7 +44,7 @@ above shows"). The real guarantee on any change is still your approval when you 
 I ever fail to pass something on, that is a lapse on my part, not a safe default.
 
 **How to tell I actually grounded.** When the Engine is grounded, the first thing I show you each session is a
-short titled status block — like **Project status: all clear**, or **⚠ Protected branch is off** if something
+short titled status block — like **Project status: all clear**, or **⚠ Your safety gate is off** if something
 needs your attention — so you can see at a glance that I grounded before I answer. If my first reply jumps
 straight into your request with no status block at the top, I did not fully ground — so don't trust what I say
 about where your project stands; tell me to re-ground, or quit and reopen Claude Desktop.

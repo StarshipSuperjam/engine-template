@@ -115,3 +115,9 @@ and never forces. What differs is *what* each protects and *how* it declines:
   reconciling against the latest default branch, regenerating those two files, and keeping both pieces of work. If
   anything else clashed it changes nothing, restores the branch exactly, and routes the operator to a
   plain-language decision. It never claims the merge is now guaranteed — a later change can still land first.
+- **A safety gate that's off — re-enable branch protection (`bootstrap.ControlPlane.apply`, #392).** On the
+  operator's "turn my safety gate back on," the assistant runs the already-built `ControlPlane.apply` instead of a
+  manual settings walk-through: it re-enables the protection floor on the default branch — idempotent and additive,
+  repairing or augmenting the ruleset in place, preserving any protection already there, and reporting "already
+  protected" with no change when it is already in force. It runs the operator's OWN `gh` behind a one-time GitHub
+  administration approval (never a typed command); if the token can't carry that admin it discloses why and changes nothing.
