@@ -312,6 +312,259 @@ def _release_lock(fd) -> None:
         os.close(fd)
 
 
+# --- The consolidation lease (a "sessions-since" liveness heartbeat) ---------------------------
+# The lease sidecar answers the one question the abandoned-session sweep (consolidate.py) cannot answer
+# from the ledger alone: is a session with un-consolidated deltas still LIVE right now, or genuinely gone?
+# It holds a monotonic session-epoch counter (bumped once per SessionStart) plus a lease map
+# {session_id: the epoch at that session's last check-in}. A session is "silent" when its lease has aged past
+# a small threshold N (consolidate.py owns N) — so the sweep recovers a truly-gone session promptly while a
+# live concurrent session (which re-stamps its lease every turn) is spared. The lease lives beside the cursor
+# and is guarded by the SAME `.capture.lock`, so a per-turn refresh and the sweep's store-time re-check
+# serialize against each other. It is the "no lease heartbeat" signal the durability law names (README §76-79).
+
+LEASE_FILENAME = "consolidation-lease.json"   # {"epoch": int, "leases": {session_id: epoch}}; gitignored sibling
+LEASE_PRUNE_HORIZON = 64      # drop a lease aged this far past the epoch (long-gone; re-stamps if it revives)
+
+
+def _lease_path(data_dir: str) -> str:
+    return os.path.join(data_dir, LEASE_FILENAME)
+
+
+def read_lease_state(data_dir: str):
+    """The lease sidecar as `(epoch, leases)`, or **None if the file exists but is unparseable (CORRUPT)**.
+    A MISSING/empty sidecar reads as `(0, {})` (the intended first-run state — every prior session is absent,
+    i.e. recoverable), split DELIBERATELY from corrupt: consolidate must treat corrupt as "skip the sweep"
+    (all sessions possibly-live) but absent as "proceed". This split is exactly why the lease reader does NOT
+    mirror `_read_cursor`, which folds missing and corrupt into one `return 0`."""
+    path = _lease_path(data_dir)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw = fh.read()
+    except FileNotFoundError:
+        return 0, {}
+    except OSError:
+        return None                      # unreadable => fail safe (corrupt), never "absent"
+    if not raw.strip():
+        return 0, {}
+    try:
+        state = json.loads(raw)
+    except ValueError:
+        return None                      # present but unparseable => CORRUPT
+    if not isinstance(state, dict):
+        return None
+    epoch = state.get("epoch", 0)
+    leases = state.get("leases", {})
+    if not (isinstance(epoch, int) and epoch >= 0) or not isinstance(leases, dict):
+        return None
+    clean = {k: v for k, v in leases.items() if isinstance(k, str) and isinstance(v, int) and v >= 0}
+    return epoch, clean
+
+
+def _write_lease_state(data_dir: str, epoch: int, leases: dict) -> None:
+    """Atomically replace the lease sidecar (temp + os.replace inside the capture lock). Writes EXACTLY what
+    it is given — the caller decides what to persist; it never resets-to-empty on its own (unlike
+    `_write_cursor`), so a corrupt read can be handled by refusing to write rather than healing to `{}`."""
+    path = _lease_path(data_dir)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"epoch": epoch, "leases": leases}, fh, separators=(",", ":"))
+    os.replace(tmp, path)
+
+
+def _prune_far_aged(leases: dict, epoch: int) -> dict:
+    """Drop any lease aged more than LEASE_PRUNE_HORIZON past the current epoch. Reaping-on-marker (consolidate)
+    misses a session that never produces a genuine delta (so never gets a marker); this secondary prune keeps
+    the per-turn-rewritten map bounded. A pruned session that revives simply re-stamps its lease next turn."""
+    return {sid: e for sid, e in leases.items() if epoch - e <= LEASE_PRUNE_HORIZON}
+
+
+def open_session_lease(data_dir: str, session_id: str) -> bool:
+    """The SessionStart heartbeat (holds NO lock on entry, so it acquires the capture lock itself): bump the
+    epoch, prune far-aged leases, stamp this session's lease at the new epoch, write. Returns True if the stamp
+    LANDED — the caller may then run the sweep — and False if it could not (lock contention OR a corrupt
+    sidecar), in which case the caller MUST DEFER the sweep this pass (never sweep with a missing self-lease,
+    which would make this very session look consolidatable to a concurrent sweep). Best-effort: never raises."""
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+        lock_fd = _acquire_lock(os.path.join(data_dir, LOCK_FILENAME))
+        if lock_fd is None:
+            return False                 # contended ~1s; defer the sweep, caught next start
+        try:
+            state = read_lease_state(data_dir)
+            if state is None:
+                # CORRUPT: all prior lease info is unrecoverable. Repair to a fresh valid sidecar seeded with
+                # only this session, and DEFER the sweep this pass — a live concurrent session re-stamps via its
+                # per-turn heartbeat and the store-time re-check protects it; no content is ever at risk.
+                _write_lease_state(data_dir, 1, {session_id: 1})
+                return False
+            epoch, leases = state
+            epoch += 1
+            leases = _prune_far_aged(leases, epoch)
+            leases[session_id] = epoch
+            _write_lease_state(data_dir, epoch, leases)
+            return True
+        finally:
+            _release_lock(lock_fd)
+    except Exception:  # noqa: BLE001 — the heartbeat is best-effort; never take down the SessionStart directive
+        return False
+
+
+def refresh_lease_locked(data_dir: str, session_id: str) -> None:
+    """The per-turn heartbeat — the CALLER MUST ALREADY HOLD the capture lock (an inline write, never a nested
+    `_acquire_lock`: `flock` is not re-entrant across fds, so a second acquire would fail the non-blocking lock
+    and silently drop the heartbeat). Stamps this session's lease at the CURRENT epoch, so an active session
+    tracks the frontier and reads fresh to the sweep's store-time re-check. On a corrupt sidecar it REFUSES to
+    write (leaves it for the next SessionStart repair) — never heals-to-empty. Cheap: a no-op once fresh this
+    epoch."""
+    state = read_lease_state(data_dir)
+    if state is None:
+        return                           # corrupt => refuse to write (do not reset to {})
+    epoch, leases = state
+    if leases.get(session_id) == epoch:
+        return                           # already stamped this epoch; skip the rewrite
+    leases[session_id] = epoch
+    _write_lease_state(data_dir, epoch, leases)
+
+
+def drop_lease_locked(data_dir: str, session_id: str) -> None:
+    """Reap a session's lease (called when its consolidation marker is written — a marked session can never be
+    live again). The CALLER MUST HOLD the lock; this RE-READS the sidecar under that lock and rewrites, so it
+    never clobbers a concurrent heartbeat by writing back a copy cached across the lock. No-op on corrupt/absent."""
+    state = read_lease_state(data_dir)
+    if state is None:
+        return
+    epoch, leases = state
+    if session_id in leases:
+        del leases[session_id]
+        _write_lease_state(data_dir, epoch, leases)
+
+
+# --- The in-flight-migration marker (compaction refuses within a migration window) -------------
+# The compaction↔provisioning ordering law (README §269-283): the single-writer lock serializes individual
+# writes but does NOT order a whole compaction against a separate migration's snapshot+mutation (each a distinct
+# critical section). So a migration raises an in-flight marker for its duration and compaction refuses within it.
+# The marker is a FILE (written then the lock released), NOT a held lock: the migration's own snapshot reads the
+# ledger lock-free (backup_vault.snapshot_for_migration), and a long migration must never hold the single-writer
+# lock and stall every turn-capture. The marker carries the migrating PID + a wall-clock start so an orphaned
+# marker (a process that died mid-migration) is recoverable — a migration is a bounded synchronous run, never
+# "parked", so wall-clock is a sound orphan bound HERE (unlike the lease's sessions-since metric).
+
+MIGRATION_MARKER_FILENAME = "migration-in-flight.json"   # {"pid": int, "started_at": float}; gitignored sibling
+MIGRATION_ORPHAN_CEILING_S = 3600     # 1h — far above any real memory migration; a wall-clock orphan backstop
+
+
+def _marker_path(data_dir: str) -> str:
+    return os.path.join(data_dir, MIGRATION_MARKER_FILENAME)
+
+
+def _read_marker(data_dir: str):
+    """The migration marker dict, or None if absent/unreadable/malformed (fail-safe: a marker we can't trust
+    is treated as absent so it can never wedge compaction shut on its own)."""
+    try:
+        with open(_marker_path(data_dir), "r", encoding="utf-8") as fh:
+            marker = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return marker if isinstance(marker, dict) else None
+
+
+def _pid_alive(pid) -> bool:
+    """Is `pid` a live process? Errs toward ALIVE on any uncertainty (so we never clear a marker we aren't sure
+    is orphaned): only a definitive ProcessLookupError (no such process) counts as dead."""
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:              # exists, owned by another user => alive
+        return True
+    except OSError:                      # unknown => assume alive (safe)
+        return True
+
+
+def _marker_orphaned(marker: dict, now=None) -> bool:
+    """A marker is CONFIDENTLY orphaned only when its process is definitively gone OR its wall-clock age far
+    exceeds any real migration. Anything uncertain reads as live, so compaction defers rather than risk
+    interleaving a running migration (§269-283)."""
+    now = time.time() if now is None else now
+    pid_dead = not _pid_alive(marker.get("pid"))
+    started = marker.get("started_at")
+    too_old = isinstance(started, (int, float)) and (now - started) > MIGRATION_ORPHAN_CEILING_S
+    return pid_dead or too_old
+
+
+def open_migration_window(data_dir: str) -> bool:
+    """Raise the in-flight-migration marker for a migration about to snapshot+mutate the store. Acquires the
+    lock, atomically writes the marker (this PID + now), and RELEASES the lock immediately (the marker persists
+    as a file a later compaction still sees; holding the lock across the whole migration would stall every
+    turn-capture). **Fails CLOSED**: returns False if the lock can't be had — the caller must then REFUSE the
+    migration rather than run it unguarded (a marker-less migration is exactly the interleave this prevents)."""
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+        lock_fd = _acquire_lock(os.path.join(data_dir, LOCK_FILENAME))
+        if lock_fd is None:
+            return False                 # fail closed: no marker => caller refuses the migration
+        try:
+            path = _marker_path(data_dir)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump({"pid": os.getpid(), "started_at": time.time()}, fh, separators=(",", ":"))
+            os.replace(tmp, path)
+            return True
+        finally:
+            _release_lock(lock_fd)
+    except OSError:
+        return False                     # fail closed on any write fault
+
+
+def close_migration_window(data_dir: str) -> None:
+    """Lower the marker when a migration finishes. Acquires the lock, removes the marker, releases; idempotent
+    and best-effort (a failure to remove self-heals via the orphan path — compact clears a stale marker)."""
+    try:
+        lock_fd = _acquire_lock(os.path.join(data_dir, LOCK_FILENAME))
+        if lock_fd is None:
+            return
+        try:
+            os.remove(_marker_path(data_dir))
+        except OSError:
+            pass                         # already gone / unremovable => the orphan path recovers it
+        finally:
+            _release_lock(lock_fd)
+    except OSError:
+        pass
+
+
+def migration_in_flight(data_dir: str) -> bool:
+    """True iff a migration marker is present AND not confidently orphaned — the guard compaction checks (under
+    its own lock) to refuse. An orphaned marker (dead PID / past the ceiling) reads False so a crashed migration
+    never wedges compaction shut forever."""
+    marker = _read_marker(data_dir)
+    return marker is not None and not _marker_orphaned(marker)
+
+
+def clear_orphaned_migration_locked(data_dir: str) -> bool:
+    """Clear the marker IFF it is confidently orphaned. The CALLER MUST HOLD the lock (compact calls this after
+    acquiring it, to self-heal a crashed migration and resume). Returns True if it cleared one. A live marker is
+    left untouched (its migration is still running)."""
+    marker = _read_marker(data_dir)
+    if marker is None or not _marker_orphaned(marker):
+        return False
+    try:
+        os.remove(_marker_path(data_dir))
+    except OSError:
+        return False
+    return True
+
+
+def detect_orphaned_migration(data_dir: str):
+    """For boot's read-only heads-up: the marker dict IF a migration marker is present AND orphaned (a migration
+    that didn't finish), else None. Read-only — the actual clear happens under compact's lock (self-heal)."""
+    marker = _read_marker(data_dir)
+    return marker if (marker is not None and _marker_orphaned(marker)) else None
+
+
 def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected: bool = False) -> dict:
     """The turn-delta record envelope. `ts`/`seq` are INTEGERS on purpose: the derived index's
     record-text projection indexes only string leaves, so integers stay out of the search body. `id` is the
@@ -365,6 +618,10 @@ def _capture(payload, *, cwd) -> int:
     if lock_fd is None:
         return 0  # contended ~1s; the delta is caught at the next Stop
     try:
+        # The per-turn lease heartbeat: stamp this session live at the current epoch, INSIDE the lock we already
+        # hold and BEFORE the no-delta early return — so even a no-delta turn (noise-only, interrupted) still
+        # refreshes liveness and a live session can never drift stale to the consolidation sweep.
+        refresh_lease_locked(data_dir, session_id)
         messages = [r for r in _extract_records(transcript_path) if _is_message(r)]
         cursor = _read_cursor(data_dir, session_id)
         delta = messages[cursor:]

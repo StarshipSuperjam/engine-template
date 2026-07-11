@@ -11,6 +11,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools on path
@@ -439,6 +440,158 @@ class NoiseFilterTests(CaptureTestCase):
         n = capture.capture_turn_delta(self.payload(t))
         self.assertEqual(n, 1)
         self.assertIn("<command-name>", self.texts()[0])
+
+
+class ConsolidationLeaseTests(unittest.TestCase):
+    """The session-lease heartbeat (#396 U08): a sessions-since liveness signal the consolidation sweep reads."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="engine-lease-test-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_raw(self, text):
+        with open(os.path.join(self.tmp, capture.LEASE_FILENAME), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_a_missing_sidecar_reads_as_empty_not_corrupt(self):
+        # DELIBERATE split: absent => (0, {}) so the sweep PROCEEDS (all prior sessions recoverable), never "skip".
+        self.assertEqual(capture.read_lease_state(self.tmp), (0, {}))
+
+    def test_a_corrupt_sidecar_reads_as_none(self):
+        # present-but-unparseable => None so the sweep FAILS SAFE (all possibly-live), distinct from absent.
+        self._write_raw("{not json at all")
+        self.assertIsNone(capture.read_lease_state(self.tmp))
+        self._write_raw("[1, 2, 3]")   # valid json, wrong shape
+        self.assertIsNone(capture.read_lease_state(self.tmp))
+
+    def test_an_empty_sidecar_reads_as_empty(self):
+        self._write_raw("")
+        self.assertEqual(capture.read_lease_state(self.tmp), (0, {}))
+
+    def test_open_session_lease_bumps_the_epoch_and_stamps_self(self):
+        self.assertTrue(capture.open_session_lease(self.tmp, "sess-A"))
+        epoch, leases = capture.read_lease_state(self.tmp)
+        self.assertEqual(epoch, 1)
+        self.assertEqual(leases, {"sess-A": 1})
+        self.assertTrue(capture.open_session_lease(self.tmp, "sess-B"))
+        epoch, leases = capture.read_lease_state(self.tmp)
+        self.assertEqual(epoch, 2)
+        self.assertEqual(leases, {"sess-A": 1, "sess-B": 2})   # A's older lease is preserved, not clobbered
+
+    def test_open_session_lease_on_a_corrupt_sidecar_repairs_and_defers(self):
+        # Corrupt at SessionStart => repair to a fresh valid sidecar seeded with self, and return False (DEFER the
+        # sweep this pass) — never heal-to-empty-then-sweep, which would consolidate every concurrent live session.
+        self._write_raw("{corrupt")
+        self.assertFalse(capture.open_session_lease(self.tmp, "sess-A"))
+        epoch, leases = capture.read_lease_state(self.tmp)          # repaired to valid
+        self.assertEqual((epoch, leases), (1, {"sess-A": 1}))
+
+    def test_refresh_lease_locked_stamps_self_at_the_current_epoch(self):
+        capture.open_session_lease(self.tmp, "sess-A")             # epoch 1
+        capture.open_session_lease(self.tmp, "sess-B")             # epoch 2
+        capture.refresh_lease_locked(self.tmp, "sess-A")           # A takes a turn => tracks the frontier
+        epoch, leases = capture.read_lease_state(self.tmp)
+        self.assertEqual(epoch, 2)
+        self.assertEqual(leases["sess-A"], 2)
+
+    def test_refresh_lease_locked_refuses_to_write_on_corrupt(self):
+        # The critical fix: refresh must NOT reset a corrupt sidecar to {} (unlike _write_cursor) — it leaves the
+        # corrupt file for the SessionStart repair so the corrupt->skip fail-safe upstream keeps holding.
+        self._write_raw("{corrupt")
+        capture.refresh_lease_locked(self.tmp, "sess-A")
+        with open(os.path.join(self.tmp, capture.LEASE_FILENAME), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "{corrupt")                # untouched
+
+    def test_far_aged_leases_are_pruned_on_the_next_bump(self):
+        # Seed a lease far in the past; a later bump drops it (GC for a session that never got a marker to reap it).
+        self._write_raw(json.dumps({"epoch": 5, "leases": {"old": 5 - capture.LEASE_PRUNE_HORIZON - 1, "recent": 5}}))
+        capture.open_session_lease(self.tmp, "sess-A")             # epoch -> 6
+        _, leases = capture.read_lease_state(self.tmp)
+        self.assertNotIn("old", leases)
+        self.assertIn("recent", leases)
+        self.assertIn("sess-A", leases)
+
+    def test_drop_lease_locked_reaps_one_entry(self):
+        capture.open_session_lease(self.tmp, "sess-A")
+        capture.open_session_lease(self.tmp, "sess-B")
+        capture.drop_lease_locked(self.tmp, "sess-A")
+        _, leases = capture.read_lease_state(self.tmp)
+        self.assertNotIn("sess-A", leases)
+        self.assertIn("sess-B", leases)
+
+
+class MigrationWindowTests(unittest.TestCase):
+    """The in-flight-migration marker (#396 U26): compaction refuses within a migration window."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="engine-migwin-test-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_marker(self, marker):
+        with open(os.path.join(self.tmp, capture.MIGRATION_MARKER_FILENAME), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(marker))
+
+    def test_no_marker_means_not_in_flight(self):
+        self.assertFalse(capture.migration_in_flight(self.tmp))
+        self.assertIsNone(capture.detect_orphaned_migration(self.tmp))
+
+    def test_open_then_close_toggles_the_window(self):
+        self.assertTrue(capture.open_migration_window(self.tmp))   # this live PID => in flight
+        self.assertTrue(capture.migration_in_flight(self.tmp))
+        capture.close_migration_window(self.tmp)
+        self.assertFalse(capture.migration_in_flight(self.tmp))
+
+    def test_open_fails_closed_when_the_lock_is_held(self):
+        # A held single-writer lock => open cannot write the marker => returns False (caller REFUSES the migration).
+        lock_fd = capture._acquire_lock(os.path.join(self.tmp, capture.LOCK_FILENAME))
+        self.addCleanup(capture._release_lock, lock_fd)
+        self.assertFalse(capture.open_migration_window(self.tmp))
+        self.assertIsNone(capture._read_marker(self.tmp))          # nothing written
+
+    def test_a_dead_pid_marker_is_orphaned_not_in_flight(self):
+        self._write_marker({"pid": _a_dead_pid(), "started_at": time.time()})
+        self.assertFalse(capture.migration_in_flight(self.tmp))    # orphaned => compaction may proceed
+        self.assertIsNotNone(capture.detect_orphaned_migration(self.tmp))
+
+    def test_an_old_marker_is_orphaned_even_if_the_pid_looks_alive(self):
+        # PID-reuse backstop: a live-looking PID far past the wall-clock ceiling is still orphaned.
+        self._write_marker({"pid": os.getpid(), "started_at": time.time() - capture.MIGRATION_ORPHAN_CEILING_S - 1})
+        self.assertFalse(capture.migration_in_flight(self.tmp))
+        self.assertIsNotNone(capture.detect_orphaned_migration(self.tmp))
+
+    def test_a_live_recent_marker_is_in_flight_and_not_orphaned(self):
+        self._write_marker({"pid": os.getpid(), "started_at": time.time()})
+        self.assertTrue(capture.migration_in_flight(self.tmp))
+        self.assertIsNone(capture.detect_orphaned_migration(self.tmp))   # a live migration is NOT a stall
+
+    def test_clear_orphaned_removes_only_an_orphaned_marker(self):
+        self._write_marker({"pid": os.getpid(), "started_at": time.time()})     # live
+        self.assertFalse(capture.clear_orphaned_migration_locked(self.tmp))     # left in place
+        self.assertTrue(capture.migration_in_flight(self.tmp))
+        self._write_marker({"pid": _a_dead_pid(), "started_at": time.time()})   # orphaned
+        self.assertTrue(capture.clear_orphaned_migration_locked(self.tmp))      # cleared
+        self.assertIsNone(capture._read_marker(self.tmp))
+
+    def test_a_malformed_marker_is_treated_as_absent(self):
+        with open(os.path.join(self.tmp, capture.MIGRATION_MARKER_FILENAME), "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        self.assertFalse(capture.migration_in_flight(self.tmp))     # can't wedge compaction shut on its own
+
+
+def _a_dead_pid():
+    """A PID that is (almost certainly) not a live process — a large value no small-PID system has assigned."""
+    for pid in (999_999, 4_000_000, 2_000_003):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return pid
+        except OSError:
+            continue
+    return 999_999
 
 
 if __name__ == "__main__":

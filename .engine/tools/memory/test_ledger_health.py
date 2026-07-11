@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -52,6 +53,40 @@ class DetectLedgerMalformedTests(unittest.TestCase):
         ledger.append({"kind": "episodic", "text": "kept"})
         self._raw('{"kind":"episodic","text":"torn, no newline"')  # torn trailing, no terminator
         self.assertEqual(ledger_health.detect_ledger_malformed(), 0)
+
+
+class DetectStalledMigrationTests(unittest.TestCase):
+    """detect_stalled_migration reports an ORPHANED in-flight marker (tidying paused) — #396 U26."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._prev = os.environ.get(ledger.ENV_DIR)
+        os.environ[ledger.ENV_DIR] = self._tmp.name
+
+    def tearDown(self):
+        if self._prev is None:
+            os.environ.pop(ledger.ENV_DIR, None)
+        else:
+            os.environ[ledger.ENV_DIR] = self._prev
+        self._tmp.cleanup()
+
+    def _write_marker(self, marker):
+        import json
+        from memory import capture
+        with open(os.path.join(self._tmp.name, capture.MIGRATION_MARKER_FILENAME), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(marker))
+
+    def test_no_marker_reports_false(self):
+        self.assertFalse(ledger_health.detect_stalled_migration())
+
+    def test_a_live_migration_reports_false(self):
+        self._write_marker({"pid": os.getpid(), "started_at": time.time()})   # live => normal, not a stall
+        self.assertFalse(ledger_health.detect_stalled_migration())
+
+    def test_an_orphaned_marker_reports_true(self):
+        from memory import capture
+        self._write_marker({"pid": os.getpid(), "started_at": time.time() - capture.MIGRATION_ORPHAN_CEILING_S - 1})
+        self.assertTrue(ledger_health.detect_stalled_migration())
 
 
 if __name__ == "__main__":
