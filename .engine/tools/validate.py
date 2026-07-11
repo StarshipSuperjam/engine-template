@@ -991,20 +991,18 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
         form — this errs toward a false finding, never a false pass.
 
     It does NOT do the dangling/unconsumed-lens check (an installed review lens nothing in the
-    orchestration consumes): that needs build-orchestration's consumed-lens set (which gate
-    consumes which lens), deferred to that surface's design (agents/README §Coherence) — the
-    build-orchestration slice. The closed sets live HERE (the leg), NOT as agent.v1 enums: agent.v1
-    governs role/model-tier/lens as well-formed strings and this leg owns membership, so each set
-    is defined in one place (the locked grammar routes membership through the coherence kind, not
-    the schema). `lens` stays an OPEN vocabulary — only role/model-tier are closed sets.
+    orchestration consumes): that is a SEPARATE pure leg, `dangling_lens_findings` (below), driven
+    by the lens-consumption consumer (`lens_consumption_check.py`) that discovers the personas and
+    reads build-orchestration's consumed-review-lenses set. This leg owns only persona-internal
+    coherence; the closed sets live HERE, NOT as agent.v1 enums: agent.v1 governs role/model-tier/lens
+    as well-formed strings and this leg owns membership, so each set is defined in one place (the
+    locked grammar routes membership through the coherence kind, not the schema). `lens` stays an
+    OPEN vocabulary — only role/model-tier are closed sets.
 
     Pure + fixture-testable, mirroring the other legs: the persona frontmatter is parsed by the
-    consumer (the build-orchestration roster derivation) and passed in, so this stays
-    filesystem-free. No live rule wires this in core: the build roster is derived by
-    build-orchestration (a later slice) and no persona instance ships with the grammar (D-066), so
-    the leg has nothing live to fire on — the interface_resolution_findings precedent (built +
-    fixture-tested, no live rule). That slice discovers the present persona set and runs this
-    alongside the deferred dangling-lens check."""
+    consumer (`agent_coherence_check.engine_agents`) and passed in, so this stays filesystem-free.
+    The review/audit persona instances now ship, so this leg's role/model-tier/lens/permissions
+    rules fire live every CI through the agent-coherence check."""
     roles = {"plan-review", "worker", "pre-submission-review", "audit"}
     lensless_roles = {"worker", "audit"}   # the recognized roles that carry no lens
     tiers = {"judgment", "mechanical"}
@@ -1042,6 +1040,38 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
                                     f"not block the authoritative-write tool(s) {unblocked}: a read-only persona "
                                     f"must block Edit/Write/NotebookEdit via disallowedTools or omit them from a "
                                     f"tools allowlist. {message}"))
+    return findings
+
+
+def dangling_lens_findings(agents: list, consumed: set, tier: str, message: str) -> list:
+    """Pure lens-consumption coherence — the realization of the agents surface's dangling-lens
+    posture (agents/README §Coherence; the D-023 dangling-check-kind). Given the present personas'
+    parsed frontmatter and the CONSUMED lens set a build stage records (build-orchestration's
+    consumed-review-lenses block, read by the lens-consumption consumer), return a finding for each
+    INSTALLED review lens that no stage consumes: an installed-yet-unconsumed review lens is a
+    coherence finding, disclosed — never a check-only signal the operator may never run.
+
+    Scoped to the two review roles (plan-review, pre-submission-review): only those carry a lens a
+    gate consumes (worker/audit carry none — the symmetric agent_coherence_findings guard). The diff
+    is strictly installed − consumed. A CONSUMED lens with ZERO installed agents is NOT a finding
+    here — that is a gate that ran no review, disclosed as such by build-orchestration, not a
+    coherence error (agents/README: 0..N agents per lens is valid), so the reverse direction is a
+    disclosed no-op, not an error.
+
+    Pure + fixture-testable, mirroring agent_coherence_findings: the consumer discovers the personas
+    (`agent_coherence_check.engine_agents`) and parses the consumed set, and passes both in, so this
+    stays filesystem-free. Fail-closed on an unreadable/unparseable consumed set is the CONSUMER's
+    job (a raise → the custom/script kind's hard fail-closed finding), so a discovery/parse miss can
+    never reach here as a silent empty set that reads as 'nothing dangling'."""
+    review_roles = {"plan-review", "pre-submission-review"}
+    findings = []
+    for a in agents:
+        lens = a.get("lens")
+        if a.get("role") in review_roles and lens and lens not in consumed:
+            name = a.get("name", "(unnamed)")
+            findings.append(finding(tier, f"The review '{name}' declares lens '{lens}', but no build "
+                            f"stage consumes it — so it is installed yet never runs against your "
+                            f"changes. {message}"))
     return findings
 
 

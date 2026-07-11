@@ -16,7 +16,7 @@ length_budget: 70
 
 ## What I'll run
 
-<The review passes and checks this depth will actually run — the scope of the spend being approved — and what is missing. Never a time or a cost figure. If no review packs are installed, say so plainly: "No review packs are installed, so beyond the automatic checks this rests on your read at merge." If any part of the engine the review relies on is currently unavailable, say that in plain words too.>
+<The review passes and checks this depth will actually run — the scope of the spend being approved — and what is missing. Never a time or a cost figure. If no review packs are installed, say so plainly: "No review packs are installed, so beyond the automatic checks this rests on your read at merge." If any part of the engine the review relies on is currently unavailable, say that in plain words too. If a review that runs at this depth would run the operator's code in a throwaway copy to judge it, say that plainly here — "to check this, the engine may run your code in a throwaway copy; it never touches your real project" — but ONLY when that is genuinely in scope for this change and depth, never as a blanket warning.>
 
 ## How careful — your choice
 

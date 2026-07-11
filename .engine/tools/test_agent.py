@@ -17,9 +17,9 @@ The agent-frontmatter schema rule is well-formed, joins CI, is catalog-routed (n
 empty persona stream, and has teeth on a malformed record. The catalog now routes the agent surface to its
 in-repo schema and template. The coherence leg fires on a role outside the closed set, a model-tier outside
 {judgment, mechanical}, and a lens on a non-review role — and is silent on a clean roster and on a review lens
-(it does NOT do the dangling/unconsumed-lens check, deferred to build-orchestration). The leg is built +
-fixture-tested with no live rule (the interface_resolution_findings precedent); D-066 ships zero persona
-instances, so the live shape/frontmatter rules pass vacuously today.
+(the dangling/unconsumed-lens check is a SEPARATE leg, dangling_lens_findings, driven by the lens-consumption
+check that reads build-orchestration's consumed set). Both legs are fixture-tested here; the review/audit
+personas now ship, so the live agent-coherence rule exercises the persona leg every CI.
 """
 from __future__ import annotations
 import json
@@ -309,10 +309,11 @@ class TestAgentCoherenceLeg(unittest.TestCase):
             self.assertEqual(validate.agent_coherence_findings([inst], "hard", "m"), [],
                              f"a lens on {role} is valid")
 
-    def test_does_not_emit_a_dangling_lens_finding(self):
-        """The leg does NOT do the dangling/unconsumed-lens check (an installed review lens nothing
-        consumes) — that needs build-orchestration's consumed-lens set, deferred to slice 24. A review
-        persona carrying an arbitrary, unconsumed lens is therefore SILENT here (lens is an open vocabulary)."""
+    def test_persona_leg_does_not_emit_a_dangling_lens_finding(self):
+        """The PERSONA-coherence leg owns only persona-internal rules — it does NOT do the
+        dangling/unconsumed-lens check (an installed review lens nothing consumes), which is the
+        separate dangling_lens_findings leg (below). A review persona carrying an arbitrary lens is
+        therefore SILENT here (lens is an open vocabulary); the dangling check is what judges it."""
         f = validate.agent_coherence_findings([{**VALID_REVIEWER, "lens": "nobody-consumes-this"}], "hard", "m")
         self.assertEqual(f, [])
 
@@ -360,6 +361,42 @@ class TestAgentCoherenceLeg(unittest.TestCase):
         worktree's + merge gate's job, not this static leg's. So Bash present is NOT a finding."""
         inst = {**VALID_REVIEWER, "disallowedTools": ["Edit", "Write", "NotebookEdit"]}  # Bash NOT denied
         self.assertEqual(validate.agent_coherence_findings([inst], "hard", "m"), [])
+
+
+class TestDanglingLensLeg(unittest.TestCase):
+    """The pure dangling/unconsumed-lens leg (validate.dangling_lens_findings): an INSTALLED review
+    lens no build stage consumes is a finding; a fully-consumed roster is silent; a consumed lens with
+    zero installed agents is NOT an error (the reverse direction is a disclosed no-op, not a coherence
+    fault); only the two review roles carry a consumable lens. The consumer's fail-closed guard on an
+    unreadable consumed set is tested in test_lens_consumption.py."""
+    CONSUMED = {"product-intent", "architecture", "feasibility", "risk-governance",
+                "spec-conformance", "usability", "technical-integrity", "security-governance"}
+
+    def test_clean_when_every_installed_lens_is_consumed(self):
+        agents = [{"name": "r", "role": "plan-review", "lens": "architecture"},
+                  {"name": "q", "role": "pre-submission-review", "lens": "usability"}]
+        self.assertEqual(validate.dangling_lens_findings(agents, self.CONSUMED, "hard", "m"), [])
+
+    def test_installed_lens_no_stage_consumes_is_a_finding(self):
+        agents = [{"name": "review-nobody-runs", "role": "plan-review", "lens": "orphaned-review"}]
+        found = validate.dangling_lens_findings(agents, self.CONSUMED, "hard", "m")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["severity"], "hard")
+        self.assertIn("no build stage consumes it", found[0]["message"])
+        self.assertIn("orphaned-review", found[0]["message"])
+        self.assertIn("review-nobody-runs", found[0]["message"])
+
+    def test_consumed_lens_with_zero_agents_is_not_a_finding(self):
+        """A lens listed in the consumed set but carried by no installed persona is a gate that ran
+        no review — disclosed elsewhere as such, never a dangling-lens error here (installed − consumed)."""
+        self.assertEqual(validate.dangling_lens_findings([], self.CONSUMED, "hard", "m"), [])
+
+    def test_a_non_review_role_lens_is_not_judged_here(self):
+        """worker/audit carry no consumable lens (the symmetric agent_coherence_findings guard owns that);
+        this leg scopes strictly to the two review roles."""
+        agents = [{"name": "w", "role": "worker", "lens": "orphaned-review"},
+                  {"name": "a", "role": "audit", "lens": "orphaned-review"}]
+        self.assertEqual(validate.dangling_lens_findings(agents, self.CONSUMED, "hard", "m"), [])
 
 
 if __name__ == "__main__":
