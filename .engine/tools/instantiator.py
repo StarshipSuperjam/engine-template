@@ -1167,7 +1167,7 @@ def _is_template_license(text) -> bool:
     before any identity rendering could rewrite the file (no apply step touches LICENSE today; forward-defensive)."""
     if not text:
         return False
-    norm = " ".join(text.replace("\r\n", "\n").replace("\r", "\n").lstrip("﻿").split())
+    norm = " ".join(text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff").split())
     return norm == _TEMPLATE_LICENSE_NORM
 
 

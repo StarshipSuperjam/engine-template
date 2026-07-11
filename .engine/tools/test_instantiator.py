@@ -945,7 +945,7 @@ class TestLicenseRecognizer(unittest.TestCase):
         base = _template_license_text()
         self.assertTrue(inst._is_template_license(base.replace("\n", "\r\n")), "CRLF (a Windows-saved copy)")
         self.assertTrue(inst._is_template_license(base.rstrip("\n")), "a missing trailing newline")
-        self.assertTrue(inst._is_template_license("﻿" + base), "a leading byte-order mark")
+        self.assertTrue(inst._is_template_license("\ufeff" + base), "a leading byte-order mark")
         self.assertTrue(inst._is_template_license(base.replace("\n\n", "\n\n\n")), "extra blank lines")
 
     def test_a_renamed_licensor_is_preserved_never_deleted(self):
@@ -969,6 +969,11 @@ class TestLicenseRecognizer(unittest.TestCase):
     def test_empty_or_none_is_not_matched(self):
         self.assertFalse(inst._is_template_license(""))
         self.assertFalse(inst._is_template_license(None))
+
+    def test_the_seed_with_appended_terms_is_not_matched(self):
+        # An adopter who kept our text verbatim but APPENDED their own extra terms is a different (superset)
+        # license → normalizes differently → preserved, never cleared.
+        self.assertFalse(inst._is_template_license(_template_license_text() + "\n\nExtra term added by the adopter.\n"))
 
 
 def _seed_license_root(tmp, *, license_text=None):
