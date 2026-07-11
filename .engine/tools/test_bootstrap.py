@@ -16,21 +16,29 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bootstrap  # noqa: E402
 import protection_guard  # noqa: E402
+import weakening_guard  # noqa: E402  (ACK_LABEL — the frozen name bootstrap reuses when provisioning the label)
 
 REPO = "you/proj"
 
 
 class FakeIssues:
-    """A stand-in for telemetry.GitHubIssues — records ensure_label, optionally fails."""
+    """A stand-in for telemetry.GitHubIssues — records ensure_label (the engine label) and ensure_named_label
+    (the guardrail-ack and any other provisioned label), optionally fails."""
 
     def __init__(self, fail: bool = False):
         self.fail = fail
-        self.ensured = 0
+        self.ensured = 0                 # engine-domain label ensures
+        self.named = []                  # (name, color, description) for each ensure_named_label call
 
     def ensure_label(self):
         if self.fail:
             raise RuntimeError("GitHub unreachable")
         self.ensured += 1
+
+    def ensure_named_label(self, name, color, description):
+        if self.fail:
+            raise RuntimeError("GitHub unreachable")
+        self.named.append((name, color, description))
 
 
 class FakeGitHub:
@@ -131,7 +139,16 @@ class TestApplyCreatesAndIsIdempotent(unittest.TestCase):
         self.assertTrue(result.is_protected())
         self.assertEqual([c[0] for c in fake.writes()], ["POST"])  # created, not repaired
         self.assertIn(bootstrap.ENGINE_RULESET_NAME, fake.names())
-        self.assertEqual(issues.ensured, 1)                        # labels ensured (inherited)
+        self.assertEqual(issues.ensured, 1)                        # engine label ensured (inherited)
+        # The guardrail-ack label is bootstrap-provisioned too (U12) — reuse the guard's frozen name (never a
+        # hardcoded string here, so a future rename can't silently drift the two apart), with its build-spec-leaf
+        # color + a plain-language description under GitHub's 100-char label cap.
+        self.assertEqual(len(issues.named), 1)
+        name, color, desc = issues.named[0]
+        self.assertEqual(name, weakening_guard.ACK_LABEL)
+        self.assertEqual(color, bootstrap.ACK_LABEL_COLOR)
+        self.assertEqual(desc, bootstrap.ACK_LABEL_DESCRIPTION)
+        self.assertLessEqual(len(desc), 100)                       # GitHub label-description hard limit
 
     def test_already_protected_is_a_no_op(self):
         fake = FakeGitHub(floor_met=True, rulesets=[])

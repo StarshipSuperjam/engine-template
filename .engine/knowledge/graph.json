@@ -916,7 +916,7 @@
       },
       "slug": "guardrail-weakening",
       "source": {
-        "fingerprint": "sha256:70f4779a1ebd19b159b5a41ab2f616343415942b89be3485e9c5c2e5e023be41",
+        "fingerprint": "sha256:b9c78b3ed79917a5436d13103e8974c1c58a22207c08ec255d70b388675a83ad",
         "path": ".engine/check/guardrail-weakening.json"
       },
       "status": "active",
@@ -2829,7 +2829,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:152a4edeca12d5c837f60f6a0c29c14f64197f8e30ba394816998f152163509a",
+        "fingerprint": "sha256:c5bea6c81272f61fb44b7344831b68e5bdd523b74a2ae4b2c5d42c096dbd1d8c",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4195,7 +4195,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:d1cde224ea91db72daebf5f2ea97ddc6624001c224e10256a8ec577328f76676",
+        "fingerprint": "sha256:e21292115011eb043872ad69a217df55878eb33722c8bdaab88a9685de23f8f7",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -5844,7 +5844,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:e1098f3f1e4c762cb9319ba7d6a6b53b13bc504f16bebb43d540ff1ebaf1d5de",
+        "fingerprint": "sha256:d35cad733cfa4b4d6d58a5bcd2067b8ee3bad8d9038e50ee47c57d4bd66e500c",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -6099,7 +6099,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:aee15ce5501e580a594971ee2422d6b2b9fa41463d20931f07b8843f89df5bcc",
+        "fingerprint": "sha256:8180e57d6985c0be0f7321c0c5d80375b61ea5f320dea7c8ef71ef3a14dafd9d",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -7340,7 +7340,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:86b980a05c2435e7d476ef4d78f864c53792ecb72d3b2f9b97f1a03a0516bd41",
+        "fingerprint": "sha256:8e7e048ea779648d638dfe10663c315ab39435d32ac44749ffb065557837f4d1",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -7534,6 +7534,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_unresolved_conversation_notice",
+      "name": ".engine/tools/test_unresolved_conversation_notice.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_unresolved_conversation_notice",
+      "source": {
+        "fingerprint": "sha256:ad56fe0b114077fbfb7ac1f66a307827a5798140991af0586d22bbd09d5a1648",
+        "path": ".engine/tools/test_unresolved_conversation_notice.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_upstream_clean",
       "name": ".engine/tools/external_contribution/test_upstream_clean.py",
       "owner": "external-contribution",
@@ -7636,6 +7653,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:unresolved_conversation_notice",
+      "name": ".engine/tools/unresolved_conversation_notice.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "unresolved_conversation_notice",
+      "source": {
+        "fingerprint": "sha256:398f76c2115b6842a2c903d63f1d068282a7d6814dba62b08685b9bf3595ee95",
+        "path": ".engine/tools/unresolved_conversation_notice.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:untracked_surface_check",
       "name": ".engine/tools/untracked_surface_check.py",
       "owner": "core",
@@ -7714,7 +7748,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:4c6630f8ab02a1221a1e47e25c6ff7d487603bf24db85c7854739d563c14271e",
+        "fingerprint": "sha256:cbf0caf9298097e3ca2ced3e354e69b42b2fda8a33c72f1a646ef0e4f186b3fc",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

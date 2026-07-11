@@ -474,10 +474,24 @@ class TestWeakeningClassifier(unittest.TestCase):
     def test_is_guardrail_covers_guards_and_lockfiles(self):
         for p in (".github/workflows/engine-ci.yml", ".engine/check/x.json",
                   ".engine/tools/validate.py", ".github/CODEOWNERS",
-                  ".engine/pyproject.toml", ".engine/uv.lock", ".engine/suites.json"):
+                  ".engine/pyproject.toml", ".engine/uv.lock", ".engine/suites.json",
+                  ".github/dependabot.yml"):
             self.assertTrue(weakening_guard.is_guardrail(p), p)
         for p in ("README.md", "src/app.py", ".gitignore"):
             self.assertFalse(weakening_guard.is_guardrail(p), p)
+
+    def test_dependabot_is_a_guarded_security_floor_provision(self):
+        # dependabot.yml travels to every generated repo as the git-native Dependencies floor. It gates no
+        # merge, but silently dropping/weakening it downgrades a safety pillar — the "disclose, never downgrade
+        # silently" law — so a removal/modify routes through the ack, exactly like its twin secret-scan.yml (which
+        # is covered incidentally by the .github/workflows/ prefix). A pure addition does not fire.
+        self.assertTrue(weakening_guard.is_guardrail(".github/dependabot.yml"))
+        for status in ("removed", "modified"):
+            flagged = weakening_guard.flagged_changes(
+                [{"filename": ".github/dependabot.yml", "status": status}])
+            self.assertEqual(len(flagged), 1, status)
+        self.assertEqual(weakening_guard.flagged_changes(
+            [{"filename": ".github/dependabot.yml", "status": "added"}]), [])
 
     def test_suite_declarations_are_a_guarded_killswitch(self):
         # .engine/suites.json decides which suite blocks the merge; a schema-valid
