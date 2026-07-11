@@ -490,5 +490,86 @@ class HookHandlerTests(_Base):
         self.assertTrue(err.strip())                   # a plain-language finding was emitted
 
 
+class LeaseHeartbeatTests(_Base):
+    """U08 (#396): the session lease keeps a concurrent live session from being wrongly consolidated, and the
+    store-time re-check — not N — is the guarantee."""
+
+    def _mem(self):
+        return self._tmp.name
+
+    def _seed_lease(self, epoch, leases):
+        capture._write_lease_state(self._mem(), epoch, leases)
+
+    def _corrupt_lease(self):
+        with open(os.path.join(self._mem(), capture.LEASE_FILENAME), "w", encoding="utf-8") as fh:
+            fh.write("{corrupt")
+
+    def test_stale_predicate(self):
+        self.assertTrue(consolidate._lease_is_stale("s", 5, {}))                 # absent -> stale
+        self.assertTrue(consolidate._lease_is_stale("s", 5, {"s": 2}, n=3))      # aged 3 >= 3
+        self.assertFalse(consolidate._lease_is_stale("s", 5, {"s": 3}, n=3))     # aged 2 < 3
+        self.assertFalse(consolidate._lease_is_stale("s", 5, {"s": 5}, n=3))     # fresh
+
+    def test_detect_excludes_a_live_lease_session(self):
+        self._delta("live", 0, "user", "note")
+        self._delta("gone", 0, "user", "note")
+        self._seed_lease(10, {"live": 10, "gone": 1})               # live is fresh, gone is far aged
+        self.assertEqual(consolidate.detect_unconsolidated(), ["gone"])
+
+    def test_detect_includes_a_session_with_no_lease_sidecar(self):
+        self._delta("A", 0, "user", "note")                        # no sidecar => absent => stale => detected
+        self.assertEqual(consolidate.detect_unconsolidated(), ["A"])
+
+    def test_a_corrupt_lease_skips_the_whole_sweep(self):
+        self._delta("A", 0, "user", "note")
+        self._corrupt_lease()
+        self.assertEqual(consolidate.detect_unconsolidated(), [])   # fail safe: all possibly-live
+
+    def test_store_aborts_when_the_target_is_fresh(self):
+        # The store-time re-check: a session that checked in since detection (fresh lease) is NOT consolidated.
+        self._delta("A", 0, "user", "note")
+        self._seed_lease(5, {"A": 5})                              # fresh
+        out = consolidate.store_episodic("A", [{"role": "decision", "text": "did a thing"}])
+        self.assertEqual(out["status"], "live")
+        self.assertEqual(out["stored"], 0)
+        self.assertEqual(self._records(kind=consolidate.MARKER_KIND), [])   # nothing half-written
+
+    def test_store_proceeds_when_the_target_is_stale(self):
+        self._delta("A", 0, "user", "note")
+        self._seed_lease(5, {"A": 1})                             # aged 4 >= 3 => stale
+        out = consolidate.store_episodic("A", [{"role": "decision", "text": "did a thing"}])
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["stored"], 1)
+
+    def test_store_reaps_the_lease_on_success(self):
+        self._delta("A", 0, "user", "note")
+        self._seed_lease(5, {"A": 1, "B": 5})
+        consolidate.store_episodic("A", [{"role": "decision", "text": "x"}])
+        _, leases = capture.read_lease_state(self._mem())
+        self.assertNotIn("A", leases)                            # reaped (a marked session can't be live again)
+        self.assertIn("B", leases)
+
+    def test_store_defers_on_a_corrupt_lease(self):
+        self._delta("A", 0, "user", "note")
+        self._corrupt_lease()
+        out = consolidate.store_episodic("A", [{"role": "decision", "text": "x"}])
+        self.assertEqual(out["status"], "deferred")
+        self.assertEqual(out["stored"], 0)
+
+    def test_session_start_stamps_the_live_session_lease(self):
+        self._run_hook("SessionStart", consolidate._session_start_handler, {"session_id": "me"})
+        _, leases = capture.read_lease_state(self._mem())
+        self.assertIn("me", leases)
+
+    def test_session_start_defers_the_sweep_when_it_cannot_stamp(self):
+        # Hold the lock so the self-lease stamp can't land => the consolidation sweep is deferred (never swept
+        # with a missing self-lease); no directive names the pending session.
+        self._delta("gone", 0, "user", "old note")
+        lock_fd = capture._acquire_lock(os.path.join(self._mem(), capture.LOCK_FILENAME))
+        self.addCleanup(capture._release_lock, lock_fd)
+        _, out, _ = self._run_hook("SessionStart", consolidate._session_start_handler, {"session_id": "me"})
+        self.assertNotIn("gone", out)
+
+
 if __name__ == "__main__":
     unittest.main()

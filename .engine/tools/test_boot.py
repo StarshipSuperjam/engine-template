@@ -78,7 +78,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "behind_origin": None, "off_main": None,
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
-            "ledger_malformed": None}
+            "ledger_malformed": None, "migration_stalled": False}
 
 
 def _signals(**over):
@@ -190,6 +190,36 @@ class TestDegradedNotice(unittest.TestCase):
         # The normal state (0 / None) — and a torn-only ledger (gathered as 0) — surface nothing.
         for clean in (_signals(), _signals(ledger_malformed=0), _signals(ledger_malformed=None)):
             self.assertNotIn("unreadable line", boot.render_dashboard(clean))
+
+    def test_a_stalled_migration_shows_a_reassuring_self_healing_heads_up(self):
+        # #396 U26: an orphaned migration marker => a plain-language heads-up that LEADS with reassurance (the
+        # failure direction here is content-safe, README §279), never leaks internal terms, never claims "paused"
+        # (an orphaned marker blocks nothing), and names automatic recovery + a concrete recourse.
+        dash = boot.render_dashboard(_signals(migration_stalled=True))
+        self.assertIn("A memory update didn't finish", dash)
+        self.assertIn("nothing was lost", dash)
+        self.assertIn("automatically the next time", dash)   # honest: recovery rides the next tidy
+        self.assertIn("tell me and I'll clear it", dash)      # a concrete recourse, like its siblings
+        self.assertNotIn("paused", dash.lower())             # an orphaned marker holds nothing off
+        for jargon in ("migration", "compaction", "marker"):
+            self.assertNotIn(jargon, dash.lower())
+
+    def test_no_stalled_migration_shows_no_heads_up(self):
+        for clean in (_signals(), _signals(migration_stalled=False)):
+            self.assertNotIn("A memory update didn't finish", boot.render_dashboard(clean))
+
+    def test_gather_relays_the_stalled_migration_signal_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            with mock.patch("memory.ledger_health.detect_stalled_migration", return_value=True):
+                relayed = boot.gather_signals()
+            with mock.patch("memory.ledger_health.detect_stalled_migration", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertTrue(relayed["migration_stalled"])       # the detector's signal is relayed verbatim
+        self.assertFalse(failed["migration_stalled"])       # a detector fault degrades quietly to False, never breaks
 
 
 class TestPresentMarker(unittest.TestCase):

@@ -13,6 +13,7 @@ never promoted; and `record_access` is held under the lock so a swap can never r
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import shutil
 import sys
@@ -462,6 +463,49 @@ class LedgerIntegrityCompactionTests(_Base):
         report = compact.compact()
         self.assertEqual(report["malformed"], 0)
         self.assertFalse(report["torn_preserved"])
+
+
+class MigrationWindowRefusalTests(_Base):
+    """U26 (#396): compaction refuses within a migration window, and self-heals an orphaned marker."""
+
+    def _marker_path(self):
+        return os.path.join(self._tmp.name, capture.MIGRATION_MARKER_FILENAME)
+
+    def _write_marker(self, marker):
+        with open(self._marker_path(), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(marker))
+
+    def test_compaction_refuses_within_a_live_migration_window(self):
+        self._episodic("a decision")
+        self.assertTrue(capture.open_migration_window(self._tmp.name))    # live marker (this PID, now)
+        report = compact.compact()
+        self.assertEqual(report["status"], "busy")
+        self.assertEqual(report["folded"], 0)
+        self.assertEqual(report["pruned"], 0)
+        self.assertTrue(os.path.exists(self._marker_path()))             # a live migration's marker is untouched
+
+    def test_compaction_self_heals_an_orphaned_marker_and_proceeds(self):
+        self._episodic("a decision")
+        # Orphaned by the wall-clock ceiling (deterministic; no reliance on a specific dead PID).
+        self._write_marker({"pid": os.getpid(), "started_at": time.time() - capture.MIGRATION_ORPHAN_CEILING_S - 1})
+        report = compact.compact()
+        self.assertEqual(report["status"], "ok")
+        self.assertFalse(os.path.exists(self._marker_path()))            # the stale marker was cleared under the lock
+
+    def test_maybe_compact_clears_an_orphan_even_below_the_waste_threshold(self):
+        # The reachability fix (deliverable gate): the orphan recovery must NOT ride the waste gate, or the boot
+        # heads-up would linger forever on a quiet ledger. Below-threshold => the fold is skipped, but the orphan
+        # is still reaped so recovery (and the heads-up clearing) rides EVERY maybe_compact.
+        self.assertLess(compact.reclaimable_waste(), compact._COMPACT_WASTE_THRESHOLD)   # a clean/quiet ledger
+        self._write_marker({"pid": os.getpid(), "started_at": time.time() - capture.MIGRATION_ORPHAN_CEILING_S - 1})
+        report = compact.maybe_compact()
+        self.assertEqual(report["status"], "skipped")                   # nothing to fold — the gate holds
+        self.assertFalse(os.path.exists(self._marker_path()))           # ...but the orphan was reaped anyway
+
+    def test_maybe_compact_leaves_a_live_marker_in_place(self):
+        self._write_marker({"pid": os.getpid(), "started_at": time.time()})   # a genuinely in-progress migration
+        compact.maybe_compact()
+        self.assertTrue(os.path.exists(self._marker_path()))            # never reaped while live
 
 
 if __name__ == "__main__":
