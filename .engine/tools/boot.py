@@ -866,7 +866,7 @@ def present_marker_line(s: dict) -> str:
     already-detected signals (boot computes no new state); a couldn't-verify gate NEVER reads as a green
     all-clear (degrade-loud)."""
     if s["gate"] == "off":
-        return "⚠ Protected branch is off"
+        return "⚠ Your safety gate is off"   # same noun as the dashboard + the unknown-gate marker below
     if s["gate"] == "unknown":
         return f"⚠ {PRESENT_MARKER}: couldn't verify the safety gate"
     if s["refused"]:

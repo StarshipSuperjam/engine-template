@@ -611,7 +611,7 @@ class TestStrandSurfacing(unittest.TestCase):
                          f"{boot.PRESENT_MARKER}: all clear")
         # a governance alarm still wins the marker even when the folder is ALSO stranded
         self.assertEqual(boot.present_marker_line(_signals(gate="off", strand=self._STRAND)),
-                         "⚠ Protected branch is off")
+                         "⚠ Your safety gate is off")
 
     def test_strand_is_not_in_the_must_push_set(self):
         # a strand is NOT governance-critical -> no INFORM marker (relayed via the needs-attention headline).
@@ -817,7 +817,7 @@ class TestPrConflictSurfacing(unittest.TestCase):
                          f"{boot.PRESENT_MARKER}: all clear")
         # a governance alarm (and a strand) still outranks the stuck-PR marker
         self.assertEqual(boot.present_marker_line(_signals(gate="off", pr_conflict=self._PR)),
-                         "⚠ Protected branch is off")
+                         "⚠ Your safety gate is off")
 
     def test_pr_conflict_is_not_in_the_must_push_set(self):
         # not governance-critical -> no INFORM marker; the always-visible present-marker carries it instead.
@@ -867,7 +867,7 @@ class TestRestoreOfferSurfacing(unittest.TestCase):
                          f"{boot.PRESENT_MARKER}: all clear")
         # a governance alarm AND a stuck PR both outrank the offer marker (it is ranked last)
         self.assertEqual(boot.present_marker_line(_signals(gate="off", restore_offer=self._OFFER)),
-                         "⚠ Protected branch is off")
+                         "⚠ Your safety gate is off")
         self.assertEqual(
             boot.present_marker_line(_signals(pr_conflict={"pr": 7}, restore_offer=self._OFFER)),
             f"⚠ {boot.PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it")
@@ -924,7 +924,7 @@ class TestMigrationRevertOffer(unittest.TestCase):
         self.assertEqual(boot.present_marker_line(_signals(migration_revert=None)),
                          f"{boot.PRESENT_MARKER}: all clear")
         self.assertEqual(boot.present_marker_line(_signals(gate="off", migration_revert=self._OFFER)),
-                         "⚠ Protected branch is off")                 # a governance alarm outranks the offer
+                         "⚠ Your safety gate is off")                 # a governance alarm outranks the offer
 
     def test_offer_is_not_in_the_must_push_set(self):
         self.assertEqual(boot.must_push(_signals(migration_revert=self._OFFER)), [])
@@ -1070,7 +1070,7 @@ class TestBriefingRelay(unittest.TestCase):
         self.assertEqual(boot.present_marker_line(_signals(gate="on")), f"{boot.PRESENT_MARKER}: all clear")
 
     def test_present_marker_line_is_the_alarm_when_gate_off(self):
-        self.assertEqual(boot.present_marker_line(_signals(gate="off")), "⚠ Protected branch is off")
+        self.assertEqual(boot.present_marker_line(_signals(gate="off")), "⚠ Your safety gate is off")
 
     def test_present_marker_line_never_green_when_gate_unknown(self):
         # degrade-loud: a couldn't-verify gate is NEVER a green all-clear.
@@ -1085,7 +1085,7 @@ class TestBriefingRelay(unittest.TestCase):
         with mock.patch.object(boot, "gather_signals",
                                return_value=_signals(gate="off", reason="no pull request")):
             pack = boot.assemble_pack()
-        self.assertIn("⚠ Protected branch is off", pack)   # the rendered marker line (drops the title)
+        self.assertIn("⚠ Your safety gate is off", pack)   # the rendered marker line (drops the title)
         self.assertIn(boot.PRESENT_MARKER, pack)            # ...but the instruction still names it
         self.assertIn(boot.RELAY_MARKER, pack)              # ...and the governance alarm is INFORM-marked
 
@@ -1127,10 +1127,10 @@ class TestBriefingRelay(unittest.TestCase):
         with mock.patch.object(boot, "gather_signals", return_value=_signals(gate="off", reason="x")), \
              mock.patch.object(boot, "render_dashboard", side_effect=Exception("boom")):
             pack = boot.assemble_pack()
-        self.assertIn("⚠ Protected branch is off", pack)   # the present-marker line still rendered
+        self.assertIn("⚠ Your safety gate is off", pack)   # the present-marker line still rendered
         self.assertIn(boot.PRESENT_MARKER, pack)
         self.assertIn("couldn't be assembled", pack)        # the degraded dashboard fallback
-        self.assertLess(pack.index("⚠ Protected branch is off"), pack.index("couldn't be assembled"),
+        self.assertLess(pack.index("⚠ Your safety gate is off"), pack.index("couldn't be assembled"),
                         "the marker is emitted BEFORE the dashboard, so a dashboard failure can't suppress it")
 
 
