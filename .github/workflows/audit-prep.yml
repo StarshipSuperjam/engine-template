@@ -48,6 +48,14 @@ permissions:
   # read needs this one added scope; it is read-only and does not widen the persona (which gets no token).
   checks: read
 
+# Single-flight the scheduled self-review: a dispatch that lands while a run is in flight QUEUES behind it and
+# never cancels it mid-work. Without this, two overlapping runs each open their own digest pull request and both
+# reconcile the engine-labelled issues in the CI-health step above — duplicate PRs to read and a racing issue
+# open/auto-resolve. cancel-in-progress: false so a run mid-commit / mid-issue-write always finishes cleanly.
+concurrency:
+  group: audit-prep
+  cancel-in-progress: false
+
 jobs:
   gate:
     name: gate

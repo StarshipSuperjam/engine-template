@@ -12,7 +12,10 @@ It flags a change that removes, renames, or modifies a guardrail file — a file
 that constitutes or configures an enforcement gate (a CI workflow, a check rule,
 a check rule's enforcement SCRIPT discovered by presence, an enforcement HOOK or
 the config that wires it, the validator, the ruleset-applying operation, or
-CODEOWNERS), defined by that PROPERTY rather than a path-prefix list (D-268), so
+CODEOWNERS) OR ships a traveling security-floor provision (the committed
+`dependabot.yml` the control plane sends to every generated repo — it gates no
+merge, but silently dropping it downgrades a safety pillar the operator relied
+on), defined by that PROPERTY rather than a path-prefix list (D-268), so
 benign edits to non-gate tooling no longer demand the ack — AND a REPOINT of the
 engine's update home in the manifest (`home_repository` in .engine/engine.json) —
 which changes where executable engine code is fetched from at the next update, a
@@ -100,8 +103,17 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     ".engine/tools/wiring.py",         # the sole mutator of settings.json / CODEOWNERS / hook registrations
     ".engine/tools/security_floor.py", # configures secret-scanning / push-protection
 )
+# Traveling security-floor provisions — NOT enforcement gates (they check nothing and gate no merge), so they
+# do not belong with _FLOOR_ENFORCEMENT_CONFIG above. They are the git-native security floor the control plane
+# ships to EVERY generated repo (control-plane §"The security floor"): deleting or weakening one silently drops a
+# safety pillar the operator was relying on, which the "disclose, never downgrade silently" law forbids — so a
+# removal/weakening must route through the ack. `dependabot.yml` sits at the repo root, so (unlike its twin
+# `secret-scan.yml`, a workflow already covered by the `.github/workflows/` prefix) it has no prefix basis and is
+# floored here by exact path. Presence-SEEDING this file and disclosing a missing floor stay provisioning's job;
+# this entry only gates its removal/weakening via a pull request.
+_FLOOR_SECURITY_PROVISION = (".github/dependabot.yml",)
 GUARDRAIL_EXACT = (_FLOOR_ENFORCEMENT_CONFIG + _FLOOR_VALIDATOR + _FLOOR_RULESET_PROXY
-                   + _FLOOR_ENFORCEMENT_HOOKS)
+                   + _FLOOR_ENFORCEMENT_HOOKS + _FLOOR_SECURITY_PROVISION)
 # A pure addition strengthens; removal/rename/modification/copy can weaken.
 # 'copied' is in GitHub's file-status enum — without it, a weakened *copy* of a
 # guardrail file would slip through ungated.

@@ -40,6 +40,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -368,13 +369,24 @@ class GitHubIssues:
         """Idempotently ensure the engine-domain label exists (create it iff absent). The genesis
         construction repo runs no first-run bootstrap, so the first producer ensures its own label;
         provisioning later owns the general, re-runnable ensure and inherits this."""
-        status, _ = self._transport("GET", f"/repos/{self.repo}/labels/{self.label}", None)
+        self.ensure_named_label(self.label, "ededed",  # a calm neutral grey
+                                "Opened by the engine about its own health (not your product).")
+
+    def ensure_named_label(self, name: str, color: str, description: str) -> None:
+        """Idempotently ensure an arbitrary repo label exists (create it iff absent). `ensure_label` above is
+        the engine-domain special case that delegates here with its own hardcoded values; provisioning calls
+        this directly for the OTHER bootstrap-provisioned labels the operator applies but never hand-creates.
+        The name is url-quoted into the GET path — a label string is an operator-facing build-spec leaf that
+        could carry a space, so it must never be interpolated raw. RAISES on any non-404 HTTP error (a scope or
+        auth failure must never read as "already present"). (A sibling parametrised copy lives on
+        issue_conformance_ci.IssueConformanceClient; both trace back to github_client, the eventual single home
+        once the shared-client debt is collapsed — kept behavior-identical meanwhile.)"""
+        status, _ = self._transport("GET", f"/repos/{self.repo}/labels/{urllib.parse.quote(name, safe='')}", None)
         if status == 404:
             self._transport("POST", f"/repos/{self.repo}/labels",
-                            {"name": self.label, "color": "ededed",  # a calm neutral grey
-                             "description": "Opened by the engine about its own health (not your product)."})
+                            {"name": name, "color": color, "description": description})
         elif status >= 400:
-            raise DegradedReadError(f"GitHub returned {status} checking the '{self.label}' label")
+            raise DegradedReadError(f"GitHub returned {status} checking the '{name}' label")
 
     def list_open_engine_issues(self) -> list:
         """Every open Issue carrying the engine-domain label, paginated to exhaustion. RAISES on any

@@ -112,6 +112,13 @@ versions differ). With no review packs installed it says so plainly
 — "no extra review ran", never a green pass — and carries the standing caveat that it is the engine's own
 account and the operator's merge is the real gate. A trivial fast-path build fills it with a truthful one.
 
+Into that same Review record, fold the **unresolved-conversation pre-arm** verbatim (a collapsed, expandable
+notice `.engine/tools/unresolved_conversation_notice.py` prints): the protected branch greys the merge button
+when a review comment is left unresolved — a state a non-engineer cannot self-diagnose — so it explains, before
+they reach the button, why it's greyed, that they may resolve the comment once they've read and accepted it, and
+how to reach one hidden as *outdated* after a rebase. Standing copy — the engine renders it, never fetches the
+live thread and never resolves one itself.
+
 **The consumed-review-lenses record.** The fenced block below records which build stage runs which installed
 review; the `lens-consumption` check reads it and goes red if a review is installed that no stage runs.
 product-design's spec-lock ceremony is the plan-review four's **second consumer** (it runs the same four on

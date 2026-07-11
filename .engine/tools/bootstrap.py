@@ -69,6 +69,7 @@ import github_client  # noqa: E402  (the shared authenticated GitHub API client;
 import boot  # noqa: E402  (repo_slug, gh_token, PROTECTED_BRANCH — the shared GitHub-context helpers)
 import protection_guard  # noqa: E402  (REQUIRED_CHECKS + missing_floor — the SINGLE home of the floor)
 import telemetry  # noqa: E402  (GitHubIssues.ensure_label — the slice-18 minimal ensure this inherits)
+import weakening_guard  # noqa: E402  (ACK_LABEL — reuse the frozen guardrail-ack name, never re-decide it)
 
 USER_AGENT = "engine-control-plane-bootstrap"
 TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "control-plane-bootstrap.md")
@@ -82,6 +83,14 @@ ENGINE_RULESET_NAME = "engine: protected main"
 # the module docstring: the locked spec's `admin:repo_ruleset` is not a real scope; `repo` is the correct
 # classic scope (or fine-grained "Administration: write", which carries no classic scope string).
 RULESET_SCOPE = "repo"
+
+# The guardrail-acknowledgment label, bootstrap-provisioned so the operator APPLIES it but never hand-creates it
+# (control-plane label scheme). The NAME is reused from the guard that reads it (frozen, single-sourced — never
+# re-typed here). Color + description are the operator-facing build-spec leaves: a deliberate amber, distinct from
+# the engine label's grey (and never alarm-red), and a plain-language description under GitHub's 100-char label
+# cap that frames it as the operator's own consent act.
+ACK_LABEL_COLOR = "fbca04"  # a deliberate amber — a conscious "I accept this", not an alarm
+ACK_LABEL_DESCRIPTION = "You add this to approve a change the engine flagged as weakening a built-in safety protection."
 
 
 class BootstrapError(Exception):
@@ -640,13 +649,17 @@ class ControlPlane:
         return "not-admin"
 
     def ensure_labels(self) -> bool:
-        """Idempotently ensure the engine-domain label exists, INHERITING the slice-18 minimal ensure
-        (telemetry.GitHubIssues.ensure_label) — never re-deciding the string, never re-implementing the
-        mechanism. Core ensures ONLY the engine-domain label; the spec-marker label is post-core. Best-
-        effort: returns False on failure so the caller can disclose, never crashing the bootstrap."""
+        """Idempotently ensure the engine's bootstrap-provisioned labels exist, INHERITING the minimal ensure
+        (telemetry.GitHubIssues) — never re-deciding a string, never re-implementing the mechanism. Two labels:
+        the engine-domain label, and the `guardrail-ack` acknowledgment label the operator APPLIES to consent to
+        a guardrail-weakening change but (per the control-plane label scheme) never hand-creates — so a fresh
+        generated repo's first safety-gate merge is not blocked waiting on a label the operator was told they
+        never make. Best-effort: returns False on any failure so the caller can disclose, never crashing the
+        bootstrap (and if provisioning ever fails, the guard simply stays blocking — never a silent pass)."""
         try:
             issues = self._issues or telemetry.GitHubIssues(self.repo, self.token)
             issues.ensure_label()
+            issues.ensure_named_label(weakening_guard.ACK_LABEL, ACK_LABEL_COLOR, ACK_LABEL_DESCRIPTION)
             return True
         except Exception:  # noqa: BLE001 — DegradedReadError / transport failure -> disclose, don't crash
             return False
