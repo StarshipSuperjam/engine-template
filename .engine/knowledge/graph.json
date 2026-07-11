@@ -4119,7 +4119,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:f2e4c7152b4a827dca5c817a561b71ae2353a05fe12ed30623d973fb3663d350",
+        "fingerprint": "sha256:3f6222889c82d435f25b2ac9eedcb64b590b34a015e000b8b9b5a0b180d59dd6",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4187,7 +4187,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:7115b0d8bdac196d50f8fdc66d85bab9bff5c392dd6478304a472eb4263d165a",
+        "fingerprint": "sha256:f0ab2a520798f4cb3a592770ef2d7c925001ce87fa64bae53029da7d8846a05a",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -4255,7 +4255,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:bf7caee17fc033c2a3b5d6967f72fdbc345bd4b78113a191d6646e1d2f3782ba",
+        "fingerprint": "sha256:2c639627562f273a6de7917d3961438c1eeae2a846d5f671e87edc488f5d168d",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -4306,7 +4306,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:c4a77517579c5b82c48dc649048e2cc7c29dc9a4a1699a069a1177fc8bd3a261",
+        "fingerprint": "sha256:502c826a1029c4cc6e2388c94229978f0813f18708caa05237b375c00cdb5700",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -5989,7 +5989,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:2951608cd628629398a0ba80c3e2be48d3a0b7be7b77bbdd11e063dee2ad049e",
+        "fingerprint": "sha256:aca2bdd69e02142d2a935db172b4c020c44f0a448801b2aae55ca817bde6f997",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -6057,7 +6057,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:3455015a226e974abc8df82127f4992b6dbf1f6301a8a37798d5f95d8a55c6d5",
+        "fingerprint": "sha256:df30fd62bbb49219cdc82483be8d59b959d732a8591e9bf5be5d06efb4b50aa0",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -6125,7 +6125,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:d5c518515fd340b90de349e856b8fc9e602898d996dc962baac6b6b220caa2a0",
+        "fingerprint": "sha256:a6ade98eb606656d8c5a017bbb7d2a7539de3dbf6661b83ea63439a59b6675d0",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",

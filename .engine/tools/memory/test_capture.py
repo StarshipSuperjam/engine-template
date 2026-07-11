@@ -581,6 +581,16 @@ class MigrationWindowTests(unittest.TestCase):
             fh.write("{not json")
         self.assertFalse(capture.migration_in_flight(self.tmp))     # can't wedge compaction shut on its own
 
+    def test_reap_orphaned_migration_clears_only_an_orphan_and_no_ops_when_absent(self):
+        # The self-acquiring wrapper maybe_compact rides every pass, so recovery doesn't wait on a waste-fold.
+        self.assertFalse(capture.reap_orphaned_migration(self.tmp))              # absent => no-op, no lock touched
+        self._write_marker({"pid": os.getpid(), "started_at": time.time()})     # live
+        self.assertFalse(capture.reap_orphaned_migration(self.tmp))             # left in place
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, capture.MIGRATION_MARKER_FILENAME)))
+        self._write_marker({"pid": _a_dead_pid(), "started_at": time.time()})   # orphaned
+        self.assertTrue(capture.reap_orphaned_migration(self.tmp))              # cleared
+        self.assertIsNone(capture._read_marker(self.tmp))
+
 
 def _a_dead_pid():
     """A PID that is (almost certainly) not a live process — a large value no small-PID system has assigned."""

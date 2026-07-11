@@ -191,13 +191,16 @@ class TestDegradedNotice(unittest.TestCase):
         for clean in (_signals(), _signals(ledger_malformed=0), _signals(ledger_malformed=None)):
             self.assertNotIn("unreadable line", boot.render_dashboard(clean))
 
-    def test_a_stalled_migration_shows_a_paused_tidy_up_heads_up_that_reassures(self):
+    def test_a_stalled_migration_shows_a_reassuring_self_healing_heads_up(self):
         # #396 U26: an orphaned migration marker => a plain-language heads-up that LEADS with reassurance (the
-        # failure direction here is content-safe, README §279) and never leaks internal terms.
+        # failure direction here is content-safe, README §279), never leaks internal terms, never claims "paused"
+        # (an orphaned marker blocks nothing), and names automatic recovery + a concrete recourse.
         dash = boot.render_dashboard(_signals(migration_stalled=True))
         self.assertIn("A memory update didn't finish", dash)
         self.assertIn("nothing was lost", dash)
-        self.assertIn("clears on its own", dash)
+        self.assertIn("automatically the next time", dash)   # honest: recovery rides the next tidy
+        self.assertIn("tell me and I'll clear it", dash)      # a concrete recourse, like its siblings
+        self.assertNotIn("paused", dash.lower())             # an orphaned marker holds nothing off
         for jargon in ("migration", "compaction", "marker"):
             self.assertNotIn(jargon, dash.lower())
 

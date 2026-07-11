@@ -392,9 +392,13 @@ def open_session_lease(data_dir: str, session_id: str) -> bool:
         try:
             state = read_lease_state(data_dir)
             if state is None:
-                # CORRUPT: all prior lease info is unrecoverable. Repair to a fresh valid sidecar seeded with
-                # only this session, and DEFER the sweep this pass — a live concurrent session re-stamps via its
-                # per-turn heartbeat and the store-time re-check protects it; no content is ever at risk.
+                # CORRUPT: all prior lease info is unrecoverable. This is the ONE writer that resets the sidecar
+                # (refresh/drop deliberately REFUSE on corrupt, to keep the corrupt->skip fail-safe holding) —
+                # because if every writer refused, a corrupt sidecar would wedge consolidation shut forever. We
+                # repair to a fresh valid sidecar seeded with only this session and DEFER the sweep this pass. The
+                # cost: other parked sessions lose their lease, so on the NEXT start they read absent -> stale
+                # with no cushion — a rare, corruption-gated one-off. No content is ever at risk (raw deltas stay
+                # in the ledger); a live concurrent session re-stamps via its heartbeat and the re-check spares it.
                 _write_lease_state(data_dir, 1, {session_id: 1})
                 return False
             epoch, leases = state
@@ -520,8 +524,11 @@ def open_migration_window(data_dir: str) -> bool:
 
 
 def close_migration_window(data_dir: str) -> None:
-    """Lower the marker when a migration finishes. Acquires the lock, removes the marker, releases; idempotent
-    and best-effort (a failure to remove self-heals via the orphan path — compact clears a stale marker)."""
+    """Lower the marker when a migration finishes. Acquires the lock (its own ~1s bounded retry), removes the
+    marker, releases; idempotent and best-effort. If it can't remove (transient contention), the marker lingers
+    carrying THIS process's PID — so it is NOT recovered by the orphan path until this process exits (PID dies)
+    or the wall-clock ceiling elapses. For the short-lived `module_manager` migration run that is ~immediate;
+    only a long-lived host process could hold recovery off for up to the ceiling."""
     try:
         lock_fd = _acquire_lock(os.path.join(data_dir, LOCK_FILENAME))
         if lock_fd is None:
@@ -556,6 +563,26 @@ def clear_orphaned_migration_locked(data_dir: str) -> bool:
     except OSError:
         return False
     return True
+
+
+def reap_orphaned_migration(data_dir: str) -> bool:
+    """Acquire the lock and clear an orphaned marker (a self-acquiring wrapper over the *_locked form). Best-effort:
+    a cheap lock-free pre-check first, so the common no-marker case never touches the lock. This is what lets the
+    orphan recovery ride EVERY `maybe_compact` (its `PreCompact` cadence) instead of only a fold that clears enough
+    waste — so a crashed migration's boot heads-up clears on the next tidy, not only once the ledger is dirty
+    enough to compact. Returns True iff it cleared one. Never raises."""
+    try:
+        if _read_marker(data_dir) is None:
+            return False                     # no marker: skip the lock entirely (the overwhelmingly common case)
+        lock_fd = _acquire_lock(os.path.join(data_dir, LOCK_FILENAME))
+        if lock_fd is None:
+            return False                     # contended: the next pass reaps it
+        try:
+            return clear_orphaned_migration_locked(data_dir)
+        finally:
+            _release_lock(lock_fd)
+    except OSError:
+        return False
 
 
 def detect_orphaned_migration(data_dir: str):

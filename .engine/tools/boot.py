@@ -859,16 +859,17 @@ def render_dashboard(s: dict) -> str:
             "memory from your backup.")
 
     if s.get("migration_stalled"):
-        # #396 U26: a data migration didn't finish and left an orphaned in-flight marker, so automatic tidying
-        # (compaction) is paused until it clears. LEAD with the reassurance (the failure direction here is
-        # "nothing lost" — README §279: content is untouched, only the deferred cleanup waits), mirroring the
-        # memory-health sibling above. Plain language — never "migration"/"compaction"/"marker". The clear is
-        # automatic (compaction self-heals the stale marker), so "clears on its own" is true. .get() so a
-        # fixed-signals test fixture without the key never KeyErrors.
+        # #396 U26: a data migration didn't finish and left an orphaned marker (its process died). This fires ONLY
+        # for the orphaned case, which does NOT block anything — so it says "didn't finish", not "paused" (the
+        # marker no longer holds tidying off; the next tidy clears it). LEAD with the reassurance (the failure
+        # direction here is "nothing lost" — README §279: content is untouched), mirroring the memory-health
+        # sibling above. Plain language — never "migration"/"compaction"/"marker". Recovery is automatic (the next
+        # memory tidy reaps the leftover), and a concrete recourse is named. .get() so a fixed-signals test
+        # fixture without the key never KeyErrors.
         degraded.append(
-            "A memory update didn't finish cleanly, so I've paused the automatic tidy-up of your saved memory "
-            "for now — nothing was lost, and everything saved is still there and readable. This clears on its "
-            "own once the unfinished update is cleaned up; if it keeps showing, ask me to take a look.")
+            "A memory update didn't finish cleanly — nothing was lost, and everything saved is still there and "
+            "readable. I clean up the leftover automatically the next time I tidy your memory; if you keep "
+            "seeing this across sessions, tell me and I'll clear it right away.")
 
     if degraded:
         out.append("")

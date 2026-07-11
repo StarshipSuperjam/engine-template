@@ -341,6 +341,13 @@ def maybe_compact(path: "str | None" = None) -> dict:
     Returns the `compact` report on a fire, or `{"status": "skipped", ...}` when the gate holds it off or a fault
     is swallowed."""
     try:
+        # Self-heal a crashed migration's orphaned marker on EVERY pass — before the waste gate — so the recovery
+        # (and the boot heads-up that rode it) is NOT stranded on a low-waste ledger that never folds. `compact`
+        # also clears it when it fires, but that only reaches here once waste crosses the threshold; this makes
+        # "clears on its own the next time memory is tidied" true regardless of how dirty the ledger is.
+        from memory import capture
+        target = path if path is not None else ledger.ledger_path()
+        capture.reap_orphaned_migration(os.path.dirname(target) or ".")
         waste = reclaimable_waste(path)
         if waste < _COMPACT_WASTE_THRESHOLD:
             return {"status": "skipped", "reason": "below the compaction threshold", "waste": waste}

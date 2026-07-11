@@ -23,8 +23,12 @@ REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODI
     not deferred forever (the passivity that left 21 sessions untidied is gone) — and always subordinate to the
     operator's request.
     This unifies the "normal" and "abandoned-session" consolidation into ONE sweep: the locked design's
-    abandoned-session predicate already subsumes the normal path, since the previous session is "no longer
-    live with no marker" by the next start. The sweep ALSO carries the roll-up backlog (slice 5 PR 3) in the
+    abandoned-session predicate subsumes the normal path — the previous session is "no longer live with no
+    marker" shortly after it ends. The lease heartbeat (#396 U08) is what tells "no longer live" from a still-
+    running concurrent session: a session is swept once its lease has been silent for a small N (`_LEASE_STALE_N`
+    session-starts), so the previous session is tidied within a few starts, not the very next — a small,
+    deliberate cushion so a briefly-idle live session is not tidied mid-run (the store-time re-check is the real
+    guard; N only tunes promptness). The sweep ALSO carries the roll-up backlog (slice 5 PR 3) in the
     same single injection. `PreCompact` cannot reach the AI, so it carries no consolidation — but it now rides
     the deterministic ledger-compaction trigger (`compact.maybe_compact`).
 
