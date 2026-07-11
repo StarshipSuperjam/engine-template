@@ -553,6 +553,14 @@ def gather_signals(session_id: str | None = None) -> dict:
         ledger_malformed = ledger_health.detect_ledger_malformed()
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         ledger_malformed = None
+    try:
+        # The stalled-migration signal (#396 U26): a memory migration didn't finish and left an orphaned in-flight
+        # marker, so automatic tidying (compaction) is paused until it clears. Read-only relay from memory's own
+        # detector; the clear itself is compaction's self-heal. Quietly False on a clean/live state or any fault.
+        from memory import ledger_health as _lh
+        migration_stalled = _lh.detect_stalled_migration()
+    except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        migration_stalled = False
     # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
@@ -597,6 +605,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         "migration_revert": migration_revert,
         # the memory-health count (#396 U07b): unreadable lines in the live ledger (>0 -> a rot heads-up), 0/None otherwise
         "ledger_malformed": ledger_malformed,
+        # the stalled-migration signal (#396 U26): True iff a memory migration didn't finish (orphaned marker) and
+        # tidying is paused until it clears; False on a clean/live state (a live migration is normal, not a stall)
+        "migration_stalled": migration_stalled,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
         "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
@@ -846,6 +857,19 @@ def render_dashboard(s: dict) -> str:
             f"Your saved memory has {count}, which I read past safely — everything I could read is intact. "
             "This clears on its own as your memory is tidied; if you keep seeing it, ask me to restore your "
             "memory from your backup.")
+
+    if s.get("migration_stalled"):
+        # #396 U26: a data migration didn't finish and left an orphaned marker (its process died). This fires ONLY
+        # for the orphaned case, which does NOT block anything — so it says "didn't finish", not "paused" (the
+        # marker no longer holds tidying off; the next tidy clears it). LEAD with the reassurance (the failure
+        # direction here is "nothing lost" — README §279: content is untouched), mirroring the memory-health
+        # sibling above. Plain language — never "migration"/"compaction"/"marker". Recovery is automatic (the next
+        # memory tidy reaps the leftover), and a concrete recourse is named. .get() so a fixed-signals test
+        # fixture without the key never KeyErrors.
+        degraded.append(
+            "A memory update didn't finish cleanly — nothing was lost, and everything saved is still there and "
+            "readable. I clean up the leftover automatically the next time I tidy your memory; if you keep "
+            "seeing this across sessions, tell me and I'll clear it right away.")
 
     if degraded:
         out.append("")

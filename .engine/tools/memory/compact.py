@@ -259,6 +259,16 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
                 "reason": "another memory write held the single-writer lock; compaction retries later",
                 "folded": 0, "pruned": 0}
     try:
+        # Ordering law (README §269-283): compaction must NOT run within a migration window. Checked HERE, under
+        # the lock, so it sees a marker a migration raised (a file that outlives the migration's own brief lock
+        # holds). A LIVE marker => refuse (retry later). An ORPHANED marker (the migrating process died, or it is
+        # far past any real migration's span) is self-healed under this lock and compaction proceeds — compaction
+        # is exactly what the marker blocks, so it is the natural recovery point.
+        if capture.migration_in_flight(data_dir):
+            return {"status": "busy",
+                    "reason": "a memory migration is in progress; compaction waits until it finishes",
+                    "folded": 0, "pruned": 0}
+        capture.clear_orphaned_migration_locked(data_dir)
         _reap_temps(data_dir)                          # recovery: clear any prior-crash leftover, under the lock
         t0 = int(time.time()) if now is None else now
         # Read via the read-law reader (not the silent-skip iterator): it counts a malformed line and captures the
@@ -331,6 +341,13 @@ def maybe_compact(path: "str | None" = None) -> dict:
     Returns the `compact` report on a fire, or `{"status": "skipped", ...}` when the gate holds it off or a fault
     is swallowed."""
     try:
+        # Self-heal a crashed migration's orphaned marker on EVERY pass — before the waste gate — so the recovery
+        # (and the boot heads-up that rode it) is NOT stranded on a low-waste ledger that never folds. `compact`
+        # also clears it when it fires, but that only reaches here once waste crosses the threshold; this makes
+        # "clears on its own the next time memory is tidied" true regardless of how dirty the ledger is.
+        from memory import capture
+        target = path if path is not None else ledger.ledger_path()
+        capture.reap_orphaned_migration(os.path.dirname(target) or ".")
         waste = reclaimable_waste(path)
         if waste < _COMPACT_WASTE_THRESHOLD:
             return {"status": "skipped", "reason": "below the compaction threshold", "waste": waste}

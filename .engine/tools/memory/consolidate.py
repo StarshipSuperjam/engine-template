@@ -23,8 +23,12 @@ REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODI
     not deferred forever (the passivity that left 21 sessions untidied is gone) — and always subordinate to the
     operator's request.
     This unifies the "normal" and "abandoned-session" consolidation into ONE sweep: the locked design's
-    abandoned-session predicate already subsumes the normal path, since the previous session is "no longer
-    live with no marker" by the next start. The sweep ALSO carries the roll-up backlog (slice 5 PR 3) in the
+    abandoned-session predicate subsumes the normal path — the previous session is "no longer live with no
+    marker" shortly after it ends. The lease heartbeat (#396 U08) is what tells "no longer live" from a still-
+    running concurrent session: a session is swept once its lease has been silent for a small N (`_LEASE_STALE_N`
+    session-starts), so the previous session is tidied within a few starts, not the very next — a small,
+    deliberate cushion so a briefly-idle live session is not tidied mid-run (the store-time re-check is the real
+    guard; N only tunes promptness). The sweep ALSO carries the roll-up backlog (slice 5 PR 3) in the
     same single injection. `PreCompact` cannot reach the AI, so it carries no consolidation — but it now rides
     the deterministic ledger-compaction trigger (`compact.maybe_compact`).
 
@@ -82,6 +86,23 @@ _MAX_TAGS = 8                            # build-spec leaf (#235): the reject-no
                                          # for 1–4; 8 is the hard cap so a summary is anchored by a few stable
                                          # topics, never a tag dumping-ground that would blur cross-session
                                          # relatedness (the tags are what roll-up later clusters on).
+_LEASE_STALE_N = 3                        # build-spec leaf (maintainer, at the plan gate): a session is "silent"
+                                         # (consolidatable) once its lease has aged this many SessionStarts. SMALL
+                                         # on purpose — the module consolidates the previous session at the NEXT
+                                         # start (README §76-79 / the 21-untidied failure mode); a large N would
+                                         # reintroduce that passivity. N is only a recovery-promptness knob — the
+                                         # store-time re-check below, NOT N, is the real concurrency guarantee, so
+                                         # correctness never rides on N's value.
+
+
+def _lease_is_stale(session_id, epoch, leases, n=_LEASE_STALE_N) -> bool:
+    """Has `session_id` gone silent? Its lease being ABSENT (never checked in this era — abandoned, or a session
+    that predates the lease) OR aged `>= n` SessionStarts is stale, i.e. safe to consolidate. A genuinely-live
+    session re-stamps its lease every turn (capture.refresh_lease_locked), so it reads fresh and is spared."""
+    lease = leases.get(session_id)
+    if lease is None:
+        return True
+    return epoch - lease >= n
 
 
 # --- Reading the raw notes (what the AI consolidates) -----------------------------------------
@@ -132,7 +153,16 @@ def detect_unconsolidated(live_session_id=None, *, cwd=None) -> list:
     pending = have - marked
     if live_session_id:
         pending.discard(live_session_id)
-    return sorted(pending)
+    if not pending:
+        return []
+    # The lease heartbeat (U08): drop any candidate whose session is still LIVE. A CORRUPT lease sidecar means we
+    # cannot tell who is live, so skip the whole sweep this pass (fail safe — all sessions possibly-live), DISTINCT
+    # from a missing/empty sidecar (all-absent, the intended first-run recovery of prior sessions).
+    lease = capture.read_lease_state(ledger.ledger_dir(cwd))
+    if lease is None:
+        return []
+    epoch, leases = lease
+    return sorted(sid for sid in pending if _lease_is_stale(sid, epoch, leases))
 
 
 # --- Writing the tidied summaries (idempotent, race-safe, reject-not-coerce) -------------------
@@ -232,6 +262,19 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
         _, marked = _scan_sessions(cwd)
         if session_id in marked:
             return {"status": "already-consolidated", "stored": 0}
+        # The store-time re-check — the actual concurrency guarantee (U08). Detection ran at SessionStart; this
+        # write lands minutes later, in a subagent. RE-COMPUTE staleness under the held lock: if the target has
+        # checked in since detection (its lease now reads fresh) — or the lease is unreadable — ABORT before any
+        # append, leaving it for its own consolidation. This is a predicate re-compute, not a "since-detection"
+        # delta: store_episodic is invoked as `store <sid>` with no detection epoch to diff against.
+        lease = capture.read_lease_state(data_dir)
+        if lease is None:
+            return {"status": "deferred", "reason": "lease unreadable; not consolidating a possibly-live session",
+                    "stored": 0}
+        epoch, leases = lease
+        if not _lease_is_stale(session_id, epoch, leases):
+            return {"status": "live", "reason": "session checked in since detection; left for its own tidy-up",
+                    "stored": 0}
         ledger_file = ledger.ledger_path(cwd)
         batch = uuid.uuid4().hex   # ONE id for this whole pass, stamped on every episodic AND the marker below
         stored = 0
@@ -241,6 +284,9 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
         # Marker LAST, carrying the SAME batch: a crash before it orphans this pass's episodics (their batch
         # unmarked) — the next sweep re-files and `forget` logically retires the orphans (favor duplicate over loss).
         ledger.append(_make_marker(session_id, batch), path=ledger_file)
+        # Reap this session's lease under the same held lock: a marked session can never be live again, so its
+        # lease can go — bounding the per-turn-rewritten map (belt to the far-aged prune in capture).
+        capture.drop_lease_locked(data_dir, session_id)
         index.rebuild(ledger_file=ledger_file, index_file=index.index_path(cwd))
         return {"status": "ok", "stored": stored}
     finally:
@@ -313,7 +359,15 @@ def _session_start_handler(payload) -> dict:
     roll-up fault degrades to consolidation-only (it can never drop the older, more important consolidation
     directive); run_hook fail-opens the whole handler on any other fault."""
     live = payload.get("session_id") if isinstance(payload, dict) else None
-    pending = detect_unconsolidated(live_session_id=live)
+    # Stamp THIS session's lease before sweeping (U08): bump the epoch and record us live, so a concurrent sweep
+    # never mistakes us for abandoned. If the stamp can't land (lock contention / a corrupt sidecar), DEFER the
+    # consolidation sweep this pass — never sweep with a missing self-lease — but let roll-up (lease-independent)
+    # still run. With no live id we can't stamp; fall through to a best-effort detection (the lease filter still
+    # guards concurrent sessions).
+    if live and not capture.open_session_lease(ledger.ledger_dir(), live):
+        pending = []
+    else:
+        pending = detect_unconsolidated(live_session_id=live)
     roll_block = ""
     try:
         from memory import rollup   # lazy: keep rollup + its deps off the cold-start load path until needed

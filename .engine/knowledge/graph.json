@@ -4144,7 +4144,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:d693c6033bbba1be47867da75fb9abc622b51eeebea8d657ff5b1789468f04ff",
+        "fingerprint": "sha256:3f6222889c82d435f25b2ac9eedcb64b590b34a015e000b8b9b5a0b180d59dd6",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4229,7 +4229,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:8772143ebced9f78a0cd7c3f0bfda750a5bd74da995750b6d991d53da7b90786",
+        "fingerprint": "sha256:f0ab2a520798f4cb3a592770ef2d7c925001ce87fa64bae53029da7d8846a05a",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -4297,7 +4297,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:fcae58b5d70953a797a0b312afe32131bda02a906341f7be7328ed9cfd023927",
+        "fingerprint": "sha256:2c639627562f273a6de7917d3961438c1eeae2a846d5f671e87edc488f5d168d",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -4348,7 +4348,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:0735de338a8353bff18141c846627bb2e43f53c759494c8928b4dd391539c239",
+        "fingerprint": "sha256:502c826a1029c4cc6e2388c94229978f0813f18708caa05237b375c00cdb5700",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -5181,7 +5181,7 @@
       },
       "slug": "ledger_health",
       "source": {
-        "fingerprint": "sha256:3f695106bfcbdc06928e6e98cca6a426ae5cc0ee01de168ca9b2bd0820e9efb8",
+        "fingerprint": "sha256:bd517346f30f263a71644edf8a36fea8b31f969d09068522f46e20a19f3dfc37",
         "path": ".engine/tools/memory/ledger_health.py"
       },
       "status": "active",
@@ -5368,7 +5368,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:2c527ba9a7f09e68fb2d4bfd59ec93fa8a37e7110dc3f4898c44affe250a0055",
+        "fingerprint": "sha256:3005d59cb4b41d5e3f28082c8810c2b2d38f6a886f9ac05e3fd9651093d83c84",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -6048,7 +6048,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:74a9b447baba4ce802a83fdc856e47931d5bca80b48b7b118329de454586721e",
+        "fingerprint": "sha256:aca2bdd69e02142d2a935db172b4c020c44f0a448801b2aae55ca817bde6f997",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -6133,7 +6133,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:3ae28e8386a3a73c761066618cb592ebbffe8ce7277b21421161ed1ea9d2a680",
+        "fingerprint": "sha256:df30fd62bbb49219cdc82483be8d59b959d732a8591e9bf5be5d06efb4b50aa0",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -6201,7 +6201,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:2e563d62a51bcd92c759dff10b7c4dad415e1539585b7781e003514e9f6744af",
+        "fingerprint": "sha256:a6ade98eb606656d8c5a017bbb7d2a7539de3dbf6661b83ea63439a59b6675d0",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
@@ -6252,7 +6252,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:12c37c689402a4c69d9d33db628471ce415e10caee95b1314b869a2c32a51af1",
+        "fingerprint": "sha256:18e1b3ac74e5bdb29b11d94ca14f8d3c6492ce5581908ec9a41b1e3b6d8a559d",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
@@ -6728,7 +6728,7 @@
       },
       "slug": "test_ledger_health",
       "source": {
-        "fingerprint": "sha256:b0c453d98359ffd5e541acdce2f82cf722960f618c27036dbf35f2e3ffed22b5",
+        "fingerprint": "sha256:ed778b19abf675fa6b4612eb3ab021870772deba85cf356d7888bae7089c46f4",
         "path": ".engine/tools/memory/test_ledger_health.py"
       },
       "status": "active",
@@ -6864,7 +6864,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:b8cabfc2892448c01aa394fd128a5139be03c3d1788312b242fd63bab06caaac",
+        "fingerprint": "sha256:c189e4aec90a426937119c0ad5cc89161c05557b04b3013654dbcf7078ea6848",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

@@ -377,6 +377,20 @@ class TestRunMigrations(unittest.TestCase):
     """The runner's execution + the no-backup guard. A migration .py is loaded by path and run; only the
     backup seam (a side-effect boundary) is faked."""
 
+    def setUp(self):
+        # A data migration now raises an in-flight marker under memory's dir (#396 U26); isolate ENGINE_MEMORY_DIR
+        # to a throwaway so the window never touches the real store (nor flakes on a concurrent session's lock).
+        self._memtmp = tempfile.TemporaryDirectory()
+        self._prev_mem = os.environ.get("ENGINE_MEMORY_DIR")
+        os.environ["ENGINE_MEMORY_DIR"] = self._memtmp.name
+
+    def tearDown(self):
+        if self._prev_mem is None:
+            os.environ.pop("ENGINE_MEMORY_DIR", None)
+        else:
+            os.environ["ENGINE_MEMORY_DIR"] = self._prev_mem
+        self._memtmp.cleanup()
+
     def _module_dir(self, d, fname, body):
         md = os.path.join(d, ".engine", "modules", "m")
         os.makedirs(os.path.join(md, "migrations"))
@@ -465,6 +479,47 @@ class TestRunMigrations(unittest.TestCase):
             res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=seam)
             self.assertEqual(len(res["ran"]), 3)
             self.assertEqual(calls, [("m@0.2.0", True), ("m@0.3.0", False)])   # floor = first data migration only
+
+    def test_a_data_migration_runs_inside_an_in_flight_window_that_clears_after(self):
+        # U26 (#396): the marker is present DURING the migration (the body reads it) and lowered AFTER.
+        from memory import capture, ledger
+        with tempfile.TemporaryDirectory() as d:
+            seen = os.path.join(d, "seen.txt")
+            mdir = self._module_dir(d, "dd.py",
+                                    "def migrate(context):\n"
+                                    "    context['backup']('store', context['engine_version'])\n"
+                                    "    from memory import capture, ledger\n"
+                                    "    inflight = capture.migration_in_flight(ledger.ledger_dir())\n"
+                                    f"    open({seen!r}, 'w').write('1' if inflight else '0')\n")
+            seam = lambda store, ver, **kw: {"ok": True}
+            sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
+            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=seam)
+            self.assertEqual(res["ran"], ["m -> 0.2.0 (data)"])
+            with open(seen) as fh:
+                self.assertEqual(fh.read(), "1")               # the window was open while the body ran
+            self.assertFalse(capture.migration_in_flight(ledger.ledger_dir()))   # lowered after
+
+    def test_a_data_migration_is_refused_when_the_window_cannot_open(self):
+        # Fail CLOSED: a held single-writer lock => the marker can't be raised => the migration is REFUSED, never
+        # run marker-less (the exact interleave U26 prevents). The body must not run.
+        from memory import capture, ledger
+        with tempfile.TemporaryDirectory() as d:
+            ran = os.path.join(d, "ran.txt")
+            mdir = self._module_dir(d, "dd.py",
+                                    "def migrate(context):\n"
+                                    "    context['backup']('store', context['engine_version'])\n"
+                                    f"    open({ran!r}, 'w').write('RAN')\n")
+            data_dir = ledger.ledger_dir()
+            os.makedirs(data_dir, exist_ok=True)
+            lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
+            self.addCleanup(capture._release_lock, lock_fd)
+            seam = lambda store, ver, **kw: {"ok": True}
+            sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
+            res = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir, backup=seam)
+            self.assertEqual(res["ran"], [])
+            self.assertEqual(len(res["refused"]), 1)
+            self.assertIn("couldn't start safely", res["refused"][0])
+            self.assertFalse(os.path.exists(ran))              # the body never ran
 
     def test_data_migration_whose_backup_fails_at_runtime_refuses_cleanly_without_mutating(self):
         # A seam resolved LIVE but that returns a falsy handle at call time (a vault reachable at pre-flight,

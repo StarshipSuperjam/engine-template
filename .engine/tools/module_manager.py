@@ -717,11 +717,24 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
                "engine_version": engine_version, "kind": kind,
                "backup": _bind_migration_id(seam, mid, ver, reversibility_floor=is_floor) if kind == "data" else None}
         if kind == "data":
+            # Raise the in-flight-migration marker for the snapshot+mutate window so a concurrent compaction
+            # refuses within it (the compaction↔migration ordering law, memory/README §269-283). Lazy import (the
+            # memory←boot back-edge, as the backup seam already is). FAIL CLOSED: if the marker can't be raised
+            # (another memory write holds the single-writer lock), REFUSE the migration rather than run it
+            # marker-less — an unguarded snapshot+mutate is exactly the interleave the marker prevents.
+            from memory import capture as _capture, ledger as _ledger   # lazy back-edge
+            _mig_dir = _ledger.ledger_dir()
+            if not _capture.open_migration_window(_mig_dir):
+                result["refused"].append(
+                    f"Did not update stored data for '{mid}' to {ver}: another memory task was busy, so the "
+                    f"update couldn't start safely. Nothing was changed. Try again in a moment.")
+                continue
             # A data migration snapshots BEFORE mutating; if that backup can't be taken at run time (the seam
             # returns a falsy handle, so the migration's own backup-first assert fires) it must DEGRADE LOUD —
             # a clean refusal, never a raw traceback to the operator. The pre-flight + readiness probe catch
             # the common "no vault configured" case earlier; this catches a backup that fails at the moment of
-            # the snapshot (a vault that went unreachable/public between pre-flight and run).
+            # the snapshot (a vault that went unreachable/public between pre-flight and run). The `finally` lowers
+            # the marker whether the migration finished or refused.
             try:
                 _load_migration(module_dir(mid), item["run"])(ctx)
             except Exception:  # noqa: BLE001 — backup-first means the failure is before mutating; degrade loud
@@ -730,6 +743,8 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
                     f"completed, so the update was stopped. Ask me to set up or check your backup, then "
                     f"update again.")
                 continue
+            finally:
+                _capture.close_migration_window(_mig_dir)
         else:
             _load_migration(module_dir(mid), item["run"])(ctx)
         result["ran"].append(f"{mid} -> {ver} ({kind})")
