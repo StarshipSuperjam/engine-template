@@ -28,16 +28,26 @@ short markers the files carry in their frontmatter stay in the files, never on s
    and let them say yes, add one, or ask you to decide. Settle the shape first, so each piece is written with
    the others in mind rather than as an island.
 3. **Agree how much to capture now — and name the trade.** Offer the depth as a consequence, not a setting:
-   you can capture just enough to get moving, or take the time now to think each piece through more fully so
-   there are fewer surprises later. Most projects start light; default to that unless the operator asks for
-   more.
+   you can capture just enough to get moving, or take the time now to write each piece down more fully so there
+   are fewer surprises later. For a product meant to last, the fuller path can also write up the guiding
+   principles behind it, an overview of how it fits together (with a simple diagram), and guides for the people
+   who will use it. **Most projects start light; default to that unless the operator asks for more.** Be plain
+   that these fuller write-ups are authored *for* the operator but are theirs to get right: the engine drafts
+   them from a starting shape, but — unlike the description under `docs/spec/` — it does not check them, so
+   never imply that it did.
 4. **Write the description from the scaffold.** Author the documents into `docs/spec/`, starting from the
    templates in `.engine/modules/product-design/scaffold/`: a master index at `docs/spec/index.md` that lists
    every capability, its stage, and a link to its document, plus one document per capability. Fill in the real
    content and strip the templates' own guidance as you go — the bracketed placeholders and the comment blocks
    are written for you, not the operator, and must not survive into the operator's files. Write each document's
    acceptance criteria as a table — each row is what must be true, how it is checked, and who checks it (the
-   operator themselves, or the engine). Mark each document's stage in its frontmatter.
+   operator themselves, or the engine). Mark each document's stage in its frontmatter. When the operator chose
+   the fuller path in step 3, also author the deeper documents from their starting shapes in the same
+   `scaffold/` folder — the guiding principles (`principles.md` → `docs/principles.md`), an architecture
+   overview with a simple diagram (`architecture.md` → `docs/architecture.md`), and the user guides
+   (`diataxis-*.md` → `docs/tutorials|how-to|reference|explanation/`) — writing only the ones this product
+   actually needs and stripping the guidance as you go. These are the operator's own documents to get right: the
+   engine drafts them from the starting shape but does not check them, so never imply that it did.
 5. **Check it, and report what was — and was not — checked.** Run the form check:
    `uv run --directory .engine --frozen -- python tools/validate.py --check engine/check/product-spec-form`.
    Tell the operator plainly what it found, and state the bound: it checked that every part is present and

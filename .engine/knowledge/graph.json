@@ -2523,7 +2523,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:db4174847700fc0e15e5cb8725cbe067c341db8acf6148a0e316cfaa78ffa136",
+        "fingerprint": "sha256:e1e600b1624616fe0ac658dc3ab0be3380d26fdb1c6d429fe734bba14fcf9911",
         "path": ".engine/docs/product-design.md"
       },
       "status": "active",
@@ -2829,7 +2829,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:f9f429bafc65bc90f4864787a7f375f168fdb0faf65d0d253f2d219e17739a15",
+        "fingerprint": "sha256:152a4edeca12d5c837f60f6a0c29c14f64197f8e30ba394816998f152163509a",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -3089,7 +3089,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:75434593b514e14bd525de8a626e8141f4c81371750081e088cac8132b9efe00",
+        "fingerprint": "sha256:776bd035fdef642eb1b57b37797f068581a96d8959d64640a1a09cedcbd3b06f",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -4197,6 +4197,23 @@
       "source": {
         "fingerprint": "sha256:d1cde224ea91db72daebf5f2ea97ddc6624001c224e10256a8ec577328f76676",
         "path": ".engine/tools/bootstrap.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:build_readiness",
+      "name": ".engine/tools/build_readiness.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_readiness",
+      "source": {
+        "fingerprint": "sha256:7c48d6bf6f001802549e2e0145e0f3510f1e73292c05a0ac9ca42fcff4b8f8ef",
+        "path": ".engine/tools/build_readiness.py"
       },
       "status": "active",
       "type": "tool"
@@ -5987,6 +6004,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_authoring_scaffolds",
+      "name": ".engine/tools/product_design/test_authoring_scaffolds.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "test_authoring_scaffolds",
+      "source": {
+        "fingerprint": "sha256:8409eec0228af05b6f81b5594c2f446c1442f0520234bc3849b742a438ef1b95",
+        "path": ".engine/tools/product_design/test_authoring_scaffolds.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_backup_vault",
       "name": ".engine/tools/memory/test_backup_vault.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -6067,6 +6101,23 @@
       "source": {
         "fingerprint": "sha256:aee15ce5501e580a594971ee2422d6b2b9fa41463d20931f07b8843f89df5bcc",
         "path": ".engine/tools/test_bootstrap.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_build_readiness",
+      "name": ".engine/tools/test_build_readiness.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_build_readiness",
+      "source": {
+        "fingerprint": "sha256:3b9db7caf071d422442b881a72fa267bf9e469c443c555850ca0c0d5809886aa",
+        "path": ".engine/tools/test_build_readiness.py"
       },
       "status": "active",
       "type": "tool"
