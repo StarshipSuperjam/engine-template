@@ -843,8 +843,9 @@ def render_dashboard(s: dict) -> str:
         # fixed-signals test fixture without the key never KeyErrors.
         count = f"{malformed} unreadable line" + ("" if malformed == 1 else "s")
         degraded.append(
-            f"Your saved memory has {count}. I read past them safely, so the rest of your recall is intact — "
-            "nothing else is lost. If that number keeps climbing, your memory backup can restore a clean copy.")
+            f"Your saved memory has {count}, which I read past safely — everything I could read is intact. "
+            "This clears on its own as your memory is tidied; if you keep seeing it, ask me to restore your "
+            "memory from your backup.")
 
     if degraded:
         out.append("")

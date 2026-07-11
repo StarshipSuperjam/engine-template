@@ -172,17 +172,19 @@ class TestDegradedNotice(unittest.TestCase):
         self.assertNotIn("your committed map file is missing", corrupt)
 
     def test_a_rotting_ledger_shows_a_memory_health_heads_up_with_a_remedy(self):
-        # #396 U07b: a positive unreadable-line count surfaces a peer-voice heads-up that reassures (rest of
-        # recall intact) and names a remedy (the backup) — never a bare alarm a non-engineer can't act on.
+        # #396 U07b: a positive unreadable-line count surfaces a peer-voice heads-up that reassures (what could
+        # be read is intact) and names a CONCRETE remedy (ask to restore) — never a bare alarm, and never the
+        # over-claim "nothing is lost" (an unparseable line's content IS gone).
         dash = boot.render_dashboard(_signals(ledger_malformed=3))
         self.assertIn("Your saved memory has 3 unreadable lines", dash)
-        self.assertIn("the rest of your recall is intact", dash)
-        self.assertIn("backup can restore a clean copy", dash)
+        self.assertIn("everything I could read is intact", dash)
+        self.assertIn("ask me to restore your memory from your backup", dash)   # a concrete action, like its siblings
 
-    def test_the_memory_health_heads_up_is_singular_for_one_line(self):
+    def test_the_memory_health_heads_up_agrees_in_number_for_one_line(self):
         dash = boot.render_dashboard(_signals(ledger_malformed=1))
-        self.assertIn("1 unreadable line.", dash)          # no plural 's'
+        self.assertIn("1 unreadable line,", dash)          # singular noun, no plural 's'
         self.assertNotIn("1 unreadable lines", dash)
+        self.assertNotIn(" them ", dash)                   # number-agnostic phrasing: no plural pronoun for one line
 
     def test_a_healthy_ledger_shows_no_memory_health_heads_up(self):
         # The normal state (0 / None) — and a torn-only ledger (gathered as 0) — surface nothing.

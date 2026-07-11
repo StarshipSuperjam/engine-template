@@ -225,7 +225,11 @@ def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: in
         if torn_raw:
             # Preserve the torn trailing fragment verbatim, un-terminated (no record terminator) — so the new
             # ledger ends in the same healable tail the old one did, and the next append heals it as always.
-            os.write(fd, torn_raw)
+            # Looped like ledger.append (unlike the folded-record writes above): these are the exact recoverable
+            # bytes this fix exists to preserve, so a partial write must never truncate the healable fragment.
+            view = memoryview(torn_raw)
+            while view:
+                view = view[os.write(fd, view):]
         ledger._durable_fsync(fd)
     finally:
         os.close(fd)

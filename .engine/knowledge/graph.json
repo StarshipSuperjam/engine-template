@@ -4119,7 +4119,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:800838db39bcc4f3bc54b6cdffcb31e9907f334d7927f1b04f4c8e61e8224974",
+        "fingerprint": "sha256:d693c6033bbba1be47867da75fb9abc622b51eeebea8d657ff5b1789468f04ff",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4255,7 +4255,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:03f2121bb439c0065f7ec2425e7489fae3f397dec6b87aad54d59beb32644925",
+        "fingerprint": "sha256:fcae58b5d70953a797a0b312afe32131bda02a906341f7be7328ed9cfd023927",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -5989,7 +5989,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f7d634278616d24d6d5ba8415eb0baacf47259e18f76bc7b487851b937ddeaad",
+        "fingerprint": "sha256:74a9b447baba4ce802a83fdc856e47931d5bca80b48b7b118329de454586721e",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
