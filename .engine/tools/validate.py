@@ -1596,8 +1596,10 @@ def run_unit(unit, target=None, ctx=None):
 # a nudge, not a wall (validation README §"Tier versus context"/§"Execution mapping"). The handlers below
 # return ONLY hooks.proceed()/hooks.inject() — never block()/decide(...): on a block-eligible event
 # (PreToolUse) the harness WOULD honor a block or a deny, so keeping to proceed/inject is what holds the
-# block budget to modes + close (a regression test in test_validate pins this — the block-budget coherence
-# check cannot see a hook that registers no invariant). `hooks` is imported LAZILY inside each handler:
+# block budget to modes + close. The block-budget coherence check CANNOT see this (validate registers no
+# invariant, and PreToolUse is eligible anyway), so a regression test in test_validate exercises each
+# handler across finding states as a backstop — code discipline, not a structural guarantee: a NEW hook
+# handler added here later needs its own never-block test. `hooks` is imported LAZILY inside each handler:
 # validate must import on the stdlib alone (the first-run bootstrap), and hooks imports validate.
 
 _MUTATING_FILE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
@@ -1610,14 +1612,16 @@ def local_ctx() -> dict:
     return {"pr_body": get_pr_body(None), "pr_author": get_pr_author(), "pr_labels": get_pr_labels()}
 
 
-def _safe_collect(suite: str, ctx: dict, *, rule_filter=None) -> list:
-    """collect() for a LOCAL advisory: return [] on ANY total failure (an unloadable suites.json / rules
-    file) rather than raising, so an advisory run degrades to silence and never strands the session — the
-    local fail-open the README fixes (a broken kind never strands the working session; teeth are at CI).
-    A per-rule kind error is already a fail-closed FINDING inside collect() and still surfaces in the
-    nudge; this guards only the total-config failure that locally is advice-that-couldn't-run."""
+def _safe_collect(suite: str, ctx: dict = None, *, rule_filter=None) -> list:
+    """collect() for a LOCAL advisory: return [] on ANY failure rather than raising, so an advisory run
+    degrades to silence and never strands the session — the local fail-open the README fixes (a broken
+    kind never strands the working session; teeth are at CI). A per-rule kind error is already a
+    fail-closed FINDING inside collect() and still surfaces in the nudge; this guards the total-config
+    failure that locally is advice-that-couldn't-run. `ctx` defaults to local_ctx() BUILT INSIDE the
+    guard — get_pr_body raises on a malformed $GITHUB_EVENT_PATH (unlike its siblings), so building the
+    ctx here keeps even that off the hook path (the CI ctx in main() is unchanged and still fails loud)."""
     try:
-        return collect(suite, ctx, with_source=True, rule_filter=rule_filter)
+        return collect(suite, local_ctx() if ctx is None else ctx, with_source=True, rule_filter=rule_filter)
     except Exception:  # noqa: BLE001 — a local advisory never raises into a hook; the gate is CI
         return []
 
@@ -1671,7 +1675,7 @@ def _precommit_handler(payload: dict) -> dict:
     import hooks  # lazy (stdlib-only bootstrap; hooks imports validate)
     if not hooks._is_git_commit(payload):
         return hooks.proceed()
-    context = _nudge_context(_safe_collect("pre-commit", local_ctx()))
+    context = _nudge_context(_safe_collect("pre-commit"))   # ctx built inside the guard (fail-open)
     return hooks.inject(context) if context else hooks.proceed()
 
 
@@ -1685,7 +1689,7 @@ def _accept_handler(payload: dict) -> dict:
     if not path:
         return hooks.proceed()
     touched = {_abs_under_root(path)}
-    findings = _safe_collect("pre-commit", local_ctx(), rule_filter=lambda r: _rule_touches(r, touched))
+    findings = _safe_collect("pre-commit", rule_filter=lambda r: _rule_touches(r, touched))
     context = _nudge_context(findings)
     return hooks.inject(context) if context else hooks.proceed()
 
@@ -1695,7 +1699,7 @@ def run_files(paths: list) -> int:
     manual incremental check use it). Runs the pre-commit rules whose target selects any given path,
     reports, and exits 0 (a local nudge never gates)."""
     touched = {_abs_under_root(p) for p in paths}
-    findings = _safe_collect("pre-commit", local_ctx(), rule_filter=lambda r: _rule_touches(r, touched))
+    findings = _safe_collect("pre-commit", rule_filter=lambda r: _rule_touches(r, touched))
     report("pre-commit", findings, False)  # local-nudge context: advisory, never gates
     return 0
 

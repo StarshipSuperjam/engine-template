@@ -270,13 +270,17 @@ class TestLocalTriggers(unittest.TestCase):
     _HARD = [{"severity": "hard", "message": "a hard finding"}]
 
     # --- the block-budget guard the coherence check cannot see: proceed/inject ONLY, never block/decide ---
-    def test_precommit_handler_never_blocks_or_decides(self):
-        for findings in ([], self._HARD, [{"severity": "soft", "message": "s"}]):
-            with mock.patch.object(validate, "collect", return_value=findings):
-                d = validate._precommit_handler(self._COMMIT)
-            self.assertIn(d.get("action"), ("proceed", "inject"), findings)
-            self.assertNotEqual(d.get("action"), "block")
-            self.assertNotEqual(d.get("action"), "decide")
+    def test_local_handlers_never_block_or_decide(self):
+        # both hook handlers, across finding states — the backstop for the block budget on the
+        # block-eligible PreToolUse event (a NEW handler added later needs its own such test).
+        cases = ((validate._precommit_handler, self._COMMIT), (validate._accept_handler, self._EDIT))
+        for handler, payload in cases:
+            for findings in ([], self._HARD, [{"severity": "soft", "message": "s"}]):
+                with mock.patch.object(validate, "collect", return_value=findings):
+                    d = handler(payload)
+                self.assertIn(d.get("action"), ("proceed", "inject"), (handler.__name__, findings))
+                self.assertNotEqual(d.get("action"), "block")
+                self.assertNotEqual(d.get("action"), "decide")
 
     def test_precommit_nudges_on_a_hard_finding_and_is_silent_when_clean(self):
         with mock.patch.object(validate, "collect", return_value=self._HARD):
@@ -316,6 +320,16 @@ class TestLocalTriggers(unittest.TestCase):
     def test_safe_collect_fails_open_on_a_broken_run(self):
         with mock.patch.object(validate, "collect", side_effect=RuntimeError("boom")):
             self.assertEqual(validate._safe_collect("pre-commit", {}), [])   # no raise, no findings
+
+    def test_precommit_fails_open_on_a_malformed_event_file(self):
+        # get_pr_body raises on a malformed $GITHUB_EVENT_PATH (unlike its siblings); the ctx is built
+        # INSIDE _safe_collect's guard, so the nudge degrades to silence and never raises into the hook.
+        d = tempfile.mkdtemp()
+        ev = os.path.join(d, "event.json")
+        with open(ev, "w", encoding="utf-8") as fh:
+            fh.write("{ not valid json")
+        with mock.patch.dict(os.environ, {"GITHUB_EVENT_PATH": ev}):
+            self.assertEqual(validate._precommit_handler(self._COMMIT), {"action": "proceed"})
 
     def test_local_ctx_degrades_with_no_event_so_no_misleading_nudge(self):
         # with no GITHUB_EVENT_PATH the ctx is empty (None/[]) and a clean suite yields no nudge

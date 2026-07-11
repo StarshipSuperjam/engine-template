@@ -313,14 +313,14 @@ def _run_preclose_advisory() -> None:
     (close/README), so this notice is best-effort; the merge-time CI run is the gate."""
     try:
         findings = validate.collect("pre-close", validate.local_ctx(), with_source=True)
-    except Exception:  # noqa: BLE001 — advisory only: a broken suite/rule must never reach the gate above
-        return
-    hard = [f for f in findings if f.get("severity") == "hard"]
-    if hard:
-        sys.stderr.write(
-            "A local advisory check flagged the following as you finish — it does NOT block, and the "
-            "automatic check that runs when a change is proposed for merge is the gate:\n"
-            + "\n".join("  - " + validate.fmt(f) for f in hard) + "\n")
+        hard = [f for f in findings if f.get("severity") == "hard"]
+        if hard:
+            sys.stderr.write(
+                "A local advisory check flagged the following as you finish — it does NOT block, and the "
+                "automatic check that runs when a change is proposed for merge is the gate:\n"
+                + "\n".join("  - " + validate.fmt(f) for f in hard) + "\n")
+    except Exception:  # noqa: BLE001 — advisory only: nothing here (collect, format, or write) may reach
+        return          # the disposition gate above; a broken suite/rule/finding degrades to silence
 
 
 # ---- the turn-close Stop gate ---------------------------------------------------------------
