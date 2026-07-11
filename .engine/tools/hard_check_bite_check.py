@@ -177,6 +177,35 @@ def _cover_script_instance(rule: dict, fixture_root: str, root: str, tier: str) 
     return [validate.finding(tier, _no_bite_msg(f"check '{rule.get('id')}'", fdir, expect, found, root))]
 
 
+def _cover_module_kind(kind: str, fixture_root: str, root: str, tier: str) -> list:
+    """Prove one MODULE-provided kind bites its fixture. The closed core kinds each have a bespoke target
+    driver (_build_closed_unit); a module kind is generic, so its fixture dir `kind-<name>/` declares its own
+    run: a transient `rule.json` (the rule to run, of this kind), an optional `target.json` (the run_unit
+    target — a seeded `ctx`/`path`/`env` overlay), and an `expect.json`. Mirrors _cover_script_instance but
+    keyed on the kind name; a present kind with no fixture fails closed via _missing_msg (validation README
+    "a module-added kind ... the meta-check fails closed on a present in-scope kind with no fixture")."""
+    label = f"`{kind}` check kind"
+    fdir = os.path.join(fixture_root, f"kind-{kind}")
+    na = os.path.join(fdir, "not-applicable.json")
+    if not os.path.isdir(fdir):
+        return [validate.finding(tier, _missing_msg(label, fdir, root))]
+    if os.path.isfile(na):
+        return _na_note(label, na, tier)
+    try:
+        rule = _load(os.path.join(fdir, "rule.json"))
+        expect = _load(os.path.join(fdir, "expect.json"))
+        target_path = os.path.join(fdir, "target.json")
+        target = _load(target_path) if os.path.isfile(target_path) else {}
+        _passed, found = validate.run_unit(rule, target, {})
+    except Exception as exc:
+        return [validate.finding(tier, f"The {label} could not be proven to bite: its negative fixture "
+                f"under {os.path.relpath(fdir, root)} is malformed or unreadable ({exc}). Fix the fixture so the "
+                f"engine can confirm this check catches a bad input.")]
+    if _bit(found, expect):
+        return []
+    return [validate.finding(tier, _no_bite_msg(label, fdir, expect, found, root))]
+
+
 def _na_note(unit, na_path: str, tier: str) -> list:
     """Honor a disclosed not-applicable as a loud SOFT note (the unit is treated as covered). The disclosure must
     carry the exact bounded property; anything else is rejected as a hard finding (no silent self-classification)."""
@@ -224,15 +253,20 @@ def evaluate(*, root: str | None = None, check_dir: str | None = None, fixture_r
     (default: every kind in `registry`); `check_dir` is enumerated for custom/script instances; `fixture_root` is
     where the fixtures live."""
     root = root or validate.ROOT
-    registry = registry if registry is not None else validate.REGISTRY
+    # Default to the RESOLVED registry (core + module-provided kinds discovered by presence), the SAME seam
+    # the dispatcher reads, so a module kind the validator would run is a kind this meta-check demands a fixture
+    # for — the two rosters cannot desync (a desync would let a green no-op enforcement escape the bite proof).
+    registry = registry if registry is not None else validate.resolved_registry()
     check_dir = check_dir if check_dir is not None else validate.CHECK_DIR
     fixture_root = fixture_root if fixture_root is not None else os.path.join(root, _FIXTURES_REL)
     findings = []
     for kind in _roster_kinds(registry, kinds):
         if kind == "custom/script":
             findings.extend(_cover_custom_script_kind(fixture_root, root, tier))
-        else:
+        elif kind in validate._CLOSED_CORE_KINDS:  # a closed core kind — bespoke per-kind fixture driver
             findings.extend(_cover_closed_kind(kind, fixture_root, root, tier))
+        else:  # a module-provided kind — the generic driver (its fixture declares its own target)
+            findings.extend(_cover_module_kind(kind, fixture_root, root, tier))
     if os.path.isdir(check_dir):
         for rule_path in sorted(_glob.glob(os.path.join(check_dir, "*.json"))):
             try:

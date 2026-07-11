@@ -118,6 +118,15 @@ _BASE_CHECK_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".engine", "check")
 _BLANKET_TOOLS_PREFIX = ".engine/tools/"  # the fail-safe fallback coverage (the pre-D-268 blanket)
 _DERIVE = object()  # sentinel: is_guardrail/flagged_changes derive the check-script set from disk (the default)
+# A module-provided check-kind callable (D-044/D-119/D-268): `.engine/tools/<module>/kind_<name>.py` runs a
+# validation kind's enforcement in CI but carries NO `params.script`, so the check-script derivation above
+# structurally cannot reach it — yet neutering it (a `check` that always passes) silently disables every rule of
+# that kind. It is guarded here by a PATH PROPERTY (the one-level filename↔kind convention the validator
+# discovers by), not a disk scan: fail-safe with nothing to read, and it covers the file even when it is added.
+# One level deep matches module-subdir ownership; a top-level `.engine/tools/kind_*.py` is not a discovered kind
+# (and validate.py itself is floored). Add-vs-modify caveat: a brand-new kind file is a pure addition, so the
+# FIRST install still enters with no ack (WEAKENING_STATUS excludes 'added') — only a later weakening is gated.
+_KIND_CALLABLE_RE = re.compile(r"^\.engine/tools/[^/]+/kind_[^/]+\.py$")
 
 
 def _derive_check_scripts(check_dir: str | None = None) -> set | None:
@@ -151,6 +160,8 @@ def is_guardrail(path: str, derived_scripts=_DERIVE) -> bool:
     if derived_scripts is _DERIVE:
         derived_scripts = _derive_check_scripts()
     if path.startswith(GUARDRAIL_PREFIXES) or path in GUARDRAIL_EXACT:
+        return True
+    if _KIND_CALLABLE_RE.match(path):  # a module-provided check-kind callable (enforcement logic, no params.script)
         return True
     if derived_scripts is None:
         return path.startswith(_BLANKET_TOOLS_PREFIX)  # fail-safe: derivation failed -> guard the whole dir

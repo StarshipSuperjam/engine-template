@@ -419,10 +419,11 @@ def block_eligible_registrations() -> list:
 
 
 def check_coherence(tier: str = "hard") -> list:
-    """All five coherence legs over the present set: dependency (reused) + ownership + the BIDIRECTIONAL
+    """All coherence legs over the present set: dependency (reused) + ownership + the BIDIRECTIONAL
     wiring leg — forward (declared->applied) AND reverse (applied->declared, the orphan-wire leg) —
-    + block-budget (only PreToolUse/Stop may hard-block). Returns a flat list of finding.v1 dicts. The
-    library entry the module manager calls after any install / uninstall."""
+    + block-budget (only PreToolUse/Stop may hard-block) + kind-discovery (a module-provided check-kind
+    file that shadows a core kind, collides with another, or cannot be imported). Returns a flat list
+    of finding.v1 dicts. The library entry the module manager calls after any install / uninstall."""
     manifests = discover_manifests()
     dep = validate.coherence_findings(
         [m for _path, m in manifests], tier,
@@ -441,7 +442,11 @@ def check_coherence(tier: str = "hard") -> list:
     block = validate.block_budget_findings(
         block_eligible_registrations(), tier,
         "Only PreToolUse and Stop may hard-block; move the block to an eligible event before merging.")
-    return dep + own + wiring_leg + orphan_leg + block
+    kinds = validate.kind_discovery_findings(
+        tier,
+        "A module-provided check kind is discovered by the name of its file; two kinds cannot share a "
+        "name and none may reuse a core kind's.")
+    return dep + own + wiring_leg + orphan_leg + block + kinds
 
 
 # The artifact warrant (D-261) for a coherence result: what a green check shows, what it does NOT, and
