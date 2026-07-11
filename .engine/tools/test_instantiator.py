@@ -930,53 +930,41 @@ class TestSeedReadme(unittest.TestCase):
 
 # ==== the root LICENSE clear (issue #147, D-221/D-222) ===============================================
 
-def _template_license_text(holder="StarshipSuperjam", year="2026"):
-    """Reconstruct a full LICENSE (copyright line + body) from the recognizer's OWN seed, for fixtures — so the
-    fixtures can never silently drift from what the recognizer accepts. With the template author's holder this is the
-    engine's traveled license (cleared); with any other holder it's an adopter's own license (preserved)."""
-    return ("MIT License\n\nCopyright (c) " + year + " " + holder + "\n\n"
-            + inst._TEMPLATE_LICENSE_SEED.split("\n", 2)[2])
+def _template_license_text(holder="StarshipSuperjam"):
+    """Reconstruct a full LICENSE from the recognizer's OWN seed, for fixtures — so the fixtures can never silently
+    drift from what the recognizer accepts. With the template author (StarshipSuperjam) named as Licensor this is the
+    engine's traveled license (cleared); with any other holder it is an adopter's own license (preserved)."""
+    return inst._TEMPLATE_LICENSE_SEED.replace("StarshipSuperjam", holder)
 
 
 class TestLicenseRecognizer(unittest.TestCase):
-    def test_holder_constant_is_the_committed_template_author(self):
-        # A typo here would silently stop the clear on every generated repo — pin the exact holder.
-        self.assertEqual(inst._TEMPLATE_LICENSE_HOLDER, "StarshipSuperjam")
-
     def test_the_exact_template_license_is_recognized(self):
         self.assertTrue(inst._is_template_license(_template_license_text()))
 
-    def test_a_year_bump_still_matches(self):
-        # leg 2 is a year-agnostic holder substring, so the template author's own license ages without going unseen
-        self.assertTrue(inst._is_template_license(_template_license_text(year="2027")))
-
-    def test_crlf_trailing_newline_and_bom_variance_still_match(self):
+    def test_crlf_trailing_newline_blank_line_and_bom_variance_still_match(self):
         base = _template_license_text()
         self.assertTrue(inst._is_template_license(base.replace("\n", "\r\n")), "CRLF (a Windows-saved copy)")
         self.assertTrue(inst._is_template_license(base.rstrip("\n")), "a missing trailing newline")
-        self.assertTrue(inst._is_template_license("\ufeff" + base), "a leading byte-order mark")
+        self.assertTrue(inst._is_template_license("﻿" + base), "a leading byte-order mark")
+        self.assertTrue(inst._is_template_license(base.replace("\n\n", "\n\n\n")), "extra blank lines")
 
-    def test_an_adopters_own_mit_with_a_different_holder_is_not_matched(self):
-        # The catastrophic false-positive guard: same body, but THEIR name on the copyright → preserved, never deleted.
-        self.assertFalse(inst._is_template_license(_template_license_text(holder="Acme Corp")))
-
-    def test_a_holder_that_only_embeds_the_author_substring_is_not_matched(self):
-        # The holder must EQUAL the template author, not merely contain it — an unanchored substring test would
-        # false-match (and DELETE) an adopter whose name embeds the author string. Same body, these holders → preserve.
-        for holder in ("StarshipSuperjamson", "MyStarshipSuperjam Inc", "The StarshipSuperjam Foundation",
-                       "starshipsuperjam"):     # a case-variant is a different name too → preserve on doubt
+    def test_a_renamed_licensor_is_preserved_never_deleted(self):
+        # The catastrophic false-positive guard: our EXACT text, but THEIR name on the Licensor/copyright →
+        # normalizes differently → preserved, never deleted. Includes near-miss names that merely embed the author.
+        for holder in ("Acme Corp", "StarshipSuperjamson", "The StarshipSuperjam Foundation", "starshipsuperjam"):
             self.assertFalse(inst._is_template_license(_template_license_text(holder=holder)),
-                             f"holder {holder!r} merely embeds the author — must be preserved, never cleared")
+                             f"licensor {holder!r} is not the template author — must be preserved, never cleared")
 
-    def test_a_non_mit_license_is_not_matched(self):
+    def test_the_apache_text_without_the_commons_clause_is_not_matched(self):
+        # Plain Apache-2.0 (no Commons Clause preamble) is a different license — an adopter's own choice → preserve.
+        # Proves the recognizer keys on the WHOLE license (the no-Sell condition included), not merely "Apache-ness".
+        seed = inst._TEMPLATE_LICENSE_SEED
+        apache_only = seed[seed.index("Version 2.0, January 2004"):]
+        self.assertFalse(inst._is_template_license(apache_only))
+
+    def test_a_stock_mit_license_is_not_matched(self):
         self.assertFalse(inst._is_template_license(
-            "Apache License\n\nCopyright (c) 2026 StarshipSuperjam\n\nVersion 2.0, January 2004 — terms differ.\n"))
-
-    def test_a_second_copyright_line_preserves(self):
-        # An adopter who ADDED their own copyright alongside the traveled one → two lines → not the pristine seed → keep.
-        two = ("MIT License\n\nCopyright (c) 2026 Acme Corp\nCopyright (c) 2026 StarshipSuperjam\n\n"
-               + inst._TEMPLATE_LICENSE_SEED.split("\n", 2)[2])
-        self.assertFalse(inst._is_template_license(two))
+            "MIT License\n\nCopyright (c) 2026 StarshipSuperjam\n\nPermission is hereby granted, free of charge...\n"))
 
     def test_empty_or_none_is_not_matched(self):
         self.assertFalse(inst._is_template_license(""))
@@ -1018,7 +1006,7 @@ class TestSeedLicense(unittest.TestCase):
 
     def test_brownfield_adopter_license_is_preserved_untouched(self):
         said = []
-        mine = _template_license_text(holder="Acme Corp")     # an adopter's own MIT, their name on the copyright
+        mine = _template_license_text(holder="Acme Corp")     # our text, but THEIR name on the Licensor/copyright — their own license
         with tempfile.TemporaryDirectory() as d:
             inst.os.makedirs(os.path.join(d, ".engine"))
             with inst._redirect_root(d):
@@ -1174,9 +1162,9 @@ class TestRepoLicenseIsTheTemplateSeed(unittest.TestCase):
         license_text = inst._read_text_or(os.path.join(validate.ROOT, "LICENSE"), "")
         self.assertTrue(
             inst._is_template_license(license_text),
-            "the template's root LICENSE must stay recognizable as the engine's shipped MIT seed; if it was "
-            "re-worded or its copyright holder changed, update inst._TEMPLATE_LICENSE_SEED / "
-            "inst._TEMPLATE_LICENSE_HOLDER to match, or first-run setup will stop clearing the traveled license and "
+            "the template's root LICENSE must stay recognizable as the engine's shipped template-license seed "
+            "(Apache-2.0 + Commons Clause); if it was re-worded (including a copyright-year bump), update "
+            "inst._TEMPLATE_LICENSE_SEED to match, or first-run setup will stop clearing the traveled license and "
             "the template author's copyright would govern a generated repo's product (R29).")
 
 

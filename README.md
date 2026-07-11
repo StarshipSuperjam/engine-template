@@ -62,4 +62,7 @@ The Engine is pre-1.0 and under active construction toward its first milestone. 
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Source-available under the [Apache License 2.0 with the Commons Clause](LICENSE). You may use, modify, fork,
+and redistribute the Engine, but you may not sell it — the Commons Clause removes the right to sell a product or
+service whose value derives substantially from the Engine. This is **not** an OSI-approved open-source license,
+so GitHub shows it as "Other" rather than a named license.
