@@ -18,7 +18,11 @@ and well-formed, and keeps the result as ordinary files in your project under a 
 
 You stay in control of how much detail to capture. You can write just enough to get moving, or take more time
 up front to think each piece through so there are fewer surprises later — the engine names that trade-off and
-lets you choose, and it leans toward keeping things light unless you ask for more.
+lets you choose, and it leans toward keeping things light unless you ask for more. For a product meant to last,
+the fuller path can also write up the guiding principles behind it, an overview of how it fits together (with a
+simple diagram), and guides for the people who will use it. These fuller write-ups are drafted for you from a
+starting shape, but they are yours to get right — unlike your description under `docs/spec/`, the engine does
+not check them.
 
 Each piece of your description moves through three plain stages as it matures: **not yet described** (a piece
 you have named but not written up yet), **in progress** (you are writing it), and **settled** (you have looked

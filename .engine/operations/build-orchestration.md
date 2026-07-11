@@ -158,7 +158,10 @@ artifact), group the work under native GitHub phases at Plan — the Milestone *
 duplicating one on a re-run, then assign each open work Issue to its phase (`gh issue edit <n> --milestone
 <phase>`). The phase names are the build order's own, shown to the operator in plain language — never engine or
 review vocabulary. **Absent a build order there is nothing to consume and the build plans its phase itself.** The
-build order is a consumed input, authored by the module, never here.
+build order is a consumed input, authored by the module, never here. **Before a phase's work starts, confirm it
+is ready** — run `.engine/tools/build_readiness.py check --phase <phase>`: it names any piece the phase
+schedules that is not yet settled, since building a phase from an unsettled description builds from an
+incomplete spec. Advisory, never a merge gate.
 
 **Checking against the settled description.** When a build realizes a product-design work item, resolve the
 **settled description** at Plan — `.engine/tools/spec_referent.py resolve` on the build Issue's `Builds to:` work
