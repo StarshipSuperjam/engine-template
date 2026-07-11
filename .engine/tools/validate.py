@@ -1374,31 +1374,42 @@ def _discover_module_kinds(kind_dir: str, core_names):
     claimed: dict = {}  # kind name -> the first file that claimed it (to catch duplicates loudly)
     if not os.path.isdir(kind_dir):
         return valid, faults
-    for sub in sorted(os.listdir(kind_dir)):
-        subdir = os.path.join(kind_dir, sub)
-        if not os.path.isdir(subdir):
-            continue
-        for entry in sorted(os.listdir(subdir)):
-            match = _KIND_FILE_RE.match(entry)
-            if not match:
+    # Snapshot the core registry so a discovered kind's IN-PROCESS import cannot persist a mutation of it — the
+    # restore below undoes any such tampering (the S4 hardening), applied on EVERY discovery path (so both
+    # resolved_registry and kind_discovery_findings are protected, not just the former).
+    saved = dict(REGISTRY)
+    try:
+        for sub in sorted(os.listdir(kind_dir)):
+            subdir = os.path.join(kind_dir, sub)
+            if not os.path.isdir(subdir):
                 continue
-            name = match.group(1)
-            rel = os.path.relpath(os.path.join(subdir, entry), ROOT)
-            if name in core_names:  # never shadow a core kind (the core set is closed)
-                faults.append({"kind": name, "path": rel,
-                               "reason": f"names the closed core kind '{name}', which a module may not redefine"})
-                continue
-            if name in claimed:  # two provided files claim the same kind name -> both unresolvable
-                faults.append({"kind": name, "path": rel,
-                               "reason": f"provides kind '{name}', already provided by '{claimed[name]}'"})
-                valid.pop(name, None)
-                continue
-            claimed[name] = rel
-            fn, reason = _load_kind_callable(os.path.join(subdir, entry), name)
-            if fn is None:
-                faults.append({"kind": name, "path": rel, "reason": reason})
-                continue
-            valid[name] = fn
+            for entry in sorted(os.listdir(subdir)):
+                match = _KIND_FILE_RE.match(entry)
+                if not match:
+                    continue
+                name = match.group(1)
+                rel = os.path.relpath(os.path.join(subdir, entry), ROOT)
+                if name in core_names:  # never shadow a core kind (the core set is closed)
+                    faults.append({"kind": name, "path": rel,
+                                   "reason": f"names the closed core kind '{name}', which a module may not redefine"})
+                    continue
+                if name in claimed:  # two provided files claim the same kind name -> both unresolvable
+                    faults.append({"kind": name, "path": rel,
+                                   "reason": f"provides kind '{name}', already provided by '{claimed[name]}'"})
+                    valid.pop(name, None)
+                    continue
+                claimed[name] = rel
+                fn, reason = _load_kind_callable(os.path.join(subdir, entry), name)
+                if fn is None:
+                    faults.append({"kind": name, "path": rel, "reason": reason})
+                    continue
+                valid[name] = fn
+    except OSError:  # an unreadable subtree (permission / TOCTOU) -> return what resolved so far; never raises
+        pass
+    finally:
+        if REGISTRY != saved:  # a discovered kind's import mutated the core registry -> undo it (never persists)
+            REGISTRY.clear()
+            REGISTRY.update(saved)
     return valid, faults
 
 
@@ -1411,14 +1422,9 @@ def resolved_registry(kind_dir: str | None = None) -> dict:
     they read the SAME seam and their kind rosters cannot desync. A colliding/unimportable file is
     excluded here (surfaced by kind_discovery_findings) so its rules hit the fail-closed dangling
     path, never a silent bind."""
-    core = dict(REGISTRY)  # snapshot BEFORE discovery imports run, so a discovered kind can't rewrite core for this run
+    core = dict(REGISTRY)  # snapshot BEFORE discovery; _discover_module_kinds restores REGISTRY if an import tampers with it
     kind_dir = kind_dir or env_override_path("ENGINE_KIND_DIR", TOOLS_DIR)
-    try:
-        valid, _faults = _discover_module_kinds(kind_dir, set(core))
-    finally:
-        if REGISTRY != core:  # a discovered kind's import mutated the core registry -> undo it (never persists)
-            REGISTRY.clear()
-            REGISTRY.update(core)
+    valid, _faults = _discover_module_kinds(kind_dir, set(core))
     return {**valid, **core}  # core wins by construction — a discovered kind cannot shadow it
 
 
@@ -1455,8 +1461,14 @@ def _run_kind(registry: dict, rule: dict, ctx: dict):
                        f"unregistered kind '{kind}'; cannot evaluate (fails closed).")]
     try:
         verdict, found = fn(rule, ctx)
-        if not isinstance(found, list) or not all(isinstance(item, dict) for item in found):
-            raise TypeError("a check kind must return (pass/fail, a list of findings)")
+        # The findings are iterated by report()/fmt() and the gate loops OUTSIDE this try, which hard-index
+        # `severity`/`message`; so validate the FULL finding.v1 shape here (not merely list-of-dicts), or a kind
+        # returning e.g. [{}] would pass and then crash downstream with KeyError instead of failing closed.
+        if not isinstance(found, list) or not all(
+                isinstance(item, dict) and item.get("severity") in ("hard", "soft")
+                and isinstance(item.get("message"), str) for item in found):
+            raise TypeError("a check kind must return (pass/fail, a list of finding.v1 objects "
+                            "{severity: hard|soft, message: str, location})")
     except Exception as exc:  # an erroring OR malformed callable fails closed
         return False, [finding("hard", f"Check rule '{rule.get('id')}' (kind "
                        f"'{kind}') errored and could not evaluate: {exc}")]

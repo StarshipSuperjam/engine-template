@@ -477,15 +477,47 @@ class TestModuleKindDiscovery(unittest.TestCase):
         self.assertTrue(any("no `check(rule, ctx)`" in f["message"] for f in faults), faults)
 
     def test_malformed_return_fails_closed_cleanly(self):
-        # A kind that returns (bool, <not a list of findings>) must fail closed with a clean finding, never crash
-        # the annotation/report loops that iterate the findings OUTSIDE the dispatch try.
+        # A kind that returns anything other than (bool, [finding.v1, ...]) must fail closed with a clean finding,
+        # never crash the annotation/report/gate loops that iterate the findings OUTSIDE the dispatch try. This
+        # covers BOTH the outer shape (not a list) AND a list of dicts that are not finding.v1 (no severity/message).
+        for label, body in (
+                ("not a list", "def check(rule, ctx):\n    return True, 'not a list'\n"),
+                ("empty dict", "def check(rule, ctx):\n    return True, [{}]\n"),
+                ("no severity", "def check(rule, ctx):\n    return True, [{'foo': 'bar'}]\n"),
+                ("bad severity", "def check(rule, ctx):\n    return True, [{'severity': 'weird', 'message': 'x'}]\n"),
+                ("no message", "def check(rule, ctx):\n    return True, [{'severity': 'hard'}]\n")):
+            with self.subTest(shape=label):
+                tmp = self._kind_dir()
+                _write_kind(tmp, "modw", "weird", body)
+                with mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": tmp}):
+                    reg = validate.resolved_registry()
+                    verdict, found = validate._run_kind(reg, {"id": "w", "kind": "weird", "tier": "hard"}, {})
+                self.assertFalse(verdict)
+                self.assertTrue(any(f["severity"] == "hard" and "could not evaluate" in f["message"] for f in found))
+
+    def test_malformed_finding_does_not_crash_the_gate(self):
+        # The downstream gate/report loops hard-index severity/message; drive a malformed kind through run_check
+        # (the by-id gate) and confirm it fails closed (exit 1) WITHOUT raising, not a KeyError traceback.
         tmp = self._kind_dir()
-        _write_kind(tmp, "modweird", "weird", "def check(rule, ctx):\n    return True, 'not a list'\n")
-        with mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": tmp}):
-            reg = validate.resolved_registry()
-            verdict, found = validate._run_kind(reg, {"id": "w", "kind": "weird", "tier": "hard"}, {})
-        self.assertFalse(verdict)
-        self.assertTrue(any(f["severity"] == "hard" and "could not evaluate" in f["message"] for f in found))
+        _write_kind(tmp, "modw", "weird", "def check(rule, ctx):\n    return True, [{'foo': 'bar'}]\n")
+        saved = validate.load_rules
+        validate.load_rules = lambda: [{"id": "engine/check/weird-rule", "kind": "weird", "tier": "hard",
+                                        "message": "m", "suites": ["CI"]}]
+        self.addCleanup(setattr, validate, "load_rules", saved)
+        with mock.patch.dict(os.environ, {"ENGINE_KIND_DIR": tmp}), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(validate.run_check("engine/check/weird-rule", {}), 1)  # fail-closed, no crash
+
+    def test_kind_discovery_findings_also_restores_the_core_registry(self):
+        # The restore lives in _discover_module_kinds, so BOTH resolved_registry AND kind_discovery_findings undo an
+        # import-time mutation of the core registry — not just the former (deliverable-gate finding).
+        tmp = self._kind_dir()
+        _write_kind(tmp, "modevil", "sneaky",
+                    "import validate\n"
+                    "validate.REGISTRY['schema'] = lambda rule, ctx: (True, [])\n"
+                    "def check(rule, ctx):\n    return True, []\n")
+        real_schema = validate.REGISTRY["schema"]
+        validate.kind_discovery_findings(kind_dir=tmp)
+        self.assertIs(validate.REGISTRY["schema"], real_schema)
 
     def test_demo_kinds_self_check_passes(self):
         # The operator-runnable discovery demo is a falsification that can fail; it uses a temp dir and the REAL
