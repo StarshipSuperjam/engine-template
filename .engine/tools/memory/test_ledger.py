@@ -98,6 +98,31 @@ class LedgerResilienceTests(unittest.TestCase):
         self.assertTrue(result.torn_trailing)
         self.assertEqual(result.malformed, 0)
 
+    def test_torn_raw_captures_the_exact_trailing_bytes(self):
+        """#396 U07a: a torn trailing fragment's exact bytes are captured (torn_raw), so a rewriter
+        (compaction) can re-emit it verbatim instead of erasing a healable tail."""
+        ledger.append({"role": "decision", "body": "kept"}, path=self.path)
+        self._raw_append('{"role":"lesson","body":"half-written, no newline"')  # no terminator
+        result = ledger.read(path=self.path)
+        self.assertTrue(result.torn_trailing)
+        self.assertEqual(result.torn_raw, b'{"role":"lesson","body":"half-written, no newline"')
+
+    def test_torn_raw_is_none_on_a_clean_ledger(self):
+        ledger.append({"role": "decision", "body": "clean"}, path=self.path)
+        result = ledger.read(path=self.path)
+        self.assertFalse(result.torn_trailing)
+        self.assertIsNone(result.torn_raw)
+
+    def test_torn_raw_preserves_raw_bytes_of_a_multibyte_split(self):
+        """A crash can split a multibyte UTF-8 character; torn_raw must carry the EXACT bytes, not the
+        errors='replace' decoding (which would mangle them and change what a later append heals)."""
+        ledger.append({"role": "decision", "body": "kept"}, path=self.path)
+        with open(self.path, "ab") as fh:
+            fh.write(b'{"role":"lesson","body":"\xe4\xb8')  # JSON prefix then a split 3-byte char, no newline
+        result = ledger.read(path=self.path)
+        self.assertTrue(result.torn_trailing)
+        self.assertEqual(result.torn_raw, b'{"role":"lesson","body":"\xe4\xb8')
+
     def test_append_heals_a_torn_fragment_so_the_next_record_survives(self):
         """The write-side heal: a crash mid-write leaves a torn fragment (no newline); a LATER append
         first repairs the missing terminator, isolating the fragment as its own malformed line so the

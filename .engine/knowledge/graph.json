@@ -4119,7 +4119,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:91e00bcee8ad69099f6c567c72944e2f6f52b09b7d9f1956aadefc7451aaf6ac",
+        "fingerprint": "sha256:d693c6033bbba1be47867da75fb9abc622b51eeebea8d657ff5b1789468f04ff",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4255,7 +4255,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:e0235f4b24ded41982954b170b83e983b19c0e3acd0f729b4b043dc9fb0e0afb",
+        "fingerprint": "sha256:fcae58b5d70953a797a0b312afe32131bda02a906341f7be7328ed9cfd023927",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -5122,8 +5122,25 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:9f1b052bf9c4d6defa6b14de59c01e8d4aa9abd01115ae6f935bdbeac6e0d461",
+        "fingerprint": "sha256:73208705284a0bdb7cd1b7cbf776b2c9ebe959fe13c7327cdf217d304adb4fa4",
         "path": ".engine/tools/memory/ledger.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:ledger_health",
+      "name": ".engine/tools/memory/ledger_health.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "ledger_health",
+      "source": {
+        "fingerprint": "sha256:3f695106bfcbdc06928e6e98cca6a426ae5cc0ee01de168ca9b2bd0820e9efb8",
+        "path": ".engine/tools/memory/ledger_health.py"
       },
       "status": "active",
       "type": "tool"
@@ -5972,7 +5989,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:8825ab6393a3e907d21de4408447fda901cccef6028b02b7a6d0f997e552fdd6",
+        "fingerprint": "sha256:74a9b447baba4ce802a83fdc856e47931d5bca80b48b7b118329de454586721e",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -6108,7 +6125,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:b85e4f5cc3af53d4f1f0a5c51ae3cefc819deba58516f2734a100bb6bc2afb9c",
+        "fingerprint": "sha256:2e563d62a51bcd92c759dff10b7c4dad415e1539585b7781e003514e9f6744af",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
@@ -6618,8 +6635,25 @@
       },
       "slug": "test_ledger",
       "source": {
-        "fingerprint": "sha256:e99334a89d5605713001ad1adfe19ecaa6cee2e6543529d190beefd8a2087632",
+        "fingerprint": "sha256:dfc72ec5ca29edd3ab8ee8f913ef58132b4b6278133ef34b1b64038572ab2be7",
         "path": ".engine/tools/memory/test_ledger.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_ledger_health",
+      "name": ".engine/tools/memory/test_ledger_health.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_ledger_health",
+      "source": {
+        "fingerprint": "sha256:b0c453d98359ffd5e541acdce2f82cf722960f618c27036dbf35f2e3ffed22b5",
+        "path": ".engine/tools/memory/test_ledger_health.py"
       },
       "status": "active",
       "type": "tool"
