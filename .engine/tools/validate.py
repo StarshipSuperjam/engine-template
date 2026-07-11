@@ -27,8 +27,11 @@ The five closed core kinds, plus the `custom/script` escape hatch:
                 (slice 6), so it ships built + fixture-tested.
   - custom/script — the escape hatch: run a committed script and map its result to
                 findings (the §15 guards re-home onto this kind).
-Module-provided kinds bind by presence at a later slice and must NOT extend the hardcoded
-REGISTRY below; it holds the closed core set + the `custom/script` escape hatch.
+Module-provided kinds bind by PRESENCE and must NOT extend the hardcoded REGISTRY below (which
+holds the closed core set + the `custom/script` escape hatch): a module drops a conforming
+`.engine/tools/<module>/kind_<name>.py` exposing `check(rule, ctx)`, and `resolved_registry()`
+discovers it and merges it OVER a pristine snapshot of the core (core always wins). See the
+discovery block after REGISTRY (D-044/D-119).
 
 Each kind callable returns a Result: a pass/fail verdict plus zero or more findings
 on the canonical finding.v1 base {severity, message, location}. A check finding's
@@ -103,6 +106,7 @@ def __getattr__(name):                                 # PEP 562: called only fo
 THIS = os.path.abspath(__file__)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(THIS)))  # .engine/tools/validate.py -> repo root
 ENGINE_DIR = os.path.join(ROOT, ".engine")
+TOOLS_DIR = os.path.dirname(THIS)  # .engine/tools — where a module-provided check-kind callable is discovered
 CHECK_DIR = os.path.join(ENGINE_DIR, "check")
 SCHEMAS_DIR = os.path.join(ENGINE_DIR, "schemas")
 CATALOG_PATH = os.path.join(SCHEMAS_DIR, "surface-catalog.json")
@@ -1308,7 +1312,8 @@ def kind_custom_script(rule, ctx):
 
 
 # The closed core kind registry: the five closed kinds + the `custom/script` escape hatch.
-# Module-provided kinds bind by presence at a later slice and must NOT be added here.
+# Module-provided kinds are NOT added here — they bind by PRESENCE at dispatch (resolved_registry
+# below, D-044/D-119). This dict stays the closed core, and a discovered kind can never override it.
 REGISTRY = {
     "presence": kind_presence,
     "schema": kind_schema,
@@ -1317,6 +1322,157 @@ REGISTRY = {
     "coherence": kind_coherence,
     "custom/script": kind_custom_script,
 }
+
+# ---- module-provided check-kind discovery by presence (D-044/D-119) --------
+# A module adds a validation kind by dropping a conforming callable, discovered because it is
+# present — NEVER by editing REGISTRY above or threading a wiring seam (the closed seam vocabulary
+# has no check-kind directive). CORE ALWAYS WINS on a name collision: resolved_registry() snapshots
+# the core registry BEFORE running any discovery import, then merges discovered kinds UNDER that
+# snapshot — so a discovered kind, imported in-process, cannot rewrite the core callables for the run
+# that discovered it. A discovered file that collides with a core kind, collides with another
+# module's kind, or cannot be imported is EXCLUDED from dispatch (its rules then hit the fail-closed
+# dangling path) and surfaced as a hard coherence finding (kind_discovery_findings) — never a silent
+# bind. Both the dispatcher and the negative-fixture meta-check resolve through resolved_registry()
+# so their kind rosters cannot desync.
+_CLOSED_CORE_KINDS = frozenset(REGISTRY) - {"custom/script"}  # the five closed kinds with bespoke fixture drivers
+_KIND_FILE_RE = re.compile(r"^kind_(.+)\.py$")  # a discovered kind file: kind_<name>.py -> kind name <name>
+
+
+def _load_kind_callable(path: str, name: str):
+    """Import a discovered kind file BY PATH (no package requirement) and return its module-level
+    `check(rule, ctx) -> (pass/fail, [finding, ...])` callable, or `(None, reason)` on failure. The
+    callable runs in-process (the locked callable model); the core callables are snapshotted before
+    discovery, so a discovered kind cannot neuter them. A discovered kind receives `(rule, ctx)` and
+    MUST NOT rely on `import validate` identity — under the CLI run (`validate.py` as `__main__`) that
+    would bind a second module instance. Never raises: a bad file becomes a reason string."""
+    import importlib.util  # stdlib; bound locally to keep the module-top stdlib-only bootstrap intact
+    try:
+        spec = importlib.util.spec_from_file_location(f"engine_kind_{name}", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception as exc:  # noqa: BLE001 — any import failure is a fault, never a crash
+        return None, f"could not be imported ({exc})"
+    fn = getattr(module, "check", None)
+    if not callable(fn):
+        return None, "exposes no `check(rule, ctx)` callable"
+    return fn, None
+
+
+def _discover_module_kinds(kind_dir: str, core_names):
+    """Discover module-provided check-kind callables by PRESENCE under `kind_dir`: every
+    `<kind_dir>/<module>/kind_<name>.py` binds kind `<name>`. ONE level deep — a module owns
+    `.engine/tools/<module>/*.py`, the only depth at which it owns and can uninstall its kind file
+    (a top-level `.engine/tools/kind_*.py` would be core's non-recursive glob, so it is not a module
+    kind and is not discovered here). `core_names` is the set of names a discovered kind may not
+    shadow (the caller's core-registry snapshot). Returns `(valid, faults)`: `valid` maps each
+    cleanly-resolved kind name to its callable; `faults` is a list of `{kind, path, reason}` for a
+    file that shadows a core kind, collides with another discovered file of the same name, or cannot
+    be imported — each EXCLUDED from `valid` so its rules fail closed, and surfaced loudly by
+    kind_discovery_findings. Never raises."""
+    valid: dict = {}
+    faults: list = []
+    claimed: dict = {}  # kind name -> the first file that claimed it (to catch duplicates loudly)
+    if not os.path.isdir(kind_dir):
+        return valid, faults
+    # Snapshot the core registry so a discovered kind's IN-PROCESS import cannot persist a mutation of it — the
+    # restore below undoes any such tampering (the S4 hardening), applied on EVERY discovery path (so both
+    # resolved_registry and kind_discovery_findings are protected, not just the former).
+    saved = dict(REGISTRY)
+    try:
+        for sub in sorted(os.listdir(kind_dir)):
+            subdir = os.path.join(kind_dir, sub)
+            if not os.path.isdir(subdir):
+                continue
+            for entry in sorted(os.listdir(subdir)):
+                match = _KIND_FILE_RE.match(entry)
+                if not match:
+                    continue
+                name = match.group(1)
+                rel = os.path.relpath(os.path.join(subdir, entry), ROOT)
+                if name in core_names:  # never shadow a core kind (the core set is closed)
+                    faults.append({"kind": name, "path": rel,
+                                   "reason": f"names the closed core kind '{name}', which a module may not redefine"})
+                    continue
+                if name in claimed:  # two provided files claim the same kind name -> both unresolvable
+                    faults.append({"kind": name, "path": rel,
+                                   "reason": f"provides kind '{name}', already provided by '{claimed[name]}'"})
+                    valid.pop(name, None)
+                    continue
+                claimed[name] = rel
+                fn, reason = _load_kind_callable(os.path.join(subdir, entry), name)
+                if fn is None:
+                    faults.append({"kind": name, "path": rel, "reason": reason})
+                    continue
+                valid[name] = fn
+    except OSError:  # an unreadable subtree (permission / TOCTOU) -> return what resolved so far; never raises
+        pass
+    finally:
+        if REGISTRY != saved:  # a discovered kind's import mutated the core registry -> undo it (never persists)
+            REGISTRY.clear()
+            REGISTRY.update(saved)
+    return valid, faults
+
+
+def resolved_registry(kind_dir: str | None = None) -> dict:
+    """The dispatch registry: the closed core kinds plus module-provided kinds DISCOVERED BY PRESENCE
+    (D-044/D-119), with CORE ALWAYS WINNING. `kind_dir` defaults to the real `.engine/tools/` via the
+    `ENGINE_KIND_DIR` seam, so discovery is LIVE in production — it finds zero kinds today (no v1
+    module ships one) but a real module's kind IS found, never dormant. Both the dispatcher
+    (_evaluate/run_check/run_unit) and the negative-fixture meta-check call this with no argument, so
+    they read the SAME seam and their kind rosters cannot desync. A colliding/unimportable file is
+    excluded here (surfaced by kind_discovery_findings) so its rules hit the fail-closed dangling
+    path, never a silent bind."""
+    core = dict(REGISTRY)  # snapshot BEFORE discovery; _discover_module_kinds restores REGISTRY if an import tampers with it
+    kind_dir = kind_dir or env_override_path("ENGINE_KIND_DIR", TOOLS_DIR)
+    valid, _faults = _discover_module_kinds(kind_dir, set(core))
+    return {**valid, **core}  # core wins by construction — a discovered kind cannot shadow it
+
+
+def kind_discovery_findings(tier: str = "hard", message: str = "", kind_dir: str | None = None) -> list:
+    """The module-set-consistency leg for the kind-discovery seam (D-044/D-119): a module-provided
+    check-kind file that names a closed core kind, collides with another module's kind, or cannot be
+    imported is a HARD finding naming the file — never a silent drop (§7). The dispatcher already
+    EXCLUDES such a file (resolved_registry); this is the loud, CI-reaching account of why, run by
+    module_coherence.check_coherence() over the real tree (green until a real module kind lands)."""
+    kind_dir = kind_dir or env_override_path("ENGINE_KIND_DIR", TOOLS_DIR)
+    _valid, faults = _discover_module_kinds(kind_dir, set(REGISTRY))
+    out = []
+    for fault in faults:
+        detail = (f"The check-kind file '{fault['path']}' {fault['reason']}; it is not used, so any "
+                  f"check of kind '{fault['kind']}' cannot run. Rename the file so it provides a "
+                  f"distinct kind, or remove it.")
+        out.append(finding(tier, (detail + (" " + message if message else "")),
+                           loc(os.path.join(ROOT, fault["path"]))))
+    return out
+
+
+def _run_kind(registry: dict, rule: dict, ctx: dict):
+    """Dispatch `rule`'s kind via `registry` and return `(verdict, findings)`, FAILING CLOSED on every
+    fault — a dangling/unregistered kind, an erroring callable, OR a malformed return (a kind that does
+    not honour the D-115 `(pass/fail, [finding, ...])` contract). The one dispatch helper the suite
+    (_evaluate), by-id (run_check), and meta-check (run_unit) paths share, so a discovered module kind
+    — a new module-authored trust surface — can neither crash the validator nor slip a malformed result
+    past the annotation/report loops that iterate findings OUTSIDE any try. Never raises."""
+    kind = rule.get("kind")
+    tier = rule.get("tier", "hard")
+    fn = registry.get(kind)
+    if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
+        return False, [finding(tier, f"Check rule '{rule.get('id')}' names "
+                       f"unregistered kind '{kind}'; cannot evaluate (fails closed).")]
+    try:
+        verdict, found = fn(rule, ctx)
+        # The findings are iterated by report()/fmt() and the gate loops OUTSIDE this try, which hard-index
+        # `severity`/`message`; so validate the FULL finding.v1 shape here (not merely list-of-dicts), or a kind
+        # returning e.g. [{}] would pass and then crash downstream with KeyError instead of failing closed.
+        if not isinstance(found, list) or not all(
+                isinstance(item, dict) and item.get("severity") in ("hard", "soft")
+                and isinstance(item.get("message"), str) for item in found):
+            raise TypeError("a check kind must return (pass/fail, a list of finding.v1 objects "
+                            "{severity: hard|soft, message: str, location})")
+    except Exception as exc:  # an erroring OR malformed callable fails closed
+        return False, [finding("hard", f"Check rule '{rule.get('id')}' (kind "
+                       f"'{kind}') errored and could not evaluate: {exc}")]
+    return verdict, found
 
 
 # ---- dispatcher ------------------------------------------------------------
@@ -1434,6 +1590,7 @@ def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool
     suite. The finding.v1 base allows these extra keys (it fixes no closed property set), and the
     default (off) leaves run()'s and the existing feed's findings byte-for-byte unchanged."""
     findings = []
+    registry = resolved_registry()  # resolve ONCE per run; the meta-check reads the same seam, so rosters can't desync
     for rule in [r for r in rules if suite in r.get("suites", [])]:
         if rule_filter is not None and not rule_filter(rule):
             continue
@@ -1455,16 +1612,7 @@ def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool
             # run, so it is outside the soft-note noise #322 targets.
             found = [finding("soft", exempt_note)]
         else:
-            fn = REGISTRY.get(kind)
-            if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
-                found = [finding(tier, f"Check rule '{rule.get('id')}' names "
-                         f"unregistered kind '{kind}'; cannot evaluate (fails closed).")]
-            else:
-                try:
-                    _verdict, found = fn(rule, ctx)
-                except Exception as exc:  # a kind that errors fails closed
-                    found = [finding("hard", f"Check rule '{rule.get('id')}' (kind "
-                             f"'{kind}') errored and could not evaluate: {exc}")]
+            _verdict, found = _run_kind(registry, rule, ctx)  # fail-closed on dangling/erroring/malformed
         if with_source:
             for f in found:
                 f["source_rule"] = rule.get("id")
@@ -1543,19 +1691,9 @@ def run_check(check_id: str, ctx: dict) -> int:
         print(f"\nCONFIG ERROR: no check rule has id '{check_id}'.", file=sys.stderr)
         return 2
     findings = []
+    registry = resolved_registry()  # same resolved core+discovered set as run() — a by-id guard dispatches identically
     for rule in matches:
-        kind, tier = rule.get("kind"), rule.get("tier", "hard")
-        fn = REGISTRY.get(kind)
-        if fn is None:  # dangling kind: fail closed (a finding at the rule's tier)
-            findings.append(finding(tier, f"Check rule '{rule.get('id')}' names "
-                            f"unregistered kind '{kind}'; cannot evaluate (fails closed)."))
-            continue
-        try:
-            _verdict, found = fn(rule, ctx)
-        except Exception as exc:  # a kind that errors fails closed
-            findings.append(finding("hard", f"Check rule '{rule.get('id')}' (kind "
-                            f"'{kind}') errored and could not evaluate: {exc}"))
-            continue
+        _verdict, found = _run_kind(registry, rule, ctx)  # fail-closed on dangling/erroring/malformed
         findings.extend(found)
     report(check_id, findings, True)  # a by-id run always gates
     hard_fired = any(f["severity"] == "hard" for f in findings)
@@ -1578,6 +1716,10 @@ def run_unit(unit, target=None, ctx=None):
       - coverage_catalog,
         coverage_root:      coverage — the catalog source + walk root the real callable reads.
       - manifests:          coherence — the manifest set the real callable reads (ctx['manifests']).
+      - ctx:                a module-provided kind — a dict overlaid onto ctx, the generic seam a
+                            module kind's negative fixture uses to inject its seeded input (the closed
+                            kinds read the structural keys above; a module kind reads whatever it
+                            declared, handed to it here).
       - env:                custom/script — env vars set around the child and restored after, so a
                             script reading a substituted GITHUB_EVENT_PATH (or another agreed
                             variable the fixture's script honours) sees the seeded input. (No edit
@@ -1596,25 +1738,20 @@ def run_unit(unit, target=None, ctx=None):
     for key in ("coverage_catalog", "coverage_root", "manifests"):
         if key in target:
             ctx[key] = target[key]
-    fn = REGISTRY.get(rule.get("kind"))
-    if fn is None:  # dangling kind: fail closed, exactly as run()/run_check()
-        return False, [finding(rule.get("tier", "hard"), f"run_unit: rule '{rule.get('id')}' names "
-                       f"unregistered kind '{rule.get('kind')}'; cannot evaluate (fails closed).")]
-
-    def _call():
-        try:
-            return fn(rule, ctx)
-        except Exception as exc:  # an erroring callable fails closed, exactly as run()/run_check()
-            return False, [finding("hard", f"Check rule '{rule.get('id')}' (kind "
-                           f"'{rule.get('kind')}') errored and could not evaluate: {exc}")]
-
+    if isinstance(target.get("ctx"), dict):  # generic ctx overlay — a module kind's fixture injects its input here
+        ctx.update(target["ctx"])
+    # Dispatch through the SAME resolved registry + fail-closed helper as run()/run_check(), so a
+    # module kind's fixture is driven exactly as production drives the kind (and a dangling/erroring/
+    # malformed kind fails closed identically). resolved_registry() reads the ENGINE_KIND_DIR seam, so
+    # a meta-check pointed at a fixture kind dir sees the same roster the dispatcher would.
+    registry = resolved_registry()
     env = target.get("env")
     if not env:
-        return _call()
+        return _run_kind(registry, rule, ctx)
     saved = {k: os.environ.get(k) for k in env}      # set the substituted target in the child env...
     try:
         os.environ.update({k: str(v) for k, v in env.items()})
-        return _call()
+        return _run_kind(registry, rule, ctx)
     finally:                                          # ...and restore os.environ no matter what
         for k, v in saved.items():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
@@ -1820,6 +1957,54 @@ def _demo(argv: list) -> int:
     return 0
 
 
+def _demo_kinds(argv: list) -> int:
+    """Operator-runnable, self-checking demo of module check-kind discovery (leg 3 of #405) — a falsification that
+    can FAIL. It writes a SYNTHETIC kind into a temp dir (never the real repo) and exercises the REAL resolver:
+    a dropped kind is discovered and merged OVER the core, a file named for a core kind CANNOT shadow it, a bad
+    file is a loud fault (not a crash), and with no module kind present the registry is exactly the closed core."""
+    import tempfile
+    ok = True
+    with tempfile.TemporaryDirectory() as tmp:
+        mod = os.path.join(tmp, "demomod")
+        os.makedirs(mod)
+        for name, body in (("demo", "def check(rule, ctx):\n    return True, []\n"),
+                           ("schema", "def check(rule, ctx):\n    return True, []\n"),   # tries to shadow core
+                           ("broken", "raise RuntimeError('boom')\n")):                   # unimportable
+            with open(os.path.join(mod, f"kind_{name}.py"), "w", encoding="utf-8") as fh:
+                fh.write(body)
+
+        print("(i) A module drops `demomod/kind_demo.py`; discovery finds it and merges it OVER the core kinds:")
+        reg = resolved_registry(kind_dir=tmp)
+        found_demo = "demo" in reg and all(k in reg for k in REGISTRY)
+        ok = ok and found_demo
+        print(f"    'demo' discovered and every core kind still present: {found_demo}")
+
+        print("(ii) A file named `kind_schema.py` CANNOT shadow the closed core `schema` kind:")
+        core_wins = reg.get("schema") is REGISTRY["schema"]
+        ok = ok and core_wins
+        print(f"    resolved 'schema' is still the core callable: {core_wins}")
+
+        print("(iii) A core-name collision and an unimportable file are LOUD faults (hard findings), not silent:")
+        faults = kind_discovery_findings(kind_dir=tmp)
+        loud = (any("core kind 'schema'" in f["message"] for f in faults)
+                and any("could not be imported" in f["message"] for f in faults))
+        ok = ok and loud
+        print(f"    collision + unimportable both surfaced as hard findings: {loud}")
+
+    print("(iv) With no module kind present, the registry is EXACTLY the closed core (production today):")
+    prod_clean = resolved_registry(kind_dir=os.path.join(tempfile.gettempdir(), "engine-no-such-kind-dir")) == REGISTRY
+    ok = ok and prod_clean
+    print(f"    resolved registry == the closed core: {prod_clean}")
+
+    if not ok:
+        print("\nDEMO UNEXPECTED: discovery must find a dropped kind, never let it shadow core, surface a bad "
+              "file loudly, and reduce to the closed core when none is present.", file=sys.stderr)
+        return 1
+    print("\nDone — a module extends validation by dropping a kind file; the core stays closed, and a colliding "
+          "or broken kind is surfaced loudly rather than silently binding.")
+    return 0
+
+
 def main(argv: list) -> int:
     if argv and argv[0] == "hook":            # the PreToolUse pre-commit nudge (settings.json wires this)
         import hooks
@@ -1829,6 +2014,8 @@ def main(argv: list) -> int:
         return hooks.run_hook("PostToolUse", _accept_handler)
     if argv and argv[0] == "demo":
         return _demo(argv[1:])
+    if argv and argv[0] == "demo-kinds":      # the module check-kind discovery self-check (leg 3 of #405)
+        return _demo_kinds(argv[1:])
     if argv and argv[0] == "--files":         # the CLI form of the touched-file subset over given paths
         return run_files(argv[1:])
     suite, body_file, check_id, i = "CI", None, None, 0

@@ -13,7 +13,12 @@ A negative fixture is **bound to its logic unit by presence** (a naming/location
 the check schema is unchanged). Each in-scope hard check-logic unit gets one subdirectory, discovered by name:
 
 - a **check-kind callable** (the closed core kinds, plus any module-added kind) → `kind-<kind>/`
-  (e.g. `kind-schema/`, `kind-coverage/`)
+  (e.g. `kind-schema/`, `kind-coverage/`). A module-added kind's fixture lives here too, **bound to the kind
+  by this naming convention** — this is what the design means by "co-located with the callable": the binding
+  is by presence, not physical adjacency (the callable lives at `.engine/tools/<module>/kind_<kind>.py`; every
+  fixture, module or core, lives only here). The kind is owned by its module and removed on uninstall; a fixture
+  left behind after its kind is gone is **inert** (pruned + coverage-exempt, below) — never a stranded gate. So a
+  module `provides` its kind callable, **not** its fixture.
 - a **`custom/script` check instance** → `<check-id-stem>/`, the rule id minus `engine/check/`
   (e.g. `disposition-issue-resolution/`)
 

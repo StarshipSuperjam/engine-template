@@ -548,6 +548,16 @@ class TestWeakeningClassifier(unittest.TestCase):
         self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset({p})))
         self.assertFalse(weakening_guard.is_guardrail(p, derived_scripts=frozenset()))
 
+    def test_module_kind_callable_is_guarded_by_path_property(self):
+        # A module-provided check-kind callable (.engine/tools/<module>/kind_<name>.py, D-044/D-119) runs a
+        # validation kind's enforcement in CI but carries NO params.script, so the check-script derivation cannot
+        # reach it. It is guarded by the one-level filename↔kind PATH PROPERTY — covered even with an EMPTY derived
+        # set (it is not a check-script) and even as a brand-new file.
+        self.assertTrue(weakening_guard.is_guardrail(".engine/tools/mymod/kind_foo.py", derived_scripts=frozenset()))
+        # A plain tool beside a kind is NOT guarded; a top-level kind_*.py is not a discovered module kind.
+        self.assertFalse(weakening_guard.is_guardrail(".engine/tools/mymod/helper.py", derived_scripts=frozenset()))
+        self.assertFalse(weakening_guard.is_guardrail(".engine/tools/kind_top.py", derived_scripts=frozenset()))
+
     def test_blanket_tools_prefix_dropped_but_fail_safe_restores_it(self):
         # The blanket .engine/tools/ prefix is GONE from the static roster (a non-gate tool is guarded only if the
         # derived set names it), but the None fail-safe sentinel restores whole-dir coverage.
