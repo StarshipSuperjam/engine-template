@@ -72,6 +72,7 @@ def _assert_ai_briefing(t, pack):
 # A complete, valid signals dict for the pure renderers (render_dashboard / present_marker_line / must_push).
 _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integration_debt": {}},
             "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
+            "finding_fingerprint": None,
             "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
             "behind_origin": None, "off_main": None,
@@ -82,6 +83,12 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
 def _signals(**over):
     s = dict(_SIGNALS)
     s.update(over)
+    # Derive a fingerprint matching the count unless a test set one explicitly, so the count-based
+    # collapse / worse / improvement tests exercise the identity-SET ledger value faithfully (gather_signals
+    # couples them: a real count>=1 carries a real list; degraded -> both None).
+    if "finding_fingerprint" not in over:
+        n = s.get("finding_count") or 0
+        s["finding_fingerprint"] = [f"#{i}" for i in range(n)] if n else None
     return s
 
 
@@ -504,10 +511,12 @@ class TestFocusedNeighborhood(unittest.TestCase):
 
 class TestGovernanceAlarms(unittest.TestCase):
     def _pack_with(self, gate, findings):
+        count, register = findings
+        fp = [f"#{i}" for i in range(count)] if count else None   # open_findings now returns a 3rd value: the fingerprint
         patchers = _offline()
         try:
             with mock.patch.object(boot, "protected_branch_signal", return_value=gate), \
-                 mock.patch.object(boot, "open_findings", return_value=findings), \
+                 mock.patch.object(boot, "open_findings", return_value=(count, register, fp)), \
                  mock.patch.object(boot, "read_state",
                                    return_value=({"schema_version": 1, "standing_situation": {},
                                                   "integration_debt": {"open_count": 0}}, False)):
@@ -536,6 +545,20 @@ class TestGovernanceAlarms(unittest.TestCase):
         pack = self._pack_with(("on", None), (2, "https://example/issues"))
         self.assertIn("2 open engine finding", pack)
         self.assertIn("https://example/issues", pack)
+
+    def test_gate_off_dashboard_offers_the_built_fix_not_a_manual_repair(self):
+        # #392 defect 1: the protection-off alarm must OFFER the already-built one-click fix, not hand a
+        # non-engineer a settings walk-through or a false "an automated one-click fix is coming".
+        dash = boot.render_dashboard(_signals(gate="off", reason="no required checks")).lower()
+        self.assertIn("turn my safety gate back on", dash)   # the real consent handle
+        self.assertNotIn("is coming", dash)                  # no false "a one-click fix is coming"
+        self.assertNotIn("repository settings", dash)        # no manual-repair instruction
+
+    def test_gate_off_full_relay_carries_the_fix_offer(self):
+        # #392: the first-appearance spoken alarm (must_push / the full relay) carries the offer too, not
+        # only the collapsed terse repeat.
+        line = [l for l in boot.must_push(_signals(gate="off", reason="x")) if "safety gate" in l.lower()][0]
+        self.assertIn("turn my safety gate back on", line.lower())
 
     def test_protected_branch_signal_three_states(self):
         # no repo/token -> unknown (never a false "on")
@@ -1283,12 +1306,38 @@ class TestAntiHabituationCollapse(unittest.TestCase):
         self.assertIn("17", line)                                       # the new (lower) number is shown
         self.assertNotIn("still", line.lower())                         # never collapsed to a stale count
 
+    def test_findings_equal_count_different_set_relays_full_not_a_false_still(self):
+        # #392 defect 3 / D-269 R19: a finding closing while a different one opens (SAME count, different
+        # identities) is a real change — it must relay full, never mis-collapse to "unchanged". The bare-count
+        # fingerprint could not tell these apart; the identity SET can.
+        boot._relay_lines(_signals(finding_count=3, register="u",
+                                   finding_fingerprint=["#1", "#2", "#3"]))            # seed (full)
+        changed = boot._relay_lines(_signals(finding_count=3, register="u",
+                                             finding_fingerprint=["#1", "#2", "#9"]))  # equal count, new set
+        line = [l for l in changed if "finding" in l][0]
+        self.assertNotIn("still", line.lower())                         # not mis-collapsed to a stale "still"
+        self.assertNotIn("unchanged", line.lower())
+        self.assertIn("3 open engine finding", line)                    # the neutral full first-appearance form
+
+    def test_findings_old_int_ledger_degrades_to_full_never_crashes(self):
+        # An operator upgrading from the bare-COUNT ledger has an INT on disk. The new list-valued fingerprint
+        # must compare unequal (fail-toward-full) and _worse must NOT len() the int — _worse runs OUTSIDE
+        # decide's try/except, so a crash here would suppress the WHOLE boot briefing every session.
+        path = boot.boot_alarm_ledger.ledger_path()
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"findings": {"value": 20, "shown_in_full": True}}, fh)
+        lines = boot._relay_lines(_signals(finding_count=20, register="u"))   # list current vs int prior
+        line = [l for l in lines if "finding" in l][0]
+        self.assertNotIn("still", line.lower())        # not collapsed against the incompatible int prior
+        self.assertNotIn("grown", line.lower())        # _worse guarded (int prior) -> neutral full, no crash
+        self.assertIn("20 open engine finding", line)
+
     def test_gate_alarm_collapses_keeping_consequence_and_fix(self):
         s = _signals(gate="off", reason="no required checks")
         boot._relay_lines(s)                                            # seed (full)
         line = [l for l in boot._relay_lines(s) if "gate" in l.lower()][0]
         self.assertIn("still", line.lower())
-        self.assertIn("re-enabling", line.lower())                      # the fix offer is kept
+        self.assertIn("turn my safety gate back on", line.lower())      # the REAL fix offer is kept (not a manual repair)
         self.assertIn("main", line.lower())                            # the consequence is kept
 
     def test_degrade_loud_tells_never_collapse(self):
