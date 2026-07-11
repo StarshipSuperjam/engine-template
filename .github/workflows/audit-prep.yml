@@ -42,6 +42,11 @@ permissions:
   # finding. The bump from read to write is scoped to the engine-labelled issues this workflow manages and
   # is the minimum that can open/update an issue; the persona never gets a GitHub token (it stays read-only).
   issues: write
+  # Read access to the CI check-runs. The live CI-health triage step (`telemetry.py run`) reads the default
+  # branch head's check-runs — the first "signal of record" — to open/auto-resolve engine issues for a
+  # failing main-branch check. Under a `permissions:` block every unlisted scope is `none`, so the check-runs
+  # read needs this one added scope; it is read-only and does not widen the persona (which gets no token).
+  checks: read
 
 jobs:
   gate:
@@ -240,6 +245,22 @@ jobs:
           uv run --directory .engine --frozen -- python tools/audit_digest.py \
             seal audits/audit-digest.md \
             --body-file "${RUNNER_TEMP}/audit-digest-body.md"
+      - name: Run the engine's CI-health triage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          # The first live "signal of record": read the default branch head's CI check-runs and reconcile the
+          # engine-labelled issues for the `ci/` source — a check that keeps failing across passes is tracked;
+          # one that is green again auto-resolves. Auto-resolve is scoped to the `ci/` checks OBSERVED this
+          # pass, so it never touches an out-of-band engine issue, and a failed/partial read closes nothing
+          # (an unread check is never mistaken for a passing one). It writes NO committed state — the
+          # where-we-stand refresh below runs AFTER it, so that offline open-count reflects this pass. It is
+          # fail-open (prints a status and exits 0 even when GitHub is unreachable); the trailing `|| true`
+          # additionally guards this best-effort side action so it can never block the digest pull request.
+          uv run --directory .engine --frozen -- python tools/telemetry.py run || true
       - name: Refresh the committed where-we-stand snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

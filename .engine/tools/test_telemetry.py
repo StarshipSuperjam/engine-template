@@ -46,18 +46,27 @@ class FakeGH:
     told to fail issue reads with a given status. The harness under test is the REAL GitHubIssues +
     reconcile — only this network stand-in is fake."""
 
-    def __init__(self, *, labels=None, fail_read=None, fail_label=None, fail_write=None):
+    def __init__(self, *, labels=None, fail_read=None, fail_label=None, fail_write=None,
+                 check_runs=None, fail_checks=None):
         self.issues: dict = {}
         self.labels: set = set(labels or [])
         self._next = 1
         self.fail_read = fail_read      # status the issues GET returns
         self.fail_label = fail_label    # status the label GET returns (a non-404 error)
         self.fail_write = fail_write    # status an issue POST/PATCH returns
+        self.check_runs = check_runs if check_runs is not None else []  # the head's CI check-runs
+        self.fail_checks = fail_checks  # status the check-runs GET returns
         self.calls: list = []
 
     def transport(self, method, path, body):
         self.calls.append((method, path.split("?")[0]))
         base = path.split("?")[0]
+        if "/check-runs" in base and method == "GET":
+            if self.fail_checks:
+                return self.fail_checks, None
+            page = int(re.search(r"[?&]page=(\d+)", path).group(1)) if "page=" in path else 1
+            rows = self.check_runs if page == 1 else []
+            return 200, {"total_count": len(self.check_runs), "check_runs": rows}
         if base.endswith("/issues") and method == "GET":
             if self.fail_read:
                 return self.fail_read, None
@@ -94,6 +103,17 @@ class FakeGH:
 
 def gh(fake):
     return telemetry.GitHubIssues("you/proj", "tok", transport=fake.transport)
+
+
+def run(gh_obj, records, cache, thresholds, now, state_path=None, *,
+        authoritative=telemetry.AUTHORITATIVE_ALL):
+    """Test wrapper for telemetry.run: the existing tests exercise the FULL loop (promote + auto-resolve),
+    so they claim AUTHORITATIVE_ALL by default; the source-scoping tests pass an explicit `authoritative`
+    set. The real telemetry.run has NO claim-all default (a forgotten arg is a loud TypeError) — this
+    default lives only in the test harness, deliberately, to keep the pre-existing tests reading the whole
+    loop while the new tests below pin the scoped behaviour."""
+    return telemetry.run(gh_obj, records, cache, thresholds, now, state_path=state_path,
+                         authoritative=authoritative)
 
 
 class TestPureHelpers(unittest.TestCase):
@@ -143,39 +163,39 @@ class TestDedupAndPromotion(unittest.TestCase):
         f = FakeGH(labels={"engine"})
         cache = telemetry.Cache(_tmpcache())
         for k in range(2):
-            r = telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[k])
+            r = run(gh(f), [rec("rule:b")], cache, TH, T[k])
             self.assertEqual(r.opened, 0)
             self.assertEqual(f.open_count(), 0)
-        r = telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[2])
+        r = run(gh(f), [rec("rule:b")], cache, TH, T[2])
         self.assertEqual(r.opened, 1)
         self.assertEqual(f.open_count(), 1)
 
     def test_refire_updates_one_issue_never_duplicates(self):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
         crit = rec("check/p", "trust-critical", "A safety check could not run.")
-        telemetry.run(gh(f), [crit], cache, TH, T[0])           # opens immediately
+        run(gh(f), [crit], cache, TH, T[0])           # opens immediately
         self.assertEqual(f.open_count(), 1)
         for k in range(1, 4):
-            r = telemetry.run(gh(f), [crit], cache, TH, T[k])
+            r = run(gh(f), [crit], cache, TH, T[k])
             self.assertEqual(r.opened, 0)
             self.assertEqual(r.updated, 1)
         self.assertEqual(f.open_count(), 1)                     # still one — dedup holds
 
     def test_dedup_ignores_location(self):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
-        telemetry.run(gh(f), [rec("check/p", "trust-critical", location={"file": "a"})], cache, TH, T[0])
-        telemetry.run(gh(f), [rec("check/p", "trust-critical", location={"file": "b"})], cache, TH, T[1])
+        run(gh(f), [rec("check/p", "trust-critical", location={"file": "a"})], cache, TH, T[0])
+        run(gh(f), [rec("check/p", "trust-critical", location={"file": "b"})], cache, TH, T[1])
         self.assertEqual(f.open_count(), 1)
 
     def test_two_distinct_sources_two_issues(self):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
-        telemetry.run(gh(f), [rec("check/a", "trust-critical"), rec("check/b", "trust-critical")],
+        run(gh(f), [rec("check/a", "trust-critical"), rec("check/b", "trust-critical")],
                       cache, TH, T[0])
         self.assertEqual(f.open_count(), 2)
 
     def test_trust_critical_opens_immediately(self):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
-        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
+        r = run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
         self.assertEqual(r.opened, 1)
 
 
@@ -183,11 +203,11 @@ class TestAutoResolve(unittest.TestCase):
     def test_closes_after_auto_resolve_absent_observations(self):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
         crit = rec("check/p", "trust-critical")
-        telemetry.run(gh(f), [crit], cache, TH, T[0])          # open
-        r1 = telemetry.run(gh(f), [], cache, TH, T[1])         # absent 1
+        run(gh(f), [crit], cache, TH, T[0])          # open
+        r1 = run(gh(f), [], cache, TH, T[1])         # absent 1
         self.assertEqual(r1.closed, 0)
         self.assertEqual(f.open_count(), 1)
-        r2 = telemetry.run(gh(f), [], cache, TH, T[2])         # absent 2 -> close
+        r2 = run(gh(f), [], cache, TH, T[2])         # absent 2 -> close
         self.assertEqual(r2.closed, 1)
         self.assertEqual(f.open_count(), 0)
 
@@ -203,7 +223,7 @@ class TestDegradedRead(unittest.TestCase):
         f = FakeGH(labels={"engine"}, fail_read=403)
         with tempfile.TemporaryDirectory() as d:
             sp = _write_state(d, open_count=7, as_of="2026-06-01T00:00:00Z")
-            r = telemetry.run(gh(f), [rec("rule:b")], telemetry.Cache(_tmpcache()), TH, T[0], state_path=sp)
+            r = run(gh(f), [rec("rule:b")], telemetry.Cache(_tmpcache()), TH, T[0], state_path=sp)
         self.assertTrue(r.degraded)
         self.assertIn("7 open problems", r.degraded_line)
         self.assertIn("re-ground before you rely on it", r.degraded_line)
@@ -215,7 +235,7 @@ class TestDegradedRead(unittest.TestCase):
     def test_run_degrades_when_ensure_label_fails_never_raises(self):
         # A transient 5xx on the label check (BEFORE the read) must degrade, not strand the session.
         f = FakeGH(fail_label=500)
-        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], telemetry.Cache(_tmpcache()), TH, T[0])
+        r = run(gh(f), [rec("check/p", "trust-critical")], telemetry.Cache(_tmpcache()), TH, T[0])
         self.assertTrue(r.degraded)
         self.assertEqual(f.open_count(), 0)
         self.assertEqual([c for c in f.calls if c[0] == "POST" and c[1].endswith("/issues")], [])
@@ -223,7 +243,7 @@ class TestDegradedRead(unittest.TestCase):
     def test_run_degrades_when_a_write_fails_never_raises(self):
         # A clean read then a write 4xx/5xx must degrade (not raise); writes already applied stand.
         f = FakeGH(labels={"engine"}, fail_write=422)
-        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], telemetry.Cache(_tmpcache()), TH, T[0])
+        r = run(gh(f), [rec("check/p", "trust-critical")], telemetry.Cache(_tmpcache()), TH, T[0])
         self.assertTrue(r.degraded)        # the open_issue write failed -> degraded, no exception
         self.assertEqual(r.opened, 0)      # the failing write did not count
 
@@ -246,7 +266,7 @@ class TestLabelEnsure(unittest.TestCase):
 
     def test_label_applied_at_issue_creation(self):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
-        telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
+        run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
         created = next(iter(f.issues.values()))
         self.assertIn("engine", created["labels"])
 
@@ -258,9 +278,9 @@ class TestTriagePressure(unittest.TestCase):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
         sids = [f"rule:b{n}" for n in range(11)]
         for k in range(3):                                   # accrue all 11 benign to promotion
-            telemetry.run(gh(f), [rec(s) for s in sids], cache, TH, T[k])
+            run(gh(f), [rec(s) for s in sids], cache, TH, T[k])
         self.assertEqual(f.open_count(), 11)
-        r = telemetry.run(gh(f), [rec(s) for s in sids], cache, TH, T[3])
+        r = run(gh(f), [rec(s) for s in sids], cache, TH, T[3])
         self.assertIsNotNone(r.pressure_line)                # over threshold -> render the line
         self.assertEqual(r.opened, 0)                        # ...but promotes nothing
         self.assertEqual(r.closed, 0)
@@ -281,7 +301,7 @@ class TestStateRefresh(unittest.TestCase):
 
     def test_run_does_not_touch_state_when_no_path_given(self):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
-        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])  # state_path=None
+        r = run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])  # state_path=None
         self.assertFalse(r.degraded)
         self.assertEqual(r.debt["open_count"], 1)            # computed and returned, not committed anywhere
 
@@ -567,7 +587,7 @@ class TestStandingCacheRefresh(unittest.TestCase):
             sp = _write_state(d, open_count=0, as_of=None)
             with mock.patch.object(telemetry.standing_situation, "derive_standing_situation",
                                    return_value={"milestone": "M", "phase": "P (issue #1)"}):
-                telemetry.run(gh(f), [], cache, TH, T[0], state_path=sp)
+                run(gh(f), [], cache, TH, T[0], state_path=sp)
             data = validate.load_json(sp)
         # both cache fields refreshed on the one pass; standing carries the pass's `as_of`
         self.assertEqual(data["standing_situation"], {"milestone": "M", "phase": "P (issue #1)", "as_of": T[0]})
@@ -579,7 +599,7 @@ class TestStandingCacheRefresh(unittest.TestCase):
             sp = _write_state(d, milestone="KEEP", phase="KEEP", open_count=0, as_of=None)
             with mock.patch.object(telemetry.standing_situation, "derive_standing_situation",
                                    side_effect=ss.DeriveUnavailable("github down")):
-                telemetry.run(gh(f), [], cache, TH, T[0], state_path=sp)
+                run(gh(f), [], cache, TH, T[0], state_path=sp)
             data = validate.load_json(sp)
         self.assertEqual(data["standing_situation"], {"milestone": "KEEP", "phase": "KEEP"})  # not clobbered
         self.assertEqual(data["integration_debt"]["as_of"], T[0])                              # debt still refreshed
@@ -593,10 +613,10 @@ class TestCacheBestEffort(unittest.TestCase):
     def test_mid_accrual_wipe_resets_counts_no_crash(self):
         f = FakeGH(labels={"engine"})
         cache = telemetry.Cache(_tmpcache())
-        telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[0])   # persist 1
-        telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[1])   # persist 2
+        run(gh(f), [rec("rule:b")], cache, TH, T[0])   # persist 1
+        run(gh(f), [rec("rule:b")], cache, TH, T[1])   # persist 2
         os.remove(cache.path)                                    # wipe mid-accrual (fresh clone)
-        r = telemetry.run(gh(f), [rec("rule:b")], cache, TH, T[2])  # restarts at persist 1
+        r = run(gh(f), [rec("rule:b")], cache, TH, T[2])  # restarts at persist 1
         self.assertEqual(r.opened, 0)                            # not yet at threshold again
         self.assertEqual(f.open_count(), 0)
 
@@ -605,21 +625,21 @@ class TestSentinelRecovery(unittest.TestCase):
     def test_cache_recovers_dedup_when_marker_stripped(self):
         # An open issue whose body marker an operator stripped; the cache still remembers its number.
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
-        telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
+        run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
         num = next(iter(f.issues))
         f.issues[num]["body"] = "operator stripped the marker"   # sentinel gone from the body
-        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[1])
+        r = run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[1])
         self.assertEqual(r.opened, 0)                            # cache recovered the match
         self.assertEqual(f.open_count(), 1)
 
     def test_worst_case_one_duplicate_never_a_missed_signal(self):
         # Both layers fail (marker stripped AND cache wiped): at most ONE duplicate, never zero.
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
-        telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
+        run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
         num = next(iter(f.issues))
         f.issues[num]["body"] = "stripped"
         os.remove(cache.path)
-        r = telemetry.run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[1])
+        r = run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[1])
         self.assertEqual(r.opened, 1)                            # a duplicate, not a missed signal
         self.assertEqual(f.open_count(), 2)
 
@@ -789,6 +809,144 @@ class TestSchemas(unittest.TestCase):
         self.assertTrue(list(validate.Draft202012Validator(s).iter_errors({**good, "outcome": "maybe"})))
         miss = {k: v for k, v in good.items() if k != "rule_id"}
         self.assertTrue(list(validate.Draft202012Validator(s).iter_errors(miss)))
+
+
+class TestSourceScopedAutoResolve(unittest.TestCase):
+    """Source-scoped auto-resolve — the safety rail a partial live pass rides. A run auto-resolves ONLY the
+    source-ids it is `authoritative` for; any other open Issue is carried forward untouched. This is what
+    lets a CI-only pass run without silently closing the out-of-band Issues (a hooks fail-open alarm, a
+    migration/resurrection finding) it never observed — the exact run([partial]) hazard promote_finding was
+    built to dodge, now closed for the live driver too."""
+
+    def _open_out_of_band(self, f):
+        telemetry.promote_finding(gh(f), {"source_id": "hooks/fail-open/PreToolUse/modes",
+                                          "severity": "trust-critical", "message": "A gate could not run.",
+                                          "location": None, "first_seen": T[0], "last_seen": T[0]}, T[0])
+
+    def test_scoped_pass_never_closes_an_unclaimed_out_of_band_issue(self):
+        # THE blocking-fix regression: an out-of-band trust-critical Issue is open; a CI-scoped pass claiming
+        # only "ci/..." must NEVER absent-close it, even well past the auto_resolve threshold.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._open_out_of_band(f)
+        self.assertEqual(f.open_count(), 1)
+        for k in range(1, 6):   # well past auto_resolve=2
+            r = run(gh(f), [], cache, TH, T[k], authoritative=frozenset({"ci/some-check"}))
+            self.assertEqual(r.closed, 0)
+        self.assertEqual(f.open_count(), 1)   # untouched — a scoped pass never retires another source's Issue
+
+    def test_a_pass_claiming_nothing_closes_nothing(self):
+        # The fail-safe the CLI relies on: authoritative=frozenset() (what a failed CI read passes) closes
+        # nothing, so a partial/failed read can never be mistaken for "these signals are all resolved".
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._open_out_of_band(f)
+        for k in range(1, 6):
+            r = run(gh(f), [], cache, TH, T[k], authoritative=frozenset())
+            self.assertEqual(r.closed, 0)
+        self.assertEqual(f.open_count(), 1)
+
+    def test_a_claimed_absent_signal_still_auto_resolves(self):
+        # Scoping does not break normal auto-resolve: a CLAIMED sid, once absent, still closes on schedule.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        auth = frozenset({"ci/x"})
+        run(gh(f), [rec("ci/x", "trust-critical")], cache, TH, T[0], authoritative=auth)   # opens immediately
+        self.assertEqual(f.open_count(), 1)
+        run(gh(f), [], cache, TH, T[1], authoritative=auth)                                 # absent 1
+        r = run(gh(f), [], cache, TH, T[2], authoritative=auth)                             # absent 2 -> close
+        self.assertEqual(r.closed, 1)
+        self.assertEqual(f.open_count(), 0)
+
+    def test_an_unclaimed_absent_issue_is_carried_forward_in_the_cache(self):
+        # Carry-forward-untouched: an unclaimed open Issue must stay in the cache with its counts unchanged
+        # (not vanish), or it would drop from the cache/pressure count and the meter would oscillate by which
+        # namespace ran last.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        run(gh(f), [rec("hooks/other", "trust-critical")], cache, TH, T[0])   # ALL -> opens + caches it
+        before = cache.load()["hooks/other"]
+        run(gh(f), [], cache, TH, T[1], authoritative=frozenset({"ci/z"}))    # a CI-only pass, not claiming it
+        after = cache.load().get("hooks/other")
+        self.assertIsNotNone(after, "an unclaimed open Issue must be carried forward, not dropped")
+        self.assertEqual(after["absent"], before["absent"])   # untouched — no absent-increment
+        self.assertEqual(after["issue"], before["issue"])
+        self.assertEqual(f.open_count(), 1)
+
+
+class TestCIReader(unittest.TestCase):
+    """derive_ci_records — the FIRST signal of record (the main branch head's CI check-runs). A not-passing
+    check becomes a benign record; every OBSERVED check (any conclusion) is authoritative; an ABSENT check is
+    neither (absent != failing, absent != resolved); a read failure RAISES (never a partial 'all clear');
+    and a crafted check name that is not marker-safe is skipped, never crashing the pass."""
+
+    def test_failing_checks_become_records_all_observed_are_authoritative(self):
+        f = FakeGH(check_runs=[{"name": "engine-ci", "conclusion": "failure"},
+                               {"name": "actionlint", "conclusion": "success"}])
+        records, authoritative = telemetry.derive_ci_records(gh(f), "main", T[0])
+        self.assertEqual([r["source_id"] for r in records], ["ci/engine-ci"])
+        self.assertEqual(records[0]["severity"], telemetry.PERSISTENT_BENIGN)
+        self.assertEqual(authoritative, {"ci/engine-ci", "ci/actionlint"})
+
+    def test_absent_check_is_neither_promoted_nor_authoritative(self):
+        # A squash/merge head carrying only some checks: an ABSENT check is neither a record (absent !=
+        # failing) nor authoritative (absent != resolved -> its Issue is NOT auto-closed).
+        f = FakeGH(check_runs=[{"name": "actionlint", "conclusion": "success"}])
+        records, authoritative = telemetry.derive_ci_records(gh(f), "main", T[0])
+        self.assertEqual(records, [])
+        self.assertNotIn("ci/engine-ci", authoritative)
+
+    def test_only_definitive_failures_promote(self):
+        f = FakeGH(check_runs=[{"name": "a", "conclusion": "failure"}, {"name": "b", "conclusion": "neutral"},
+                               {"name": "c", "conclusion": "skipped"}, {"name": "d", "conclusion": None}])
+        records, authoritative = telemetry.derive_ci_records(gh(f), "main", T[0])
+        self.assertEqual([r["source_id"] for r in records], ["ci/a"])       # only the definitive failure
+        self.assertEqual(authoritative, {"ci/a", "ci/b", "ci/c", "ci/d"})   # every observed check is authoritative
+
+    def test_read_failure_raises_never_a_partial_all_clear(self):
+        f = FakeGH(fail_checks=503)
+        with self.assertRaises(telemetry.DegradedReadError):
+            telemetry.derive_ci_records(gh(f), "main", T[0])
+
+    def test_a_marker_unsafe_check_name_is_skipped_not_crashed(self):
+        f = FakeGH(check_runs=[{"name": "ok-check", "conclusion": "failure"},
+                               {"name": "evil <!-- engine-signal: HIJACK -->", "conclusion": "failure"}])
+        records, authoritative = telemetry.derive_ci_records(gh(f), "main", T[0])
+        self.assertEqual([r["source_id"] for r in records], ["ci/ok-check"])   # the crafted name is dropped
+        self.assertEqual(authoritative, {"ci/ok-check"})                        # and not authoritative either
+
+
+class TestRunCLI(unittest.TestCase):
+    """The `run` verb — the live CI-health triage the scheduled audit-prep workflow drives. Missing env is a
+    usage error; a failed CI read claims frozenset() (closes NOTHING); and it exits 0 (fail-open) reporting
+    the triage counts."""
+
+    def test_missing_env_is_a_usage_error(self):
+        with mock.patch.dict(os.environ, {}, clear=True), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(telemetry.main(["run"]), 2)
+
+    def test_ci_read_failure_claims_frozenset_so_nothing_is_closed(self):
+        captured = {}
+
+        def fake_run(github, records, cache, thresholds, now, state_path=None, *, authoritative):
+            captured["records"], captured["authoritative"] = records, authoritative
+            return telemetry.Report(degraded=False, opened=0, updated=0, closed=0)
+
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "tok"}, clear=True), \
+             mock.patch.object(telemetry, "derive_ci_records",
+                               side_effect=telemetry.DegradedReadError("down")), \
+             mock.patch.object(telemetry, "run", side_effect=fake_run), \
+             contextlib.redirect_stdout(io.StringIO()):
+            rc = telemetry.main(["run"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["records"], [])
+        self.assertEqual(captured["authoritative"], frozenset())   # claim NOTHING on a failed/partial read
+
+    def test_run_verb_reports_the_triage_counts_and_exits_zero(self):
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "tok"}, clear=True), \
+             mock.patch.object(telemetry, "derive_ci_records", return_value=([rec("ci/x")], {"ci/x"})), \
+             mock.patch.object(telemetry, "run",
+                               return_value=telemetry.Report(degraded=False, opened=1, updated=0, closed=0)), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = telemetry.main(["run"])
+        self.assertEqual(rc, 0)
+        self.assertIn("opened=1", out.getvalue())
 
 
 # ---- helpers ---------------------------------------------------------------
