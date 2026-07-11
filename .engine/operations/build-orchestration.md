@@ -104,11 +104,25 @@ the Review presence-gate; its *truthfulness*, like every section's, stays postur
 wall is the protected-branch merge.
 
 **The Review record** states, in plain language a non-engineer reads at the merge: the depth that ran, the
-review passes that ran (as plain checks, never their internal names), that each gate completed, the
-findings' dispositions, and — when post-audit fixes were made — that they were validated but not
-re-reviewed (so the reviewed and merged versions differ). With no review packs installed it says so plainly
+review passes that ran (as plain checks, never their internal names), that each gate completed, **whether a
+review ran the operator's code in a throwaway copy to judge it** (said plainly, never left silent, since
+running their code can have effects they would not expect), the findings' dispositions, and — when
+post-audit fixes were made — that they were validated but not re-reviewed (so the reviewed and merged
+versions differ). With no review packs installed it says so plainly
 — "no extra review ran", never a green pass — and carries the standing caveat that it is the engine's own
 account and the operator's merge is the real gate. A trivial fast-path build fills it with a truthful one.
+
+**The consumed-review-lenses record.** The fenced block below records which build stage runs which installed
+review; the `lens-consumption` check reads it and goes red if a review is installed that no stage runs.
+product-design's spec-lock ceremony is the plan-review four's **second consumer** (it runs the same four on
+a description, when installed). Machine-read — the tokens are lens names, **never operator-facing wording**.
+
+```text
+consumed-review-lenses:
+  plan-review gate: product-intent, architecture, feasibility, risk-governance
+  product-design spec-lock ceremony: product-intent, architecture, feasibility, risk-governance
+  pre-submission gate: spec-conformance, usability, technical-integrity, security-governance
+```
 
 **The stranded-conflict case is not yet self-healing.** A sibling pull request can merge mid-flight after
 integrate's reconcile, stranding a conflict; only its *resolution* leaves the operator's hands. The engine

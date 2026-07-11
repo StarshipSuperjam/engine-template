@@ -43,15 +43,22 @@ short markers the files carry in their frontmatter stay in the files, never on s
    Tell the operator plainly what it found, and state the bound: it checked that every part is present and
    well-formed; it did **not** check that the design is *right* — that is their call. Fix anything flagged and
    re-run until it is clean.
-6. **Record the go-ahead and mark it settled.** When the operator is satisfied with a document, record their
+6. **Offer a deeper, advisory review before they settle — when it is available.** If the engine's optional
+   design reviews are installed, offer the operator the same four independent reviews it runs on a plan before
+   building, now reading the **description itself**: whether it is the right thing, whether it is sound, whether
+   it can be built, and whether it is safe. They **only advise** — nothing they raise blocks the document, and
+   the operator's own go-ahead is still what settles it. This is the **second** place those four reviews are
+   offered (the first is before a build). When they are not installed, the form check above plus the operator's
+   own read is the bar — say that plainly, never imply a review ran.
+7. **Record the go-ahead and mark it settled.** When the operator is satisfied with a document, record their
    acceptance and mark that document settled in its frontmatter. A settled document is the ground the build
    adapts to; the engine never settles one on its own initiative.
-7. **Tell them where it lives, and how a settled document is protected.** Point the operator to `docs/spec/` as
+8. **Tell them where it lives, and how a settled document is protected.** Point the operator to `docs/spec/` as
    the home of their description, and say plainly that a settled document is not frozen forever — it can be
    changed or reopened later, but not quietly: when a pull request changes a settled document, the engine asks
    the operator to confirm the change on that pull request (by applying the `guardrail-ack` label) before it can
    merge, so the record always shows the change was deliberate, never a silent edit.
-8. **Turn the settled description into tracked build work.** When a description — or a newly-settled part of
+9. **Turn the settled description into tracked build work.** When a description — or a newly-settled part of
    it — is settled, offer to turn it into work a build can pick up. Keep two moments distinct. *Now:* the engine
    writes a **build order** at `docs/spec/build-plan.md` — the settled capabilities grouped into ordered,
    plainly-named phases (e.g. "Foundation", "Core flows") — and opens a **list of things to build**, one tracked

@@ -1029,6 +1029,31 @@
       "type": "check"
     },
     {
+      "id": "check:lens-consumption",
+      "kind": "custom/script",
+      "name": ".engine/check/lens-consumption.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "lens-consumption",
+      "source": {
+        "fingerprint": "sha256:de152ab442e2a9efb0939252967e0e806d4cdce6ebd81383641f45128eeb68f7",
+        "path": ".engine/check/lens-consumption.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:link-integrity",
       "kind": "coverage",
       "name": ".engine/check/link-integrity.json",
@@ -1224,7 +1249,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:5427ad47eeafcf9caf2dc346b0a7f873af0b7c722f72b06513d69879e3851522",
+        "fingerprint": "sha256:76960b423e99bae0b16e3c46d0d52a2ea27e761855670623338a7596aff3b0bc",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -2738,7 +2763,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:2e7e5260846e291f29862ac546eff9669fb4659516587a3d7d72eca276185dcc",
+        "fingerprint": "sha256:33c7874349eaf7c789afb0fae734efb670da5fea64396686a1f16b610e94abf1",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2779,7 +2804,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:d03e37afe11fdb42211c562a94de9870a046cd3406c7ef2446fe88a15a6e8132",
+        "fingerprint": "sha256:51fb4d4a4d5fec2e8bf855e373f8eb83a2670a3998164abc596d19a7500aae11",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -3039,7 +3064,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:ca5fe692c1bf68e7f9d97c42fab146557c7cc80efe3c76c94959c672d8f0d61d",
+        "fingerprint": "sha256:75434593b514e14bd525de8a626e8141f4c81371750081e088cac8132b9efe00",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -5104,6 +5129,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:lens_consumption_check",
+      "name": ".engine/tools/lens_consumption_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "lens_consumption_check",
+      "source": {
+        "fingerprint": "sha256:d8a9d9e5fae4849f5ca0f9a59bad80395bcfed23e7c0db3969b7c27807460886",
+        "path": ".engine/tools/lens_consumption_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:lock_integrity",
       "name": ".engine/tools/product_design/lock_integrity.py",
       "owner": "product-design",
@@ -5794,7 +5836,7 @@
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:999a88cf24725c2a1649669d78f89029faf8eb233ee63f2e6aca5fa3cd31aa02",
+        "fingerprint": "sha256:53907dde612d70d4356824b7d3b37424c7e942ccd942ca79df124c7f1628241c",
         "path": ".engine/tools/test_agent.py"
       },
       "status": "active",
@@ -6583,6 +6625,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_lens_consumption",
+      "name": ".engine/tools/test_lens_consumption.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_lens_consumption",
+      "source": {
+        "fingerprint": "sha256:74e0d575d28793a773b6794ba201bdc7edcf5352266ef9055f3968faff1f6d6a",
+        "path": ".engine/tools/test_lens_consumption.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_lock_integrity",
       "name": ".engine/tools/product_design/test_lock_integrity.py",
       "owner": "product-design",
@@ -6712,7 +6771,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:c5011977123a7a8a9b99f376b5ba589ef03505e3189318ad22afef32133e4437",
+        "fingerprint": "sha256:c7906561c338e37855e5a05c00b0e4d3c831434738fb876369da29888e2af7ed",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -7528,7 +7587,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:6b7201a17231357adfa57d1c134ff3bc5e2243d3a667cb046ffae17e06d90dfa",
+        "fingerprint": "sha256:412b0e3f3976fab4022bb67f7606776bef0620983e9e90c39eb6fa09b0d0db33",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

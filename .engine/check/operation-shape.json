@@ -5,8 +5,8 @@
   "params": {
     "length_budget_overrides": {
       ".engine/operations/build-orchestration.md": {
-        "budget": 200,
-        "why": "build-orchestration is the convergence runbook — where every other system's build work is actually carried out (plan, review, integrate, submit, routine, reconcile). The 120-line operations nudge starves the one runbook that legitimately spans all of those, so it carries a 200-line ceiling: deliberate room to grow as the build process it documents grows, not a tight fit to today's length. The raise lives in this guarded rule, so changing it needs the operator's deliberate sign-off — which is what issue #273 asked for: a recorded reason, rather than a runbook silently sitting over budget."
+        "budget": 215,
+        "why": "build-orchestration is the convergence runbook — where every other system's build work is actually carried out (plan, review, integrate, submit, routine, reconcile). The 120-line operations nudge starves the one runbook that legitimately spans all of those, so it carries a raised ceiling: deliberate room to grow as the build process it documents grows, not a tight fit to today's length. The ceiling moved from 200 to 215 when the runbook gained the consumed-review-lenses record (the machine-readable which-stage-runs-which-review block the lens-consumption check reads) plus the dry-run disclosure line — load-bearing build-process content that would otherwise force trimming a standing operator-disclosure paragraph to fit. The raise lives in this guarded rule, so changing it needs the operator's deliberate sign-off — which is what issue #273 asked for: a recorded reason, rather than a runbook silently sitting over budget."
       }
     }
   },
