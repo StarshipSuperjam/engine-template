@@ -2558,7 +2558,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:13e5aa1bb15a8d7bb9f130b4de4f200403e73c13ca3bf99d40943c6adb25ea1c",
+        "fingerprint": "sha256:49b7dfb39ba8304f783fd09efa344009ab409743f44bbafc99715196d8c2c951",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4094,7 +4094,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:51c0d56cf01ec0107339f1b7692fffc2d2e87da1a786796edcf2b07c8b4ee2b1",
+        "fingerprint": "sha256:91e00bcee8ad69099f6c567c72944e2f6f52b09b7d9f1956aadefc7451aaf6ac",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4196,7 +4196,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:bc9272c5c91a682c85ce8f0d0d2bf0cb1d9aa7889a9fb1764886141dc845cc0c",
+        "fingerprint": "sha256:edad290be2edbe7b85f3a178d2a65a3856c59d78a21f0fa7b170e19e006e9c39",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -4893,7 +4893,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:b71492096a6a33fbdae9e188a4b8d0f1dfae8a987369d846393a3d80f68d1810",
+        "fingerprint": "sha256:181e84223836310423cc01baa3ba518ea0ae46023ced1d21fdab16dce981f66b",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -5012,7 +5012,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:bf22e9099083169577ef74abdbab74d8581d9f9e4a023b28c182216b0c7f7e2b",
+        "fingerprint": "sha256:c305fc06d8a5922f130f1216e80c0af94d14d67dbb0674b36f7f5bb9d8141ec9",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -5624,7 +5624,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:7395f27924e9222edc9c376ea785ca7fbf7cad69e861c95f1771812af3bd40e6",
+        "fingerprint": "sha256:c0d8d4c1e0f941ac0f4c742c8fb3beadb3b3899ea3f1c4a137021257f19a9de9",
         "path": ".engine/tools/self_map.py"
       },
       "status": "active",
@@ -6389,7 +6389,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:b259aef05a325a08bb9df32906e4eb72c44add868cdf4a9f6b3ca33bc32aefdc",
+        "fingerprint": "sha256:486e8c62ff2d0fd46bd18c5bb16c5a22f62d45920b9f825ba1823b564cf7be8e",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -6525,7 +6525,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:d1456a4dc732984f0aa885a4fed733afedcbbce68dceb25e24f4a4855b8f5ac1",
+        "fingerprint": "sha256:0bdba08583040f67b2224ff0957389f3f01b3437cc42fb1b055f0192bcb40eba",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -7188,7 +7188,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:bde037b2154f61cad048395765f5c1dad1624bb9c35c6aaee7f7eb2cc429095b",
+        "fingerprint": "sha256:9e7d97a5ffd7673e395938b5b2f67383ece5b0df3cdfccce887c07481c7e731a",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",
@@ -7409,7 +7409,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:706db056f11e7bbc6ec85f2d242dbbd2b6e35b36cc830306b8116e79319d2601",
+        "fingerprint": "sha256:ae9fc0f760a17c2502ed90001dc374c9cd728c0a0387cff56fa2345e1c9df1f1",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -7528,7 +7528,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:8e42265ba8959ff58780137c9ae292376db8d2b47fb03544f6ac45d2d69693d6",
+        "fingerprint": "sha256:6b7201a17231357adfa57d1c134ff3bc5e2243d3a667cb046ffae17e06d90dfa",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

@@ -1386,11 +1386,17 @@ def _exemption_note(rule: dict, ctx: dict) -> "str | None":
     return None
 
 
-def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool = False) -> list:
+def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool = False,
+              rule_filter=None) -> list:
     """Dispatch every rule that joins `suite` through its kind and return the collected
     findings. The shared core behind both run() (which prints + computes an exit code) and
     collect() (which returns the data). `gates` is the suite's blocking-gate context — it
     decides only where ci_author_exempt waives, never what is collected.
+
+    `rule_filter` (a `rule -> bool` predicate, default None = every suite member) narrows the
+    roster WITHOUT a second dispatch path — the touched-file subset (PostToolUse) passes it to run
+    only the rules whose target selects an edited file, riding the SAME fail-closed/exempt dispatch
+    as a full run so the incremental pass can never diverge from the whole-suite one.
 
     With `with_source`, each finding is annotated with the rule that emitted it — `source_rule`
     (the rule id) and `source_kind` (its kind) — so a programmatic consumer can tell, say, a
@@ -1399,6 +1405,8 @@ def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool
     default (off) leaves run()'s and the existing feed's findings byte-for-byte unchanged."""
     findings = []
     for rule in [r for r in rules if suite in r.get("suites", [])]:
+        if rule_filter is not None and not rule_filter(rule):
+            continue
         kind, tier = rule.get("kind"), rule.get("tier", "hard")
         # Honor ci_author_exempt / ci_label_exempt at the engine layer — before any check-kind
         # runs, so the closed kinds stay author- and label-agnostic. They bind ONLY in the
@@ -1435,23 +1443,25 @@ def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool
     return findings
 
 
-def collect(suite: str, ctx: dict, *, with_source: bool = False) -> list:
+def collect(suite: str, ctx: dict, *, with_source: bool = False, rule_filter=None) -> list:
     """The machine-readable seam behind run(): evaluate `suite` and RETURN its findings
     (each {severity, message, location}) as data, rather than printing a human report. A
-    programmatic consumer — the audit soft-findings feed — reads the report-only findings
-    here instead of scraping run()'s stdout. RAISES (ValueError / the loader's exception)
-    on a config error (undeclared suite, unloadable suites/rules); the caller decides how
-    to surface it (run() turns it into the loud exit-2 path, the feed into an honest marker).
+    programmatic consumer — the audit soft-findings feed, and the local pre-commit/pre-close/
+    touched-file nudges — reads the report-only findings here instead of scraping run()'s stdout.
+    RAISES (ValueError / the loader's exception) on a config error (undeclared suite, unloadable
+    suites/rules); the caller decides how to surface it (run() turns it into the loud exit-2 path,
+    the feed into an honest marker, a local nudge into silence via _safe_collect).
 
     `with_source` annotates each finding with its emitting rule (`source_rule`/`source_kind`) —
-    off by default, so the existing feed reads the bare base shape unchanged."""
+    off by default, so the existing feed reads the bare base shape unchanged. `rule_filter`
+    (a `rule -> bool` predicate) narrows the roster for the touched-file subset."""
     suites = load_suites()
     decl = suites.get(suite)
     if decl is None:
         raise ValueError(f"suite '{suite}' is not declared in .engine/suites.json "
                          f"(declared: {', '.join(sorted(suites))}).")
     gates = decl.get("context") == "blocking-gate"
-    return _evaluate(load_rules(), suite, gates, ctx, with_source=with_source)
+    return _evaluate(load_rules(), suite, gates, ctx, with_source=with_source, rule_filter=rule_filter)
 
 
 def run(suite: str, ctx: dict) -> int:
@@ -1580,6 +1590,120 @@ def run_unit(unit, target=None, ctx=None):
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
+# ---- local triggers: the pre-commit / pre-close / touched-file nudges (validation README) ----------
+# The four v1 triggers are declared in suites.json; CI is the merge gate (teeth). These wire the three
+# LOCAL ones as best-effort ADVICE that NEVER blocks: the same rules run, but a hard finding surfaces as
+# a nudge, not a wall (validation README §"Tier versus context"/§"Execution mapping"). The handlers below
+# return ONLY hooks.proceed()/hooks.inject() — never block()/decide(...): on a block-eligible event
+# (PreToolUse) the harness WOULD honor a block or a deny, so keeping to proceed/inject is what holds the
+# block budget to modes + close. The block-budget coherence check CANNOT see this (validate registers no
+# invariant, and PreToolUse is eligible anyway), so a regression test in test_validate exercises each
+# handler across finding states as a backstop — code discipline, not a structural guarantee: a NEW hook
+# handler added here later needs its own never-block test. `hooks` is imported LAZILY inside each handler:
+# validate must import on the stdlib alone (the first-run bootstrap), and hooks imports validate.
+
+_MUTATING_FILE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+
+
+def local_ctx() -> dict:
+    """The ctx a LOCAL suite run builds — the same shape main() builds for CI, degrading to None/[] with
+    no PR and no network: get_pr_body/author/labels read only $GITHUB_EVENT_PATH plus a local file, never
+    a subprocess or a network call, so a local nudge can never hang a git commit or a turn-close."""
+    return {"pr_body": get_pr_body(None), "pr_author": get_pr_author(), "pr_labels": get_pr_labels()}
+
+
+def _safe_collect(suite: str, ctx: dict = None, *, rule_filter=None) -> list:
+    """collect() for a LOCAL advisory: return [] on ANY failure rather than raising, so an advisory run
+    degrades to silence and never strands the session — the local fail-open the README fixes (a broken
+    kind never strands the working session; teeth are at CI). A per-rule kind error is already a
+    fail-closed FINDING inside collect() and still surfaces in the nudge; this guards the total-config
+    failure that locally is advice-that-couldn't-run. `ctx` defaults to local_ctx() BUILT INSIDE the
+    guard — get_pr_body raises on a malformed $GITHUB_EVENT_PATH (unlike its siblings), so building the
+    ctx here keeps even that off the hook path (the CI ctx in main() is unchanged and still fails loud)."""
+    try:
+        return collect(suite, local_ctx() if ctx is None else ctx, with_source=True, rule_filter=rule_filter)
+    except Exception:  # noqa: BLE001 — a local advisory never raises into a hook; the gate is CI
+        return []
+
+
+def _nudge_context(findings: list) -> "str | None":
+    """The advisory text a local nudge injects, or None when there is nothing to say. AI-FACING: it is
+    injected as additionalContext to the assistant, NOT shown to the operator (the operator-facing honesty
+    lines live in the PR body + boot orientation). It states plainly that the local run is advice and the
+    merge-time check is the only gate, then names each hard finding. It never blocks."""
+    hard = [f for f in findings if f.get("severity") == "hard"]
+    if not hard:
+        return None
+    lines = "\n".join("  - " + fmt(f) for f in hard)
+    return ("A local advisory check ran while working — it does NOT block, and it is not the gate. The "
+            "automatic check that runs when a change is proposed for merge is the only thing that can stop "
+            f"a risky merge. This early run flagged:\n{lines}\n"
+            "Worth resolving before the change is proposed for merge, but your call.")
+
+
+def _touched_path(payload: dict) -> "str | None":
+    """The file a mutating tool call edited (Edit/Write/MultiEdit → tool_input.file_path; NotebookEdit →
+    notebook_path), or None for any non-file tool (a Bash/Read call has nothing to re-check). Degrades
+    safe on a malformed payload."""
+    if not isinstance(payload, dict) or payload.get("tool_name") not in _MUTATING_FILE_TOOLS:
+        return None
+    ti = payload.get("tool_input")
+    if not isinstance(ti, dict):
+        return None
+    path = ti.get("file_path") or ti.get("notebook_path")
+    return path if isinstance(path, str) and path else None
+
+
+def _abs_under_root(path: str) -> str:
+    """A touched path normalized to the absolute form target_files emits (glob under ROOT)."""
+    return os.path.abspath(path) if os.path.isabs(path) else os.path.abspath(os.path.join(ROOT, path))
+
+
+def _rule_touches(rule: dict, touched_abs: set) -> bool:
+    """True iff a rule's `target.path` glob selects one of the touched files. A context-targeted rule
+    (no target.path) selects no files (target_files → []), so it never joins the touched-file subset —
+    correct: those rules examine the whole change set, not a single edit. No v1 pre-commit rule is
+    path-targeted, so this subset is dormant against the current ruleset and activates for a deployed
+    repo that adds a file-scoped rule."""
+    return bool(set(target_files(rule)) & touched_abs)
+
+
+def _precommit_handler(payload: dict) -> dict:
+    """PreToolUse: on a `git commit`, run the pre-commit suite and NUDGE (inject) any hard finding —
+    ADVICE only. Returns proceed()/inject() ONLY, never block()/decide(...). Any other tool call, or a
+    clean run, proceeds silently."""
+    import hooks  # lazy (stdlib-only bootstrap; hooks imports validate)
+    if not hooks._is_git_commit(payload):
+        return hooks.proceed()
+    context = _nudge_context(_safe_collect("pre-commit"))   # ctx built inside the guard (fail-open)
+    return hooks.inject(context) if context else hooks.proceed()
+
+
+def _accept_handler(payload: dict) -> dict:
+    """PostToolUse: after an edit, run only the touched-file subset of the pre-commit suite (the rules
+    whose target selects the edited file) and NUDGE any hard finding. ADVICE only — PostToolUse cannot
+    block by contract. Dormant against v1's context-targeted rules; activates for a path-targeted rule.
+    Returns proceed()/inject() ONLY."""
+    import hooks  # lazy (see _precommit_handler)
+    path = _touched_path(payload)
+    if not path:
+        return hooks.proceed()
+    touched = {_abs_under_root(path)}
+    findings = _safe_collect("pre-commit", rule_filter=lambda r: _rule_touches(r, touched))
+    context = _nudge_context(findings)
+    return hooks.inject(context) if context else hooks.proceed()
+
+
+def run_files(paths: list) -> int:
+    """The touched-file subset over explicit paths — the CLI form of the PostToolUse pass (the demo and a
+    manual incremental check use it). Runs the pre-commit rules whose target selects any given path,
+    reports, and exits 0 (a local nudge never gates)."""
+    touched = {_abs_under_root(p) for p in paths}
+    findings = _safe_collect("pre-commit", rule_filter=lambda r: _rule_touches(r, touched))
+    report("pre-commit", findings, False)  # local-nudge context: advisory, never gates
+    return 0
+
+
 def fmt(f: dict) -> str:
     where = ""
     if f.get("location"):
@@ -1621,7 +1745,62 @@ def report(suite: str, findings: list, gates: bool) -> None:
         print(f"\nOK — suite '{suite}' passed, no hard findings.")
 
 
+def _demo(argv: list) -> int:
+    """Operator-runnable, self-checking demo of the local triggers — a falsification that can FAIL. It
+    exercises the REAL handlers (no reimplementation) and asserts the load-bearing claims: a `git commit`
+    never blocks (only proceed/inject), a non-commit no-ops, the touched-file subset selects a
+    path-targeted rule but NOT a v1 context-targeted rule (the honest dormancy), and a broken run fails
+    open. The real repo and committed files are never touched (payloads + a synthetic rule dict only)."""
+    ok = True
+    commit = {"tool_name": "Bash", "tool_input": {"command": "git add -A && git commit -m x"}}
+    status = {"tool_name": "Bash", "tool_input": {"command": "git status"}}
+
+    print("(i) On a `git commit`, the pre-commit advisory runs and NEVER blocks (only proceed/inject):")
+    d = _precommit_handler(commit)
+    ok = ok and d.get("action") in ("proceed", "inject")
+    print(f"    action={d.get('action')!r}  (a block/deny here would be the alarm)")
+
+    print("(ii) On a non-commit tool call, it no-ops (proceed):")
+    d2 = _precommit_handler(status)
+    ok = ok and d2 == {"action": "proceed"}
+    print(f"    action={d2.get('action')!r}")
+
+    print("(iii) The touched-file subset selects a path-targeted rule, but not a whole-change (context) "
+          "rule — so it is dormant against every v1 pre-commit rule:")
+    synthetic = {"id": "demo/synthetic-path", "kind": "presence", "tier": "soft", "suites": ["pre-commit"],
+                 "target": {"path": ".engine/tools/validate.py"}}
+    context_rule = {"id": "demo/whole-change", "kind": "custom/script", "tier": "hard",
+                    "suites": ["pre-commit"], "target": {"context": "product-spec"}}
+    touched = {_abs_under_root(".engine/tools/validate.py")}
+    sel_synth, sel_ctx = _rule_touches(synthetic, touched), _rule_touches(context_rule, touched)
+    ok = ok and sel_synth and not sel_ctx
+    print(f"    path-targeted rule selected: {sel_synth}   context-targeted rule selected: {sel_ctx}")
+
+    print("(iv) A broken advisory run fails OPEN — returns no findings instead of raising:")
+    failed_open = _safe_collect("no-such-suite", local_ctx()) == []
+    ok = ok and failed_open
+    print(f"    unknown suite -> [] (no exception): {failed_open}")
+
+    if not ok:
+        print("\nDEMO UNEXPECTED: a local trigger must never block, must no-op off a commit, must select "
+              "only a path-targeted rule, and must fail open.", file=sys.stderr)
+        return 1
+    print("\nDone — the local triggers nudge as advice, never block, and fail open. The merge-time check "
+          "stays the only gate.")
+    return 0
+
+
 def main(argv: list) -> int:
+    if argv and argv[0] == "hook":            # the PreToolUse pre-commit nudge (settings.json wires this)
+        import hooks
+        return hooks.run_hook("PreToolUse", _precommit_handler)
+    if argv and argv[0] == "accept-hook":     # the PostToolUse touched-file nudge
+        import hooks
+        return hooks.run_hook("PostToolUse", _accept_handler)
+    if argv and argv[0] == "demo":
+        return _demo(argv[1:])
+    if argv and argv[0] == "--files":         # the CLI form of the touched-file subset over given paths
+        return run_files(argv[1:])
     suite, body_file, check_id, i = "CI", None, None, 0
     while i < len(argv):
         if argv[i] == "--suite" and i + 1 < len(argv):

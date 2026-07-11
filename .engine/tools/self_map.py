@@ -53,7 +53,6 @@ polished operator-reachable access path is a provisioning/operations leaf (slice
 """
 from __future__ import annotations
 import os
-import re
 import sys
 import tempfile
 
@@ -332,26 +331,8 @@ def check(path: str | None = None) -> dict:
 
 
 # ---- the commit-boundary regen hook ----------------------------------------------------------
-# A `git commit` command, matched at a command-start position (line start, or just after a shell
-# separator) — the same shape knowledge_gen.py / modes.py use. The intercept matches on the tool NAME
-# (Bash) and tests the command INSIDE the script, never via a settings `if:` matcher. A missed match
-# (`git -c k=v commit`, an alias, a `git commit` inside a quoted string) just leaves a slightly stale
-# self-map that the CI drift gate catches at the PR — it never blocks, and never mis-fires on echoed
-# text (the separator anchor).
-_CMD_START = r"(?:^|[\n;&|])\s*"
-_GIT_COMMIT_RE = re.compile(_CMD_START + r"git\s+commit\b")
-
-
-def _is_git_commit(payload: dict) -> bool:
-    """True iff this tool call is a `git commit` Bash command — the regen trigger. Degrades safe: a
-    non-dict payload / non-Bash tool / absent or non-string command -> False (no regen)."""
-    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
-        return False
-    tool_input = payload.get("tool_input")
-    command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    return isinstance(command, str) and bool(_GIT_COMMIT_RE.search(command))
-
-
+# Fires at the `git commit` boundary — the classifier is hooks._is_git_commit, shared with the other
+# commit-boundary hooks (knowledge_gen's graph regen, validation's pre-commit nudge) rather than copied.
 def _regen_handler(payload: dict) -> dict:
     """The `PreToolUse` regen behaviour: on a `git commit`, refresh the committed self-map best-effort,
     then ALWAYS proceed. Like knowledge_gen's graph hook, this is a MUTATION that legitimately writes the
@@ -361,7 +342,7 @@ def _regen_handler(payload: dict) -> dict:
     when the commit will be denied by another `PreToolUse` hook (e.g. modes' Explore write-gate): every
     hook runs and `deny` wins, so the regen only ever refreshes an unstaged file the denied commit never
     captures — harmless."""
-    if not _is_git_commit(payload):
+    if not hooks._is_git_commit(payload):
         return hooks.proceed()
     try:
         result = generate()  # best-effort: refresh the committed self-map (UNSTAGED) in the working tree
@@ -394,7 +375,7 @@ def _hook_demo(_argv: list) -> int:
     ok = True
     for label, p, expected in (("git add -A && git commit", commit, True), ("git status", status, False),
                                ("a Read", a_read, False)):
-        fired = _is_git_commit(p)
+        fired = hooks._is_git_commit(p)
         ok = ok and fired == expected
         print(f"    {'FIRES' if fired else 'skips'} - {label}")
     with tempfile.TemporaryDirectory() as d:

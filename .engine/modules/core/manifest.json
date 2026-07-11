@@ -136,11 +136,29 @@
     },
     {
       "type": "hook",
+      "event": "PreToolUse",
+      "matcher": "",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/validate.py\" hook"
+      }
+    },
+    {
+      "type": "hook",
       "event": "PostToolUse",
       "matcher": "",
       "hook": {
         "type": "command",
         "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/modes.py\" accept-hook"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "PostToolUse",
+      "matcher": "",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/validate.py\" accept-hook"
       }
     },
     {

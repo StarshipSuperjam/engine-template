@@ -256,7 +256,8 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     # (the compaction trigger, slice 5 PR 3), (slice 4e-ii/iii) the cross-session erasure OBSERVER and the
     # earned-erasure PROPOSER, and (slice 6a) the backup-vault push, each on the same three SessionStart matchers.
     CORE_RELPATHS = (".engine/tools/boot.py", ".engine/tools/modes.py", ".engine/tools/knowledge_gen.py hook",
-                     ".engine/tools/self_map.py hook", ".engine/tools/modes.py accept-hook",
+                     ".engine/tools/self_map.py hook", ".engine/tools/validate.py hook",
+                     ".engine/tools/modes.py accept-hook", ".engine/tools/validate.py accept-hook",
                      ".engine/tools/close.py", ".engine/tools/scent.py")
     MEMORY_RELPATHS = (".engine/tools/memory/consolidate.py session-start",
                        ".engine/tools/memory/consolidate.py pre-compact",
@@ -281,7 +282,8 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
-        self.assertEqual(len(c_cmds), 9, "the nine venv-rooted core hook wires (boot ×3 + 6)")
+        self.assertEqual(len(c_cmds), 11, "the eleven venv-rooted core hook wires (boot ×3 + 8: modes, "
+                         "knowledge_gen, self_map, validate pre-commit, modes accept, validate accept, close, scent)")
         self.assertEqual(set(c_cmds), expected_core, "every core manifest hook command is hook_command's output")
 
         memory = validate.load_json(
@@ -298,13 +300,13 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         self.assertEqual(len(p_cmds), 2, "the board refresh on two SessionStart matchers (startup + resume)")
         self.assertEqual(set(p_cmds), expected_projects, "every board-sync manifest hook command is hook_command's output")
 
-        # settings.json registers all installed modules' hooks: 9 core + 13 memory + 2 board-sync venv-rooted.
+        # settings.json registers all installed modules' hooks: 11 core + 13 memory + 2 board-sync venv-rooted.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 24,
-                         "the twenty-four venv-rooted hook commands in settings (9 core + 13 memory + 2 board-sync)")
+        self.assertEqual(len(s_cmds), 26,
+                         "the twenty-six venv-rooted hook commands in settings (11 core + 13 memory + 2 board-sync)")
         self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects,
                          "settings matches the form (and so all three manifests) exactly")
 
@@ -599,6 +601,36 @@ class TestMissingRuntimeReadout(unittest.TestCase):
             self.assertIn("private Python runtime is not ready", r.stderr)   # names the absent runtime
             self.assertIn(interp, r.stderr)                 # the concrete path, for a literate operator
             self.assertIn("not a block", r.stderr)          # tells the operator it did not block
+
+
+class TestIsGitCommit(unittest.TestCase):
+    """The shared `git commit` classifier the commit-boundary hooks agree on (factored out of the
+    per-consumer copies in self_map / knowledge_gen). Command-start anchored; degrades safe."""
+
+    def test_true_on_commit_amend_and_compound(self):
+        for cmd in ("git commit -m 'x'", "git commit --amend", "git add -A && git commit -m y",
+                    "git status\ngit commit -m z"):
+            p = {"tool_name": "Bash", "tool_input": {"command": cmd}}
+            self.assertTrue(hooks._is_git_commit(p), cmd)
+
+    def test_false_on_non_commit_non_bash_and_malformed(self):
+        self.assertFalse(hooks._is_git_commit(
+            {"tool_name": "Bash", "tool_input": {"command": "git status"}}))
+        self.assertFalse(hooks._is_git_commit(
+            {"tool_name": "Bash", "tool_input": {"command": "git log --oneline"}}))
+        # a non-Bash tool never fires, even if its input text contains the words
+        self.assertFalse(hooks._is_git_commit(
+            {"tool_name": "Read", "tool_input": {"file_path": "git commit"}}))
+        # an echoed / quoted occurrence is not at a command-start position -> no fire
+        self.assertFalse(hooks._is_git_commit(
+            {"tool_name": "Bash", "tool_input": {"command": "echo 'git commit'"}}))
+        self.assertFalse(hooks._is_git_commit({"tool_name": "Bash"}))   # no tool_input
+        self.assertFalse(hooks._is_git_commit(None))                    # malformed
+        self.assertFalse(hooks._is_git_commit({}))
+        # a non-string command degrades safe (no TypeError, no spurious match)
+        for bad in (["git", "commit"], 123, {"x": 1}, None):
+            self.assertFalse(hooks._is_git_commit(
+                {"tool_name": "Bash", "tool_input": {"command": bad}}), repr(bad))
 
 
 if __name__ == "__main__":

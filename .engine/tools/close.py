@@ -60,6 +60,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hooks      # noqa: E402  (run_hook + block/proceed: the fail-open harness the gate rides)
 import telemetry  # noqa: E402  (promote_finding: the out-of-band 'log it' relay; §16 — telemetry owns it)
+import validate   # noqa: E402  (collect + local_ctx: the pre-close local full-suite advisory pass)
 
 
 # ---- the block this owning system declares for the hook block budget ------------------------
@@ -296,6 +297,32 @@ def _promote(finding, now, github=_UNSET):
     return telemetry.promote_finding(gh, _to_finding_record(finding, now), now)
 
 
+# ---- the pre-close local full-suite advisory (validation's authoritative local pass) --------
+# The `pre-close` suite is validation's authoritative LOCAL full-suite pass (validation README
+# §"Execution mapping"): the Stop hook always fires before work leaves the session, where the
+# per-commit intercept can be missed on a manual commit. It is ADVICE — a hard finding surfaces to
+# stderr, never a block. close's ONLY block stays the undispositioned-findings gate; this runs on the
+# clean-proceed path AFTER that decision, in its OWN guard, so a broken rule can never propagate into
+# run_hook's handler-level fail-open and swallow the disposition block. It runs every clean turn-close
+# (spec-literal — a work-gate would skip exactly the manual-commit case pre-close exists to catch); on
+# this repo the bound rules disclosed-no-op fast with no network (a local run reaches no GitHub event).
+
+def _run_preclose_advisory() -> None:
+    """Run the pre-close suite and surface any hard finding as an advisory stderr notice — never blocks,
+    never raises into the Stop handler. A clean Stop has no guaranteed in-transcript channel
+    (close/README), so this notice is best-effort; the merge-time CI run is the gate."""
+    try:
+        findings = validate.collect("pre-close", validate.local_ctx(), with_source=True)
+        hard = [f for f in findings if f.get("severity") == "hard"]
+        if hard:
+            sys.stderr.write(
+                "A local advisory check flagged the following as you finish — it does NOT block, and the "
+                "automatic check that runs when a change is proposed for merge is the gate:\n"
+                + "\n".join("  - " + validate.fmt(f) for f in hard) + "\n")
+    except Exception:  # noqa: BLE001 — advisory only: nothing here (collect, format, or write) may reach
+        return          # the disposition gate above; a broken suite/rule/finding degrades to silence
+
+
 # ---- the turn-close Stop gate ---------------------------------------------------------------
 
 def handler(payload):
@@ -313,6 +340,7 @@ def handler(payload):
     session_id = payload.get("session_id")
     open_findings = pending(session_id)
     if not open_findings:
+        _run_preclose_advisory()                          # local full-suite ADVICE; never gates (see below)
         return hooks.proceed()                            # nothing undispositioned -> the turn ends
     if payload.get("stop_hook_active") is not True:
         return hooks.block(_pushback(open_findings))      # push back until each is dispositioned
