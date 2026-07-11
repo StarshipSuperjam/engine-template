@@ -1274,7 +1274,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:76960b423e99bae0b16e3c46d0d52a2ea27e761855670623338a7596aff3b0bc",
+        "fingerprint": "sha256:817571e8f599d99ccbf211dbaf903be354b11528737303df1ae847aec65bc5c9",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -2829,7 +2829,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:c5bea6c81272f61fb44b7344831b68e5bdd523b74a2ae4b2c5d42c096dbd1d8c",
+        "fingerprint": "sha256:9fa8f789f0029a907cadf2b902042b075da24743b6839d989961ca789b0cf921",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4008,7 +4008,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:0740960a8930be4daab4e3daa1d2821cf4b093f93fc0b11a952294c156e17ac8",
+        "fingerprint": "sha256:af6ecdc51c0501dd04ae9c7c38aac3d9aef7c3f83776f237f71b7d9bef13bd4f",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",

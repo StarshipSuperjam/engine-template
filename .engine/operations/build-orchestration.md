@@ -22,10 +22,15 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
 1. **Plan — open the claim and propose coverage.** Open a **draft pull request** and keep it a draft for
    its whole working life: the checks run on a draft exactly as on a ready one (so never open it ready just
    to make CI run), and a draft **cannot be merged**, which stops an in-progress change from merging before
-   its review gate finishes. Plan the change as an ordered commit sequence; when the work is distributed
-   across unattended sessions, record that sequence as the build Issue's checklist (format in Notes). Run
-   the impact check (`.engine/operations/knowledge-impact-check.md`) — what depends on the parts you change,
-   and what checks or governs them — before settling the plan.
+   its review gate finishes. Plan the change as an ordered commit sequence, and **write it as the build
+   Issue's checklist proportionately** (format in Notes): required when the work is routine-distributed across
+   unattended sessions, offered as a progress view for an interactive multi-commit build (otherwise the
+   orchestrator holds the sequence in-session), and skipped on the fast path (Notes). **Propose the coverage
+   from what the work needs** — run the impact check (`.engine/operations/knowledge-impact-check.md`) for what
+   depends on the parts you change and what checks or governs them, and weigh it with what review is installed
+   and available, any depth the operator has told you before that they prefer (cite it only when they actually
+   have), and what sits next to the work — its neighbours and any open trouble nearby. Settle the plan before
+   moving on.
 2. **Relay the risk assessment — the plan-gate consent surface.** Relay it to the operator **in chat**
    (it reaches them only as assistant text — no hook renders to their screen), filled from the
    `risk-assessment` template (`.engine/templates/risk-assessment.md`): the plain-language headline, what
@@ -34,7 +39,8 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    refuses), the how-careful depth choice, and — only when the change weakens an engine guardrail — the
    plain-language warning naming which protection weakens and what the AI could then do unwatched. The
    operator iterates the plan to solid and approves the plan and the depth **before any work starts**. This
-   plan gate (steps 1–2) *always runs*, even with zero review packs.
+   plan gate (steps 1–2) *always runs as a shape*, even with zero review packs — its depth collapses to a
+   single plain-language headline on the fast path (Notes), but the gate itself is never skipped.
 3. **Plan-review — cold review before building.** The installed plan-review passes run cold-context at the
    approved depth, before any implementation; each finding takes one disposition per the finding-disposition
    policy (`.engine/policies/finding-disposition.md`) — fix in line, log a tracked Issue, or escalate. After
@@ -67,7 +73,8 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    `test_*.py` self-tests emit while exercising their demos does not bury the tail. Then
    the installed pre-submission passes run cold-context and findings are dispositioned. Validation reruns on
    every change including post-audit fixes; the cold review runs once at the agreed depth and does **not**
-   rerun on those fixes unless the operator asks — the Review record states that delta.
+   rerun on those fixes unless the operator asks — but the orchestrator **advises re-audit when a post-audit
+   fix is substantial enough to warrant it** (the operator decides), and the Review record states that delta.
    **Re-derive every not-applicable carve-out the negative-fixture meta-check lists.** When that meta-check
    (`engine/check/hard-check-bite`) reports a hard check as *not applicable* (its loud soft note — a check
    exempted from a negative fixture), the gate does not take the disclosure's word: for each one it re-derives
@@ -142,12 +149,24 @@ files from the reconciled tree, lossless-or-it-does-not-run; if anything but tho
 changes nothing and routes the operator to a plain-language decision. Never the operator resolving it by
 hand.
 
+**The fast path — depth scales to a real floor.** A trivial single reversible change takes the fast path:
+orchestrator-inline, no Issue checklist, zero lenses, and the plan gate collapses to a single plain-language
+headline — the operator enters Build, sees the headline, validation runs, and merges (*one entry, one glance,
+one merge*), earned by reversibility. Only a genuinely trivial change qualifies: a change that **weakens a
+guardrail or touches a schema is never fast-path** — it proposes the full suite, and its headline stays
+**visibly weightier** than the trivial confirm, so habituation never erodes the high-stakes consent. Even on
+the fast path the operator can always ask for a closer look before merging — the collapse is the default, not a
+ceiling.
+
 **Routine is the same workflow, time-distributed.** For large, cleanly-decomposable bulk work the implement
 phase is spread across unattended sessions: an interactive Plan records the commit sequence and scope-lock
 in the build Issue, unattended sessions add commits within that scope and report progress from git and the
 checklist, and an interactive Finalize integrates, reviews for cohesion, validates, and submits. Its
 cohesion guarantee is planned-up-front-plus-checked-at-Finalize, weaker than interactive Build's continuous
-assembly and acceptable only for decomposable work.
+assembly and acceptable only for decomposable work. **Decomposability is a Plan-time judgment, not an enforced
+property**: at Plan the orchestrator assesses whether the work chunks cleanly and, when it is too coupled to
+split safely, says so and **recommends interactive Build instead** — nothing mechanically stops routine being
+pointed at coupled work, so this is honest advice, not a gate.
 
 **The build-Issue body + checklist + scope-lock format.** The build Issue is engine-authored, so its body
 realizes the control-plane engine-authored-issue body contract through the shared issue-authoring helper
@@ -179,7 +198,9 @@ discloses that plainly — never a silent pass. The **same one resolution** (con
 can run themselves, copied verbatim into two plain groups — "things you can confirm yourself" and "things I
 checked for you" — or a plain reason-named line when nothing is operator-runnable (an in-tool demo and a CLI-only
 check go on the engine's account). It is an offer for when the change matters, not a duty, and an unrun step is a
-promise, not proof — never beside a green check. The resolution holds with or without the optional product-design
+promise, not proof — never beside a green check; a step the operator will actually run beats one they won't (a
+screen they click over a paste-this-command); and a step must be able to fail — it exercises the real changed
+surface, never a staged recipe that can only succeed (posture, not a gate). The resolution holds with or without the optional product-design
 module; a read failure is surfaced loudly, never read as "no description".
 
 **The close-linkage pre-flight.** At submit, before marking ready, the orchestrator compares what the pull
