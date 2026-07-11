@@ -9,12 +9,14 @@ These lock the module's load-bearing facts, since nothing else does:
     malformed location. This is the ONLY well-formedness lock on the schema: no live rule targets
     .engine/schemas/*.json (test_design_review.py / test_attention.py say the same of plan-review-finding.v1
     and attention-result.v1), so this assertion must not be trimmed away.
-  - the four committed personas declare role pre-submission-review, the four distinct lenses, the judgment
+  - the five committed personas declare role pre-submission-review, the five distinct lenses, the judgment
     demand tier, read-only permissions, and the pre-submission-review-finding.v1 output contract, and each
     conforms to agent.v1.
   - the real .claude/agents/ roster is coherent (validate.agent_coherence_findings is silent over it) and
-    carries all four pre-submission-review lenses — the falsifiable proof the suite installs and derives by
+    carries all five pre-submission-review lenses — the falsifiable proof the suite installs and derives by
     presence (a bad role/tier, or a lens on a non-review role, would make the coherence leg fire).
+  - spec-conformance and its coupled adversarial partner divergence-hunter (D-291/D-292) are both recorded in
+    build-orchestration's consumed set, so neither dangles and the pair runs together at the pre-submission gate.
   - the module is recorded in the install record three ways — its manifest, the engine.json packages list,
     and a verb-less provisioning-catalog entry — each validating against its schema.
 """
@@ -37,7 +39,7 @@ MANIFEST = validate.load_json(os.path.join(MODULE_DIR, "manifest.json"))
 ENGINE_JSON = validate.load_json(os.path.join(validate.ENGINE_DIR, "engine.json"))
 CATALOG = validate.load_json(os.path.join(validate.ENGINE_DIR, "provisioning", "module-catalog.json"))
 
-LENSES = {"spec-conformance", "usability", "technical-integrity", "security-governance"}
+LENSES = {"spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"}
 PERSONA_FILES = {lens: f"qa-review-{lens}.md" for lens in LENSES}
 
 
@@ -84,7 +86,7 @@ class TestPreSubmissionReviewFindingSchema(unittest.TestCase):
 
 
 class TestQaReviewPersonas(unittest.TestCase):
-    """The four personas declare the right routing fields and each conforms to agent.v1."""
+    """The five personas declare the right routing fields and each conforms to agent.v1."""
 
     def test_one_persona_per_lens_with_correct_routing(self):
         for lens, fname in PERSONA_FILES.items():
@@ -101,7 +103,7 @@ class TestQaReviewPersonas(unittest.TestCase):
 
 
 class TestQaReviewRosterCoherence(unittest.TestCase):
-    """The real roster is coherent and carries all four pre-submission-review lenses — derive-by-presence."""
+    """The real roster is coherent and carries all five pre-submission-review lenses — derive-by-presence."""
 
     def _roster(self):
         return [validate.frontmatter(os.path.join(AGENTS_DIR, f))
@@ -114,16 +116,26 @@ class TestQaReviewRosterCoherence(unittest.TestCase):
         self.assertEqual(validate.agent_coherence_findings(self._roster(), "hard", "m"), [],
                          "the committed persona roster must produce no coherence finding")
 
-    def test_all_four_pre_submission_review_lenses_present(self):
+    def test_all_five_pre_submission_review_lenses_present(self):
         lenses = {a.get("lens") for a in self._roster() if a.get("role") == "pre-submission-review"}
         self.assertTrue(LENSES.issubset(lenses),
-                        f"the pre-submission-review roster must carry all four lenses; saw {sorted(lenses)}")
+                        f"the pre-submission-review roster must carry all five lenses; saw {sorted(lenses)}")
+
+    def test_divergence_hunter_is_consumed_and_paired_with_spec_conformance(self):
+        # D-291/D-292: divergence-hunter is the fifth pre-submission lens, coupled to spec-conformance.
+        # Both must appear in build-orchestration's consumed-review-lenses set, or the hard lens-consumption
+        # check reds (a lens installed but run by no stage). This locks the pair as consumed, so neither
+        # the systematic pass nor its adversarial partner can be installed yet silently never run.
+        import lens_consumption_check
+        consumed = lens_consumption_check.consumed_lenses()
+        self.assertIn("divergence-hunter", consumed, "divergence-hunter must be recorded as consumed")
+        self.assertIn("spec-conformance", consumed, "its coupled partner spec-conformance must be consumed too")
 
 
 class TestQaReviewInstallRecord(unittest.TestCase):
     """The module is recorded three ways (manifest, engine.json, catalog), each valid against its schema."""
 
-    def test_manifest_is_valid_and_claims_the_four_personas(self):
+    def test_manifest_is_valid_and_claims_the_five_personas(self):
         self.assertEqual(_errors(MODULE_SCHEMA, MANIFEST), [])
         self.assertEqual(MANIFEST["id"], "qa-review")
         self.assertEqual(MANIFEST["status"], "optional")

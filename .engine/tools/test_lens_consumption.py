@@ -23,7 +23,7 @@ import validate  # noqa: E402
 import lens_consumption_check as lc  # noqa: E402
 
 EXPECTED = {"product-intent", "architecture", "feasibility", "risk-governance",
-            "spec-conformance", "usability", "technical-integrity", "security-governance"}
+            "spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"}
 
 _GOOD_NOTES = (
     "Some prose with an unrelated `backtick` token.\n\n"
@@ -31,7 +31,7 @@ _GOOD_NOTES = (
     "consumed-review-lenses:\n"
     "  plan-review gate: product-intent, architecture, feasibility, risk-governance\n"
     "  product-design spec-lock ceremony: product-intent, architecture, feasibility, risk-governance\n"
-    "  pre-submission gate: spec-conformance, usability, technical-integrity, security-governance\n"
+    "  pre-submission gate: spec-conformance, divergence-hunter, usability, technical-integrity, security-governance\n"
     "```\n")
 
 
