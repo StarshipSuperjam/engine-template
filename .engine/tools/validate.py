@@ -1070,8 +1070,8 @@ def dangling_lens_findings(agents: list, consumed: set, tier: str, message: str)
         if a.get("role") in review_roles and lens and lens not in consumed:
             name = a.get("name", "(unnamed)")
             findings.append(finding(tier, f"The review '{name}' declares lens '{lens}', but no build "
-                            f"stage consumes it — so it is installed yet no stage consumes it to run "
-                            f"against your changes. {message}"))
+                            f"stage consumes it — so it is installed yet never runs against your "
+                            f"changes. {message}"))
     return findings
 
 
