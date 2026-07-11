@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -256,6 +257,88 @@ class TestCustomScriptCarriesMarker(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertNotIn("evil", found[0], "only the finding.v1 allow-list may cross the trust boundary")
         self.assertFalse(found[0].get("not_applicable"))       # unmarked stays actionable
+
+
+class TestLocalTriggers(unittest.TestCase):
+    """Leg 2 of #405: the pre-commit / pre-close / touched-file local nudges. They are ADVICE — the
+    handlers return ONLY proceed()/inject(), never block()/decide(...). collect() is stubbed so these
+    never spawn the real subprocess rules."""
+
+    _COMMIT = {"tool_name": "Bash", "tool_input": {"command": "git add -A && git commit -m x"}}
+    _STATUS = {"tool_name": "Bash", "tool_input": {"command": "git status"}}
+    _EDIT = {"tool_name": "Edit", "tool_input": {"file_path": "/repo/x.py"}}
+    _HARD = [{"severity": "hard", "message": "a hard finding"}]
+
+    # --- the block-budget guard the coherence check cannot see: proceed/inject ONLY, never block/decide ---
+    def test_precommit_handler_never_blocks_or_decides(self):
+        for findings in ([], self._HARD, [{"severity": "soft", "message": "s"}]):
+            with mock.patch.object(validate, "collect", return_value=findings):
+                d = validate._precommit_handler(self._COMMIT)
+            self.assertIn(d.get("action"), ("proceed", "inject"), findings)
+            self.assertNotEqual(d.get("action"), "block")
+            self.assertNotEqual(d.get("action"), "decide")
+
+    def test_precommit_nudges_on_a_hard_finding_and_is_silent_when_clean(self):
+        with mock.patch.object(validate, "collect", return_value=self._HARD):
+            self.assertEqual(validate._precommit_handler(self._COMMIT).get("action"), "inject")
+        with mock.patch.object(validate, "collect", return_value=[]):
+            self.assertEqual(validate._precommit_handler(self._COMMIT), {"action": "proceed"})
+
+    def test_precommit_no_ops_off_a_commit(self):
+        with mock.patch.object(validate, "collect", return_value=self._HARD) as c:
+            self.assertEqual(validate._precommit_handler(self._STATUS), {"action": "proceed"})
+            c.assert_not_called()   # a non-commit never even runs the suite
+
+    def test_accept_handler_no_ops_on_a_non_file_tool(self):
+        with mock.patch.object(validate, "collect", return_value=self._HARD) as c:
+            self.assertEqual(validate._accept_handler(self._STATUS), {"action": "proceed"})
+            c.assert_not_called()
+
+    def test_accept_handler_runs_touched_subset_and_nudges(self):
+        seen = {}
+
+        def _capture(suite, ctx, *, with_source=False, rule_filter=None):
+            seen["suite"], seen["filter"] = suite, rule_filter
+            return self._HARD
+        with mock.patch.object(validate, "collect", side_effect=_capture):
+            d = validate._accept_handler(self._EDIT)
+        self.assertEqual(d.get("action"), "inject")
+        self.assertEqual(seen["suite"], "pre-commit")
+        self.assertIsNotNone(seen["filter"])   # a rule_filter (the touched-file subset) was applied
+
+    def test_rule_touches_selects_path_targeted_only(self):
+        touched = {validate._abs_under_root(".engine/tools/validate.py")}
+        path_rule = {"target": {"path": ".engine/tools/validate.py"}}
+        ctx_rule = {"target": {"context": "product-spec"}}
+        self.assertTrue(validate._rule_touches(path_rule, touched))
+        self.assertFalse(validate._rule_touches(ctx_rule, touched))   # dormant against v1 context rules
+
+    def test_safe_collect_fails_open_on_a_broken_run(self):
+        with mock.patch.object(validate, "collect", side_effect=RuntimeError("boom")):
+            self.assertEqual(validate._safe_collect("pre-commit", {}), [])   # no raise, no findings
+
+    def test_local_ctx_degrades_with_no_event_so_no_misleading_nudge(self):
+        # with no GITHUB_EVENT_PATH the ctx is empty (None/[]) and a clean suite yields no nudge
+        env = {k: v for k, v in os.environ.items() if k != "GITHUB_EVENT_PATH"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            ctx = validate.local_ctx()
+        self.assertIsNone(ctx["pr_body"])
+        self.assertIsNone(ctx["pr_author"])
+        self.assertEqual(ctx["pr_labels"], [])
+        self.assertIsNone(validate._nudge_context([]))   # nothing hard -> no nudge
+
+    def test_run_files_reports_and_never_gates(self):
+        with mock.patch.object(validate, "collect", return_value=self._HARD), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(validate.run_files([".engine/tools/validate.py"]), 0)   # advisory: exit 0
+
+    def test_demo_self_check_passes(self):
+        # the operator-runnable demo is a falsification that can fail; stub collect so it neither spawns
+        # subprocesses nor depends on repo state, and confirm its assertions hold (exit 0). stdout is
+        # captured so the demo's prints never bury the suite's OK summary.
+        with mock.patch.object(validate, "collect", return_value=[]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(validate._demo([]), 0)
 
 
 if __name__ == "__main__":

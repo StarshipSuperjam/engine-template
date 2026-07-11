@@ -384,25 +384,8 @@ class TestCommitBoundaryRegen(unittest.TestCase):
     _COMMIT = {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'x'"}}
     _STATUS = {"tool_name": "Bash", "tool_input": {"command": "git status"}}
 
-    def test_is_git_commit_true_on_commit_amend_and_compound(self):
-        for cmd in ("git commit -m 'x'", "git commit --amend", "git add -A && git commit -m y"):
-            p = {"tool_name": "Bash", "tool_input": {"command": cmd}}
-            self.assertTrue(self_map._is_git_commit(p), cmd)
-
-    def test_is_git_commit_false_on_non_commit_non_bash_and_malformed(self):
-        self.assertFalse(self_map._is_git_commit(self._STATUS))
-        self.assertFalse(self_map._is_git_commit(
-            {"tool_name": "Bash", "tool_input": {"command": "git log --oneline"}}))
-        # a non-Bash tool never fires, even if its input text contains the words
-        self.assertFalse(self_map._is_git_commit(
-            {"tool_name": "Read", "tool_input": {"file_path": "git commit"}}))
-        self.assertFalse(self_map._is_git_commit({"tool_name": "Bash"}))   # no tool_input
-        self.assertFalse(self_map._is_git_commit(None))                    # malformed
-        self.assertFalse(self_map._is_git_commit({}))
-        # a non-string command degrades safe (no TypeError, no spurious finding)
-        for bad in (["git", "commit"], 123, {"x": 1}, None):
-            self.assertFalse(self_map._is_git_commit(
-                {"tool_name": "Bash", "tool_input": {"command": bad}}), repr(bad))
+    # The `git commit` classifier moved to hooks._is_git_commit (shared with the other commit-boundary
+    # hooks); its unit tests live in test_hooks.py. These tests exercise the regen handler's use of it.
 
     def test_handler_regenerates_on_commit_and_proceeds(self):
         with tempfile.TemporaryDirectory() as d:

@@ -2,6 +2,8 @@
 
 > *A green mechanical check below shows this change conforms to the engine's rules — not that it is correct. What covers correctness is the behavioural steps in **Review** and your own read of the change; a green check is never a substitute for that. Your merge is the binding gate.*
 
+> *Two more things worth knowing about those checks. The automatic check that runs when this change is proposed for merge is the only one that can stop a risky merge — any checks that ran while the change was being written are early advice, nothing more. And a check passing means the engine proved that check can catch a deliberately broken example: evidence the check itself works, not that this change is right. If a check could not run, the change was simply not verified for whatever that check covers.*
+
 ## Purpose
 
 **<one-line summary of why this change exists>**

@@ -856,6 +856,9 @@ def render_dashboard(s: dict) -> str:
     out.append("")
     out.append("_This view is an automated readout: a clear status shows the checks the engine can run "
                "came back clean — not that everything is correct. Your review at merge is the real gate._")
+    out.append("_The automatic check when a change is proposed for merge is the only gate that can stop a "
+               "risky one; anything that runs while I work is advice. A check passing shows it can catch a "
+               "deliberately broken example — proof the check works, not that the change is right._")
 
     return "\n".join(out)
 

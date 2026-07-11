@@ -35,6 +35,7 @@ CLI (the operator-runnable demo on a throwaway fixture — no registered hook ex
 from __future__ import annotations
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -161,6 +162,30 @@ def hook_command(script_relpath: str, os_name: str | None = None) -> str:
     script_path, _, script_args = script_relpath.partition(" ")
     args_tail = f" {script_args}" if script_args else ""
     return f'sh "{HOOK_RUNNER}" "{interp}" "{PROJECT_DIR_VAR}/{script_path}"{args_tail}'
+
+
+# ---- shared payload classifier: is this tool call a `git commit`? ------------------------------
+# The one place the commit-boundary hooks agree on "is this a `git commit`". The knowledge-graph regen
+# (knowledge_gen), the self-map regen (self_map), and validation's local pre-commit nudge all fire at the
+# same boundary, so the classifier lives here in the harness they all import rather than in a copy per
+# consumer. Matched at a COMMAND-START position (line start, or just after a shell separator) so an
+# occurrence inside a quoted argument or an echoed/grepped string (`echo 'git commit'`) does not trip it.
+# Best-effort by construction: a prefixed/aliased/substituted form (`git -c k=v commit`, `time git commit`)
+# is missed — that only leaves a slightly stale derived file the CI gate catches, or a skipped local nudge;
+# it never blocks and never mis-fires on echoed text. (modes.py keeps its OWN git-commit pattern: there it
+# is one of several building-verb patterns in a different matcher, a distinct concern.)
+_CMD_START = r"(?:^|[\n;&|])\s*"
+_GIT_COMMIT_RE = re.compile(_CMD_START + r"git\s+commit\b")
+
+
+def _is_git_commit(payload: dict) -> bool:
+    """True iff this tool call is a `git commit` Bash command — the commit-boundary trigger. Degrades safe:
+    a non-dict payload / non-Bash tool / absent or non-string command -> False (no fire)."""
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+        return False
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    return isinstance(command, str) and bool(_GIT_COMMIT_RE.search(command))
 
 
 # ---- the decision vocabulary a handler returns (the hook-script contract, normalized) ----------
