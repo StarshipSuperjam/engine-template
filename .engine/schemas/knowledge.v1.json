@@ -63,7 +63,7 @@
           }
         },
         "owner": {
-          "description": "The id of the module that owns this entity's source file (the module whose 'provides' claims it); for a module entity, the module's own id.",
+          "description": "The id of the module that owns this entity's source file (the module whose 'provides' claims it); for a module entity, the module's own id; for a deployment-authored per-instance eADR (in no module's 'provides'), the reserved token 'deployment' — canon-ness is read from the absence of a 'provided_by' edge, never from this field.",
           "type": "string",
           "minLength": 1
         },
