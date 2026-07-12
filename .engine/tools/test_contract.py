@@ -10,7 +10,7 @@ optional supersedes link conforms when present and when absent); the committed t
 contract-shape rule's params, and template.v1's worked example are all byte-identical (no drift between the
 authoring scaffold, the machine-read rule, and the locked example); the template body carries exactly the
 required sections plus Supersedes, in order; the shape rule is well-formed, joins CI, dispatches the shape
-kind over .engine/contracts/**/eADR-*.md (canon AND the deployment instance stream), and is green on the
+kind over .engine/contracts/**/*eADR-*.md (canon AND the deployment instance stream), and is green on the
 empty stream; the rule has teeth (a missing
 Anti-choice, an out-of-order section, and a stray section each fire a hard finding, while an over-length
 body is only a soft nudge); and the catalog now routes the contract surface to its in-repo schema and
@@ -96,9 +96,21 @@ class TestSchema(unittest.TestCase):
             self.assertNotEqual(_errors(CONTRACT_SCHEMA, bad), [], f"dropping {drop} should fail")
 
     def test_malformed_eadr_id_is_rejected(self):
-        for bad_id in ("eADR-99", "eADR-00001", "ADR-0001", "eADR-0001-slug", "eadr-0001"):
+        for bad_id in ("eADR-99", "eADR-00001", "ADR-0001", "eADR-0001-slug", "eadr-0001",
+                       # #467 out-of-charset namespaced forms: uppercase slug, slash, empty/leading/double hyphen
+                       "Acme-eADR-0001", "a/b-eADR-0001", "-eADR-0001", "acme--eADR-0001", "acme-eADR-001"):
             bad = {**VALID_FM, "id": bad_id}
             self.assertNotEqual(_errors(CONTRACT_SCHEMA, bad), [], f"{bad_id} should fail the id pattern")
+
+    def test_namespaced_deployment_id_conforms(self):
+        # #467: a deployment's per-instance record carries a <project-slug>-eADR-#### id; BOTH the bare canon
+        # form and the namespaced form must conform (the folder decides the population, the id is the wall).
+        for good_id in ("eADR-0001", "acme-eADR-0007", "x1-eADR-0000", "a-b-c-eADR-9999"):
+            ok = {**VALID_FM, "id": good_id}
+            self.assertEqual(_errors(CONTRACT_SCHEMA, ok), [], f"{good_id} should conform to the id pattern")
+        # `supersedes` accepts the namespaced form too (intra-stream supersession within instance/).
+        ns = {**VALID_FM, "id": "acme-eADR-0007", "status": "accepted", "supersedes": "acme-eADR-0003"}
+        self.assertEqual(_errors(CONTRACT_SCHEMA, ns), [], "a namespaced supersedes link should conform")
 
     def test_status_outside_the_decision_lifecycle_is_rejected(self):
         # there is deliberately NO 'rejected' state (D-019): a rejected alternative is an anti-choice.
@@ -155,7 +167,7 @@ class TestCheckRule(unittest.TestCase):
         self.assertEqual(_errors(check_schema, RULE), [])
         self.assertIn("CI", RULE.get("suites", []))
         self.assertEqual(RULE["kind"], "shape")
-        self.assertEqual(RULE["target"], {"path": ".engine/contracts/**/eADR-*.md"})
+        self.assertEqual(RULE["target"], {"path": ".engine/contracts/**/*eADR-*.md"})
         self.assertEqual(RULE["tier"], "hard")
 
     def test_live_rule_is_green_on_the_empty_stream(self):
@@ -217,7 +229,7 @@ class TestContractFrontmatterRule(unittest.TestCase):
         self.assertEqual(_errors(check_schema, FM_RULE), [])
         self.assertIn("CI", FM_RULE.get("suites", []))
         self.assertEqual(FM_RULE["kind"], "schema")
-        self.assertEqual(FM_RULE["target"], {"path": ".engine/contracts/**/eADR-*.md"})
+        self.assertEqual(FM_RULE["target"], {"path": ".engine/contracts/**/*eADR-*.md"})
         self.assertEqual(FM_RULE["tier"], "hard")
         self.assertEqual(FM_RULE.get("params"), {})   # catalog-routed: no params.schema override
 
@@ -254,14 +266,16 @@ class TestCatalog(unittest.TestCase):
 
 
 class TestInstanceEADRCoverage(unittest.TestCase):
-    """#422: the three contract checks (shape/frontmatter/threshold) were widened from `.engine/contracts/*.md`
-    to `.engine/contracts/**/eADR-*.md` so a deployment's OWN eADRs under `instance/` are held to the same
-    well-formed-contract bar as the canon — the knowledge supersedes derivation reads their frontmatter, so a
-    malformed one would silently break a deployment's own decision history. The surface catalog resolves an
-    instance eADR to the `contract` surface by directory-prefix, so all three kinds validate it with only the
-    glob change (no inlined params, no validate.py change). `instance/README.md` is NOT an eADR — off-target.
-    The checks are exercised end-to-end by patching `validate.ROOT` to a temp tree (the catalog/template/schema
-    stay bound to the real repo, so surface resolution is genuine)."""
+    """The three contract checks (shape/frontmatter/threshold) cover a deployment's OWN eADRs under `instance/`,
+    held to the same well-formed-contract bar as the canon — the knowledge supersedes derivation reads their
+    frontmatter, so a malformed one would silently break a deployment's own decision history. The target glob
+    widened in two steps: #422 took it from `.engine/contracts/*.md` to `.engine/contracts/**/eADR-*.md`, and
+    #467 to `.engine/contracts/**/*eADR-*.md` so it also matches a project-namespaced `<project-slug>-eADR-####`
+    record (the deployment naming scheme, eADR-0017 / D-298) — while still excluding `instance/README.md` (no
+    `eADR` in its name). The surface catalog resolves an instance eADR to the `contract` surface by
+    directory-prefix, so all three kinds validate it with only the glob change (no inlined params, no
+    validate.py change). The checks are exercised end-to-end by patching `validate.ROOT` to a temp tree (the
+    catalog/template/schema stay bound to the real repo, so surface resolution is genuine)."""
 
     _RULES = {name: validate.load_json(os.path.join(validate.CHECK_DIR, f"contract-{name}.json"))
               for name in ("shape", "frontmatter", "threshold")}
@@ -290,7 +304,7 @@ class TestInstanceEADRCoverage(unittest.TestCase):
 
     def test_all_three_rules_target_the_widened_glob(self):
         for name, rule in self._RULES.items():
-            self.assertEqual(rule["target"]["path"], ".engine/contracts/**/eADR-*.md",
+            self.assertEqual(rule["target"]["path"], ".engine/contracts/**/*eADR-*.md",
                              f"contract-{name} must cover instance eADRs")
 
     def test_an_instance_eadr_resolves_to_the_contract_surface(self):
@@ -329,6 +343,36 @@ class TestInstanceEADRCoverage(unittest.TestCase):
         root = self._tree({"eADR-9003-badfm.md": bad})
         passed, _found = self._run("frontmatter", root)
         self.assertFalse(passed, "contract-frontmatter should FLAG an instance eADR with a bad status")
+
+    # ---- #467: the widened gate must BITE on a PROJECT-NAMESPACED deployment record, not merely stop rejecting.
+
+    def test_the_widened_glob_matches_a_namespaced_eadr(self):
+        root = self._tree({"acme-eADR-9001-good.md": self._GOOD_FM.format(eid="acme-eADR-9001") + self._GOOD_BODY,
+                           "README.md": "# not an eADR\n"})
+        with mock.patch.object(validate, "ROOT", root):
+            matched = [os.path.relpath(p, root) for p in validate.target_files(self._RULES["shape"])]
+        self.assertIn(".engine/contracts/instance/acme-eADR-9001-good.md", matched)
+        self.assertNotIn(".engine/contracts/instance/README.md", matched)
+
+    def test_a_well_formed_namespaced_instance_eadr_passes_all_three_checks(self):
+        root = self._tree({"acme-eADR-9001-good.md": self._GOOD_FM.format(eid="acme-eADR-9001") + self._GOOD_BODY})
+        for name in self._RULES:
+            passed, found = self._run(name, root)
+            self.assertTrue(passed, f"contract-{name} should PASS a well-formed namespaced eADR: {found}")
+
+    def test_a_broken_namespaced_instance_eadr_is_flagged_by_each_check(self):
+        # The load-bearing bite: a MALFORMED project-namespaced record is caught by all three checks — a bad
+        # id (schema), missing Significance/Anti-choice (shape), a blank required section (threshold).
+        bad_id = ("---\nid: Acme-eADR-9001\ntitle: broken\nstatus: accepted\ndate: 2026-07-12\n---\n\n"  # uppercase slug
+                  + self._GOOD_BODY)
+        self.assertFalse(self._run("frontmatter", self._tree({"acme-eADR-9001-badid.md": bad_id}))[0],
+                         "contract-frontmatter should FLAG a namespaced eADR whose id is off-pattern")
+        broken_shape = ("---\nid: acme-eADR-9002\ntitle: broken\nstatus: accepted\ndate: 2026-07-12\n---\n\n"
+                        "## Decision\nA choice with no weighed alternative.\n## Status\naccepted\n")
+        root2 = self._tree({"acme-eADR-9002-broken.md": broken_shape})
+        for name in ("shape", "threshold"):
+            self.assertFalse(self._run(name, root2)[0],
+                             f"contract-{name} should FLAG a structurally broken namespaced eADR")
 
 
 if __name__ == "__main__":

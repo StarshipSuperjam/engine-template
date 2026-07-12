@@ -414,6 +414,50 @@ class TestDeploymentStreamEntitization(unittest.TestCase):
         with mock.patch.object(validate, "ROOT", tmp.name):
             self.assertEqual(knowledge_gen.deployment_contract_inventory(), [])
 
+    # ---- #467: a PROJECT-NAMESPACED deployment record (`<project-slug>-eADR-####`) entitizes and coexists.
+
+    def test_the_widened_inventory_glob_matches_a_namespaced_record(self):
+        # deployment_contract_inventory's glob widened `instance/eADR-*` -> `instance/*eADR-*` (#467), so it now
+        # picks up the project-namespaced filename while still excluding the README (no `eADR` in its name).
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self._write_eadr(tmp.name, ".engine/contracts/instance/acme-eADR-0007-foo.md", "acme-eADR-0007")
+        os.makedirs(os.path.join(tmp.name, ".engine", "contracts", "instance"), exist_ok=True)
+        with open(os.path.join(tmp.name, ".engine/contracts/instance/README.md"), "w", encoding="utf-8") as fh:
+            fh.write("# guide\n")
+        with mock.patch.object(validate, "ROOT", tmp.name):
+            inv = knowledge_gen.deployment_contract_inventory()
+        self.assertIn(".engine/contracts/instance/acme-eADR-0007-foo.md", inv)
+        self.assertNotIn(".engine/contracts/instance/README.md", inv)
+
+    def test_a_namespaced_deployment_eadr_entitizes_as_non_canon(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        rel = self._write_eadr(tmp.name, ".engine/contracts/instance/acme-eADR-0007-foo.md", "acme-eADR-0007")
+        with mock.patch.object(validate, "ROOT", tmp.name):
+            ents = knowledge_gen.derive_entities(self._CATALOG, [], [], {}, deployment_contracts=[rel])
+        dep = {e["id"]: e for e in ents}["contract:instance.acme-eADR-0007-foo"]   # folder-qualified id
+        self.assertEqual(dep["owner"], "deployment")
+        self.assertNotIn("provided_by", dep["predicates"])     # non-canon
+        self.assertIn("governed_by", dep["predicates"])        # still governed by contract.v1
+
+    def test_canon_and_deployment_same_number_coexist_without_collision(self):
+        # #467 acceptance: a canon `eADR-0034` and a deployment `acme-eADR-0034` — the SAME number — coexist as
+        # DISTINCT entities with no bare-token collision (distinct ids, distinct paths, deployment non-canon).
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        canon = self._write_eadr(tmp.name, ".engine/contracts/eADR-0034-x.md", "eADR-0034")
+        dep = self._write_eadr(tmp.name, ".engine/contracts/instance/acme-eADR-0034-x.md", "acme-eADR-0034")
+        with mock.patch.object(validate, "ROOT", tmp.name):
+            ents = knowledge_gen.derive_entities(self._CATALOG, [], [canon], {canon: ["core"]},
+                                                 deployment_contracts=[dep])
+        by_id = {e["id"]: e for e in ents}
+        c, d = by_id["contract:eADR-0034-x"], by_id["contract:instance.acme-eADR-0034-x"]
+        self.assertIn("provided_by", c["predicates"])          # canon
+        self.assertNotIn("provided_by", d["predicates"])       # deployment non-canon
+        self.assertNotEqual(c["id"], d["id"])                  # distinct entity ids — no collision
+        self.assertNotEqual(c["source"]["path"], d["source"]["path"])
+
 
 class TestLiveDerivationAttributes(unittest.TestCase):
     """The D-203 attributes on the REAL derived graph — the non-fingerprint correlate that the harvest is

@@ -40,6 +40,9 @@ CASES = [
      "the Explore/Build write-gate enforcement hook"),
     ("the branch-protection setup", ".engine/tools/bootstrap.py", "modified", True,
      "applies your branch ruleset — the ruleset has no file of its own, so this is its stand-in"),
+    ("a validation gate's schema", ".engine/schemas/contract.v1.json", "modified", True,
+     "the shape a decision record must match — the teeth of a hard merge check, so loosening it loosens that "
+     "gate (#467); an internal report format checked only by a test, e.g. plan-review-finding.v1.json, stays quiet"),
     ("a harmless helper (start-up)", ".engine/tools/boot.py", "modified", False,
      "session start-up briefing — not a safety gate; used to fire before #250"),
     ("a harmless helper (memory)", ".engine/tools/memory/consolidate.py", "modified", False,

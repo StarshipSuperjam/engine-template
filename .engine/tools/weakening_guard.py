@@ -112,8 +112,37 @@ _FLOOR_ENFORCEMENT_HOOKS = (
 # floored here by exact path. Presence-SEEDING this file and disclosing a missing floor stay provisioning's job;
 # this entry only gates its removal/weakening via a pull request.
 _FLOOR_SECURITY_PROVISION = (".github/dependabot.yml",)
+# Schema files that are the TEETH of a hard, merge-blocking (CI) schema-kind check (#467): the check rule names
+# no schema (it is resolved through the surface catalog's `governing_schema`, or a `params.schema` override), so
+# loosening the schema loosens that HARD gate with NO other on-disk correlate — the `.engine/check/` rule itself
+# may be untouched. Guarded here by EXACT PATH, deliberately NOT by a blanket `.engine/schemas/` prefix: that
+# would re-introduce the over-firing D-268 removed, because ~half the files in `.engine/schemas/` are agent/tool
+# OUTPUT contracts (plan-review-finding, audit-finding, conformance-verdicts, attention-result, knowledge, …)
+# that back only a fixture unit test, gate no merge, and are correctly NOT guarded. The set is exactly the
+# schemas a `kind: schema`, `tier: hard`, CI-suite check resolves to. A drift detector
+# (test_seed.py::TestSchemaGateGuardCoverage) recomputes it from the LIVE check rules via the validator's own
+# resolver and FAILS CI if a hard CI schema-kind check ever resolves to a schema not floored here — so this
+# hand-list cannot rot as checks are added, while the guard stays import-light under pull_request_target (no
+# catalog resolver imported here). A brand-new schema file is a pure addition (WEAKENING_STATUS excludes
+# 'added'), so first-install is ungated; only a later weakening of a floored gate schema is held.
+_FLOOR_GATE_SCHEMAS = (
+    ".engine/schemas/agent.v1.json",
+    ".engine/schemas/concern-list.v1.json",
+    ".engine/schemas/conduct.v1.json",
+    ".engine/schemas/contract.v1.json",
+    ".engine/schemas/doc.v1.json",
+    ".engine/schemas/engine.v1.json",
+    ".engine/schemas/first-run-assets.v1.json",
+    ".engine/schemas/interface.v1.json",
+    ".engine/schemas/module.v1.json",
+    ".engine/schemas/operation.v1.json",
+    ".engine/schemas/policy.v1.json",
+    ".engine/schemas/provisioning-catalog.v1.json",
+    ".engine/schemas/skill.v1.json",
+    ".engine/schemas/state.v1.json",
+)
 GUARDRAIL_EXACT = (_FLOOR_ENFORCEMENT_CONFIG + _FLOOR_VALIDATOR + _FLOOR_RULESET_PROXY
-                   + _FLOOR_ENFORCEMENT_HOOKS + _FLOOR_SECURITY_PROVISION)
+                   + _FLOOR_ENFORCEMENT_HOOKS + _FLOOR_SECURITY_PROVISION + _FLOOR_GATE_SCHEMAS)
 # A pure addition strengthens; removal/rename/modification/copy can weaken.
 # 'copied' is in GitHub's file-status enum — without it, a weakened *copy* of a
 # guardrail file would slip through ungated.
