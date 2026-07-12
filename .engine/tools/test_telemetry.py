@@ -741,7 +741,7 @@ class TestPromoteFindingBodyOverride(unittest.TestCase):
         # `<!-- engine-signal: ... -->`; the real marker telemetry appends LAST must still win, so dedup
         # cannot be hijacked. (The seam-level guard behind the soft-finding promoter's body neutralisation.)
         body = telemetry._with_tracking_trailers("evil <!-- engine-signal: HIJACK --> prose",
-                                                 "soft-budget:real", T[0], T[0])
+                                                 "soft-budget:real", telemetry.PERSISTENT_BENIGN, T[0], T[0])
         self.assertEqual(telemetry.parse_source_id(body), "soft-budget:real")
 
     def test_default_framing_is_unchanged_without_an_override(self):
@@ -1015,6 +1015,184 @@ class TestCILiveLoop(unittest.TestCase):
         self.assertEqual(f.open_count(), 1)   # the out-of-band trust-critical issue is untouched
 
 
+class TestSeverityMarker(unittest.TestCase):
+    """The severity class rides a SECOND invisible body marker on EVERY telemetry Issue (CI + ambient +
+    out-of-band), so boot can count the COMPLETE open low-severity set for the render-only pressure meter from
+    the durable record (not a per-machine cache). Written at open AND update; parsed last-match-wins so a
+    forged marker cannot hijack it (as source_id)."""
+
+    def test_severity_written_and_parsed_from_the_body(self):
+        for sev in (telemetry.PERSISTENT_BENIGN, telemetry.TRUST_CRITICAL):
+            body = telemetry.issue_body(rec("rule:x", sev), T[0], T[0])
+            self.assertEqual(telemetry.parse_severity(body), sev)
+        self.assertIsNone(telemetry.parse_severity("no marker here"))
+
+    def test_severity_survives_a_forged_marker(self):
+        body = telemetry._with_tracking_trailers("evil <!-- engine-severity: HIJACK --> prose",
+                                                 "rule:x", telemetry.PERSISTENT_BENIGN, T[0], T[0])
+        self.assertEqual(telemetry.parse_severity(body), telemetry.PERSISTENT_BENIGN)
+
+    def test_list_open_engine_issues_exposes_each_issues_severity(self):
+        f = FakeGH(labels={"engine"})
+        telemetry.promote_finding(gh(f), rec("ci/x", telemetry.PERSISTENT_BENIGN), T[0])
+        telemetry.promote_finding(gh(f), rec("hooks/fail-open/x", telemetry.TRUST_CRITICAL), T[0])
+        sev = {i["source_id"]: i["severity"] for i in gh(f).list_open_engine_issues()}
+        self.assertEqual(sev["ci/x"], telemetry.PERSISTENT_BENIGN)
+        self.assertEqual(sev["hooks/fail-open/x"], telemetry.TRUST_CRITICAL)
+
+
+class TestAmbientWriterHelpers(unittest.TestCase):
+    """The ambient record shape + the best-effort NDJSON append-log (telemetry OWNS both)."""
+
+    def test_ambient_record_conforms_to_the_schema(self):
+        s = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "ambient-capture.v1.json"))
+        r = telemetry.ambient_record("engine/check/a", False, "a.md", T[0])
+        self.assertEqual(r["outcome"], "fail")
+        self.assertEqual(list(validate.Draft202012Validator(s).iter_errors(r)), [])
+        self.assertEqual(telemetry.ambient_record("engine/check/a", True, None, T[0])["outcome"], "pass")
+
+    def test_append_and_load_roundtrip(self):
+        p = _tmpndjson()
+        telemetry.append_ambient([telemetry.ambient_record("engine/check/a", False, "a.md", T[0]),
+                                  telemetry.ambient_record("engine/check/b", True, "b.md", T[1])], p)
+        loaded = telemetry.load_ambient(p)
+        self.assertEqual([r["rule_id"] for r in loaded], ["engine/check/a", "engine/check/b"])
+
+    def test_append_is_best_effort_and_never_raises(self):
+        # An unwritable path (a directory as the file) must not raise into the PostToolUse hot path.
+        telemetry.append_ambient([telemetry.ambient_record("engine/check/a", False, "a.md", T[0])],
+                                 tempfile.mkdtemp())   # a dir -> open('a') raises IsADirectoryError, swallowed
+
+    def test_load_skips_a_corrupt_line_not_the_whole_file(self):
+        p = _tmpndjson()
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write('{"rule_id":"engine/check/a","outcome":"fail","target":"a.md","observed_at":"%s"}\n' % T[0])
+            fh.write("{ this is not json\n")
+            fh.write('{"rule_id":"engine/check/b","outcome":"fail","target":"b.md","observed_at":"%s"}\n' % T[1])
+        self.assertEqual([r["rule_id"] for r in telemetry.load_ambient(p)],
+                         ["engine/check/a", "engine/check/b"])
+
+    def test_watermark_roundtrips_and_defaults_empty(self):
+        p = _tmpndjson()
+        self.assertEqual(telemetry.load_ambient_watermark(p + ".missing"), "")   # absent -> "" (all fresh)
+        telemetry.store_ambient_watermark(T[2], p)
+        self.assertEqual(telemetry.load_ambient_watermark(p), T[2])
+
+
+class TestAmbientReader(unittest.TestCase):
+    """derive_ambient_records over the NDJSON (Model 5): PROMOTION is fresh-gated (a still-failing FRESH fail is
+    a record but NOT authoritative), RESOLUTION reads the full cache (a latest PASS or a vanished target is
+    authoritative-to-resolve), and `authoritative` is the observed-scoped `ambient/` set — never claim-all."""
+
+    def _seed(self, *fires):
+        p = _tmpndjson()
+        telemetry.append_ambient([telemetry.ambient_record(*f) for f in fires], p)
+        return p
+
+    def test_fresh_fail_is_a_record_and_NOT_authoritative(self):
+        # a still-failing rule is a present record (promotion), never authoritative-to-resolve (it isn't clear).
+        p = self._seed(("engine/check/a", False, "a.md", T[0]))
+        recs, auth, _wm = telemetry.derive_ambient_records(p, exists=lambda x: True)
+        self.assertEqual([(r["source_id"], r["severity"]) for r in recs],
+                         [("ambient/engine/check/a", telemetry.PERSISTENT_BENIGN)])
+        self.assertEqual(set(auth), set())
+
+    def test_latest_pass_is_authoritative_only(self):
+        p = self._seed(("engine/check/a", False, "a.md", T[0]), ("engine/check/a", True, "a.md", T[1]))
+        recs, auth, _wm = telemetry.derive_ambient_records(p, exists=lambda x: True)
+        self.assertEqual(recs, [])                                   # latest is a pass -> not "still failing"
+        self.assertEqual(set(auth), {"ambient/engine/check/a"})      # ...authoritative -> its item auto-resolves
+
+    def test_vanished_target_is_authoritative_not_a_record(self):
+        p = self._seed(("engine/check/a", False, "gone.md", T[0]))
+        recs, auth, _wm = telemetry.derive_ambient_records(p, exists=lambda x: False)
+        self.assertEqual(recs, [])                                   # source gone -> not a record
+        self.assertEqual(set(auth), {"ambient/engine/check/a"})      # ...authoritative -> its item clears
+
+    def test_only_fires_newer_than_the_watermark_promote(self):
+        # the freshness horizon: a fail at/under the watermark is NOT re-counted for promotion (anti-transient).
+        p = self._seed(("engine/check/a", False, "a.md", T[0]))
+        recs, auth, wm = telemetry.derive_ambient_records(p, T[0], exists=lambda x: True)
+        self.assertEqual(recs, [])                                   # not fresh (== watermark) -> no record
+        self.assertEqual(set(auth), set())                           # still failing (target exists) -> not clear
+        self.assertEqual(wm, T[0])
+
+    def test_default_exists_resolves_the_target_under_the_repo_root(self):
+        # the root-anchoring fix: the default exists() resolves the ROOT-relative target against ROOT, not CWD.
+        present = self._seed(("engine/check/a", False, ".engine/policies/triage-threshold.md", T[0]))
+        recs, auth, _wm = telemetry.derive_ambient_records(present)   # DEFAULT exists (root-anchored)
+        self.assertEqual([r["source_id"] for r in recs], ["ambient/engine/check/a"])  # real file -> still failing
+        self.assertEqual(set(auth), set())
+        gone = self._seed(("engine/check/b", False, ".engine/does/not/exist.md", T[0]))
+        recs2, auth2, _ = telemetry.derive_ambient_records(gone)     # DEFAULT exists -> vanished under ROOT
+        self.assertEqual(recs2, [])
+        self.assertEqual(set(auth2), {"ambient/engine/check/b"})
+
+    def test_a_marker_unsafe_rule_id_is_skipped_not_crashed(self):
+        p = self._seed(("bad<!--id", False, "a.md", T[0]))
+        recs, auth, _wm = telemetry.derive_ambient_records(p, exists=lambda x: True)
+        self.assertEqual((recs, set(auth)), ([], set()))
+
+    def test_absent_cache_is_empty(self):
+        recs, auth, wm = telemetry.derive_ambient_records(_tmpndjson() + ".missing", "seed")
+        self.assertEqual((recs, set(auth), wm), ([], set(), "seed"))
+
+
+class TestAmbientLiveLoop(unittest.TestCase):
+    """Ambient end-to-end (the permanent regression for the demo's step 9): a local check that keeps FRESHLY
+    failing promotes only after the persistence threshold; a ONE-TIME fail never re-run NEVER promotes (the
+    freshness watermark); a promoted item clears when seen passing; and a scoped ambient pass NEVER closes a
+    ci/ or out-of-band Issue it did not observe."""
+
+    def _amb_open(self, f, rid):
+        return any(i["state"] == "open" and rid in i["body"] for i in f.issues.values())
+
+    def _pass(self, f, cache, path, now, watermark="", exists=lambda x: True):
+        recs, auth, new_wm = telemetry.derive_ambient_records(path, watermark, exists=exists)
+        telemetry.run(gh(f), recs, cache, TH, now, authoritative=auth, live=False)
+        return new_wm
+
+    def test_promotes_after_persistence_then_resolves_when_seen_passing(self):
+        f, cache, p, wm = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache()), _tmpndjson(), ""
+        for k in range(3):
+            telemetry.append_ambient([telemetry.ambient_record("engine/check/a", False, "a.md", T[k])], p)
+            wm = self._pass(f, cache, p, T[k], wm)
+            self.assertEqual(self._amb_open(f, "engine/check/a"), k == 2)   # opens ONLY on the 3rd fresh fail
+        telemetry.append_ambient([telemetry.ambient_record("engine/check/a", True, "a.md", T[3])], p)
+        for k in range(3, 5):
+            wm = self._pass(f, cache, p, T[k], wm)
+        self.assertFalse(self._amb_open(f, "engine/check/a"))            # seen passing -> auto-resolves
+
+    def test_a_one_time_fail_never_re_run_does_not_promote(self):
+        # the anti-transient property the freshness watermark restores: one fail, appended once, never re-run.
+        f, cache, p, wm = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache()), _tmpndjson(), ""
+        telemetry.append_ambient([telemetry.ambient_record("engine/check/a", False, "a.md", T[0])], p)
+        for k in range(4):                                              # four passes, NO new fire appended
+            wm = self._pass(f, cache, p, T[k], wm)
+        self.assertFalse(self._amb_open(f, "engine/check/a"),
+                         "a one-time fail never re-run must never promote (persistence needs FRESH re-fails)")
+
+    def test_a_scoped_ambient_pass_never_closes_an_out_of_band_issue(self):
+        f = FakeGH(labels={"engine"})
+        telemetry.promote_finding(gh(f), {"source_id": "hooks/fail-open/Stop/close",
+                                          "severity": "trust-critical", "message": "A gate could not run.",
+                                          "location": None, "first_seen": T[0], "last_seen": T[0]}, T[0])
+        self.assertEqual(f.open_count(), 1)
+        p, wm = _tmpndjson(), ""
+        telemetry.append_ambient([telemetry.ambient_record("engine/check/a", False, "a.md", T[0])], p)
+        for k in range(4):
+            wm = self._pass(f, telemetry.Cache(_tmpcache()), p, T[k], wm)
+        self.assertTrue(any(i["state"] == "open" and "fail-open" in i["body"] for i in f.issues.values()),
+                        "an ambient pass claiming only ambient/ sids must never close the out-of-band item")
+
+
+class TestRunAmbientCLI(unittest.TestCase):
+    def test_no_local_repo_or_token_skips_cleanly(self):
+        # The normal state on a machine not logged in — fail-open exit 0, no crash (never an error exit).
+        with mock.patch("boot.repo_slug", return_value=None), mock.patch("boot.gh_token", return_value=None):
+            self.assertEqual(telemetry._run_ambient_cli([]), 0)
+
+
 # ---- helpers ---------------------------------------------------------------
 
 _TMP = []
@@ -1024,6 +1202,14 @@ def _tmpcache():
     fd, path = tempfile.mkstemp(suffix=".json")
     os.close(fd)
     os.remove(path)            # start absent (best-effort empty)
+    _TMP.append(path)
+    return path
+
+
+def _tmpndjson():
+    fd, path = tempfile.mkstemp(suffix=".ndjson")
+    os.close(fd)
+    os.remove(path)            # start absent
     _TMP.append(path)
     return path
 

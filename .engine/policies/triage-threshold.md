@@ -18,7 +18,7 @@ This policy is the home of three tuning values the engine's background monitorin
 
 ## Scope
 
-These values govern only the engine's own background monitoring: how patient it is before it flags a recurring signal, when it treats a signal as resolved, and when it reminds you about an accumulating backlog. They take effect once that monitoring ships in a later slice; until then they stand as a documented starting point.
+These values govern only the engine's own background monitoring: how patient it is before it flags a recurring signal, when it treats a signal as resolved, and when it reminds you about an accumulating backlog. That monitoring is live and reads these values now.
 
 ## Rationale
 

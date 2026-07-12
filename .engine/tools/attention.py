@@ -10,7 +10,9 @@ today and degrades over the ones that do not, then exposes the operator's no-Cla
   - knowledge (knowledge_query.neighbors): each neighbour of the focus becomes a `structural_neighbors`
     candidate. The focus is the "work in hand" — given explicitly (the CLI `--focus`) or DERIVED from the
     in-flight work record (`derive_focus`, the orientation default boot uses). A focus may be a single entity
-    id or a SET; each member is walked at depth 1, so proximity is uniform today (the query returns no hop-depth).
+    id or a SET; each member is walked at depth 1 — structural adjacency is neighbour-membership
+    (attention/README.md:69), so every neighbour enters with a flat proximity signal; the pinned ranking form
+    (D-117) defines no hop-distance score, so this is faithful to the spec, not a stand-in for one.
   - git/GitHub (the in-flight work-record reader, work_record): open PRs + the working branch become
     `in_flight` candidates, and the files that work touches drive the knowledge focus above (#37).
   - telemetry (the live debt register — open engine-labelled Issues): the canonical debt source attention
