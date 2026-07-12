@@ -3176,7 +3176,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:d042556bb0782e4a38f358d463faf69dd75aee8484c1f253a65b468a1e963bb4",
+        "fingerprint": "sha256:7531542d1e9cf33fd750c74ae8a45d3ddd2917f7613d6ff47be8aa6f65a04d79",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -3983,7 +3983,7 @@
       },
       "slug": "engine-routine",
       "source": {
-        "fingerprint": "sha256:9fe6e13515c48f867f6a8940da77cd7f34919c0c1adf2744a3dd94ed4753a45b",
+        "fingerprint": "sha256:810434b766919c273553354178d4ddce1d5646b494b19a3ea3a1a34e1b646313",
         "path": ".claude/skills/engine-routine/SKILL.md"
       },
       "status": "active",
