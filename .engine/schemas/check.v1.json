@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "check.v1 — the shape of a single validation rule",
-  "description": "A check is one validation rule, authored as data (never as validator code): it names what to inspect, which check-kind evaluates it, how hard it bites, and which suites run it. The validation engine loads every check file and dispatches each to its kind. This schema governs the rule's shape — its seven required fields and two optional fields (ci_author_exempt and ci_label_exempt), and no others. It does not decide whether the named kind exists (an unknown kind is caught when the rule runs) or whether the rule's claim is true (only that the rule is well-formed).",
+  "description": "A check is one validation rule, authored as data (never as validator code): it names what to inspect, which check-kind evaluates it, how hard it bites, and which suites run it. The validation engine loads every check file and dispatches each to its kind. This schema governs the rule's shape — its seven required fields and three optional fields (status, ci_author_exempt, and ci_label_exempt), and no others. It does not decide whether the named kind exists (an unknown kind is caught when the rule runs) or whether the rule's claim is true (only that the rule is well-formed).",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "target", "kind", "params", "tier", "suites", "message"],
@@ -70,6 +70,10 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true
+    },
+    "status": {
+      "description": "Where this rule sits in the 'artifact' lifecycle. OPTIONAL — an omitted status means active. active = a live rule (the default the moment it merges); deprecated = in managed phase-out, kept while it is being replaced; retired = no longer in use, kept for history. There is deliberately no 'draft' or 'proposed' state, because draftness is a branch state, not a governance value (a rule is born active on merge to the protected branch). No core consumer reads this field yet; it is the spec-faithful lifecycle slot the later migration machinery will read, matching the doc and operation surfaces. Set this field only to mark a rule deprecated or retired.",
+      "enum": ["active", "deprecated", "retired"]
     }
   }
 }

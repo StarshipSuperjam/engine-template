@@ -100,6 +100,11 @@ class VersionOrdering(unittest.TestCase):
         self.assertFalse(rc._valid_version("99999.total-garbage;rm -rf ~"))
         self.assertFalse(rc._valid_version("v1.2.0"))
         self.assertFalse(rc._valid_version(""))
+        # #402 U07a: the writer grammar is now strict MAJOR.MINOR.PATCH, matching the module.v1 schema gate
+        # (so the two cannot bless different shapes). A 1-, 2-, or 4-component number is rejected here too.
+        self.assertFalse(rc._valid_version("1.2"))
+        self.assertFalse(rc._valid_version("1"))
+        self.assertFalse(rc._valid_version("1.2.3.4"))
 
 
 class Classify(unittest.TestCase):

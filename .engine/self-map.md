@@ -46,7 +46,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `qa-review` → `core`
 - `routine-mode` → `core`
 - `validators-core` → `core`
-- `audit-library` → `core`, `validators-core`
+- `audit-library` → `validators-core`
 
 ### `core` — version `0.1.0` (required)
 
@@ -64,7 +64,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - policy: `.engine/policies/attention.md`, `.engine/policies/contract-threshold.md`, `.engine/policies/escalation.md`, `.engine/policies/finding-disposition.md`, `.engine/policies/triage-threshold.md`
   - provisioning: `.engine/provisioning/first-run-assets.json`, `.engine/provisioning/module-catalog.json`
   - schema: `.engine/schemas/*.json`
-  - skill: `.claude/skills/.gitkeep`, `.claude/skills/engine-conduct/SKILL.md`, `.claude/skills/engine-help/SKILL.md`, `.claude/skills/engine-setup/SKILL.md`, `.claude/skills/engine-start/SKILL.md`, `.claude/skills/engine-status/SKILL.md`, `.claude/skills/engine-tune/SKILL.md`
+  - skill: `.claude/skills/.gitkeep`, `.claude/skills/engine-conduct/SKILL.md`, `.claude/skills/engine-help/SKILL.md`, `.claude/skills/engine-parts/SKILL.md`, `.claude/skills/engine-setup/SKILL.md`, `.claude/skills/engine-start/SKILL.md`, `.claude/skills/engine-status/SKILL.md`, `.claude/skills/engine-tune/SKILL.md`
   - state: `.engine/state/*.json`
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`, `.engine/tools/*.sh`
@@ -160,7 +160,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 ### `audit-library` — version `0.1.0` (required)
 
-- depends on: `core`, `validators-core`
+- depends on: `validators-core`
 - provides:
   - agent: `.claude/agents/audit.md`
   - audits: `.engine/audits/audit-digest.md`, `.engine/audits/concern-list.json`, `.engine/audits/self-review-setup.md`

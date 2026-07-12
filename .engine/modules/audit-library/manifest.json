@@ -14,7 +14,6 @@
   },
   "wires": [],
   "depends": {
-    "core": "",
     "validators-core": ""
   }
 }
