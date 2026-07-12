@@ -6,10 +6,14 @@
     "check": [
       ".engine/check/product-lock-integrity.json",
       ".engine/check/product-spec-coverage.json",
-      ".engine/check/product-spec-form.json"
+      ".engine/check/product-spec-form.json",
+      ".engine/check/product-spec-matrix.json"
     ],
     "tool": [
       ".engine/tools/product_design/*.py"
+    ],
+    "foundation": [
+      ".engine/product-spec-matrix.json"
     ],
     "operation": [
       ".engine/operations/product-intake.md"
@@ -24,7 +28,17 @@
       ".engine/modules/product-design/scaffold/*.md"
     ]
   },
-  "wires": [],
+  "wires": [
+    {
+      "type": "hook",
+      "event": "PreToolUse",
+      "matcher": "",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/product_design/obligation_matrix.py\" hook"
+      }
+    }
+  ],
   "depends": {
     "core": ""
   }

@@ -1488,6 +1488,31 @@
       "type": "check"
     },
     {
+      "id": "check:product-spec-matrix",
+      "kind": "custom/script",
+      "name": ".engine/check/product-spec-matrix.json",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "product-spec-matrix",
+      "source": {
+        "fingerprint": "sha256:b203ceb10166b4a79c87644dea870cb80bfdac73ac96e6a9a3503e34c622f112",
+        "path": ".engine/check/product-spec-matrix.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:protection",
       "kind": "custom/script",
       "name": ".engine/check/protection.json",
@@ -2736,7 +2761,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:a1d02f8f94b49d51b5ab84e675acd2cec33a63df09277b7b5289ec7c8a0e4164",
+        "fingerprint": "sha256:7c448120de8e08762f1ced0270509cc8a58586e3dc69bb5f10c2ec5362c9c266",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
@@ -5397,6 +5422,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:obligation_matrix",
+      "name": ".engine/tools/product_design/obligation_matrix.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "obligation_matrix",
+      "source": {
+        "fingerprint": "sha256:7c3d9528ecd5a6d51c16da02b4f69e4c7211054d2ed9f13985d282fe158933f6",
+        "path": ".engine/tools/product_design/obligation_matrix.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:operator_overrides",
       "name": ".engine/tools/operator_overrides.py",
       "owner": "core",
@@ -5798,7 +5840,7 @@
       },
       "slug": "spec_form",
       "source": {
-        "fingerprint": "sha256:cba73c137751f496e1555d61cff22ce05268f7a554ea1179c6ff75353dd18454",
+        "fingerprint": "sha256:4b0af037043ea65150b7538905c3077da45dc96685d567331b07643ff6af296b",
         "path": ".engine/tools/product_design/spec_form.py"
       },
       "status": "active",
@@ -6563,7 +6605,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:7207849a51bdae4b8a973f8288ff0cc5953ae20cdcb285192e4af80086a664a7",
+        "fingerprint": "sha256:a5de319b9a5b9e1eac2973cd88bf4aa104115ee5fd80fee4d7b5d032ff6709ae",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -6920,8 +6962,25 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:c7906561c338e37855e5a05c00b0e4d3c831434738fb876369da29888e2af7ed",
+        "fingerprint": "sha256:fea62d297e1383ffa3d90e68c86fc95f2240fb197e719e3801091a14163642d3",
         "path": ".engine/tools/test_modules.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_obligation_matrix",
+      "name": ".engine/tools/product_design/test_obligation_matrix.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "test_obligation_matrix",
+      "source": {
+        "fingerprint": "sha256:786c0f2f3cef4a8fd15da9ac91b8196b5d7b8d51d5f1d07c5a89f5bf2f878809",
+        "path": ".engine/tools/product_design/test_obligation_matrix.py"
       },
       "status": "active",
       "type": "tool"
