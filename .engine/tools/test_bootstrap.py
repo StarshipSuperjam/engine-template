@@ -61,7 +61,7 @@ class FakeGitHub:
 
     def _evaluated_rules(self):
         # A floor-meeting branch returns exactly the rules the engine writes; an unprotected one returns [].
-        return bootstrap.floor_ruleset()["rules"] if self.floor_met else []
+        return bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"] if self.floor_met else []
 
     def transport(self, method, path, body=None):
         self.calls.append((method, path, body))
@@ -114,18 +114,18 @@ class TestFloorPayload(unittest.TestCase):
     def test_floor_satisfies_the_real_guard(self):
         # The decisive fidelity test: what the bootstrap WRITES must satisfy the SAME evaluation the
         # committed protection_guard / CI guard uses. Any drift (a dropped rule, a wrong param) fails here.
-        rules = bootstrap.floor_ruleset()["rules"]
+        rules = bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"]
         missing = protection_guard.missing_floor(rules, protection_guard.REQUIRED_CHECKS)
         self.assertEqual(missing, [], f"floor payload does not satisfy the guard: {missing}")
 
     def test_floor_binds_the_frozen_check_names_from_the_single_home(self):
-        rules = bootstrap.floor_ruleset()["rules"]
+        rules = bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"]
         rsc = next(r for r in rules if r["type"] == "required_status_checks")
         bound = [c["context"] for c in rsc["parameters"]["required_status_checks"]]
         self.assertEqual(bound, protection_guard.REQUIRED_CHECKS)
 
     def test_floor_requires_conversation_resolution_and_zero_approvals(self):
-        pr = next(r for r in bootstrap.floor_ruleset()["rules"] if r["type"] == "pull_request")
+        pr = next(r for r in bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"] if r["type"] == "pull_request")
         self.assertTrue(pr["parameters"]["required_review_thread_resolution"])
         self.assertEqual(pr["parameters"]["required_approving_review_count"], 0)
 
@@ -191,16 +191,19 @@ class TestVerifyAndDegrade(unittest.TestCase):
         self.assertFalse(result.is_protected())
         self.assertIn("couldn't", bootstrap.render(result).lower())
 
-    def test_org_policy_403_routes_to_team_identity_banner(self):
-        # A 403 whose body names an organization policy -> the org-policy cause, whose banner offers the
-        # team-identity structural escape (not the "you don't administer this repo" banner).
+    def test_org_policy_403_routes_to_org_admin_banner(self):
+        # A 403 whose body names an organization policy -> the org-policy cause, whose banner points the operator
+        # at their org admin. It does NOT offer team mode as an escape: team's identity is deliberately non-admin
+        # (so it "cannot weaken at all"), so it cannot hold the org-blocked branch-protection permission — U11.
         fake = FakeGitHub(scopes="repo", floor_met=False, rulesets=[],
                           deny_writes=2,  # both the first write and the post-refresh retry are blocked
                           deny_body={"message": "Organization ruleset policy prevents this change."})
         result = cp(fake).apply(announce=quiet)
         self.assertEqual(result.status, "degraded")
         self.assertEqual(result.cause, "org-policy")
-        self.assertIn("team mode", bootstrap.render(result))
+        rendered = bootstrap.render(result)
+        self.assertIn("admin", rendered)
+        self.assertNotIn("team mode", rendered)   # team is not an org-policy escape (non-admin identity)
 
     def test_plain_403_routes_to_not_admin_banner(self):
         fake = FakeGitHub(scopes="repo", floor_met=False, rulesets=[],
@@ -319,7 +322,7 @@ class _RulesetFake:
 
     def __init__(self, present=True):
         self.rulesets = [{"id": 7, "name": bootstrap.ENGINE_RULESET_NAME}] if present else []
-        self.rules = bootstrap.floor_ruleset()["rules"] if present else []
+        self.rules = bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"] if present else []
         self.calls = []
 
     def transport(self, method, path, body=None):
@@ -548,7 +551,7 @@ class TestAugmentPayload(unittest.TestCase):
     """The pure read-modify helper: strictly additive, read-only fields stripped, residual gaps reported."""
 
     def test_unions_engine_checks_into_existing_rule(self):
-        payload, added, residual = bootstrap.augment_payload(product_ruleset())
+        payload, added, residual = bootstrap.augment_payload(product_ruleset(), tier=bootstrap.SOLO)
         ctx = bootstrap._bound_checks(payload["rules"])
         self.assertEqual(ctx, {"product-ci", *ENGINE})
         self.assertEqual(set(added["checks"]), set(ENGINE))
@@ -558,21 +561,21 @@ class TestAugmentPayload(unittest.TestCase):
     def test_creates_checks_rule_when_absent(self):
         prod = product_ruleset(checks=())
         prod["rules"] = [r for r in prod["rules"] if r["type"] != "required_status_checks"]
-        payload, added, _ = bootstrap.augment_payload(prod)
+        payload, added, _ = bootstrap.augment_payload(prod, tier=bootstrap.SOLO)
         self.assertEqual(bootstrap._bound_checks(payload["rules"]), set(ENGINE))
         self.assertIn("required_status_checks", added["rules"])
         self.assertEqual(added["checks"], [])           # the created rule's removal covers the checks
 
     def test_adds_wholly_missing_floor_rule_types(self):
         _payload, added, residual = bootstrap.augment_payload(
-            product_ruleset(with_nff=False, with_deletion=False))
+            product_ruleset(with_nff=False, with_deletion=False), tier=bootstrap.SOLO)
         self.assertIn("non_fast_forward", added["rules"])
         self.assertIn("deletion", added["rules"])
         self.assertEqual(residual, [])
 
     def test_preserves_bypass_and_conditions_and_strips_readonly(self):
         prod = product_ruleset()
-        payload, _added, _residual = bootstrap.augment_payload(prod)
+        payload, _added, _residual = bootstrap.augment_payload(prod, tier=bootstrap.SOLO)
         self.assertEqual(payload["bypass_actors"], prod["bypass_actors"])
         self.assertEqual(payload["conditions"], prod["conditions"])
         for k in ("id", "node_id", "_links", "source", "source_type", "created_at",
@@ -584,7 +587,7 @@ class TestAugmentPayload(unittest.TestCase):
 
     def test_existing_weak_pr_rule_is_disclosed_not_modified(self):
         prod = product_ruleset(thread_resolution=False)
-        payload, added, residual = bootstrap.augment_payload(prod)
+        payload, added, residual = bootstrap.augment_payload(prod, tier=bootstrap.SOLO)
         self.assertTrue(any("unresolved" in m for m in residual))   # the gap is reported
         pr = next(r for r in payload["rules"] if r["type"] == "pull_request")
         self.assertFalse(pr["parameters"]["required_review_thread_resolution"])   # NOT flipped
@@ -592,7 +595,7 @@ class TestAugmentPayload(unittest.TestCase):
 
     def test_already_augmented_is_a_noop(self):
         _payload, added, _residual = bootstrap.augment_payload(
-            product_ruleset(checks=("product-ci", *ENGINE)))
+            product_ruleset(checks=("product-ci", *ENGINE)), tier=bootstrap.SOLO)
         self.assertEqual(added["checks"], [])
         self.assertEqual(added["rules"], [])
 

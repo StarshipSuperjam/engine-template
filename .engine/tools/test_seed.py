@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import weakening_guard   # noqa: E402
 import protection_guard  # noqa: E402
+import bootstrap         # noqa: E402  (floor_ruleset — the team-tier floor builder the verifier is checked against)
 
 
 def _run_quiet(suite, ctx):
@@ -729,6 +730,57 @@ class TestProtectionFloor(unittest.TestCase):
         missing = protection_guard.missing_floor(rules, self.CHECKS)
         self.assertTrue(any("conversations" in m for m in missing))
 
+    # ---- team tier (U11): the stronger floor, its fidelity, and the deadlock-proof resolution ----
+    def test_team_floor_from_the_builder_self_satisfies_its_verifier(self):
+        # floor_ruleset(TEAM) must be EXACTLY what missing_floor(TEAM) accepts — the applier↔verifier
+        # cross-consistency the solo floor already has, so a team repo's applied floor and the standing CI check
+        # never disagree.
+        rules = bootstrap.floor_ruleset(tier=protection_guard.TEAM)["rules"]
+        self.assertEqual(protection_guard.missing_floor(rules, self.CHECKS, tier=protection_guard.TEAM), [])
+
+    def test_team_floor_requires_approval_codeowner_and_last_push(self):
+        pr = next(r["parameters"] for r in bootstrap.floor_ruleset(tier=protection_guard.TEAM)["rules"]
+                  if r["type"] == "pull_request")
+        self.assertEqual(pr["required_approving_review_count"], 1)
+        self.assertTrue(pr["require_code_owner_review"])
+        self.assertTrue(pr["require_last_push_approval"])
+
+    def test_team_verifier_flags_a_solo_shaped_ruleset(self):
+        # The solo floor (0 approvals, no code-owner) does NOT satisfy the team floor — the standing CI check on a
+        # team repo flags exactly the team-specific rules a drift back to solo would drop.
+        missing = protection_guard.missing_floor(self._full(), self.CHECKS, tier=protection_guard.TEAM)
+        self.assertTrue(any("review approval" in m for m in missing))
+        self.assertTrue(any("code-owner" in m for m in missing))
+        self.assertTrue(any("after approval" in m for m in missing))
+
+    def test_solo_floor_is_unchanged_by_the_tier_param(self):
+        self.assertEqual(protection_guard.missing_floor(self._full(), self.CHECKS), [])
+        self.assertEqual(protection_guard.missing_floor(self._full(), self.CHECKS, tier=protection_guard.SOLO), [])
+
+    def test_resolve_tier_matrix_including_the_deadlock_guard(self):
+        cases = [
+            ({"identity": "solo"}, "solo"),
+            ({"identity": "team", "engine_identity": {"login": "bot"}}, "team"),
+            ({"identity": "team"}, "solo"),                          # team WITHOUT identity -> deadlock guard -> solo
+            ({"identity": "team", "engine_identity": {}}, "solo"),   # empty identity object -> solo
+            ({}, "solo"),                                            # no identity field -> solo
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            for manifest, expected in cases:
+                with open(os.path.join(d, "engine.json"), "w", encoding="utf-8") as fh:
+                    json.dump(manifest, fh)
+                self.assertEqual(protection_guard.resolve_tier(d), expected, manifest)
+
+    def test_resolve_tier_never_raises_on_a_non_object_or_missing_manifest(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "engine.json")
+            for bad in ("[1,2,3]", '"astring"', "42", "true", "not json {"):
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write(bad)
+                self.assertEqual(protection_guard.resolve_tier(d), "solo", bad)
+            os.remove(p)
+            self.assertEqual(protection_guard.resolve_tier(d), "solo")   # missing file
+
 
 class TestDecoratedScaffold(unittest.TestCase):
     """The visible-scaffold template: decorated placeholder slots still read as
@@ -1392,12 +1444,13 @@ class TestWeakeningReHome(unittest.TestCase):
 
     _AUTO = object()  # sentinel: derive expected from len(files) unless overridden
 
-    def _main_json(self, event, files, expected=_AUTO, base_home=None):
+    def _main_json(self, event, files, expected=_AUTO, base_home=None, base_tier=None):
         """Drive main() with the network seams stubbed: the complete changed-file list, the authoritative
-        changed_files count, and the BASE manifest's recorded home (`base_home`, default None = no home
-        recorded, so a home in the diff reads as a first recording). `expected` defaults to len(files) (a
-        fully-seen PR); pass a larger int to simulate a truncated / over-cap view, or None for the count
-        being unavailable."""
+        changed_files count, the BASE manifest's recorded home (`base_home`, default None = no home
+        recorded, so a home in the diff reads as a first recording), and the BASE manifest's recorded identity
+        tier (`base_tier`, default None = no tier recorded, so a team->solo detector has nothing to downgrade
+        FROM). `expected` defaults to len(files) (a fully-seen PR); pass a larger int to simulate a truncated /
+        over-cap view, or None for the count being unavailable."""
         import contextlib
         import io
         if expected is self._AUTO:
@@ -1406,6 +1459,7 @@ class TestWeakeningReHome(unittest.TestCase):
         orig_fetch = weakening_guard.fetch_all_changed_files
         orig_count = weakening_guard.changed_files_total
         orig_home = weakening_guard._read_base_home
+        orig_tier = weakening_guard._read_base_tier
         buf = io.StringIO()
         with tempfile.TemporaryDirectory() as d:
             ep = os.path.join(d, "event.json")
@@ -1416,6 +1470,7 @@ class TestWeakeningReHome(unittest.TestCase):
             weakening_guard.fetch_all_changed_files = lambda repo, number, token: files
             weakening_guard.changed_files_total = lambda repo, number, token: expected
             weakening_guard._read_base_home = lambda: base_home
+            weakening_guard._read_base_tier = lambda: base_tier
             try:
                 with contextlib.redirect_stdout(buf):
                     rc = weakening_guard.main()
@@ -1425,6 +1480,7 @@ class TestWeakeningReHome(unittest.TestCase):
                 weakening_guard.fetch_all_changed_files = orig_fetch
                 weakening_guard.changed_files_total = orig_count
                 weakening_guard._read_base_home = orig_home
+                weakening_guard._read_base_tier = orig_tier
         return rc, json.loads(buf.getvalue())
 
     def test_no_weakening_is_empty_and_exit_zero(self):
@@ -1539,6 +1595,47 @@ class TestWeakeningReHome(unittest.TestCase):
         # the same patch on a NON-manifest file is ignored — only the manifest carries the home coordinate
         self.assertIsNone(weakening_guard.home_repoint(
             [{"filename": "docs/x.md", "status": "modified", "patch": self._REPOINT_PATCH}], "acme/engine-home"))
+
+    # ---- the team->solo identity downgrade is a §15 weakening (U11; mirrors home_repoint) ----
+    _DOWNGRADE_PATCH = ('@@ -15,3 +15,3 @@\n'
+                        '-  "identity": "team",\n'
+                        '+  "identity": "solo",\n'
+                        ' }\n')
+
+    def _f(self, patch, status="modified"):
+        return [{"filename": ".engine/engine.json", "status": status, "patch": patch}]
+
+    def test_identity_downgrade_pure_classifier(self):
+        d = weakening_guard.identity_downgrade
+        # base is team + the diff lowers it to solo -> a weakening to flag
+        self.assertTrue(d(self._f(self._DOWNGRADE_PATCH), "team"))
+        # base is solo (or none) -> solo->team and a first team recording are STRENGTHENINGS, never gated
+        self.assertFalse(d(self._f(self._DOWNGRADE_PATCH), "solo"))
+        self.assertFalse(d(self._f(self._DOWNGRADE_PATCH), None))
+        # base team, but the identity key is untouched by this diff -> not a downgrade
+        self.assertFalse(d(self._f('@@ -1,1 +1,1 @@\n-  "engine_release": "1"\n+  "engine_release": "2"\n'), "team"))
+        # base team, a manifest change with NO inspectable patch -> fail closed (flag)
+        self.assertTrue(d([{"filename": ".engine/engine.json", "status": "modified", "patch": None}], "team"))
+        # base team, the diff touches identity but PROVABLY keeps team -> not a downgrade
+        self.assertFalse(d(self._f('@@ -15,1 +15,1 @@\n-  "identity": "team",\n+  "identity": "team" ,\n'), "team"))
+        # a duplicate-key / value-split injection adding a non-team identity value -> flagged (fail closed)
+        self.assertTrue(d(self._f('@@ -15,1 +16,1 @@\n+  "identity": "solo",\n'), "team"))
+        # the same patch on a NON-manifest file is ignored
+        self.assertFalse(d([{"filename": "docs/x.md", "status": "modified", "patch": self._DOWNGRADE_PATCH}], "team"))
+
+    def test_identity_downgrade_is_flagged_and_cleared_by_the_ack(self):
+        # end-to-end through main(): a team->solo edit on a team-base repo blocks until the ack, then clears.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            self._f(self._DOWNGRADE_PATCH), base_tier="team")
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["severity"], "hard")
+        self.assertIn("team mode back to", out[0]["message"])
+        self.assertIn("guardrail-ack", out[0]["message"])
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
+            self._f(self._DOWNGRADE_PATCH), base_tier="team")
+        self.assertEqual(out, [])
 
     def test_missing_pr_context_is_hard_fail_closed(self):
         import contextlib

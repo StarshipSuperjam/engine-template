@@ -33,14 +33,51 @@ REQUIRED_CHECKS = ["engine-ci", "engine-guard"]
 
 UA = "engine-seed-protection-guard"  # this guard's GitHub API User-Agent; boot reuses it for the same protected-branch probe
 
+# The identity-tier vocabulary lives HERE (the floor's home), not in bootstrap: bootstrap imports protection_guard,
+# so this is the one module both the ruleset builder and this CI guard can share the tier from without a cycle.
+SOLO, TEAM = "solo", "team"  # mirror engine.v1.json's `identity` enum
+_ENGINE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .engine, two dirs up from tools/
 
-def missing_floor(rules: list, required_checks: list) -> list:
-    """Pure evaluation of the protection floor against the EVALUATED per-branch
-    rules (which already omit rules in evaluate/disabled mode). Returns the list
-    of floor pieces not in force — empty means the gate fully bites."""
+
+def resolve_tier(engine_dir: str | None = None) -> str:
+    """Resolve the repo's identity tier from its committed manifest — the SINGLE place the tier is read, so no
+    ruleset/verify call site defaults it independently (a defaulted tier spread across sites is fail-open: an
+    omission silently builds or verifies the weaker floor). Returns SOLO for an absent/missing/unreadable manifest
+    or an absent/unknown `identity` (the documented default; a malformed manifest is caught loudly by the engine.v1
+    schema check, an intentional team->solo downgrade by the weakening guard's identity detector — neither is this
+    read's job). Returns TEAM only when the manifest explicitly records it. Deliberately robust; never raises."""
+    engine_dir = engine_dir if engine_dir is not None else _ENGINE_DIR
+    try:
+        with open(os.path.join(engine_dir, "engine.json"), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, ValueError):
+        return SOLO
+    if not isinstance(manifest, dict):
+        return SOLO   # valid JSON that isn't an object (a list/string/number) -> honor the never-raises contract
+    # TEAM is real only when the distinct identity that makes it real is ALSO recorded. This is the deadlock
+    # guard: the team floor (1 required approval) is unsatisfiable without a distinct identity to author the PRs
+    # (a sole owner cannot approve their own PR), so any team-WITHOUT-identity state — a first-run tier preference
+    # recorded before the switch, or a half-completed switch — fail-safes to the SOLO floor here rather than
+    # applying an unsatisfiable ruleset. The team-switch operation writes `identity` and `engine_identity`
+    # together, so a genuinely-switched repo resolves TEAM.
+    if manifest.get("identity") == TEAM and (manifest.get("engine_identity") or {}).get("login"):
+        return TEAM
+    return SOLO
+
+
+def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> list:
+    """Pure evaluation of the protection floor against the EVALUATED per-branch rules (which already omit rules in
+    evaluate/disabled mode), for the given identity `tier`. Returns the list of floor pieces not in force — empty
+    means the gate fully bites. In TEAM the floor additionally requires a code-owner approval that survives the last
+    push — the distinct-identity review the tier is sold on. The default is SOLO: the ENFORCEMENT paths (the standing
+    CI check `main()` and bootstrap's apply/verify) resolve the real tier once via resolve_tier and pass it
+    explicitly, so team protection is continuously verified; the default only serves an un-migrated informational
+    caller (boot's orientation card — a tracked follow-up to make tier-aware), and under-reports team-specific rules
+    there rather than mis-enforcing them."""
     types = {r.get("type") for r in rules}
     bound: set[str] = set()
     pr_thread_resolution = False
+    pr_params: dict = {}
     for r in rules:
         p = r.get("parameters") or {}
         if r.get("type") == "required_status_checks":
@@ -49,10 +86,20 @@ def missing_floor(rules: list, required_checks: list) -> list:
                     bound.add(c["context"])
         elif r.get("type") == "pull_request":
             pr_thread_resolution = bool(p.get("required_review_thread_resolution"))
+            pr_params = p
 
     missing: list[str] = []
     if "pull_request" not in types:
         missing.append("a pull request is not required before merging")
+    elif tier == TEAM:
+        # The team floor's whole point: a distinct non-admin identity authors the engine's commits, so the operator
+        # is the enforced code-owner reviewer — and that approval must not be bypassable by a post-approval push.
+        if int(pr_params.get("required_approving_review_count") or 0) < 1:
+            missing.append("in team mode, a change can merge without anyone's review approval")
+        if not pr_params.get("require_code_owner_review"):
+            missing.append("in team mode, a change can merge without a code-owner's approval")
+        if not pr_params.get("require_last_push_approval"):
+            missing.append("in team mode, a commit pushed after approval can merge without a fresh approval")
     if "required_status_checks" not in types:
         missing.append("status checks are not required to pass")
     else:
@@ -81,7 +128,10 @@ def main() -> int:
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     branch = os.environ.get("PROTECTED_BRANCH", "main")
     token = os.environ.get("GITHUB_TOKEN", "")
-    tier = os.environ.get("ENGINE_RULE_TIER", "hard")  # the rule's tier, passed by the kind
+    tier = os.environ.get("ENGINE_RULE_TIER", "hard")  # the FINDING SEVERITY (hard/soft), passed by the kind
+    identity_tier = resolve_tier()  # the repo's solo/team IDENTITY tier — DISTINCT from the severity above; decides
+    #                                 which floor the standing CI check verifies, so a team repo's stronger floor is
+    #                                 continuously enforced (not just the solo baseline).
     if not repo or not token:
         # Local / no credentials: FAIL OPEN with a soft note — a soft finding never blocks,
         # and the CI run (which has a token) performs the real check. Mirrors the presence
@@ -99,7 +149,7 @@ def main() -> int:
         return emit([{"severity": tier, "location": None,
                       "message": f"Branch protection could not be verified for '{branch}' "
                       f"({e}); treating it as not in force until confirmed."}])
-    missing = missing_floor(rules, REQUIRED_CHECKS)
+    missing = missing_floor(rules, REQUIRED_CHECKS, tier=identity_tier)
     if missing:
         return emit([{"severity": tier, "location": None,
                       "message": f"The protected-branch safety gate on '{branch}' is not fully "

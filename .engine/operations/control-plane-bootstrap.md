@@ -45,8 +45,9 @@ model.
    degrades — it never pretends the gate is on. It surfaces a plain-language account naming the concrete
    risk ("branch protection is not active — work can merge unreviewed") and a next action matched to the
    cause: if the operator doesn't administer the repository, forward the one-time setup to whoever does; if
-   an org policy blocks the permission, the structural escape is the team identity (a separate engine
-   identity that holds it); if the approval didn't save, retry. Never a dead-end.
+   an org policy blocks the permission, point the operator at their org admin (team mode is NOT an escape —
+   its identity is deliberately non-admin, so it cannot hold the blocked branch-protection permission); if the
+   approval didn't save, retry. Never a dead-end.
 
 This runbook runs the **single first-run attempt and surfaces its own outcome**. The **standing**
 unprotected-state surfacing across every later session — the continuous "your safety gate is off" reminder

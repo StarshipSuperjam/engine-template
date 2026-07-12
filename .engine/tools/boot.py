@@ -210,7 +210,11 @@ def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, s
             user_agent=protection_guard.UA)  # reuse the protection guard's UA — the same probe, same identity
         if not isinstance(rules, list):   # a 200 with an unexpected body (an error object, null) is NOT
             return "unknown", None         # a confirmation that protection is on -> honest "unknown"
-        missing = protection_guard.missing_floor(rules, protection_guard.REQUIRED_CHECKS)
+        # Read the repo's identity tier so a team repo's orientation card reflects the STRONGER team floor
+        # (code-owner review + last-push approval), not just the solo baseline — matching what the standing CI
+        # check enforces (U11).
+        missing = protection_guard.missing_floor(
+            rules, protection_guard.REQUIRED_CHECKS, tier=protection_guard.resolve_tier())
     except Exception:  # noqa: BLE001 — unreachable / auth / malformed body -> unknown, never a false "on"
         return "unknown", None
     if missing:

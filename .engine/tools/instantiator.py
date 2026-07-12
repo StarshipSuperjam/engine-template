@@ -80,8 +80,11 @@ _EMPTY_CATALOG_LINE = ("There are no optional add-ons to choose yet — the esse
                        "and I'll set those up when you confirm.")
 _TIER_PROMPT = (
     "One choice only you can make — who reviews changes here:\n"
-    "  • On your own: I'll make changes as you, and you approve each one. (The usual choice.)\n"
-    "  • With a team: I'll make changes under a separate name, and a teammate approves them."
+    "  • On your own: I'll make changes as you, and you approve each one. (The usual choice — start here.)\n"
+    "  • With a team: I'll make changes under a separate account, and your approval is required before "
+    "anything merges — and because that account can't change your safety rules, not even I can weaken them. "
+    "Worth it even on your own if you want that stronger guarantee. It's a bigger, one-time setup, so you "
+    "start on-your-own and I walk you through switching whenever you're ready."
 )
 _DESELECT_PREFACE = (
     "When you confirm: the optional add-ons you did NOT keep will be removed from this project — their files\n"
@@ -220,10 +223,11 @@ FALLBACK_COPY = {
         "place, and all your choices are saved. You're ready to start."
     ),
     "team-recommended": (
-        "Your project looks like it already has a team — others review changes here. For that, the team setup "
-        "fits best: the engine commits under a separate name and a teammate approves its changes, so the way "
-        "work is reviewed here stays the way it already works. It's a suggestion for you to weigh, not a switch "
-        "I throw — on-your-own stays available, and the choice is yours."
+        "Your project looks like it already has a team — others review changes here. Team mode fits: the engine "
+        "commits under a separate account and your approval is required before anything merges, keeping review "
+        "the way it already works here — and that account can't change your safety rules. I'll set you up "
+        "on-your-own now and walk you through switching to team whenever you're ready (it's a bigger, one-time "
+        "setup). On-your-own stays available, and the choice is yours."
     ),
     "collision-intro": (
         "Your project already has files and settings of its own. I'm adding the engine alongside them, so first "
@@ -1805,7 +1809,7 @@ def _approve_transport():
     def t(method, path, body=None):
         headers = {"X-OAuth-Scopes": "repo"}
         if method == "GET" and path.endswith("/rules/branches/main"):
-            return 200, (bootstrap.floor_ruleset()["rules"] if state["met"] else []), headers
+            return 200, (bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"] if state["met"] else []), headers
         if method == "GET" and path.endswith("/rulesets"):
             return 200, [], headers
         if method == "POST" and path.endswith("/rulesets"):
@@ -1852,7 +1856,7 @@ def _already_transport():
     def t(method, path, body=None):
         headers = {"X-OAuth-Scopes": "repo"}
         if method == "GET" and path.endswith("/rules/branches/main"):
-            return 200, bootstrap.floor_ruleset()["rules"], headers
+            return 200, bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"], headers
         sec = _security_floor_responses(method, path, body, available=True)
         if sec is not None:
             return sec[0], sec[1], headers

@@ -99,12 +99,44 @@ class BootstrapError(Exception):
 
 # ---- the protection-floor payload --------------------------------------------------------------
 
-def floor_ruleset(name: str = ENGINE_RULESET_NAME) -> dict:
-    """The ruleset object that satisfies protection_guard.missing_floor EXACTLY (verified against the
-    live evaluated floor): a pull request before merging (zero required approvals — a sole owner cannot
-    approve their own PR, [control-plane]; plus conversation resolution), the engine's required checks,
-    no force-push, no deletion. Targets the default branch via the ~DEFAULT_BRANCH ref condition so it
-    follows a rename."""
+SOLO, TEAM = protection_guard.SOLO, protection_guard.TEAM  # re-export the tier vocabulary (single home: protection_guard)
+
+
+def _pull_request_params(tier: str) -> dict:
+    """The `pull_request` rule parameters for a tier. SOLO: zero required approvals — a sole owner cannot
+    approve their own PR ([control-plane]) — so the enforced gate is the required checks. TEAM: a distinct
+    non-admin identity authors the engine's commits, so the operator becomes the enforced code-owner
+    reviewer — one code-owner approval, AND that approval must survive the last push (require_last_push_approval)
+    so the authoring identity cannot push a fresh commit past an already-given approval, which would hollow out
+    the 'genuine second-party review' the team tier is sold on."""
+    if tier == TEAM:
+        return {
+            "required_approving_review_count": 1,
+            "required_review_thread_resolution": True,
+            "dismiss_stale_reviews_on_push": True,
+            "require_code_owner_review": True,
+            "require_last_push_approval": True,
+            "required_reviewers": [],
+            "allowed_merge_methods": ["merge", "squash", "rebase"],
+        }
+    return {
+        "required_approving_review_count": 0,
+        "required_review_thread_resolution": True,
+        "dismiss_stale_reviews_on_push": False,
+        "require_code_owner_review": False,
+        "require_last_push_approval": False,
+        "required_reviewers": [],
+        "allowed_merge_methods": ["merge", "squash", "rebase"],
+    }
+
+
+def floor_ruleset(name: str = ENGINE_RULESET_NAME, *, tier: str) -> dict:
+    """The ruleset object that satisfies protection_guard.missing_floor EXACTLY for the given tier (verified
+    against the live evaluated floor): a pull request before merging (tier-specific review requirement above,
+    plus conversation resolution), the engine's required checks, no force-push, no deletion. Targets the
+    default branch via the ~DEFAULT_BRANCH ref condition so it follows a rename. `tier` is keyword-only and
+    REQUIRED — never defaulted, so no call site can silently build the weaker floor (the tier is resolved once,
+    via resolve_tier, and threaded explicitly)."""
     return {
         "name": name,
         "target": "branch",
@@ -113,15 +145,7 @@ def floor_ruleset(name: str = ENGINE_RULESET_NAME) -> dict:
         "rules": [
             {
                 "type": "pull_request",
-                "parameters": {
-                    "required_approving_review_count": 0,
-                    "required_review_thread_resolution": True,
-                    "dismiss_stale_reviews_on_push": False,
-                    "require_code_owner_review": False,
-                    "require_last_push_approval": False,
-                    "required_reviewers": [],
-                    "allowed_merge_methods": ["merge", "squash", "rebase"],
-                },
+                "parameters": _pull_request_params(tier),
             },
             {
                 "type": "required_status_checks",
@@ -147,8 +171,11 @@ def remainder_ruleset(name: str = ENGINE_RULESET_NAME) -> dict:
     rest of the floor in force: a pull request before merging, no force-push, no deletion. Derived from
     floor_ruleset() (the single source) so it can never drift from the floor it strips one rule from. The
     pull_request rule keeps require_code_owner_review False, so the kept remainder never references the
-    (separately removed) CODEOWNERS file."""
-    rs = floor_ruleset(name)
+    (separately removed) CODEOWNERS file. Pinned to the SOLO shape regardless of the repo's tier: de-bootstrap
+    is removing the engine, so the team-specific protections (code-owner review, required approval) depend on
+    the engine identity + the engine's CODEOWNERS block that are being removed alongside it — the minimal
+    keep-protection floor is the honest remainder."""
+    rs = floor_ruleset(name, tier=SOLO)
     rs["rules"] = [r for r in rs["rules"] if r.get("type") != "required_status_checks"]
     return rs
 
@@ -167,10 +194,11 @@ def remainder_ruleset(name: str = ENGINE_RULESET_NAME) -> dict:
 # pieces added are recorded so a later de-bootstrap reverses precisely them and nothing else.
 
 
-def _floor_rule_templates() -> dict:
-    """{rule_type: rule_dict} for every floor rule, sourced from floor_ruleset() so the shapes the engine
-    ADDs on augment never drift from the floor the engine creates on greenfield (single source)."""
-    return {r["type"]: r for r in floor_ruleset()["rules"]}
+def _floor_rule_templates(tier: str) -> dict:
+    """{rule_type: rule_dict} for every floor rule at the repo's tier, sourced from floor_ruleset(tier) so the
+    shapes the engine ADDs on augment never drift from the floor the engine creates on greenfield (single
+    source) — a team repo augmenting a product ruleset adds the team pull_request shape, not the solo one."""
+    return {r["type"]: r for r in floor_ruleset(tier=tier)["rules"]}
 
 
 def _project_rule(rule: dict) -> dict:
@@ -208,7 +236,7 @@ def _bound_checks(rules: list) -> set:
     return set()
 
 
-def augment_payload(product_full: dict, required_checks: list | None = None) -> tuple:
+def augment_payload(product_full: dict, required_checks: list | None = None, *, tier: str) -> tuple:
     """Pure read-modify of a product ruleset object into the PUT body that ADDS the engine's protection
     without touching anything of the operator's. Returns (payload, added, residual_gaps):
 
@@ -224,7 +252,7 @@ def augment_payload(product_full: dict, required_checks: list | None = None) -> 
     required_checks = required_checks if required_checks is not None else protection_guard.REQUIRED_CHECKS
     payload = _project_ruleset(product_full)
     rules = payload["rules"]
-    templates = _floor_rule_templates()
+    templates = _floor_rule_templates(tier)
     added_checks: list = []
     added_rules: list = []
 
@@ -254,7 +282,7 @@ def augment_payload(product_full: dict, required_checks: list | None = None) -> 
             added_rules.append(rtype)
 
     added = {"checks": added_checks, "rules": added_rules}
-    residual_gaps = protection_guard.missing_floor(rules, required_checks)
+    residual_gaps = protection_guard.missing_floor(rules, required_checks, tier=tier)
     return payload, added, residual_gaps
 
 
@@ -342,9 +370,9 @@ FALLBACK_COPY = {
     ),
     "degraded-org-policy": (
         "I couldn't turn on branch protection — your organization's settings blocked the permission it "
-        "needs. Protection is not active, so work can merge unreviewed. Two ways forward: ask your org "
-        "admin to allow it, or switch to team mode (a separate engine identity that holds this "
-        "permission). I'll keep reminding you until it's on."
+        "needs. Protection is not active, so work can merge unreviewed. The way forward is to ask your "
+        "organization's admin to allow it — creating branch protection here needs an admin's permission, "
+        "which I can't grant myself. I'll keep reminding you until it's on."
     ),
     "degraded-didnt-save": (
         "The authorization screen completed but the permission didn't save (some sign-in methods do "
@@ -521,7 +549,7 @@ class ControlPlane:
     `transport(method, path, body) -> (status, json, headers)` is injectable so tests/demo replace ONLY
     the network and run the real logic."""
 
-    def __init__(self, repo: str, token: str, transport=None, refresh_fn=None, issues=None):
+    def __init__(self, repo: str, token: str, transport=None, refresh_fn=None, issues=None, tier=None):
         self.repo = repo
         self.token = token
         self._transport = transport or self._http
@@ -529,6 +557,10 @@ class ControlPlane:
         # The label-ensure boundary, INHERITED from telemetry's first-producer mechanism. Injectable
         # so tests/demo replace the network; constructed lazily against the real transport otherwise.
         self._issues = issues
+        # The identity tier is resolved ONCE here (the single boundary) and threaded through every ruleset
+        # method as self.tier, so no method independently defaults it. Injectable for tests; resolved from the
+        # committed manifest otherwise.
+        self.tier = tier if tier is not None else protection_guard.resolve_tier()
 
     def _http(self, method: str, path: str, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -576,7 +608,7 @@ class ControlPlane:
             "GET", f"/repos/{self.repo}/rules/branches/{branch}", None)
         if status >= 400 or not isinstance(data, list):
             raise BootstrapError(f"could not read evaluated branch rules (status {status})")
-        return protection_guard.missing_floor(data, protection_guard.REQUIRED_CHECKS)
+        return protection_guard.missing_floor(data, protection_guard.REQUIRED_CHECKS, tier=self.tier)
 
     def engine_ruleset(self) -> dict | None:
         """The engine's own ruleset, if it already exists (matched by ENGINE_RULESET_NAME). Returns None
@@ -628,7 +660,7 @@ class ControlPlane:
 
     def _write_floor(self, existing: dict | None):
         """Create the engine ruleset (POST) or repair it in place (PUT). Returns (status, body)."""
-        payload = floor_ruleset()
+        payload = floor_ruleset(tier=self.tier)
         if existing:
             status, body, _ = self._transport(
                 "PUT", f"/repos/{self.repo}/rulesets/{existing['id']}", payload)
@@ -714,7 +746,7 @@ class ControlPlane:
                 return self._augment_ruleset(prod_ids[0], branch, missing, say, copy)
             if len(prod_ids) > 1:
                 say(copy["augment-ambiguous"])
-            elif self._pre_existing_protection(missing):
+            elif self._pre_existing_protection(missing, self.tier):
                 say(copy["augment-classic"])
 
         mode = "repaired" if own is not None else "created"
@@ -765,7 +797,7 @@ class ControlPlane:
                 return Result("unverified", branch, missing or [], "verify-unreadable", labels_ok,
                               mode="augmented")
             pre = _project_ruleset(pre_full)
-            payload, added, residual = augment_payload(pre_full)
+            payload, added, residual = augment_payload(pre_full, tier=self.tier)
             if not added["checks"] and not added["rules"]:
                 # Already augmented — a verified no-op. Record the engine checks in force so a later
                 # de-bootstrap still strips them (and never deadlocks); leave added rule-types empty (safe).
@@ -808,7 +840,7 @@ class ControlPlane:
         # plan tier), and the engine must not then claim that protection is on. `residual` is the floor pieces
         # the engine deliberately LEFT to the operator (gaps in their own rules it won't modify); anything
         # missing BEYOND that is something the engine tried to add but the server didn't apply.
-        actual_missing = protection_guard.missing_floor(post["rules"], protection_guard.REQUIRED_CHECKS)
+        actual_missing = protection_guard.missing_floor(post["rules"], protection_guard.REQUIRED_CHECKS, tier=self.tier)
         unexpected = [m for m in actual_missing if m not in residual]
         if unexpected:
             return Result("degraded", branch, actual_missing, "verify-failed", labels_ok, mode="augmented")
@@ -818,13 +850,14 @@ class ControlPlane:
         return Result("applied", branch, [], None, labels_ok, mode="augmented", marker=marker)
 
     @staticmethod
-    def _pre_existing_protection(missing) -> bool:
+    def _pre_existing_protection(missing, tier: str) -> bool:
         """True if the branch already had SOME protection in force (a PROPER subset of the floor was missing)
         — classic branch protection, or a ruleset the engine didn't augment — so creating the engine's own
-        ruleset leaves the operator with their protection plus the engine's, worth disclosing."""
+        ruleset leaves the operator with their protection plus the engine's, worth disclosing. The baseline is
+        computed at the SAME tier as `missing` so the subset comparison stays consistent."""
         if not missing:
             return False
-        baseline = set(protection_guard.missing_floor([], protection_guard.REQUIRED_CHECKS))
+        baseline = set(protection_guard.missing_floor([], protection_guard.REQUIRED_CHECKS, tier=tier))
         return set(missing) < baseline   # proper subset => something was already in force
 
     # -- de-bootstrap (the inverse of apply — operator-privileged, for clean removal) -------------

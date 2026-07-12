@@ -39,9 +39,9 @@ approve the screen. I'll keep reminding you until it's on.
 ## If it couldn't turn on — your organization blocks the permission
 
 I couldn't turn on branch protection — your organization's settings blocked the permission it needs.
-Protection is not active, so work can merge unreviewed. Two ways forward: ask your org admin to allow it, or
-switch to team mode (a separate engine identity that holds this permission). I'll keep reminding you until
-it's on.
+Protection is not active, so work can merge unreviewed. The way forward is to ask your organization's admin to
+allow it — creating branch protection here needs an admin's permission, which I can't grant myself. I'll keep
+reminding you until it's on.
 
 ## If it couldn't turn on — the approval didn't save
 

@@ -132,10 +132,11 @@ your choices are saved. You're ready to start.
 
 ## Your project looks like it already has a team
 
-Your project looks like it already has a team — others review changes here. For that, the team setup fits best:
-the engine commits under a separate name and a teammate approves its changes, so the way work is reviewed here
-stays the way it already works. It's a suggestion for you to weigh, not a switch I throw — on-your-own stays
-available, and the choice is yours.
+Your project looks like it already has a team — others review changes here. Team mode fits: the engine commits
+under a separate account and your approval is required before anything merges, keeping review the way it already
+works here — and that account can't change your safety rules. I'll set you up on-your-own now and walk you
+through switching to team whenever you're ready (it's a bigger, one-time setup). On-your-own stays available, and
+the choice is yours.
 
 ## Before I add the engine, here's what I found in your project
 
