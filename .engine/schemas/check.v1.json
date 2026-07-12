@@ -60,7 +60,7 @@
       "minLength": 1
     },
     "ci_author_exempt": {
-      "description": "Optional. PR-author logins (for example dependabot[bot]) for which this rule does not bind in the merge-gating (CI) suite. The validation engine honors it as a disclosed not-applicable pass — a stated pass that names why the rule did not apply — never a silent skip, and never a workflow-level skip that would leave the required check pending and block the merge. The closed check-kinds stay author-agnostic: the engine reads the author from the trusted event context and skips the rule before any kind runs. Reserved for a recognized external automation whose own pull-request body is its account of the change; widening this list is a guardrail change that must be re-confirmed for spoof-safety.",
+      "description": "Optional. PR-author logins (for example dependabot[bot]) for which this rule does not bind in the merge-gating (CI) suite. The validation engine honors it as a disclosed not-applicable pass — a stated pass that names why the rule did not apply — never a silent skip, and never a workflow-level skip that would leave the required check pending and block the merge. The closed check-kinds stay author-agnostic: the engine reads the author from the trusted event context and skips the rule before any kind runs. Reserved for a recognized external automation whose own pull-request body is its account of the change; widening this list is a guardrail change that must be re-confirmed for spoof-safety, and each such re-confirmation is recorded in the pull request that lands the widening.",
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true

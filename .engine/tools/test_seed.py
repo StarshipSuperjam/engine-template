@@ -132,6 +132,7 @@ class TestCiAuthorExempt(unittest.TestCase):
         # otherwise-red engine-ci). Proves the engine honors the EXACT bot login, brackets and all. (The
         # memory-erasure proposal is NOT bot-authored — a local SessionStart hook opens it under the operator's
         # own gh token — so it is cleared by the engine-erasure LABEL exemption instead; see TestCiLabelExempt.)
+        # This bot entry's spoof-safety re-confirmation (D-208) is recorded in the PR that closes issue #423.
         self._install(exempt=("dependabot[bot]", "github-actions[bot]"))
         rc, text = self._run("CI", {"pr_body": "", "pr_author": "github-actions[bot]"})
         self.assertEqual(rc, 0)
@@ -309,6 +310,7 @@ class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
         # memory-erasure proposal is opened by a local hook under the operator's own identity (NOT a bot), so the
         # author exemption cannot reach it — its deliberate plain consent body is cleared by the label instead.
         # A drop of any of these silently re-breaks those PRs' engine-ci, so pin the exact lists.
+        # The github-actions[bot] entry's spoof-safety re-confirmation (D-208) is recorded in the PR closing #423.
         rule = validate.load_json(os.path.join(validate.CHECK_DIR, "pr-body-completeness.json"))
         self.assertEqual(rule.get("ci_author_exempt"), ["dependabot[bot]", "github-actions[bot]"])
         self.assertEqual(rule.get("ci_label_exempt"), ["engine-erasure"])
