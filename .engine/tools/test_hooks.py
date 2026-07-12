@@ -150,8 +150,9 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
         self.assertNotIn("/usr/local/bin/", cmd)
 
     def test_the_launcher_waits_bounded_and_execs_only_the_given_interpreter(self):
-        # the launcher source: a bounded (not infinite) wait, then a single exec of ONLY the passed
-        # interpreter with the forwarded args — never a bare/system Python fallback.
+        # the launcher source: a bounded (not infinite) wait, then a SINGLE exec of the resolved venv
+        # interpreter (the named POSIX bin/python, or its Windows Scripts/python.exe sibling under the same
+        # venv root — #407) with the forwarded args — never a bare/system Python fallback.
         with open(self.WRAPPER) as fh:
             src = fh.read()
         self.assertIn("while", src)
@@ -241,7 +242,83 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
                                env={**os.environ, "ENGINE_HOOK_WAIT_POLLS": "3",
                                     "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})       # ~0.15 s bound, fast
             self.assertEqual(r.stdout, "")                  # nothing ran — no system-Python fallback
-            self.assertNotEqual(r.returncode, 0)            # the falsy `[ -x ]` short-circuits the exec
+            self.assertNotEqual(r.returncode, 0)            # neither venv layout exists → no exec → fail-open
+            self.assertNotEqual(r.returncode, 2)            # and NEVER the platform's block code (#390 stranding)
+
+    def test_launcher_fails_open_when_the_interpreter_is_present_but_not_executable(self):
+        # a corrupt/partial venv: the named interpreter file EXISTS but is not runnable. The launcher must
+        # still reach the plain-language fail-open readout (exit 1, non-blocking) — NOT exec the file and
+        # surface a raw shell error (126). This pins the fix for the `-f`-guard regression the gate found:
+        # the exec is gated on `-x`, so a non-executable interpreter waits out the bound and fails open.
+        with tempfile.TemporaryDirectory() as td:
+            interp = os.path.join(td, ".venv", "bin", "python")
+            os.makedirs(os.path.dirname(interp))
+            with open(interp, "w") as fh:                   # present as a regular file...
+                fh.write("#!/bin/sh\necho SHOULD-NOT-RUN\n")
+            os.chmod(interp, 0o644)                         # ...but NOT executable
+            r = subprocess.run(["sh", self.WRAPPER, interp, os.path.join(td, "boot.py")],
+                               capture_output=True, text=True, timeout=10,
+                               env={**os.environ, "ENGINE_HOOK_WAIT_POLLS": "3",
+                                    "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})
+            self.assertEqual(r.stdout, "")                  # did not exec the non-executable file
+            self.assertNotEqual(r.returncode, 0)            # fail-open readout path
+            self.assertNotEqual(r.returncode, 2)            # never the block code
+            self.assertIn("not a block", r.stderr)          # the friendly readout, not a raw exec error
+
+    def test_launcher_resolves_the_windows_sibling_when_the_posix_layout_is_absent(self):
+        # the #407 fix, exercised on a POSIX host with a STUB at the Windows layout path: the committed
+        # command always names the POSIX bin/python; when only the Windows Scripts/python.exe layout exists
+        # (a Windows adopter, or a mixed-OS teammate on a repo whose committed command names the other OS),
+        # the launcher resolves and runs THAT sibling under the same venv root — so one committed repo boots
+        # on every OS. (The real .exe under Git Bash is unverifiable off Windows; the stub proves the
+        # branch-selection + exec dispatch, which is the falsifiable part on a POSIX host.)
+        with tempfile.TemporaryDirectory() as td:
+            venv = os.path.join(td, ".venv")
+            posix = os.path.join(venv, "bin", "python")          # NAMED in the command, but absent here
+            win = os.path.join(venv, "Scripts", "python.exe")    # the only layout present on this "machine"
+            os.makedirs(os.path.dirname(win))
+            with open(win, "w") as fh:
+                fh.write('#!/bin/sh\necho "WIN-STUB-RAN $@"\n')
+            os.chmod(win, 0o755)                                 # executable so exec succeeds on the POSIX host
+            script = os.path.join(td, "boot.py")
+            r = subprocess.run(["sh", self.WRAPPER, posix, script, "hook"],
+                               capture_output=True, text=True, timeout=10,
+                               env={**os.environ, "ENGINE_HOOK_WAIT_POLLS": "3",
+                                    "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("WIN-STUB-RAN", r.stdout)              # the Windows-layout interpreter ran
+            self.assertIn(script, r.stdout)                      # the script path forwarded
+            self.assertIn("hook", r.stdout)                      # the trailing arg forwarded
+
+    def test_launcher_prefers_the_named_posix_interpreter_when_both_layouts_exist(self):
+        # determinism: on the normal POSIX host the named bin/python is used and the Windows sibling is
+        # never consulted, even if both happen to be present.
+        with tempfile.TemporaryDirectory() as td:
+            venv = os.path.join(td, ".venv")
+            posix = os.path.join(venv, "bin", "python")
+            win = os.path.join(venv, "Scripts", "python.exe")
+            os.makedirs(os.path.dirname(posix))
+            os.makedirs(os.path.dirname(win))
+            for p, tag in ((posix, "POSIX"), (win, "WIN")):
+                with open(p, "w") as fh:
+                    fh.write(f'#!/bin/sh\necho "{tag}-RAN"\n')
+                os.chmod(p, 0o755)
+            r = subprocess.run(["sh", self.WRAPPER, posix, os.path.join(td, "boot.py")],
+                               capture_output=True, text=True, timeout=10)
+            self.assertIn("POSIX-RAN", r.stdout)
+            self.assertNotIn("WIN-RAN", r.stdout)
+
+    def test_launcher_os_literals_match_the_resolver_single_source(self):
+        # F2 / single-source-of-truth: the per-OS layout fact (bin/python vs Scripts/python.exe) is DEFINED
+        # once in hooks.interpreter_path; the launcher necessarily restates the two subpaths in shell. Pin
+        # them to the resolver's forms — checking the EXECUTABLE lines only (the comments carry the literals
+        # too, so a whole-file match would not catch a mangled code line) — so the two homes cannot diverge.
+        with open(self.WRAPPER) as fh:
+            code = "\n".join(ln for ln in fh.read().splitlines() if not ln.lstrip().startswith("#"))
+        self.assertTrue(hooks.interpreter_path("posix").endswith("/bin/python"))
+        self.assertTrue(hooks.interpreter_path("nt").endswith("/Scripts/python.exe"))
+        self.assertIn("/bin/python", code)                       # the POSIX layout, in the executable body
+        self.assertIn("/Scripts/python.exe", code)               # the Windows layout, in the executable body
 
 
 class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
@@ -316,7 +393,7 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         self.assertEqual(set(pd_cmds), expected_product_design,
                          "product-design's manifest hook command is hook_command's output")
 
-        # settings.json registers all installed modules' hooks: 13 core + 13 memory + 2 board-sync + 1 product-design venv-rooted.
+        # settings.json registers all installed modules' hooks: 15 core + 13 memory + 2 board-sync + 1 product-design venv-rooted.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()

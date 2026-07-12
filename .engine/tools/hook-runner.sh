@@ -6,19 +6,35 @@
 # is the registration's command string verbatim, so collapsing the preamble here keeps that display
 # short and legible to the non-engineer operator (it otherwise reads as a wall of code / an error).
 #
-# The behavior is exactly the old inline preamble's, unchanged:
-#   - a BOUNDED wait for the engine tool-runtime interpreter to appear — the fresh-worktree race
-#     (issue #83): the gitignored .engine/.venv is provisioned a beat after a checkout, so a hook that
-#     fires in that window finds no interpreter; the wait polls for it, then execs it;
-#   - it NEVER falls back to the operator's system Python — if the interpreter never appears within the
-#     bound, it runs NOTHING (constraints: the engine "cannot manage a language runtime").
+# What it does:
+#   - RESOLVES the engine tool-runtime interpreter for THIS machine's OS at fire time. The committed
+#     command names the POSIX form ($1 = ${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python); if that
+#     layout is absent — a Windows adopter, or a teammate on an OS other than the one that provisioned
+#     the committed settings.json — the launcher falls back to the Windows sibling
+#     (${CLAUDE_PROJECT_DIR}/.engine/.venv/Scripts/python.exe) under the SAME venv root. Both are
+#     ${CLAUDE_PROJECT_DIR}-rooted engine-venv interpreters; it NEVER runs a bare/system Python. This
+#     is what lets one committed repo work on every OS (including a mixed-OS team): it fills the
+#     D-156/D-157 per-OS venv-bin-path build-spec leaf at fire time rather than baking one OS into the
+#     committed command.
+#   - a BOUNDED wait for that interpreter to appear — the fresh-worktree race (issue #83): the
+#     gitignored .engine/.venv is provisioned a beat after a checkout, so a hook that fires in that
+#     window finds no interpreter; the wait polls for either OS's layout, then runs the one present.
+#   - it NEVER falls back to the operator's system Python — if neither layout appears within the bound,
+#     it runs NOTHING (constraints: the engine "cannot manage a language runtime").
+#
+# INVARIANT (do not break): hook commands are ALWAYS rendered in the POSIX bin/python form by
+# hooks.hook_command, and this launcher owns the per-OS resolution. Do NOT wire provisioning to
+# re-render the Windows form into the committed command — the venv-root derivation below assumes $1 is
+# the POSIX .../bin/python path, and a Windows-form $1 would strip wrong and resolve nothing (silent
+# floor-only boot, the exact failure this launcher fixes). The single per-OS layout fact lives in
+# hooks.interpreter_path; a drift test pins this launcher's bin/python + Scripts/python.exe literals to it.
 #
 # Usage (this exact form is rendered by hooks.hook_command, so it is byte-pinned by a drift test):
 #   sh hook-runner.sh <venv-interpreter> <script> [args...]
-#     $1        the explicit ${CLAUDE_PROJECT_DIR}-rooted venv interpreter, resolved per-OS (POSIX
-#               bin/python, Windows Scripts/python.exe). It is named in the command string itself, so
-#               D-156's "the hook command names the interpreter explicitly" stays mechanically
-#               witnessable in the diff, not hidden in this file.
+#     $1        the explicit ${CLAUDE_PROJECT_DIR}-rooted venv interpreter in POSIX form
+#               (.engine/.venv/bin/python). It is named in the command string itself, so D-156's "the
+#               hook command names the interpreter explicitly" stays mechanically witnessable in the
+#               diff; the per-OS bin/ ÷ Scripts\ resolution is the D-157 build-spec leaf, resolved here.
 #     $2 .. $#  the hook script (${CLAUDE_PROJECT_DIR}-rooted) and any trailing args (e.g. `hook`).
 #
 # The wait ceiling is 50 polls x 0.1s (~5s); ENGINE_HOOK_WAIT_POLLS / ENGINE_HOOK_WAIT_INTERVAL override
@@ -26,22 +42,37 @@
 # executable bit and travels via "Use this template" like every other committed engine file.
 interp="$1"
 shift
+# Derive the venv root from the named POSIX interpreter, and the Windows sibling under it. On a POSIX
+# machine $1 (bin/python) is present and used directly — byte-for-byte the prior behavior; the sibling
+# is computed only as a fallback, and only when $1 has the expected .../bin/python shape.
+venv="${interp%/bin/python}"
+alt="$venv/Scripts/python.exe"
 polls="${ENGINE_HOOK_WAIT_POLLS:-50}"
 interval="${ENGINE_HOOK_WAIT_INTERVAL:-0.1}"
 n=0
-while [ ! -x "$interp" ] && [ "$n" -lt "$polls" ]; do
+# Wait (bounded) for an EXECUTABLE interpreter of either layout — `-x`, not `-f`: a half-written file in
+# the #83 provisioning window is not run before it is complete, and a present-but-non-runnable interpreter
+# still reaches the fail-open readout below instead of a raw `exec` error. Git Bash reports a `.exe` as
+# executable, so `-x` resolves the Windows layout too.
+while [ ! -x "$interp" ] && [ ! -x "$alt" ] && [ "$n" -lt "$polls" ]; do
     sleep "$interval"
     n=$((n + 1))
 done
+# Prefer the named ($1) interpreter; fall back to the Windows sibling under the same venv root when the
+# POSIX layout is absent (a Windows / mixed-OS machine). The winner resolves into $interp, so there is
+# still a single run of one venv-rooted interpreter — never a bare/system Python.
+if [ ! -x "$interp" ] && [ "$venv" != "$interp" ] && [ -x "$alt" ]; then
+    interp="$alt"
+fi
 if [ -x "$interp" ]; then
     exec "$interp" "$@"
 fi
-# The engine's private Python runtime never appeared within the wait bound (issue #83's fresh-worktree
-# window elapsed, or .engine/.venv is not provisioned). There is no interpreter here to emit a structured
-# finding, so — per the fail-open law's missing-runtime variant — NAME the absent runtime plainly for the
-# operator instead of exiting silently, and exit NON-blocking (never 2, which the platform reads as a hard
-# block: the #390 fail-closed stranding). Boot carries the standing DURABLE surfacing of an unhealthy
-# runtime (hooks/README §Fail-open-and-flag, D-156; the promotion is #391/#412). Fail-safe: this readout
-# cannot fail the script closed.
-printf '%s\n' "The engine could not run its own tools: its private Python runtime is not ready ($interp). I have not verified this step — this is not a block. If it keeps happening, the engine's environment needs to be set up (provisioning)." >&2
+# Neither the POSIX nor the Windows venv interpreter appeared within the wait bound (issue #83's
+# fresh-worktree window elapsed, or .engine/.venv is not provisioned). There is no interpreter here to
+# emit a structured finding, so — per the fail-open law's missing-runtime variant — NAME the absent
+# runtime plainly for the operator instead of exiting silently, and exit NON-blocking (never 2, which
+# the platform reads as a hard block: the #390 fail-closed stranding). Boot carries the standing DURABLE
+# surfacing of an unhealthy runtime (hooks/README §Fail-open-and-flag, D-156; the promotion is #391/#412).
+# Fail-safe: this readout cannot fail the script closed.
+printf '%s\n' "The engine could not run its own tools: its private Python runtime is not ready (looked for $interp and its Windows equivalent). I have not verified this step — this is not a block. If it keeps happening, the engine's environment needs to be set up (provisioning)." >&2
 exit 1
