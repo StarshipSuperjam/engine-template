@@ -1493,6 +1493,14 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_reverse_adjacency.py",
     ".engine/tools/demo_remember_this.py",
     ".engine/tools/demo_release_pr_mergeable.py",
+    # The committed audit self-review digest is THIS template repo's own construction history — a generated repo
+    # must not boot reporting a self-review it never ran, nor read the template's findings as its own. So it
+    # retires at first-run: a fresh repo starts with no inherited digest (its absence is the honest "not yet
+    # self-reviewed" state), and the audit cron writes a genuine one on its first run (#404 F0195). Unlike every
+    # other asset here — which are construction-only and gone for good — this one stays in audit-library's
+    # `provides` and is REGENERATED, so the first-run reference-closure check carves out still-provided paths (a
+    # surviving reference to it is not a dangling reference). Mirrored in first-run-assets.json (parity-tested).
+    ".engine/audits/audit-digest.md",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
 )
@@ -1664,9 +1672,12 @@ def _build_fixture(root: str) -> None:
                               # the globs that own the first-run assets the finish-demo plants + retires; the
                               # base fixture has no files under these dirs, so they claim nothing here (apply
                               # is unaffected) and own the planted assets once the finish fixture plants them.
+                              # `audits` owns the planted audit digest (retired-but-provided, #404 F0195):
+                              # in the real repo audit-library provides it; here core's glob stands in.
                               "tool": [".engine/tools/*.py"],
                               "operation": [".engine/operations/*.md"],
-                              "template": [".engine/templates/*.md"]},
+                              "template": [".engine/templates/*.md"],
+                              "audits": [".engine/audits/*.md"]},
                  "wires": _FIXTURE_CORE_WIRES, "depends": {}})
     _write_json(os.path.join(eng, "modules", "extras-demo", "manifest.json"),
                 {"id": "extras-demo", "version": "1.0.0", "status": "optional", "provides": {}, "depends": {}})

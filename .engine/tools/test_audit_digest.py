@@ -621,7 +621,7 @@ class TestSavedMemoryRender(unittest.TestCase):
              "recorded_ts": 1750000000, "last_access_ts": None}]})
         out = audit_digest.render_saved_memory()
         self.assertIn("Chose the blue launch plan.", out)      # specifics named on a confirmed-private repo
-        self.assertIn("Review them for concern #1", out)       # the private naming header leads
+        self.assertIn("Review them: do any", out)              # the private naming header leads (plain, no ordinal)
         self.assertNotIn("report ONLY HOW MANY", out)          # ... none of the public aggregate-only instruction
         self.assertNotIn("ordinary chat session", out)         # ... and none of the levers
 

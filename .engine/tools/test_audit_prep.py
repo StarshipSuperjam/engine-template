@@ -199,12 +199,13 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("BEGIN YOUR SAVED MEMORY", text)               # …and feeds it into the persona's prompt
         self.assertIn("END YOUR SAVED MEMORY", text)
 
-    def test_saved_memory_feed_frames_concern_one_and_forbids_claiming_empty(self):
-        # The feed wording must point the persona at concern #1 and hold the honesty contract: when the backup
-        # can't be read, disclose the gap and NEVER claim the project has no saved memory — phrased about what
-        # this review could reach, never an absolute.
+    def test_saved_memory_feed_frames_the_saved_memory_review_and_forbids_claiming_empty(self):
+        # The feed wording must point the persona at its saved-memory review — in plain words, never the
+        # backstage "concern #N" frame (F0194) — and hold the honesty contract: when the backup can't be read,
+        # disclose the gap and NEVER claim the project has no saved memory, phrased about what this review could
+        # reach, never an absolute.
         text = self._text()
-        self.assertIn("concern #1", text)
+        self.assertIn("For your saved memory", text)
         self.assertIn("NEVER claim the project has no saved memory", text)
 
     def test_saved_memory_step_degrades_in_band_when_the_fetch_fails(self):

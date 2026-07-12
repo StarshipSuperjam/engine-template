@@ -418,36 +418,36 @@ def render_prior_digests(repo: str, token: str, *, limit: int = PRIOR_DIGESTS_DE
 SAVED_MEMORY_MAX_CHARS = 64 * 1024
 
 # Persona-facing disclosure markers — instructions, in plain words, for when the saved memory could not be read.
-# Each says what THIS REVIEW could observe (never "you have no memory"), tells the persona to treat concern #1 as
-# not reviewed and say so plainly, and NEVER to claim memory is empty. The not-configured case names the way to
+# Each says what THIS REVIEW could observe (never "you have no memory"), tells the persona to treat its saved
+# memory as not reviewed and say so plainly, and NEVER to claim memory is empty. The not-configured case names the way to
 # turn it on (set up a memory backup); the whole memory-backup UX is conversational, so "ask me to set one up" is
 # the real, findable action (mirrors restore_vault's own _MSG_NOT_CONFIGURED register).
 _SAVED_MEMORY_NOT_CONFIGURED = (
     "YOUR SAVED MEMORY: I couldn't review your saved decisions this cycle — no memory backup is set up for this "
-    "review to read. Treat concern #1 as not reviewed and say so plainly, and that the way to turn it on is to "
+    "review to read. Treat your saved memory as not reviewed and say so plainly, and that the way to turn it on is to "
     "set up a memory backup — the operator can ask the engine to set one up in a chat session. NEVER claim the "
     "project has no saved memory; you just could not see it this run.")
 _SAVED_MEMORY_ACCESS_NOT_GRANTED = (
     "YOUR SAVED MEMORY: a memory backup is set up, but this review wasn't given access to it this cycle — its "
     "read token is missing, expired, or scoped to the wrong place (a standing setup gap, not a passing glitch). "
-    "Treat concern #1 as not reviewed and say so plainly: the fix is to re-issue the backup's read-only token and "
+    "Treat your saved memory as not reviewed and say so plainly: the fix is to re-issue the backup's read-only token and "
     "re-set the MEMORY_VAULT_TOKEN secret — this is NOT `claude setup-token`, which is the separate token that "
     "runs this review, so re-running that won't help. NEVER claim memory is empty.")
 _SAVED_MEMORY_UNREACHABLE = (
     "YOUR SAVED MEMORY: a memory backup is set up and this review can reach for it, but the connection failed this "
-    "cycle. Treat concern #1 as not reviewed and say so plainly — note it is likely transient and may clear on the "
+    "cycle. Treat your saved memory as not reviewed and say so plainly — note it is likely transient and may clear on the "
     "next run, so no setup change is needed yet. NEVER claim memory is empty.")
 _SAVED_MEMORY_UNREADABLE = (
     "YOUR SAVED MEMORY: a memory backup is set up, but I couldn't read a usable copy of your saved memory from it "
-    "this cycle (it may clear on a later run). Treat concern #1 as not reviewed and say so plainly; NEVER claim "
+    "this cycle (it may clear on a later run). Treat your saved memory as not reviewed and say so plainly; NEVER claim "
     "memory is empty.")
 _SAVED_MEMORY_NONE_YET = (
     "YOUR SAVED MEMORY: your memory backup is set up and I read it, but it holds no saved decisions or notes yet "
-    "to review (as last backed up {as_of}). Concern #1 has nothing to check this cycle — say so plainly; this is "
+    "to review (as last backed up {as_of}). Your saved memory has nothing to check this cycle — say so plainly; this is "
     "NOT the same as the backup being missing or unreadable.")
 _SAVED_MEMORY_PUBLIC_AGGREGATE_HEADER = (
     "YOUR SAVED MEMORY — the saved decisions and notes the engine has kept for you, as last backed up {as_of}. "
-    "Review them HERE, IN THIS RUN, for concern #1: do any now contradict each other, has anything you can see "
+    "Review them HERE, IN THIS RUN: do any now contradict each other, has anything you can see "
     "refuted one, or is a heavily-used note actually obsolete? You are reading these from the backup (you can't "
     "reach them yourself); treat them as what the engine had saved as of that backup. IMPORTANT — this project is "
     "public, or its visibility could not be confirmed private, and your summary is committed where anyone could "
@@ -462,7 +462,7 @@ _SAVED_MEMORY_PUBLIC_AGGREGATE_HEADER = (
     "first.")
 _SAVED_MEMORY_HEADER = (
     "YOUR SAVED MEMORY — the saved decisions and notes the engine has kept for you, as last backed up {as_of}. "
-    "Review them for concern #1: do any now contradict each other, has anything you can see refuted one, or is a "
+    "Review them: do any now contradict each other, has anything you can see refuted one, or is a "
     "heavily-used note actually obsolete? You are reading these from the backup (you can't reach them yourself); "
     "treat them as what the engine had saved as of that backup. {n} note(s) follow, most-recently-used first.")
 

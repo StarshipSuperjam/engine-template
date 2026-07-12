@@ -21,15 +21,22 @@ import demo_first_run_reference_closure as demo  # noqa: E402
 import quiet_call  # noqa: E402
 
 
-def _build(root, *, files, survivors, create_removed_py=True, directories=None):
+def _build(root, *, files, survivors, create_removed_py=True, directories=None, provides=None):
     """A throwaway tree: a manifest naming a FAKE removed set, the removed `.py` modules present on disk (unless
-    create_removed_py is False, modelling the post-setup tree), and the given surviving `.engine/tools` files."""
+    create_removed_py is False, modelling the post-setup tree), and the given surviving `.engine/tools` files.
+    `provides` (optional) writes a fixture module manifest claiming those paths, so the re-supplied carve-out
+    (#404 F0195) has an input — a removed path a module still provides is not treated as a dangling reference."""
     prov = os.path.join(root, ".engine", "provisioning")
     tools = os.path.join(root, ".engine", "tools")
     os.makedirs(prov, exist_ok=True)
     os.makedirs(tools, exist_ok=True)
     with open(os.path.join(prov, "first-run-assets.json"), "w", encoding="utf-8") as fh:
         json.dump({"files": files, "directories": directories or []}, fh)
+    if provides:
+        moddir = os.path.join(root, ".engine", "modules", "fixture-module")
+        os.makedirs(moddir, exist_ok=True)
+        with open(os.path.join(moddir, "manifest.json"), "w", encoding="utf-8") as fh:
+            json.dump({"id": "fixture-module", "provides": {"stuff": list(provides)}}, fh)
     if create_removed_py:
         for rel in files:
             if rel.endswith(".py"):
@@ -82,6 +89,26 @@ class TestClosureScan(unittest.TestCase):
             findings = frc.check(d)
         self.assertEqual(len(findings), 1)
         self.assertIn("reads or runs", findings[0]["message"])
+
+    def test_a_removed_path_still_provided_by_a_module_is_not_flagged(self):
+        # #404 F0195 carve-out: a first-run asset that a module still CLAIMS in `provides` is overlaid and
+        # (for the audit digest) regenerated, so it is not permanently gone — a surviving literal reference to
+        # it is not a dangling reference. Same shape as test_a_literal_read_of_a_removed_path_is_caught, but the
+        # removed path is provided, so the path leg must skip it (0 findings).
+        with tempfile.TemporaryDirectory() as d:
+            _build(d, files=[".engine/tools/removed_mod.py", ".engine/audits/regen.md"],
+                   survivors={"reader.py": 'open(".engine/audits/regen.md")\n'},
+                   provides=[".engine/audits/regen.md"])
+            self.assertEqual(frc.check(d), [], "a still-provided removed path must not be flagged")
+
+    def test_the_carve_out_is_path_leg_only_a_provided_removed_import_still_fails_closed(self):
+        # The carve-out never covers the import leg: a genuine `import` of a removed module dangles at import
+        # time regardless of any provides claim, so it must still be one hard finding.
+        with tempfile.TemporaryDirectory() as d:
+            _build(d, files=[".engine/tools/removed_mod.py"],
+                   survivors={"s.py": "import removed_mod\n"},
+                   provides=[".engine/tools/removed_mod.py"])
+            self.assertEqual(len(frc.check(d)), 1, "a provided-but-imported removed module must still fail closed")
 
     def test_a_prose_mention_is_not_flagged(self):
         # module_catalog.py mentions `instantiator.py` in a docstring; an exact-path-only match must not flag it.

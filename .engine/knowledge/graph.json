@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:fdbe17e9b7a6170bb6e9f532991ef4f984bcfed6b3626b0a5d8c2c2928eb5082",
+        "fingerprint": "sha256:a5ce31e498ea466a6a1a4dea089be3f3d6429fc0a98926d3d63a37c062831b74",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -3991,7 +3991,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:b1e9ceeb3f3c3a771012af9208a5a6ec1bc7033d78e8ab390f6bae0a2a884a19",
+        "fingerprint": "sha256:c50cd79d420fa3f467facb038c8dca9618485b52315b296643f48c38ba5dd6ad",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -4042,7 +4042,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:e0e4b36a310448d0bde2f7daa11119345c15480efc005aab148a642364975290",
+        "fingerprint": "sha256:a7cfa8175854a54e3ed5259d9d029d75ae7116ce8d7716cca95c387a3cd7e97e",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -4875,7 +4875,7 @@
       },
       "slug": "first_run_reference_closure_check",
       "source": {
-        "fingerprint": "sha256:919d21b4636b00951a16288556a1088f4ae353034c254bbf95e23b6fb15e9a3b",
+        "fingerprint": "sha256:238297511eb230abd131927dd670ba676787926a98b8327cd39544f8d8bb8c25",
         "path": ".engine/tools/first_run_reference_closure_check.py"
       },
       "status": "active",
@@ -5011,7 +5011,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:7a6cdb4f21fb92fd989cc7dad5269c104631d42b3be408e4f510beaaaf06e3f2",
+        "fingerprint": "sha256:467a9537e62b24e0ded43b071a3f83e391e340cf3e9c245e571288c2018af5bb",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -5895,7 +5895,7 @@
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:53907dde612d70d4356824b7d3b37424c7e942ccd942ca79df124c7f1628241c",
+        "fingerprint": "sha256:d81a0961b1f5943d2c311b64eaa0e97523db381605d90808c2d344548e8c6993",
         "path": ".engine/tools/test_agent.py"
       },
       "status": "active",
@@ -5946,7 +5946,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:62f848cb50cd8ebe8116cdc6e6c856a32b3776e5a06b7414edb09116a18d7ba7",
+        "fingerprint": "sha256:0b68fc2c6d53209ee010f853135ed936032f1ee8b828062e3b67cad44da43cc3",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -5963,7 +5963,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:089f6a0fe284f79a913279d8fcd8c4b2c0da0bff2711097831609f1227df488b",
+        "fingerprint": "sha256:a5f84d93713cf753f93b4d559b379316d1c3915496bd7fceab4ff7ca37e9d90c",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -6456,7 +6456,7 @@
       },
       "slug": "test_first_run_reference_closure",
       "source": {
-        "fingerprint": "sha256:2231db2f1a76471a77a60168aab411c61684e223cbe981048b69df8ec7a267ae",
+        "fingerprint": "sha256:f0d11765b096454ccc221856e3167835113c9baf913d463499075491cdb2a370",
         "path": ".engine/tools/test_first_run_reference_closure.py"
       },
       "status": "active",
@@ -6575,7 +6575,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:7f23973a22f14e8a4cf7c02b45abf2313338600ac11f50ca6fc8327032f6c5c3",
+        "fingerprint": "sha256:418ca6e7616de19395f00dd5438807f396d2f8a0953f6c1b570eac428fa59366",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",

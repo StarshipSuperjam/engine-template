@@ -1470,6 +1470,13 @@ class TestFirstRunAssetsManifestParity(unittest.TestCase):
         self.assertEqual(sorted(self._manifest()["directories"]), sorted(inst._FIRST_RUN_ASSET_DIRS),
                          "first-run-assets.json `directories` drifted from instantiator._FIRST_RUN_ASSET_DIRS")
 
+    def test_the_audit_digest_is_retired_so_a_generated_repo_starts_clean(self):
+        # #404 F0195: the committed audit self-review digest is THIS template's construction history; it must be
+        # in the retire set (both sources) so a generated repo starts with no inherited self-review — its absence
+        # is the honest "not yet self-reviewed" state, and the audit cron writes a real one on its first run.
+        self.assertIn(".engine/audits/audit-digest.md", inst._FIRST_RUN_ASSET_FILES)
+        self.assertIn(".engine/audits/audit-digest.md", self._manifest()["files"])
+
 
 class TestFinishCopy(unittest.TestCase):
     def test_template_carries_every_finish_section(self):
