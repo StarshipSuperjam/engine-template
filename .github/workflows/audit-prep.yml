@@ -203,6 +203,25 @@ jobs:
             printf '%s\n' "ENGINE CHECKS MATCHING NO FILES: could not be read this run (the fetch step failed). Treat this concern as not reviewed and say so plainly in your digest; do not read it as 'every check is firing'." \
               > "${RUNNER_TEMP}/never-firing-checks.md"
           fi
+      - name: Prepare the product-spec-conformance feed for the self-review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The standing product-spec-conformance sweep (#449 / D-296/D-297): when this project has settled a
+          # `docs/spec/` and its criterion record is present, prepare the persona's hunt-set — what changed since
+          # the last review (read over the commits/contents API on this shallow checkout, deliberately NOT
+          # `git log`, which the depth-1 clone cannot answer) plus a spot-check sample — and the honest coverage
+          # disclosure. It uses the OWN-repo token for that history; with no settled spec it is the silent no-op
+          # (the common case, and the case in this template repo, so it stays inert here). The persona is
+          # read-only and never reaches the spec or its record itself. On a tool failure, leave the silent notice
+          # so the persona simply skips the check rather than guessing at a pass.
+          if ! uv run --directory .engine --frozen -- python tools/conformance_sweep.py feed \
+                 > "${RUNNER_TEMP}/conformance-feed.md"; then
+            printf '%s\n' "PRODUCT SPEC CONFORMANCE: the spec-conformance check could not run this cycle (its preparation step failed). If this project has settled a docs/spec/, say plainly in your digest that the check could not run and was not performed — do NOT imply a clean pass and do NOT conclude there is no spec. If it has no settled spec, there is nothing to report." \
+              > "${RUNNER_TEMP}/conformance-feed.md"
+          fi
       - name: Run the read-only self-review and capture its plain-language digest
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -222,8 +241,8 @@ jobs:
           saved="$(cat "${RUNNER_TEMP}/saved-memory.md")"
           soft="$(cat "${RUNNER_TEMP}/soft-findings.md")"
           neverfired="$(cat "${RUNNER_TEMP}/never-firing-checks.md")"
-          prompt="Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble.
-
+          conformance="$(cat "${RUNNER_TEMP}/conformance-feed.md")"
+          prompt="Run your self-review of this project's engine now. Output the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble. The ONLY thing that may follow your digest is the single machine-readable conformance block, and ONLY when the product-spec-conformance section below is active and asks for it; nothing else.
           For your saved memory, you cannot reach it yourself; it was read from the project's off-repo backup and follows between the markers. These are the project's CURRENT saved beliefs — notes memory has already set aside are not shown here, so do not read their absence as 'nothing to retire'. Review what you are shown as the operator's saved decisions and notes: do any now contradict each other, has anything you can see refuted one, or is a heavily-used note actually obsolete? If the markers say the backup isn't set up, couldn't be reached, or couldn't be read, treat your saved memory as not reviewed and say so plainly in your digest — and NEVER claim the project has no saved memory; you simply couldn't see it this run.
           ----- BEGIN YOUR SAVED MEMORY -----
           ${saved}
@@ -247,12 +266,37 @@ jobs:
           For the engine's own checks that currently match no files, you cannot run the validator yourself; the list was computed for you (the engine's file-scoped checks that select zero files in this repo right now) and follows between the markers. A check matching nothing is a QUESTION, not a verdict, and it can be perfectly correct — the check may guard a kind of file this project does not use yet. A check is engine machinery, so it is NEVER a local retirement: for each, judge only whether it looks like dead weight the template ships (escalate-upstream, in the plain machinery-consequence terms above) or is simply a file kind this project does not use (leave it). Do not recommend retiring or editing a check locally, and render this plainly for the operator — never the words 'never-fired', 'matches zero files', or 'target glob'. If the markers say the list could not be read, treat this concern as not reviewed and say so plainly; if they say every check matches at least one file, that is a clean read, not a gap.
           ----- BEGIN ENGINE CHECKS MATCHING NO FILES -----
           ${neverfired}
-          ----- END ENGINE CHECKS MATCHING NO FILES -----"
+          ----- END ENGINE CHECKS MATCHING NO FILES -----
+
+          For product-spec conformance: when this project has settled a product spec (a docs/spec/ folder), this is a DISTINCT, conditional check — does the built code still meet each settled criterion? — never a retirement read. The section below tells you which case applies and, when active, the exact criteria to check and the machine block to append. Follow it exactly: if it says NOT APPLICABLE, skip the check and never mention it; if it says COULD NOT RUN or the RECORD IS MISSING, disclose that plainly (with the one fix where given) and never guess a pass or conclude there is no spec; if it hands you a HUNT-SET, for each criterion OPEN its docs/spec/ document yourself and re-derive the obligation from the criterion in its full context (its Summary and Behavior, not the one-line cell), judge it forward-only against the operator's OWN frozen wording, disclose the partial coverage you actually performed, and be honest that this is judgement with no behavioural check run here. The feed computes the priorities you cannot (it reads history you can't reach) and defangs the criterion text it shows you for orientation; you read the spec documents themselves, but you never reach the generated criterion record or its history.
+          ----- BEGIN PRODUCT-SPEC CONFORMANCE -----
+          ${conformance}
+          ----- END PRODUCT-SPEC CONFORMANCE -----"
           claude -p \
             --agent audit \
             --model "${AUDIT_MODEL}" \
             "${prompt}" \
             > "${RUNNER_TEMP}/audit-digest-body.md"
+      - name: Track standing product-spec-conformance findings as engine issues
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The standing product-spec-conformance sweep's promote half (#449 / D-296/D-297): parse the persona's
+          # machine-readable verdicts out of the digest body, STRIP that block (so the committed digest stays
+          # clean prose and the JSON never feeds back into a later review as stale judgement), and open-or-update
+          # one deduped engine issue per DIVERGENCE — plus the distinct spec-settled-but-record-missing gap.
+          # Report-only: the reconcile Build PR is the adjudication; it never closes an issue. It dedups on the
+          # settled criterion's own identity so recurring drift updates one draft rather than re-nagging, and
+          # carries the honest artifact-warrant (judgement, no behavioural check here) into each issue. It uses
+          # the OWN-repo token (never the Claude token) on the issues:write scope declared above. Runs BEFORE the
+          # seal so the strip lands in the sealed digest. Fail-open — it prints a visible status and exits 0 even
+          # when GitHub is unreachable; the trailing `|| true` guards any unexpected non-zero, so this best-effort
+          # side action can never block the digest pull request (a divergence still stands in the digest and
+          # re-fires next run).
+          uv run --directory .engine --frozen -- python tools/conformance_sweep.py promote \
+            "${RUNNER_TEMP}/audit-digest-body.md" || true
       - name: Track standing length-budget findings as engine issues
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

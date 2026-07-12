@@ -15,9 +15,12 @@ referent: any conformance judgment re-derives from the `docs/spec/` span itself,
 CRITERION-GRANULAR, keyed by content-digest AT the criterion's validated table position (D-287): a re-worded
 criterion re-opens exactly its own row (its digest moves); an inserted/deleted criterion shifts the position of
 the rows after it. Each row's identity is `(doc, position)`; the criterion-cell digest is its content-key — the
-thing that moves on a re-wording, and the key the standing sweep (PR-2) attaches a finding to (D-296's
+thing that moves on a re-wording, and the key the standing sweep attaches a finding to (D-296's
 `(doc, digest)`). Where one document carries two identical criterion cells they share a digest, so POSITION is
-what keeps them two distinct rows — the sweep must fold position into its key, or it would under-count them.
+what keeps them two distinct rows HERE, in the matrix. The standing sweep, though, dedups a finding on
+`(doc, digest)` ALONE (D-296) — two identical criteria in one document collapse to one tracked finding, the
+accepted trade for a POSITION-FREE key: position cascades when an edit inserts or removes a criterion, so
+folding it in would re-key and re-nag every finding below the edit (the plan-gate finding on this build).
 
 ONE TIER HERE, on purpose. D-287 names two rigor tiers — criterion-granular over a `docs/spec/` criteria table,
 and a weaker heading-span tier over prose design docs with no criteria table. This shipped, TRAVELLING generator
