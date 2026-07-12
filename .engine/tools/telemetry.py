@@ -95,6 +95,11 @@ _FIRST_NOTICED_RE = re.compile(r"\*First noticed\s+(.+?);\s+last reconfirmed")
 DEFAULT_POLICY_PATH = os.path.join(validate.ROOT, ".engine", "policies", "triage-threshold.md")
 DEFAULT_STATE_PATH = os.path.join(validate.ROOT, ".engine", "state", "state.json")
 DEFAULT_CACHE_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "streams.json")
+# The engine-only sink for a fail-open hook crash's backstage diagnostic (exception message + code
+# location). The hook fail-open crash is promoted as a telemetry finding (hooks._do_promote_fail_open ->
+# promote_finding), so the detail BEHIND that finding lives beside telemetry's other gitignored cache —
+# never committed (topology law 5), never operator-visible. hooks appends to it; telemetry owns the path.
+HOOK_CRASH_DEBUG_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "hook-crash-debug.log")
 
 
 class DegradedReadError(Exception):
@@ -389,16 +394,19 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
                                      "issue": issue["number"], "first_seen": prev.get("first_seen") or now,
                                      "severity": prev.get("severity")}
             continue
-        # Authoritative for this sid: consolidate any create/create-race duplicates now, whatever the
-        # survivor's own fate below (they are the same signal; folding them loses nothing).
-        _consolidate(sid, issue["number"])
         absent = int(prev.get("absent", 0)) + 1
         if live or resolution_due(absent, auto_resolve):
             # A live-derived signal's Issue closes as soon as the durable source shows it clear (no
             # cross-pass absent count is available or needed); a cache-accrued one waits for resolution_due.
+            # The whole signal is resolving, so close its duplicates too — but WITHOUT the "tracking
+            # continues at #N" note _consolidate adds, since #N is closing in this same pass (the pointer
+            # would land the operator on a closed Issue).
             plan.to_close.append(issue["number"])
+            plan.to_close.extend(dup["number"] for dup in duplicates_by_sid.get(sid, []))
             # dropped from next_counts — the signal is gone and its Issue is closing
         else:
+            # Survivor stays open: fold any create/create-race duplicates into it now, with the note.
+            _consolidate(sid, issue["number"])
             plan.next_counts[sid] = {"persist": int(prev.get("persist", 0)), "absent": absent,
                                      "issue": issue["number"], "first_seen": prev.get("first_seen") or now,
                                      "severity": prev.get("severity")}
@@ -739,8 +747,8 @@ def _consolidation_note(survivor_number: int) -> str:
     """The plain-language line prepended to a duplicate Issue as it is closed and folded into the
     canonical one — so an operator who had the duplicate open sees why it vanished, not a silent close.
     Peer voice: it states what happened and where tracking continues, no backstage vocabulary."""
-    return (f"*Consolidated into #{survivor_number} — this was a duplicate of the same engine finding; "
-            f"tracking continues there.*\n\n")
+    return (f"*Consolidated into #{survivor_number} — this is a duplicate of the same thing the engine "
+            f"noticed; tracking continues there.*\n\n")
 
 
 def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str | None = None,

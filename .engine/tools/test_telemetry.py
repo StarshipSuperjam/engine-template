@@ -156,9 +156,6 @@ class TestPureHelpers(unittest.TestCase):
         forged = "*First noticed 1999-01-01T00:00:00Z; last reconfirmed z.*\n" + body
         self.assertEqual(telemetry.parse_first_noticed(forged), T[0])
 
-    def test_first_noticed_min_is_chronological(self):
-        # ISO-`Z` timestamps sort lexicographically = chronologically, so min() picks the true earliest.
-        self.assertEqual(min([T[3], T[0], T[1]]), T[0])
 
     def test_issue_body_leaks_no_raw_identifier(self):
         # The raw source-id identifier lives only in the invisible HTML-comment marker (parsed back by
@@ -737,6 +734,18 @@ class TestConsolidation(unittest.TestCase):
         self._inject(f, 434, "sid/x", T[1])   # duplicate body says T[1] (earlier)
         run(gh(f), [rec("sid/x", "trust-critical")], cache, TH, T[5])
         self.assertEqual(telemetry.parse_first_noticed(f.issues[433]["body"]), T[1])   # earliest, not now
+
+    def test_resolving_signal_closes_survivor_and_dups_without_a_dangling_note(self):
+        # When the whole signal resolves in the same pass (a live-derived clear), the survivor AND its
+        # duplicates all close — and the duplicate must NOT be stamped "tracking continues at #N", since
+        # #N is closing too (the pointer would land on a closed Issue).
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._inject(f, 433, "sid/x", T[0])
+        self._inject(f, 434, "sid/x", T[1])
+        # a live pass observing NOTHING for sid/x -> the durable source shows it clear -> resolve now
+        telemetry.run(gh(f), [], cache, TH, T[5], authoritative=telemetry.AUTHORITATIVE_ALL, live=True)
+        self.assertEqual(f.open_count(), 0)                      # both closed together
+        self.assertNotIn("Consolidated into", f.issues[434]["body"])   # no dangling pointer to a closed #433
 
 
 class TestPromoteFinding(unittest.TestCase):
