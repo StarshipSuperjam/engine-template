@@ -255,13 +255,14 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     # (slice 3b) wires its consolidation sweep on the same three SessionStart matchers + a PreCompact hook
     # (the compaction trigger, slice 5 PR 3), (slice 4e-ii/iii) the cross-session erasure OBSERVER and the
     # earned-erasure PROPOSER, and (slice 6a) the backup-vault push, each on the same three SessionStart matchers.
-    # telemetry's ambient triage runs on two SessionStart matchers (startup + resume), the same command, so
-    # the SET gains one entry while the registration COUNT gains two (like github-projects-sync).
+    # telemetry's ambient AND episodic triages each run on two SessionStart matchers (startup + resume), the
+    # same command, so each adds ONE entry to the SET while adding TWO to the registration COUNT (like
+    # github-projects-sync).
     CORE_RELPATHS = (".engine/tools/boot.py", ".engine/tools/modes.py", ".engine/tools/knowledge_gen.py hook",
                      ".engine/tools/self_map.py hook", ".engine/tools/validate.py hook",
                      ".engine/tools/modes.py accept-hook", ".engine/tools/validate.py accept-hook",
                      ".engine/tools/close.py", ".engine/tools/scent.py",
-                     ".engine/tools/telemetry.py run-ambient")
+                     ".engine/tools/telemetry.py run-ambient", ".engine/tools/telemetry.py run-episodic")
     MEMORY_RELPATHS = (".engine/tools/memory/consolidate.py session-start",
                        ".engine/tools/memory/consolidate.py pre-compact",
                        ".engine/tools/memory/erasure_observer.py session-start",
@@ -289,9 +290,9 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
-        self.assertEqual(len(c_cmds), 13, "the thirteen venv-rooted core hook wires (boot ×3 + 8: modes, "
+        self.assertEqual(len(c_cmds), 15, "the fifteen venv-rooted core hook wires (boot ×3 + 8: modes, "
                          "knowledge_gen, self_map, validate pre-commit, modes accept, validate accept, close, "
-                         "scent + telemetry run-ambient ×2: startup + resume)")
+                         "scent + telemetry run-ambient ×2 + telemetry run-episodic ×2: startup + resume)")
         self.assertEqual(set(c_cmds), expected_core, "every core manifest hook command is hook_command's output")
 
         memory = validate.load_json(
@@ -320,9 +321,9 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 29,
-                         "the twenty-nine venv-rooted hook commands in settings "
-                         "(13 core + 13 memory + 2 board-sync + 1 product-design)")
+        self.assertEqual(len(s_cmds), 31,
+                         "the thirty-one venv-rooted hook commands in settings "
+                         "(15 core + 13 memory + 2 board-sync + 1 product-design)")
         self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects | expected_product_design,
                          "settings matches the form (and so all four manifests) exactly")
 
