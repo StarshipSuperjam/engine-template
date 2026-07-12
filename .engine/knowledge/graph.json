@@ -5432,7 +5432,7 @@
       },
       "slug": "obligation_matrix",
       "source": {
-        "fingerprint": "sha256:8ab805d775ac7d93d498317969c4698d25bd2a485fd516970ff2472e1135c2e6",
+        "fingerprint": "sha256:7c3d9528ecd5a6d51c16da02b4f69e4c7211054d2ed9f13985d282fe158933f6",
         "path": ".engine/tools/product_design/obligation_matrix.py"
       },
       "status": "active",
@@ -5840,7 +5840,7 @@
       },
       "slug": "spec_form",
       "source": {
-        "fingerprint": "sha256:cba73c137751f496e1555d61cff22ce05268f7a554ea1179c6ff75353dd18454",
+        "fingerprint": "sha256:4b0af037043ea65150b7538905c3077da45dc96685d567331b07643ff6af296b",
         "path": ".engine/tools/product_design/spec_form.py"
       },
       "status": "active",
@@ -6979,7 +6979,7 @@
       },
       "slug": "test_obligation_matrix",
       "source": {
-        "fingerprint": "sha256:b6ba8413d55487185ac0329650e515d0f66697f45304833a9a25e2319a79afd3",
+        "fingerprint": "sha256:786c0f2f3cef4a8fd15da9ac91b8196b5d7b8d51d5f1d07c5a89f5bf2f878809",
         "path": ".engine/tools/product_design/test_obligation_matrix.py"
       },
       "status": "active",

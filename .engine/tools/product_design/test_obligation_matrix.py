@@ -117,6 +117,25 @@ class TestDriftGateIsSection20Safe(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
         self.assertEqual(f["severity"], "soft", "no settled spec must never be a hard block (§20)")
 
+    def test_stale_nonempty_committed_against_empty_derivation_is_hard(self):
+        """A capability un-settled (locked->draft) leaves the committed matrix with stale rows while the
+        derivation is empty — real drift the gate must catch, not falsely report as 'nothing to record'
+        (deliverable-gate serious, #454). An empty/absent committed side stays soft (the true MVP, §20)."""
+        root = _seed({"README.md": "hi"})  # no docs/spec -> canonical empty
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                p = os.path.join(d, "m.json")
+                om.write_matrix(om.render({"schema_version": 1, "source": "docs/spec",
+                                           "rows": [{"doc": "docs/spec/a.md", "position": 0, "digest": "sha256:x",
+                                                     "criterion": "stale", "how_verified": "d", "who": "operator"}]}), p)
+                self.assertEqual(om.check(p, root)["severity"], "hard",
+                                 "a stale rows-bearing matrix against an empty spec must be hard, not a false no-op")
+                om.write_matrix(om.render({"schema_version": 1, "source": "docs/spec", "rows": []}), p)
+                self.assertEqual(om.check(p, root)["severity"], "soft", "an empty committed side stays soft (§20)")
+        finally:
+            import shutil
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_in_sync_nonempty_is_note(self):
         root = _seed({"docs/spec/index.md": _index("| A | settled | [A](a.md) |\n"),
                       "docs/spec/a.md": _cap("| x | y | operator |\n")})

@@ -14,8 +14,10 @@ referent: any conformance judgment re-derives from the `docs/spec/` span itself,
 
 CRITERION-GRANULAR, keyed by content-digest AT the criterion's validated table position (D-287): a re-worded
 criterion re-opens exactly its own row (its digest moves); an inserted/deleted criterion shifts the position of
-the rows after it (an honest property of position-keyed identity — position disambiguates two identical
-criterion cells). The row identity the standing sweep dedups on is `(doc, digest)`.
+the rows after it. Each row's identity is `(doc, position)`; the criterion-cell digest is its content-key — the
+thing that moves on a re-wording, and the key the standing sweep (PR-2) attaches a finding to (D-296's
+`(doc, digest)`). Where one document carries two identical criterion cells they share a digest, so POSITION is
+what keeps them two distinct rows — the sweep must fold position into its key, or it would under-count them.
 
 ONE TIER HERE, on purpose. D-287 names two rigor tiers — criterion-granular over a `docs/spec/` criteria table,
 and a weaker heading-span tier over prose design docs with no criteria table. This shipped, TRAVELLING generator
@@ -123,7 +125,10 @@ def derive_rows(root: str) -> list:
         doc = rel.replace(os.sep, "/")
         for position, cells in enumerate(table):
             if len(cells) < 3:
-                continue  # a degenerate row the form check flags; it contributes no obligation row
+                # A criteria row missing a cell — product-spec-form flags this hard (its criteria-row-width
+                # check), so a `locked` document never reaches here carrying one; this is a defensive skip that
+                # contributes no obligation row, never the silent path by which a criterion leaves the denominator.
+                continue
             criterion, how_verified, who = cells[0].strip(), cells[1].strip(), cells[2].strip().lower()
             rows.append({
                 "doc": doc,
@@ -168,20 +173,30 @@ def drift_finding(canonical: dict, committed_text: str | None, path: str) -> dic
     - Any other case (a non-empty matrix that drifted, a committed side that no longer matches the derivation,
       or an absent/edited file where the derivation is non-empty): a HARD finding naming the one fix."""
     name, where = _DISPLAY_NAME, _loc_opt(path)
+    canonical_text = render(canonical)
 
-    # Nothing settled: a SOFT disclosed no-op, whatever the committed side is (absent, or a committed empty
-    # matrix). NEVER hard merely because no spec is settled — a staged/MVP product is a first-class operator
-    # choice and is never pressured toward a spec (§20). Resolved BEFORE the drift compare so an absent file in
-    # a spec-less repo (committed None) does not read as drift.
+    # Nothing settled (the derived matrix is empty): a SOFT disclosed no-op ONLY when the committed side is also
+    # empty or absent — the genuine never-settled / MVP repo, a first-class operator choice that is NEVER blocked
+    # or pressured toward a spec (§20). But a committed matrix that STILL LISTS ROWS while nothing is settled (a
+    # capability was un-settled, or the last settled document removed) is real drift the gate must catch — it
+    # must not pass green while falsely reporting the record is "empty" (a committed != derived hole). The two
+    # cases are distinguished by the committed side, so §20 is preserved for the true MVP without hiding a stale
+    # rows-bearing file.
     if is_empty(canonical):
-        return validate.disclosed_noop(
-            f"No settled product spec here yet, so there's nothing to record — {name} stays empty until you "
-            f"settle a capability under `docs/spec/`. This is a normal, expected state, not a problem: the "
-            f"record fills in on its own once you settle your first capability.",
+        if committed_text is None or committed_text == canonical_text:
+            return validate.disclosed_noop(
+                f"No settled product spec here yet, so there's nothing to record — {name} stays empty until you "
+                f"settle a capability under `docs/spec/`. This is a normal, expected state, not a problem: the "
+                f"record fills in on its own once you settle your first capability.",
+                where)
+        return validate.finding(
+            "hard",
+            f"{name[0].upper() + name[1:]} is out of date — it still lists acceptance criteria that are no "
+            f"longer settled in your product spec. Regenerate it with `{REGEN_CMD}` and commit the result.",
             where)
 
     # A spec IS settled, so the derived matrix is non-empty: the committed side must match it exactly.
-    if committed_text == render(canonical):
+    if committed_text == canonical_text:
         return validate.finding(
             "note", f"{name[0].upper() + name[1:]} is in sync with your settled product spec.", where)
 
@@ -351,7 +366,7 @@ def _demo(_argv: list) -> int:
     empty_root = _seed({"README.md": "hi"})
     try:
         matrix = canonical_matrix(settled_root)
-        print(f"(A) A settled capability derives {len(matrix['rows'])} obligation row(s) from its criteria table.")
+        print(f"(A) A settled capability contributes {len(matrix['rows'])} acceptance criterion(s) to the record.")
         ok = ok and len(matrix["rows"]) == 1 and matrix["rows"][0]["who"] == "operator"
 
         with tempfile.TemporaryDirectory() as d:
@@ -376,16 +391,16 @@ def _demo(_argv: list) -> int:
             scratch = os.path.join(d, "product-spec-matrix.json")
             generate(scratch, empty_root)
             c4 = check(scratch, empty_root)
-            print("(E) With no settled spec, the empty record is a soft disclosed no-op (never a block, §20):")
+            print("(E) With no settled spec, the empty record is a calm 'nothing to do here yet' note, never a block:")
             print("    " + validate.fmt(c4))
             ok = ok and c4["severity"] == "soft"
     finally:
         shutil.rmtree(settled_root, ignore_errors=True)
         shutil.rmtree(empty_root, ignore_errors=True)
 
-    print("Done — a settled criterion derives a row, drift is caught (hard) and healed by regeneration, and a "
-          "repo with no settled spec is a soft no-op, never blocked. Your real .engine/product-spec-matrix.json "
-          "was never touched.")
+    print("Done — a settled criterion is recorded, an out-of-date record is caught and healed by regenerating, "
+          "and a project with no settled spec is a calm no-op, never blocked. Your real "
+          ".engine/product-spec-matrix.json was never touched.")
     if not ok:
         print("\nDEMO UNEXPECTED: expected one row, then in-sync -> drift -> in-sync, then a soft empty no-op.",
               file=sys.stderr)
