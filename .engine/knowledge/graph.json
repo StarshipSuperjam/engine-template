@@ -3470,7 +3470,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:7645f66bf895929a5ceb46423dfedcaa4bf24a1b2855bea733f6c5248f9ac101",
+        "fingerprint": "sha256:9f8ad5254813804f300ca115c56c76ad833030a2cdebc4f22f5373042c784dda",
         "path": ".engine/schemas/engine.v1.json"
       },
       "status": "active",
@@ -4195,7 +4195,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:e21292115011eb043872ad69a217df55878eb33722c8bdaab88a9685de23f8f7",
+        "fingerprint": "sha256:3b29e98c34b3465ccf1afd482477c5873210afa2e4d2196b5daee32a5b5b5bca",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -5011,7 +5011,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:6e27ef29fbd1b0739bd55029fca2be1b943d7d2644226430ee0f72a69651c65c",
+        "fingerprint": "sha256:e84eb7e671f7adab9b66d6b8b35f3409560462dc0730bc670bd744d57d386647",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -5504,7 +5504,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:1a6019d8b173753eb7e5163ba05ca55c62b31c282592ca4cc7e32e801ac75157",
+        "fingerprint": "sha256:0d89f620dee41d64d0e0a29d0f49568195ca4d1dd2954a1412cb24e7c39ab86b",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -6099,7 +6099,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:8180e57d6985c0be0f7321c0c5d80375b61ea5f320dea7c8ef71ef3a14dafd9d",
+        "fingerprint": "sha256:8657bd4bf9ff9b658e6592045393a801e0ba60c9e34510b43e955663899ade36",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -7748,7 +7748,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:cbf0caf9298097e3ca2ced3e354e69b42b2fda8a33c72f1a646ef0e4f186b3fc",
+        "fingerprint": "sha256:3a0fb494810ae72609ac5d13612641b76b360f0755b0455eb1dcdbb6e2494156",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

@@ -1805,7 +1805,7 @@ def _approve_transport():
     def t(method, path, body=None):
         headers = {"X-OAuth-Scopes": "repo"}
         if method == "GET" and path.endswith("/rules/branches/main"):
-            return 200, (bootstrap.floor_ruleset()["rules"] if state["met"] else []), headers
+            return 200, (bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"] if state["met"] else []), headers
         if method == "GET" and path.endswith("/rulesets"):
             return 200, [], headers
         if method == "POST" and path.endswith("/rulesets"):
@@ -1852,7 +1852,7 @@ def _already_transport():
     def t(method, path, body=None):
         headers = {"X-OAuth-Scopes": "repo"}
         if method == "GET" and path.endswith("/rules/branches/main"):
-            return 200, bootstrap.floor_ruleset()["rules"], headers
+            return 200, bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"], headers
         sec = _security_floor_responses(method, path, body, available=True)
         if sec is not None:
             return sec[0], sec[1], headers

@@ -268,6 +268,66 @@ def home_repoint(files: list, base_home: str | None) -> tuple | None:
     return None
 
 
+# The identity tier the manifest records; `team` carries the stronger floor (1 approval + code-owner review),
+# so a change back to `solo` is a §15 weakening — the exact shape home_repoint guards for `home_repository`.
+_TEAM = "team"
+_IDENTITY_VALUE_RE = re.compile(r'"identity"\s*:\s*"([^"]*)"')
+
+
+def _read_base_tier() -> str | None:
+    """The `identity` tier recorded in the BASE manifest (trusted base checkout, never head). None when
+    absent/unreadable — no tier recorded, so there is nothing to downgrade FROM."""
+    try:
+        with open(_BASE_MANIFEST, encoding="utf-8") as fh:
+            tier = json.load(fh).get("identity")
+        return tier if isinstance(tier, str) and tier.strip() else None
+    except Exception:  # noqa: BLE001 — absent / unreadable base manifest -> treated as no tier recorded
+        return None
+
+
+def _touches_identity_key(patch: str) -> bool:
+    """True iff the unified-diff `patch` adds or removes any line mentioning the `identity` key — a SUBSTRING
+    test (mirrors _touches_home_key), so a duplicate-key injection, a value split across lines, and any
+    reformatting of the identity line all register. The `+++`/`---` file headers are excluded."""
+    for line in patch.splitlines():
+        plus = line.startswith("+") and not line.startswith("+++")
+        minus = line.startswith("-") and not line.startswith("---")
+        if (plus or minus) and '"identity"' in line:
+            return True
+    return False
+
+
+def identity_downgrade(files: list, base_tier: str | None) -> bool:
+    """Lowering the identity tier from `team` back to `solo` is a §15 weakening — it drops the required-approval
+    + code-owner floor the team tier enforces, a protection a non-engineer cannot see removed by reading a diff —
+    so it needs the ack. Returns True to flag, else False. Only a repo whose BASE is already `team` can be
+    downgraded (solo->team and a first `team` recording are STRENGTHENINGS, never gated). FAILS CLOSED like
+    home_repoint: once base is team, a manifest change that touches the `identity` key and does not provably keep
+    `team`, or a manifest change too large to inspect at all, both require the ack — defeating a duplicate-key
+    injection or a value split across lines that a naive value-diff would miss."""
+    if base_tier != _TEAM:
+        return False                       # solo base (or none) -> not a downgrade
+    for f in files:
+        if f.get("filename") != ENGINE_MANIFEST_REL:
+            continue
+        if f.get("status") not in WEAKENING_STATUS:
+            continue
+        patch = f.get("patch")
+        if not patch:
+            return True                    # a manifest change we cannot inspect on a team repo -> fail closed
+        if _touches_identity_key(patch):
+            added = []
+            for line in patch.splitlines():
+                if line.startswith("+") and not line.startswith("+++"):
+                    m = _IDENTITY_VALUE_RE.search(line)
+                    if m:
+                        added.append(m.group(1))
+            # touched the tier key: a downgrade unless every added `identity` value provably stays `team`
+            if not added or any(v != _TEAM for v in added):
+                return True
+    return False
+
+
 # A generous page bound: ~10k files at 100/page, well past GitHub's ~3000-file listing
 # cap. It exists only to halt a pathological Link cycle — exceeding it raises (the caller
 # fails closed), never silently truncates the file list it then judges.
@@ -378,7 +438,8 @@ def main() -> int:
 
     flagged = flagged_changes(files)
     repoint = home_repoint(files, _read_base_home())
-    if not flagged and not repoint:
+    downgrade = identity_downgrade(files, _read_base_tier())
+    if not flagged and not repoint and not downgrade:
         return emit([])  # nothing weakens
     if ACK_LABEL in labels:
         return emit([])  # acknowledged via the label -> cleared (the ack is an INPUT here, D-134)
@@ -397,6 +458,11 @@ def main() -> int:
                      f"wrong or look-alike home could feed your engine altered code at its next update. The "
                      f"engine cannot itself tell a genuine home from a convincing look-alike — only you can "
                      f"confirm this is the home you intend.\n")
+    if downgrade:
+        parts.append("Your engine is being switched from team mode back to on-your-own (solo) mode. In team mode a "
+                     "separate identity's approval is required before anything merges — switching back removes "
+                     "that required approval, so future changes could merge with only the automatic checks and no "
+                     "second sign-off. Only you can confirm you mean to give up that protection.\n")
     parts.append(f"To approve this deliberately, apply the `{ACK_LABEL}` label to this pull request (one "
                  "deliberate action, distinct from the merge click). Until then, this check blocks the merge.")
     return emit([{"severity": tier, "location": None, "message": "\n".join(parts)}])

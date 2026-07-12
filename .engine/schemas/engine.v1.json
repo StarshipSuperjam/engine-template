@@ -59,6 +59,24 @@
           }
         }
       }
+    },
+    "engine_identity": {
+      "description": "The distinct, non-admin GitHub identity that authors the engine's commits and pull requests in TEAM mode, so the operator becomes the enforced code-owner reviewer — a change cannot merge without a second sign-off, and this identity (holding no admin) cannot itself weaken the ruleset. Recorded when the operator switches solo->team via the team-switch operation; absent in solo (the default) and in the construction repository (which runs no first-run setup), so a manifest without it stays valid. Records only the PUBLIC identity — never a token or any secret, which stays in the operator's own credential store, so switching back to solo simply drops this record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["login"],
+      "properties": {
+        "login": {
+          "description": "The machine-user account's GitHub login (for example 'my-project-engine') — a second account the operator created and added as a non-admin (write) collaborator, whose credential the operator's build sessions authenticate as. Commits and pull requests are attributed to it, and the code-owner review requirement is measured against it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "email": {
+          "description": "The commit-author email for that identity, set into git config so the engine's commits carry it. Optional: the login alone identifies the author; the email is the git-level attribution.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   }
 }
