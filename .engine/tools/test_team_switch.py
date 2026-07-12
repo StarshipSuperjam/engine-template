@@ -29,8 +29,11 @@ class _FakeCP:
 
 def _mk(tmp, *, identity="solo", handle="owner", perm=None, codeowners=True, cp=None):
     mpath = os.path.join(tmp, "engine.json")
+    manifest = {"engine_release": "0.0.0", "packages": {}, "identity": identity, "handle": handle}
+    if identity == "team":                    # a real team manifest always carries the distinct identity
+        manifest["engine_identity"] = {"login": "bot", "email": "bot@x.invalid"}
     with open(mpath, "w", encoding="utf-8") as fh:
-        json.dump({"engine_release": "0.0.0", "packages": {}, "identity": identity, "handle": handle}, fh)
+        json.dump(manifest, fh)
 
     def transport(method, path, body=None):
         return (404 if perm is None else 200), (None if perm is None else {"permission": perm})
@@ -114,10 +117,7 @@ class TestReverse(unittest.TestCase):
     def test_reverse_drops_identity_and_reapplies_solo(self):
         with tempfile.TemporaryDirectory() as d:
             cp = _FakeCP(protected=True)
-            ts, mpath = _mk(d, identity="team", cp=cp)
-            # seed an engine_identity to prove it is removed
-            m = json.load(open(mpath)); m["engine_identity"] = {"login": "bot"}
-            with open(mpath, "w") as fh: json.dump(m, fh)
+            ts, mpath = _mk(d, identity="team", cp=cp)   # _mk gives a team manifest its engine_identity
             res = ts.reverse(branch="main")
             self.assertEqual(res["status"], "reversed")
             self.assertIn("guardrail-ack", res["message"])         # names the weakening consent
@@ -149,9 +149,7 @@ class TestStatus(unittest.TestCase):
 
     def test_status_in_team_mode_confirms(self):
         with tempfile.TemporaryDirectory() as d:
-            ts, mpath = _mk(d, identity="team")
-            m = json.load(open(mpath)); m["engine_identity"] = {"login": "bot"}
-            with open(mpath, "w") as fh: json.dump(m, fh)
+            ts, _ = _mk(d, identity="team")             # _mk gives a team manifest its engine_identity
             s = ts.status()
             self.assertEqual(s["tier"], "team")
             self.assertIn("bot", s["message"])

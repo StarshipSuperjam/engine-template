@@ -49,10 +49,18 @@ def resolve_tier(engine_dir: str | None = None) -> str:
     engine_dir = engine_dir if engine_dir is not None else _ENGINE_DIR
     try:
         with open(os.path.join(engine_dir, "engine.json"), encoding="utf-8") as fh:
-            identity = (json.load(fh) or {}).get("identity")
+            manifest = json.load(fh) or {}
     except (OSError, ValueError):
         return SOLO
-    return TEAM if identity == TEAM else SOLO
+    # TEAM is real only when the distinct identity that makes it real is ALSO recorded. This is the deadlock
+    # guard: the team floor (1 required approval) is unsatisfiable without a distinct identity to author the PRs
+    # (a sole owner cannot approve their own PR), so any team-WITHOUT-identity state — a first-run tier preference
+    # recorded before the switch, or a half-completed switch — fail-safes to the SOLO floor here rather than
+    # applying an unsatisfiable ruleset. The team-switch operation writes `identity` and `engine_identity`
+    # together, so a genuinely-switched repo resolves TEAM.
+    if manifest.get("identity") == TEAM and (manifest.get("engine_identity") or {}).get("login"):
+        return TEAM
+    return SOLO
 
 
 def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> list:

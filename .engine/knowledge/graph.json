@@ -5033,7 +5033,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:e84eb7e671f7adab9b66d6b8b35f3409560462dc0730bc670bd744d57d386647",
+        "fingerprint": "sha256:53712e7cc237dce9e3d5c6f046f152cd3340993c660b9d30816a1d4ff9052aa7",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -5526,7 +5526,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:0d89f620dee41d64d0e0a29d0f49568195ca4d1dd2954a1412cb24e7c39ab86b",
+        "fingerprint": "sha256:b0e1d3cb513c6043737ab61861cecddc48b35951fc278ab57002fae415d2f315",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -7549,7 +7549,7 @@
       },
       "slug": "test_team_switch",
       "source": {
-        "fingerprint": "sha256:6618d420f9ca95387090054e59d86eb5c272ce1c86048d5310124e8daa79dd60",
+        "fingerprint": "sha256:3d999ea8c9236f15e8b4c3ff0d0c870a74a78b4e20a4f26d27ba29ec61bb2ea6",
         "path": ".engine/tools/test_team_switch.py"
       },
       "status": "active",

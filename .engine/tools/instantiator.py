@@ -80,8 +80,11 @@ _EMPTY_CATALOG_LINE = ("There are no optional add-ons to choose yet — the esse
                        "and I'll set those up when you confirm.")
 _TIER_PROMPT = (
     "One choice only you can make — who reviews changes here:\n"
-    "  • On your own: I'll make changes as you, and you approve each one. (The usual choice.)\n"
-    "  • With a team: I'll make changes under a separate name, and a teammate approves them."
+    "  • On your own: I'll make changes as you, and you approve each one. (The usual choice — start here.)\n"
+    "  • With a team: I'll make changes under a separate account, and your approval is required before "
+    "anything merges — and because that account can't change your safety rules, not even I can weaken them. "
+    "Worth it even on your own if you want that stronger guarantee. It's a bigger, one-time setup, so you "
+    "start on-your-own and I walk you through switching whenever you're ready."
 )
 _DESELECT_PREFACE = (
     "When you confirm: the optional add-ons you did NOT keep will be removed from this project — their files\n"
