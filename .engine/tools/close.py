@@ -27,16 +27,21 @@ not-stranding"). Routine is satisfiable non-interactively (log-it discharges wit
 deadlocks.
 
 THE CHANNELS (stated honestly, never overstated). The RELIABLE surface is the PUSHBACK: a `Stop` block is
-exit-2 + stderr (hooks.block), and the platform feeds that reason back to Claude. A clean (exit-0) `Stop`
-has no quiet read-and-stop channel: its stdout is debug-log only, and a `Stop` hook's one inject channel
+exit-2 + stderr (hooks.block), and the platform feeds that reason back to Claude, who relays it. The
+legibility of a disposition LOOP rides this same reliable channel: on the 2nd+ consecutive block the pushback
+collapses to one calm line (`_LOOP_LINE`) instead of re-listing, and on the approach to the block cap it
+folds in a PRE-ANNOUNCEMENT (`_CAP_APPROACH`) that the open items will be saved and the turn finished — so a
+non-engineer is told before an unexplained hang, not after. A clean (exit-0) `Stop` has no quiet
+read-and-stop channel: its stdout is debug-log only, and a `Stop` hook's one inject channel
 (`hookSpecificOutput.additionalContext`) CONTINUES the turn rather than ending it — so the engine declines
-it for an end-of-turn summary (EVENT_INVENTORY marks Stop `injects:False` deliberately). The clean-turn
-disposition summary is therefore ASSISTANT-NARRATED (computed here via `summary`, quiet when nothing needed
-action), and the cap-stop / fail-open notices are best-effort whose DURABLE record is the logged Issue
-(re-surfaced at the next boot). Never dress a best-effort line as a guaranteed operator surface. (The gate
-acts only on the `stop_hook_active` boolean — true on a continuation after a Stop block, the platform's
-documented loop-guard — blocking while it is false and logging+proceeding when true, so it is robust to the
-exact multi-block timing either way.)
+it (EVENT_INVENTORY marks Stop `injects:False` deliberately; injecting on the FORCED continuation would just
+re-extend a turn the platform force-ended). The clean-turn disposition summary is therefore ASSISTANT-NARRATED
+(computed here via `summary`, quiet when nothing needed action; the standing duty to relay it lives in the
+deployed floor). The POST-HOC cap-stop / fail-open notices remain best-effort whose DURABLE record is the
+logged Issue (re-surfaced at the next boot) — never dressed as a guaranteed operator surface. (The gate acts
+only on the `stop_hook_active` boolean — the platform sets it on the forced continuation after the cap of
+consecutive blocks — blocking while it is false and logging+proceeding when true; the within-turn block count
+that times the loop-line / pre-announce is legibility bookkeeping only, never the block/proceed decision.)
 
 CLI (the operator-runnable demo; the live gate is what the wired `Stop` hook invokes):
   python tools/close.py                                   # hook mode: run the Stop gate over stdin
@@ -115,16 +120,66 @@ def read_findings(session_id):
     return findings if isinstance(findings, list) else []
 
 
-def _write_findings(session_id, findings):
+def _read_record(session_id):
+    """The full session record dict (`{findings, blocks}`), or `{}` when absent / unreadable / malformed —
+    the same fail-open direction as read_findings."""
+    path = _record_path(session_id)
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001 — absent / unreadable / malformed -> empty, never a crash
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _blocks(session_id):
+    """The per-turn consecutive-Stop-block count carried in the record (0 when absent / malformed). It is
+    legibility bookkeeping only — it feeds the pushback REASON TEXT, never the block/proceed decision (which
+    stays driven by `pending()` + `stop_hook_active`), so it can never make the gate fail closed."""
+    n = _read_record(session_id).get("blocks")
+    return n if isinstance(n, int) and n > 0 else 0
+
+
+def _write_record(session_id, findings, blocks):
     path = _record_path(session_id)
     if not path:
         return False
     try:
         with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"findings": findings}, fh)
+            json.dump({"findings": findings, "blocks": blocks}, fh)
         return True
     except Exception:  # noqa: BLE001 — a failed write degrades to "no record" -> nothing held, never a crash
         return False
+
+
+def _write_findings(session_id, findings):
+    """Write the findings list, PRESERVING the block counter — record_finding / dispose (a loop entry or
+    exit) must not clobber the count that accumulates between the consecutive pure-block Stops in between."""
+    return _write_record(session_id, findings, _blocks(session_id))
+
+
+def _bump_blocks(session_id):
+    """Increment the per-turn consecutive-block counter, returning the new count. Preserves findings.
+    Best-effort: a failed read/write still returns a usable count, so the reason text is never withheld."""
+    rec = _read_record(session_id)
+    n = rec.get("blocks")
+    n = (n if isinstance(n, int) and n > 0 else 0) + 1
+    findings = rec.get("findings")
+    _write_record(session_id, findings if isinstance(findings, list) else [], n)
+    return n
+
+
+def _reset_blocks(session_id):
+    """Reset the consecutive-block counter to 0 — but ONLY when a record already exists, so a quiet turn
+    (nothing raised) still leaves NO OS-temp footprint (the 'no record when nothing was raised' property)."""
+    path = _record_path(session_id)
+    if not path or not os.path.exists(path):
+        return
+    rec = _read_record(session_id)
+    findings = rec.get("findings")
+    _write_record(session_id, findings if isinstance(findings, list) else [], 0)
 
 
 def record_finding(session_id, message, location=None):
@@ -205,24 +260,51 @@ def summary(session_id):
 
 
 # ---- operator-legible notices (close/README §"Bounded, legible, and leak-proof at the edges") ----
-# The RELIABLE surface is the pushback (the block reason, exit-2 stderr, fed to Claude). The cap-stop and
-# fail-open notices ride exit-0 paths whose in-transcript surfacing is NOT guaranteed (a Stop hook does not
-# inject; its exit-0 stdout is debug-log only), so their DURABLE record is the logged Issue — never dressed
-# as a guaranteed operator line. No backstage vocabulary leaks (§12): no "Stop hook", "block budget", etc.
+# The RELIABLE surface is the pushback (the block reason, exit-2 stderr, fed to Claude, who relays it). The
+# repeated-pushback LOOP line and the cap PRE-ANNOUNCEMENT ride that same reliable channel — folded into the
+# block reason on the 2nd+ consecutive block and on the approach to the cap, so a non-engineer never meets an
+# unexplained hang (close/README §"A disposition loop is legible"). The POST-HOC cap-stop / fail-open notices
+# still ride exit-0 paths whose in-transcript surfacing is NOT guaranteed (a Stop hook does not inject; its
+# exit-0 stdout is debug-log only), so their DURABLE record stays the logged Issue — never dressed as a
+# guaranteed operator line. No backstage vocabulary leaks (§12): no "Stop hook", "block budget", etc.
 _LOOP_LINE = "sorting out where the open findings should go — one moment."
+_CAP_APPROACH = "If we can't settle this, I'll save them as tracked follow-ups and finish up."
 _CAP_STOP = "I've saved the open follow-up(s) as tracked items so they're not lost, and finished up."
 _FAIL_OPEN_NOTICE = ("I couldn't run the check that confirms nothing was dropped — review this turn's work "
                      "with extra care.")
 
 
-def _pushback(open_findings):
-    """The plain-language pushback — the reliable surface (the block reason fed back to Claude). Names the
-    way forward (fix / save as a follow-up / flag), never a silent refusal, and lists what is still open so
-    the model knows what to settle."""
-    head = ("Before we finish: something you raised this turn still needs a decision — fix it now, save it "
-            "as a follow-up item, or flag it for me. I won't end the turn until it's settled.")
-    items = "; ".join((f.get("message") or "") for f in open_findings)
-    return f"{head} Still open: {items}" if items else head
+def _effective_block_cap():
+    """The operator-effective consecutive-Stop-block cap — hooks.STOP_HOOK_BLOCK_CAP, overridable via the env
+    var the platform honors (hooks.STOP_HOOK_BLOCK_CAP_ENV). Used ONLY to time the cap pre-announcement, so
+    the notice never promises an imminent finish the operator's own raised cap has not yet reached."""
+    raw = os.environ.get(hooks.STOP_HOOK_BLOCK_CAP_ENV)
+    try:
+        n = int(raw)
+        if n > 0:
+            return n
+    except (TypeError, ValueError):
+        pass
+    return hooks.STOP_HOOK_BLOCK_CAP
+
+
+def _pushback(open_findings, count=1):
+    """The plain-language pushback — the reliable surface (the block reason fed back to Claude, who relays it).
+    `count` is this turn's consecutive-block number. First block (count<2): the full ask — the way forward
+    (fix / save as a follow-up / flag) plus what is still open, so the model knows what to settle. Repeated
+    pushback (count>=2): one calm line instead of re-listing (close/README "repeated pushback surfaces one
+    plain sentence"), and — on the approach to the effective cap — a pre-announcement that the open items will
+    be saved and the turn finished, so the operator is told before the hang rather than meeting it unexplained.
+    A clean turn ends without a block, so the disposition summary itself is assistant-narrated (see summary)."""
+    if count < 2:
+        head = ("Before we finish: something you raised this turn still needs a decision — fix it now, save it "
+                "as a follow-up item, or flag it for me. I won't end the turn until it's settled.")
+        items = "; ".join((f.get("message") or "") for f in open_findings)
+        return f"{head} Still open: {items}" if items else head
+    line = _LOOP_LINE
+    if count >= _effective_block_cap() - 1:
+        line = f"{line} {_CAP_APPROACH}"
+    return line
 
 
 # ---- the ambient-capture trigger (LIVE relay seam; memory's mechanism) ----------------------
@@ -340,10 +422,12 @@ def handler(payload):
     session_id = payload.get("session_id")
     open_findings = pending(session_id)
     if not open_findings:
+        _reset_blocks(session_id)                         # a clean turn ends the block streak (no-op if no record)
         _run_preclose_advisory()                          # local full-suite ADVICE; never gates (see below)
         return hooks.proceed()                            # nothing undispositioned -> the turn ends
     if payload.get("stop_hook_active") is not True:
-        return hooks.block(_pushback(open_findings))      # push back until each is dispositioned
+        count = _bump_blocks(session_id)                  # this turn's consecutive-block number (legibility only)
+        return hooks.block(_pushback(open_findings, count))  # push back; loop-line on repeats, pre-announce near cap
     # Forced continuation: degrade recorded -> logged so nothing is lost, then proceed (run_hook would
     # downgrade a block here anyway; we never re-enter the gate THIS turn, so the loop can't deadlock).
     now = telemetry.utc_now()
@@ -356,6 +440,7 @@ def handler(payload):
         _write_findings(session_id, kept)
     else:
         clear(session_id)
+    _reset_blocks(session_id)                             # the streak ends here; don't carry a stale count forward
     # Best-effort same-turn notice; the durable record is the logged Issue (or, for a kept leftover, its
     # re-appearance next turn). Honest: cap-stop only when EVERY leftover was tracked.
     sys.stderr.write((_FAIL_OPEN_NOTICE if kept else _CAP_STOP) + "\n")
