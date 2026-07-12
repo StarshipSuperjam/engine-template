@@ -164,6 +164,25 @@ class ResolveDocTests(_Seeded):
         root = self._root({"docs/spec/index.md": "# s\n", "docs/spec/c.md": _doc("draft")})
         self.assertEqual(spec_referent.resolve(root, doc="docs/spec/c.md")["no_op_reason"], "doc-not-locked")
 
+    def test_require_locked_false_resolves_a_draft_with_its_observed_status(self):
+        # #420 intake count path: a draft doc resolves (the lock gate is skipped) and the returned status is the
+        # doc's OBSERVED frontmatter — never a hardcoded "locked", so it can't be mistaken for a build referent.
+        root = self._root({"docs/spec/index.md": "# s\n", "docs/spec/c.md": _doc("draft")})
+        r = spec_referent.resolve_doc(root, "docs/spec/c.md", require_locked=False)
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["status"], "draft")
+
+    def test_require_locked_true_is_the_default_so_the_build_path_still_gates(self):
+        root = self._root({"docs/spec/index.md": "# s\n", "docs/spec/c.md": _doc("draft")})
+        self.assertEqual(spec_referent.resolve_doc(root, "docs/spec/c.md")["no_op_reason"], "doc-not-locked")
+
+    def test_require_locked_false_still_enforces_the_confined_read_wall(self):
+        # relaxing the lock gate must NOT relax the engine/product wall — an escaping pointer is still never read.
+        root = self._root({"docs/spec/index.md": "# s\n",
+                           "secret.md": _doc("draft")})
+        r = spec_referent.resolve_doc(root, "docs/spec/../secret.md", require_locked=False)
+        self.assertEqual(r["no_op_reason"], "pointer-not-under-docs-spec")
+
     def test_missing_doc_is_doc_missing(self):
         root = self._root({"docs/spec/index.md": "# s\n"})
         self.assertEqual(spec_referent.resolve(root, doc="docs/spec/ghost.md")["no_op_reason"], "doc-missing")
@@ -303,6 +322,58 @@ class ReviewStepsTests(unittest.TestCase):
         self.assertNotIn("**Things you can confirm yourself**", out)
 
 
+# ---- acceptance-split (the #420 intake two-tier count) -------------------------------------------
+
+class AcceptanceSplitTests(unittest.TestCase):
+    def _resolved(self, criteria):
+        return {"ok": True, "doc_path": "docs/spec/c.md", "status": "draft", "criteria": criteria}
+
+    def test_count_reuses_the_classifier_including_the_terminal_demotion(self):
+        # one plain operator row (verify-yourself), one engine row, one operator-but-terminal row (demoted to
+        # the engine's account by rule 4) — the SAME split as review-steps, projected to a count.
+        split = spec_referent.acceptance_split(self._resolved([
+            {"criterion": "A", "how_verified": "open the checkout screen", "who": "operator"},
+            {"criterion": "B", "how_verified": "the storage test", "who": "engine"},
+            {"criterion": "C", "how_verified": "Run `uv run pytest x.py`", "who": "operator"},
+        ]))
+        self.assertEqual(split, {"operator_verifiable": 1, "engine_account": 2})
+
+    def test_render_states_both_numbers(self):
+        out = spec_referent.render_acceptance_split(self._resolved([
+            {"criterion": "A", "how_verified": "open the screen", "who": "operator"},
+            {"criterion": "B", "how_verified": "the storage test", "who": "engine"},
+        ]))
+        self.assertIn("1 is something you can confirm yourself", out)
+        self.assertIn("1 is on the engine's account", out)
+
+    def test_render_never_collapses_to_all_green_when_one_side_is_zero(self):
+        # all-operator: the readout must still STATE the zero, never fold into one "all good" (§17).
+        out = spec_referent.render_acceptance_split(self._resolved([
+            {"criterion": "A", "how_verified": "open the screen", "who": "operator"},
+            {"criterion": "B", "how_verified": "make a purchase and confirm", "who": "operator"},
+        ]))
+        self.assertIn("2 are something you can confirm yourself", out)
+        self.assertIn("0 are on the engine's account", out)
+        self.assertNotIn("all good", out.lower())
+        self.assertNotIn("all green", out.lower())
+
+    def test_render_no_op_is_intake_framed_and_plain(self):
+        # the reachable intake no-ops (require_locked=False, --doc) get draft-framed, action-guiding phrasings —
+        # NOT the merge-review "settled description"/"linked"/"this change" strings — and leak no raw token.
+        no_crit = spec_referent.render_acceptance_split({"ok": False, "no_op_reason": "no-criteria", "detail": "x"})
+        self.assertIn("acceptance criteria", no_crit.lower())
+        self.assertNotIn("settled", no_crit.lower())          # never call the operator's draft "settled"
+        missing = spec_referent.render_acceptance_split({"ok": False, "no_op_reason": "doc-missing", "detail": "x"})
+        self.assertIn("couldn't find", missing.lower())
+        self.assertNotIn("linked", missing.lower())
+        wall = spec_referent.render_acceptance_split(
+            {"ok": False, "no_op_reason": "pointer-not-under-docs-spec", "detail": "x"})
+        self.assertIn("docs/spec", wall.lower())
+        for out in (no_crit, missing, wall):
+            for tok in ("locked", "draft", "stub", "doc-not-locked", "referent", "[operator]", "who checks it"):
+                self.assertNotIn(tok, out)
+
+
 # ---- dispatch -----------------------------------------------------------------------------------
 
 class DispatchTests(_Seeded):
@@ -348,6 +419,35 @@ class DispatchTests(_Seeded):
             self.assertIn("Things you can confirm yourself", buf.getvalue())
         finally:
             spec_referent._ROOT = orig
+
+    def test_acceptance_split_verb_counts_a_draft_doc_pre_lock(self):
+        # the load-bearing intake case: the verb must count a DRAFT doc (require_locked=False reaches resolve_doc),
+        # not silently no-op it — a happy-path locked fixture would hide this.
+        import contextlib
+        import io
+        root = self._root({"docs/spec/index.md": "# s\n",
+                           "docs/spec/c.md": _doc("draft", "| A | open the screen | operator |\n"
+                                                           "| B | the storage test | engine |\n")})
+        orig = spec_referent._ROOT
+        spec_referent._ROOT = root
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = spec_referent.main(["acceptance-split", "--doc", "docs/spec/c.md"])
+            self.assertEqual(rc, 0)
+            out = buf.getvalue()
+            self.assertIn("1 is something you can confirm yourself", out)
+            self.assertIn("1 is on the engine's account", out)
+        finally:
+            spec_referent._ROOT = orig
+
+    def test_acceptance_split_verb_without_doc_is_usage_error(self):
+        # `--doc`-only, offline: no --doc (and --issue is not offered) -> a plain usage error, never a remote read.
+        import contextlib
+        import io
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(spec_referent.main(["acceptance-split", "--issue", "1"]), 2)
+        self.assertIn("--doc", err.getvalue())
 
     def test_resolve_issue_without_env_is_usage_error(self):
         import contextlib

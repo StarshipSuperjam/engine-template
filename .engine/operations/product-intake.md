@@ -48,11 +48,17 @@ short markers the files carry in their frontmatter stay in the files, never on s
    (`diataxis-*.md` → `docs/tutorials|how-to|reference|explanation/`) — writing only the ones this product
    actually needs and stripping the guidance as you go. These are the operator's own documents to get right: the
    engine drafts them from the starting shape but does not check them, so never imply that it did.
-5. **Check it, and report what was — and was not — checked.** Run the form check:
-   `uv run --directory .engine --frozen -- python tools/validate.py --check engine/check/product-spec-form`.
+5. **Check it, and report what was — and was not — checked, and how "done" will be judged.** Run the form
+   check: `uv run --directory .engine --frozen -- python tools/validate.py --check engine/check/product-spec-form`.
    Tell the operator plainly what it found, and state the bound: it checked that every part is present and
    well-formed; it did **not** check that the design is *right* — that is their call. Fix anything flagged and
-   re-run until it is clean.
+   re-run until it is clean. Then, for each described capability, show the operator how its acceptance criteria
+   split between what they can confirm themselves and what rests on the engine's account — run
+   `uv run --directory .engine --frozen -- python tools/spec_referent.py acceptance-split --doc docs/spec/<capability>.md`
+   and read its plain-language count back. Do this **before** they settle the description (step 7), while they
+   can still add a check they would rather run with their own eyes; and never fold the two into one "it all
+   checks out" — seeing the split up front is how they judge, honestly, how much of "done" they can verify
+   themselves and how much rests on the engine's account.
 6. **Offer a deeper, advisory review before they settle — when it is available.** If the engine's optional
    design reviews are installed, offer the operator the same four independent reviews it runs on a plan before
    building, now reading the **description itself**: whether it is the right thing, whether it is sound, whether
@@ -85,8 +91,9 @@ short markers the files carry in their frontmatter stay in the files, never on s
 ## Done when
 
 `docs/spec/` holds a master index and one document per capability, the form check
-(`engine/check/product-spec-form`) reports no problems, and the operator has seen the result with its bound
-stated and given their go-ahead on every document they consider settled. When the operator has chosen to hand
+(`engine/check/product-spec-form`) reports no problems, and the operator has seen the result: its bound stated,
+and for each capability the two-tier split of how "done" is judged — what they can confirm themselves versus
+what rests on the engine's account. They have given their go-ahead on every document they consider settled. When the operator has chosen to hand
 the settled work to a build, a build order at `docs/spec/build-plan.md` groups it into phases and there is a
 tracked item to build for each settled capability.
 

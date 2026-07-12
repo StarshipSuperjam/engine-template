@@ -3161,7 +3161,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:776bd035fdef642eb1b57b37797f068581a96d8959d64640a1a09cedcbd3b06f",
+        "fingerprint": "sha256:f6cfd48ea0cccf4a63f2cb81e6838fdd180d8fd8f2f4b27ded4ef4f3c36f661f",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -5967,7 +5967,7 @@
       },
       "slug": "spec_referent",
       "source": {
-        "fingerprint": "sha256:a1a142f4a56a6c8c599c5ce931cab0d2cca53034396ec6e038adfe06c8ccd888",
+        "fingerprint": "sha256:759e7cfed268683d695015b502371e01a74867a44e6b466e5a537da9d0bbd73b",
         "path": ".engine/tools/spec_referent.py"
       },
       "status": "active",
@@ -6783,7 +6783,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:36ac336ca4cd651aec04083bb43a71a13f2883ade3c5b1916962a00e1dc7f2be",
+        "fingerprint": "sha256:9960b74bac097f35c517b0029660f8e0641f6e4d16835483ef6e2297f674ca41",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -7667,7 +7667,7 @@
       },
       "slug": "test_spec_referent",
       "source": {
-        "fingerprint": "sha256:0c2d5c4c9d965d48864118916d60bf76b3c4e930cb2a3b6a789d8fd2322f6c1e",
+        "fingerprint": "sha256:7105091e1d6726cacdaa6984d2886934636d8aa94ea30b46bc8f176c875a8b79",
         "path": ".engine/tools/test_spec_referent.py"
       },
       "status": "active",
