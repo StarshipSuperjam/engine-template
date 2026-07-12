@@ -1173,6 +1173,19 @@ class TestCoverageKind(unittest.TestCase):
             {"alpha": {"location": ".engine/alpha/"}}, {".engine/alpha/"}, "hard", "m"), [])
         self.assertEqual(validate.catalog_coverage_findings(  # infra allowlist suppresses an orphan
             {}, {".engine/boot/"}, "hard", "m", infra=[".engine/boot/"]), [])
+        # #410 U26: the exemption is load-bearing — WITHOUT .engine/boot/ in infra it IS flagged. Boot is boot's
+        # topology-sanctioned artifact home (its ledger writes .cache/ there), so once boot has run the dir
+        # materializes and, absent the carve-out, fires a false HARD orphan in the operator's tree (green in CI's
+        # fresh checkout, red locally). This asserts the mechanism; the next test asserts the shipped rule uses it.
+        self.assertTrue(validate.catalog_coverage_findings({}, {".engine/boot/"}, "hard", "m"),
+                        "boot/ must orphan when NOT exempted — proving the allowlist entry is what suppresses it")
+
+    def test_boot_is_exempted_in_the_real_catalog_coverage_rule(self):
+        # #410 U26, the data side: the shipped rule must actually list .engine/boot/, or a working tree where boot
+        # has run reds on the false orphan even though CI's fresh checkout (no .engine/boot/ yet) stays green.
+        rule = validate.load_json(os.path.join(validate.ROOT, ".engine", "check", "catalog-coverage.json"))
+        self.assertIn(".engine/boot/", rule["params"]["infra_dirs"],
+                      "the shipped catalog-coverage rule must exempt boot's topology-sanctioned artifact home")
 
 
 class TestCoherenceKind(unittest.TestCase):

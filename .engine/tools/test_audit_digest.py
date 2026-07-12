@@ -24,6 +24,15 @@ import validate      # noqa: E402
 BODY = "# Engine self-review\n\nI looked things over; here is what I found.\n"
 JUNE = datetime.date(2026, 6, 1)
 
+# The audit persona's output-contract schema (audit-finding.v1) — the audit subsystem owns it, so its
+# well-formedness lock lives here beside the digest tests, mirroring how each review lens's finding schema
+# lives in its own suite (plan-review-finding.v1 in test_design_review.py). #410 U29.
+AUDIT_FINDING_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "audit-finding.v1.json"))
+
+
+def _errors(schema, instance):
+    return list(validate.Draft202012Validator(schema).iter_errors(instance))
+
 
 class TestSeal(unittest.TestCase):
     def _scratch(self, d):
@@ -680,6 +689,50 @@ class TestSavedMemoryCLI(unittest.TestCase):
             rc = audit_digest.main(["nope"])
         self.assertEqual(rc, 2)
         self.assertIn("memory", err.getvalue())
+
+
+class TestAuditFindingSchema(unittest.TestCase):
+    """The audit persona's output-contract is a well-formed schema that narrows severity to the audit's own
+    axis (retire | reconcile | escalate) — and this is its only lock."""
+
+    def test_schema_is_well_formed(self):
+        # No live rule and no schema-iterator test validates .engine/schemas/*.json; this is the sole
+        # well-formedness lock on audit-finding.v1 — do not remove it.
+        validate.Draft202012Validator.check_schema(AUDIT_FINDING_SCHEMA)
+
+    def test_accepts_each_severity(self):
+        for sev in ("retire", "reconcile", "escalate"):
+            inst = {"severity": sev, "message": "This local artifact no longer earns its place.",
+                    "location": {"file": ".engine/audits/concern-list.json", "line": 4}}
+            self.assertEqual(_errors(AUDIT_FINDING_SCHEMA, inst), [], f"{sev} should be accepted")
+
+    def test_accepts_null_location(self):
+        inst = {"severity": "retire", "message": "A pattern of cruft across the engine's corners.",
+                "location": None}
+        self.assertEqual(_errors(AUDIT_FINDING_SCHEMA, inst), [])
+
+    def test_rejects_severity_outside_the_enum(self):
+        # The narrowing to the audit's own axis is the whole point: the review enum (blocking/serious/nit)
+        # and finding.v1's free-string severity (e.g. a check tier "hard") must NOT pass this profile —
+        # the audit never blocks, so it carries no blocking/serious/nit gravity (D-133).
+        for bad in ("blocking", "serious", "nit", "hard"):
+            inst = {"severity": bad, "message": "x", "location": None}
+            self.assertTrue(_errors(AUDIT_FINDING_SCHEMA, inst),
+                            f"a severity of {bad!r} (outside retire/reconcile/escalate) must fail")
+
+    def test_rejects_missing_required_field(self):
+        for drop in ("severity", "message", "location"):
+            inst = {"severity": "reconcile", "message": "x", "location": None}
+            del inst[drop]
+            self.assertTrue(_errors(AUDIT_FINDING_SCHEMA, inst), f"missing {drop} must fail")
+
+    def test_rejects_empty_message(self):
+        self.assertTrue(_errors(AUDIT_FINDING_SCHEMA,
+                                {"severity": "escalate", "message": "", "location": None}))
+
+    def test_rejects_location_without_file(self):
+        inst = {"severity": "reconcile", "message": "x", "location": {"line": 1}}
+        self.assertTrue(_errors(AUDIT_FINDING_SCHEMA, inst), "a location object without a file must fail")
 
 
 if __name__ == "__main__":

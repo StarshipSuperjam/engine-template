@@ -19,6 +19,7 @@
     ".engine/templates/first-run.md"
   ],
   "directories": [
-    ".claude/skills/engine-setup"
+    ".claude/skills/engine-setup",
+    "assets"
   ]
 }

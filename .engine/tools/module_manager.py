@@ -586,10 +586,12 @@ _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives her
 # release's construction-governance CLAUDE.md never overlays an adopter's floor); and root `.gitignore`
 # (the foundation-ignores fence is re-asserted locally by apply_foundation_ignores on upgrade — step (2f)
 # below — never fetched, since a release's file would clobber the adopter's own ignore lines + module
-# fences). Gitignored data and the deployment's per-instance eADR stream are in no `provides`/FOUNDATION_CODE,
-# so the overlay leaves them untouched (config + data preserved). A member may be a glob (the issue
-# templates); the overlay loop below expands it against the release tree, so the issue templates are now
-# refreshed on update (they were silently omitted before — single-homing closed that gap; forward-only).
+# fences). Gitignored data and the deployment's per-instance eADR stream (`.engine/contracts/instance/`, off
+# core's non-recursive `.engine/contracts/*.md` canon glob — topology law 5 / D-169) are in no
+# `provides`/FOUNDATION_CODE, so the overlay leaves them untouched (config + data preserved). A member may be
+# a glob (the issue templates); the overlay loop below expands it against the release tree, so the issue
+# templates are now refreshed on update (they were silently omitted before — single-homing closed that gap;
+# forward-only).
 FOUNDATION_CODE = tuple(
     p for p in module_coherence.FOUNDATION_INFRA
     if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", _ROOT_CLAUDE_REL, _GITIGNORE_REL)
@@ -812,7 +814,8 @@ def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> 
     `provides` files + its manifest, plus the FOUNDATION_CODE infra the release ships. Driven off the
     PRESENT set (never the release tree's modules/*), so a deselected module is NEVER resurrected
     (provisioning L352-356). Operator config (engine.json identity, the policy-override) and gitignored
-    data + the per-instance eADR stream are in no `provides`/FOUNDATION_CODE, so they are untouched.
+    data + the per-instance eADR stream (`.engine/contracts/instance/`) are in no
+    `provides`/FOUNDATION_CODE, so they are untouched.
     CONTAINMENT GUARD (the topology wall): every destination must resolve INSIDE ROOT — fail closed BEFORE
     any write (the PR-1 pattern). `exclude` (a set of repo-relative paths) is NOT overwritten — the brownfield
     arrival passes the engine-exclusive paths an operator chose to keep ('leave-as-is', a class-1 collision),

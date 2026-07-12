@@ -665,6 +665,43 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         finally:
             validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
 
+    def test_inventory_prunes_the_deployment_eADR_stream_but_keeps_the_engine_canon(self):
+        # #410 U28 / topology law 5 / D-169: the deployment's per-instance eADR stream `.engine/contracts/instance/`
+        # holds COMMITTED decision records a deployment authors — in no module's `provides`, preserved across an
+        # engine overlay. The ownership inventory must skip that subtree, or every real deployment eADR reports as
+        # an unowned orphan in a deployed repo (the exact false-orphan class #410 U26 fixes for `.engine/boot/`).
+        # test_real_repository_is_coherent only proves the SEED README does not orphan; this is the DETERMINISTIC
+        # guard that a real, non-README deployment eADR under instance/ is pruned, while the engine's own eADR
+        # CANON directly in `.engine/contracts/` stays inventoried (it rides core's non-recursive glob).
+        #
+        # The load-bearing half is the SECOND assertion: the prune is anchored on the exact path
+        # `.engine/contracts/instance`, NOT the bare name `instance`, so a same-named directory ANYWHERE ELSE
+        # (e.g. `.engine/tools/instance/`) stays ownership-checked. A bare-name `"instance"` prune would silently
+        # un-own it — this test goes red if a future change weakens the path-anchor or drops DEPLOYMENT_CONTRACTS.
+        saved_root, saved_engine = validate.ROOT, validate.ENGINE_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                engine = os.path.join(d, ".engine")
+                stream = os.path.join(engine, "contracts", "instance")   # deployment stream -> must prune
+                canon = os.path.join(engine, "contracts")                # engine canon home -> keep
+                lookalike = os.path.join(engine, "tools", "instance")    # same name, other path -> keep
+                for sub in (stream, canon, lookalike):
+                    os.makedirs(sub, exist_ok=True)
+                open(os.path.join(stream, "eADR-9001-picked-postgres.md"), "w").close()
+                open(os.path.join(canon, "eADR-0001-versioned-template.md"), "w").close()
+                open(os.path.join(lookalike, "real.py"), "w").close()
+                validate.ROOT, validate.ENGINE_DIR = d, engine
+                inv = module_coherence.engine_file_inventory()
+            self.assertNotIn(".engine/contracts/instance/eADR-9001-picked-postgres.md", inv,
+                             "the deployment's committed per-instance eADR stream must be pruned (D-169)")
+            self.assertIn(".engine/contracts/eADR-0001-versioned-template.md", inv,
+                          "the engine's own eADR canon directly in .engine/contracts/ must stay owned")
+            self.assertIn(".engine/tools/instance/real.py", inv,
+                          "a same-named directory elsewhere must stay owned (the path-anchor gotcha — a "
+                          "bare-name 'instance' prune would drop it)")
+        finally:
+            validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
+
     def test_real_repository_is_wiring_coherent_and_approval_blind(self):
         # The committed tree's declared wires are ALL applied -> the forward wiring leg is silent.
         # The mcp leg is APPROVAL-BLIND: it reports the engine-knowledge-graph server applied from the

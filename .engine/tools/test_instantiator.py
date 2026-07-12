@@ -1652,6 +1652,14 @@ class TestFirstRunAssetsManifestParity(unittest.TestCase):
         self.assertIn(".engine/audits/audit-digest.md", inst._FIRST_RUN_ASSET_FILES)
         self.assertIn(".engine/audits/audit-digest.md", self._manifest()["files"])
 
+    def test_the_marketing_assets_dir_is_retired_so_a_generated_repo_carries_no_banner(self):
+        # #410 U27: assets/ holds only the engine's marketing banner (referenced solely by the template's
+        # marketing landing README, which the first-run reseed replaces with a product starter). It must be in the
+        # retire set (both sources) so a generated repo carries no engine marketing residue and no empty root dir
+        # the placement laws never reserve (repository-topology law 1; D-213/D-214). The whole DIRECTORY retires.
+        self.assertIn("assets", inst._FIRST_RUN_ASSET_DIRS)
+        self.assertIn("assets", self._manifest()["directories"])
+
 
 class TestFinishCopy(unittest.TestCase):
     def test_template_carries_every_finish_section(self):

@@ -1549,7 +1549,13 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
 )
-_FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),)
+# `assets/` holds only the engine's marketing banner (engine_banner.jpg), referenced solely by the template's
+# marketing landing README — go-to-market content the "Use this template" copy carries into every generated repo.
+# It is retired at first-run alongside the README reseed (which replaces the marketing front with a product
+# starter that references no banner), so a generated repo carries no engine marketing residue and no empty root
+# dir the placement laws never reserve (repository-topology law 1; D-213/D-214, #410 U27). The whole directory
+# retires, not just the file — an empty `assets/` would still be an unreserved root path.
+_FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"), "assets")
 
 
 def _hard_findings() -> list:
