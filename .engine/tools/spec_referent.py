@@ -398,15 +398,34 @@ def acceptance_split(resolved: dict) -> dict:
     return {"operator_verifiable": len(proj["runnable"]), "engine_account": len(proj["engine_account"])}
 
 
+# The no-op reasons REACHABLE from the intake acceptance-split path (resolve_doc, require_locked=False, a local
+# --doc read): a capability still being described (`no-criteria` — the common case), a mistyped path
+# (`doc-missing`), or a path outside the description folder (`pointer-not-under-docs-spec`). The shared
+# _PLAIN_NOOP strings are written for the PR/merge-review context ("this change", "linked", "settled
+# description") and read WRONG at intake — where the doc is a DRAFT the operator has not settled, nothing is
+# "linked", and nothing is "settled" yet — so the intake surface gets its own plain, draft-framed,
+# action-guiding phrasings. Still D-120-clean: plain words only, no raw lifecycle/reason token.
+_INTAKE_NOOP = {
+    "no-criteria": ("This description doesn't list any acceptance criteria yet — add a row for each thing that "
+                    "must be true (what it is, how it's checked, and whether you or the engine confirms it), "
+                    "and I'll show you how they split between what you can confirm yourself and what's on the "
+                    "engine's account."),
+    "doc-missing": "I couldn't find that description to read its acceptance criteria.",
+    "pointer-not-under-docs-spec": ("That isn't a path inside the description folder (docs/spec/), so I can't "
+                                    "read it as a description."),
+}
+
+
 def render_acceptance_split(resolved: dict) -> str:
     """The plain-language two-tier count for a SINGLE capability, for the intake/settle surface. §17: the readout
     never collapses into one "all good" — it always states BOTH numbers, even when one side is zero, so structure
-    cannot manufacture confidence the verification does not deliver. A resolved no-op renders a plain reason-named
-    line (never a raw token — D-120). It reports the shape of acceptance (criteria as written), never a pass/green
-    tally. Deterministic, so it is testable. The no-op is read from the resolution, never from the {0, 0} counts."""
+    cannot manufacture confidence the verification does not deliver. A resolved no-op renders an intake-framed,
+    action-guiding plain line (never the merge-review "settled/linked" vocabulary, and never a raw token — D-120).
+    It reports the shape of acceptance (criteria as written), never a pass/green tally. Deterministic, so it is
+    testable. The no-op is read from the resolution, never from the {0, 0} counts."""
     proj = review_steps(resolved)
     if not resolved.get("ok"):
-        return f"There's nothing to count for this description yet — {_PLAIN_NOOP[proj['no_op_reason']]}."
+        return _INTAKE_NOOP.get(proj["no_op_reason"], "There's nothing to count for this description yet.")
     n, m = len(proj["runnable"]), len(proj["engine_account"])
     return (f"Of what this description says must be true, {n} {'is' if n == 1 else 'are'} something you can "
             f"confirm yourself and {m} {'is' if m == 1 else 'are'} on the engine's account.")
@@ -574,6 +593,12 @@ def _demo() -> int:
     split = acceptance_split(split_resolved)
     split_render = render_acceptance_split(split_resolved)
 
+    # (14) acceptance-split over a described-but-criteria-less DRAFT -> the intake no-op is draft-framed and
+    #      action-guiding (never the merge-review "settled description" wording).
+    draft_nocrit = _seed({"docs/spec/index.md": "# Spec\n",
+                          "docs/spec/wip.md": "---\nstatus: draft\n---\n\n# WIP\n\n## Summary\nx\n"})
+    nocrit_render = render_acceptance_split(resolve_doc(draft_nocrit, "docs/spec/wip.md", require_locked=False))
+
     print("A settled checkout description resolved with these criteria (typed by who can check them):")
     for c in (r1.get("criteria") or []):
         print(f"   - [{c['who']}] {c['criterion']}")
@@ -594,7 +619,8 @@ def _demo() -> int:
                    "all-engine-account", "no-issue-pointer", "doc-not-locked", "[operator]", "[engine]",
                    "who checks it")
     leaks = [t for t in leak_tokens if t.lower() in render.lower() or t.lower() in render_eng.lower()
-             or t.lower() in split_render.lower()]        # #420: the intake split render is D-120-scanned too
+             or t.lower() in split_render.lower()                    # #420: the intake split render...
+             or t.lower() in nocrit_render.lower()]                  # ...and its no-op are D-120-scanned too
 
     checks = {
         "a settled doc resolves to its criteria": r1.get("ok") and len(r1["criteria"]) == 4,
@@ -625,9 +651,12 @@ def _demo() -> int:
         "the split render states BOTH numbers and never collapses to 'all good'":
             "confirm yourself" in split_render and "engine's account" in split_render
             and "all good" not in split_render.lower() and "all green" not in split_render.lower(),
+        # (#420) the intake no-op guides the operator to add criteria and NEVER calls their draft "settled".
+        "the intake no-op is draft-framed and action-guiding (not the merge-review 'settled' wording)":
+            "acceptance criteria" in nocrit_render.lower() and "settled" not in nocrit_render.lower(),
     }
     bad = [name for name, ok in checks.items() if not ok]
-    for d in (rich, draft, two, nocrit, bare, walled, alleng, draft_split):
+    for d in (rich, draft, two, nocrit, bare, walled, alleng, draft_split, draft_nocrit):
         shutil.rmtree(d, ignore_errors=True)
 
     if bad:

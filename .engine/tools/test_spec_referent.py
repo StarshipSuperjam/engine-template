@@ -357,11 +357,21 @@ class AcceptanceSplitTests(unittest.TestCase):
         self.assertNotIn("all good", out.lower())
         self.assertNotIn("all green", out.lower())
 
-    def test_render_no_op_is_plain_no_token_leak(self):
-        out = spec_referent.render_acceptance_split({"ok": False, "no_op_reason": "doc-not-locked", "detail": "x"})
-        self.assertIn("nothing to count", out.lower())
-        for tok in ("locked", "draft", "doc-not-locked", "referent", "[operator]", "who checks it"):
-            self.assertNotIn(tok, out)
+    def test_render_no_op_is_intake_framed_and_plain(self):
+        # the reachable intake no-ops (require_locked=False, --doc) get draft-framed, action-guiding phrasings —
+        # NOT the merge-review "settled description"/"linked"/"this change" strings — and leak no raw token.
+        no_crit = spec_referent.render_acceptance_split({"ok": False, "no_op_reason": "no-criteria", "detail": "x"})
+        self.assertIn("acceptance criteria", no_crit.lower())
+        self.assertNotIn("settled", no_crit.lower())          # never call the operator's draft "settled"
+        missing = spec_referent.render_acceptance_split({"ok": False, "no_op_reason": "doc-missing", "detail": "x"})
+        self.assertIn("couldn't find", missing.lower())
+        self.assertNotIn("linked", missing.lower())
+        wall = spec_referent.render_acceptance_split(
+            {"ok": False, "no_op_reason": "pointer-not-under-docs-spec", "detail": "x"})
+        self.assertIn("docs/spec", wall.lower())
+        for out in (no_crit, missing, wall):
+            for tok in ("locked", "draft", "stub", "doc-not-locked", "referent", "[operator]", "who checks it"):
+                self.assertNotIn(tok, out)
 
 
 # ---- dispatch -----------------------------------------------------------------------------------

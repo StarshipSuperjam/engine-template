@@ -91,9 +91,9 @@ short markers the files carry in their frontmatter stay in the files, never on s
 ## Done when
 
 `docs/spec/` holds a master index and one document per capability, the form check
-(`engine/check/product-spec-form`) reports no problems, and the operator has seen the result — with its bound
-and, for each capability, the two-tier split of how "done" is judged (what they can confirm themselves versus
-what rests on the engine's account) stated — and given their go-ahead on every document they consider settled. When the operator has chosen to hand
+(`engine/check/product-spec-form`) reports no problems, and the operator has seen the result: its bound stated,
+and for each capability the two-tier split of how "done" is judged — what they can confirm themselves versus
+what rests on the engine's account. They have given their go-ahead on every document they consider settled. When the operator has chosen to hand
 the settled work to a build, a build order at `docs/spec/build-plan.md` groups it into phases and there is a
 tracked item to build for each settled capability.
 
