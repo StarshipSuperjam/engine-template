@@ -224,8 +224,10 @@ def issue_title(record: dict) -> str:
     engine's own health. A producer that needs its OWN lane-aware title (the soft-finding promoter's
     "Engine length budget: …") carries it as a `title` FIELD on the record; otherwise the first sentence
     of the finding's message derives the title. One override-honouring point, shared by reconcile and
-    promote_finding, so producer-framed and telemetry-framed titles decide their framing in ONE place."""
-    if record.get("title"):
+    promote_finding, so producer-framed and telemetry-framed titles decide their framing in ONE place.
+    Honours a present title even if empty (`is not None`, matching promote_finding's prior `title is not None`
+    and issue_body's body_core check) — an absent title falls through to the message-derived one."""
+    if record.get("title") is not None:
         return record["title"]
     first = re.split(r"(?<=[.!?])\s", record["message"].strip(), maxsplit=1)[0]
     if len(first) > 110:
@@ -902,12 +904,18 @@ def _append_inbox(record: dict, *, path: str = INBOX_SPOOL_PATH) -> bool:
 
 
 def _take_inbox(spool_path: str):
-    """Atomically CLAIM the spool for draining: rename it aside (os.replace is atomic) so a concurrent emit
-    appends into a FRESH spool and is never truncated away (the no-silent-loss rule under this repo's
-    multi-session concurrency — the reason drain never read-modify-truncates a live append-log). Returns
-    `(records, aside_path)` — the parsed records (a corrupt line skipped, per-line tolerant) and the aside
-    file to dispose of; `([], None)` when the spool is absent (nothing to drain)."""
-    aside = spool_path + ".draining"
+    """Atomically CLAIM the spool for draining: rename it aside (os.replace is atomic) into a PER-PROCESS
+    aside name, so (a) a concurrent emit appends into a FRESH spool and is never truncated away, and (b) two
+    concurrent drains — separate sessions, separate pids under this repo's multi-session actor model — claim
+    into DISTINCT asides and never overwrite each other's batch. Returns `(records, aside_path)` — the parsed
+    records (a corrupt line skipped, per-line tolerant) and the aside file to dispose of; `([], None)` when the
+    spool is absent (nothing to drain).
+
+    Residual bound (handed to #412, the production-drain owner): a HARD crash between the claim and the drain's
+    dispose strands that batch in its per-process aside — recoverable (the data is on disk, not overwritten),
+    but nothing re-reads it until a sweep runs. The production drain cadence (#412) must sweep stale
+    `*.draining` asides on start-up; this fixture-exercised builder does not, and never claims it does."""
+    aside = f"{spool_path}.{os.getpid()}.draining"   # per-process: concurrent drains never clobber each other
     try:
         os.replace(spool_path, aside)   # atomic claim; FileNotFoundError when the spool is absent
     except (FileNotFoundError, OSError):
@@ -945,9 +953,11 @@ def drain_inbox(github: GitHubIssues, *, cache: Cache, thresholds: dict, now: st
     SPOOL-BOUNDARY VALIDATION: the in-memory source_id_is_marker_safe guarantee does not survive the spool, so
     each drained record is re-validated here and an unsafe one is DROPPED — and `authoritative` is built from
     the VALIDATED records actually fed to run(), never the raw lines (a dropped line's sid must not sit in
-    authoritative, which would wrongly auto-close its Issue). On a GitHub degrade the claimed batch is
-    re-spooled (promotion is idempotent, so it re-drains cleanly next pass) — nothing is lost. Fail-open: an
-    absent/unreadable spool drains nothing."""
+    authoritative, which would wrongly auto-close its Issue). On a GitHub degrade the validated batch is
+    re-spooled (promotion is idempotent, so it re-drains cleanly next pass) — nothing promotable is lost.
+    CONCURRENCY: the claim is a per-process atomic rename (see _take_inbox), so a concurrent emit or a
+    concurrent drain never clobbers this batch; a hard crash mid-drain strands (never overwrites) the batch —
+    #412's cadence owns sweeping a stranded aside. Fail-open: an absent/unreadable spool drains nothing."""
     records, aside = _take_inbox(spool_path)
     if aside is None:
         return None
@@ -958,7 +968,7 @@ def drain_inbox(github: GitHubIssues, *, cache: Cache, thresholds: dict, now: st
     authoritative = frozenset(r["source_id"] for r in valid)
     report = run(github, valid, cache, thresholds, now, authoritative=authoritative, live=False)
     if report.degraded:
-        _restore_inbox(records, spool_path)   # re-spool the claimed batch; idempotent re-drain next pass
+        _restore_inbox(valid, spool_path)   # re-spool only the promotable records; idempotent re-drain
     _dispose_aside(aside)
     return report
 
@@ -1634,7 +1644,9 @@ def _demo(_argv) -> int:
 
     def _ibx_open():
         return {parse_source_id(i["body"]) for i in ibx_fake.issues.values() if i["state"] == "open"}
-    print("\n(inbox) The emit-and-done seam — a producer emits a finding and is done; telemetry owns the act:")
+    print("\n(inbox) The engine's 'report a problem and move on' channel — a part of the engine flags "
+          "something and hands it off; the engine tracks it from there. (Only the urgent path is live "
+          "today; the routine side turns on when a later step wires it.)")
     # a could-not-run (trust-critical) signal promotes IMMEDIATELY and is NEVER spooled
     tc_num = emit_finding({"source_id": "hooks/fail-open/PreToolUse/crash", "severity": TRUST_CRITICAL,
                            "message": "a safety gate could not run", "location": None,
@@ -1657,9 +1669,10 @@ def _demo(_argv) -> int:
                              "message": "m", "location": None}) + "\n")
     unsafe_report = drain_inbox(ibx_gh, cache=ibx_cache, thresholds=ibx_thr, now=ibx_now, spool_path=spool)
     _shutil.rmtree(ibx_dir, ignore_errors=True)
-    print(f"    a could-not-run signal promotes at once (issue #{tc_num}), never spooled: {tc_ok}")
-    print(f"    a benign signal spools; a drain promotes it only after it persists: {drained_open}   "
-          f"(a forged spool line is dropped, promotes nothing: {unsafe_report is None})")
+    print(f"    an urgent report — a safety check that could not run — is tracked at once (issue "
+          f"#{tc_num}), never set aside: {tc_ok}")
+    print(f"    a routine report is set aside and becomes a tracked item only after it keeps recurring: "
+          f"{drained_open}   (a tampered entry is discarded and never tracked: {unsafe_report is None})")
     inbox_ok = (tc_ok and drained_open == [False] * (persistence - 1) + [True] and unsafe_report is None)
 
     print("\nDone — no real issues were created; only the network was faked. The triage LOGIC above is "
