@@ -1396,21 +1396,29 @@ def _engine_issues_cli(argv: list) -> int:
 
 def derive_never_fired(rules: list | None = None) -> list:
     """The never-firing-check signal (F0200): the engine's own FILE-SCOPED checks that select ZERO files in the
-    current tree — a check that inspects nothing right now. Returns a list of `{rule_id, kind, target_glob}`.
+    current tree — a check that inspects nothing, so it never fires. Returns a list of
+    `{rule_id, kind, target_glob, message}` (message is the check's own plain-language statement of what it
+    guards, so the self-review can tell the operator what raising it upstream would protect).
 
     Computed FRESH each run from the committed check corpus (`.engine/check/*.json`) plus the working tree
     (`validate.target_files`) — no cache, no persisted fire-count, no ledger (D-038); re-derivable on the
     ephemeral audit-prep runner, which has both. Only the FILE-SCOPED in-process kinds are considered
-    (`validate._AMBIENT_KINDS` — schema/shape/presence: the single source of truth, the same set for which a
-    `target.path` glob matching nothing means the rule inspects nothing), and only rules carrying a
-    `target.path`. Context/surface-targeted rules and whole-tree kinds (coverage/coherence/custom-script) have
-    no "zero files = never fires" notion — `target_files` is `[]` for them by construction — so they are
-    excluded, never mis-flagged.
+    (`validate._AMBIENT_KINDS` — schema/shape/presence: the single source of truth, the same set the ambient
+    writer uses). Context/surface-targeted rules and whole-tree kinds (coverage/coherence/custom-script) are
+    excluded by the KIND GATE — NOT because their `target_files` is empty (a path-targeted coverage/custom rule
+    can match files); their "firing" isn't a glob-match at all, so the kind gate is load-bearing, not redundant.
 
-    This is a MECHANICAL "currently matches no files" fact, NOT a claim the rule is dead: a check may match
-    nothing because the template ships dead weight (raise it upstream) OR because the project simply doesn't use
-    that kind of file yet (nothing to do). The audit judges which; telemetry only emits the fact. A single
-    unparseable rule file is skipped, never aborts the scan. `rules` is injectable for tests/demo."""
+    This is the LITERAL "never fires" (never evaluates) reading — a MECHANICAL "currently matches no files"
+    fact, NOT a claim the rule is dead, and deliberately narrower than the check-surface README's "ever bites in
+    production" gloss (which watches fire history — unbuildable ledger-free: D-038 forbids a committed
+    check-fire ledger, and the best-effort ambient cache can't ride the audit runner; the v1 scope is a logged
+    decision, disclosed in the PR). The audit judges which never-firing check is dead template weight (raise
+    upstream) vs a file kind the project doesn't use.
+
+    A SYSTEMIC failure (e.g. the file-scoped kind set gone) raises to the caller, so the render shows an honest
+    "could not be computed" marker rather than a silent wrong-zero. A single MALFORMED rule (bad data shape) or
+    a corrupt rule FILE is skipped, never aborts the scan. `rules` is injectable for tests/demo."""
+    kinds = validate._AMBIENT_KINDS   # hoisted: a systemic loss raises ONCE here -> honest marker, not a silent per-rule skip
     if rules is None:
         rules = []
         check_dir = validate.CHECK_DIR
@@ -1420,19 +1428,22 @@ def derive_never_fired(rules: list | None = None) -> list:
                 continue
             try:
                 rules.append(validate.load_json(os.path.join(check_dir, name)))
-            except Exception:  # noqa: BLE001 — a corrupt rule file is skipped, never aborts the whole scan
+            except Exception:  # noqa: BLE001 — a corrupt rule FILE is skipped, never aborts the whole scan
                 continue
     never = []
     for rule in rules:
         try:
-            if rule.get("kind") not in validate._AMBIENT_KINDS:
+            if rule.get("kind") not in kinds:
                 continue
             glob = (rule.get("target") or {}).get("path")
             if not glob:
                 continue
             if not validate.target_files(rule):
-                never.append({"rule_id": rule.get("id"), "kind": rule.get("kind"), "target_glob": glob})
-        except Exception:  # noqa: BLE001 — a malformed rule is skipped, never aborts the scan
+                never.append({"rule_id": rule.get("id"), "kind": rule.get("kind"),
+                              "target_glob": glob, "message": rule.get("message")})
+        except (AttributeError, KeyError, TypeError, ValueError):
+            # a single MALFORMED rule (non-dict, wrong-typed field) is skipped; an UNEXPECTED error type is NOT
+            # swallowed — it propagates to the render's honest marker rather than silently emptying the feed
             continue
     return never
 
@@ -1441,28 +1452,37 @@ def render_never_firing_checks(rules: list | None = None) -> str:
     """Plain text the audit-prep workflow feeds the read-only self-review persona (F0200): the engine's own
     checks that currently match NO files in this repo, for the persona to judge whether each still earns its
     place. Frames the fact as escalate-OR-ignore, NEVER retire/keep (a check rule is engine machinery — never a
-    local retirement). On ANY error it returns an honest "could not be computed" marker (NEVER a silent empty),
-    so `main()`'s fail-open never sees an exception and the workflow's own `if !` guard is only a backstop.
-    `rules` is injectable for tests/demo (the real corpus matches files, so the live feed is empty here)."""
+    local retirement), and carries each check's plain-language purpose so the persona can tell the operator what
+    raising it upstream would protect. On ANY error — including a systemic derivation failure — it returns an
+    honest "could not be computed" marker (NEVER a silent empty), so `main()`'s fail-open never sees an
+    exception and the workflow's own `if !` guard is only a backstop. Every author-controlled field (id, glob,
+    message) is defanged before it enters the persona prompt. `rules` is injectable for tests/demo (the real
+    corpus matches files, so the live feed is empty here)."""
     try:
         never = derive_never_fired(rules)
-    except Exception as exc:  # noqa: BLE001 — an honest gap, never a silent empty
+        if not never:
+            return ("ENGINE CHECKS MATCHING NO FILES: every one of the engine's own file-scoped checks "
+                    "currently matches at least one file in this repository — nothing to review on this "
+                    "concern this run.")
+        parts = [f"ENGINE CHECKS MATCHING NO FILES — {len(never)} of the engine's own checks currently select "
+                 "no files in this repository. A check that matches nothing here is a QUESTION, not a verdict, "
+                 "and matching nothing can be perfectly correct — the check may guard a kind of file this "
+                 "project does not use (yet). Because a check is engine machinery (overlaid on every update), "
+                 "it is NEVER something to retire locally: the only two responses are raise-it-upstream — if it "
+                 "looks like dead weight the template ships — or leave-it. Judge each on that basis; do not "
+                 "recommend a local retirement.", ""]
+        for item in never:
+            rid = item.get("rule_id") or "(a check with no id)"
+            parts.append(f"- {validate.defang_prompt_fence_markers(str(rid))}  (checks files matching: "
+                         f"{validate.defang_prompt_fence_markers(str(item['target_glob']))})")
+            msg = item.get("message")
+            if msg:
+                parts.append("    what this check protects: "
+                             f"{validate.defang_prompt_fence_markers(str(msg))}")
+        return "\n".join(parts)
+    except Exception as exc:  # noqa: BLE001 — an honest gap (incl. a systemic derive failure), never a silent empty
         return ("ENGINE CHECKS MATCHING NO FILES: could not be computed this run — "
                 f"{exc}. Treat this concern as unreviewed and say so plainly in your digest.")
-    if not never:
-        return ("ENGINE CHECKS MATCHING NO FILES: every one of the engine's own file-scoped checks currently "
-                "matches at least one file in this repository — nothing to review on this concern this run.")
-    parts = [f"ENGINE CHECKS MATCHING NO FILES — {len(never)} of the engine's own checks currently select no "
-             "files in this repository. A check that matches nothing here is a QUESTION, not a verdict, and "
-             "matching nothing can be perfectly correct — the check may guard a kind of file this project does "
-             "not use (yet). Because a check is engine machinery (overlaid on every update), it is NEVER "
-             "something to retire locally: the only two responses are raise-it-upstream — if it looks like dead "
-             "weight the template ships — or leave-it. Judge each on that basis; do not recommend a local "
-             "retirement.", ""]
-    for item in never:
-        parts.append(f"- {item['rule_id']}  (checks files matching: "
-                     f"{validate.defang_prompt_fence_markers(str(item['target_glob']))})")
-    return "\n".join(parts)
 
 
 def _never_fired_cli(argv: list) -> int:
@@ -1604,8 +1624,9 @@ def main(argv: list) -> int:
             return _never_fired_cli(argv[1:])
         print("usage: telemetry.py {run|run-ambient|demo|refresh|engine-issues|never-fired}   (`run` is the "
               "live CI-health triage the scheduled audit-prep workflow drives; `run-ambient` is the local "
-              "SessionStart triage over local check-fires; `engine-issues` and `never-fired` feed the "
-              "scheduled self-review; demo shows the logic on a fake GitHub)",
+              "SessionStart triage over local check-fires; `engine-issues` and `never-fired` (the engine's own "
+              "checks that currently match no files) feed the scheduled self-review; demo shows the logic on a "
+              "fake GitHub)",
               file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 — fail-open is the whole point
