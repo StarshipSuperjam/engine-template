@@ -15,13 +15,14 @@ It reads the removed-asset set from the committed manifest (.engine/provisioning
 NEVER imports the instantiator it is about to verify nothing references (that would make this check the next
 dangler).
 
-Re-supplied carve-out (#404 F0195): a removed first-run asset that a module still CLAIMS in its manifest
-`provides` is NOT permanently gone after the Retire step — the module overlays it, and for a regenerated
-artifact (the audit digest: retired so a fresh repo starts with no inherited self-review, then rewritten by the
-audit cron) it comes back on its own. So a surviving reference to a still-provided path is not the dangling
-reference this gate exists to catch, and the path leg skips it. This is read from the manifests as plain data
-(never importing module machinery); the import leg is unaffected (a genuine `import` of a removed module still
-fails closed). It runs as a hard CI custom/script check: finding.v1 JSON on stdout, return 0 on a successful
+Regenerated-asset carve-out (#404 F0195): a FEW removed first-run assets are not permanently gone — the engine
+rewrites them at runtime after the Retire step. The audit digest is the case: it retires so a fresh repo starts
+with no inherited self-review, then the audit cron writes a genuine one. A surviving reference to such a path is
+not the dangling reference this gate exists to catch, so the path leg skips exactly the paths named in
+`_REGENERATED_RETIRED_ASSETS`. That is a deliberately NARROW, named set — NOT "anything a module `provides`":
+most provided-and-retired paths (the first-run setup guide) are construction-only and gone for good, and a
+reference to those must still be caught. The import leg is never carved out (a genuine `import` of a removed
+module always fails closed). It runs as a hard CI custom/script check: finding.v1 JSON on stdout, return 0 on a successful
 evaluation (empty array = closed; one finding per surviving reference, each carrying the full plain-language
 consequence + disposition the operator reads). A crash returns non-zero, which the kind turns into a hard
 fail-closed finding (a guard can never silently pass).
@@ -45,35 +46,15 @@ import validate  # noqa: E402  (finding.v1, ROOT)
 
 _MANIFEST_REL = os.path.join(".engine", "provisioning", "first-run-assets.json")
 _TOOLS_REL = os.path.join(".engine", "tools")
-_MODULES_REL = os.path.join(".engine", "modules")
 _PRUNE_DIRS = {"__pycache__", ".venv", ".pytest_cache", ".cache", ".uv"}
 
-
-def _provided_paths(root: str) -> set:
-    """Every repo-relative path any installed module CLAIMS in its manifest `provides` — the paths the module
-    system overlays (and, for a regenerated artifact like the audit digest, re-creates on its own). A removed
-    first-run asset that is ALSO provided is not permanently gone after the Retire step, so a surviving reference
-    to it is not a dangling reference (#404 F0195). Read as plain JSON data — never importing module machinery —
-    and degrades to an empty set on any manifest it can't read (a manifest's own shape is governed by the
-    module-coherence checks, not this leg; an unreadable one simply grants no carve-out, so the gate stays strict)."""
-    provided: set = set()
-    try:
-        entries = sorted(os.listdir(os.path.join(root, _MODULES_REL)))
-    except OSError:
-        return provided
-    for name in entries:
-        try:
-            with open(os.path.join(root, _MODULES_REL, name, "manifest.json"), encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
-            continue
-        provides = data.get("provides") if isinstance(data, dict) else None
-        if not isinstance(provides, dict):
-            continue
-        for group in provides.values():
-            if isinstance(group, list):
-                provided.update(p for p in group if isinstance(p, str))
-    return provided
+# The removed first-run assets the engine REGENERATES at runtime, so a reference to them is never left dangling
+# (module docstring, #404 F0195). Deliberately a NAMED set — NOT "anything a module `provides`". The audit cron
+# rewrites the digest, so a fresh repo gets a real one on its first run; but most provided-and-retired paths (the
+# first-run setup guide, `.engine/operations/first-run.md`, is provided by core) are construction-only and gone
+# for GOOD after retirement, and a surviving reference to those must still be caught. Add a path here only when
+# something genuinely re-creates it after the Retire step — never merely because a manifest lists it.
+_REGENERATED_RETIRED_ASSETS = frozenset({".engine/audits/audit-digest.md"})
 
 
 def _load_removed(root: str):
@@ -116,13 +97,13 @@ def _survivors(root: str, removed_files: set) -> list:
     return sorted(out)
 
 
-def _references(tree: ast.AST, removed_modules: set, removed_files: set, resupplied: set = frozenset()) -> list:
+def _references(tree: ast.AST, removed_modules: set, removed_files: set, regenerated: set = frozenset()) -> list:
     """Static references to a removed asset within one parsed survivor. Returns (lineno, kind, target) tuples:
     kind is 'import' (an import/importlib/__import__ of a removed module) or 'path' (a string literal equal to a
     removed file's exact repo-relative path — the read/subprocess-by-path leg). Exact-path match only, so a mere
-    prose mention of a name (e.g. a docstring) is never flagged. The path leg skips a target that is `resupplied`
-    (still claimed by a module's `provides` — overlaid/regenerated, so not permanently gone; #404 F0195); the
-    import leg is never carved out (a genuine import of a removed module always fails closed)."""
+    prose mention of a name (e.g. a docstring) is never flagged. The path leg skips a target in `regenerated`
+    (a removed asset the engine rewrites at runtime, so not permanently gone; #404 F0195); the import leg is
+    never carved out (a genuine import of a removed module always fails closed)."""
     refs = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -141,7 +122,7 @@ def _references(tree: ast.AST, removed_modules: set, removed_files: set, resuppl
                     and node.args[0].value.split(".")[0] in removed_modules:
                 refs.append((node.lineno, "import", node.args[0].value))
         elif isinstance(node, ast.Constant) and isinstance(node.value, str) \
-                and node.value in removed_files and node.value not in resupplied:
+                and node.value in removed_files and node.value not in regenerated:
             refs.append((node.lineno, "path", node.value))
     return refs
 
@@ -185,7 +166,6 @@ def check(root: str | None = None) -> list:
     removed_py = [f for f in removed_files if f.endswith(".py")]
     if removed_py and not any(os.path.isfile(os.path.join(root, f)) for f in removed_py):
         return []  # machinery already removed (post-setup tree) — nothing left to be closed over
-    resupplied = _provided_paths(root)   # removed-but-still-provided paths are re-supplied, not dangling (F0195)
     findings = []
     for survivor in _survivors(root, removed_files):
         try:
@@ -193,7 +173,7 @@ def check(root: str | None = None) -> list:
                 tree = ast.parse(fh.read(), filename=survivor)
         except (OSError, SyntaxError):
             continue
-        for lineno, kind, target in _references(tree, removed_modules, removed_files, resupplied):
+        for lineno, kind, target in _references(tree, removed_modules, removed_files, _REGENERATED_RETIRED_ASSETS):
             findings.append(validate.finding("hard", _message(survivor, kind, target),
                                              {"file": survivor, "line": lineno}))
     return findings

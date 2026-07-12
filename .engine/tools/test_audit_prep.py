@@ -206,6 +206,7 @@ class TestAuditPrepShape(unittest.TestCase):
         # reach, never an absolute.
         text = self._text()
         self.assertIn("For your saved memory", text)
+        self.assertNotIn("concern #1", text)   # the backstage ordinal frame must not reach the persona prompt
         self.assertIn("NEVER claim the project has no saved memory", text)
 
     def test_saved_memory_step_degrades_in_band_when_the_fetch_fails(self):
