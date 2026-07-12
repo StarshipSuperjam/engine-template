@@ -1529,6 +1529,7 @@ _FIRST_RUN_ASSET_FILES = (
     # decision). Unlike the security-seed pair above, these reference no retiring machinery; they retire only
     # so the construction set does not ship as a junk drawer. Each is mirrored in first-run-assets.json
     # (parity-tested). The per-tool `demo` subcommand convention is the promoted standing form, decided upstream.
+    ".engine/tools/demo_467_deployment_eadr_namespace.py",
     ".engine/tools/demo_audit_concern_list.py",
     ".engine/tools/demo_audit_digest.py",
     ".engine/tools/demo_boot_slice.py",

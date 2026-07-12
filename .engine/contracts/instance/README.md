@@ -13,8 +13,9 @@ Two things share the `.engine/contracts/` surface, told apart by which folder th
 
 - **The engine's own founding decisions** live one level up, directly in `.engine/contracts/`. Those are the
   *why* behind how the engine itself works. They carry the engine's own `eADR-####` names (the "e" is for
-  engine — for example `eADR-0017`), and an engine update overlays them wholesale. So leave those alone: a
-  change to one rides an engine release, not an edit in your copy.
+  engine — for example `eADR-0017`), where your own records here read `acme-eADR-0007` (your project's name in
+  front); an engine update overlays the engine's wholesale. So leave those alone: a change to one rides an
+  engine release, not an edit in your copy.
 - **Your engine decisions** live here, in `instance/`. The engine never overwrites this folder on an
   update — your decision history is preserved across every upgrade, and these records stay yours.
 

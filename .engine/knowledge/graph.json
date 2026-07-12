@@ -3474,7 +3474,7 @@
       },
       "slug": "check.v1",
       "source": {
-        "fingerprint": "sha256:a9661635c4ca5ece3866bac2adcd9785b7f7fe3308276b7d97ded48b6733b003",
+        "fingerprint": "sha256:7c2d75cf9161e42d88ba16a492d32c22499d06a701d6b3d71e443f07dd6a0748",
         "path": ".engine/schemas/check.v1.json"
       },
       "status": "active",
@@ -4529,6 +4529,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_467_deployment_eadr_namespace",
+      "name": ".engine/tools/demo_467_deployment_eadr_namespace.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_467_deployment_eadr_namespace",
+      "source": {
+        "fingerprint": "sha256:b3244cb21cc2de95d766298fd51cb4480551fcf6cbdf595529156d498f2796c3",
+        "path": ".engine/tools/demo_467_deployment_eadr_namespace.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_actionlint",
       "name": ".engine/tools/demo_actionlint.py",
       "owner": "core",
@@ -5168,7 +5185,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:cc69607171713c02f5bae0392517e9d6e875beaebeefc2c8232181501a9fcde3",
+        "fingerprint": "sha256:cd3393f86c0f9d8b77b1e1ef13e1f208b73caa561b191cfb8324401dcc379943",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -6783,7 +6800,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:9960b74bac097f35c517b0029660f8e0641f6e4d16835483ef6e2297f674ca41",
+        "fingerprint": "sha256:768c34b7ff187e97ad42028982edc04fb5fd1ec5beee1f8bd3e2934d8b6c9147",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -6868,7 +6885,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:f85bb8ff9664db7e712ec62e65a4bbec35dc71edf083216e4ab624385af16d99",
+        "fingerprint": "sha256:fc5a74119f92692b8986d004ba2d071eb51eda389f06418fa67845026663eacd",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -7565,7 +7582,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:4160c83eb15db3a6f0099581534763c5855b9f74016bac15f75b5d624b9141c0",
+        "fingerprint": "sha256:aa2fe9e0e1946bb1a3df9c598e6f19aba684817100af433be327881e23b0e74d",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",

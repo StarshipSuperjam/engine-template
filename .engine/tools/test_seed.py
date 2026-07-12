@@ -720,6 +720,9 @@ class TestSchemaGateGuardCoverage(unittest.TestCase):
             if params.get("schema"):                       # explicit override — mirrors _governing_schema
                 ref, base = params["schema"], validate.ROOT
             else:                                          # catalog routing via the surface's governing_schema
+                # Assumes one check glob resolves to ONE surface (true for all current hard-CI schema checks): a
+                # future check whose target were rooted ABOVE a surface dir and spanned two surfaces with
+                # different governing_schemas would resolve only the first here — extend this if that ever lands.
                 probe = rule.get("target", {}).get("path", "").split("*")[0]
                 if not probe.endswith("/"):
                     probe = os.path.dirname(probe) + "/"

@@ -325,7 +325,8 @@ class TestSupersedesEdges(unittest.TestCase):
 
 class TestDeploymentStreamEntitization(unittest.TestCase):
     """#422 / D-169: `derive_entities` entitizes the deployment-owned per-instance eADR stream
-    (`.engine/contracts/instance/eADR-*.md`, in NO module's `provides`) as NON-canon contracts — owner is
+    (`.engine/contracts/instance/*eADR-*.md` — bare or project-namespaced `<slug>-eADR-####` after #467, in NO
+    module's `provides`) as NON-canon contracts — owner is
     the reserved token `deployment`, they carry NO `provided_by` edge, and that absence (not `owner`) is what
     canon detection reads — which makes the `supersedes` leg LIVE for a deployment's own decisions. Driven
     through the REAL generate -> schema-validate -> build_index path, because the construction repo carries no
