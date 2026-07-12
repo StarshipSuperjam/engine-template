@@ -9,9 +9,12 @@ turn while a recorded finding is undispositioned and ENDS it once dispositioned;
 (stop_hook_active, under BOTH platform readings) logs the leftover down telemetry's promotion path and
 proceeds — never re-blocks, never deadlocks, never loses a finding; the fail-open DIRECTION is to let the
 turn end (an unreadable record / a crash never HOLDS the turn); the source_id is content-derived so a
-recurring concern dedups to one Issue across turns; the ambient-capture trigger is a dormant no-op until
-memory ships; routine is satisfiable non-interactively; and the block invariant sits on a block-eligible
-event. The deliverable-gate cold review attests each test's assertion matches its name.
+recurring concern dedups to one Issue across turns; the ambient-capture trigger relays the turn delta into
+memory's ledger LIVE (memory has shipped), and any fault — including a repo without the memory module — is a
+no-op that never gates the handler; a repeated disposition loop stays legible (the loop-line on the 2nd+
+block, a pre-announcement on the approach to the cap); routine is satisfiable non-interactively; and the
+block invariant sits on a block-eligible event. The deliverable-gate cold review attests each test's
+assertion matches its name.
 """
 from __future__ import annotations
 
@@ -19,7 +22,9 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 import unittest.mock
 
@@ -231,12 +236,103 @@ class TestPromoteRelay(CloseBase):
 
 
 class TestAmbientTrigger(CloseBase):
-    def test_dormant_trigger_is_a_noop_and_never_raises(self):
-        # memory-substrate is post-core: the import fails -> a silent no-op that never gates the handler.
-        close._trigger_ambient_capture({"session_id": self.sid})     # must not raise
-        # and a clean turn still proceeds with the trigger in front of it
-        code, _out, _err = _stop({"session_id": self.sid})
+    def test_ambient_capture_appends_to_ledger_when_memory_present(self):
+        # Memory has SHIPPED: the trigger relays the completed turn's delta into memory's ledger LIVE (close
+        # only TRIGGERS; memory owns the mechanism). Mirrors the demo-relay fixture — a throwaway ledger +
+        # transcript, the REAL relay + real memory.capture. Skips on a repo with no memory-substrate (the
+        # legitimate inert state), never fails there.
+        try:
+            from memory import capture, ledger  # noqa: E402
+        except Exception:  # noqa: BLE001 — no memory module: the inert state is legitimate, not a failure
+            self.skipTest("memory-substrate not installed (the relay's legitimate inert state)")
+        tmp = tempfile.mkdtemp(prefix="engine-test-close-relay-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        prev = {ledger.ENV_DIR: os.environ.get(ledger.ENV_DIR),
+                capture.TRANSCRIPT_DIR_ENV: os.environ.get(capture.TRANSCRIPT_DIR_ENV)}
+        os.environ[ledger.ENV_DIR] = tmp
+        os.environ[capture.TRANSCRIPT_DIR_ENV] = tmp
+        try:
+            transcript = os.path.join(tmp, "t.jsonl")
+            with open(transcript, "w", encoding="utf-8") as fh:
+                for role, text in (("user", "ship the calendar sync friday"),
+                                   ("assistant", "agreed — the calendar sync ships friday")):
+                    fh.write(json.dumps({"type": role, "message": {"role": role, "content": text}}) + "\n")
+
+            def stored():
+                return sum(1 for _ in ledger.iter_records(path=ledger.ledger_path()))
+
+            before = stored()
+            close._trigger_ambient_capture({"session_id": self.sid, "transcript_path": transcript})
+            self.assertGreaterEqual(stored() - before, 1)        # the turn's delta landed in the ledger (LIVE)
+        finally:
+            for key, val in prev.items():
+                os.environ.pop(key, None) if val is None else os.environ.__setitem__(key, val)
+
+    def test_ambient_capture_fault_is_a_noop_and_never_gates(self):
+        # Any capture fault — including a repo with NO memory module — is a silent no-op that never raises
+        # into the handler and never gates the turn (close/README "capture never gates close").
+        import builtins
+        real_import = builtins.__import__
+
+        def no_memory(name, *a, **k):
+            if name == "memory" or name.startswith("memory."):
+                raise ImportError("memory forced absent")
+            return real_import(name, *a, **k)
+
+        with unittest.mock.patch("builtins.__import__", side_effect=no_memory):
+            close._trigger_ambient_capture({"session_id": self.sid})     # must not raise
+            code, _out, _err = _stop({"session_id": self.sid})           # clean turn still proceeds
         self.assertEqual(code, hooks.EXIT_PROCEED)
+
+
+class TestDispositionLoopLegibility(CloseBase):
+    """A repeated disposition loop stays legible on the RELIABLE block channel (close/README "a disposition
+    loop is legible"): the loop-line on the 2nd+ block, a pre-announcement on the approach to the cap."""
+
+    def _block_reason(self):
+        # One consecutive normal block (stop_hook_active false); returns the block reason (stderr).
+        _c, _o, err = _stop({"session_id": self.sid, "stop_hook_active": False})
+        return err
+
+    def test_first_block_is_the_full_ask_no_loop_line(self):
+        close.record_finding(self.sid, "an unsettled concern")
+        err = self._block_reason()                               # block #1
+        self.assertIn("still needs a decision", err)             # the full ask
+        self.assertNotIn(close._LOOP_LINE, err)                  # not the repeat line yet
+
+    def test_repeated_pushback_surfaces_the_loop_line(self):
+        close.record_finding(self.sid, "an unsettled concern")
+        self._block_reason()                                     # block #1
+        err = self._block_reason()                               # block #2 — repeated
+        self.assertIn(close._LOOP_LINE, err)                     # one calm sentence, not a re-list
+
+    def test_cap_approach_is_pre_announced_before_the_hang(self):
+        close.record_finding(self.sid, "an unsettled concern")
+        cap = close._effective_block_cap()
+        errs = [self._block_reason() for _ in range(cap - 1)]    # blocks 1..cap-1
+        self.assertIn(close._CAP_APPROACH, errs[-1])             # pre-announced on the last block before the cap
+        self.assertNotIn(close._CAP_APPROACH, errs[0])           # ...never on the first
+
+    def test_effective_cap_honors_operator_override(self):
+        with unittest.mock.patch.dict(os.environ, {hooks.STOP_HOOK_BLOCK_CAP_ENV: "16"}):
+            self.assertEqual(close._effective_block_cap(), 16)   # operator raised it -> announce later
+        with unittest.mock.patch.dict(os.environ, {hooks.STOP_HOOK_BLOCK_CAP_ENV: "nope"}):
+            self.assertEqual(close._effective_block_cap(), hooks.STOP_HOOK_BLOCK_CAP)  # garbage -> the default
+
+    def test_clean_turn_resets_the_block_streak(self):
+        fid = close.record_finding(self.sid, "concern")
+        self._block_reason()
+        self._block_reason()                                     # streak -> 2
+        close.dispose(self.sid, fid, "logged")                  # settle it
+        _c, _o, _e = _stop({"session_id": self.sid, "stop_hook_active": False})  # a clean turn ends the streak
+        close.record_finding(self.sid, "another")               # a fresh concern next turn
+        err = self._block_reason()                               # its FIRST block is the full ask again
+        self.assertNotIn(close._LOOP_LINE, err)
+
+    def test_loop_and_cap_lines_leak_no_raw_identifier(self):
+        for line in (close._LOOP_LINE, close._CAP_APPROACH):
+            for sym in ("stop_hook_active", "_LOOP_LINE", "_CAP_APPROACH", "source_id", "PreToolUse"):
+                self.assertNotIn(sym, line, f"raw identifier {sym!r} leaked into an operator line")
 
 
 class TestRoutineSatisfiable(CloseBase):

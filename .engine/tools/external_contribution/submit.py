@@ -14,13 +14,28 @@ check, the body to the host's template — and stops. It opens the pull request 
 affirmative decision (`confirm=True`). Without it, the prepared submission is returned for the operator to
 approve. This is the §6/§13 posture: the engine reads-and-proposes; the human authorizes the outward act.
 
-KEEPING THE CONTRIBUTION CLEAN (a hard stop, not a warning that scrolls past). Before any submit, the outgoing
-diff is intersected with the file-precise engine-owned path set (Slice 1's predicate). If ANY engine-owned
-path is about to ride upstream, `submit()` HALTS — it narrates the leak, emits a telemetry finding (the
-design's "emits a telemetry finding when it fires"), and does NOT reach the open-pull-request step. The
-intersection runs over the UNCAPPED outgoing diff, so a large accidental leak can never sort past a cap and
-slip through. The nudge stays `soft` (§6, a hygiene failure, not a §15 guardrail weakening) — the stop is the
-submission tool's control flow, the upstream's own review is the backstop.
+KEEPING THE CONTRIBUTION CLEAN (an operator-DECIDABLE nudge, §6 — "not a hard gate"). Before any submit, the
+outgoing diff is intersected with the file-precise engine-owned path set (Slice 1's predicate). If an
+engine-owned path is about to ride upstream, `submit()` PAUSES and surfaces it as a decision — it narrates the
+leak, emits a telemetry finding (the design's "emits a telemetry finding when it fires"), and returns
+`leak-decision-needed` rather than opening the pull request. The operator may clear the files (recommended) or
+tell the engine to proceed anyway (`proceed_despite_leak=True`), which still passes through the ordinary human
+`confirm` gate — a leaked engine file is a §6 hygiene failure, "never a bare block" (external-contribution
+README), not a §15 guardrail weakening. Telemetry-on-fire is emitted whichever way the operator decides, so a
+knowingly-carried leak still leaves a durable trace. The intersection runs over the UNCAPPED outgoing diff, so
+a large accidental leak can never sort past a cap and slip through; the upstream's own review is the backstop.
+
+  ONE KNOWN OVER-FLAG (a foundation-name collision; the disambiguation is a deferred build-spec leaf). The
+  predicate is a NAME set — exact inside a fork, but ambiguous for the few foundation members that live outside
+  .engine/: the root CLAUDE.md and the .github/ control-plane files an upstream PRODUCT can co-occupy. So an
+  upstream that keeps its OWN CLAUDE.md / CODEOWNERS has that file flagged too. Telling it apart from a genuine
+  engine back-merge (the real leak — the fork's engine content on the product branch) requires comparing the
+  contributed content against the engine's OWN copy read from a source DISTINCT from the contribution checkout
+  (the fork's engine tree/ref) — which the concrete cross-fork worktree/branch mechanics establish, and those
+  are an explicit build-spec leaf, un-exercised at v1. A content check against the running checkout would be
+  degenerate (working tree == HEAD), so it is deliberately NOT attempted here; until the branch mechanics land,
+  the safe behavior is to over-flag by name (never under-flag), made non-harmful by the operator-decidability
+  above — §6 "posture, not a mechanical guarantee", backstopped by the upstream maintainer's review.
 
 DEGRADATION (never stranded). If the upstream is unreachable when opening the pull request, nothing is lost:
 the work is committed on the operator's own fork (a working fork they fully own). The stalled submission is
@@ -39,7 +54,9 @@ self-check and prints the real operator-facing narration.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 import sys
 
@@ -221,6 +238,34 @@ def _submitted_narration(upstream_repo: str) -> str:
     )
 
 
+def _repo_from_pr_url(pr_url: str) -> str:
+    """The 'owner/name' slug parsed from a GitHub pull-request url, or a plain fallback if it doesn't parse."""
+    m = re.search(r"github\.com/([^/]+/[^/]+)/pull/\d+", pr_url or "")
+    return m.group(1) if m else "the project"
+
+
+def _status_narration(upstream_repo: str, pr_url: str, state: str) -> str:
+    """Where a submission stands — restated on EVERY status check (submitted-is-not-accepted, never parked in a
+    doc; external-contribution README "narrated ... on each status check"). Reports the live state honestly,
+    keeps the your-fork-always-has-it reassurance, and — when the state can't be read — says so rather than
+    inventing progress. Reports only open/merged/declined; never the raw review-decision or a reviewer's name."""
+    if state == "merged":
+        return (f"Your contribution to {upstream_repo} landed — it was merged. (Your fork always had the work "
+                f"too.)\n{pr_url}")
+    if state == "declined":
+        return (f"Your contribution to {upstream_repo} was declined — the maintainers closed it without "
+                "merging. Nothing is lost: your fork still has all of the work, so you can revise it and "
+                f"resubmit, or leave it as is.\n{pr_url}")
+    if state == "open":
+        return (f"Your contribution to {upstream_repo} is still open — it's a proposal, and the project's "
+                "maintainers decide whether it lands; that can take a while, or be declined, either of which "
+                f"is normal. Your fork already has the work regardless.\n{pr_url}")
+    return (f"I couldn't reach {upstream_repo} just now to check where your contribution stands, so I can't "
+            "tell you its current state — this is usually a temporary hiccup, try again in a bit. What hasn't "
+            f"changed: your fork has all of the work, and submitting it isn't the same as it being accepted.\n"
+            f"{pr_url}")
+
+
 def _prepared_narration(upstream_repo: str, head: str, base: str) -> str:
     return (
         f"I've prepared the contribution to {upstream_repo} ({head} → {base}): the changes carry no engine "
@@ -243,17 +288,18 @@ def _unverified_narration(upstream_repo: str) -> str:
 
 def _leak_narration(upstream_repo: str, offending: list) -> str:
     """The submission's own pause narration — distinct from the Slice-1 check message (which is a merge-gate
-    nudge that 'never blocks'). Opening a pull request is a one-way outward act, so the submission tool holds
-    here rather than send the engine's files along; it names the files and the fix in plain words."""
+    nudge that 'never blocks'). Opening a pull request is a one-way outward act, so the submission tool PAUSES
+    here and surfaces the leak as a decision rather than send the engine's files along on its own; it names the
+    files and both ways forward (clear them, or proceed anyway) in plain words. §6 "never a bare block"."""
     files = ", ".join(offending)
     return (
         f"Before opening the pull request, I checked what it would carry to {upstream_repo} and found files "
         f"that belong to the Engine, not to the project you're contributing to: {files}. The Engine's files "
         "shouldn't ride along into a repository that isn't yours — they've most likely slipped in by accident. "
-        "Take them off this branch (your fork keeps its copy, nothing is lost), then tell me and I'll prepare "
-        "the contribution again. I've held the submission here rather than send them along — unlike a "
-        "heads-up you can wave past, opening a pull request on a project you don't own can't be undone, so "
-        "it's your call."
+        "I'd take them off this branch first (your fork keeps its copy, nothing is lost) and then I'll prepare "
+        "the contribution again — or, if you're sure, tell me to go ahead anyway and I'll open it as it is. "
+        "I've paused rather than send them along on my own, because opening a pull request on a project you "
+        "don't own can't be undone — so it's your call."
     )
 
 
@@ -365,25 +411,30 @@ def _run_gh(args: list):
 
 def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str,
            run=_run_git, root=None, owned=None, gh_run=None, github=_UNSET,
-           confirm: bool = False, now: str | None = None) -> dict:
+           confirm: bool = False, proceed_despite_leak: bool = False, now: str | None = None) -> dict:
     """Prepare (and, on an explicit affirmative decision, open) a cross-fork contribution pull request.
 
     Returns a result dict whose `status` is one of:
-      - `"unverified-diff"` — the outgoing diff could NOT be inspected (git unavailable); STOPPED before
+      - `"unverified-diff"`     — the outgoing diff could NOT be inspected (git unavailable); STOPPED before
         submitting. Refuses to narrate cleanliness on an unread diff. Carries the plain-language `narration`
         and `promoted` (the fail-open-AND-flag telemetry trace).
-      - `"halted-unclean"` — the outgoing diff carries engine-owned files; STOPPED before submitting. Carries
-        the findings, the plain-language `narration`, and `promoted` (the telemetry-on-fire result).
-      - `"prepared"`       — clean, but no affirmative decision yet; the pull request is NOT opened. Carries
-        the assembled `pr` (repo/base/head/title/body) the engine WOULD open and the prepared `narration`.
-      - `"submitted"`      — clean and `confirm=True`; the pull request was opened. Carries its `url` and the
-        submitted-is-not-accepted `narration`.
+      - `"leak-decision-needed"` — the outgoing diff carries engine-owned files; PAUSED and surfaced as an
+        operator decision (§6 "not a hard gate"), not a terminal halt. Carries the findings, the plain-language
+        `narration`, and `promoted` (the telemetry-on-fire result). The operator clears the files, or re-calls
+        with `proceed_despite_leak=True` to carry on to the ordinary `confirm` gate.
+      - `"prepared"`       — clean (or leak-acknowledged), but no affirmative decision yet; the pull request is
+        NOT opened. Carries the assembled `pr` (repo/base/head/title/body) the engine WOULD open and the
+        prepared `narration`.
+      - `"submitted"`      — clean (or leak-acknowledged) and `confirm=True`; the pull request was opened.
+        Carries its `url` and the submitted-is-not-accepted `narration`.
       - `"degraded-draft"` — clean and `confirm=True`, but the upstream was unreachable; the submission is
         DRAFTED for the operator to file. Carries `draft` (the issue body), `promoted`, and the `narration`.
 
-    Every boundary is injectable for offline proof: `run` (git diff), `root` (template detection root), `owned`
-    (engine-owned set), `gh_run` (the gh transport), `github` (telemetry boundary). `confirm` is the human
-    gate — the real `gh pr create` is reached ONLY when it is True.
+    Every boundary is injectable for offline proof: `run` (git diff / content read), `root` (template detection
+    AND the engine's own tree for content provenance), `owned` (engine-owned set), `gh_run` (the gh transport),
+    `github` (telemetry boundary). Two independent decisions gate the outward act: `proceed_despite_leak`
+    acknowledges a hygiene leak, and `confirm` authorizes opening the pull request — the real `gh pr create` is
+    reached only when `confirm=True` (and never while a leak is unacknowledged).
     """
     now = now or telemetry.utc_now()
 
@@ -399,21 +450,32 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
             "narration": _unverified_narration(upstream_repo),
         }
 
-    # 1. Keep the contribution clean — a HARD stop, over the uncapped outgoing diff. (RISK-S2 / B1)
+    # 1. Keep the contribution clean — an operator-DECIDABLE nudge (§6 "not a hard gate"), over the uncapped
+    #    outgoing diff. The predicate is the file-precise engine-owned NAME set (topology README). It can
+    #    over-flag an upstream product's OWN foundation-named file (its own CLAUDE.md / CODEOWNERS) — but that
+    #    is now a soft, waveable nudge, not a block. Telling a product's own file apart from a genuine engine
+    #    back-merge needs the engine's own tree as a source distinct from the contribution checkout, which is
+    #    the deferred cross-repo branch-mechanics build-spec leaf (see the module docstring); until it lands the
+    #    safe direction is to over-flag by name, never under-flag.
     owned_resolved = _resolve_owned(owned)
     findings = upstream_clean_check.findings("soft", changed=changed, owned=owned_resolved)
     if findings:
         owned_set = set(owned_resolved)
         offending = [p for p in changed if p in owned_set]
-        record = _leak_record(findings[0], now)
-        promoted = _promote(record, now, github=github)
-        return {
-            "status": "halted-unclean",
-            "findings": findings,
-            "offending": offending,
-            "promoted": promoted,
-            "narration": _leak_narration(upstream_repo, offending),
-        }
+        # Telemetry-on-fire fires WHICHEVER way the operator decides (the design's "emits a telemetry finding
+        # when it fires"): a knowingly-carried leak is exactly the event worth a durable trace.
+        promoted = _promote(_leak_record(findings[0], now), now, github=github)
+        if not proceed_despite_leak:
+            # Surface the leak as a DECISION, not a terminal halt: the operator clears the files (recommended),
+            # or re-calls with proceed_despite_leak=True — which still meets the ordinary `confirm` gate below.
+            return {
+                "status": "leak-decision-needed",
+                "findings": findings,
+                "offending": offending,
+                "promoted": promoted,
+                "narration": _leak_narration(upstream_repo, offending),
+            }
+        # proceed_despite_leak: the operator has acknowledged the leak — fall through to the human confirm gate.
 
     # 2. Follow the host's conventions: build the body to the upstream's template, else the fallback shape.
     template_text = detect_upstream_pr_template(root)
@@ -447,6 +509,31 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
         now, github=github)
     return {"status": "degraded-draft", "draft": draft, "promoted": promoted, "error": err,
             "narration": _degraded_narration(upstream_repo)}
+
+
+def status(*, pr_url: str, gh_run=None) -> dict:
+    """Where a submitted contribution stands, ON DEMAND — the live 'status check' half of submitted-is-not-
+    accepted (narrated on EACH check, never parked in a doc). Reads the pull request's live state via
+    `gh pr view` and narrates it in plain words. Returns {status: open|merged|declined|unknown, pr_url,
+    upstream_repo, narration}. `gh_run` is injectable for offline tests; a missing / failed / unparseable `gh`
+    degrades to `unknown` + an honest "I couldn't reach it" line — it never invents progress (the policy's
+    "when you want to know, you ask the engine, and it answers")."""
+    gh = gh_run or _run_gh
+    upstream_repo = _repo_from_pr_url(pr_url)
+    state = "unknown"
+    try:
+        rc, out, _err = gh(["pr", "view", pr_url, "--json", "state,merged"])
+        if rc == 0 and out:
+            data = json.loads(out)
+            if data.get("merged"):
+                state = "merged"
+            else:
+                gh_state = (data.get("state") or "").upper()
+                state = {"OPEN": "open", "CLOSED": "declined", "MERGED": "merged"}.get(gh_state, "unknown")
+    except Exception:  # noqa: BLE001 — any transport / parse failure degrades to 'unknown' + the honest line
+        state = "unknown"
+    return {"status": state, "pr_url": pr_url, "upstream_repo": upstream_repo,
+            "narration": _status_narration(upstream_repo, pr_url, state)}
 
 
 # ---- falsifiable, offline demo (drives the REAL submit; prints the real operator narration) ----
@@ -507,18 +594,32 @@ def demo() -> int:
         if "carry no engine" in r0["narration"] or "no engine files" in r0["narration"]:
             failures.append("unverified case: narrated cleanliness on an uninspected diff")
 
-        # Case 1 — a leaked engine path halts before submit, fires telemetry-on-fire, never opens a PR.
+        # Case 1 — a leaked engine path PAUSES for a decision (not a terminal halt), fires telemetry-on-fire,
+        #          and never opens a PR while the leak is unacknowledged (even with confirm=True).
+        leak_diff = run_with(["src/app.py", ".engine/tools/external_contribution/submit.py"])
         r1 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
-                    run=run_with(["src/app.py", ".engine/tools/external_contribution/submit.py"]),
+                    run=leak_diff,
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
-        print("--- a leaked engine file halts the submission ---")
+        print("--- a leaked engine file: paused for your decision, not opened ---")
         print(r1["narration"], "\n")
-        if r1["status"] != "halted-unclean" or "args" in recorded:
-            failures.append(f"leak case: expected halt and NO pr create, got {r1['status']} / recorded={recorded}")
+        if r1["status"] != "leak-decision-needed" or "args" in recorded:
+            failures.append(f"leak case: expected leak-decision-needed and NO pr create, got {r1['status']} "
+                            f"/ recorded={recorded}")
         if not any(".engine/tools/external_contribution/submit.py" in f["message"]
                    for f in r1.get("findings", [])):
             failures.append("leak case: the offending engine path was not named in the finding")
+
+        # Case 1b — the operator OVERRIDES the leak (proceed_despite_leak=True): the flow no longer terminates;
+        #           it carries on to the ordinary human gate (here confirm=False -> prepared, still not opened).
+        r1b = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+                     title="Fix the thing", summary="Fixes the thing.",
+                     run=leak_diff,
+                     root=root_without, owned=owned, gh_run=gh_ok, github=None,
+                     confirm=False, proceed_despite_leak=True, now=now)
+        if r1b["status"] != "prepared" or "args" in recorded:
+            failures.append(f"override case: expected the leak to be operator-decidable (prepared), got "
+                            f"{r1b['status']} / recorded={recorded}")
 
         # Case 2 — a clean diff with NO decision PREPARES; it must NOT open a pull request.
         r2 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
@@ -566,6 +667,21 @@ def demo() -> int:
             failures.append(f"degrade case: expected degraded-draft with a draft, got {r5['status']}")
         if "engine opened this item itself" not in r5["draft"]:
             failures.append("degrade case: the draft was not assembled through the engine-Issue body contract")
+
+        # Case 6 — the status verb: where a submission stands, restating submitted-is-not-accepted every time,
+        #          and degrading honestly when the state can't be read.
+        pr_url = "https://github.com/upstream/project/pull/42"
+        s_open = status(pr_url=pr_url, gh_run=lambda args: (0, '{"state":"OPEN","merged":false}', ""))
+        print("--- checking where a submission stands (still open) ---")
+        print(s_open["narration"], "\n")
+        if s_open["status"] != "open" or "still open" not in s_open["narration"]:
+            failures.append(f"status case: expected open, got {s_open['status']}")
+        s_merged = status(pr_url=pr_url, gh_run=lambda args: (0, '{"state":"MERGED","merged":true}', ""))
+        if s_merged["status"] != "merged" or "landed" not in s_merged["narration"]:
+            failures.append(f"status case: expected merged, got {s_merged['status']}")
+        s_unknown = status(pr_url=pr_url, gh_run=lambda args: (1, "", "could not resolve host github.com"))
+        if s_unknown["status"] != "unknown" or "couldn't reach" not in s_unknown["narration"]:
+            failures.append(f"status case: expected an honest unknown, got {s_unknown['status']}")
     finally:
         shutil.rmtree(root_with, ignore_errors=True)
         shutil.rmtree(root_without, ignore_errors=True)
@@ -575,16 +691,24 @@ def demo() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("DEMO PASSED — an unreadable diff is held rather than narrated clean or opened; a leaked engine "
-          "file halts the submission; a clean contribution is only PREPARED until you authorize it; on your "
-          "go-ahead it opens following the host's template (or the engine's fallback shape); and an "
-          "unreachable upstream degrades to a drafted submission, nothing lost.")
+    print("DEMO PASSED — an unreadable diff is held rather than narrated clean or opened; a leaked engine file "
+          "pauses for your decision (clear it, or proceed anyway) rather than a bare halt, and traces to "
+          "telemetry either way; a clean contribution is only PREPARED until you authorize it; on your go-ahead "
+          "it opens following the host's template (or the engine's fallback shape); an unreachable upstream "
+          "degrades to a drafted submission, nothing lost; and the status check tells you honestly where a "
+          "submission stands, or that it couldn't be read.")
     return 0
 
 
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return demo()
+    if argv and argv[0] == "status":
+        if len(argv) < 2:
+            print("usage: submit.py status <pull-request-url>")
+            return 2
+        print(status(pr_url=argv[1])["narration"])
+        return 0
     print(__doc__)
     return 0
 

@@ -107,6 +107,17 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("telemetry.py engine-issues", text)           # the workflow fetches the backlog
         self.assertIn("BEGIN OPEN ENGINE-LABELLED ISSUES", text)    # …and feeds it into the persona's prompt
 
+    def test_fetches_the_never_firing_checks_and_feeds_the_read_only_persona(self):
+        # F0200: the never-firing signal reaches the persona as a feed (the persona has Bash disallowed and
+        # cannot compute it itself). The workflow fetches it above the persona step and splices it into the
+        # prompt between fresh markers — a token-less local read, so this concern has its data without the
+        # read-only persona ever holding a GitHub token.
+        text = self._text()
+        self.assertIn("telemetry.py never-fired", text)                 # the workflow computes the signal
+        self.assertIn("BEGIN ENGINE CHECKS MATCHING NO FILES", text)    # …and feeds it into the persona's prompt
+        # the fetch step must sit ABOVE the persona step (so the token-hygiene slice below is unaffected)
+        self.assertLess(text.index("telemetry.py never-fired"), text.index("Run the read-only self-review"))
+
     def test_issues_scope_is_write_for_the_promote_step(self):
         # #273 half 2 (slice 2): the workflow now WRITES the engine-labelled issues (the promote step opens/
         # updates a tracked length-budget issue), so the scope rises from read to write. Pin `issues: write`
