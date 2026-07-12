@@ -290,6 +290,16 @@ def _criteria_table_message(rel: str, status: str) -> str:
     )
 
 
+def _incomplete_criteria_row_message(rel: str, status: str) -> str:
+    plain = _PLAIN_STATUS[status]
+    return (
+        f"The product-spec document `{rel}` is marked {plain}, but a row in its Acceptance criteria table is "
+        f"missing a cell — every row needs all three: Criterion, How verified, and Who checks it (you, or the "
+        f"engine). A half-filled row would quietly drop that criterion from what your built work is measured "
+        f"against. To clear this, complete every row of the table in `{rel}`. " + _READONLY_TAIL
+    )
+
+
 def _discharge_value_message(rel: str, bad: list) -> str:
     shown = ", ".join(f"'{b}'" for b in bad)
     return (
@@ -372,6 +382,13 @@ def findings(tier: str, root: "str | None" = None) -> list:
                 out.append(validate.finding(tier, _criteria_table_message(rel, status),
                                             {"file": rel, "line": None}))
             else:
+                # Every data row must carry all three columns. A row with fewer cells is a half-filled criterion
+                # that would silently vanish from the coverage denominator the obligation-matrix derives (a
+                # criterion the who-value check below also skips, since it guards on len(r) > 2) — catch it here
+                # so a malformed criterion can never leave the record with nothing red (spec-conformance nit, #454).
+                if any(len(r) < len(_CRITERIA_COLUMNS) for r in rows):
+                    out.append(validate.finding(tier, _incomplete_criteria_row_message(rel, status),
+                                                {"file": rel, "line": None}))
                 bad = sorted({r[2].strip().lower() for r in rows
                               if len(r) > 2 and r[2].strip().lower() not in _DISCHARGE_VALUES})
                 if bad:
@@ -512,6 +529,12 @@ def demo() -> int:
                   {"docs/spec/index.md": _index("| Checkout | draft | [Checkout](checkout.md) |\n"),
                    "docs/spec/checkout.md": _doc("draft", table=False)},
                   lambda fs: any(f["severity"] == "hard" and "well-formed table" in f["message"] for f in fs)))
+    cases.append(("an in-progress doc whose criteria row is missing a cell is a hard finding (row-width)",
+                  {"docs/spec/index.md": _index("| Checkout | draft | [Checkout](checkout.md) |\n"),
+                   "docs/spec/checkout.md": "---\nstatus: draft\n---\n\n# C\n\n## Summary\nx\n\n## Behavior\ny\n\n"
+                                            "## Acceptance criteria\n\n| Criterion | How verified | Who checks it |\n"
+                                            "| --- | --- | --- |\n| It works | a demo |\n"},
+                  lambda fs: any(f["severity"] == "hard" and "missing a cell" in f["message"] for f in fs)))
     cases.append(("a bad who-can-check value is a hard finding",
                   {"docs/spec/index.md": _index("| Checkout | draft | [Checkout](checkout.md) |\n"),
                    "docs/spec/checkout.md": _doc("draft", discharge="nobody")},
