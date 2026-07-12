@@ -2891,7 +2891,7 @@
       },
       "slug": "control-plane-bootstrap",
       "source": {
-        "fingerprint": "sha256:0364de2e2935ed53f1f3748f048eb46b3be7e871a86c55ef1570afb024f40e5c",
+        "fingerprint": "sha256:a3a7d1d745d8ee2268a2c79a0c9c4504690293babfa9b42f0314b70555a0d61b",
         "path": ".engine/operations/control-plane-bootstrap.md"
       },
       "status": "active",
@@ -4217,7 +4217,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:3b29e98c34b3465ccf1afd482477c5873210afa2e4d2196b5daee32a5b5b5bca",
+        "fingerprint": "sha256:79c4878ab6689ca14b154368a02eb3b9934dc3f958093bd2711e68de5a68f7a1",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -5033,7 +5033,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:53712e7cc237dce9e3d5c6f046f152cd3340993c660b9d30816a1d4ff9052aa7",
+        "fingerprint": "sha256:4468757658556b3af10241e18415bee6a3b20c338eb537f649bcd81aacc907fa",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -6138,7 +6138,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:8657bd4bf9ff9b658e6592045393a801e0ba60c9e34510b43e955663899ade36",
+        "fingerprint": "sha256:b0e37bb9bb9ae9710ad9ee11022af4ce65fadde9b791c6a63570d955641456ea",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",

@@ -370,9 +370,9 @@ FALLBACK_COPY = {
     ),
     "degraded-org-policy": (
         "I couldn't turn on branch protection — your organization's settings blocked the permission it "
-        "needs. Protection is not active, so work can merge unreviewed. Two ways forward: ask your org "
-        "admin to allow it, or switch to team mode (a separate engine identity that holds this "
-        "permission). I'll keep reminding you until it's on."
+        "needs. Protection is not active, so work can merge unreviewed. The way forward is to ask your "
+        "organization's admin to allow it — creating branch protection here needs an admin's permission, "
+        "which I can't grant myself. I'll keep reminding you until it's on."
     ),
     "degraded-didnt-save": (
         "The authorization screen completed but the permission didn't save (some sign-in methods do "

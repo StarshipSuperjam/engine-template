@@ -191,16 +191,19 @@ class TestVerifyAndDegrade(unittest.TestCase):
         self.assertFalse(result.is_protected())
         self.assertIn("couldn't", bootstrap.render(result).lower())
 
-    def test_org_policy_403_routes_to_team_identity_banner(self):
-        # A 403 whose body names an organization policy -> the org-policy cause, whose banner offers the
-        # team-identity structural escape (not the "you don't administer this repo" banner).
+    def test_org_policy_403_routes_to_org_admin_banner(self):
+        # A 403 whose body names an organization policy -> the org-policy cause, whose banner points the operator
+        # at their org admin. It does NOT offer team mode as an escape: team's identity is deliberately non-admin
+        # (so it "cannot weaken at all"), so it cannot hold the org-blocked branch-protection permission — U11.
         fake = FakeGitHub(scopes="repo", floor_met=False, rulesets=[],
                           deny_writes=2,  # both the first write and the post-refresh retry are blocked
                           deny_body={"message": "Organization ruleset policy prevents this change."})
         result = cp(fake).apply(announce=quiet)
         self.assertEqual(result.status, "degraded")
         self.assertEqual(result.cause, "org-policy")
-        self.assertIn("team mode", bootstrap.render(result))
+        rendered = bootstrap.render(result)
+        self.assertIn("admin", rendered)
+        self.assertNotIn("team mode", rendered)   # team is not an org-policy escape (non-admin identity)
 
     def test_plain_403_routes_to_not_admin_banner(self):
         fake = FakeGitHub(scopes="repo", floor_met=False, rulesets=[],
