@@ -1548,14 +1548,18 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/audits/audit-digest.md",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
+    # The engine's marketing banner — go-to-market content referenced only by the template's marketing landing
+    # README, carried into every generated repo by "Use this template". Retired at first-run alongside the README
+    # reseed (the product starter references no banner), so a generated repo carries no engine marketing residue
+    # (repository-topology law 1; D-213/D-214, #410 U27). Retired as the specific FILE, not the `assets/`
+    # directory: retire() ALSO runs on the brownfield "add the engine to an existing project" arrival, where
+    # `assets/` is the OPERATOR's own directory (the engine provides no `assets/`) — a whole-dir rmtree there
+    # would delete their files. Targeting just the banner is provenance-precise: it is absent in brownfield (a
+    # no-op) and the only thing in `assets/` in greenfield, and an emptied `assets/` does not travel (git commits
+    # no empty directory).
+    "assets/engine_banner.jpg",
 )
-# `assets/` holds only the engine's marketing banner (engine_banner.jpg), referenced solely by the template's
-# marketing landing README — go-to-market content the "Use this template" copy carries into every generated repo.
-# It is retired at first-run alongside the README reseed (which replaces the marketing front with a product
-# starter that references no banner), so a generated repo carries no engine marketing residue and no empty root
-# dir the placement laws never reserve (repository-topology law 1; D-213/D-214, #410 U27). The whole directory
-# retires, not just the file — an empty `assets/` would still be an unreserved root path.
-_FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"), "assets")
+_FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),)
 
 
 def _hard_findings() -> list:

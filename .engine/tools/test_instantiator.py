@@ -1587,6 +1587,25 @@ class TestRetire(unittest.TestCase):
             self.assertTrue(still_clean, "the result stays consistent after retire (the deployed repo stays green)")
             self.assertEqual(res["graph"], "regenerated")
 
+    def test_a_brownfield_adopters_own_assets_directory_survives_retire(self):
+        # #410 U27, the blocking brownfield-safety property: retire() ALSO runs on the "add the engine to an
+        # existing project" arrival, where assets/ is the OPERATOR's own directory (the engine provides none). So
+        # the banner is retired as the specific FILE, never the whole assets/ dir — a whole-dir rmtree would delete
+        # the adopter's own files. Plant an operator asset beside the engine banner and assert only the banner goes.
+        with tempfile.TemporaryDirectory() as d:
+            operator_asset = os.path.join(d, "assets", "company-logo.png")
+            with inst._redirect_root(d):
+                _finished_fixture(d)                            # plants the engine banner at assets/engine_banner.jpg
+                with open(operator_asset, "w", encoding="utf-8") as fh:
+                    fh.write("the operator's own logo")
+                inst.retire(announce=lambda t: None)
+                banner_gone = not os.path.exists(os.path.join(d, "assets", "engine_banner.jpg"))
+                operator_kept = os.path.isfile(operator_asset)
+                dir_kept = os.path.isdir(os.path.join(d, "assets"))
+            self.assertTrue(banner_gone, "the engine's own banner is retired")
+            self.assertTrue(operator_kept, "a brownfield adopter's own assets/ file must NOT be deleted by retire")
+            self.assertTrue(dir_kept, "the operator's assets/ directory survives (only the engine banner is removed)")
+
     def test_regen_drops_a_stale_tool_entity(self):
         # The load-bearing deployed-repo guarantee: after the tools are gone, the saved information no longer
         # lists them, so the merge-time check stays green. Seed a STALE entry for the to-be-deleted tool and
@@ -1652,13 +1671,15 @@ class TestFirstRunAssetsManifestParity(unittest.TestCase):
         self.assertIn(".engine/audits/audit-digest.md", inst._FIRST_RUN_ASSET_FILES)
         self.assertIn(".engine/audits/audit-digest.md", self._manifest()["files"])
 
-    def test_the_marketing_assets_dir_is_retired_so_a_generated_repo_carries_no_banner(self):
-        # #410 U27: assets/ holds only the engine's marketing banner (referenced solely by the template's
-        # marketing landing README, which the first-run reseed replaces with a product starter). It must be in the
-        # retire set (both sources) so a generated repo carries no engine marketing residue and no empty root dir
-        # the placement laws never reserve (repository-topology law 1; D-213/D-214). The whole DIRECTORY retires.
-        self.assertIn("assets", inst._FIRST_RUN_ASSET_DIRS)
-        self.assertIn("assets", self._manifest()["directories"])
+    def test_the_marketing_banner_is_retired_so_a_generated_repo_carries_no_banner(self):
+        # #410 U27: the engine's marketing banner is referenced only by the template's marketing landing README
+        # (which the first-run reseed replaces with a product starter). It must be in the retire set (both sources)
+        # so a generated repo carries no engine marketing residue (repository-topology law 1; D-213/D-214). Retired
+        # as the specific FILE, not the assets/ DIRECTORY — see the brownfield-safety test below.
+        self.assertIn("assets/engine_banner.jpg", inst._FIRST_RUN_ASSET_FILES)
+        self.assertIn("assets/engine_banner.jpg", self._manifest()["files"])
+        self.assertNotIn("assets", inst._FIRST_RUN_ASSET_DIRS,
+                         "retiring the whole assets/ dir would delete a brownfield adopter's own assets/")
 
 
 class TestFinishCopy(unittest.TestCase):

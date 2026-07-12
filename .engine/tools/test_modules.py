@@ -702,6 +702,19 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         finally:
             validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
 
+    def test_a_deployment_eADR_home_draws_no_engine_codeowners_but_the_canon_does(self):
+        # #410 U28: the point of the deployment home is that a deployment's OWN decision records route to the
+        # deployment, not engine review — so nothing under .engine/contracts/instance/ may acquire an engine
+        # CODEOWNERS line (it is off core's non-recursive .engine/contracts/*.md glob), while the engine's own
+        # eADR canon directly in .engine/contracts/ IS engine-owned. Real-tree correlate of the operator demo:
+        # the seed README lives under instance/ and must be absent from the owned set.
+        owned = module_coherence.codeowners_path_set()
+        instance_owned = [p for p in owned if p.startswith(".engine/contracts/instance/")]
+        self.assertEqual(instance_owned, [], "nothing under the deployment eADR home draws an engine CODEOWNERS line")
+        canon_owned = [p for p in owned if p.startswith(".engine/contracts/")
+                       and "/instance/" not in p and p.endswith(".md")]
+        self.assertTrue(canon_owned, "the engine's own eADR canon in .engine/contracts/ must stay engine-owned")
+
     def test_real_repository_is_wiring_coherent_and_approval_blind(self):
         # The committed tree's declared wires are ALL applied -> the forward wiring leg is silent.
         # The mcp leg is APPROVAL-BLIND: it reports the engine-knowledge-graph server applied from the
