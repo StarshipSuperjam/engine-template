@@ -123,7 +123,7 @@ FENCE_RE = re.compile(r"^\s*(?:```|~~~)")             # a fenced-code-block deli
 PLACEHOLDER_RE = re.compile(r"^<[^>]*>$")             # a prompt token (decoration stripped), e.g. <why this exists>
 LIST_MARKER_RE = re.compile(r"^[-*+]\s+")             # a leading unordered-list bullet marker
 EMPHASIS_RE = re.compile(r"^(\*\*|__|\*|_)(.+?)\1$")  # a surrounding bold/italic emphasis wrapper
-LABEL_PREFIX_RE = re.compile(r"^[A-Za-z][\w ]*:\s*")  # an optional "Word:" label before a slot, e.g. Impact: <...>
+INLINE_LABEL_RE = re.compile(r"^(\*\*|__|\*|_)\s*([A-Za-z][\w ]*:)\s*\1")  # an emphasized label, **Impact:** / *Impact:*
 
 
 # ---- finding.v1 ------------------------------------------------------------
@@ -309,10 +309,9 @@ def section_order(body: str) -> list:
 def _placeholder_only(line: str) -> bool:
     """True if the line, once its Markdown scaffolding is stripped — a leading list
     marker and any surrounding bold/italic emphasis — is nothing but a single <...>
-    prompt token, bare (**<summary>**, - <detail>, *<Impact: ...>*) or behind an
-    unfilled label (*Impact: <what this enables>*). Both are unfilled template slots.
-    A line carrying real text (even one with an inline <token>, or real prose after a
-    label like *Impact: real prose*) does not reduce to a bare token and is kept."""
+    prompt token. So a decorated, unfilled template slot (**<summary>**, - <detail>,
+    *<Impact: ...>*) still counts as a placeholder, while a line carrying real text
+    (even one with an inline <token>) does not reduce to a bare token and is kept."""
     s = LIST_MARKER_RE.sub("", line.strip()).strip()
     prev = None
     while prev != s:                       # peel possibly-nested emphasis wrappers
@@ -320,33 +319,62 @@ def _placeholder_only(line: str) -> bool:
         m = EMPHASIS_RE.match(s)
         if m:
             s = m.group(2).strip()
-    if PLACEHOLDER_RE.match(s):
-        return True
-    # a labelled slot whose only content is the prompt token — "Impact: <what this
-    # enables>" — is still unfilled; peel one leading "Word:" label and re-test.
-    return bool(PLACEHOLDER_RE.match(LABEL_PREFIX_RE.sub("", s, count=1)))
+    return bool(PLACEHOLDER_RE.match(s))
 
 
-def is_empty_section(text: str) -> bool:
-    """Empty if every line is blank or a placeholder slot (decorated or bare). Any
-    line with real content makes the section non-empty, so a filled section passes."""
+def _label_remainder(line: str, label: str):
+    """If `line` is the labelled sub-line for `label`, return the text after the label
+    (possibly ''); otherwise None. The line is recognized when, after its list marker
+    and whole-line emphasis are stripped, the label leads it — bare (`Impact: ...`), with
+    the label itself emphasized (`**Impact:** ...`), or wholly wrapped in the old sentinel
+    (`<Impact: ...>`, always treated as unfilled, so it returns ''). Keyed to the specific
+    label, so an unrelated labelled line like `See: <url>` is never matched — this is what
+    keeps the emptiness leg of other presence checks untouched."""
+    s = LIST_MARKER_RE.sub("", line.strip()).strip()
+    prev = None
+    while prev != s:                       # peel possibly-nested whole-line emphasis
+        prev = s
+        m = EMPHASIS_RE.match(s)
+        if m:
+            s = m.group(2).strip()
+    m = INLINE_LABEL_RE.match(s)           # normalize an emphasized label: **Impact:** -> Impact:
+    if m:
+        s = (m.group(2) + " " + s[m.end():]).strip()
+    want = label.lower() + ":"
+    if s.startswith("<") and s.endswith(">") and s[1:].lower().startswith(want):
+        return ""                          # old fully-wrapped sentinel is always unfilled
+    if s.lower().startswith(want):
+        return s[len(want):].strip()
+    return None
+
+
+def is_empty_section(text: str, label: str | None = None) -> bool:
+    """Empty if every line is blank or a placeholder slot (decorated or bare). Any line
+    with real content makes the section non-empty. When `label` is given, that labelled
+    line (e.g. `Impact:`) is NOT counted as content either — it is judged by its own fill
+    leg, so a section carrying only a filled Impact line still needs real summary/bullet
+    content. With no label the behaviour is unchanged, so other presence checks are exact."""
     for line in text.splitlines():
         if not line.strip() or _placeholder_only(line):
+            continue
+        if label is not None and _label_remainder(line, label) is not None:
             continue
         return False
     return True
 
 
-def section_presence_findings(body: str, sections: list, tier: str, message: str, where: str) -> list:
+def section_presence_findings(body: str, sections: list, tier: str, message: str, where: str,
+                              label: str | None = None) -> list:
     """For each named section: a finding if it is missing, or present but empty
-    (only blank/placeholder lines). `where` names the source for the message."""
+    (only blank/placeholder lines). `where` names the source for the message; `label`,
+    when set, excludes that labelled line from the content count (see is_empty_section)."""
     blocks = section_blocks(body)
     findings = []
     for name in sections:
         if name not in blocks:
             findings.append(finding(tier, f"Required section '## {name}' is missing from "
                             f"the {where}. {message}"))
-        elif is_empty_section(blocks[name]):
+        elif is_empty_section(blocks[name], label):
             findings.append(finding(tier, f"Required section '## {name}' in the {where} is "
                             f"empty or only contains the template placeholder. {message}"))
     return findings
@@ -354,32 +382,19 @@ def section_presence_findings(body: str, sections: list, tier: str, message: str
 
 def _subsection_line_status(text: str, label: str) -> str:
     """Within a section body, report the state of its labelled sub-line (e.g. `Impact:`):
-    'filled', 'unfilled', or 'missing'. A line is that sub-line if, once its list marker
-    and emphasis are stripped, it starts with `<label>:` — whether bare (`Impact: ...`) or
-    wrapped whole in the old sentinel (`<Impact: ...>`). It is 'filled' only when real,
-    non-placeholder text follows the label; an empty label or a `<...>` prompt slot after
-    it (either template form) is 'unfilled'. Presence, not prose quality — matching the
-    posture of the section-presence leg."""
-    want = label.lower() + ":"
+    'filled', 'unfilled', or 'missing'. A line is that sub-line when `_label_remainder`
+    recognizes it (bare `Impact: ...`, emphasized `**Impact:** ...`, or the old sentinel
+    `<Impact: ...>`). It is 'filled' only when real, non-placeholder text follows the
+    label; an empty label or a `<...>` prompt slot after it (either template form) is
+    'unfilled'. Presence, not prose quality — matching the section-presence leg's posture."""
     status = "missing"
     for raw in text.splitlines():
-        s = LIST_MARKER_RE.sub("", raw.strip()).strip()
-        prev = None
-        while prev != s:                   # peel possibly-nested emphasis wrappers
-            prev = s
-            m = EMPHASIS_RE.match(s)
-            if m:
-                s = m.group(2).strip()
-        # old fully-wrapped sentinel `<Impact: ...>` — the whole line is a prompt slot
-        if s.startswith("<") and s.endswith(">") and s[1:].lower().startswith(want):
-            status = "unfilled"
+        remainder = _label_remainder(raw, label)
+        if remainder is None:
             continue
-        if not s.lower().startswith(want):
-            continue
-        remainder = s[len(want):].strip()
         if remainder and not PLACEHOLDER_RE.match(remainder):
             return "filled"
-        status = "unfilled"                 # bare `Impact:` or `Impact: <slot>`
+        status = "unfilled"                 # bare `Impact:`, `Impact: <slot>`, or old sentinel
     return status
 
 
@@ -391,7 +406,7 @@ def subsection_fill_findings(body: str, sections: list, label: str, tier: str,
     blocks = section_blocks(body)
     findings = []
     for name in sections:
-        if name not in blocks or is_empty_section(blocks[name]):
+        if name not in blocks or is_empty_section(blocks[name], label):
             continue
         status = _subsection_line_status(blocks[name], label)
         if status == "filled":
@@ -414,10 +429,11 @@ def kind_presence(rule, ctx):
     placeholder lines, no substantive content remains — so an auto-populated
     template body does NOT pass on its own. When params carry a
     `filled_subsection_label`, each non-empty section must ALSO carry a filled line
-    under that label (e.g. `Impact:`); the leg is skipped when the param is absent, so
-    other presence checks are unaffected. Presence + non-emptiness (and the labelled
-    line, when required) are gated; truthfulness is posture (this cannot judge whether
-    the content is accurate)."""
+    under that label (e.g. `Impact:`), and that labelled line is not itself counted as
+    section content. Both the leg and the exclusion are skipped when the param is absent,
+    so other presence checks are exactly unaffected. Presence + non-emptiness (and the
+    labelled line, when required) are gated; truthfulness is posture (this cannot judge
+    whether the content is accurate)."""
     tier = rule["tier"]
     params = rule.get("params") or {}
     sections = params.get("sections", [])
@@ -429,7 +445,7 @@ def kind_presence(rule, ctx):
         if body is None:
             return True, [disclosed_noop("PR body not available; completeness not "
                                          "evaluated here (the CI run evaluates it).")]
-        findings = section_presence_findings(body, sections, tier, message, "pull-request body")
+        findings = section_presence_findings(body, sections, tier, message, "pull-request body", label)
         if label:
             findings += subsection_fill_findings(body, sections, label, tier, message,
                                                  "pull-request body")
@@ -438,7 +454,7 @@ def kind_presence(rule, ctx):
     for path in target_files(rule):
         where = os.path.relpath(path, ROOT)
         text = read(path)
-        findings.extend(section_presence_findings(text, sections, tier, message, where))
+        findings.extend(section_presence_findings(text, sections, tier, message, where, label))
         if label:
             findings.extend(subsection_fill_findings(text, sections, label, tier, message, where))
     return (len(findings) == 0), findings
