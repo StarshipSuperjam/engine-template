@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from external_contribution import upstream_clean_check  # noqa: E402
@@ -61,6 +62,23 @@ class TestUpstreamClean(unittest.TestCase):
         fs = upstream_clean_check.findings(
             "soft", changed=[".engine/check/upstream-clean.json"], owned=OWNED)
         self.assertTrue(fs and all(f["severity"] != "hard" for f in fs))
+
+    def test_no_arg_default_reads_the_uncapped_diff(self):
+        # #416 U21-F4: the no-argument path must read the diff UNCAPPED (cap=None), so an engine path that
+        # sorts past work_record's 50-path orientation cap is still seen and still fires — a safety predicate
+        # must never drop a leak. Patch the reader to prove the call is uncapped and that the hit fires.
+        seen = {}
+
+        def fake_changed_paths(*, cap):
+            seen["cap"] = cap
+            # an engine-owned path that would sort well past a 50-item prefix
+            return [f"src/f{i:03d}.py" for i in range(80)] + [".engine/check/upstream-clean.json"]
+
+        with mock.patch.object(upstream_clean_check.work_record, "changed_paths", fake_changed_paths):
+            fs = upstream_clean_check.findings("soft", owned=[".engine/check/upstream-clean.json"])
+        self.assertIsNone(seen["cap"], "the no-arg leak check must read changed_paths uncapped (cap=None)")
+        self.assertEqual(len(fs), 1)
+        self.assertIn(".engine/check/upstream-clean.json", fs[0]["message"])
 
     def test_demo_self_check_passes_on_real_logic(self):
         self.assertEqual(quiet_call.run(upstream_clean_check.demo), 0)
