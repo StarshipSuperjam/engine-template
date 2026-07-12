@@ -1,7 +1,7 @@
 {
   "id": "engine/check/contract-threshold",
   "target": {
-    "path": ".engine/contracts/**/eADR-*.md"
+    "path": ".engine/contracts/**/*eADR-*.md"
   },
   "kind": "presence",
   "params": {

@@ -132,6 +132,7 @@ class TestCiAuthorExempt(unittest.TestCase):
         # otherwise-red engine-ci). Proves the engine honors the EXACT bot login, brackets and all. (The
         # memory-erasure proposal is NOT bot-authored — a local SessionStart hook opens it under the operator's
         # own gh token — so it is cleared by the engine-erasure LABEL exemption instead; see TestCiLabelExempt.)
+        # This bot entry's spoof-safety re-confirmation (D-208) is recorded in the PR that closes issue #423.
         self._install(exempt=("dependabot[bot]", "github-actions[bot]"))
         rc, text = self._run("CI", {"pr_body": "", "pr_author": "github-actions[bot]"})
         self.assertEqual(rc, 0)
@@ -309,6 +310,7 @@ class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
         # memory-erasure proposal is opened by a local hook under the operator's own identity (NOT a bot), so the
         # author exemption cannot reach it — its deliberate plain consent body is cleared by the label instead.
         # A drop of any of these silently re-breaks those PRs' engine-ci, so pin the exact lists.
+        # The github-actions[bot] entry's spoof-safety re-confirmation (D-208) is recorded in the PR closing #423.
         rule = validate.load_json(os.path.join(validate.CHECK_DIR, "pr-body-completeness.json"))
         self.assertEqual(rule.get("ci_author_exempt"), ["dependabot[bot]", "github-actions[bot]"])
         self.assertEqual(rule.get("ci_label_exempt"), ["engine-erasure"])
@@ -693,6 +695,69 @@ class TestEnforcementHookGuardCoverage(unittest.TestCase):
         for gate in (".engine/tools/modes.py", ".engine/tools/close.py"):
             self.assertTrue(self._can_block(gate), gate)
             self.assertTrue(weakening_guard.is_guardrail(gate, frozenset()), gate)
+
+
+class TestSchemaGateGuardCoverage(unittest.TestCase):
+    """Drift detector (#467): every schema a hard, CI-suite `kind: schema` check resolves to is the TEETH of a
+    merge gate — loosening the schema loosens that gate, and the `.engine/check/` rule itself may be untouched
+    (the schema is resolved through the catalog's `governing_schema` or a `params.schema` override) — so it MUST
+    be floored in weakening_guard (_FLOOR_GATE_SCHEMAS). The gate set is recomputed here from the LIVE check
+    rules via the validator's OWN resolver (_surface_record_for + the _governing_schema join), so adding a new
+    hard CI schema-kind check whose schema is not floored fails LOUD here rather than merging un-guarded (the
+    silent fail-open #467 closes). Bidirectional: the computed set must EQUAL the floor, so a stale floor entry
+    is caught too. This is the precise-floor alternative to a blanket `.engine/schemas/` prefix, which would
+    re-introduce the D-268 over-firing (the output-contract schemas back only fixture tests, gate no merge)."""
+
+    def _gate_schema_paths(self) -> set:
+        out = set()
+        for fn in sorted(os.listdir(validate.CHECK_DIR)):
+            if not fn.endswith(".json"):
+                continue
+            rule = validate.load_json(os.path.join(validate.CHECK_DIR, fn))
+            if rule.get("kind") != "schema" or rule.get("tier") != "hard" or "CI" not in rule.get("suites", []):
+                continue
+            params = rule.get("params") or {}
+            if params.get("schema"):                       # explicit override — mirrors _governing_schema
+                ref, base = params["schema"], validate.ROOT
+            else:                                          # catalog routing via the surface's governing_schema
+                # Assumes one check glob resolves to ONE surface (true for all current hard-CI schema checks): a
+                # future check whose target were rooted ABOVE a surface dir and spanned two surfaces with
+                # different governing_schemas would resolve only the first here — extend this if that ever lands.
+                probe = rule.get("target", {}).get("path", "").split("*")[0]
+                if not probe.endswith("/"):
+                    probe = os.path.dirname(probe) + "/"
+                rec = validate._surface_record_for(probe + "__probe__")
+                ref, base = (rec.get("governing_schema") if rec else None), validate.SCHEMAS_DIR
+            if not ref or ref.startswith("http") or ref == validate.META_SCHEMA_URI:
+                continue                                   # a dialect / well-formedness self-check names no file
+            out.add(os.path.relpath(os.path.normpath(os.path.join(base, ref)), validate.ROOT))
+        return out
+
+    def test_every_hard_ci_schema_gate_is_floored(self):
+        gates = self._gate_schema_paths()
+        self.assertTrue(gates, "expected at least one hard CI schema-kind gate")
+        for p in sorted(gates):
+            self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()),
+                            f"{p} is the teeth of a hard CI schema gate but is NOT guarded — add it to "
+                            "_FLOOR_GATE_SCHEMAS in weakening_guard.py")
+        self.assertEqual(gates, set(weakening_guard._FLOOR_GATE_SCHEMAS),
+                         "the floored gate-schema set has drifted from the live check rules")
+
+    def test_contract_schema_is_a_guarded_gate(self):
+        # Ground the detector against the real #467 subject so it can't pass vacuously: contract.v1.json is the
+        # teeth of contract-frontmatter (hard, CI), so its loosening is held — modify flagged, add is not.
+        self.assertTrue(weakening_guard.is_guardrail(".engine/schemas/contract.v1.json", derived_scripts=frozenset()))
+        self.assertTrue(weakening_guard.flagged_changes(
+            [{"filename": ".engine/schemas/contract.v1.json", "status": "modified"}], derived_scripts=frozenset()))
+        self.assertEqual(weakening_guard.flagged_changes(
+            [{"filename": ".engine/schemas/contract.v1.json", "status": "added"}], derived_scripts=frozenset()), [])
+
+    def test_output_contract_schema_is_not_guarded(self):
+        # The precise-floor choice: a schema that backs only a fixture unit test (an agent/tool OUTPUT contract),
+        # gating no merge, is correctly NOT guarded — a blanket .engine/schemas/ prefix would wrongly hold it.
+        self.assertNotIn(".engine/schemas/plan-review-finding.v1.json", weakening_guard._FLOOR_GATE_SCHEMAS)
+        self.assertFalse(weakening_guard.is_guardrail(".engine/schemas/plan-review-finding.v1.json",
+                                                      derived_scripts=frozenset()))
 
 
 class TestProtectionFloor(unittest.TestCase):

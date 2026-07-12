@@ -1,7 +1,7 @@
 {
   "id": "engine/check/contract-shape",
   "target": {
-    "path": ".engine/contracts/**/eADR-*.md"
+    "path": ".engine/contracts/**/*eADR-*.md"
   },
   "kind": "shape",
   "params": {},

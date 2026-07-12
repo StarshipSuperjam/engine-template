@@ -1712,6 +1712,13 @@ class TestFirstRunAssetsManifestParity(unittest.TestCase):
         self.assertIn(".engine/audits/audit-digest.md", inst._FIRST_RUN_ASSET_FILES)
         self.assertIn(".engine/audits/audit-digest.md", self._manifest()["files"])
 
+    def test_the_467_namespace_demo_is_retired_so_it_does_not_travel(self):
+        # #467: the deployment-eADR-namespace falsification is maintainer build evidence (covered by the
+        # test_contract / test_knowledge regressions), not operator capability, so it retires at first-run
+        # rather than ship into a generated repo (engine-planning D-228). Mirrored in both sources (parity).
+        self.assertIn(".engine/tools/demo_467_deployment_eadr_namespace.py", inst._FIRST_RUN_ASSET_FILES)
+        self.assertIn(".engine/tools/demo_467_deployment_eadr_namespace.py", self._manifest()["files"])
+
     def test_the_marketing_banner_is_retired_so_a_generated_repo_carries_no_banner(self):
         # #410 U27: the engine's marketing banner is referenced only by the template's marketing landing README
         # (which the first-run reseed replaces with a product starter). It must be in the retire set (both sources)
