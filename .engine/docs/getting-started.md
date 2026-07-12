@@ -20,6 +20,8 @@ You direct the Engine the same way you would direct a capable assistant: you tel
 
 You might say *"I want to start working on the booking page"* or *"remind me what we decided about pricing"* or *"check whether this is safe to ship."* You do not need special phrasing. The Engine keeps track of your project for you between sessions, so you can pick up a conversation days later and it already knows the context — you do not have to re-explain.
 
+When you make a significant decision about how your Engine itself is set up — turning a feature on, adjusting one of its safety rules — you can ask it to record that decision (*"note that we decided to…"*). It keeps that as one of your own engine decisions, and holds onto it even when the Engine is later updated, so the reasoning is not lost. You never have to write or name these records yourself — just ask.
+
 When you ask for something that changes your project, the Engine works in careful steps and shows you what it plans before it does it, so nothing significant happens without your say-so.
 
 ## Finding the commands

@@ -10,7 +10,8 @@ optional supersedes link conforms when present and when absent); the committed t
 contract-shape rule's params, and template.v1's worked example are all byte-identical (no drift between the
 authoring scaffold, the machine-read rule, and the locked example); the template body carries exactly the
 required sections plus Supersedes, in order; the shape rule is well-formed, joins CI, dispatches the shape
-kind over .engine/contracts/*.md, and is green on the empty stream; the rule has teeth (a missing
+kind over .engine/contracts/**/eADR-*.md (canon AND the deployment instance stream), and is green on the
+empty stream; the rule has teeth (a missing
 Anti-choice, an out-of-order section, and a stray section each fire a hard finding, while an over-length
 body is only a soft nudge); and the catalog now routes the contract surface to its in-repo schema and
 template. Contract frontmatter is now LIVE-validated against contract.v1 by the contract-frontmatter schema
@@ -24,6 +25,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
@@ -153,7 +155,7 @@ class TestCheckRule(unittest.TestCase):
         self.assertEqual(_errors(check_schema, RULE), [])
         self.assertIn("CI", RULE.get("suites", []))
         self.assertEqual(RULE["kind"], "shape")
-        self.assertEqual(RULE["target"], {"path": ".engine/contracts/*.md"})
+        self.assertEqual(RULE["target"], {"path": ".engine/contracts/**/eADR-*.md"})
         self.assertEqual(RULE["tier"], "hard")
 
     def test_live_rule_is_green_on_the_empty_stream(self):
@@ -215,7 +217,7 @@ class TestContractFrontmatterRule(unittest.TestCase):
         self.assertEqual(_errors(check_schema, FM_RULE), [])
         self.assertIn("CI", FM_RULE.get("suites", []))
         self.assertEqual(FM_RULE["kind"], "schema")
-        self.assertEqual(FM_RULE["target"], {"path": ".engine/contracts/*.md"})
+        self.assertEqual(FM_RULE["target"], {"path": ".engine/contracts/**/eADR-*.md"})
         self.assertEqual(FM_RULE["tier"], "hard")
         self.assertEqual(FM_RULE.get("params"), {})   # catalog-routed: no params.schema override
 
@@ -249,6 +251,84 @@ class TestCatalog(unittest.TestCase):
         self.assertEqual(rec["template"], "../templates/contract.md")
         self.assertEqual(rec["class"], "prose")
         self.assertEqual(rec["lifecycle"], "decision")
+
+
+class TestInstanceEADRCoverage(unittest.TestCase):
+    """#422: the three contract checks (shape/frontmatter/threshold) were widened from `.engine/contracts/*.md`
+    to `.engine/contracts/**/eADR-*.md` so a deployment's OWN eADRs under `instance/` are held to the same
+    well-formed-contract bar as the canon — the knowledge supersedes derivation reads their frontmatter, so a
+    malformed one would silently break a deployment's own decision history. The surface catalog resolves an
+    instance eADR to the `contract` surface by directory-prefix, so all three kinds validate it with only the
+    glob change (no inlined params, no validate.py change). `instance/README.md` is NOT an eADR — off-target.
+    The checks are exercised end-to-end by patching `validate.ROOT` to a temp tree (the catalog/template/schema
+    stay bound to the real repo, so surface resolution is genuine)."""
+
+    _RULES = {name: validate.load_json(os.path.join(validate.CHECK_DIR, f"contract-{name}.json"))
+              for name in ("shape", "frontmatter", "threshold")}
+    _KINDS = {"shape": "kind_shape", "frontmatter": "kind_schema", "threshold": "kind_presence"}
+
+    _GOOD_FM = "---\nid: {eid}\ntitle: {eid} decision\nstatus: accepted\ndate: 2026-07-12\n---\n\n"
+    _GOOD_BODY = (
+        "## Decision\nTurn on the projects-sync module.\n"
+        "## Significance\nIt constrains how this deployment tracks its own work.\n"
+        "## Rationale\nThe team wanted a board; the cost is another integration to keep green.\n"
+        "## Anti-choice\nA spreadsheet; rejected — it would drift from the issues.\n"
+        "## Status\naccepted\n")
+
+    def _tree(self, files):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        inst = os.path.join(tmp.name, ".engine", "contracts", "instance")
+        os.makedirs(inst)
+        for name, text in files.items():
+            _write(inst, name, text)
+        return tmp.name
+
+    def _run(self, name, root):
+        with mock.patch.object(validate, "ROOT", root):
+            return getattr(validate, self._KINDS[name])(self._RULES[name], {})
+
+    def test_all_three_rules_target_the_widened_glob(self):
+        for name, rule in self._RULES.items():
+            self.assertEqual(rule["target"]["path"], ".engine/contracts/**/eADR-*.md",
+                             f"contract-{name} must cover instance eADRs")
+
+    def test_an_instance_eadr_resolves_to_the_contract_surface(self):
+        rec = validate._surface_record_for(".engine/contracts/instance/eADR-9001-x.md")
+        self.assertIsNotNone(rec, "an instance eADR must resolve to the contract surface (prefix match)")
+        self.assertEqual(rec.get("governing_schema"), "contract.v1.json")
+        self.assertEqual(rec.get("class"), "prose")
+
+    def test_widened_glob_matches_instance_eadrs_and_excludes_the_readme(self):
+        root = self._tree({"eADR-9001-good.md": self._GOOD_FM.format(eid="eADR-9001") + self._GOOD_BODY,
+                           "README.md": "# not an eADR\n"})
+        with mock.patch.object(validate, "ROOT", root):
+            matched = [os.path.relpath(p, root) for p in validate.target_files(self._RULES["shape"])]
+        self.assertIn(".engine/contracts/instance/eADR-9001-good.md", matched)
+        self.assertNotIn(".engine/contracts/instance/README.md", matched)
+
+    def test_a_well_formed_instance_eadr_passes_all_three_checks(self):
+        root = self._tree({"eADR-9001-good.md": self._GOOD_FM.format(eid="eADR-9001") + self._GOOD_BODY})
+        for name in self._RULES:
+            passed, found = self._run(name, root)
+            self.assertTrue(passed, f"contract-{name} should PASS a well-formed instance eADR: {found}")
+
+    def test_a_structurally_broken_instance_eadr_is_flagged_by_shape_and_threshold(self):
+        # missing Significance + Anti-choice: not structurally a contract.
+        broken = ("---\nid: eADR-9002\ntitle: broken\nstatus: accepted\ndate: 2026-07-12\n---\n\n"
+                  "## Decision\nA choice with no weighed alternative.\n## Status\naccepted\n")
+        root = self._tree({"eADR-9002-broken.md": broken})
+        for name in ("shape", "threshold"):
+            passed, _found = self._run(name, root)
+            self.assertFalse(passed, f"contract-{name} should FLAG a structurally broken instance eADR")
+
+    def test_a_bad_frontmatter_instance_eadr_is_flagged_by_frontmatter(self):
+        # a status outside the decision lifecycle — the frontmatter schema check must catch it.
+        bad = (self._GOOD_FM.replace("status: accepted", "status: nonsense").format(eid="eADR-9003")
+               + self._GOOD_BODY)
+        root = self._tree({"eADR-9003-badfm.md": bad})
+        passed, _found = self._run("frontmatter", root)
+        self.assertFalse(passed, "contract-frontmatter should FLAG an instance eADR with a bad status")
 
 
 if __name__ == "__main__":

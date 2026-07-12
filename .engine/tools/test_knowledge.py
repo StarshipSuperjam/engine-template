@@ -105,7 +105,7 @@ class TestLiveDerivation(unittest.TestCase):
                     self.assertIn(t, ids, f"{e['id']} {kind} -> dangling target {t}")
 
     def test_total_coverage_every_owned_surface_file_has_an_entity(self):
-        catalog, manifests, inventory, claims = knowledge_gen.load_sources()
+        catalog, manifests, inventory, claims, _dc = knowledge_gen.load_sources()
         surfaces = catalog.get("surfaces", {})
         expected = {rel for rel in inventory
                     if knowledge_gen._surface_for(rel, surfaces) and claims.get(rel)}
@@ -115,7 +115,7 @@ class TestLiveDerivation(unittest.TestCase):
     def test_surface_instance_inventory_spans_claude_and_excludes_placeholders(self):
         # issue #131: the graph's inventory is the catalog-location walk — owned files under a catalogued
         # surface across .engine/ AND .claude/, with .gitkeep placeholders dropped.
-        catalog, _m, inventory, claims = knowledge_gen.load_sources()
+        catalog, _m, inventory, claims, _dc = knowledge_gen.load_sources()
         surfaces = catalog.get("surfaces", {})
         self.assertFalse(any(p.endswith("/.gitkeep") for p in inventory), "no placeholder in the inventory")
         self.assertTrue(any(p.startswith(".claude/skills/") for p in inventory),
@@ -323,6 +323,98 @@ class TestSupersedesEdges(unittest.TestCase):
             [a], {"contract:eADR-0002": {"id": "eADR-0002", "supersedes": "eADR-0002"}}, set()), {})
 
 
+class TestDeploymentStreamEntitization(unittest.TestCase):
+    """#422 / D-169: `derive_entities` entitizes the deployment-owned per-instance eADR stream
+    (`.engine/contracts/instance/eADR-*.md`, in NO module's `provides`) as NON-canon contracts — owner is
+    the reserved token `deployment`, they carry NO `provided_by` edge, and that absence (not `owner`) is what
+    canon detection reads — which makes the `supersedes` leg LIVE for a deployment's own decisions. Driven
+    through the REAL generate -> schema-validate -> build_index path, because the construction repo carries no
+    instance eADRs, so the live graph never contains one and a pure-function fixture cannot exercise the break
+    the plan gate flagged (owner-required schema + a NOT-NULL / subscript index insert)."""
+
+    _CATALOG = {"surfaces": {"contract": {"class": "prose", "location": ".engine/contracts/",
+                                          "governing_schema": "contract.v1.json",
+                                          "template": "../templates/contract.md"}}}
+
+    @staticmethod
+    def _write_eadr(root, rel, eid, supersedes=None):
+        p = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        lines = ["---", f"id: {eid}", f"title: {eid} decision", "status: accepted", "date: 2026-07-12"]
+        if supersedes:
+            lines.append(f"supersedes: {supersedes}")
+        lines += ["---", "", "## Decision", "", "A decision.", ""]
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines))
+        return rel
+
+    def _derive(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        # a canon eADR (owned, via Pass 1) AND a deployment eADR with the SAME file stem — the collision the
+        # id-qualify must survive (an unqualified id would silently overwrite one in the entities dict).
+        canon = self._write_eadr(root, ".engine/contracts/eADR-0001-foo.md", "eADR-0001")
+        self._write_eadr(root, ".engine/contracts/instance/eADR-0001-foo.md", "eADR-1001")
+        newer = self._write_eadr(root, ".engine/contracts/instance/eADR-1002-newer.md", "eADR-1002",
+                                 supersedes="eADR-1003")
+        older = self._write_eadr(root, ".engine/contracts/instance/eADR-1003-older.md", "eADR-1003")
+        # a README under instance/ must NOT be entitized (the walk is eADR-*; it is not in deployment_contracts)
+        deployment = [".engine/contracts/instance/eADR-0001-foo.md", newer, older]
+        with mock.patch.object(validate, "ROOT", root):
+            ents = knowledge_gen.derive_entities(
+                self._CATALOG, [], [canon], {canon: ["core"]}, deployment_contracts=deployment)
+        return ents
+
+    def _by_id(self):
+        return {e["id"]: e for e in self._derive()}
+
+    def test_deployment_eadrs_are_non_canon_entities_distinct_from_a_same_stem_canon(self):
+        by_id = self._by_id()
+        canon = by_id["contract:eADR-0001-foo"]                     # canon: owned, provided_by
+        self.assertEqual(canon["owner"], "core")
+        self.assertIn("provided_by", canon["predicates"])
+        dep = by_id["contract:instance.eADR-0001-foo"]             # deployment same-stem: DISTINCT id
+        self.assertEqual(dep["owner"], "deployment")               # the reserved non-module token
+        self.assertNotIn("provided_by", dep["predicates"])         # non-canon signal
+        self.assertIn("governed_by", dep["predicates"])            # still governed by contract.v1
+        self.assertNotEqual(canon["source"]["path"], dep["source"]["path"])   # both survived, no overwrite
+
+    def test_supersedes_leg_is_live_for_the_deployment_stream(self):
+        by_id = self._by_id()
+        self.assertEqual(by_id["contract:instance.eADR-1002-newer"]["predicates"].get("supersedes"),
+                         ["contract:instance.eADR-1003-older"])
+        self.assertNotIn("supersedes", by_id["contract:eADR-0001-foo"]["predicates"])   # canon never emits
+
+    def test_the_derived_graph_conforms_to_the_schema_with_deployment_entities(self):
+        graph = json.loads(knowledge_gen.render_graph(self._derive()))
+        self.assertEqual(_errors(KNOWLEDGE_SCHEMA, graph), [],
+                         "a deployment entity (owner='deployment', no provided_by) must be schema-valid")
+
+    def test_the_query_index_builds_over_deployment_entities_and_lists_them(self):
+        import knowledge_index
+        import knowledge_query
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        graph_path = os.path.join(tmp.name, "graph.json")
+        with open(graph_path, "w", encoding="utf-8") as fh:
+            fh.write(knowledge_gen.render_graph(self._derive()))
+        idx = os.path.join(tmp.name, "index.sqlite")
+        # the owner-less-entity crash the plan gate flagged would surface HERE (NOT NULL / e["owner"] subscript)
+        _ipath, source = knowledge_index.build_index(index_path=idx, graph_path=graph_path)
+        self.assertEqual(source, "committed")
+        # pass the same graph_path so the freshness check reads THIS index (not a rebuild from the real graph).
+        found = knowledge_query.find(owner="deployment", index_path=idx, graph_path=graph_path)
+        self.assertEqual(len(found), 3, "`find --owner deployment` lists a deployment's own eADRs")
+
+    def test_absent_instance_dir_yields_no_deployment_entities(self):
+        # fail-safe: a deployed repo may never create instance/; the walk must return [] not raise.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with mock.patch.object(validate, "ROOT", tmp.name):
+            self.assertEqual(knowledge_gen.deployment_contract_inventory(), [])
+
+
 class TestLiveDerivationAttributes(unittest.TestCase):
     """The D-203 attributes on the REAL derived graph — the non-fingerprint correlate that the harvest is
     RIGHT (the gate proves the committed graph MATCHES the sources, never that the values are correct)."""
@@ -362,9 +454,12 @@ class TestLiveDerivationAttributes(unittest.TestCase):
             if "title" in e:
                 self.assertIn(e["type"], ("policy", "interface", "skill"), e["id"])  # skill.name is a title
 
-    def test_supersedes_is_dormant(self):
+    def test_supersedes_is_idle_in_this_repo(self):
+        # The leg is LIVE-CAPABLE for the deployment stream (see TestDeploymentStreamEntitization), but idle in
+        # THIS construction repo because it carries no deployment eADRs (`.engine/contracts/instance/` holds
+        # only its README) — every contract ENTITY here is canon, and canon never emits a supersedes edge.
         self.assertFalse(any("supersedes" in e["predicates"] for e in self.by_id.values()),
-                         "supersedes is provably dormant in v1 (every contract entity is owned == canon)")
+                         "no supersedes edge in this repo's live graph (no deployment eADRs present)")
 
     def test_no_placeholder_is_entitized(self):
         # issue #131: a .gitkeep is a directory placeholder, not a ratified instance — it must never appear
@@ -378,7 +473,7 @@ class TestLiveDerivationAttributes(unittest.TestCase):
         # issue #131: the engine's own skills live under .claude/skills/ — a catalogued surface — and must
         # appear in the graph, one entity per skill directory (not collapsed onto a single skill:SKILL).
         # Derive the expected set from ownership so this does not rot when the next engine skill lands.
-        _catalog, manifests, _inv, claims = knowledge_gen.load_sources()
+        _catalog, manifests, _inv, claims, _dc = knowledge_gen.load_sources()
         expected = {f"skill:{os.path.basename(os.path.dirname(rel))}"
                     for rel in claims
                     if rel.startswith(".claude/skills/") and rel.endswith("/SKILL.md")}

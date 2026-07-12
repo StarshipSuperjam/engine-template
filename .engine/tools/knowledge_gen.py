@@ -72,6 +72,15 @@ GRAPH_PATH = os.path.join(KNOWLEDGE_DIR, "graph.json")
 SCHEMA_VERSION = 1
 REGEN_CMD = "uv run --directory .engine -- python tools/knowledge_gen.py generate"
 
+# The deployment-owned per-instance eADR stream (D-169 / repository-topology law 5): a deployment authors its
+# OWN engine-decision eADRs under this path, in NO module's `provides`. The two contract populations are told
+# apart by provides-membership, NEVER a path or content marker — a CANON contract entity carries a `provided_by`
+# edge (Pass 1); a deployment eADR carries none (Pass 1b), and that is what canon detection keys off (Pass 3b).
+# A deployment entity's `owner` is the reserved token below (never a module id), so it stays schema-valid
+# (`owner` is required, minLength 1) and `find --owner deployment` lists a deployment's own decisions.
+DEPLOYMENT_CONTRACTS_PREFIX = ".engine/contracts/instance/"
+DEPLOYMENT_OWNER = "deployment"
+
 
 # ---- small shared helpers --------------------------------------------------------------------
 
@@ -119,6 +128,11 @@ def _instance_slug(surface_type: str, rel_path: str) -> str:
     stem = _slug(rel_path)
     if stem == "__init__":
         return os.path.basename(os.path.dirname(rel_path)) + ".__init__"
+    if surface_type == "contract" and rel_path.startswith(DEPLOYMENT_CONTRACTS_PREFIX):
+        # A deployment-authored eADR is path-qualified (`instance.<stem>`) so a same-stem overlap with a canon
+        # eADR (`contract:<stem>`) is structurally impossible — the entity dict is keyed by id, and an
+        # unqualified collision would silently overwrite one of the two. Mirrors the `<dir>.__init__` qualify.
+        return "instance." + stem
     return stem
 
 
@@ -300,10 +314,13 @@ def _supersedes_edges(contract_entities: list, fm_by_id: dict, canon_ids) -> dic
 
 # ---- pure derivation layer (no committed-file IO; fixture-testable) --------------------------
 
-def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dict) -> list:
+def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dict,
+                    deployment_contracts=()) -> list:
     """The whole entity set, derived from the live sources, sorted by id. `manifests` is the list of
     (relpath, manifest) pairs from discover_manifests(); `inventory` the engine file relpaths;
-    `claims` the {relpath: [module-id]} ownership map. All edges are MECHANICAL and OUTGOING."""
+    `claims` the {relpath: [module-id]} ownership map; `deployment_contracts` the per-instance eADR
+    relpaths (the deployment-owned stream, in no module's `provides` — Pass 1b). All edges are
+    MECHANICAL and OUTGOING."""
     surfaces = (catalog or {}).get("surfaces", {})
     entities: dict = {}
     path_to_id: dict = {}
@@ -353,6 +370,38 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
         entities[eid] = ent
         path_to_id[rel] = eid
 
+    # Pass 1b — one NON-CANON entity per deployment-authored eADR (the per-instance stream, in no module's
+    # `provides`, so it is absent from `inventory` and Pass 1 never sees it). Spec: contracts README — "the
+    # knowledge graph derives an entity per eADR by the same presence walk." A deployment entity carries NO
+    # `provided_by` edge (that absence is the non-canon signal Pass 3b reads) and the reserved `owner` token,
+    # but IS `governed_by` contract.v1 like any contract. It runs before Pass 3 (so the widened contract
+    # checks' `targets` resolve to these ids via `path_to_id`) and before Pass 3b (so `canon_ids` excludes it).
+    contract_rec = surfaces.get("contract") or {}
+    contract_governing = contract_rec.get("governing_schema")
+    for rel in deployment_contracts:
+        slug = _instance_slug("contract", rel)         # path-qualified `instance.<stem>` (collision-proof)
+        eid = f"contract:{slug}"
+        preds = {}
+        if contract_governing and not contract_governing.startswith("http"):
+            preds["governed_by"] = [f"schema:{_slug(contract_governing)}"]
+        ent = {
+            "id": eid, "type": "contract", "name": rel, "slug": slug,
+            "source": {"path": rel, "fingerprint": source_fingerprint(rel)},
+            "owner": DEPLOYMENT_OWNER, "predicates": preds,   # non-canon: NO provided_by
+        }
+        try:
+            fm = validate.frontmatter(os.path.join(validate.ROOT, rel)) or {}
+        except Exception:
+            fm = {}
+        ent["status"] = _status_for("contract", fm, None)
+        title = _title_for("contract", fm)
+        if title is not None:
+            ent["title"] = title
+        ent.update(_discriminators_for("contract", fm, {}, None))
+        contract_fm_by_id[eid] = fm
+        entities[eid] = ent
+        path_to_id[rel] = eid
+
     # Pass 2 — one entity per installed module.
     for path, m in manifests:
         mid = m.get("id")
@@ -385,11 +434,12 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
             entities[eid]["predicates"]["targets"] = targets
 
     # Pass 3b — `supersedes` edges (contract->contract, DEPLOYMENT-STREAM only). Canon contracts are those
-    # a module's `provides` claims (D-169: told apart by provides-membership, never a path/marker). Since
-    # derive_entities only entitizes OWNED files (Pass 1), every contract ENTITY is owned == canon, so this
-    # emits NOTHING in v1 (provably dormant); the guard is exercised by the unit fixtures.
+    # a module's `provides` claims (D-169: told apart by provides-membership, never a path/marker) — in the
+    # graph, a canon contract carries a `provided_by` edge (Pass 1) and a deployment eADR does not (Pass 1b).
+    # `_supersedes_edges` emits an edge only when BOTH ends are non-canon, so with the deployment stream now
+    # entitized the leg is live for deployment eADRs and stays inert for the canon.
     contract_entities = [entities[k] for k in sorted(entities) if entities[k]["type"] == "contract"]
-    canon_ids = {e["id"] for e in contract_entities}   # all entitized contracts are owned -> canon
+    canon_ids = {e["id"] for e in contract_entities if e["predicates"].get("provided_by")}
     for src_id, targets in _supersedes_edges(contract_entities, contract_fm_by_id, canon_ids).items():
         if targets:
             entities[src_id]["predicates"]["supersedes"] = targets
@@ -432,17 +482,29 @@ def drift_finding(canonical: str, committed: str | None, path: str, tier: str = 
 
 # ---- IO / source layer ----------------------------------------------------------------------
 
+def deployment_contract_inventory() -> list:
+    """The deployment-owned per-instance eADR stream (`.engine/contracts/instance/eADR-*.md`) — committed,
+    in NO module's `provides`, so it never appears in the ownership `inventory`. Read by its own presence
+    walk. FAIL-SAFE by construction: `glob.glob` returns `[]` when `instance/` does not exist (a deployed
+    repo may never have created it), so the derivation stays deterministic and never raises here. Excludes
+    `instance/README.md` (the folder's guide, not an eADR)."""
+    pattern = os.path.join(validate.ROOT, ".engine", "contracts", "instance", "eADR-*.md")
+    return sorted(_rel(p) for p in _glob.glob(pattern) if os.path.isfile(p))
+
+
 def load_sources():
     """The live sources: (catalog dict, [(relpath, manifest)], [surface-instance file relpaths],
-    {relpath: [module-id]}). Reuses module_coherence's present-set + ownership readers so the graph and the
-    module manager read the same installed set; the inventory is the catalog-location-driven surface walk
-    (`surface_instance_inventory`), which spans .engine/ AND .claude/ and drops placeholders. Raises (loud)
-    on a malformed source."""
+    {relpath: [module-id]}, [deployment-eADR relpaths]). Reuses module_coherence's present-set + ownership
+    readers so the graph and the module manager read the same installed set; the inventory is the
+    catalog-location-driven surface walk (`surface_instance_inventory`), which spans .engine/ AND .claude/
+    and drops placeholders. The deployment-eADR stream is walked separately (it is in no module's
+    `provides`). Raises (loud) on a malformed source."""
     catalog = validate.load_json(validate.CATALOG_PATH)
     manifests = module_coherence.discover_manifests()
     claims = module_coherence.provides_claims(manifests)
     inventory = surface_instance_inventory(catalog, claims)
-    return catalog, manifests, inventory, claims
+    deployment_contracts = deployment_contract_inventory()
+    return catalog, manifests, inventory, claims, deployment_contracts
 
 
 def canonical_graph() -> str:
