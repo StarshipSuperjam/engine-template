@@ -49,9 +49,11 @@ def resolve_tier(engine_dir: str | None = None) -> str:
     engine_dir = engine_dir if engine_dir is not None else _ENGINE_DIR
     try:
         with open(os.path.join(engine_dir, "engine.json"), encoding="utf-8") as fh:
-            manifest = json.load(fh) or {}
+            manifest = json.load(fh)
     except (OSError, ValueError):
         return SOLO
+    if not isinstance(manifest, dict):
+        return SOLO   # valid JSON that isn't an object (a list/string/number) -> honor the never-raises contract
     # TEAM is real only when the distinct identity that makes it real is ALSO recorded. This is the deadlock
     # guard: the team floor (1 required approval) is unsatisfiable without a distinct identity to author the PRs
     # (a sole owner cannot approve their own PR), so any team-WITHOUT-identity state — a first-run tier preference

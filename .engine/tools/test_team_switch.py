@@ -13,6 +13,11 @@ import team_switch  # noqa: E402
 from bootstrap import Result  # noqa: E402
 
 
+def _read(mpath):
+    with open(mpath, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
 class _FakeCP:
     """A stand-in ControlPlane whose apply() reports a chosen protection outcome, so the switch's delegation is
     exercised without a live ruleset."""
@@ -77,8 +82,8 @@ class TestApply(unittest.TestCase):
             res = ts.apply("bot", branch="main")
             self.assertEqual(res["status"], "blocked")
             # nothing was written — the manifest stays solo
-            self.assertEqual(json.load(open(mpath))["identity"], "solo")
-            self.assertNotIn("engine_identity", json.load(open(mpath)))
+            self.assertEqual(_read(mpath)["identity"], "solo")
+            self.assertNotIn("engine_identity", _read(mpath))
 
     def test_applies_records_and_flips_when_ready(self):
         with tempfile.TemporaryDirectory() as d:
@@ -87,7 +92,7 @@ class TestApply(unittest.TestCase):
             res = ts.apply("bot", "bot@x.invalid", branch="main")
             self.assertEqual(res["status"], "applied")
             self.assertEqual(cp.applied, 1)                       # delegated the ruleset apply
-            m = json.load(open(mpath))
+            m = _read(mpath)
             self.assertEqual(m["identity"], "team")
             self.assertEqual(m["engine_identity"], {"login": "bot", "email": "bot@x.invalid"})
 
@@ -96,7 +101,7 @@ class TestApply(unittest.TestCase):
             ts, mpath = _mk(d, perm="write", codeowners=True, cp=_FakeCP(protected=False))
             res = ts.apply("bot", branch="main")
             self.assertEqual(res["status"], "degraded")
-            self.assertEqual(json.load(open(mpath))["identity"], "solo")   # verify-before-record
+            self.assertEqual(_read(mpath)["identity"], "solo")   # verify-before-record
 
     def test_apply_is_idempotent(self):
         with tempfile.TemporaryDirectory() as d:
@@ -121,7 +126,7 @@ class TestReverse(unittest.TestCase):
             res = ts.reverse(branch="main")
             self.assertEqual(res["status"], "reversed")
             self.assertIn("guardrail-ack", res["message"])         # names the weakening consent
-            out = json.load(open(mpath))
+            out = _read(mpath)
             self.assertEqual(out["identity"], "solo")
             self.assertNotIn("engine_identity", out)
 

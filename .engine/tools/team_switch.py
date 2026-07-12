@@ -237,21 +237,28 @@ def main(argv) -> int:
               "GitHub (`gh auth login`).")
         return 1
     ts = TeamSwitch(repo, token)
-    if cmd == "status":
-        print(ts.status(_flag(argv, "--login")).get("message", ""))
-        return 0
-    if cmd == "apply":
-        login = _flag(argv, "--login")
-        if not login:
-            print("Which account should make the engine's changes? Pass `apply --login <account>`.")
-            return 1
-        res = ts.apply(login, _flag(argv, "--email"))
-        print(res.get("message", ""))
-        return 0 if res.get("status") in ("applied", "already") else 1
-    if cmd == "reverse":
-        res = ts.reverse()
-        print(res.get("message", ""))
-        return 0 if res.get("status") in ("reversed", "already") else 1
+    try:
+        if cmd == "status":
+            print(ts.status(_flag(argv, "--login")).get("message", ""))
+            return 0
+        if cmd == "apply":
+            login = _flag(argv, "--login")
+            if not login:
+                print("Which account should make the engine's changes? Pass `apply --login <account>`.")
+                return 1
+            res = ts.apply(login, _flag(argv, "--email"))
+            print(res.get("message", ""))
+            return 0 if res.get("status") in ("applied", "already") else 1
+        if cmd == "reverse":
+            res = ts.reverse()
+            print(res.get("message", ""))
+            return 0 if res.get("status") in ("reversed", "already") else 1
+    except TeamSwitchError as e:
+        # A transient GitHub read (rate-limit / outage) while checking the account — degrade in plain language,
+        # never a raw traceback for a non-engineer. Nothing was changed; the fail-closed path leaves solo intact.
+        print(f"Couldn't reach GitHub to check your setup ({e}). Nothing changed — try again when you're back "
+              "online.")
+        return 1
     print(__doc__)
     return 0
 
@@ -291,17 +298,21 @@ def _demo() -> int:
         perms["perm"] = "write"
         no_co = ts.apply("bot", branch="main")
         ok &= no_co["status"] == "blocked" and "codeowners" in no_co["message"].lower()
+        def _read():
+            with open(mpath, encoding="utf-8") as fh:
+                return json.load(fh)
+
         codeowners["has"] = True
         applied = ts.apply("bot", "bot@example.invalid", branch="main")
         ok &= applied["status"] == "applied"
-        ok &= json.load(open(mpath))["identity"] == "team"
-        ok &= json.load(open(mpath))["engine_identity"]["login"] == "bot"
+        ok &= _read()["identity"] == "team"
+        ok &= _read()["engine_identity"]["login"] == "bot"
         again = ts.apply("bot", branch="main")
         ok &= again["status"] == "already"
         reversed_ = ts.reverse(branch="main")
         ok &= reversed_["status"] == "reversed"
-        ok &= json.load(open(mpath))["identity"] == "solo"
-        ok &= "engine_identity" not in json.load(open(mpath))
+        ok &= _read()["identity"] == "solo"
+        ok &= "engine_identity" not in _read()
 
     print("team-switch self-check:", "OK" if ok else "FAILED")
     return 0 if ok else 1

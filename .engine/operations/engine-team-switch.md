@@ -39,8 +39,9 @@ and turns on the team safety rules.
 6. **Turn it on.** Run `uv run --directory .engine -- python tools/team_switch.py apply --login <the
    second account's name>`, signed in as **yourself** (turning on the rules needs your admin access). The
    engine checks the account is set up correctly, records it, points the engine's commits at it, and
-   turns on the team safety rules. If anything isn't ready it stops and tells you the one thing to fix —
-   it never leaves you half-switched.
+   turns on the team safety rules. If anything isn't ready it stops first and tells you the one thing to
+   fix — it won't start a half-finished switch. And if it's ever interrupted partway (your machine sleeps,
+   the network drops), just run it again: it's safe to re-run and picks up from wherever it left off.
 7. **Commit the recorded change**, then **run your future build sessions signed in as the second
    account** (so the engine's pull requests come from it and wait for your approval). You stay signed in
    as yourself to review and merge.

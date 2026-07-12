@@ -2951,7 +2951,7 @@
       },
       "slug": "engine-team-switch",
       "source": {
-        "fingerprint": "sha256:9716f06894f224240211a7255989b8c7befb354440d78a2e347bc3687e163e16",
+        "fingerprint": "sha256:e345750381b2362fb23f1ec65fde84fc2145992d357a360fcbfb0ce3b1a137e9",
         "path": ".engine/operations/engine-team-switch.md"
       },
       "status": "active",
@@ -4166,7 +4166,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:a201a752adb0a192cec1604173bf1e3080cb7d929bd61f6e820f06313a2e229f",
+        "fingerprint": "sha256:134c74629f8e4dbc7c926484e8f7d3796785d766f34f94acaf38d4a5d166bce0",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5526,7 +5526,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:b0e1d3cb513c6043737ab61861cecddc48b35951fc278ab57002fae415d2f315",
+        "fingerprint": "sha256:6d5d4b864de8e974977c153701ff12d0ff9b796c7456ce8a172baa877a982f9b",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -5866,7 +5866,7 @@
       },
       "slug": "team_switch",
       "source": {
-        "fingerprint": "sha256:c75290b9df81ddc58de7a89dd8f28591c001d84dd1c86fc6caebff589c76835c",
+        "fingerprint": "sha256:3adc5d0757e98c14979f875c84a108d98ed9b2052c4e9e8012139942f5c1da77",
         "path": ".engine/tools/team_switch.py"
       },
       "status": "active",
@@ -7379,7 +7379,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:8e7e048ea779648d638dfe10663c315ab39435d32ac44749ffb065557837f4d1",
+        "fingerprint": "sha256:3ad6e0335ef3cc646fcfeadc653da7a43848921b719ede29039ab66041a6cfe1",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -7549,7 +7549,7 @@
       },
       "slug": "test_team_switch",
       "source": {
-        "fingerprint": "sha256:3d999ea8c9236f15e8b4c3ff0d0c870a74a78b4e20a4f26d27ba29ec61bb2ea6",
+        "fingerprint": "sha256:8064603557b224a39d9fb07aa65b45589ecf318ae2e78f4af36abbc62113c4df",
         "path": ".engine/tools/test_team_switch.py"
       },
       "status": "active",
