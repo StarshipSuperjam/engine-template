@@ -487,7 +487,10 @@ def deployment_contract_inventory() -> list:
     in NO module's `provides`, so it never appears in the ownership `inventory`. Read by its own presence
     walk. FAIL-SAFE by construction: `glob.glob` returns `[]` when `instance/` does not exist (a deployed
     repo may never have created it), so the derivation stays deterministic and never raises here. Excludes
-    `instance/README.md` (the folder's guide, not an eADR)."""
+    `instance/README.md` (the folder's guide, not an eADR). One level deep — the documented flat,
+    one-file-per-decision layout; the contract checks' `**` target is deliberately broader (depth-agnostic,
+    the more-protective choice), so an eADR nested deeper would be checked but not indexed — and it would also
+    trip the ownership walk as an unowned surface, so it could not merge in a deployed repo regardless."""
     pattern = os.path.join(validate.ROOT, ".engine", "contracts", "instance", "eADR-*.md")
     return sorted(_rel(p) for p in _glob.glob(pattern) if os.path.isfile(p))
 

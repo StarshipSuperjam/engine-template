@@ -2530,7 +2530,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:6627107192d903155a8f7ee694ae2333b1e76aee214def7540942c3e4fb81ace",
+        "fingerprint": "sha256:6f09b8bffe31a6645e967fe0b5ea175d67b31f82e4de3170a06a431e4c66e88b",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -5194,7 +5194,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:70de2b071e38d6529192edc26a301169640a15fb846648000f6cb2e888142131",
+        "fingerprint": "sha256:4b50733e401de8d2ef011d89b4e7969b43b810550a3bfa53f625b70928699c98",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -5466,7 +5466,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:9183a9a52cfc202efc292054ec5bac19c6b1fff224bf6a2a8d0f0e376b28383d",
+        "fingerprint": "sha256:9e64cb4dcb3883f6c4a2e0f5fa049910de44bc75be03f0a09b3dc907a3908da1",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
