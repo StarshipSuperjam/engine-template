@@ -471,10 +471,11 @@ MCP_AVAILABILITY_CHECK = (
     "   For EACH of these families ABSENT from your tools this session, you MUST tell the operator, in plain "
     "words (this is consent-critical — treat it like any must-relay alarm above, never as internal machinery): "
     "that its live version isn't switched on this session, so you're working from their saved files instead — "
-    "which still works, but can be out of date; and that to switch it on they approve the engine's memory and "
-    "knowledge servers when their Claude app prompts them (or in its MCP settings), then fully quit and reopen "
-    "Claude. If they say they already approved the servers but a family is still missing, offer to look into "
-    "why it won't start. If BOTH families are present, say nothing about this."
+    "which still works, but can be out of date; and that to switch it on they approve the engine's servers when "
+    "their Claude app prompts them (or in its MCP settings), then fully quit and reopen Claude. If no prompt "
+    "appears, or they say they already approved it but a family is still missing, offer to help them turn it on "
+    "— find the setting for their Claude app, or look into why the server won't start. If BOTH families are "
+    "present, say nothing about this."
 )
 
 

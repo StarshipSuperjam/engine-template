@@ -1,6 +1,6 @@
 ---
 name: engine-parts
-description: Show what your engine is made of — its version, the surfaces it defines, and the modules installed and how they depend on each other.
+description: Show what your engine is made of — its version, the kinds of files it governs, and the modules installed and how they depend on each other.
 invocation: operator-typed
 disable-model-invocation: true
 allowed-tools: Bash(uv run *)

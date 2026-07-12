@@ -24,8 +24,8 @@ the record that governs it, so a settled decision isn't quietly undone. You can 
 on its own in plain prose.
 
 **What your Engine is made of.** If you ever want to see what your Engine is built from — its version, the
-surfaces it defines, and the modules installed and how they depend on each other — type **`/engine-parts`**, or
-just ask "what is my engine made of?". It's a plain-language readout, and it only reads — it never changes
+kinds of files it governs, and the modules installed and how they depend on each other — type **`/engine-parts`**,
+or just ask "what is my engine made of?". It's a plain-language readout, and it only reads — it never changes
 anything.
 
 **I work in an isolated copy — never in your project folder's git history.** Your top-level project folder is

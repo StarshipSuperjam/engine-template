@@ -4284,7 +4284,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:8bc2b44b85a3d5e738e8b617c3df9c97095b911ae29211dc4bcfa06ae3234178",
+        "fingerprint": "sha256:b73cb3f352b29e2dee2ca0b52f02da7f03bb3029f076cbb6df5ea379571f0e44",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
