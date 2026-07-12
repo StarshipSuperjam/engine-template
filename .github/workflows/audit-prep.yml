@@ -305,8 +305,10 @@ jobs:
           set -euo pipefail
           # Issue #273 half 2 (slice 2): give a STANDING soft length-budget finding a durable home — a
           # deduped, lane-aware engine-labelled issue — so it reaches boot and the tracker, not just this
-          # week's digest. The tool opens/updates only (never closes — a cleared finding is recommended for
-          # closure by the self-review's own backlog concern; the engine reports, the operator decides). It
+          # week's digest. The tool runs a LIVE-DERIVED telemetry pass (#403 / F0204): it opens/updates an
+          # issue for each over-budget surface AND auto-resolves the issue of a surface seen back under its
+          # budget — telemetry's standard source-scoped resolution, confined to soft-budget sids so it can
+          # never close another source's issue (auto-resolve only clears the flag; it never edits the file). It
           # uses the OWN-repo GitHub token (never the Claude token) and needs the issues:write scope declared
           # above. It is fail-open — it prints a visible status and exits 0 even when GitHub is unreachable,
           # so a transient blip never fails the self-review; the trailing `|| true` additionally guards

@@ -22,7 +22,9 @@ Run:
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402  (ROOT)
@@ -89,7 +91,53 @@ def _demo() -> int:
         print("    └─ (the last line is an invisible marker; it does not render in GitHub)")
         marker_ok = "<!-- engine-signal: " + mrec["source_id"] + " -->" in body
 
-        ok = one_local and (not local_has_caveat) and mach_has_caveat and dedup_ok and marker_ok
+        # (6) The LIVE-DERIVED pass (F0204): a full run opens the over-budget surface's issue, then — once the
+        #     file is back UNDER budget (still an evaluated surface, just no longer firing) — AUTO-RESOLVES it,
+        #     while never touching another source's issue. Firing is stubbed here so the ONE surface is
+        #     deterministic; budget_surfaces() (the authoritative set) still reads the REAL shape rules, and the
+        #     fixture file really exists, so it is genuinely in scope. `_CLK` steps forward so the close is seen.
+        fixture_sid = f"{asp.SOURCE_PREFIX}{_FIXTURE_REL}"
+        _orig_collect = validate.collect
+        fake2 = telemetry._FakeGitHub()
+        democache = os.path.join(tempfile.mkdtemp(), "soft-budget-streams.json")   # isolated -> deterministic
+        try:
+            telemetry.promote_finding(telemetry.GitHubIssues("you/your-project", "demo-token",
+                                      transport=fake2.transport),
+                                      {"source_id": "ci/build", "severity": telemetry.PERSISTENT_BENIGN,
+                                       "message": "a required check is red", "location": None}, _CLOCK)
+            validate.collect = lambda s, c, **k: [
+                {"severity": "soft", "source_kind": "shape", "location": {"file": _FIXTURE_REL},
+                 "message": f"'{_FIXTURE_REL}' is 300 lines, over its 200-line budget."}]
+            asp.promote("you/your-project", "demo-token", _CLOCK, transport=fake2.transport, cache_path=democache)
+            open1 = {telemetry.parse_source_id(i["body"]) for i in fake2.issues.values() if i["state"] == "open"}
+            validate.collect = lambda s, c, **k: []               # the file is trimmed -> no longer firing
+            rep_clear = asp.promote("you/your-project", "demo-token", _CLOCK, transport=fake2.transport,
+                                    cache_path=democache)
+            open2 = {telemetry.parse_source_id(i["body"]) for i in fake2.issues.values() if i["state"] == "open"}
+        finally:
+            validate.collect = _orig_collect
+            shutil.rmtree(os.path.dirname(democache), ignore_errors=True)
+        print(f"\n(6) LIVE pass: over-budget -> the surface's issue is open ({fixture_sid in open1}); trim it "
+              f"-> closed={rep_clear.closed}, its issue is gone ({fixture_sid not in open2}); the unrelated CI "
+              f"issue survives ({'ci/build' in open2}).")
+        resolve_ok = (fixture_sid in open1 and fixture_sid not in open2 and "ci/build" in open2)
+
+        # (7) The permalink to "what is broken" (F0202): a debt body for a CATALOGUED surface links to it on
+        #     GitHub. Shown on a real catalogued file (the fixture is a throwaway, so it has no entity to link).
+        cat_rel = ".engine/operations/build-orchestration.md"
+        validate.collect = lambda s, c, **k: [
+            {"severity": "soft", "source_kind": "shape", "location": {"file": cat_rel},
+             "message": f"'{cat_rel}' is over its budget."}]
+        try:
+            cat_recs = asp.budget_records(_CLOCK, repo="you/your-project")
+        finally:
+            validate.collect = _orig_collect
+        link = f"https://github.com/you/your-project/blob/HEAD/{cat_rel}"
+        link_ok = any(link in r["body_core"] for r in cat_recs if r["source_id"] == f"{asp.SOURCE_PREFIX}{cat_rel}")
+        print(f"(7) A debt body for a catalogued surface links to \"what is broken\" on GitHub (F0202): {link_ok}.")
+
+        ok = (one_local and (not local_has_caveat) and mach_has_caveat and dedup_ok and marker_ok
+              and resolve_ok and link_ok)
     finally:
         try:
             os.remove(abs_path)

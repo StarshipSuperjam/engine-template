@@ -6,7 +6,9 @@ real."""
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -112,30 +114,104 @@ class TestBudgetRecords(unittest.TestCase):
         self.assertIn("&lt;img", out)
         self.assertIn("&amp;", out)
 
+    def test_body_carries_a_blob_permalink_to_the_over_budget_surface(self):
+        # F0202: a debt body references the knowledge entity for "what is broken" — the over-budget surface —
+        # as a clickable blob permalink. `blob/HEAD/` resolves to the default branch with no branch lookup.
+        rel = ".engine/operations/build-orchestration.md"   # a real catalogued surface -> a knowledge entity
+        self._stub([_f(f"'{rel}' is 300 lines, over its 200-line budget.", rel)])
+        rec = [r for r in asp.budget_records(_NOW, claims={}, repo="o/r")
+               if r["source_id"] == f"soft-budget:{rel}"][0]
+        self.assertIn(f"https://github.com/o/r/blob/HEAD/{rel}", rec["body_core"])
 
-class TestPromoteDedupAndDegrade(unittest.TestCase):
+    def test_no_repo_context_omits_the_reference_but_still_promotes(self):
+        # A reference is enrichment, never a gate: with no repo the Issue still opens, just without the link.
+        rel = ".engine/operations/build-orchestration.md"
+        self._stub([_f(f"'{rel}' is 300 lines, over its 200-line budget.", rel)])
+        rec = [r for r in asp.budget_records(_NOW, claims={}, repo=None)
+               if r["source_id"] == f"soft-budget:{rel}"][0]
+        self.assertNotIn("blob/HEAD", rec["body_core"])
+        self.assertIn("budget", rec["body_core"])           # the finding itself still renders
+
+    def test_uncatalogued_path_omits_the_reference(self):
+        # A path that resolves to no knowledge entity carries no reference (the helper never emits a bare id).
+        rel = "docs/not_a_catalogued_surface_xyz.md"
+        self._stub([_f(f"'{rel}' is 300 lines, over its 200-line budget.", rel)])
+        rec = [r for r in asp.budget_records(_NOW, claims={}, repo="o/r")
+               if r["source_id"] == f"soft-budget:{rel}"][0]
+        self.assertNotIn("blob/HEAD", rec["body_core"])
+
+
+class TestPromoteLiveTriage(unittest.TestCase):
+    """The live-derived triage pass (F0204): open/update over-budget surfaces, auto-resolve cleared ones, and
+    NEVER close another source's Issue. A REAL catalogued surface is used so the real budget_surfaces()
+    authoritative enumeration is exercised end-to-end (the stub only decides whether it FIRES this pass)."""
+    _REL = ".engine/operations/build-orchestration.md"   # a real budget-governed surface + knowledge entity
+
     def setUp(self):
         self._orig = validate.collect
         self.addCleanup(lambda: setattr(validate, "collect", self._orig))
+        td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, td, ignore_errors=True)
+        self._cache = os.path.join(td, "soft-budget-streams.json")   # isolated per test (deterministic)
+
+    def _firing(self):
         validate.collect = lambda suite, ctx, **kw: [
-            _f("'.engine/operations/x.md' is 300 lines, over its 200-line budget.",
-               ".engine/operations/x.md")]
+            _f(f"'{self._REL}' is 300 lines, over its 200-line budget.", self._REL)]
+
+    def _cleared(self):
+        validate.collect = lambda suite, ctx, **kw: []
+
+    def _promote(self, fake):
+        return asp.promote("o/r", "tok", _NOW, transport=fake.transport, claims={}, cache_path=self._cache)
 
     def test_promote_opens_then_updates_never_duplicates(self):
         fake = telemetry._FakeGitHub()
-        claims = {".engine/operations/x.md": ["core"]}
-        t1, d1 = asp.promote("o/r", "tok", _NOW, transport=fake.transport, claims=claims)
+        self._firing()
+        r1 = self._promote(fake)
         open1 = sum(1 for i in fake.issues.values() if i["state"] == "open")
-        t2, d2 = asp.promote("o/r", "tok", _NOW, transport=fake.transport, claims=claims)
+        r2 = self._promote(fake)
         open2 = sum(1 for i in fake.issues.values() if i["state"] == "open")
-        self.assertEqual((t1, d1, open1), (1, False, 1))
-        self.assertEqual((t2, d2, open2), (1, False, 1))   # re-run updates the one Issue, no duplicate
+        self.assertEqual((r1.opened, r1.degraded, open1), (1, False, 1))
+        self.assertEqual((r2.opened, r2.updated, open2), (0, 1, 1))   # re-run updates the one Issue, no dup
+
+    def test_a_cleared_surface_auto_resolves_its_issue(self):
+        # THE F0204 behaviour: a file back UNDER budget (no longer firing, but still an evaluated budget
+        # surface -> in `authoritative`) auto-resolves its tracked Issue on the next pass.
+        fake = telemetry._FakeGitHub()
+        self._firing()
+        self._promote(fake)
+        self.assertEqual(sum(1 for i in fake.issues.values() if i["state"] == "open"), 1)
+        self._cleared()
+        r = self._promote(fake)
+        self.assertEqual(r.closed, 1)
+        self.assertEqual(sum(1 for i in fake.issues.values() if i["state"] == "open"), 0)
+
+    def test_pass_never_closes_another_sources_issue(self):
+        # The 403.1 scoping law (S1): `authoritative` is confined to soft-budget: sids, so a cleared
+        # soft-budget pass closes its OWN Issue but never a ci/ (or ambient/episodic/out-of-band) one.
+        fake = telemetry._FakeGitHub()
+        gh = telemetry.GitHubIssues("o/r", "tok", transport=fake.transport)
+        telemetry.promote_finding(gh, {"source_id": "ci/build", "severity": telemetry.PERSISTENT_BENIGN,
+                                       "message": "a required check is red", "location": None}, _NOW)
+        self._firing()
+        self._promote(fake)
+        self._cleared()
+        self._promote(fake)
+        open_sids = [telemetry.parse_source_id(i["body"]) for i in fake.issues.values() if i["state"] == "open"]
+        self.assertIn("ci/build", open_sids)                       # the CI issue is UNTOUCHED
+        self.assertNotIn(f"soft-budget:{self._REL}", open_sids)     # the cleared soft-budget issue closed
 
     def test_unreachable_github_degrades_without_raising(self):
         fake = telemetry._FakeGitHub(fail_status=403)
-        tracked, degraded = asp.promote("o/r", "tok", _NOW, transport=fake.transport,
-                                        claims={".engine/operations/x.md": ["core"]})
-        self.assertEqual((tracked, degraded), (0, True))   # honest degrade, never a false success
+        self._firing()
+        r = self._promote(fake)
+        self.assertTrue(r.degraded)                                 # honest degrade, never a false success
+        self.assertEqual((r.opened, r.updated, r.closed), (0, 0, 0))
+
+    def test_budget_surfaces_are_all_soft_budget_scoped_and_include_real_shape_files(self):
+        surfaces = asp.budget_surfaces()
+        self.assertTrue(all(s.startswith("soft-budget:") for s in surfaces))   # never widens beyond the source
+        self.assertIn(f"soft-budget:{self._REL}", surfaces)                    # a real shape-governed file
 
 
 class TestMain(unittest.TestCase):
