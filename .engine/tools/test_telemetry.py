@@ -25,6 +25,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -1786,6 +1787,62 @@ class TestFindingsInbox(unittest.TestCase):
         with open(self.spool, encoding="utf-8") as fh:                # nothing lost — it re-drains next pass
             lines = [ln for ln in fh if ln.strip()]
         self.assertEqual([json.loads(ln)["source_id"] for ln in lines], ["boot/refused-cursor"])
+
+    # ---- #412: the broken-runtime marker → TRUST_CRITICAL immediate promote ----
+
+    def test_runtime_marker_promotes_trust_critical_immediately_and_clears_on_success(self):
+        # A missing tool-runtime "surfaces as a crash would, promoted immediately" (hooks/README) — NOT spooled,
+        # NOT persistence-gated: ONE promote clears it. The marker's bytes never enter the finding.
+        fake, gh = self._gh()
+        marker = os.path.join(self._td, "runtime-health.marker")
+        open(marker, "w", encoding="utf-8").close()                   # presence-only (empty)
+        self.assertTrue(telemetry.promote_runtime_marker(gh, marker_path=marker))
+        self.assertIn(telemetry.RUNTIME_UNHEALTHY_SOURCE_ID, self._open_sids(fake))   # tracked at once
+        self.assertFalse(os.path.exists(marker))                      # cleared after a durable promote
+        body = next(i["body"] for i in fake.issues.values())
+        self.assertIn("couldn't run its own tools", body)             # the fixed operator message
+        self.assertIn("the engine's own setup, not your project", body)   # engine's-own-health framing
+
+    def test_runtime_marker_absent_is_a_noop(self):
+        fake, gh = self._gh()
+        self.assertFalse(telemetry.promote_runtime_marker(gh, marker_path=os.path.join(self._td, "nope.marker")))
+        self.assertEqual(len(fake.issues), 0)
+
+    def test_runtime_marker_is_kept_when_the_promote_cannot_land(self):
+        # GitHub unreachable -> emit_finding returns False -> the marker is LEFT to retry next session (nothing
+        # lost); it must never be cleared on a failed promote.
+        _fake, gh = self._gh(fail_status=403)
+        marker = os.path.join(self._td, "runtime-health.marker")
+        open(marker, "w", encoding="utf-8").close()
+        self.assertFalse(telemetry.promote_runtime_marker(gh, marker_path=marker))
+        self.assertTrue(os.path.exists(marker))
+
+    # ---- #412: the stranded-`*.draining`-aside sweep (age-gated) ----
+
+    def test_sweep_recovers_a_stale_stranded_aside_into_the_spool(self):
+        aside = f"{self.spool}.99999.draining"                        # a crashed drain's per-pid aside
+        with open(aside, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(self._benign()) + "\n")
+        old = time.time() - 10_000                                    # far older than the stale bound
+        os.utime(aside, (old, old))
+        self.assertEqual(telemetry._sweep_stranded_asides(self.spool, min_age_seconds=300), 1)
+        self.assertFalse(os.path.exists(aside))                       # swept back and removed
+        with open(self.spool, encoding="utf-8") as fh:
+            self.assertEqual([json.loads(ln)["source_id"] for ln in fh if ln.strip()], ["boot/refused-cursor"])
+
+    def test_sweep_leaves_a_young_aside_untouched(self):
+        # A fresh aside may be a CONCURRENT live drain's in-flight batch — never scavenge it.
+        aside = f"{self.spool}.99999.draining"
+        with open(aside, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(self._benign()) + "\n")
+        self.assertEqual(telemetry._sweep_stranded_asides(self.spool, min_age_seconds=300), 0)
+        self.assertTrue(os.path.exists(aside))
+
+    def test_drain_cli_skips_cleanly_without_local_github_context(self):
+        import boot
+        with mock.patch.object(boot, "repo_slug", return_value=""), \
+             mock.patch.object(boot, "gh_token", return_value=""):
+            self.assertEqual(telemetry._run_drain_cli([]), 0)         # no token/repo -> exit 0, touches nothing
 
 
 if __name__ == "__main__":

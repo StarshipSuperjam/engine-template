@@ -2661,7 +2661,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:b06e9ad147fb7e255a8bd12d32cab628d31c773dd6ee475a3a76040fb964efc7",
+        "fingerprint": "sha256:34cd18165d205ebea3fd8a7a5a69acd6cddabd2e59657eb86bc69740462406d6",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4426,7 +4426,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:762eb924acf371d95b56fcfd8887b86bc5028446ce2051398f61746fe5d8d3a3",
+        "fingerprint": "sha256:d4c2bbca809c8a5964bc9f5bcec1da575afbe9d5b93e2a61e5b9ae980b32e03a",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -4768,6 +4768,23 @@
       "source": {
         "fingerprint": "sha256:8655b47a120beb8d32165c39edef26f6d34a5c47fdbedf9fb0906d6a818c41f6",
         "path": ".engine/tools/demo_hook_runner.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_inbox_drain",
+      "name": ".engine/tools/demo_inbox_drain.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_inbox_drain",
+      "source": {
+        "fingerprint": "sha256:263917e2668602bbbd0891a684711cc748ec06d6b6b5a6dc38cb324a47c3681f",
+        "path": ".engine/tools/demo_inbox_drain.py"
       },
       "status": "active",
       "type": "tool"
@@ -5157,7 +5174,7 @@
       },
       "slug": "hook-runner",
       "source": {
-        "fingerprint": "sha256:6a47340d24872ec632cd39f53f740e98e40d0c025eb7d19ee63cacbf8876174e",
+        "fingerprint": "sha256:972eae5ee7e3aa5f6b9387f8919c910cccf8782d9d09e6948fd27b618bb9b54a",
         "path": ".engine/tools/hook-runner.sh"
       },
       "status": "active",
@@ -5174,7 +5191,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:a76c1f8dcebbf7bb077dc856f2fa3ac5f517e0324d91ca89b12e70aa1a884dcc",
+        "fingerprint": "sha256:53682f2dad346e7f49a3e907d2a7bc7213862a3dc19ddc986e531ec62fea31aa",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -6092,7 +6109,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:f558210c467aafebcbe4bf73ab46d227050cb06f2fc41a7eb33b0452d6a2de14",
+        "fingerprint": "sha256:5cd2c7fa9b88f9ddc1cd63af07811a53ccd90b9a712a53651ecf4e39f4b71419",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -6415,7 +6432,7 @@
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:7b038e0c25050a092e27bdd103e789d49332a1617077a0f7a00626665b854e02",
+        "fingerprint": "sha256:a469794dd83795d40942d1ad7ea585a6c158b7fbb6a133e17d50f7d31c545108",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -6789,7 +6806,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:35ce1efcf1e52c5cfda58308e5f8b0ce7745d88a6d6dfe1c1e0db07a2e6606af",
+        "fingerprint": "sha256:def9e32c71d4783ec461a470b327a4b58b5f5b388beb56139ebaaf850e2e1ece",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -7809,7 +7826,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:7cab1442c5aee1316c013b691a2bd31839354fbba9b752bcacf220c421260dc5",
+        "fingerprint": "sha256:6a5b3e12fa6db3c4b2a702148831fe51d29633642ca8ca9614b971607d901d3b",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

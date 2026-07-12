@@ -270,6 +270,14 @@ def summary(session_id):
 _LOOP_LINE = "sorting out where the open findings should go — one moment."
 _CAP_APPROACH = "If we can't settle this, I'll save them as tracked follow-ups and finish up."
 _CAP_STOP = "I've saved the open follow-up(s) as tracked items so they're not lost, and finished up."
+# The cap-exhaustion, GitHub-offline case: the disposition check DID run (it found the open findings) — only the
+# durable SAVE could not land, so the honest line is "couldn't save them as tracked yet", NOT "couldn't run the
+# check". The kept findings re-surface next turn (close/README "the finding survives regardless").
+_CAP_UNTRACKED = ("I've noted the open follow-up(s), but couldn't save them as tracked items just now — I'll try "
+                  "again next turn, so nothing is lost. Review this turn's work with extra care.")
+# The gate-CRASH notice (close/README "the gate fails open, and says so"): the disposition check itself could not
+# run. Passed to hooks.run_hook as fail_open_notice, so a crash speaks this plain line instead of the generic
+# "a safety check on the Stop step could not run".
 _FAIL_OPEN_NOTICE = ("I couldn't run the check that confirms nothing was dropped — review this turn's work "
                      "with extra care.")
 
@@ -442,8 +450,10 @@ def handler(payload):
         clear(session_id)
     _reset_blocks(session_id)                             # the streak ends here; don't carry a stale count forward
     # Best-effort same-turn notice; the durable record is the logged Issue (or, for a kept leftover, its
-    # re-appearance next turn). Honest: cap-stop only when EVERY leftover was tracked.
-    sys.stderr.write((_FAIL_OPEN_NOTICE if kept else _CAP_STOP) + "\n")
+    # re-appearance next turn). Honest: cap-stop only when EVERY leftover was tracked; otherwise the "couldn't
+    # save them yet" line (the check RAN — only the durable write was offline; _FAIL_OPEN_NOTICE, "couldn't run
+    # the check", belongs to a gate CRASH, now carried via run_hook's fail_open_notice).
+    sys.stderr.write((_CAP_UNTRACKED if kept else _CAP_STOP) + "\n")
     return hooks.proceed()
 
 
@@ -593,7 +603,9 @@ def main(argv):
     if cmd == "hook":
         # Hook mode: what the wired Stop hook invokes. run_hook reads the event JSON from stdin, runs the
         # gate, translates block() -> exit 2 + stderr, downgrades a forced-continuation block, fail-open.
-        return hooks.run_hook("Stop", handler)
+        # fail_open_notice: if the disposition gate itself CRASHES, the operator hears close's own plain line
+        # (close/README "the gate fails open, and says so"), not run_hook's generic wording.
+        return hooks.run_hook("Stop", handler, fail_open_notice=_FAIL_OPEN_NOTICE)
     if cmd == "record":
         fid = record_finding(_arg(argv, "--session"), _arg(argv, "--message"))
         print(f"recorded: {fid}")

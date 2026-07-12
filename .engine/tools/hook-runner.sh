@@ -20,7 +20,9 @@
 #     gitignored .engine/.venv is provisioned a beat after a checkout, so a hook that fires in that
 #     window finds no interpreter; the wait polls for either OS's layout, then runs the one present.
 #   - it NEVER falls back to the operator's system Python — if neither layout appears within the bound,
-#     it runs NOTHING (constraints: the engine "cannot manage a language runtime").
+#     it runs NOTHING (constraints: the engine "cannot manage a language runtime"). It also drops a
+#     best-effort PRESENCE marker so that could-not-run leaves a durable trace: the `drain-inbox`
+#     SessionStart driver promotes it into a tracked finding on the next healthy session (see the tail).
 #
 # INVARIANT (do not break): hook commands are ALWAYS rendered in the POSIX bin/python form by
 # hooks.hook_command, and this launcher owns the per-OS resolution. Do NOT wire provisioning to
@@ -75,4 +77,14 @@ fi
 # surfacing of an unhealthy runtime (hooks/README §Fail-open-and-flag, D-156; the promotion is #391/#412).
 # Fail-safe: this readout cannot fail the script closed.
 printf '%s\n' "The engine could not run its own tools: its private Python runtime is not ready (looked for $interp and its Windows equivalent). I have not verified this step — this is not a block. If it keeps happening, the engine's environment needs to be set up (provisioning)." >&2
+# Leave a durable trace: the interpreter never started, so nothing here can promote a telemetry finding (that
+# needs Python + GitHub). Best-effort, drop a PRESENCE marker under the engine's gitignored cache — the
+# `drain-inbox` SessionStart driver converts a present marker into ONE tracked "could-not-run" finding on the
+# next session where the runtime is healthy (telemetry.RUNTIME_HEALTH_MARKER_PATH; hooks/README fail-open-and-
+# flag: a missing tool-runtime surfaces as a crash would). The marker path is derived from the venv root ($1),
+# so it needs no env and a test can point it anywhere; it is EMPTY (presence-only) so no bytes can enter the
+# finding. Every step is best-effort and MUST NOT change the exit code below — a marker-write failure can never
+# turn this fail-open readout into a block. (`${venv%/.venv}` is the .engine dir; venv is derived from $1 above.)
+cache_dir="${venv%/.venv}/telemetry/.cache"
+mkdir -p "$cache_dir" 2>/dev/null && : > "$cache_dir/runtime-health.marker" 2>/dev/null || true
 exit 1
