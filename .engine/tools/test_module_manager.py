@@ -1136,6 +1136,54 @@ class TestUpgradeSurfacesClaudeFloor(unittest.TestCase):
         self.assertNotIn("ignore list", quiet.lower())
 
 
+class TestLifecycleRendersCarryCoherenceWarrant(unittest.TestCase):
+    """#400 F5: the add/remove/upgrade renders must carry the structural-not-fitness coherence warrant, so an
+    operator never misreads a bare "consistent" line as "the module works." The warrant is single-homed in
+    module_coherence.COHERENCE_WARRANT (reused, not re-typed) and, matching the standalone CLI's _print_report,
+    prints on EVERY non-refused report — including the upgrade path that opens a review PR (the dominant case,
+    which prints neither the hard-findings nor the staged-consistent line)."""
+
+    _WARRANT_TELL = "not a fitness check"  # a distinctive phrase from COHERENCE_WARRANT
+
+    def _render(self, fn, result):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            fn(result)
+        return buf.getvalue()
+
+    def test_the_tell_is_actually_in_the_single_homed_warrant(self):
+        # guards against the warrant text drifting out from under the phrase these tests assert on
+        self.assertIn(self._WARRANT_TELL, module_coherence.COHERENCE_WARRANT)
+
+    def test_remove_render_carries_the_warrant(self):
+        out = self._render(module_manager._render_remove, {"module_id": "demo"})
+        self.assertIn("consistent", out)
+        self.assertIn(self._WARRANT_TELL, out)
+
+    def test_add_render_carries_the_warrant(self):
+        out = self._render(module_manager._render_add, {"module_id": "demo", "version": "1.0.0"})
+        self.assertIn(self._WARRANT_TELL, out)
+
+    def test_upgrade_staged_path_carries_the_warrant(self):
+        out = self._render(module_manager._render_upgrade,
+                           {"from": {"base": "0.1.0"}, "to": {"base": "0.2.0"}})
+        self.assertIn("staged and consistent", out)
+        self.assertIn(self._WARRANT_TELL, out)
+
+    def test_upgrade_PR_path_carries_the_warrant(self):
+        # the dominant upgrade case opens a PR and prints neither branch — the warrant must still appear
+        out = self._render(module_manager._render_upgrade,
+                           {"from": {"base": "0.1.0"}, "to": {"base": "0.2.0"}, "pr": {"number": 42}})
+        self.assertIn("#42", out)
+        self.assertIn(self._WARRANT_TELL, out)
+
+    def test_refused_render_does_not_carry_the_warrant(self):
+        # a refused op checked nothing — no "consistent" claim, so no warrant to qualify
+        out = self._render(module_manager._render_remove,
+                           {"module_id": "demo", "refused": True, "reason": "does not exist"})
+        self.assertNotIn(self._WARRANT_TELL, out)
+
+
 class TestFrozenCheckNames(unittest.TestCase):
     """The engine CI check names are a FROZEN contract across versions — an upgrade/migration may never
     rename them (a renamed required check 'waits forever' and deadlocks every pull request; provisioning

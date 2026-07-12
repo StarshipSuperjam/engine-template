@@ -27,8 +27,9 @@ present", a directory listing, never a hand-authored registry — and the engine
   - WIRING — BIDIRECTIONAL "declared <-> applied". FORWARD declared->applied (validate.wiring_findings
     over wiring.is_applied): every `wires` directive a present manifest declares is applied in its shared
     target file. An mcp wire is APPROVAL-BLIND — it checks the committed .mcp.json definition, never the
-    operator's runtime approval (that pending state is surfaced at boot / the control-plane PR-Validation
-    section, not here). REVERSE applied->declared, the orphan-wire leg (validate.orphan_wire_findings over
+    operator's runtime approval (a server not live for a session shows up as an ABSENT tool and is
+    surfaced to the operator by boot's AI-observed live-helper check / the control-plane PR-Validation
+    section, not here — availability subsumes approval). REVERSE applied->declared, the orphan-wire leg (validate.orphan_wire_findings over
     wiring.applied_engine_wires + declared_wire_identities): nothing engine-identified applied in the
     PLATFORM-SHARED files matches no present manifest's `wires` (a stale leftover after an incomplete
     uninstall). The reverse leg covers the three shared-file seams (hook / mcp / gitignore) — the only

@@ -2555,7 +2555,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:6f09b8bffe31a6645e967fe0b5ea175d67b31f82e4de3170a06a431e4c66e88b",
+        "fingerprint": "sha256:4777073afd5a40f828e3fe8b252daefa17380d44a2b2a220ddc33b8138cadfac",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -2881,7 +2881,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:9fa8f789f0029a907cadf2b902042b075da24743b6839d989961ca789b0cf921",
+        "fingerprint": "sha256:8c75fc69a26f983427ba1a5579b91e55bf37c8650ce5db125f6fa20a10b253fc",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -3061,7 +3061,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:7c6e6bd8a6829fb311e42ac4e94900c8729fcef237e62af47168c6c35e32496a",
+        "fingerprint": "sha256:deba896e43062750098a785e5baa346c80bfd91742a87557fbbef891dcb29a59",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -3882,7 +3882,7 @@
       },
       "slug": "surface-catalog.schema",
       "source": {
-        "fingerprint": "sha256:8f85bd77986da5d07ce761b050169f405c4cbe383d1bae27bc35c8151a19beec",
+        "fingerprint": "sha256:15dfb73e0601a90eff15da27bfcd0214ec2429a434e38b81c6904dd1fef57f5d",
         "path": ".engine/schemas/surface-catalog.schema.json"
       },
       "status": "active",
@@ -4284,7 +4284,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:ea9951ef4056e1fc74bf47b0e4e4857c8779994c5550590499009b8d92dc0222",
+        "fingerprint": "sha256:8bc2b44b85a3d5e738e8b617c3df9c97095b911ae29211dc4bcfa06ae3234178",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5525,7 +5525,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:9e64cb4dcb3883f6c4a2e0f5fa049910de44bc75be03f0a09b3dc907a3908da1",
+        "fingerprint": "sha256:dd32656c4b76502e6217ae1c39e974c73427ac58aa08ac0ca4f5279a777c31f2",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -5542,7 +5542,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:21bdaef25109d328ccea5d7639d60c82771fce8bc70f8b619c4b3efa1ffd5f5f",
+        "fingerprint": "sha256:f67fc244b5512d65257edda1bd4f2f3e804ca2c8a43e99fe3c55e6c9154ae777",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -5916,7 +5916,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:c0d8d4c1e0f941ac0f4c742c8fb3beadb3b3899ea3f1c4a137021257f19a9de9",
+        "fingerprint": "sha256:b49e27fe51ad8f0149d7d41debb7184a5c15a86272d70b9d305c6bd16c318dcc",
         "path": ".engine/tools/self_map.py"
       },
       "status": "active",
@@ -6256,7 +6256,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:274e1ce39586141973ea2159d4e654f20c9d8773f5ca24c42eec3b57729150a2",
+        "fingerprint": "sha256:c311fe7aca7c113dae8a5ab96f0b9cf00cecc794a682e461142e9c74f2c8d1bb",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -6800,7 +6800,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:768c34b7ff187e97ad42028982edc04fb5fd1ec5beee1f8bd3e2934d8b6c9147",
+        "fingerprint": "sha256:bfe221fd77a301771b88393c3b89058632ca6c51f294be80c4df4e8de8506cb5",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -7089,7 +7089,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:39eeb5d23a4836c6ef7f1d3f158022bea603c9ab50552bbdb5feb90c8a716a08",
+        "fingerprint": "sha256:a5b35f184103da82a2b7579baf4d6d1ada3e3142d2ba6954a96e50ed6f5f0105",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -7990,7 +7990,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:21239e57a568154c1e57e84109dd3d4958359f4b2a05f8daba39bc5f3dcac8c2",
+        "fingerprint": "sha256:98e6af1aaeb77bc7aef782d969b18553124654c6d531a45123ce4aecfd86b461",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

@@ -242,3 +242,9 @@ a **named line, distinct from an ordinary pass or fail**: "*a safety check could
 what it would have checked; this work was not verified for X*." It is **non-blocking** and only informs the
 operator's consent at the merge — never a new gate. If none is open, say nothing; this is a surfacing duty,
 not a section to always fill (`systems/infrastructure/hooks/README.md` §Fail-open-and-flag).
+
+**An engine live-helper (MCP substrate) that is off is surfaced here too** — the submit-time half of boot's same
+notice (`.engine/tools/boot.py` `MCP_AVAILABILITY_CHECK`; `module-system/README.md` §"MCP registration"). Check
+your own tools for `mcp__engine-memory__*` and `mcp__engine-knowledge-graph__*`; for any absent, add a **named,
+non-blocking line** — which helper is off, that the change was authored on the committed-file fallback, and the
+fix (approve the servers when the Claude app prompts, then fully restart Claude). If both are live, say nothing.

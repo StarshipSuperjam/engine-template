@@ -272,6 +272,50 @@ class TestPresentMarker(unittest.TestCase):
         self.assertIn(f"`{boot.PRESENT_MARKER}` block", pack)
 
 
+class TestMcpAvailabilitySurfacing(unittest.TestCase):
+    """#400 F1: the engine's live-helper (MCP) availability notice is a CONSENT-CRITICAL, must-relay operator
+    notice — named per server, stating the saved-files fallback, giving a HOST-AGNOSTIC fix (no Code-only
+    `/mcp` baked into consent-critical copy) — and it must sit in the operator-RELAY portion of the pack (a
+    numbered must-do), NOT the AI-orientation zone where KNOWLEDGE_FACULTY_NOTE lives. Boot cannot detect MCP
+    tool routing, so the check is one the model runs against its own tools; these assert the scaffold copy and
+    its placement — the parts with a non-AI correlate."""
+
+    def test_notice_names_each_server_the_fallback_and_a_host_agnostic_fix(self):
+        note = boot.MCP_AVAILABILITY_CHECK
+        self.assertIn("mcp__engine-memory__", note)                 # per-server, named individually
+        self.assertIn("mcp__engine-knowledge-graph__", note)
+        self.assertIn("saved files", note)                          # the plain fallback statement
+        self.assertIn("out of date", note)                          # names the consequence, plainly
+        self.assertIn("reopen Claude", note)                        # the restart half of the fix
+        self.assertIn("approve", note.lower())                      # the approval half of the fix
+
+    def test_fix_copy_is_host_agnostic_no_code_only_command_baked_in(self):
+        # S3 fold: `/mcp` is a Claude Code CLI command and conflicts with the floor's "reopen Claude" wording;
+        # consent-critical copy must not bake in an unverified host-specific command.
+        self.assertNotIn("/mcp", boot.MCP_AVAILABILITY_CHECK)
+
+    def test_notice_self_silences_when_healthy_and_offers_to_diagnose(self):
+        note = boot.MCP_AVAILABILITY_CHECK
+        self.assertIn("say nothing", note.lower())                  # no cry-wolf on a healthy engine
+        self.assertIn("won't start", note)                          # offers the part the AI can do
+
+    def test_notice_lives_in_the_relay_portion_not_the_ai_orientation_zone(self):
+        # B1 (converged across 3 lenses): the notice must carry operator-relay force, so in the assembled pack
+        # it appears BEFORE the AI-orientation content (KNOWLEDGE_FACULTY_NOTE), inside the numbered must-do
+        # sequence — never beside the don't-relay faculty note.
+        patchers = _offline()
+        try:
+            pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn(boot.MCP_AVAILABILITY_CHECK, pack)
+        self.assertIn("Check the engine's live helpers", pack)      # introduced as a numbered must-do step
+        self.assertLess(pack.index(boot.MCP_AVAILABILITY_CHECK), pack.index(boot.KNOWLEDGE_FACULTY_NOTE),
+                        "the consent-critical MCP notice must sit in the relay portion, above the AI-facing "
+                        "orientation zone")
+
+
 class TestRefusedState(unittest.TestCase):
     def test_read_state_accepts_v1_and_refuses_otherwise(self):
         with tempfile.TemporaryDirectory() as d:

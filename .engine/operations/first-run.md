@@ -48,13 +48,22 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    setup tool itself — now that they've done their job, and confirms setup is complete. Everything the project
    needs to keep running stays in place, and the operator's choices are saved. (If the check still finds a
    problem, this step refuses and changes nothing — the tidy-up never runs on a setup that isn't consistent.)
+8. **Turn on the engine's live helpers.** The engine ships two live helpers — its saved-memory recall and its
+   wiring-map (the `engine-memory` and `engine-knowledge-graph` servers, defined in the project's `.mcp.json`).
+   Until they are switched on, the engine runs on its **committed-file fallback**: fully functional, but recall
+   and the wiring map read from saved files rather than the live version. Walk the operator through switching
+   them on: **approve the engine's memory and knowledge servers when their Claude app prompts them (or in its
+   MCP settings), then fully quit and reopen Claude** — they only come online after a restart. This is the same
+   live-helper notice the engine surfaces at the start of any session while a helper is still off (see
+   `.engine/tools/boot.py` `MCP_AVAILABILITY_CHECK`), so the operator can do it now or later; the restart ends
+   this session, so it is the natural last step.
 
 ## Done when
 
 The operator's choices are saved, the engine has installed them and turned on the review gate, the consistency
 check passed, and the one-time setup files have been tidied away — or setup has clearly told the operator, in
-plain words, what one step is left (for example, a one-time approval to turn on the review gate, or a problem to
-fix before it can finish). On a project that was already set up, the command reported so and nothing changed.
+plain words, what one step is left (for example, a one-time approval to turn on the review gate, turning on the
+engine's live helpers by approving its servers and restarting Claude, or a problem to fix before it can finish). On a project that was already set up, the command reported so and nothing changed.
 
 ## Notes
 

@@ -1417,6 +1417,10 @@ def _render_remove(result: dict) -> None:
             print("  - " + validate.fmt(f))
     else:
         print("\nThe remaining modules are consistent.")
+    # The structural-not-fitness warrant, single-homed in module_coherence and matching the standalone
+    # CLI's _print_report (printed on EVERY non-refused report) — so "consistent" is never misread as
+    # "the module works" on the higher-traffic lifecycle renders (#400 F5).
+    print(module_coherence.COHERENCE_WARRANT)
 
 
 def _render_add(result: dict) -> None:
@@ -1440,6 +1444,7 @@ def _render_add(result: dict) -> None:
             print("  - " + validate.fmt(f))
     else:
         print("\nThe installed modules are consistent.")
+    print(module_coherence.COHERENCE_WARRANT)  # structural-not-fitness warrant (#400 F5) — see _render_remove
 
 
 def _render_upgrade(result: dict) -> None:
@@ -1489,6 +1494,10 @@ def _render_upgrade(result: dict) -> None:
             print("  - " + validate.fmt(f))
     elif not pr:
         print("\nThe update is staged and consistent.")
+    # Reached on every non-refused path — the staged-consistent line, the hard-findings line, AND the
+    # PR-opened path (the dominant upgrade case, which prints neither branch above) — so the warrant is
+    # never skipped on an upgrade that opens a review PR (#400 F5).
+    print(module_coherence.COHERENCE_WARRANT)
 
 
 def _render_remove_engine(result: dict) -> None:
