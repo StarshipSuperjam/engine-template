@@ -119,7 +119,14 @@ PROJECT_DIR_VAR = "${CLAUDE_PROJECT_DIR}"
 def interpreter_path(os_name: str | None = None) -> str:
     """The ${CLAUDE_PROJECT_DIR}-rooted engine venv interpreter, resolved per-OS: POSIX `bin/python`,
     Windows `Scripts/python.exe` (the standard venv layout). `os_name` defaults to os.name; pass it
-    explicitly to render the other OS's form (fixture-testable)."""
+    explicitly to render the other OS's form (fixture-testable).
+
+    This is the SINGLE definition of the two per-OS layouts. Committed hook commands are always rendered
+    in the POSIX form (`hook_command` below); the actual per-OS choice is made at FIRE TIME by the launcher
+    (`hook-runner.sh`), which falls back from bin/python to Scripts/python.exe under the same venv root when
+    the POSIX layout is absent — so one committed repo runs on every OS (#407 / D-157 per-OS build-spec
+    leaf). A drift test pins the launcher's bin/python + Scripts/python.exe literals back to this function so
+    the two homes never diverge."""
     name = os.name if os_name is None else os_name
     sub = "Scripts/python.exe" if name == "nt" else "bin/python"
     return f"{PROJECT_DIR_VAR}/.engine/.venv/{sub}"
@@ -128,8 +135,10 @@ def interpreter_path(os_name: str | None = None) -> str:
 # The hook launcher (.engine/tools/hook-runner.sh) holds the bounded wait that lets a hook survive the
 # fresh-worktree race (issue #83): the gitignored `.engine/.venv` is provisioned a beat AFTER a checkout,
 # so a hook that fires in that window finds no interpreter and exits 127 — a SessionStart hook cannot
-# block, so the failure is silent and boot never runs. The launcher polls for the interpreter, then execs
-# it; the ceiling is ~5 s (the observed provisioning gap is well under 1 s), overridable for tests via
+# block, so the failure is silent and boot never runs. The launcher polls for either OS's venv layout (the
+# named POSIX bin/python, or the Windows Scripts/python.exe sibling under the same venv root) and runs the
+# one present — so one committed repo boots on every OS; the ceiling is ~5 s (the observed provisioning gap
+# is well under 1 s), overridable for tests via
 # ENGINE_HOOK_WAIT_POLLS / ENGINE_HOOK_WAIT_INTERVAL. It is NOT extended to cover a cold multi-second
 # runtime build, and NEVER falls back to the operator's system Python. The wait/exec preamble used to be
 # inlined in every hook command; it moved into this one launcher so the command Claude Code DISPLAYS after

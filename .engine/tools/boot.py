@@ -105,11 +105,10 @@ KNOWLEDGE_FACULTY_NOTE = (
 # re-injected CLAUDE.md + the next per-prompt scent. These are the matcher values the hook registers on.
 SESSION_START_SOURCES = ("startup", "resume", "clear")
 
-# owes -> 25 (provisioning): the committed `.claude/settings.json` + the core-manifest hook `wires` carry
-# the POSIX interpreter form (`.engine/.venv/bin/python`) — correct for the construction repo + CI, but a
-# static committed file can name only ONE OS. Provisioning's Apply step must RE-RENDER each hook command
-# per target OS at generation, via hooks.hook_command(relpath, os_name=<target>) (Windows = Scripts\python.exe),
-# or a Windows adopter's interpreter path will not exist and the boot hook will fail open to floor-only boot.
+# Per-OS hook interpreter: the committed `.claude/settings.json` + core-manifest hook `wires` carry the
+# POSIX form (`.engine/.venv/bin/python`), and `hook-runner.sh` resolves the actual layout at fire time
+# (POSIX bin/python or Windows Scripts/python.exe under the same venv root) — so one committed repo boots
+# on every OS, including a mixed-OS team (#407 / D-157 build-spec leaf). No per-OS re-render at generation.
 
 PROTECTED_BRANCH = os.environ.get("PROTECTED_BRANCH", "main")
 STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
