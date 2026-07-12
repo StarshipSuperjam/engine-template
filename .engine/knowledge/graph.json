@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:0e9492fc0fe04dc4f57b6d3cf4b89a848f9ab6f7b080590994d6049d3ed1144b",
+        "fingerprint": "sha256:e19be8f0b519ea17ac54928a0ee963c9074d696baa651fbdd2c769fe98b9d58f",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -3490,6 +3490,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:conformance-verdicts.v1",
+      "name": ".engine/schemas/conformance-verdicts.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "conformance-verdicts.v1",
+      "source": {
+        "fingerprint": "sha256:58e038e1c72d886caa8ecde3026024734b411ab1d4a862503737ad939f68cde5",
+        "path": ".engine/schemas/conformance-verdicts.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:contract.v1",
       "name": ".engine/schemas/contract.v1.json",
       "owner": "core",
@@ -3706,6 +3723,23 @@
       "source": {
         "fingerprint": "sha256:e17b7d2993a0b5e287435bba08d48d9452e6d4d875569b48c572f7f81ecc51a7",
         "path": ".engine/schemas/pre-submission-review-finding.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:product-spec-matrix.v1",
+      "name": ".engine/schemas/product-spec-matrix.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "product-spec-matrix.v1",
+      "source": {
+        "fingerprint": "sha256:7c83b3da51b33c4895375fac8e81bd630208059f78d99a68aa3db4431bf17ab5",
+        "path": ".engine/schemas/product-spec-matrix.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -4397,6 +4431,23 @@
       "source": {
         "fingerprint": "sha256:082bf091ead553304e77654d81d3b837e8c9ec3bc93dc43b49e523bf1ba34b3c",
         "path": ".engine/tools/conduct_weakening_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:conformance_sweep",
+      "name": ".engine/tools/conformance_sweep.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "conformance_sweep",
+      "source": {
+        "fingerprint": "sha256:8b30d06084972bf808163227ef6031d7580cd963e36b6ec17f5d03d2ceac1dcb",
+        "path": ".engine/tools/conformance_sweep.py"
       },
       "status": "active",
       "type": "tool"
@@ -5449,7 +5500,7 @@
       },
       "slug": "obligation_matrix",
       "source": {
-        "fingerprint": "sha256:7c3d9528ecd5a6d51c16da02b4f69e4c7211054d2ed9f13985d282fe158933f6",
+        "fingerprint": "sha256:020568ac666ffaeda6fe6c389e94e2d2258691dc1a15e7d1462b90643e20af61",
         "path": ".engine/tools/product_design/obligation_matrix.py"
       },
       "status": "active",
@@ -6335,6 +6386,23 @@
       "source": {
         "fingerprint": "sha256:e3c6112e4d8abc59b3e96c5b1dacdbc3abf67c9adec0181317627556fac5f7fa",
         "path": ".engine/tools/test_conduct.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_conformance_sweep",
+      "name": ".engine/tools/test_conformance_sweep.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_conformance_sweep",
+      "source": {
+        "fingerprint": "sha256:8a74c09f6d951df72c4e207184ca8b4a7431b4ffd6d024aea517c97cf265bd67",
+        "path": ".engine/tools/test_conformance_sweep.py"
       },
       "status": "active",
       "type": "tool"
