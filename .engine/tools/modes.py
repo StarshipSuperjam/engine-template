@@ -391,8 +391,10 @@ def _build_entry_directive() -> str:
         "Your stance just changed to Build — the operator accepted a plan. "
         f"{_STANCE_LINES[BUILD]} "
         "This note is for you, not the operator: don't relay it. The operator meets this entry once, through "
-        "your build-orchestration kickoff (opening a draft pull request and planning the work) — go do that "
-        "now. Before you act, confirm your live stance still reads Build — run `python tools/modes.py stance`. "
+        "your build-orchestration kickoff (opening a draft pull request and planning the work) — and, before "
+        "you change anything, that kickoff shows the operator the risk assessment and gets their how-careful "
+        "depth choice. Go do that now. Before you act, confirm your live stance still reads Build — run "
+        "`python tools/modes.py stance`. "
         "If it reads Explore instead, ignore this note and stay in Explore: do not open the kickoff. The live "
         "stance governs, never this note."
     )

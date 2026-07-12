@@ -16,7 +16,8 @@ allowed-tools: Bash(uv run *)
 2. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
    and submit them as a pull request for your approval."
 3. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open
-   the draft pull request and plan the work before changing anything.
+   the draft pull request and plan the work, then show the operator the risk assessment and get their
+   how-careful depth choice, before changing anything.
 
 ## Notes
 

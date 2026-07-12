@@ -1301,7 +1301,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:817571e8f599d99ccbf211dbaf903be354b11528737303df1ae847aec65bc5c9",
+        "fingerprint": "sha256:7930b5c041e0f13f7750be591facade05c89117074d96916094b419baf91bc55",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -2881,7 +2881,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:8c75fc69a26f983427ba1a5579b91e55bf37c8650ce5db125f6fa20a10b253fc",
+        "fingerprint": "sha256:ffa5df3b5d75a05c938db244c9a012fb27cbaab121bfb8716a32de6382402881",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4052,7 +4052,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:b853c7cd489ce1c5b5983e9a5a05b5595b1a717498fb119ae297bb9513bb5242",
+        "fingerprint": "sha256:13cb9c58702a5cef1876a61bf81d36c12c9d3a81d62afece50eb86d0ec02abf3",
         "path": ".claude/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -4660,6 +4660,23 @@
       "source": {
         "fingerprint": "sha256:7dcc2e541d1432501c39ebc196845b651616239e1de66255c0f5210782da192d",
         "path": ".engine/tools/demo_boot_slice.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_build_entry_depth_gate",
+      "name": ".engine/tools/demo_build_entry_depth_gate.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_build_entry_depth_gate",
+      "source": {
+        "fingerprint": "sha256:2dcf31f43072650ac17fb8e712de4f41a0f0413fc6ab0be2baaa54c5ea47b63f",
+        "path": ".engine/tools/demo_build_entry_depth_gate.py"
       },
       "status": "active",
       "type": "tool"
@@ -5508,7 +5525,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:df3aaef68000ff1d9bd430a6368daf9169feac584874baa2060c079743ebf6fc",
+        "fingerprint": "sha256:2d89d1d2c59afbb1403f01aaf87bc092ce1dcd2ff196c5ebb883854734dc6b45",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -7072,7 +7089,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:21702466345ec29690c9c46da0fd7db8a3e619e04be1d3a919e9456fba37fe97",
+        "fingerprint": "sha256:9bbb765a3ebf934076d55b4dba2d520e20927f3fff4f95d2b379d47a0d7e41c4",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",

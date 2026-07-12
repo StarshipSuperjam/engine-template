@@ -28,8 +28,8 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    orchestrator holds the sequence in-session), and skipped on the fast path (Notes). **Propose the coverage
    from what the work needs** — run the impact check (`.engine/operations/knowledge-impact-check.md`) for what
    depends on the parts you change and what checks or governs them, and weigh it with what review is installed
-   and available, any depth the operator has told you before that they prefer (cite it only when they actually
-   have), and what sits next to the work — its neighbours and any open trouble nearby. Settle the plan before
+   and available and what sits next to the work — its neighbours and any open trouble nearby. The suggested
+   depth is risk-derived, never lowered by a depth the operator has preferred before. Settle the plan before
    moving on.
 2. **Relay the risk assessment — the plan-gate consent surface.** Relay it to the operator **in chat**
    (it reaches them only as assistant text — no hook renders to their screen), filled from the
