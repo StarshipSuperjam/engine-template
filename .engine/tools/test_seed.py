@@ -1403,11 +1403,11 @@ class TestCoverageKind(unittest.TestCase):
 
     def test_infra_exemption_may_not_shadow_a_surface_home(self):
         # #402 U06b: the disjointness invariant — an infra exemption that names a catalogued surface's own home
-        # is a HARD finding (the allowlist may not silently suppress a surface's own coverage). This is the
-        # green, mechanically-general slice of the spec's third coverage leg; the full "no uncatalogued
-        # surface-shaped instance in use" leg is a logged build-spec leaf (authoring judgment at the cataloguing
-        # PR), because a general rule cannot tell an uncatalogued surface apart from a legitimate non-surface
-        # bucket (provides groups non-surface files).
+        # is a HARD finding (the allowlist may not silently suppress a surface's own coverage). This is an
+        # allowlist-integrity guard that PROTECTS the two coverage legs, not the third leg itself: the spec's
+        # full "no uncatalogued surface-shaped instance in use" leg is a logged build-spec leaf (authoring
+        # judgment at the cataloguing PR), because a general rule cannot tell an uncatalogued surface apart from
+        # a legitimate non-surface bucket (provides groups non-surface files).
         surfaces = {"check": {"location": ".engine/check/"}}
         shadow = " ".join(f["message"] for f in validate.catalog_coverage_findings(
             surfaces, {".engine/check/"}, "hard", "m", infra=[".engine/check/"]))
