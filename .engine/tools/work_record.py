@@ -162,7 +162,7 @@ def read_in_flight(gh=None, *, run=_run_git, window: int = _PR_WINDOW, cap: int 
     return records[:cap]
 
 
-def changed_paths(*, run=_run_git, cap: int = _PATHS_CAP) -> list[str]:
+def changed_paths(*, run=_run_git, cap: int | None = _PATHS_CAP) -> list[str]:
     """The repo-relative paths the current branch's in-flight work touches — the "work in hand" the focused
     knowledge read keys on (engine-template #37, PR 2). The union of:
       - the COMMITTED diff vs the default branch, but ONLY on a real non-default branch (so the default branch
@@ -170,10 +170,14 @@ def changed_paths(*, run=_run_git, cap: int = _PATHS_CAP) -> list[str]:
         diffs against the merge-base of the two — "what this branch added");
       - the UNCOMMITTED working-tree diff and the STAGED diff (always — local edits are in-flight work in
         hand even on the default branch).
-    Each leg is independently fail-open (a None from `run` contributes nothing); the union is deduped, sorted,
-    and bounded. Returns [] on a clean default branch, a detached HEAD, or outside a repo. A PURE stdlib leaf —
+    Each leg is independently fail-open (a None from `run` contributes nothing); the union is deduped and
+    sorted. Returns [] on a clean default branch, a detached HEAD, or outside a repo. A PURE stdlib leaf —
     imports no knowledge_query, so attention (which maps these paths to graph entities) imports IT with no
-    cycle; the path -> entity mapping is attention's job, not this reader's."""
+    cycle; the path -> entity mapping is attention's job, not this reader's.
+
+    `cap` bounds the result for orientation's attention budget (default `_PATHS_CAP`); pass `cap=None` for the
+    UNCAPPED full set — the upstream-clean SAFETY nudge (#416 U21) needs it, since a cap could let an engine
+    path sort past it and slip the leak intersection (the same reason submit.py's outgoing-diff is uncapped)."""
     paths: set = set()
     if _current_branch(run) is not None:        # a real branch other than the default -> committed leg applies
         base = _default_branch(run)
@@ -184,7 +188,8 @@ def changed_paths(*, run=_run_git, cap: int = _PATHS_CAP) -> list[str]:
         out = run(leg)
         if out:
             paths.update(out.splitlines())
-    return sorted(p for p in paths if p)[:cap]
+    ordered = sorted(p for p in paths if p)
+    return ordered if cap is None else ordered[:cap]
 
 
 # ---- operator-runnable demo (real read_in_flight + the real boot rendering; only git/network faked) ------
