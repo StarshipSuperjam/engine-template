@@ -10,7 +10,7 @@
 
 - <supporting detail; add bullets as needed>
 
-*<Impact: what this enables or unblocks>*
+*Impact: <what this enables or unblocks>*
 
 ## Scope
 
@@ -18,7 +18,7 @@
 
 - <the specific items, as bullets>
 
-*<Impact: what this change delivers>*
+*Impact: <what this change delivers>*
 
 ## Out of scope
 
@@ -26,7 +26,7 @@
 
 - <the specific exclusions, as bullets>
 
-*<Impact: why these are out, not gaps>*
+*Impact: <why these are out, not gaps>*
 
 ## Risk
 
@@ -34,7 +34,7 @@
 
 - <the specific risks, as bullets>
 
-*<Impact: the consequence and how it is bounded>*
+*Impact: <the consequence and how it is bounded>*
 
 ## Validation
 
@@ -42,7 +42,7 @@
 
 - <the mechanical-check results, as bullets>
 
-*<Impact: what an approver can rely on>*
+*Impact: <what an approver can rely on>*
 
 ## Review
 
@@ -52,7 +52,7 @@
 
 - <Paste here, unedited, the output of `.engine/tools/spec_referent.py review-steps` — the steps the operator can run themselves to watch this change work, in two plain groups ("things you can confirm yourself" and "things I checked for you"), copied not authored or graded. When the tool finds nothing operator-runnable it prints one plain line saying why (a behavior-preserving / internal / doc-only change; operator-runnable checks that cannot run in this environment; no settled description; or a trivial change). An unrun step is a promise, not proof — never stacked beside a green check; an offer for when the change matters, not a duty on every merge.>
 
-*<Impact: the engine's own account of the review — the approver's merge is the binding gate>*
+*Impact: <the engine's own account of the review — the approver's merge is the binding gate>*
 
 ## Files of interest
 
@@ -60,7 +60,7 @@
 
 - <the key paths, as bullets>
 
-*<Impact: what these most determine>*
+*Impact: <what these most determine>*
 
 ## Claude involvement
 
@@ -68,4 +68,4 @@
 
 - <the specifics, with references to the decision/contract surface>
 
-*<Impact: where AI judgment is load-bearing vs mechanical>*
+*Impact: <where AI judgment is load-bearing vs mechanical>*

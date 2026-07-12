@@ -46,6 +46,13 @@ COMPLETENESS_RULE = {"id": "engine/check/pr-body-completeness",
                      "kind": "presence", "tier": "hard",
                      "suites": ["CI"], "params": {"sections": SECTIONS},
                      "message": "Fill the section."}
+# The same shape WITH the Impact-line enforcement param — mirrors the shipped rule so the
+# new leg is exercised in isolation from the shipped-JSON drift tests below.
+IMPACT_RULE = {"id": "engine/check/pr-body-completeness",
+               "target": {"context": "pull-request-body"},
+               "kind": "presence", "tier": "hard", "suites": ["CI"],
+               "params": {"sections": SECTIONS, "filled_subsection_label": "Impact"},
+               "message": "Fill the section and its Impact line."}
 
 
 class TestCompletenessTeeth(unittest.TestCase):
@@ -931,6 +938,101 @@ class TestPRContractNoDrift(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             rule = json.load(fh)
         self.assertEqual(rule["params"]["sections"], SECTIONS)
+
+    def test_committed_completeness_check_enforces_impact_line(self):
+        # Leg (c): the committed check carries the filled-Impact-line param. Pins the
+        # SHIPPED behaviour (not just the in-file fixtures) so a future edit that drops
+        # the param — silently un-gating the Impact line the operator reads first —
+        # fails CI instead of slipping through.
+        path = os.path.join(self._repo_root(), ".engine", "check",
+                            "pr-body-completeness.json")
+        with open(path, encoding="utf-8") as fh:
+            rule = json.load(fh)
+        self.assertEqual(rule["params"].get("filled_subsection_label"), "Impact")
+
+
+class TestPlaceholderLabelSlot(unittest.TestCase):
+    """The emptiness leg treats a labelled prompt slot (Impact: <...>) as still unfilled,
+    while keeping a label followed by real prose. This is what lets the template ship the
+    Impact label OUTSIDE the sentinel (*Impact: <...>*) without the unfilled line counting
+    as section content and hollowing out the section-presence leg."""
+
+    def test_labelled_slot_is_placeholder(self):
+        self.assertTrue(validate.is_empty_section("*Impact: <what this enables>*"))
+        self.assertTrue(validate.is_empty_section("Impact: <x>"))
+        self.assertTrue(validate.is_empty_section("*<Impact: old-form sentinel>*"))
+
+    def test_label_with_real_prose_is_content(self):
+        self.assertFalse(validate.is_empty_section("*Impact: real consequence*"))
+        self.assertFalse(validate.is_empty_section("Impact: enables the <slug> path"))
+        # a non-slot label line is still content (no over-eager label stripping)
+        self.assertFalse(validate.is_empty_section("**one-line summary of why**"))
+
+
+class TestSubsectionLineStatus(unittest.TestCase):
+    def test_filled_forms(self):
+        self.assertEqual(validate._subsection_line_status("*Impact: real prose*", "Impact"), "filled")
+        self.assertEqual(validate._subsection_line_status("Impact: enables <slug> flow", "Impact"), "filled")
+
+    def test_unfilled_new_sentinel(self):
+        self.assertEqual(validate._subsection_line_status("*Impact: <guidance>*", "Impact"), "unfilled")
+
+    def test_unfilled_old_sentinel(self):
+        self.assertEqual(validate._subsection_line_status("*<Impact: guidance>*", "Impact"), "unfilled")
+
+    def test_unfilled_empty_label(self):
+        self.assertEqual(validate._subsection_line_status("*Impact:*", "Impact"), "unfilled")
+
+    def test_missing(self):
+        self.assertEqual(validate._subsection_line_status("just prose\n- a bullet", "Impact"), "missing")
+
+
+class TestImpactFillEnforcement(unittest.TestCase):
+    """The filled-Impact-line leg, gated behind params.filled_subsection_label."""
+
+    def _body(self, impact):  # 8 filled sections, each with `impact` as its Impact line
+        return "\n".join(f"## {s}\n**Real summary**\n- a real bullet\n{impact}" for s in SECTIONS)
+
+    def test_filled_impact_passes(self):
+        passed, found = validate.kind_presence(IMPACT_RULE, {"pr_body": self._body("*Impact: real consequence*")})
+        self.assertTrue(passed)
+        self.assertEqual(found, [])
+
+    def test_unfilled_impact_flags_all_eight(self):
+        passed, found = validate.kind_presence(IMPACT_RULE, {"pr_body": self._body("*Impact: <slot>*")})
+        self.assertFalse(passed)
+        self.assertEqual(len(found), 8)
+        self.assertTrue(all("no filled Impact line" in f["message"] and f["severity"] == "hard" for f in found))
+
+    def test_deleted_impact_line_flags(self):
+        # the delete-the-line bypass: a filled section with NO Impact line at all must fail
+        body = "\n".join(f"## {s}\n**Real summary**\n- a real bullet" for s in SECTIONS)
+        passed, found = validate.kind_presence(IMPACT_RULE, {"pr_body": body})
+        self.assertFalse(passed)
+        self.assertEqual(len(found), 8)
+        self.assertTrue(all("no filled Impact line" in f["message"] for f in found))
+
+    def test_empty_section_not_double_counted(self):
+        # a wholly-unfilled body yields ONE finding per section (presence leg), never two
+        passed, found = validate.kind_presence(IMPACT_RULE, {"pr_body": ""})
+        self.assertEqual(len(found), 8)
+
+    def test_param_absent_skips_the_leg(self):
+        # COMPLETENESS_RULE sets no label; a filled-but-Impact-missing body still passes,
+        # proving the leg is strictly gated (this is what keeps contract-threshold safe)
+        body = "\n".join(f"## {s}\n**Real summary**\n- a real bullet" for s in SECTIONS)
+        passed, found = validate.kind_presence(COMPLETENESS_RULE, {"pr_body": body})
+        self.assertTrue(passed)
+        self.assertEqual(found, [])
+
+    def test_shipped_rule_flags_unfilled_impact(self):
+        # exercise the SHIPPED rule, not just the in-file fixture
+        shipped = json.load(open(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            ".engine", "check", "pr-body-completeness.json"), encoding="utf-8"))
+        passed, found = validate.kind_presence(shipped, {"pr_body": self._body("*Impact: <slot>*")})
+        self.assertFalse(passed)
+        self.assertEqual(len(found), 8)
 
 
 # ---- slice 4: the generic closed kinds + suite-context gating --------------
