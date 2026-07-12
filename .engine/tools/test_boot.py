@@ -563,11 +563,12 @@ class TestFocusedNeighborhood(unittest.TestCase):
 class TestGovernanceAlarms(unittest.TestCase):
     def _pack_with(self, gate, findings):
         count, register = findings
-        fp = [f"#{i}" for i in range(count)] if count else None   # open_findings now returns a 3rd value: the fingerprint
+        fp = [f"#{i}" for i in range(count)] if count else None   # open_findings 3rd value: the fingerprint
+        low = None if count is None else 0   # 4th value: low-severity count (0 here -> no pressure line)
         patchers = _offline()
         try:
             with mock.patch.object(boot, "protected_branch_signal", return_value=gate), \
-                 mock.patch.object(boot, "open_findings", return_value=(count, register, fp)), \
+                 mock.patch.object(boot, "open_findings", return_value=(count, register, fp, low)), \
                  mock.patch.object(boot, "read_state",
                                    return_value=({"schema_version": 1, "standing_situation": {},
                                                   "integration_debt": {"open_count": 0}}, False)):
@@ -632,6 +633,40 @@ class TestGovernanceAlarms(unittest.TestCase):
             with mock.patch.object(boot.protection_guard, "get_json", return_value=body):
                 self.assertEqual(boot.protected_branch_signal("o/r", "t"), ("unknown", None),
                                  f"a non-list body ({body!r}) must read unknown, never on")
+
+
+class TestTriagePressureRender(unittest.TestCase):
+    """The render-only triage-pressure line (#403.2 / F0201): boot renders it read-only from the COMPLETE open
+    low-severity count open_findings read (CI + ambient + every low-severity source), and SUPPRESSES it on a
+    degraded read or a below-threshold count — never a false number, never a triage write (D-269)."""
+
+    _GROWING = "self-monitoring backlog is growing"
+
+    def _pack(self, count, low):
+        fp = [f"#{i}" for i in range(count)] if count else None
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "protected_branch_signal", return_value=("on", None)), \
+                 mock.patch.object(boot, "open_findings", return_value=(count, "u", fp, low)), \
+                 mock.patch.object(boot, "read_state",
+                                   return_value=({"schema_version": 1, "standing_situation": {},
+                                                  "integration_debt": {"open_count": 0}}, False)):
+                return boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+
+    def test_renders_when_the_complete_backlog_crosses_the_threshold(self):
+        # low_severity_count 15 > triage_pressure 10 -> the plain-language line appears (the count is the
+        # COMPLETE durable-Issue count, so a CI-only or ambient-only meter can't under-count it away).
+        self.assertIn(self._GROWING, self._pack(15, 15))
+
+    def test_suppressed_below_the_threshold(self):
+        self.assertNotIn(self._GROWING, self._pack(5, 5))
+
+    def test_suppressed_on_a_degraded_read_never_a_false_number(self):
+        # register unreadable -> low count is None -> the meter is suppressed (never a wrong zero-or-more).
+        self.assertNotIn(self._GROWING, self._pack(None, None))
 
 
 class TestStrandSurfacing(unittest.TestCase):

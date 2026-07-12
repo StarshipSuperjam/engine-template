@@ -370,6 +370,56 @@ _HARD_ON_BAD_KIND = (
 )
 
 
+class TestAmbientWriter(unittest.TestCase):
+    """The ambient writer, validate's side of the §16 seam (#403.2): evaluate_touched_fires runs the
+    FILE-SCOPED IN-PROCESS rules that select a touched file, against THAT file only, and returns
+    (rule_id, passed, target) — real fires over the governed corpus (never the dormant pre-commit subset)."""
+
+    _GOOD = ".engine/policies/triage-threshold.md"   # a real governed file that PASSES its file-scoped checks
+
+    def test_fires_real_file_scoped_checks_on_a_governed_file(self):
+        fires = validate.evaluate_touched_fires([self._GOOD])
+        self.assertIn("engine/check/policy-shape", {rid for (rid, _p, _t) in fires})   # non-dormant: real fires
+        self.assertTrue(all(passed for (_i, passed, _t) in fires))                     # a valid file -> all pass
+        self.assertTrue(all(t == self._GOOD for (_i, _p, t) in fires))                 # target = the touched file
+
+    def _write_governed_fixture(self, name, body):
+        # A deliberately-malformed file must sit UNDER a rule's glob (a temp dir wouldn't be selected), so write
+        # it in the governed dir but register cleanup IMMEDIATELY, so it is removed even if an assertion raises.
+        path = os.path.join(validate.ROOT, ".engine", "policies", name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        return path
+
+    def test_records_a_failing_fire_for_a_broken_file(self):
+        self._write_governed_fixture("_ambient_test_bad.md", "no frontmatter, wrong shape\n")
+        fires = validate.evaluate_touched_fires([".engine/policies/_ambient_test_bad.md"])
+        self.assertTrue(fires, "a file-scoped rule should have fired on the malformed policy file")
+        self.assertTrue(any(passed is False for (_i, passed, _t) in fires),
+                        "a malformed governed file must record at least one FAILING fire")
+
+    def test_scoped_to_the_touched_file_not_a_broken_sibling(self):
+        self._write_governed_fixture("_ambient_test_sibling.md", "broken sibling\n")
+        fires = validate.evaluate_touched_fires([self._GOOD])       # editing the VALID file, not the sibling
+        self.assertTrue(all(passed for (_i, passed, _t) in fires),
+                        "a broken sibling under the same glob must not flip the touched file's fire")
+
+    def test_excludes_whole_tree_kinds_and_non_file_tools(self):
+        self.assertEqual(validate.evaluate_touched_fires([]), [])          # nothing touched -> nothing
+        by_id = {r.get("id"): r for r in validate.load_rules()}
+        for (rid, _p, _t) in validate.evaluate_touched_fires([self._GOOD]):
+            self.assertIn(by_id[rid].get("kind"), validate._AMBIENT_KINDS)  # never coverage / custom-script
+
+    def test_accept_handler_relays_capture_and_stays_advisory(self):
+        edit = {"tool_name": "Edit", "tool_input": {"file_path": self._GOOD}}
+        with mock.patch("telemetry.capture_touched_fires") as cap, \
+             mock.patch.object(validate, "collect", return_value=[]):
+            d = validate._accept_handler(edit)
+        cap.assert_called_once()                                            # the ambient relay fired
+        self.assertEqual(d.get("action"), "proceed")                       # ...and it stays proceed/inject only
+
+
 def _write_kind(base: str, module: str, name: str, body: str) -> None:
     d = os.path.join(base, module)
     os.makedirs(d, exist_ok=True)

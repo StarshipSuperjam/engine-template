@@ -1835,6 +1835,44 @@ def _rule_touches(rule: dict, touched_abs: set) -> bool:
     return bool(set(target_files(rule)) & touched_abs)
 
 
+# The check kinds ambient capture records: FILE-SCOPED and IN-PROCESS. schema/shape/presence each evaluate a
+# named file, so a per-edit run over ONE touched file is cheap and meaningful. coverage and custom/script are
+# EXCLUDED — they walk the whole tree / spawn a child, so they have no business on the per-edit hot path.
+# (This is a code-level roster, not a declared suite — a deliberate v1 choice so the writer needs no edit to
+# 20+ rule JSONs; expressing it as an `ambient` suite is a legibility refinement for when the ruleset grows.)
+_AMBIENT_KINDS = frozenset({"schema", "shape", "presence"})
+
+
+def evaluate_touched_fires(paths: list, ctx: dict = None) -> list:
+    """The ambient writer's check-run (telemetry OWNS the record + cache; this — the check-running hook side —
+    RELAYS the verdicts). For each touched file, run each FILE-SCOPED IN-PROCESS rule that selects it against
+    THAT ONE FILE (run_unit's single-target substitution — NOT the rule's whole glob, so editing file A never
+    records a fire for a broken sibling B, and the hot path never re-validates the tree), and return one
+    `(rule_id, passed, target)` per fire — `passed` is the check's verdict (no HARD finding), read from the
+    check, not from any hook exit. `target` is the touched file relative to ROOT (what the vanished-target
+    auto-resolve later checks). Best-effort: a per-rule error drops that one fire, never raises into the
+    caller (the PostToolUse hot path). Draws from the FULL rule corpus — a policy/schema edit fires real
+    file-scoped checks — so ambient capture is genuinely live, not tied to the (currently empty) pre-commit
+    touched-file subset."""
+    ctx = ctx if ctx is not None else local_ctx()
+    touched = [(p, _abs_under_root(p)) for p in paths]
+    fires = []
+    for rule in load_rules():
+        if rule.get("kind") not in _AMBIENT_KINDS or not (rule.get("target") or {}).get("path"):
+            continue
+        selected = set(target_files(rule))
+        for _display, abs_path in touched:
+            if abs_path not in selected:
+                continue
+            try:
+                _, findings = run_unit(rule, target={"path": abs_path}, ctx=ctx)
+                passed = not any(f.get("severity") == "hard" for f in findings)
+            except Exception:  # noqa: BLE001 — a broken rule drops its fire, never strands the hot path
+                continue
+            fires.append((rule.get("id"), passed, os.path.relpath(abs_path, ROOT)))
+    return fires
+
+
 def _precommit_handler(payload: dict) -> dict:
     """PreToolUse: on a `git commit`, run the pre-commit suite and NUDGE (inject) any hard finding —
     ADVICE only. Returns proceed()/inject() ONLY, never block()/decide(...). Any other tool call, or a
@@ -1847,14 +1885,22 @@ def _precommit_handler(payload: dict) -> dict:
 
 
 def _accept_handler(payload: dict) -> dict:
-    """PostToolUse: after an edit, run only the touched-file subset of the pre-commit suite (the rules
-    whose target selects the edited file) and NUDGE any hard finding. ADVICE only — PostToolUse cannot
-    block by contract. Dormant against v1's context-targeted rules; activates for a path-targeted rule.
-    Returns proceed()/inject() ONLY."""
+    """PostToolUse: after an edit, (1) RELAY the edit to telemetry's ambient capture — record each local
+    file-scoped check's pass/fail over the touched file to the gitignored ambient cache (telemetry owns the
+    record + cache; this hook, the one that runs checks, relays — the §16 seam); and (2) run the touched-file
+    subset of the pre-commit NUDGE and inject any hard finding. Both are ADVICE only — PostToolUse cannot
+    block by contract; this returns proceed()/inject() ONLY. The nudge subset is context-targeted in v1 (so it
+    stays quiet), but ambient capture draws from the full file-scoped corpus, so it is genuinely live. The
+    capture is wrapped so a failure never disturbs the tool call (append_ambient is itself best-effort too)."""
     import hooks  # lazy (see _precommit_handler)
     path = _touched_path(payload)
     if not path:
         return hooks.proceed()
+    try:
+        import telemetry  # lazy: telemetry imports validate (a back-edge safe only lazily)
+        telemetry.capture_touched_fires([path], telemetry.utc_now())
+    except Exception:  # noqa: BLE001 — ambient capture is best-effort and NEVER gates a tool call
+        pass
     touched = {_abs_under_root(path)}
     findings = _safe_collect("pre-commit", rule_filter=lambda r: _rule_touches(r, touched))
     context = _nudge_context(findings)

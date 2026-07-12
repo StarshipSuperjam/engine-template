@@ -218,25 +218,31 @@ def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, s
     return "on", None
 
 
-def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str | None, list | None]:
+def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str | None, list | None, int | None]:
     """The engine's open self-monitoring findings, RELAYED read-only from telemetry's debt register
     (the engine-labelled open Issues) via telemetry's own reader — NEVER the write loop. Returns
-    (count, register_url, fingerprint): count is None when the register could not be read (degraded), 0
-    when the register is reachable and empty. `fingerprint` is the STRUCTURED-CONDITION identity of the
-    open set — a SORTED list of each finding's stable identity (its source_id, else `#<issue-number>`) —
-    the value the anti-habituation ledger compares, so a close+open at EQUAL count reads as CHANGED and
-    is never mis-collapsed to "unchanged" (D-269 / R19). Duplicates are PRESERVED (two open Issues sharing
-    one source_id keep both tokens, so closing one still moves the fingerprint); None when degraded, so it
-    tracks `count` (both real together, both None together). Boot only reads; telemetry owns the register."""
+    (count, register_url, fingerprint, low_severity_count): count is None when the register could not be
+    read (degraded), 0 when the register is reachable and empty. `fingerprint` is the STRUCTURED-CONDITION
+    identity of the open set — a SORTED list of each finding's stable identity (its source_id, else
+    `#<issue-number>`) — the value the anti-habituation ledger compares, so a close+open at EQUAL count reads
+    as CHANGED and is never mis-collapsed to "unchanged" (D-269 / R19). Duplicates are PRESERVED (two open
+    Issues sharing one source_id keep both tokens, so closing one still moves the fingerprint). `low_severity_
+    count` is the COMPLETE count of open low-impact (persistent-but-benign) engine Issues — the render-only
+    triage-pressure meter's authoritative input, read from the durable Issue set (each Issue's severity marker)
+    in this SAME single read, so it counts CI + ambient + every low-severity source, not the per-machine subset
+    a scoped triage pass could see. An Issue with no severity marker (a pre-severity Issue) is not counted
+    until telemetry next updates it. All four values are None when degraded, so they track together. Boot only
+    reads; telemetry owns the register."""
     if not repo or not token:
-        return None, None, None
+        return None, None, None, None
     try:
         gh = telemetry.GitHubIssues(repo, token)
         issues = gh.list_open_engine_issues()
         fingerprint = sorted((i.get("source_id") or f"#{i['number']}") for i in issues)
-        return len(issues), gh.issues_query_url(), fingerprint
+        low = sum(1 for i in issues if i.get("severity") == telemetry.PERSISTENT_BENIGN)
+        return len(issues), gh.issues_query_url(), fingerprint, low
     except Exception:  # noqa: BLE001 — DegradedReadError or any transport failure -> unknown (degraded)
-        return None, None, None
+        return None, None, None, None
 
 
 # ---- attention (consume the ranked partition; resolve member ids to plain language) ---------
@@ -451,7 +457,20 @@ def gather_signals(session_id: str | None = None) -> dict:
     state, refused = read_state()
     repo, token = repo_slug(), gh_token()
     gate, reason = protected_branch_signal(repo, token)
-    finding_count, register, finding_fingerprint = open_findings(repo, token)
+    finding_count, register, finding_fingerprint, low_severity_count = open_findings(repo, token)
+    # The render-only triage-pressure line (telemetry/README §"triage-pressure stream"): one plain-language
+    # "backlog is growing" line once the COMPLETE open low-severity count crosses the governed threshold, else
+    # None. Boot DISPLAYS it read-only (it never runs a triage pass — D-269); the count is the durable-Issue
+    # count open_findings just read (authoritative + complete), so it can never render a false number — it is
+    # SUPPRESSED (None) whenever the register read degraded (low_severity_count is None) or sits at/under the
+    # threshold. Crossing promotes NOTHING (the meter never becomes an item), so it cannot feed what it measures.
+    triage_pressure_line = None
+    if low_severity_count is not None:
+        try:
+            threshold = int(telemetry.load_thresholds().get("triage_pressure", 0))
+            triage_pressure_line = telemetry.triage_pressure_line(low_severity_count, threshold)
+        except Exception:  # noqa: BLE001 — a policy-read failure suppresses the meter, never breaks the pack
+            triage_pressure_line = None
     debt_count, debt_as_of = telemetry.read_state_debt(STATE_PATH)
     # The GitHub reader for attention's in-flight work-record read (open PRs). None without a repo/token ->
     # attention falls back to the local-git floor (the working branch). Construction does no I/O (telemetry.py).
@@ -575,6 +594,7 @@ def gather_signals(session_id: str | None = None) -> dict:
         "state": state, "refused": refused,
         "gate": gate, "reason": reason,
         "finding_count": finding_count, "register": register, "finding_fingerprint": finding_fingerprint,
+        "low_severity_count": low_severity_count, "triage_pressure_line": triage_pressure_line,
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
         # True iff orientation ran on a LIVE-rebuilt map because the committed graph.json is absent (a distinct
@@ -800,6 +820,10 @@ def render_dashboard(s: dict) -> str:
             out.append(f"**Open problems:** {telemetry.degraded_readout(s['debt_count'], s['debt_as_of'])}")
         else:
             out.append("**Open problems:** none recorded yet.")
+        # The render-only triage-pressure line, only when the live low-severity backlog crosses the threshold
+        # (suppressed on a degraded read or a below-threshold count — telemetry owns that decision).
+        if s.get("triage_pressure_line"):
+            out.append(s["triage_pressure_line"])
 
     out.append(f"**Stance:** {s['stance']}")
 
