@@ -1296,6 +1296,27 @@ def _demo(_argv) -> int:
         except OSError:
             pass
 
+    print("\n(10) The THIRD input the self-review consumes — the engine's own file-scoped checks that select")
+    print("    NO files right now (F0200). Each is surfaced for the self-review to judge (raise-it-upstream if")
+    print("    it is dead template weight, or leave it) — NEVER a local retirement; a check that DOES match")
+    print("    files, and a non-file-scoped check, are excluded. Driven over a fixture (the real checks all")
+    print("    match files in this repo, so the live feed is correctly empty here):")
+    nf_rules = [
+        {"id": "engine/check/demo-empty", "kind": "shape", "target": {"path": ".engine/_no_such_demo_dir/*.json"}},
+        {"id": "engine/check/demo-matches", "kind": "shape", "target": {"path": ".engine/policies/*.md"}},
+        {"id": "engine/check/demo-context", "kind": "presence", "target": {"context": "pull-request-body"}},
+        {"id": "engine/check/demo-coverage", "kind": "coverage", "target": {"path": ".engine/_no_such_demo_dir/*"}},
+    ]
+    nf_ids = {r["rule_id"] for r in derive_never_fired(nf_rules)}
+    nf_scoped_ok = (nf_ids == {"engine/check/demo-empty"})   # only the zero-match file-scoped rule; not the
+    #   matching one, not the context-targeted one, not the whole-tree coverage kind (even with an empty glob)
+    nf_render = render_never_firing_checks(nf_rules)
+    nf_framing_ok = ("raise-it-upstream" in nf_render and "QUESTION, not a verdict" in nf_render)
+    nf_ok = nf_scoped_ok and nf_framing_ok
+    print(f"    only a zero-match file-scoped check is surfaced (matching / context / whole-tree excluded): "
+          f"{nf_scoped_ok}")
+    print(f"    the feed frames it escalate-or-ignore (a question, not a retire verdict): {nf_framing_ok}")
+
     print("\nDone — no real issues were created; only the network was faked. The triage LOGIC above is "
           "real; that it writes correctly to your REAL GitHub is confirmed the first time it runs live.")
     # Self-check: ONE issue opens only when the benign signal crosses the threshold (3rd fire), re-fires
@@ -1303,9 +1324,10 @@ def _demo(_argv) -> int:
     # in-band (never a silent or wrong zero), the LIVE CI source is tracked on the first failing pass and
     # clears on the first green pass EVEN WITH THE CACHE WIPED, the cache-accrued AMBIENT source promotes only
     # after it persists and clears when seen passing or its file is gone, a create/create-race duplicate pair
-    # CONVERGES to one survivor, and none of these ever closes the unrelated out-of-band item.
+    # CONVERGES to one survivor, none of these ever closes the unrelated out-of-band item, and the never-firing
+    # signal surfaces only a zero-match file-scoped check, framed escalate-or-ignore.
     ok = (open2 == 1 and open3 == 1 and open4 == 2 and bool(r6.degraded_line)
-          and ci_ok and amb_ok and dup_ok)
+          and ci_ok and amb_ok and dup_ok and nf_ok)
     if not ok:
         print("\nDEMO UNEXPECTED: the triage open/dedup/critical-open counts or the offline degrade line "
               "did not behave as expected.", file=sys.stderr)
@@ -1369,6 +1391,85 @@ def _engine_issues_cli(argv: list) -> int:
               "environment; it uses the GitHub token, never the Claude token)", file=sys.stderr)
         return 2
     print(render_engine_issue_backlog(repo, token))
+    return 0
+
+
+def derive_never_fired(rules: list | None = None) -> list:
+    """The never-firing-check signal (F0200): the engine's own FILE-SCOPED checks that select ZERO files in the
+    current tree — a check that inspects nothing right now. Returns a list of `{rule_id, kind, target_glob}`.
+
+    Computed FRESH each run from the committed check corpus (`.engine/check/*.json`) plus the working tree
+    (`validate.target_files`) — no cache, no persisted fire-count, no ledger (D-038); re-derivable on the
+    ephemeral audit-prep runner, which has both. Only the FILE-SCOPED in-process kinds are considered
+    (`validate._AMBIENT_KINDS` — schema/shape/presence: the single source of truth, the same set for which a
+    `target.path` glob matching nothing means the rule inspects nothing), and only rules carrying a
+    `target.path`. Context/surface-targeted rules and whole-tree kinds (coverage/coherence/custom-script) have
+    no "zero files = never fires" notion — `target_files` is `[]` for them by construction — so they are
+    excluded, never mis-flagged.
+
+    This is a MECHANICAL "currently matches no files" fact, NOT a claim the rule is dead: a check may match
+    nothing because the template ships dead weight (raise it upstream) OR because the project simply doesn't use
+    that kind of file yet (nothing to do). The audit judges which; telemetry only emits the fact. A single
+    unparseable rule file is skipped, never aborts the scan. `rules` is injectable for tests/demo."""
+    if rules is None:
+        rules = []
+        check_dir = validate.CHECK_DIR
+        names = sorted(os.listdir(check_dir)) if os.path.isdir(check_dir) else []
+        for name in names:
+            if not name.endswith(".json"):
+                continue
+            try:
+                rules.append(validate.load_json(os.path.join(check_dir, name)))
+            except Exception:  # noqa: BLE001 — a corrupt rule file is skipped, never aborts the whole scan
+                continue
+    never = []
+    for rule in rules:
+        try:
+            if rule.get("kind") not in validate._AMBIENT_KINDS:
+                continue
+            glob = (rule.get("target") or {}).get("path")
+            if not glob:
+                continue
+            if not validate.target_files(rule):
+                never.append({"rule_id": rule.get("id"), "kind": rule.get("kind"), "target_glob": glob})
+        except Exception:  # noqa: BLE001 — a malformed rule is skipped, never aborts the scan
+            continue
+    return never
+
+
+def render_never_firing_checks(rules: list | None = None) -> str:
+    """Plain text the audit-prep workflow feeds the read-only self-review persona (F0200): the engine's own
+    checks that currently match NO files in this repo, for the persona to judge whether each still earns its
+    place. Frames the fact as escalate-OR-ignore, NEVER retire/keep (a check rule is engine machinery — never a
+    local retirement). On ANY error it returns an honest "could not be computed" marker (NEVER a silent empty),
+    so `main()`'s fail-open never sees an exception and the workflow's own `if !` guard is only a backstop.
+    `rules` is injectable for tests/demo (the real corpus matches files, so the live feed is empty here)."""
+    try:
+        never = derive_never_fired(rules)
+    except Exception as exc:  # noqa: BLE001 — an honest gap, never a silent empty
+        return ("ENGINE CHECKS MATCHING NO FILES: could not be computed this run — "
+                f"{exc}. Treat this concern as unreviewed and say so plainly in your digest.")
+    if not never:
+        return ("ENGINE CHECKS MATCHING NO FILES: every one of the engine's own file-scoped checks currently "
+                "matches at least one file in this repository — nothing to review on this concern this run.")
+    parts = [f"ENGINE CHECKS MATCHING NO FILES — {len(never)} of the engine's own checks currently select no "
+             "files in this repository. A check that matches nothing here is a QUESTION, not a verdict, and "
+             "matching nothing can be perfectly correct — the check may guard a kind of file this project does "
+             "not use (yet). Because a check is engine machinery (overlaid on every update), it is NEVER "
+             "something to retire locally: the only two responses are raise-it-upstream — if it looks like dead "
+             "weight the template ships — or leave-it. Judge each on that basis; do not recommend a local "
+             "retirement.", ""]
+    for item in never:
+        parts.append(f"- {item['rule_id']}  (checks files matching: "
+                     f"{validate.defang_prompt_fence_markers(str(item['target_glob']))})")
+    return "\n".join(parts)
+
+
+def _never_fired_cli(argv: list) -> int:
+    """The audit-prep workflow's never-firing-checks verb (F0200): print the engine's own checks that match no
+    files, for the self-review persona to judge. Reads ONLY the committed check corpus + the working tree — no
+    GitHub, no token — so it always exits 0; the render degrades in-band on any internal error."""
+    print(render_never_firing_checks())
     return 0
 
 
@@ -1499,9 +1600,12 @@ def main(argv: list) -> int:
             return _refresh_cli(argv[1:])
         if argv and argv[0] == "engine-issues":
             return _engine_issues_cli(argv[1:])
-        print("usage: telemetry.py {run|run-ambient|demo|refresh|engine-issues}   (`run` is the live "
-              "CI-health triage the scheduled audit-prep workflow drives; `run-ambient` is the local "
-              "SessionStart triage over local check-fires; demo shows the logic on a fake GitHub)",
+        if argv and argv[0] == "never-fired":
+            return _never_fired_cli(argv[1:])
+        print("usage: telemetry.py {run|run-ambient|demo|refresh|engine-issues|never-fired}   (`run` is the "
+              "live CI-health triage the scheduled audit-prep workflow drives; `run-ambient` is the local "
+              "SessionStart triage over local check-fires; `engine-issues` and `never-fired` feed the "
+              "scheduled self-review; demo shows the logic on a fake GitHub)",
               file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 — fail-open is the whole point
