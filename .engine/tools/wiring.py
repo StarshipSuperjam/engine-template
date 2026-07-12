@@ -33,8 +33,8 @@ NOT crash (no traceback to a non-engineer); it returns a plain-language finding.
 once the file is fixed (hooks fail-open-and-flag).
 
 The comment-fenced-block helper (fence_apply/fence_reverse) is a *library helper*, NOT a module
-`wires` seam: the `gitignore` seam calls it, and so will the foundation `.engine/.venv/` block and the
-CODEOWNERS renderer at provisioning (provisioning 189-195, 254-267).
+`wires` seam: the `gitignore` seam calls it, and so do the foundation `.gitignore` block
+(apply_foundation_ignores) and the CODEOWNERS renderer at provisioning (provisioning 189-195, 254-267).
 
 CLI (the operator-runnable demo — the `gitignore` seam is the only one with a live target today):
   uv run --directory .engine -- python tools/wiring.py demo-gitignore /tmp/demo.gitignore
@@ -54,7 +54,7 @@ import validate  # noqa: E402
 # ---- engine-identity constants (one declared convention; module-system 105-115) ------------
 # The fence marker (build-spec leaf b, decided with the maintainer): the conventional BEGIN/END
 # form plus a plain-language cue, so a non-engineer who opens the file is never confused. `{id}`
-# distinguishes coexisting fences (a module id, "tool-runtime-venv", "codeowners", ...). No
+# distinguishes coexisting fences (a module id, "foundation-ignores", "codeowners", ...). No
 # checksum/provenance tag lives in the file — the manifest `wires` block is the complete record
 # (module-system 114).
 FENCE_BEGIN = "# BEGIN engine-managed block: {id} - do not edit inside"
@@ -256,6 +256,43 @@ def apply_codeowners(co_path: str, path_set: list, handle: str) -> dict:
         return {"status": "already", "owner": handle, "paths": len(path_set)}
     _write_text(co_path, new_text)
     return {"status": "written", "owner": handle, "paths": len(path_set)}
+
+
+# ---- the foundation .gitignore block (a library helper, NOT a module `wires` seam) -------------
+# The engine's own tool-runtime + platform artifacts are ignored by a SINGLE foundation-keyed fence,
+# distinct from any module `gitignore` block in the same file (provisioning README L294-302; D-156/D-189).
+# Placed by the instantiator's apply step and re-asserted on upgrade, NOT declared by any manifest's
+# `wires` — the CODEOWNERS precedent (a foundation fence a library helper renders), so the orphan-wire
+# reverse coherence leg carves it out (see applied_engine_wires) and a module's uninstall reverser, which
+# touches only its own manifest-declared lines, never removes it.
+FOUNDATION_IGNORES_FENCE = "foundation-ignores"
+# The fence body IS this list, byte-for-byte (single source of truth — the committed .gitignore fence body
+# is asserted equal to it by a test, so the two homes cannot drift). No in-fence header line: any line not
+# in this list would make the first apply rewrite the file. `.engine/.venv/` + `.engine/.uv/` are the uv
+# tool-runtime; `.claude/worktrees/` is the platform's per-session worktree dir (so a sibling session never
+# pollutes the main tree's git status, keeping the operator-checkout-strand pre-check's clean-tree read true).
+FOUNDATION_IGNORE_LINES = [".engine/.venv/", ".engine/.uv/", ".claude/worktrees/"]
+
+
+def apply_foundation_ignores(path: str) -> dict:
+    """Place the engine's foundation ignore block into the `.gitignore` at `path`, writing iff changed;
+    returns {"status": "written"|"already"|"degraded"}. Insert-iff-absent / replaced-only-as-a-block
+    (fence_apply), so an operator's own ignore lines and any module `gitignore` block are never touched, and
+    greenfield (the committed fence travels wholesale) + brownfield (this appends the fence) converge on the
+    same keyed block. Fails open on an unparseable/marker-forging file (status 'degraded', no mutation) — the
+    mutator posture; unlike apply_codeowners there is no operator-config decision here to disclose, so it
+    swallows the WiringError into a status rather than raising for a caller to render copy. Both the first-run
+    instantiator and an engine upgrade call this, so the block renders one way and is release-evolvable (a
+    future line change reaches a provisioned repo on upgrade)."""
+    try:
+        existing = _read_text(path)
+        new_text = fence_apply(existing, FOUNDATION_IGNORES_FENCE, FOUNDATION_IGNORE_LINES)
+    except WiringError as exc:
+        return {"status": "degraded", "detail": str(exc)}
+    if new_text == existing:
+        return {"status": "already"}
+    _write_text(path, new_text)
+    return {"status": "written"}
 
 
 # ---- tolerant IO (the mutator posture: fail open, never clobber, never crash) -----------------
@@ -661,8 +698,10 @@ def _applied_fence_ids() -> list:
     """The ids of every well-formed engine-managed fence currently in .gitignore. The id is parsed from
     each begin marker (single-homed off FENCE_BEGIN) and confirmed as a single well-formed begin..end
     pair via _find_fence; a malformed/half fence is skipped (the forward leg / fence_reverse surface it).
-    The foundation .engine/.venv/ ignore is a PLAIN line carrying no marker, so it is never returned
-    (the D-156 carve-out, automatic)."""
+    Returns EVERY fence id, including the foundation FOUNDATION_IGNORES_FENCE — its carve-out from the
+    orphan-wire reverse leg is applied one level up, in applied_engine_wires (it is a library-helper fence
+    no manifest declares, so the reverse leg must not treat it as undeclared module wiring — provisioning
+    README L296-299). This enumerator stays a pure "all fences" reader."""
     pre, post = FENCE_BEGIN.split("{id}")
     lines = _read_text(GITIGNORE_PATH).split("\n")
     ids = []
@@ -685,9 +724,10 @@ def applied_engine_wires() -> list:
       - hook: a hook in .claude/settings.json whose command resolves under .engine/ (ENGINE_DIR_MARKER);
         an operator's own non-engine hook is skipped (the engine-namespaced-identity keying firewall).
       - mcp: an engine-prefixed server name in .mcp.json (MCP_NAME_PREFIX).
-      - gitignore: each well-formed engine-managed fence id in .gitignore.
-    PERMISSION (not engine-identifiable) and ONTOLOGY-ENTRY (engine-owned catalog, covered by the
-    ownership + catalog-coverage gates) are excluded by construction — see declared_wire_identity and
+      - gitignore: each well-formed engine-managed MODULE fence id in .gitignore.
+    PERMISSION (not engine-identifiable), ONTOLOGY-ENTRY (engine-owned catalog, covered by the ownership +
+    catalog-coverage gates), and the foundation FOUNDATION_IGNORES_FENCE (a library-helper fence no manifest
+    declares — provisioning README L296-299) are excluded by construction — see declared_wire_identity and
     validate.orphan_wire_findings. Reads the live files with the same tolerant readers is_applied uses;
     an absent/unreadable file yields no entries for that seam (fail-open)."""
     out = []
@@ -709,6 +749,8 @@ def applied_engine_wires() -> list:
             if isinstance(name, str) and name.startswith(MCP_NAME_PREFIX):
                 out.append(("mcp", name, _rel(MCP_PATH)))
     for fence_id in _applied_fence_ids():
+        if fence_id == FOUNDATION_IGNORES_FENCE:
+            continue   # the foundation fence is a library-helper block, not module wiring — never an orphan
         out.append(("gitignore", fence_id, _rel(GITIGNORE_PATH)))
     return out
 

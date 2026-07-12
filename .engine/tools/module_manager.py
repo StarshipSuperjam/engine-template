@@ -572,6 +572,9 @@ _UNSET = object()   # sentinel: "no GitHub boundary passed (resolve close._githu
 _ROOT_CLAUDE_REL = "CLAUDE.md"
 _DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
 _FLOOR_FENCE = "floor"
+_GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives here (#409 U14) — a shared keyed
+#                                         file, so it is block-reversed like CODEOWNERS/CLAUDE.md, never
+#                                         overlay-replaced (FOUNDATION_CODE) or wholesale-deleted (remove_engine)
 
 # Engine CODE owned by no module's `provides` but replaced wholesale on upgrade (provisioning L289/L356).
 # DERIVED from module_coherence.FOUNDATION_INFRA (the single source of the foundation-artifact set) minus
@@ -580,14 +583,16 @@ _FLOOR_FENCE = "floor"
 # the post-overlay engine path set by upgrade step (2d) / `_refresh_codeowners`, never fetched from a
 # release — a release's block would carry the wrong owner + paths); and root CLAUDE.md (keyed-merged by
 # `_merge_claude_floor` from the release's CLAUDE.deployed.md so operator content is preserved and the
-# release's construction-governance CLAUDE.md never overlays an adopter's floor). Gitignored data and the
-# deployment's per-instance eADR stream are in no `provides`/FOUNDATION_CODE, so the overlay leaves them
-# untouched (config + data preserved). A member may be a glob (the issue templates); the overlay loop below
-# expands it against the release tree, so the issue templates are now refreshed on update (they were
-# silently omitted before — single-homing closed that gap; forward-only).
+# release's construction-governance CLAUDE.md never overlays an adopter's floor); and root `.gitignore`
+# (the foundation-ignores fence is re-asserted locally by apply_foundation_ignores on upgrade — step (2d)
+# below — never fetched, since a release's file would clobber the adopter's own ignore lines + module
+# fences). Gitignored data and the deployment's per-instance eADR stream are in no `provides`/FOUNDATION_CODE,
+# so the overlay leaves them untouched (config + data preserved). A member may be a glob (the issue
+# templates); the overlay loop below expands it against the release tree, so the issue templates are now
+# refreshed on update (they were silently omitted before — single-homing closed that gap; forward-only).
 FOUNDATION_CODE = tuple(
     p for p in module_coherence.FOUNDATION_INFRA
-    if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", _ROOT_CLAUDE_REL)
+    if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", _ROOT_CLAUDE_REL, _GITIGNORE_REL)
 )
 
 
@@ -1118,6 +1123,11 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # engine `floor` fence; preserve operator content; never overlay the construction CLAUDE.md). Same
         # placement rationale as the CODEOWNERS re-render: after the overlay, before coherence/PR.
         result["claude_floor"] = _merge_claude_floor(release_tree)
+        # (2f) RE-ASSERT the foundation `.gitignore` fence — release-evolvable, like the CODEOWNERS/CLAUDE.md
+        # re-renders above: a new release's FOUNDATION_IGNORE_LINES reach a provisioned repo here (the block
+        # is excluded from the overlay-replace set, so this is the ONLY path that evolves it). Idempotent and
+        # block-scoped — the operator's own ignore lines + any module `gitignore` fences are untouched.
+        result["foundation_ignores"] = wiring.apply_foundation_ignores(wiring.GITIGNORE_PATH)
         # (3) RE-SYNC the tool-runtime (real path only; the injected/practice run skips it — no real venv).
         # Migrations are Python that runs IN the runtime, so a FAILED re-sync ABORTS before step 4 rather
         # than run migrations against a stale runtime — staged but not opened, no saved data touched.
@@ -1264,11 +1274,11 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
     foundation = module_coherence.foundation_infra_paths()
     provides = set(module_coherence.provides_claims(manifests).keys())
     # engine-owned files OUTSIDE .engine/: provides-claimed (e.g. .claude/*/.gitkeep) + the non-.engine
-    # foundation members (the .github/ artifacts), minus the two SHARED files handled specially below —
-    # CODEOWNERS and root CLAUDE.md — which carry the engine as a keyed fenced block, so they are
-    # block-reversed (operator content kept) rather than deleted wholesale.
+    # foundation members (the .github/ artifacts), minus the three SHARED files handled specially below —
+    # CODEOWNERS, root CLAUDE.md, and root .gitignore — which carry the engine as a keyed fenced block, so
+    # they are block-reversed (operator content kept) rather than deleted wholesale.
     outside = sorted({r for r in (provides | set(foundation))
-                      if not r.startswith(".engine/") and r not in (co_rel, _ROOT_CLAUDE_REL)})
+                      if not r.startswith(".engine/") and r not in (co_rel, _ROOT_CLAUDE_REL, _GITIGNORE_REL)})
     deleted = []
     for rel in outside:
         p = os.path.join(validate.ROOT, rel)
@@ -1311,6 +1321,28 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
             with open(claude_path, "w", encoding="utf-8") as fh:
                 fh.write(remainder)
             deleted.append(f"{_ROOT_CLAUDE_REL} (engine block removed; your own content kept)")
+    # Root .gitignore: the SAME block-reversal — remove only the engine `foundation-ignores` fence and keep
+    # the operator's own ignore lines (delete the file only if nothing but whitespace remains, which never
+    # happens in practice — the generic dev-ignores survive). The module `gitignore` fences were already
+    # reversed per-module in step (1) of each removal, so this leaves an engine-free .gitignore. Wrapped so a
+    # malformed hand-edited fence degrades (file untouched) rather than crashing the uninstall — .gitignore
+    # is the file operators edit most, so this fail-safe matters more here than for CODEOWNERS.
+    gi_path = os.path.join(validate.ROOT, _GITIGNORE_REL)
+    if os.path.isfile(gi_path):
+        text = validate.read(gi_path)
+        try:
+            remainder = wiring.fence_reverse(text, wiring.FOUNDATION_IGNORES_FENCE)
+        except wiring.WiringError as exc:
+            remainder = text
+            result["left_in_place"].append(
+                f"Left {_GITIGNORE_REL} as it is — its engine section looked damaged ({exc}).")
+        if remainder.strip() == "":
+            os.remove(gi_path)
+            deleted.append(_GITIGNORE_REL)
+        elif remainder != text:
+            with open(gi_path, "w", encoding="utf-8") as fh:
+                fh.write(remainder)
+            deleted.append(f"{_GITIGNORE_REL} (engine block removed; your own lines kept)")
     # the whole .engine/ tree (tools, checks, schemas, manifests, generated maps — everything). The
     # running tool keeps executing from memory, so the source being gone on disk before the opener stages
     # it (git add -A) is safe; any process needing .engine again would be a fresh process.

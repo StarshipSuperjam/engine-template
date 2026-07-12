@@ -412,7 +412,7 @@ class TestApplyOrchestrator(unittest.TestCase):
             self.assertEqual(res["reason"], "not-confirmed")
             self.assertEqual(res["steps"], [])
 
-    def test_full_happy_path_runs_all_eight_steps(self):
+    def test_full_happy_path_runs_all_nine_steps(self):
         with tempfile.TemporaryDirectory() as d:
             inst._build_fixture(d)
             with inst._redirect_root(d):
@@ -420,7 +420,7 @@ class TestApplyOrchestrator(unittest.TestCase):
                 res = _fake_apply(d)
             self.assertFalse(res["refused"]); self.assertFalse(res["halted"])
             names = [s["step"] for s in res["steps"]]
-            self.assertEqual(names, ["remove-unselected", "codeowners", "plan-mode",
+            self.assertEqual(names, ["remove-unselected", "foundation-ignores", "codeowners", "plan-mode",
                                      "tool-runtime", "substrates", "wires", "control-plane",
                                      "security-floor"])
 
@@ -466,6 +466,66 @@ class TestApplyStep1DeleteUnselected(unittest.TestCase):
             self.assertFalse(res["halted"], "a refusal records-and-continues; it never halts the phase")
 
 
+class TestApplyStepFoundationIgnores(unittest.TestCase):
+    """#409 U14: the apply step places the keyed foundation `.gitignore` fence. It runs BEFORE codeowners (so
+    the file exists when the ownership set globs it) and pre-runtime (so a tool-runtime halt still leaves
+    `.venv/` ignored), preserves the operator's own lines, and is idempotent."""
+
+    def _gi(self, d):
+        return inst._read_text_or(os.path.join(d, ".gitignore"), "")
+
+    def _names(self, res):
+        return [s["step"] for s in res["steps"]]
+
+    def test_greenfield_places_the_foundation_fence_with_the_three_lines(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d)
+            gi = self._gi(d)
+        step = next(s for s in res["steps"] if s["step"] == "foundation-ignores")
+        self.assertIn(step["status"], ("written", "already"))
+        self.assertIn("BEGIN engine-managed block: foundation-ignores", gi)
+        for line in inst.wiring.FOUNDATION_IGNORE_LINES:
+            self.assertIn(line, gi)
+
+    def test_runs_before_codeowners_and_the_tool_runtime(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                res = _fake_apply(d)
+            names = self._names(res)
+        self.assertLess(names.index("foundation-ignores"), names.index("codeowners"))
+        self.assertLess(names.index("foundation-ignores"), names.index("tool-runtime"))
+
+    def test_brownfield_operator_ignore_lines_are_preserved(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                with open(os.path.join(d, ".gitignore"), "w", encoding="utf-8") as fh:
+                    fh.write("# my own\nnode_modules/\n")             # operator content, no engine fence
+                _fake_apply(d)
+                gi = self._gi(d)
+        self.assertIn("node_modules/", gi, "the operator's own ignore lines survive")
+        self.assertIn("BEGIN engine-managed block: foundation-ignores", gi)
+
+    def test_idempotent_second_apply_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                _fake_apply(d)
+                first = self._gi(d)
+                res2 = _fake_apply(d)
+                second = self._gi(d)
+            status2 = next(s for s in res2["steps"] if s["step"] == "foundation-ignores")["status"]
+        self.assertEqual(status2, "already")
+        self.assertEqual(first, second, "a resumed apply never rewrites the foundation fence")
+
+
 class TestApplyStep2Codeowners(unittest.TestCase):
     def test_writes_block_and_owns_itself(self):
         with tempfile.TemporaryDirectory() as d:
@@ -474,7 +534,7 @@ class TestApplyStep2Codeowners(unittest.TestCase):
                 _confirmed_fixture(d, handle="acme")
                 res = _fake_apply(d)
                 co = inst.validate.read(os.path.join(d, ".github", "CODEOWNERS"))
-            self.assertEqual(res["steps"][1]["status"], "written")
+            self.assertEqual(res["steps"][2]["status"], "written")   # step 2: codeowners (foundation-ignores is 1)
             self.assertIn("/.github/CODEOWNERS @acme", co, "the block owns itself from the first render")
             self.assertIn("/.engine/engine.json @acme", co)
 
@@ -484,7 +544,7 @@ class TestApplyStep2Codeowners(unittest.TestCase):
             with inst._redirect_root(d):
                 _confirmed_fixture(d, handle=None)       # confirm wrote no handle
                 res = _fake_apply(d, handle=None)
-            step = res["steps"][1]
+            step = res["steps"][2]                       # step 2: codeowners (foundation-ignores is 1)
             self.assertEqual(step["status"], "degraded")
             self.assertFalse(os.path.isfile(os.path.join(d, ".github", "CODEOWNERS")), "no render without a handle")
             self.assertFalse(res["halted"], "a missing handle degrades, never halts")
@@ -501,7 +561,7 @@ class TestApplyStep3PlanMode(unittest.TestCase):
             with inst._redirect_root(d):
                 _confirmed_fixture(d)
                 res = _fake_apply(d, home_reader=lambda: {})
-            self.assertEqual(res["steps"][2]["status"], "adopted")
+            self.assertEqual(self._plan_step(res)["status"], "adopted")
             self.assertEqual(self._mode(d), "plan")
 
     def test_conflict_keeps_operator_default_when_declined(self):
@@ -511,7 +571,7 @@ class TestApplyStep3PlanMode(unittest.TestCase):
                 _confirmed_fixture(d)
                 res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "acceptEdits"}},
                                   consent=lambda kind: False)        # operator declines adopt
-            self.assertEqual(res["steps"][2]["status"], "kept-operator-default")
+            self.assertEqual(self._plan_step(res)["status"], "kept-operator-default")
             self.assertIsNone(self._mode(d), "keep writes nothing — the project key stays unset (the yield)")
 
     def test_conflict_adopts_when_operator_chooses(self):
@@ -521,7 +581,7 @@ class TestApplyStep3PlanMode(unittest.TestCase):
                 _confirmed_fixture(d)
                 res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "acceptEdits"}},
                                   consent=lambda kind: kind == "plan-mode-adopt")
-            self.assertEqual(res["steps"][2]["status"], "adopted")
+            self.assertEqual(self._plan_step(res)["status"], "adopted")
             self.assertEqual(self._mode(d), "plan")
 
     def test_never_writes_home_settings(self):
@@ -601,7 +661,8 @@ class TestApplyStep4ToolRuntime(unittest.TestCase):
             with inst._redirect_root(d):
                 _confirmed_fixture(d)
                 res = _fake_apply(d, uv_present=lambda: "/usr/bin/uv", uv_runner=lambda uv, g: True)
-            self.assertEqual(res["steps"][3]["status"], "materialized")
+            runtime = next(s for s in res["steps"] if s["step"] == "tool-runtime")
+            self.assertEqual(runtime["status"], "materialized")
             self.assertFalse(res["halted"])
 
     def test_halts_without_consent_to_install(self):
@@ -612,7 +673,8 @@ class TestApplyStep4ToolRuntime(unittest.TestCase):
                 res = _fake_apply(d, uv_present=lambda: None, consent=lambda kind: False)
             self.assertTrue(res["halted"])
             self.assertEqual(res["steps"][-1]["step"], "tool-runtime")
-            self.assertEqual(len(res["steps"]), 4, "steps 5-7 are not attempted on a halt")
+            self.assertEqual(len(res["steps"]), 5, "the post-runtime steps are not attempted on a halt "
+                             "(remove-unselected, foundation-ignores, codeowners, plan-mode, tool-runtime)")
 
     def test_halts_when_install_fails(self):
         with tempfile.TemporaryDirectory() as d:

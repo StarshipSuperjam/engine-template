@@ -800,6 +800,26 @@ class TestUpgradeSafety(unittest.TestCase):
         self.assertEqual((engine or {}).get("home_repository"), "acme/engine-home")   # preserved
         self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.2.0")     # but versions bumped
 
+    def test_upgrade_reasserts_the_foundation_gitignore_fence_and_keeps_operator_lines(self):
+        # #409 U14: the foundation fence is release-evolvable — an upgrade re-applies it (like the CODEOWNERS
+        # re-render / CLAUDE.md floor merge), so a repo provisioned before/without it converges, and an
+        # operator's own ignore lines are preserved (block-scoped apply, never a wholesale overlay).
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                with open(os.path.join(live, ".gitignore"), "w", encoding="utf-8") as fh:
+                    fh.write("# mine\nnode_modules/\n")               # operator content, no engine fence yet
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: {"number": 1}, backup=lambda *a, **k: {"ok": 1})
+                after = module_manager.validate.read(os.path.join(live, ".gitignore"))
+            self.assertEqual(res["foundation_ignores"]["status"], "written")
+            self.assertIn("BEGIN engine-managed block: foundation-ignores", after)
+            self.assertIn(".engine/.venv/", after)
+            self.assertIn("node_modules/", after, "the operator's own ignore lines are preserved on upgrade")
+
     def test_data_migration_without_backup_refuses_the_whole_upgrade_before_overlay(self):
         with tempfile.TemporaryDirectory() as d:
             live = os.path.join(d, "live")
@@ -1049,6 +1069,39 @@ class TestRemoveReversesClaudeFloor(unittest.TestCase):
         self.assertNotIn("BEGIN engine-managed block: floor", after)
 
 
+class TestRemoveReversesFoundationIgnores(unittest.TestCase):
+    """#409 U14: clean engine removal block-reverses the root `.gitignore` foundation fence — the operator's
+    own ignore lines are KEPT (only the engine `foundation-ignores` block is removed), never wholesale-deleted
+    (`.gitignore` is excluded from remove_engine's delete set + block-reversed, like CODEOWNERS/CLAUDE.md)."""
+
+    def _fakes(self):
+        import bootstrap
+        def opener(branch, title, body):
+            return {"number": 0, "html_url": "(fixture)"}
+        def transport(method, path, body=None):
+            if method == "GET" and path.endswith("/rulesets"):
+                return (200, [{"id": 1, "name": bootstrap.ENGINE_RULESET_NAME}], {})
+            return (200 if method == "PUT" else 204 if method == "DELETE" else 200, None, {})
+        return opener, transport
+
+    def test_remove_keeps_operator_ignore_lines_and_drops_only_the_engine_block(self):
+        opener, transport = self._fakes()
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                module_manager._build_remove_fixture(d)
+                # an operator's own ignore line + the engine foundation fence in one .gitignore
+                with open(os.path.join(d, ".gitignore"), "w", encoding="utf-8") as fh:
+                    fh.write("# mine\nnode_modules/\n")
+                wiring.apply_foundation_ignores(os.path.join(d, ".gitignore"))
+                module_manager.remove_engine(opener=opener, transport=transport, choice="keep",
+                                             announce=lambda m: None)
+                after = module_manager.validate.read(os.path.join(d, ".gitignore"))
+        self.assertIn("node_modules/", after)                      # operator content kept
+        self.assertNotIn("foundation-ignores", after)              # the engine block is gone
+        self.assertNotIn(".engine/.venv/", after)
+        self.assertNotIn("BEGIN engine-managed block: foundation-ignores", after)
+
+
 class TestUpgradeSurfacesClaudeFloor(unittest.TestCase):
     """The CLAUDE.md merge outcome must reach the operator's consent surface — the upgrade PR body AND the
     console render — exactly as the CODEOWNERS outcome does. A degraded/skipped floor merge is an engine edit
@@ -1099,17 +1152,20 @@ class TestFoundationInfra(unittest.TestCase):
         self.assertEqual(module_coherence.NAMED_INFRA,
                          {".engine/engine.json", ".engine/pyproject.toml", ".engine/uv.lock"})
 
-    def test_foundation_code_is_foundation_infra_minus_manifest_codeowners_and_claude(self):
+    def test_foundation_code_is_foundation_infra_minus_manifest_codeowners_claude_and_gitignore(self):
         expected = tuple(p for p in module_coherence.FOUNDATION_INFRA
-                         if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", "CLAUDE.md"))
+                         if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS",
+                                      "CLAUDE.md", ".gitignore"))
         self.assertEqual(module_manager.FOUNDATION_CODE, expected)
-        # the issue templates are now in the overlay set; the manifest, CODEOWNERS, and root CLAUDE.md are
-        # excluded — CLAUDE.md is keyed-merged from the floor (_merge_claude_floor), not fetched-and-replaced
-        # wholesale (#234 6a), so the release's construction CLAUDE.md never overlays an adopter's floor
+        # the issue templates are now in the overlay set; the manifest, CODEOWNERS, root CLAUDE.md, and root
+        # .gitignore are excluded — CLAUDE.md/.gitignore carry a keyed engine fence re-asserted locally
+        # (_merge_claude_floor / apply_foundation_ignores), not fetched-and-replaced wholesale (#234 6a /
+        # #409 U14), so a release's file never overlays an adopter's own content
         self.assertIn(".github/ISSUE_TEMPLATE/*.md", module_manager.FOUNDATION_CODE)
         self.assertNotIn(".engine/engine.json", module_manager.FOUNDATION_CODE)
         self.assertNotIn(".github/CODEOWNERS", module_manager.FOUNDATION_CODE)
         self.assertNotIn("CLAUDE.md", module_manager.FOUNDATION_CODE)
+        self.assertNotIn(".gitignore", module_manager.FOUNDATION_CODE)
 
     def test_engine_owned_paths_unions_provides_and_foundation_concretely(self):
         with tempfile.TemporaryDirectory() as d:

@@ -684,6 +684,18 @@ def _apply_delete_unselected(manifest: dict, say) -> dict:
     return {"step": "remove-unselected", "status": "done", "deleted": deleted, "refused": refused}
 
 
+def _apply_foundation_ignores(say) -> dict:
+    """STEP (foundation ignores) — place the engine's keyed `.gitignore` fence (`.engine/.venv/`,
+    `.engine/.uv/`, `.claude/worktrees/`) via the wiring library helper (#409 U14). Runs BEFORE codeowners so
+    the file exists when `codeowners_path_set()` globs it (the `/.gitignore @owner` line renders on first
+    brownfield apply), and pre-runtime so a tool-runtime halt still leaves `.venv/` ignored — the strand
+    pre-check's clean-tree read stays true. Idempotent (fence_apply inserts iff absent); fails open (the
+    helper degrades, never crashes). No operator disclosure — this is engine infra placement, not operator
+    config (unlike plan-mode / conduct)."""
+    outcome = wiring.apply_foundation_ignores(wiring.GITIGNORE_PATH)
+    return {"step": "foundation-ignores", "status": outcome["status"]}
+
+
 def _apply_codeowners(handle, say, copy) -> dict:
     """STEP 2 — render the engine's code-ownership block so any change to the engine's own files routes to
     the operator for review. The owner is the stored handle; with no handle the renderer refuses, so the step
@@ -1451,7 +1463,7 @@ def _apply_security_toggles(control_transport, say, copy, repo=None, token=None)
 def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_present=None,
           uv_installer=None, uv_runner=None, consent=None, control_transport=None, gh_refresh=None,
           control_issues=None, control_repo=None, control_token=None, handle=None) -> dict:
-    """The apply phase: run the eight ordered steps against the confirmed manifest. Refuses (no change) when
+    """The apply phase: run the nine ordered steps against the confirmed manifest. Refuses (no change) when
     the manifest is absent — apply presupposes a confirmed selection. The handle is the passed one, else the
     one the manifest stored. Returns a step ledger: {refused, halted, steps:[…]}. A degraded tool-runtime
     sets `halted` and the remaining steps are not attempted (they presuppose the runtime); every other step
@@ -1464,6 +1476,7 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
         return {"refused": True, "reason": "not-confirmed", "halted": False, "steps": []}
     handle = handle if handle is not None else manifest.get("handle")
     steps = [_apply_delete_unselected(manifest, say),
+             _apply_foundation_ignores(say),
              _apply_codeowners(handle, say, copy),
              _apply_plan_mode(home_reader, settings_path, consent, say, copy)]
     runtime = _apply_tool_runtime(uv_present, uv_installer, uv_runner, consent, say, copy)
@@ -1988,7 +2001,7 @@ def _print_apply_ledger(steps: list, faked: dict) -> None:
 
 
 def _apply_demo() -> int:
-    """Operator-runnable demonstration of the APPLY phase. Runs the REAL seven-step apply logic against a
+    """Operator-runnable demonstration of the APPLY phase. Runs the REAL nine-step apply logic against a
     throwaway generated-repo fixture, faking ONLY the external boundaries (your computer's settings, the uv
     install + sync, the GitHub review-gate calls — each marked in the ledger). Shows the full happy path, an
     interrupted-then-resumed run, a tools-failure that halts safely, and a review-gate that can't be turned
@@ -2077,7 +2090,7 @@ def _apply_demo() -> int:
                         uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
                         control_transport=_defer_transport(), **dict(common, gh_refresh=lambda s: False))
         cp = _step(res["steps"], "control-plane")
-        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 8
+        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 9
         print(f"    → the review-gate step: {cp['status']} (the engine never pretends it's on: "
               f"protected={cp.get('protected')}).")
         print(f"    → setup still completed every other step and ended cleanly ({ended}).")

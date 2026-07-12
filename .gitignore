@@ -1,19 +1,13 @@
-# Engine tool-runtime: materialized by `uv sync`, never committed.
-# A regenerable derivative of the committed pyproject.toml + uv.lock
-# (repository-topology Law 5; decision-log D-156).
+# The engine's own tool-runtime (a `uv sync` derivative of the committed pyproject.toml + uv.lock) and the
+# platform's per-session worktree directories — kept out of git so they never clutter your repository or
+# your `git status` (repository-topology Law 5; D-156/D-189). This is a single engine-managed block: the
+# engine places it and reverses it on removal, so it travels with the template and a generated repo ignores
+# these before first-run setup even materializes them.
+# BEGIN engine-managed block: foundation-ignores - do not edit inside
 .engine/.venv/
-
-# Engine tool-runtime installer: the pinned uv binary the first-run setup places here,
-# PATH-independently, when it bootstraps the tool-runtime (D-156). A fetched binary, never
-# committed. Travels with the template so a generated repo ignores it before setup installs it.
-# (This construction repository runs no first-run setup, so the directory never appears here.)
 .engine/.uv/
-
-# Claude Desktop auto-isolates each session into its own worktree under here; ignored so these
-# sibling worktrees never pollute the top-level checkout's git status. Committed to the foundation
-# block so it travels with the template — a generated repo has no local .git/info/exclude equivalent
-# (engine-planning provisioning; D-189).
 .claude/worktrees/
+# END engine-managed block: foundation-ignores
 
 # Python bytecode cache (regenerable; never committed)
 __pycache__/
