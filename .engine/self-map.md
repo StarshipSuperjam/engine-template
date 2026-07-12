@@ -127,13 +127,14 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
-  - check: `.engine/check/product-lock-integrity.json`, `.engine/check/product-spec-coverage.json`, `.engine/check/product-spec-form.json`
+  - check: `.engine/check/product-lock-integrity.json`, `.engine/check/product-spec-coverage.json`, `.engine/check/product-spec-form.json`, `.engine/check/product-spec-matrix.json`
   - doc: `.engine/docs/product-design.md`
+  - foundation: `.engine/product-spec-matrix.json`
   - operation: `.engine/operations/product-intake.md`
   - scaffold: `.engine/modules/product-design/scaffold/*.md`
   - skill: `.claude/skills/engine-design/SKILL.md`
   - tool: `.engine/tools/product_design/*.py`
-- wires: none (this module adds no shared-state edits)
+- wires: hook
 
 ### `qa-review` — version `0.1.0` (optional)
 

@@ -439,7 +439,8 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/product-lock-integrity.json",
             ".engine/check/product-spec-coverage.json",
             ".engine/check/product-spec-form.json",
-        ], "product-design owns the spec-form, coverage, and lock-integrity re-acceptance checks")
+            ".engine/check/product-spec-matrix.json",
+        ], "product-design owns the spec-form, coverage, lock-integrity, and obligation-matrix drift checks")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
@@ -530,19 +531,28 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         pd = next((m for _p, m in manifests if m.get("id") == "product-design"), None)
         self.assertIsNotNone(pd, "product-design must be a present module")
         self.assertEqual(pd.get("status"), "optional")
-        self.assertEqual(pd.get("wires"), [])
+        # product-design's first wire (Slice: obligation-matrix): a PreToolUse regen hook that refreshes the
+        # committed obligation matrix at the git-commit boundary, mirroring core's graph/self-map regen hooks.
+        self.assertEqual(pd.get("wires"), [{
+            "type": "hook", "event": "PreToolUse", "matcher": "",
+            "hook": {"type": "command",
+                     "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" "
+                                "\"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" "
+                                "\"${CLAUDE_PROJECT_DIR}/.engine/tools/product_design/obligation_matrix.py\" hook"},
+        }], "product-design wires its obligation-matrix commit-boundary regen hook")
         self.assertEqual(pd.get("depends"), {"core": ""})
         self.assertEqual(pd.get("provides"), {
             "check": [".engine/check/product-lock-integrity.json", ".engine/check/product-spec-coverage.json",
-                      ".engine/check/product-spec-form.json"],
+                      ".engine/check/product-spec-form.json", ".engine/check/product-spec-matrix.json"],
             "tool": [".engine/tools/product_design/*.py"],
+            "foundation": [".engine/product-spec-matrix.json"],
             "operation": [".engine/operations/product-intake.md"],
             "skill": [".claude/skills/engine-design/SKILL.md"],
             "doc": [".engine/docs/product-design.md"],
             "scaffold": [".engine/modules/product-design/scaffold/*.md"],
-        }, "product-design owns its front door: the spec-form + coverage + lock-integrity checks and their "
-           "tools, the intake operation, the engine-design skill, the orientation doc, and the scaffold "
-           "(now including the build-order template)")
+        }, "product-design owns its front door: the spec-form + coverage + lock-integrity + obligation-matrix "
+           "checks and their tools, the committed obligation matrix (its foundation file), the intake "
+           "operation, the engine-design skill, the orientation doc, and the scaffold")
 
     def test_doc_ownership_is_partitioned_core_and_product_design(self):
         # The orientation doc lives under .engine/docs/, which core used to claim by a whole-surface glob

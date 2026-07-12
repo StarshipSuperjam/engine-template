@@ -270,6 +270,9 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     # github-projects-sync (optional) wires its board refresh on two SessionStart matchers (startup + resume),
     # the same command, so the SET has one entry while the registration COUNT is two.
     PROJECTS_SYNC_RELPATHS = (".engine/tools/projects_sync/projects_sync.py session-start",)
+    # product-design (optional) wires ONE PreToolUse regen hook: its obligation-matrix commit-boundary refresh
+    # (mirrors core's graph/self-map regen hooks) — product-design's first and only hook wire.
+    PRODUCT_DESIGN_RELPATHS = (".engine/tools/product_design/obligation_matrix.py hook",)
 
     def _venv_hook_commands(self, commands):
         return [c for c in commands if ".venv/bin/python" in c]
@@ -282,6 +285,7 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         expected_core = {hooks.hook_command(r, "posix") for r in self.CORE_RELPATHS}
         expected_memory = {hooks.hook_command(r, "posix") for r in self.MEMORY_RELPATHS}
         expected_projects = {hooks.hook_command(r, "posix") for r in self.PROJECTS_SYNC_RELPATHS}
+        expected_product_design = {hooks.hook_command(r, "posix") for r in self.PRODUCT_DESIGN_RELPATHS}
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
@@ -304,15 +308,23 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         self.assertEqual(len(p_cmds), 2, "the board refresh on two SessionStart matchers (startup + resume)")
         self.assertEqual(set(p_cmds), expected_projects, "every board-sync manifest hook command is hook_command's output")
 
-        # settings.json registers all installed modules' hooks: 13 core + 13 memory + 2 board-sync venv-rooted.
+        product_design = validate.load_json(
+            os.path.join(validate.ROOT, ".engine/modules/product-design/manifest.json"))
+        pd_cmds = self._hook_cmds(product_design)
+        self.assertEqual(len(pd_cmds), 1, "product-design's one obligation-matrix commit-boundary regen hook")
+        self.assertEqual(set(pd_cmds), expected_product_design,
+                         "product-design's manifest hook command is hook_command's output")
+
+        # settings.json registers all installed modules' hooks: 13 core + 13 memory + 2 board-sync + 1 product-design venv-rooted.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 28,
-                         "the twenty-eight venv-rooted hook commands in settings (13 core + 13 memory + 2 board-sync)")
-        self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects,
-                         "settings matches the form (and so all three manifests) exactly")
+        self.assertEqual(len(s_cmds), 29,
+                         "the twenty-nine venv-rooted hook commands in settings "
+                         "(13 core + 13 memory + 2 board-sync + 1 product-design)")
+        self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects | expected_product_design,
+                         "settings matches the form (and so all four manifests) exactly")
 
 
 class TestHarnessBlock(unittest.TestCase):
