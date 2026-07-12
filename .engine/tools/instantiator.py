@@ -590,11 +590,12 @@ def _existing_home_repository(root: str | None = None) -> str | None:
 # operator's home settings, the uv install + sync, the GitHub review-gate calls). "Works on the fixture ⇒
 # works for a real adopter" is the named inductive step the fixture cannot discharge.
 
-UV_PIN = "0.11.8"  # the pinned uv version to bootstrap — MUST match the committed CI pin
-                   # (.github/workflows/engine-ci.yml + engine-guard.yml `version:`) so the runtime the
-                   # instantiator materializes matches the engine's resolved uv.lock. (Faked in every test
-                   # and the demo; a real install runs only on a generated repo. owes → a check tying this
-                   # constant to the workflow pin so the two can't drift.)
+UV_PIN = "0.11.8"  # the pinned uv version to bootstrap — MUST match the committed CI pin (every
+                   # .github/workflows/*.yml astral-sh/setup-uv `version:`) so the runtime the instantiator
+                   # materializes matches the engine's resolved uv.lock. (Faked in every test and the demo; a
+                   # real install runs only on a generated repo.) The tie is enforced at merge by
+                   # test_instantiator.test_uv_pin_ties_to_every_ci_workflow_setup_uv_version — a one-sided
+                   # bump of this constant or a workflow pin fails that test under CI's unittest discover.
 UV_INSTALL_DIR_REL = os.path.join(".engine", ".uv")
 UV_INSTALL_URL = f"https://astral.sh/uv/{UV_PIN}/install.sh"
 

@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+import yaml  # the #416 U28-F7 uv-pin tie parses the CI workflows structurally (already a runtime dep)
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import instantiator as inst  # noqa: E402
 import validate  # noqa: E402
@@ -700,7 +702,41 @@ class TestApplyStep4ToolRuntime(unittest.TestCase):
         # and the version-pinned official URL — the deployed supply-chain contract (D-156).
         self.assertIn("UV_UNMANAGED_INSTALL", inst._install_uv.__doc__ or "")
         self.assertEqual(inst.UV_INSTALL_URL, f"https://astral.sh/uv/{inst.UV_PIN}/install.sh")
-        self.assertEqual(inst.UV_PIN, "0.11.8", "must match the committed CI uv pin")
+
+    def test_uv_pin_ties_to_every_ci_workflow_setup_uv_version(self):
+        # #416 U28-F7: the instantiator's UV_PIN and every CI workflow's astral-sh/setup-uv `version:` must
+        # agree, or a one-sided bump silently ships a bootstrap runtime that mismatches the engine's resolved
+        # uv.lock. This test IS that tie — it reads the real workflow files and asserts each setup-uv step
+        # pins UV_PIN, replacing the old hard-coded "0.11.8" literal (a third copy, not a tie). It runs under
+        # CI's `unittest discover`, so a divergence is caught at merge (the check instantiator.py's comment
+        # said was owed). Parsed via the YAML structure (jobs->steps->uses/with), NOT a bare `version:` scan,
+        # so it never false-hits an unrelated `engine_version:` input or a comment.
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(inst.__file__))))
+        wf_dir = os.path.join(repo_root, ".github", "workflows")
+        checked = []  # (filename, version) for every setup-uv step reached through the parsed structure
+        for fn in sorted(f for f in os.listdir(wf_dir) if f.endswith((".yml", ".yaml"))):
+            with open(os.path.join(wf_dir, fn), encoding="utf-8") as fh:
+                raw = fh.read()
+            doc = yaml.safe_load(raw) or {}
+            found_here = []
+            for job in (doc.get("jobs") or {}).values():
+                for step in (job.get("steps") or []):
+                    if ((step or {}).get("uses") or "").startswith("astral-sh/setup-uv"):
+                        found_here.append((step.get("with") or {}).get("version"))
+            # Fail LOUDLY on a parser miss: a file that textually uses setup-uv must yield a parsed version,
+            # else the tie would silently pass over an unchecked pin.
+            if "astral-sh/setup-uv" in raw:
+                self.assertTrue(found_here, f"{fn}: uses astral-sh/setup-uv but no step parsed from its structure")
+            for version in found_here:
+                self.assertIsNotNone(version, f"{fn}: an astral-sh/setup-uv step carries no `version:` input")
+                checked.append((fn, version))
+        # Not vacuous — at least one workflow pins uv — and every pin agrees with the instantiator constant.
+        self.assertTrue(checked, "no astral-sh/setup-uv version found in any workflow — the tie would be vacuous")
+        for fn, version in checked:
+            self.assertEqual(
+                version, inst.UV_PIN,
+                f"{fn} pins uv {version!r} but instantiator.UV_PIN is {inst.UV_PIN!r} — a one-sided bump; "
+                f"bump both the instantiator constant and every workflow `version:` together")
 
 
 class TestApplyStep6WiresInstallsHooks(unittest.TestCase):
