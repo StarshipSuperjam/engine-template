@@ -993,10 +993,10 @@ class TestSubsectionLineStatus(unittest.TestCase):
         # a filled line keeps an inline token: "Impact: <a> and <b>" is filled, not a slot
         self.assertEqual(validate._subsection_line_status("Impact: <a> and <b>", "Impact"), "filled")
 
-    def test_filled_bold_label(self):
-        # the common Markdown habit of bolding just the label must be recognized as filled,
-        # not misreported as an absent Impact line
-        self.assertEqual(validate._subsection_line_status("**Impact:** real prose", "Impact"), "filled")
+    def test_bold_label_is_not_the_italic_form(self):
+        # the shipped Impact line is italic (*Impact: ...*); a bold label is off-convention
+        # and is NOT accepted — it reads as missing, nudging authors back to the italic form
+        self.assertEqual(validate._subsection_line_status("**Impact:** real prose", "Impact"), "missing")
 
     def test_unfilled_new_sentinel(self):
         self.assertEqual(validate._subsection_line_status("*Impact: <guidance>*", "Impact"), "unfilled")
@@ -1035,12 +1035,6 @@ class TestImpactFillEnforcement(unittest.TestCase):
         self.assertFalse(passed)
         self.assertEqual(len(found), 8)
         self.assertTrue(all("no filled Impact line" in f["message"] for f in found))
-
-    def test_bold_label_impact_passes(self):
-        # a filled Impact line with the label bolded on its own is accepted, not misread
-        passed, found = validate.kind_presence(IMPACT_RULE, {"pr_body": self._body("**Impact:** real consequence")})
-        self.assertTrue(passed)
-        self.assertEqual(found, [])
 
     def test_missing_section_not_double_counted(self):
         # a wholly-missing body yields ONE finding per section (presence leg), never two

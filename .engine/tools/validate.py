@@ -123,7 +123,6 @@ FENCE_RE = re.compile(r"^\s*(?:```|~~~)")             # a fenced-code-block deli
 PLACEHOLDER_RE = re.compile(r"^<[^>]*>$")             # a prompt token (decoration stripped), e.g. <why this exists>
 LIST_MARKER_RE = re.compile(r"^[-*+]\s+")             # a leading unordered-list bullet marker
 EMPHASIS_RE = re.compile(r"^(\*\*|__|\*|_)(.+?)\1$")  # a surrounding bold/italic emphasis wrapper
-INLINE_LABEL_RE = re.compile(r"^(\*\*|__|\*|_)\s*([A-Za-z][\w ]*:)\s*\1")  # an emphasized label, **Impact:** / *Impact:*
 
 
 # ---- finding.v1 ------------------------------------------------------------
@@ -325,8 +324,8 @@ def _placeholder_only(line: str) -> bool:
 def _label_remainder(line: str, label: str):
     """If `line` is the labelled sub-line for `label`, return the text after the label
     (possibly ''); otherwise None. The line is recognized when, after its list marker
-    and whole-line emphasis are stripped, the label leads it — bare (`Impact: ...`), with
-    the label itself emphasized (`**Impact:** ...`), or wholly wrapped in the old sentinel
+    and whole-line emphasis are stripped, the label leads it — the shipped italic form
+    (`*Impact: ...*`) or a bare `Impact: ...`, or wholly wrapped in the old sentinel
     (`<Impact: ...>`, always treated as unfilled, so it returns ''). Keyed to the specific
     label, so an unrelated labelled line like `See: <url>` is never matched — this is what
     keeps the emptiness leg of other presence checks untouched."""
@@ -337,9 +336,6 @@ def _label_remainder(line: str, label: str):
         m = EMPHASIS_RE.match(s)
         if m:
             s = m.group(2).strip()
-    m = INLINE_LABEL_RE.match(s)           # normalize an emphasized label: **Impact:** -> Impact:
-    if m:
-        s = (m.group(2) + " " + s[m.end():]).strip()
     want = label.lower() + ":"
     if s.startswith("<") and s.endswith(">") and s[1:].lower().startswith(want):
         return ""                          # old fully-wrapped sentinel is always unfilled
@@ -383,8 +379,8 @@ def section_presence_findings(body: str, sections: list, tier: str, message: str
 def _subsection_line_status(text: str, label: str) -> str:
     """Within a section body, report the state of its labelled sub-line (e.g. `Impact:`):
     'filled', 'unfilled', or 'missing'. A line is that sub-line when `_label_remainder`
-    recognizes it (bare `Impact: ...`, emphasized `**Impact:** ...`, or the old sentinel
-    `<Impact: ...>`). It is 'filled' only when real, non-placeholder text follows the
+    recognizes it (the shipped italic `*Impact: ...*`, a bare `Impact: ...`, or the old
+    sentinel `<Impact: ...>`). It is 'filled' only when real, non-placeholder text follows the
     label; an empty label or a `<...>` prompt slot after it (either template form) is
     'unfilled'. Presence, not prose quality — matching the section-presence leg's posture."""
     status = "missing"
