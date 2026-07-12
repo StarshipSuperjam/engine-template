@@ -106,7 +106,10 @@ class TestSetupPageContent(unittest.TestCase):
         # the engine reads, AND it must name the actual boot phrasing so the disclosure is honest for the
         # never-run sub-case (not just the "gone too long" one).
         self.assertIn("never leaves the record the engine reads", self.text)
+        # Both actual boot phrasings must be mirrored so the disclosure is honest for either sub-case — the
+        # never-run one ("hasn't run yet", audit_digest.py) and the aged one ("hasn't reviewed its own health").
         self.assertIn("hasn't run yet", self.text)
+        self.assertIn("hasn't reviewed its own health", self.text)
 
     def test_gives_a_copy_paste_monthly_cadence_line(self):
         self.assertIn("17 7 1 * *", self.text)
