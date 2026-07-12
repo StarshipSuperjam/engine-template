@@ -419,7 +419,7 @@
       },
       "slug": "catalog-coverage",
       "source": {
-        "fingerprint": "sha256:73e1d9523625f140b275572dec565f5ccfc25c8283c6b38af17866b1de85ded4",
+        "fingerprint": "sha256:fc06a77b237a10424d2511caff0b8ee9a531388a601a8080eecbaecf30f4f70c",
         "path": ".engine/check/catalog-coverage.json"
       },
       "status": "active",
@@ -3422,6 +3422,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:audit-finding.v1",
+      "name": ".engine/schemas/audit-finding.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "audit-finding.v1",
+      "source": {
+        "fingerprint": "sha256:161cf612295cd553a7fcbac23ea08abeebc9cbe8dd733fe96d39085acc08aad7",
+        "path": ".engine/schemas/audit-finding.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:check.v1",
       "name": ".engine/schemas/check.v1.json",
       "owner": "core",
@@ -5058,7 +5075,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:3c0056c137d44ada5fd2ab67458ac0a11a92e24c43e9218db12a458c5c6b1d9b",
+        "fingerprint": "sha256:4426acf38e5740c9dac364aa198cd242379aa1265d0139589f50d13cc9983952",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -5398,7 +5415,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:852638424335a4f0ef4e16465e70c4a29ba8717658485ca5b991fbfb1339aa37",
+        "fingerprint": "sha256:9183a9a52cfc202efc292054ec5bac19c6b1fff224bf6a2a8d0f0e376b28383d",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -5415,7 +5432,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:6902a9065b351cd8c4369ad86988ce34e59d0ed14535e354aec95f8010490b0b",
+        "fingerprint": "sha256:21bdaef25109d328ccea5d7639d60c82771fce8bc70f8b619c4b3efa1ffd5f5f",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -6027,7 +6044,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:0b68fc2c6d53209ee010f853135ed936032f1ee8b828062e3b67cad44da43cc3",
+        "fingerprint": "sha256:10cabc5ce937eec29aec29fae44b091964dbf1ac111ea61fd88eae1ff20bd9f1",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -6656,7 +6673,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:67753f3ff03c56423443d3dcdeee5443ec9aac7d2b37f02afc8589ea6c9781b3",
+        "fingerprint": "sha256:1579064043f0a1dbedb53f82c7038445b13ceee49650633f9290bffac07134f3",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -6962,7 +6979,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:fea62d297e1383ffa3d90e68c86fc95f2240fb197e719e3801091a14163642d3",
+        "fingerprint": "sha256:c9e1f89e666328c6d7a8f58378f38f74d276b67601660650c31d458606e1b28a",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -7438,7 +7455,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:3ad6e0335ef3cc646fcfeadc653da7a43848921b719ede29039ab66041a6cfe1",
+        "fingerprint": "sha256:2dda38af5c093b81d2d104407e97be47473d070dd13208e5a63611d773b00b47",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",

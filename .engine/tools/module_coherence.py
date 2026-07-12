@@ -171,6 +171,18 @@ PRUNE_PATHS = {".engine/memory", ".engine/projects-sync"}
 # fingerprinted into the graph, so the #281 "a regen would pull it in" risk does not apply to them).
 FIXTURE_PATHS = {".engine/_fixtures"}
 
+# Repo-relative directory PATHS holding the deployment's COMMITTED per-instance eADR stream — the
+# deployment-authored decision records on the contracts surface (topology law 5 / D-169). The engine's own
+# foundational eADR CANON rides core's non-recursive `.engine/contracts/*.md` glob (which never descends into
+# a subdirectory); this deployment stream lives one level down, in NO module's `provides`, preserved across an
+# engine overlay like operator config. Distinct justification from every set above: it is neither a regenerable
+# cache (PRUNE_DIRS), gitignored runtime state (PRUNE_PATHS), nor test data (FIXTURE_PATHS) — it is committed
+# deployment content that must not read as an unowned orphan and must not be fingerprinted into the ENGINE's
+# knowledge graph (a deployment's own decisions are not engine surface). Excluded by the SAME shared walk-prune
+# as FIXTURE_PATHS, so it sits outside BOTH the ownership leg and the #281 untracked-surface detector. Anchored
+# on the exact subtree path, so the engine canon at `.engine/contracts/*.md` stays fully ownership-checked.
+DEPLOYMENT_CONTRACTS = {".engine/contracts/instance"}
+
 MODULES_GLOB = ".engine/modules/*/manifest.json"
 
 
@@ -226,19 +238,22 @@ def load_engine_manifest():
 
 def _walk_engine_files() -> list:
     """Every file under .engine/ on the live filesystem (relpaths), pruning regenerable cache dirs
-    (PRUNE_DIRS, any depth), gitignored runtime roots (PRUNE_PATHS), and the committed-but-non-surface
-    fixtures namespace (FIXTURE_PATHS). The RAW walk — what is on disk, tracked or not.
+    (PRUNE_DIRS, any depth), gitignored runtime roots (PRUNE_PATHS), the committed-but-non-surface
+    fixtures namespace (FIXTURE_PATHS), and the deployment's committed per-instance eADR stream
+    (DEPLOYMENT_CONTRACTS). The RAW walk — what is on disk, tracked or not.
     engine_file_inventory() narrows this to the committed set; the untracked-surface detector reads it raw
-    (both therefore exclude the three pruned sets)."""
+    (both therefore exclude the four pruned sets)."""
     out = []
     for dirpath, dirs, files in os.walk(validate.ENGINE_DIR):
         # Prune name-matched caches (PRUNE_DIRS, any depth), path-matched gitignored runtime roots
-        # (PRUNE_PATHS), and the committed-but-non-surface fixtures namespace (FIXTURE_PATHS) — each by the
-        # exact repo-relative path — so none of their contents are flagged as orphans.
+        # (PRUNE_PATHS), the committed-but-non-surface fixtures namespace (FIXTURE_PATHS), and the
+        # deployment-owned per-instance eADR stream (DEPLOYMENT_CONTRACTS) — each by the exact repo-relative
+        # path — so none of their contents are flagged as orphans.
         dirs[:] = [d for d in dirs
                    if d not in PRUNE_DIRS
                    and _rel(os.path.join(dirpath, d)) not in PRUNE_PATHS
-                   and _rel(os.path.join(dirpath, d)) not in FIXTURE_PATHS]
+                   and _rel(os.path.join(dirpath, d)) not in FIXTURE_PATHS
+                   and _rel(os.path.join(dirpath, d)) not in DEPLOYMENT_CONTRACTS]
         out.extend(_rel(os.path.join(dirpath, f)) for f in files)
     return sorted(out)
 

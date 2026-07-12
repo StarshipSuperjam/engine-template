@@ -1548,6 +1548,16 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/audits/audit-digest.md",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
+    # The engine's marketing banner — go-to-market content referenced only by the template's marketing landing
+    # README, carried into every generated repo by "Use this template". Retired at first-run alongside the README
+    # reseed (the product starter references no banner), so a generated repo carries no engine marketing residue
+    # (repository-topology law 1; D-213/D-214, #410 U27). Retired as the specific FILE, not the `assets/`
+    # directory: retire() ALSO runs on the brownfield "add the engine to an existing project" arrival, where
+    # `assets/` is the OPERATOR's own directory (the engine provides no `assets/`) — a whole-dir rmtree there
+    # would delete their files. Targeting just the banner is provenance-precise: it is absent in brownfield (a
+    # no-op) and the only thing in `assets/` in greenfield, and an emptied `assets/` does not travel (git commits
+    # no empty directory).
+    "assets/engine_banner.jpg",
 )
 _FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),)
 
