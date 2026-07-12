@@ -33,11 +33,13 @@ CLI (the operator-runnable demo on a throwaway fixture — no registered hook ex
   uv run --directory .engine -- python tools/hooks.py demo
 """
 from __future__ import annotations
+import datetime
 import json
 import os
 import re
 import subprocess
 import sys
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
@@ -295,6 +297,33 @@ def _emit_finding(err, severity: str, event: str, kind: str, message: str, promo
     err.write(f["message"] + "\n")
 
 
+def _record_crash_debug(event: str, exc: BaseException, path: str | None = None) -> None:
+    """Append a compact DIAGNOSTIC entry for a fail-open handler crash to the engine-only debug FILE — for
+    the engine's OWN later debugging, NEVER operator-facing. It captures the exception (type + message) and
+    the last traceback frame (file:line), so a transient crash (e.g. a mid-edit NameError that fires the
+    gate once and is then fixed) leaves a locatable trail instead of the anonymous type name the
+    operator-facing finding carries.
+
+    It goes to a gitignored file the operator never sees — deliberately NOT to stderr (which the platform
+    DOES show the operator on the non-blocking fail-open exit — that is where the plain-language finding
+    goes) and NOT to the promoted Issue body. So the raw message + code location (backstage detail an
+    operator must never be shown) stay engine-only, while the operator-facing surfaces carry only the
+    exception type. The sink is telemetry's gitignored cache (the crash is promoted as a telemetry
+    finding, so its backstage detail belongs beside telemetry's cache); telemetry is lazy-imported here,
+    exactly as the fail-open promotion path already does. Best-effort and fully swallowed by the caller:
+    recording a crash must never re-break fail-open."""
+    if path is None:
+        import telemetry  # noqa: E402 — lazy, on the fail-open branch only (as _do_promote_fail_open is)
+        path = telemetry.HOOK_CRASH_DEBUG_PATH
+    tb = getattr(exc, "__traceback__", None)
+    frames = traceback.extract_tb(tb) if tb else []
+    where = f" @ {os.path.basename(frames[-1].filename)}:{frames[-1].lineno}" if frames else ""
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(f"{stamp} {event} handler crash: {type(exc).__name__}: {exc}{where}\n")
+
+
 def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promote=None) -> int:
     """Run one hook event under the fail-open-and-flag law and the platform contract. `event` is the
     Claude Code event name (the calling hook script declares it); `handler(payload) -> decision` is the
@@ -344,6 +373,10 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
         #   sys.exit() (e.g. exit 2 to force a block) must STILL fail open — the harness owns the exit
         #   code, so a handler bug can never fail-closed and strand a non-engineer. KeyboardInterrupt /
         #   GeneratorExit (not caught here) stay propagating so an operator can still interrupt.
+        try:
+            _record_crash_debug(event, exc)
+        except Exception:  # noqa: BLE001 — a diagnostic aid must NEVER re-break fail-open into a block or a
+            pass           #   crash: if recording the trace fails (disk, perms), drop it and still flag + proceed.
         _emit_finding(err, "hard", event, "crash",
                       f"A safety check on the {event} step could not run ({type(exc).__name__}); the "
                       f"action was allowed to proceed. The work was not verified by that check.", promote)

@@ -146,6 +146,17 @@ class TestPureHelpers(unittest.TestCase):
         self.assertEqual(telemetry.parse_source_id(body), "rule:y")
         self.assertIsNone(telemetry.parse_source_id("no marker here"))
 
+    def test_first_noticed_round_trips_takes_last_match_and_strips(self):
+        # Recovers the FIRST-seen half of the trailer (not last-reconfirmed), so a cache-free promote /
+        # consolidation preserves the original first-noticed instead of resetting it to `now`.
+        body = telemetry.issue_body(rec("rule:y"), T[0], T[3])   # first_seen T[0], last_seen T[3]
+        self.assertEqual(telemetry.parse_first_noticed(body), T[0])
+        self.assertIsNone(telemetry.parse_first_noticed("no trailer here"))
+        # a forged earlier "First noticed" line cannot win — the real trailer is appended LAST
+        forged = "*First noticed 1999-01-01T00:00:00Z; last reconfirmed z.*\n" + body
+        self.assertEqual(telemetry.parse_first_noticed(forged), T[0])
+
+
     def test_issue_body_leaks_no_raw_identifier(self):
         # The raw source-id identifier lives only in the invisible HTML-comment marker (parsed back by
         # parse_source_id); it must never surface in the operator-visible prose. This guards a SYMBOL (a raw
@@ -632,8 +643,11 @@ class TestSentinelRecovery(unittest.TestCase):
         self.assertEqual(r.opened, 0)                            # cache recovered the match
         self.assertEqual(f.open_count(), 1)
 
-    def test_worst_case_one_duplicate_never_a_missed_signal(self):
-        # Both layers fail (marker stripped AND cache wiped): at most ONE duplicate, never zero.
+    def test_only_the_unkeyable_stripped_marker_duplicate_is_tolerated(self):
+        # The one genuinely UNKEYABLE case: the marker was stripped AND the cache wiped, so no pass can
+        # key this Issue to the signal. One duplicate opens (never a missed signal) — the honest limit of
+        # body+cache dedup. (Contrast test_a_keyable_duplicate_pair_is_consolidated_not_tolerated: when the
+        # markers survive, a duplicate is CONSOLIDATED, not tolerated.)
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
         run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])
         num = next(iter(f.issues))
@@ -642,6 +656,96 @@ class TestSentinelRecovery(unittest.TestCase):
         r = run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[1])
         self.assertEqual(r.opened, 1)                            # a duplicate, not a missed signal
         self.assertEqual(f.open_count(), 2)
+
+    def test_a_keyable_duplicate_pair_is_consolidated_not_tolerated(self):
+        # When BOTH duplicates keep their markers (a create/create race), the next pass consolidates them
+        # to one survivor — a keyable duplicate is healed, never tolerated as a standing second Issue.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[0])   # opens #1
+        num1 = next(iter(f.issues))
+        f.issues[99] = {"number": 99, "title": "raced dup", "body": f.issues[num1]["body"],
+                        "labels": ["engine"], "state": "open"}   # a same-marker Issue the race left
+        f._next = 100
+        self.assertEqual(f.open_count(), 2)
+        r = run(gh(f), [rec("check/p", "trust-critical")], cache, TH, T[1])
+        self.assertEqual(f.open_count(), 1)                      # consolidated to one survivor
+        self.assertEqual(f.issues[num1]["state"], "open")        # the lower-numbered one survives
+        self.assertEqual(f.issues[99]["state"], "closed")
+        self.assertEqual(r.closed, 1)
+
+
+class TestConsolidation(unittest.TestCase):
+    """A create/create race can leave two open Issues for ONE signal (GitHub has no atomic
+    create-if-absent). reconcile/run must CONVERGE keyable duplicates onto the lowest-numbered survivor,
+    close the rest, and preserve the earliest first-noticed — but ONLY within authority scope, so a
+    partial (e.g. CI-only) pass never touches another source's duplicates. Real reconcile; network faked."""
+
+    def _inject(self, f, number, sid, first_seen):
+        body = telemetry.issue_body(rec(sid, "trust-critical", "A safety check could not run."),
+                                    first_seen, first_seen)
+        f.issues[number] = {"number": number, "title": "Engine health: x", "body": body,
+                            "labels": ["engine"], "state": "open"}
+        f._next = max(f._next, number + 1)
+
+    def test_present_pass_consolidates_a_keyable_duplicate_pair(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._inject(f, 433, "hooks/fail-open/PreToolUse/crash", T[0])
+        self._inject(f, 434, "hooks/fail-open/PreToolUse/crash", T[1])
+        r = run(gh(f), [rec("hooks/fail-open/PreToolUse/crash", "trust-critical")], cache, TH, T[5])
+        self.assertEqual(f.open_count(), 1)
+        self.assertEqual(f.issues[433]["state"], "open")         # lowest-numbered survivor kept
+        self.assertEqual(f.issues[434]["state"], "closed")
+        self.assertEqual(r.closed, 1)
+        self.assertIn("Consolidated into #433", f.issues[434]["body"])
+
+    def test_absent_authoritative_pass_still_consolidates_but_keeps_the_survivor(self):
+        # The signal is not observed this pass, but an AUTHORITATIVE_ALL pass still folds its duplicates;
+        # the survivor stays open (one absence < the auto-resolve threshold).
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._inject(f, 433, "sid/x", T[0])
+        self._inject(f, 434, "sid/x", T[1])
+        run(gh(f), [], cache, TH, T[5])
+        self.assertEqual(f.issues[434]["state"], "closed")       # duplicate consolidated
+        self.assertEqual(f.issues[433]["state"], "open")         # survivor carried forward
+
+    def test_scoped_pass_leaves_another_sources_duplicates_untouched(self):
+        # THE INVARIANT: a CI-scoped pass has no authority over hooks/fail-open, so it must NOT consolidate
+        # that source's duplicate pair — the same source-scoping that stops it auto-resolving foreign Issues.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._inject(f, 433, "hooks/fail-open/PreToolUse/crash", T[0])
+        self._inject(f, 434, "hooks/fail-open/PreToolUse/crash", T[1])
+        run(gh(f), [], cache, TH, T[5], authoritative=frozenset({"ci/some-check"}))
+        self.assertEqual(f.open_count(), 2)                      # both left open — no authority
+        self.assertEqual(f.issues[434]["state"], "open")
+
+    def test_consolidation_is_idempotent(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._inject(f, 433, "sid/x", T[0])
+        self._inject(f, 434, "sid/x", T[1])
+        run(gh(f), [rec("sid/x", "trust-critical")], cache, TH, T[5])
+        self.assertEqual(f.open_count(), 1)
+        r2 = run(gh(f), [rec("sid/x", "trust-critical")], cache, TH, T[6])
+        self.assertEqual(r2.closed, 0)                           # nothing left to consolidate
+        self.assertEqual(f.open_count(), 1)
+
+    def test_survivor_keeps_earliest_first_noticed_across_the_group(self):
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._inject(f, 433, "sid/x", T[3])   # survivor body says T[3]
+        self._inject(f, 434, "sid/x", T[1])   # duplicate body says T[1] (earlier)
+        run(gh(f), [rec("sid/x", "trust-critical")], cache, TH, T[5])
+        self.assertEqual(telemetry.parse_first_noticed(f.issues[433]["body"]), T[1])   # earliest, not now
+
+    def test_resolving_signal_closes_survivor_and_dups_without_a_dangling_note(self):
+        # When the whole signal resolves in the same pass (a live-derived clear), the survivor AND its
+        # duplicates all close — and the duplicate must NOT be stamped "tracking continues at #N", since
+        # #N is closing too (the pointer would land on a closed Issue).
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._inject(f, 433, "sid/x", T[0])
+        self._inject(f, 434, "sid/x", T[1])
+        # a live pass observing NOTHING for sid/x -> the durable source shows it clear -> resolve now
+        telemetry.run(gh(f), [], cache, TH, T[5], authoritative=telemetry.AUTHORITATIVE_ALL, live=True)
+        self.assertEqual(f.open_count(), 0)                      # both closed together
+        self.assertNotIn("Consolidated into", f.issues[434]["body"])   # no dangling pointer to a closed #433
 
 
 class TestPromoteFinding(unittest.TestCase):
@@ -669,6 +773,63 @@ class TestPromoteFinding(unittest.TestCase):
         self.assertEqual(f.open_count(), 1)                       # one issue — dedup by source_id
         self.assertEqual(len([c for c in f.writes() if c[0] == "POST"]), 1)   # one open...
         self.assertTrue(any(c[0] == "PATCH" for c in f.writes()))             # ...then an update
+
+    def _inject(self, f, number, sid, first_seen):
+        # Seed the fake with a pre-existing open Issue carrying a REAL marker+trailer body (the shape a
+        # create/create race leaves), so promote_finding's convergence runs against genuine parseable bodies.
+        body = telemetry.issue_body(rec(sid, "trust-critical", "A safety check could not run."),
+                                    first_seen, first_seen)
+        f.issues[number] = {"number": number, "title": "Engine health: x", "body": body,
+                            "labels": ["engine"], "state": "open"}
+        f._next = max(f._next, number + 1)
+
+    def test_converges_a_create_create_race_to_the_lowest_numbered_survivor(self):
+        # The #433/#434 shape: two open Issues, same marker. promote folds the higher into the lower.
+        f = FakeGH(labels={"engine"})
+        self._inject(f, 433, "hooks/fail-open/PreToolUse/crash", T[0])
+        self._inject(f, 434, "hooks/fail-open/PreToolUse/crash", T[1])
+        num = telemetry.promote_finding(gh(f), self.frec("hooks/fail-open/PreToolUse/crash"), T[5])
+        self.assertEqual(num, 433)                               # survivor = the lowest number
+        self.assertEqual(f.open_count(), 1)
+        self.assertEqual(f.issues[433]["state"], "open")
+        self.assertEqual(f.issues[434]["state"], "closed")
+        self.assertIn("Consolidated into #433", f.issues[434]["body"])   # closed with an honest note
+
+    def test_converges_three_or_more_duplicates(self):
+        f = FakeGH(labels={"engine"})
+        for n in (433, 434, 435):
+            self._inject(f, n, "sid/x", T[0])
+        num = telemetry.promote_finding(gh(f), self.frec("sid/x"), T[5])
+        self.assertEqual(num, 433)
+        self.assertEqual(f.open_count(), 1)
+        self.assertEqual([f.issues[n]["state"] for n in (434, 435)], ["closed", "closed"])
+
+    def test_survivor_keeps_the_earliest_first_noticed_no_creep(self):
+        # THE creep fix: the survivor's first-noticed is the EARLIEST across the group + record, never
+        # reset to `now` (T[5]). Here the record carries the earliest (T[0]).
+        f = FakeGH(labels={"engine"})
+        self._inject(f, 433, "sid/x", T[2])
+        self._inject(f, 434, "sid/x", T[1])
+        telemetry.promote_finding(gh(f), self.frec("sid/x"), T[5])   # frec first_seen = T[0]
+        self.assertEqual(telemetry.parse_first_noticed(f.issues[433]["body"]), T[0])
+
+    def test_consolidation_preserves_body_first_noticed_when_record_lacks_it(self):
+        # A cache-free promote whose record has NO first_seen still recovers the original from the Issue body.
+        f = FakeGH(labels={"engine"})
+        self._inject(f, 433, "sid/y", T[2])
+        rec_no_first = {"source_id": "sid/y", "severity": "trust-critical", "message": "m", "location": None}
+        telemetry.promote_finding(gh(f), rec_no_first, T[5])
+        self.assertEqual(telemetry.parse_first_noticed(f.issues[433]["body"]), T[2])   # body value, not T[5]
+
+    def test_consolidation_never_touches_a_different_source_id(self):
+        # RC1 safety preserved: folding same-sid duplicates must not PATCH an unrelated open Issue.
+        f = FakeGH(labels={"engine"})
+        self._inject(f, 433, "sid/dup", T[0])
+        self._inject(f, 434, "sid/dup", T[1])
+        self._inject(f, 500, "sid/other", T[0])
+        telemetry.promote_finding(gh(f), self.frec("sid/dup"), T[5])
+        self.assertEqual(f.issues[500]["state"], "open")
+        self.assertNotIn(("PATCH", "/repos/you/proj/issues/500"), f.writes())
 
     def test_does_not_touch_or_resolve_other_open_issues(self):
         # THE GUARD: promoting one finding must NEVER close (or even touch) OTHER open engine Issues —

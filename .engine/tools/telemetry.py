@@ -86,10 +86,20 @@ _SENTINEL_RE = re.compile(r"<!--\s*engine-signal:\s*(.+?)\s*-->")
 # by construction; parse_severity takes the LAST match, so forged body prose cannot hijack it (as source-id).
 _SEVERITY_TEMPLATE = "<!-- engine-severity: {sev} -->"
 _SEVERITY_RE = re.compile(r"<!--\s*engine-severity:\s*(.+?)\s*-->")
+# The first-seen half of _with_tracking_trailers' visible trailer ("*First noticed X; last reconfirmed
+# Y.*"). Recovered so a cache-free promote (promote_finding) and a consolidation can PRESERVE a tracked
+# Issue's original first-noticed instead of resetting it to `now` — the durable first-seen lives in the
+# Issue body itself, the same place parse_source_id recovers the signal id from.
+_FIRST_NOTICED_RE = re.compile(r"\*First noticed\s+(.+?);\s+last reconfirmed")
 
 DEFAULT_POLICY_PATH = os.path.join(validate.ROOT, ".engine", "policies", "triage-threshold.md")
 DEFAULT_STATE_PATH = os.path.join(validate.ROOT, ".engine", "state", "state.json")
 DEFAULT_CACHE_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "streams.json")
+# The engine-only sink for a fail-open hook crash's backstage diagnostic (exception message + code
+# location). The hook fail-open crash is promoted as a telemetry finding (hooks._do_promote_fail_open ->
+# promote_finding), so the detail BEHIND that finding lives beside telemetry's other gitignored cache —
+# never committed (topology law 5), never operator-visible. hooks appends to it; telemetry owns the path.
+HOOK_CRASH_DEBUG_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "hook-crash-debug.log")
 
 
 class DegradedReadError(Exception):
@@ -195,6 +205,20 @@ def parse_severity(body: str) -> str | None:
     return matches[-1] if matches else None
 
 
+def parse_first_noticed(body: str) -> str | None:
+    """Recover a tracked Issue's original first-noticed timestamp from the visible trailer in its body,
+    so a cache-free promote or a consolidation can PRESERVE it rather than reset it to `now`. Returns
+    None when the trailer is absent or was stripped.
+
+    Takes the LAST match, mirroring parse_source_id: _with_tracking_trailers always appends its trailer
+    after the author-influenced body prose, so a forged "*First noticed ...*" line earlier in the body
+    cannot hijack the real one. The stored timestamps are ISO-8601 with a trailing `Z`, so plain string
+    `min()` over recovered values is chronological — the earliest across a duplicate group is the true
+    first-noticed."""
+    matches = _FIRST_NOTICED_RE.findall(body or "")
+    return matches[-1] if matches else None
+
+
 def issue_title(record: dict) -> str:
     """A plain-language Issue title that says, with no backstage vocabulary, that this is about the
     engine's own health. The first sentence of the finding's message carries the specifics."""
@@ -273,8 +297,12 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
 
     Dedup is two-layer: an open Issue is matched to a signal by the source-id marker recovered from
     its body (open_issues[*].source_id), and the cache's remembered issue number is the fast path /
-    cross-check. Worst case (marker stripped AND cache wiped) is one duplicate Issue — never a missed
-    signal, and self-correcting once the signal next goes absent.
+    cross-check. When a create/create race (GitHub has no atomic create-if-absent) has left MORE THAN
+    ONE open Issue for one sid — both markers intact — this pass CONSOLIDATES them: the lowest-numbered
+    survivor is kept and the rest are closed (within authority scope, below), so a keyable duplicate is
+    healed, never silently dropped. The one residual worst case is a marker stripped AND the cache wiped:
+    that Issue is unkeyable by any pass, so a single duplicate can persist (never a missed signal) — it
+    is the honest limit of body+cache dedup, not something absence self-corrects.
 
     Auto-resolve is SOURCE-SCOPED: an open Issue whose source-id this pass is not `authoritative` for is
     another source's signal, so it is carried forward with its prior counts UNTOUCHED — never absent-counted
@@ -295,7 +323,18 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
     plan = Plan()
 
     observed = {derive_source_key(r): r for r in records}
-    open_by_sid = {i["source_id"]: i for i in open_issues if i.get("source_id")}
+    # Group open Issues by signal id. A create/create race can leave MORE THAN ONE open Issue per sid;
+    # keep the lowest-numbered as the canonical survivor and treat the rest as duplicates to consolidate
+    # (closed within authority scope below) — never silently overwritten in a map and left open forever.
+    groups: dict = {}
+    for i in open_issues:
+        sid = i.get("source_id")
+        if sid:
+            groups.setdefault(sid, []).append(i)
+    for g in groups.values():
+        g.sort(key=lambda i: i["number"])
+    open_by_sid = {sid: g[0] for sid, g in groups.items()}
+    duplicates_by_sid = {sid: g[1:] for sid, g in groups.items() if len(g) > 1}
     # cache recovery: a cached issue number for a sid still open but whose marker was stripped
     open_numbers = {i["number"] for i in open_issues}
     for sid, prev in counts.items():
@@ -303,17 +342,37 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
         if sid not in open_by_sid and num in open_numbers:
             open_by_sid[sid] = next(i for i in open_issues if i["number"] == num)
 
+    def _earliest_first_seen(sid: str, cached) -> str:
+        # First-noticed = the EARLIEST ever seen: the cached value AND every group member's body-recovered
+        # first-noticed (parse_first_noticed), so a live-derived signal (cache wiped each pass) or a
+        # consolidation never resets it forward to `now`. ISO-`Z` timestamps make plain min() chronological.
+        candidates = [cached] if cached else []
+        candidates += [fn for fn in (parse_first_noticed(i.get("body") or "")
+                                     for i in groups.get(sid, [])) if fn]
+        return min(candidates) if candidates else now
+
+    def _consolidate(sid: str, survivor_number: int) -> None:
+        # Fold every same-signal duplicate into the survivor and close it — but ONLY when this pass is
+        # authoritative for the sid, so a scoped pass (e.g. CI-only) never touches another source's dups.
+        if not _claims(authoritative, sid):
+            return
+        for dup in duplicates_by_sid.get(sid, []):
+            plan.to_update.append((dup["number"],
+                                   _consolidation_note(survivor_number) + (dup.get("body") or "")))
+            plan.to_close.append(dup["number"])
+
     # present signals: refresh-or-promote
     for sid, record in observed.items():
         prev = counts.get(sid) or {}
         persist = int(prev.get("persist", 0)) + 1
-        first_seen = prev.get("first_seen") or now
+        first_seen = _earliest_first_seen(sid, prev.get("first_seen"))
         entry = {"persist": persist, "absent": 0, "issue": prev.get("issue"),
                  "first_seen": first_seen, "severity": record.get("severity")}
         existing = open_by_sid.get(sid)
         if existing is not None:
             entry["issue"] = existing["number"]
             plan.to_update.append((existing["number"], issue_body(record, first_seen, now)))
+            _consolidate(sid, existing["number"])
         elif live or promotion_due(record, persist, persistence):
             # A live-derived signal promotes on first observation (its state is the durable Issue, not the
             # ephemeral cache the persistence count needs); a cache-accrued one waits for promotion_due.
@@ -339,9 +398,15 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
         if live or resolution_due(absent, auto_resolve):
             # A live-derived signal's Issue closes as soon as the durable source shows it clear (no
             # cross-pass absent count is available or needed); a cache-accrued one waits for resolution_due.
+            # The whole signal is resolving, so close its duplicates too — but WITHOUT the "tracking
+            # continues at #N" note _consolidate adds, since #N is closing in this same pass (the pointer
+            # would land the operator on a closed Issue).
             plan.to_close.append(issue["number"])
+            plan.to_close.extend(dup["number"] for dup in duplicates_by_sid.get(sid, []))
             # dropped from next_counts — the signal is gone and its Issue is closing
         else:
+            # Survivor stays open: fold any create/create-race duplicates into it now, with the note.
+            _consolidate(sid, issue["number"])
             plan.next_counts[sid] = {"persist": int(prev.get("persist", 0)), "absent": absent,
                                      "issue": issue["number"], "first_seen": prev.get("first_seen") or now,
                                      "severity": prev.get("severity")}
@@ -678,6 +743,14 @@ def run(github: GitHubIssues, records: list, cache: Cache, thresholds: dict, now
                   opened=opened, updated=updated, closed=closed)
 
 
+def _consolidation_note(survivor_number: int) -> str:
+    """The plain-language line prepended to a duplicate Issue as it is closed and folded into the
+    canonical one — so an operator who had the duplicate open sees why it vanished, not a silent close.
+    Peer voice: it states what happened and where tracking continues, no backstage vocabulary."""
+    return (f"*Consolidated into #{survivor_number} — this is a duplicate of the same thing the engine "
+            f"noticed; tracking continues there.*\n\n")
+
+
 def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str | None = None,
                     body_core: str | None = None):
     """Promote ONE finding to a tracked engine Issue — the out-of-band "log it" relay a producer hands
@@ -685,12 +758,16 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
     it at cap-exhaustion / fail-open to degrade a still-undispositioned finding to logged (never lost);
     the soft-finding promoter (audit_soft_promote) calls it to track a standing length-budget nudge.
 
-    Open-or-update, deduped by `source_id` (the same source-keyed dedup `run` uses, via
-    list_open_engine_issues + the body sentinel). It does **no auto-resolve**: unlike `run`, it never
-    closes Issues absent from a records list, so logging one finding can never silently close every
-    OTHER open engine Issue — the exact hazard that bars `run([one_finding])`. It is **cache-free and
-    State-free**: a one-shot surfacing, not a triage pass, so it never disturbs `run`'s persistence
-    accrual or the committed debt cursor.
+    Open-or-update-and-CONVERGE, deduped by `source_id` (the same source-keyed dedup `run` uses, via
+    list_open_engine_issues + the body sentinel). GitHub has no atomic create-if-absent, so two rapid
+    firings of ONE signal can each open an Issue (a create/create race — this is how #433/#434 arose);
+    this heals that by keeping the LOWEST-numbered match as the canonical survivor, folding every
+    same-signal duplicate into it and closing them, and PRESERVING the earliest first-noticed across the
+    group (never resetting it to `now`). It still does **no auto-resolve** of OTHER signals: unlike
+    `run`, it never closes an Issue for a DIFFERENT source_id, so logging one finding can never silently
+    close every other open engine Issue — the exact hazard that bars `run([one_finding])`. It is
+    **cache-free and State-free**: a one-shot surfacing, not a triage pass, so it never disturbs `run`'s
+    persistence accrual or the committed debt cursor.
 
     By default the Issue's title/body are telemetry's own health framing (issue_title/issue_body). A
     producer that needs DIFFERENT operator-facing prose — e.g. the soft-finding promoter's lane-aware
@@ -704,17 +781,34 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
     (opened or updated) on success. An unexpected (non-GitHub) error is left to surface to the caller's
     own fail-open boundary (close's Stop handler rides hooks.run_hook's fail-open)."""
     sid = derive_source_key(record)
-    first_seen = record.get("first_seen") or now
     ttl = title if title is not None else issue_title(record)
-    body = (_with_tracking_trailers(body_core, sid, record["severity"], first_seen, now)
-            if body_core is not None else issue_body(record, first_seen, now))
+
+    def _render(first_seen: str) -> str:
+        return (_with_tracking_trailers(body_core, sid, record["severity"], first_seen, now)
+                if body_core is not None else issue_body(record, first_seen, now))
+
     try:
         github.ensure_label()
-        existing = next((i for i in github.list_open_engine_issues() if i.get("source_id") == sid), None)
-        if existing is not None:
-            github.update_issue(existing["number"], body)
-            return existing["number"]
-        return github.open_issue(ttl, body).get("number")
+        matches = sorted((i for i in github.list_open_engine_issues() if i.get("source_id") == sid),
+                         key=lambda i: i["number"])
+        if matches:
+            survivor = matches[0]  # lowest number = the first the operator saw = the canonical one
+            # Preserve the EARLIEST first-noticed across the whole group — never reset it to `now`. The
+            # durable first-seen lives in the Issue bodies (parse_first_noticed), so a cache-free promote
+            # recovers it there; ISO-`Z` timestamps make plain min() chronological.
+            seen = [s for s in (parse_first_noticed(i.get("body") or "") for i in matches) if s]
+            if record.get("first_seen"):
+                seen.append(record["first_seen"])
+            first_seen = min(seen) if seen else now
+            github.update_issue(survivor["number"], _render(first_seen))
+            # Converge a create/create race: fold every same-signal duplicate into the survivor and close
+            # it, so a recurring signal amends ONE tracked Issue instead of multiplying (never touches a
+            # DIFFERENT source_id — promote_finding is authoritative only for the sid it is promoting).
+            for dup in matches[1:]:
+                github.update_issue(dup["number"], _consolidation_note(survivor["number"]) + (dup.get("body") or ""))
+                github.close_issue(dup["number"])
+            return survivor["number"]
+        return github.open_issue(ttl, _render(record.get("first_seen") or now)).get("number")
     except DegradedReadError:
         return False
 
@@ -1109,6 +1203,27 @@ def _demo(_argv) -> int:
     print(f"    green again, so it clears on the very next pass — even with the counter wiped: {not ci_open()}   "
           f"(and the unrelated item was NEVER closed: {oob_open()})")
     ci_ok = (not ci_open()) and oob_open()
+
+    print("\n(9) A create/create race left TWO issues for ONE signal (GitHub has no atomic create-if-absent).")
+    print("    The next promotion CONSOLIDATES them — the lowest-numbered survives, the duplicate is closed")
+    print("    with a note, and the earliest first-noticed is preserved (never reset to 'now'):")
+    dup_fake = _FakeGitHub()
+    dup_fake.labels.add(ENGINE_DOMAIN_LABEL)
+    dup_rec = _rec("hooks/fail-open/PreToolUse/crash", TRUST_CRITICAL,
+                   "A safety check on the PreToolUse step could not run.")
+    for number, seen in ((433, cclock[0]), (434, cclock[1])):     # two open issues, same signal marker
+        dup_fake.issues[number] = {"number": number, "title": issue_title(dup_rec),
+                                   "body": issue_body(dup_rec, seen, seen),
+                                   "labels": [ENGINE_DOMAIN_LABEL], "state": "open"}
+    dup_fake._next = 435
+    dup_gh = GitHubIssues("you/your-project", "demo-token", transport=dup_fake.transport)
+    before = sum(1 for i in dup_fake.issues.values() if i["state"] == "open")
+    survivor = promote_finding(dup_gh, dup_rec, cclock[5])        # cclock[5] is 'now' — must NOT become first-noticed
+    after_open = sorted(n for n, i in dup_fake.issues.items() if i["state"] == "open")
+    kept_earliest = parse_first_noticed(dup_fake.issues[433]["body"]) == cclock[0]
+    print(f"    before: {before} open (#433, #434) -> after: {after_open} open  "
+          f"(survivor #{survivor}, earliest first-noticed preserved: {kept_earliest})")
+    dup_ok = before == 2 and after_open == [433] and survivor == 433 and kept_earliest
     for path in (cache.path, ci_cache.path):
         try:
             os.remove(path)
@@ -1186,10 +1301,11 @@ def _demo(_argv) -> int:
     # Self-check: ONE issue opens only when the benign signal crosses the threshold (3rd fire), re-fires
     # never duplicate it, a distinct trust-critical signal opens a 2nd, an unreachable GitHub degrades
     # in-band (never a silent or wrong zero), the LIVE CI source is tracked on the first failing pass and
-    # clears on the first green pass EVEN WITH THE CACHE WIPED, and the cache-accrued AMBIENT source promotes
-    # only after it persists, clears when seen passing or its file is gone, and never closes the unrelated
-    # out-of-band item.
-    ok = (open2 == 1 and open3 == 1 and open4 == 2 and bool(r6.degraded_line) and ci_ok and amb_ok)
+    # clears on the first green pass EVEN WITH THE CACHE WIPED, the cache-accrued AMBIENT source promotes only
+    # after it persists and clears when seen passing or its file is gone, a create/create-race duplicate pair
+    # CONVERGES to one survivor, and none of these ever closes the unrelated out-of-band item.
+    ok = (open2 == 1 and open3 == 1 and open4 == 2 and bool(r6.degraded_line)
+          and ci_ok and amb_ok and dup_ok)
     if not ok:
         print("\nDEMO UNEXPECTED: the triage open/dedup/critical-open counts or the offline degrade line "
               "did not behave as expected.", file=sys.stderr)

@@ -353,6 +353,44 @@ class TestHarnessFailOpen(unittest.TestCase):
         self.assertTrue(err.strip(), "a fail-open crash must emit a plain-language finding")
         self.assertNotIn("Traceback", err)
 
+    def test_a_crash_records_a_locator_to_the_engine_only_file_not_the_operator_channel(self):
+        # A fail-open crash records only the exception TYPE on the operator-facing surfaces (the plain
+        # stderr finding the platform shows on exit 1, and the promoted Issue). The exception MESSAGE + a
+        # file:line locator go ONLY to a gitignored engine-only FILE — never stderr, never the Issue — so a
+        # transient crash is diagnosable WITHOUT putting backstage detail in front of a non-engineer.
+        recorded = {}
+        def promote(event, kind, message):
+            recorded["message"] = message
+            return True
+        def boom(_payload):
+            raise NameError("name 'wibble' is not defined")
+        with tempfile.TemporaryDirectory() as d:
+            logpath = os.path.join(d, ".cache", "hook-crash-debug.log")
+            # point the recorder at a temp path (its `path` arg) so the test never writes the real cache
+            real = hooks._record_crash_debug
+            try:
+                hooks._record_crash_debug = lambda ev, ex: real(ev, ex, logpath)
+                out, err = io.StringIO(), io.StringIO()
+                code = hooks.run_hook("PreToolUse", boom, stdin=io.StringIO("{}"),
+                                      stdout=out, stderr=err, promote=promote)
+            finally:
+                hooks._record_crash_debug = real
+            errtext = err.getvalue()
+            with open(logpath, encoding="utf-8") as fh:
+                filetext = fh.read()
+        self.assertEqual(code, hooks.EXIT_NONBLOCKING)
+        # the engine-only FILE carries the exception message AND a file:line locator
+        self.assertIn("name 'wibble' is not defined", filetext)
+        self.assertRegex(filetext, r"@ \S+\.py:\d+")
+        # stderr (operator-visible on the non-blocking exit) stays plain: no raw message, no locator
+        self.assertNotIn("wibble", errtext)
+        self.assertNotRegex(errtext, r"\.py:\d+")
+        self.assertIn("NameError", errtext)                            # the plain finding still names the type
+        # the promoted (operator Issue) message names only the type
+        self.assertIn("NameError", recorded["message"])
+        self.assertNotIn("wibble", recorded["message"])
+        self.assertNotRegex(recorded["message"], r"\.py:\d+")
+
     def test_no_handler_proceeds(self):
         code, out, err = _run("Stop", None)
         self.assertEqual(code, hooks.EXIT_PROCEED)
