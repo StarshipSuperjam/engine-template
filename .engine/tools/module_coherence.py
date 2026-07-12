@@ -177,10 +177,13 @@ FIXTURE_PATHS = {".engine/_fixtures"}
 # a subdirectory); this deployment stream lives one level down, in NO module's `provides`, preserved across an
 # engine overlay like operator config. Distinct justification from every set above: it is neither a regenerable
 # cache (PRUNE_DIRS), gitignored runtime state (PRUNE_PATHS), nor test data (FIXTURE_PATHS) — it is committed
-# deployment content that must not read as an unowned orphan and must not be fingerprinted into the ENGINE's
-# knowledge graph (a deployment's own decisions are not engine surface). Excluded by the SAME shared walk-prune
-# as FIXTURE_PATHS, so it sits outside BOTH the ownership leg and the #281 untracked-surface detector. Anchored
-# on the exact subtree path, so the engine canon at `.engine/contracts/*.md` stays fully ownership-checked.
+# deployment content that must not read as an unowned orphan. Excluded by the SAME shared walk-prune as
+# FIXTURE_PATHS, so it sits outside BOTH the OWNERSHIP leg and the #281 untracked-surface detector. It IS a
+# graph entity, though — knowledge_gen's own presence walk (`deployment_contract_inventory` / Pass 1b) entitizes
+# it as a NON-CANON contract, told apart from the canon by the ABSENCE of a `provided_by` edge (D-169: by
+# provides-membership, never a path/marker), so a deployment's decisions are graph-visible but not engine-OWNED
+# surface. Anchored on the exact subtree path, so the engine canon at `.engine/contracts/*.md` stays fully
+# ownership-checked.
 DEPLOYMENT_CONTRACTS = {".engine/contracts/instance"}
 
 MODULES_GLOB = ".engine/modules/*/manifest.json"

@@ -914,6 +914,96 @@ def orphan_wire_findings(applied: list, declared_ids, tier: str, message: str) -
     return findings
 
 
+# The two authority tiers the ontology reserves to the self-referential core (systems/grammar/ontology
+# "Authority, enforcement, escalation"; eADR-0016): `contract` is the SOLE `decisions` surface and `policy`
+# the SOLE `standing-rules` surface. The reservation is a BIJECTION — a reserved surface holds exactly its
+# reserved tier, and a reserved tier sits on no other surface — so it is broken by BOTH a squatter (an added
+# surface climbing to a reserved rank) AND a downgrade/swap (a reserved surface knocked off its rank). Homed
+# once here (issue #401) and consumed by the write-time seam guard (wiring.catalog_add) and the merge-gate
+# scan (authority_reservation_findings) alike, so the law lives in exactly one place.
+_RESERVED_AUTHORITY = {"contract": "decisions", "policy": "standing-rules"}
+_RESERVED_TIER_OWNER = {tier: name for name, tier in _RESERVED_AUTHORITY.items()}
+
+
+def _reserved_rank_phrase(authority: str) -> tuple:
+    """(rank adjective, the plain name of what the engine keeps that rank for) for a reserved tier — used to
+    write the plain-language reservation reason without leaking the tier vocabulary."""
+    if authority == "decisions":
+        return "highest", "core rulebook (the 'contract' surface)"
+    return "second-highest", "core standing rules (the 'policy' surface)"
+
+
+def reserved_authority_reason(name: str, authority) -> "str | None":
+    """The single-homed authority-tier reservation law (issue #401): a plain-language, DISPOSITION-NEUTRAL
+    reason iff the (surface name, authority) pair breaks the reserved bijection {contract<->decisions,
+    policy<->standing-rules}; None when the pair is allowed (every additive surface holds a lower tier). The
+    reason states only the VIOLATION (never "accepted"/"refused"), so the write-time seam guard can append its
+    own "the engine made no change" while the merge-gate finding reads correctly over an already-committed
+    catalog. TOTAL: an absent/None (or otherwise non-matching) authority is never a violation — an incomplete
+    record is the schema layer's concern, not this rule's."""
+    # isinstance guards keep the law TOTAL: a non-string name/authority (a JSON list/object reaching here from
+    # a malformed catalog or an under-constrained module wire) is simply "no reserved match", never an
+    # unhashable-key TypeError — the schema layer owns rejecting the malformed shape.
+    required = _RESERVED_AUTHORITY.get(name) if isinstance(name, str) else None
+    if required is not None and authority != required:
+        rank, keeper = _reserved_rank_phrase(required)
+        return (f"The engine's {keeper} has to hold the engine's {rank} authority rank and no other — the "
+                f"engine keeps that ranking fixed so nothing can quietly outrank its own rules — and this "
+                f"record puts it at a different rank.")
+    owner = _RESERVED_TIER_OWNER.get(authority) if isinstance(authority, str) else None
+    if owner is not None and name != owner:
+        rank, keeper = _reserved_rank_phrase(authority)
+        return (f"The surface '{name}' is set to the engine's {rank} authority rank — the rank the engine "
+                f"keeps only for its own {keeper}. Nothing added to the engine is allowed to outrank that.")
+    return None
+
+
+def authority_reservation_findings(catalog: dict, manifests: list, tier: str, message: str) -> list:
+    """Pure authority-tier reservation scan (issue #401) — the merge-gate half of the reservation law, beside
+    the write-time seam guard in wiring.catalog_add. Two legs over the live set:
+      LEG A (catalogued surfaces): every surface must satisfy the reserved bijection (reserved_authority_reason)
+        — catches a hand-edited surface-catalog.json where an added surface climbs to a reserved rank, OR
+        `contract`/`policy` is knocked off its rank.
+      LEG B (module manifests): NO non-core module may declare an `ontology-entry` wire that touches the
+        reserved space at all — a reserved NAME (`contract`/`policy`) or a reserved TIER (`decisions`/
+        `standing-rules`) — catching a module install that would mint or HIJACK a reserved-rank surface at its
+        source. This is the OWNER-based half the name-bound seam guard cannot see (it has no module identity),
+        so a non-core module re-declaring `contract` under its own record — which the seam passes by name — is
+        caught here.
+    `catalog` is the parsed surface-catalog ({"surfaces": {name: record}}); `manifests` is a list of manifest
+    dicts (the check script feeds module_coherence.discover_manifests() unpacked to dicts). Both legs read every
+    field defensively so the scan stays TOTAL on a malformed record/wire. Findings are deduped by surface name
+    (one root cause reported once), preferring the Leg-B finding that names the owning module."""
+    by_name: dict = {}
+    surfaces = (catalog or {}).get("surfaces")
+    if isinstance(surfaces, dict):
+        for name, record in surfaces.items():
+            authority = record.get("authority") if isinstance(record, dict) else None
+            reason = reserved_authority_reason(name, authority)
+            if reason:
+                by_name[name] = finding(tier, f"{reason} {message}", loc(CATALOG_PATH))
+    reserved_names = set(_RESERVED_AUTHORITY)
+    reserved_tiers = set(_RESERVED_TIER_OWNER)
+    for m in manifests:
+        if not isinstance(m, dict) or m.get("id") == "core":
+            continue
+        mid = m.get("id")
+        for wire in (m.get("wires") or []):
+            if not isinstance(wire, dict) or wire.get("type") != "ontology-entry":
+                continue
+            wname = wire.get("name")
+            record = wire.get("record")
+            authority = record.get("authority") if isinstance(record, dict) else None
+            # isinstance guards before set membership — a non-string name/authority never raises unhashable-type
+            if (isinstance(wname, str) and wname in reserved_names) or \
+                    (isinstance(authority, str) and authority in reserved_tiers):
+                by_name[wname] = finding(tier, f"The module '{mid}', which is not the engine's own core, "
+                                f"declares the surface '{wname}' in the space the engine keeps only for its own "
+                                f"core rulebook and core standing rules (its two highest authority ranks). Only "
+                                f"the engine's core may define those. {message}")
+    return list(by_name.values())
+
+
 def interface_resolution_findings(interfaces: list, present_impls: dict, present_handles, tier: str,
                                   message: str) -> list:
     """Single-active resolution + structural conformance for the declared interfaces — the locked

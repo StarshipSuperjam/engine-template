@@ -275,7 +275,7 @@ class TestContractThresholdRule(unittest.TestCase):
         self.assertEqual(_errors(check_schema, CT_RULE), [])
         self.assertIn("CI", CT_RULE.get("suites", []))
         self.assertEqual(CT_RULE["kind"], "presence")
-        self.assertEqual(CT_RULE["target"], {"path": ".engine/contracts/*.md"})
+        self.assertEqual(CT_RULE["target"], {"path": ".engine/contracts/**/eADR-*.md"})
         self.assertEqual(CT_RULE["tier"], "hard")
         self.assertEqual(set(CT_RULE["params"]["sections"]), {"Significance", "Anti-choice"})
 

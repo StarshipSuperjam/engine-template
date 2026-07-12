@@ -522,6 +522,49 @@ class TestOntologyEntry(_Redirected):
         self.assertEqual(list(validate.Draft202012Validator(
             validate.load_json(wiring.CATALOG_SCHEMA_PATH)).iter_errors(cat)), [])  # still valid
 
+    # authority-tier reservation (issue #401) — the write-time seam half of the reservation law
+    def test_seam_refuses_a_squatter_claiming_a_reserved_rank(self):
+        wiring._write_json(wiring.CATALOG_PATH, VALID_CATALOG)
+        before = _read(wiring.CATALOG_PATH)
+        squatter = {"type": "ontology-entry", "name": "usurper",
+                    "record": dict(RECORD, location=".engine/usurper/", authority="decisions")}
+        f = wiring.ontology_entry_apply(squatter)
+        self.assertEqual(f["severity"], "hard")
+        self.assertIn("usurper", f["message"])
+        self.assertIn("outrank", f["message"])
+        self.assertEqual(_read(wiring.CATALOG_PATH), before)     # catalog untouched — refused at the seam
+
+    def test_seam_refuses_downgrading_a_reserved_surface(self):
+        wiring._write_json(wiring.CATALOG_PATH, VALID_CATALOG)
+        before = _read(wiring.CATALOG_PATH)
+        downgrade = {"type": "ontology-entry", "name": "contract",
+                     "record": dict(RECORD, location=".engine/contracts/",
+                                    authority="mechanics-and-guidance")}
+        f = wiring.ontology_entry_apply(downgrade)
+        self.assertEqual(f["severity"], "hard")
+        self.assertIn("rank", f["message"])
+        self.assertEqual(_read(wiring.CATALOG_PATH), before)     # catalog untouched
+
+    def test_seam_degrades_gracefully_on_a_non_string_authority(self):
+        # a module wire whose record.authority is a JSON list (module.v1.json puts no constraint on it) must
+        # NOT crash the apply with an unhashable-type TypeError — the reservation guard stays total and the
+        # schema re-check owns the graceful refusal (a hard finding, catalog untouched)
+        wiring._write_json(wiring.CATALOG_PATH, VALID_CATALOG)
+        before = _read(wiring.CATALOG_PATH)
+        malformed = {"type": "ontology-entry", "name": "newthing",
+                     "record": dict(RECORD, location=".engine/newthing/", authority=["decisions"])}
+        f = wiring.ontology_entry_apply(malformed)
+        self.assertEqual(f["severity"], "hard")               # gracefully refused, not an uncaught crash
+        self.assertEqual(_read(wiring.CATALOG_PATH), before)   # catalog untouched
+
+    def test_seam_allows_the_legit_reserved_pair(self):
+        wiring._write_json(wiring.CATALOG_PATH, VALID_CATALOG)
+        legit = {"type": "ontology-entry", "name": "policy",
+                 "record": dict(RECORD, location=".engine/policies/", authority="standing-rules")}
+        f = wiring.ontology_entry_apply(legit)
+        self.assertEqual(f["severity"], "note")                  # the guard does not over-block
+        self.assertIn("policy", json.loads(_read(wiring.CATALOG_PATH))["surfaces"])
+
 
 # ---- path / marker injection (the directive can only touch its hardcoded target) -------------
 

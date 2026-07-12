@@ -557,7 +557,7 @@
       },
       "slug": "contract-frontmatter",
       "source": {
-        "fingerprint": "sha256:9845436e6b9cc2178cd5512acc1f5ae5aa1bd798063fdd717eff4e5a7c20ed01",
+        "fingerprint": "sha256:a01dfcac2a771801e3baaaebe5f8fb2e1edc731b5d2a8bfd47b2abfb7a4198a2",
         "path": ".engine/check/contract-frontmatter.json"
       },
       "status": "active",
@@ -617,7 +617,7 @@
       },
       "slug": "contract-shape",
       "source": {
-        "fingerprint": "sha256:df68c8482a7bf040f07be8965fb188ee1543d87cb2c72125afe8e5214d53658b",
+        "fingerprint": "sha256:06b030793932561c413873e5e724ec4a49bd107ddc1657b1eff2fae69f24c071",
         "path": ".engine/check/contract-shape.json"
       },
       "status": "active",
@@ -678,7 +678,7 @@
       },
       "slug": "contract-threshold",
       "source": {
-        "fingerprint": "sha256:75537b4b4ea8f117d76c2c54a3a9ae1bf405ed29c501db99f07f777c2220f859",
+        "fingerprint": "sha256:07b23f4bd9cf0884fa721789caa41436883331c4990fc945aaed5ada9854572f",
         "path": ".engine/check/contract-threshold.json"
       },
       "status": "active",
@@ -1186,6 +1186,31 @@
       "source": {
         "fingerprint": "sha256:2ae0714e5c7c5527aa57d7ab79b402640b89cfc2e4161300dd44c713a7c3c642",
         "path": ".engine/check/module-manifest.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:ontology-authority-reservation",
+      "kind": "custom/script",
+      "name": ".engine/check/ontology-authority-reservation.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "ontology-authority-reservation",
+      "source": {
+        "fingerprint": "sha256:4e6e14f2b8c009493545d1994f4ffb24107241b81976d287a40fef360cd288c0",
+        "path": ".engine/check/ontology-authority-reservation.json"
       },
       "status": "active",
       "suites": [
@@ -2530,7 +2555,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:10f5d07a3b35a0c5d654b127e414de107b44facd6b1b778e0183f475317899d4",
+        "fingerprint": "sha256:6f09b8bffe31a6645e967fe0b5ea175d67b31f82e4de3170a06a431e4c66e88b",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -2815,7 +2840,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:33c7874349eaf7c789afb0fae734efb670da5fea64396686a1f16b610e94abf1",
+        "fingerprint": "sha256:4d2f9e4c6df2e2944c0651c39f5b37cd9817adce2ff54bb0703f28ffc3bd56b0",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -3636,7 +3661,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:e8e221dfd8c96f452237a0cfbb2f1057b9d4a414f79865a46227b9f6e00556c9",
+        "fingerprint": "sha256:03802dc5ba63a48859be465e5c3c8f1d190cb83615edffb747cbf94a4fd6fb6d",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "status": "active",
@@ -4210,6 +4235,23 @@
       "source": {
         "fingerprint": "sha256:76f603d89647c3ead686b56fee151bf8e14e29ed9e8f965197796214cd00878b",
         "path": ".engine/tools/audit_soft_promote.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:authority_reservation_check",
+      "name": ".engine/tools/authority_reservation_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "authority_reservation_check",
+      "source": {
+        "fingerprint": "sha256:385cff4c162a062707a11a072c2ca2736a236eda29ca713f601bc6de2b1fb1c8",
+        "path": ".engine/tools/authority_reservation_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -5194,7 +5236,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:c305fc06d8a5922f130f1216e80c0af94d14d67dbb0674b36f7f5bb9d8141ec9",
+        "fingerprint": "sha256:4b50733e401de8d2ef011d89b4e7969b43b810550a3bfa53f625b70928699c98",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -5466,7 +5508,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:9183a9a52cfc202efc292054ec5bac19c6b1fff224bf6a2a8d0f0e376b28383d",
+        "fingerprint": "sha256:9e64cb4dcb3883f6c4a2e0f5fa049910de44bc75be03f0a09b3dc907a3908da1",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -6435,7 +6477,7 @@
       },
       "slug": "test_contract",
       "source": {
-        "fingerprint": "sha256:cbb9149e86d3adea1c5203d9ebdcf54298a33161b0a59125f278dc9a8f88303c",
+        "fingerprint": "sha256:63aee334cfb5b8fef59d8dfec62d8b53ac0abba5dff55f3bae1a9ad6617a0a7e",
         "path": ".engine/tools/test_contract.py"
       },
       "status": "active",
@@ -6826,7 +6868,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:0bdba08583040f67b2224ff0957389f3f01b3437cc42fb1b055f0192bcb40eba",
+        "fingerprint": "sha256:126ca3471ac69b0d57252f7d72aaab1d9bace834cffc7d9d9369f0b3acc31129",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -7047,7 +7089,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:c9e1f89e666328c6d7a8f58378f38f74d276b67601660650c31d458606e1b28a",
+        "fingerprint": "sha256:4aa9f30c3561255fde7e8d99dd69aa04b594c98657a52eb012f18e1b693871c4",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -7132,7 +7174,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:144b95c7f5ea9cba06ec7d87f66fe46f6fd35d649487bda4272f5f040df72eda",
+        "fingerprint": "sha256:a0c66fa392549165605ed702a2e502f589da98645e0d79cc3687d076f73f7090",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
@@ -7795,7 +7837,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:31d9cfd28c448e6f587a347852836c286bd2b5169707969b763ced000255eda4",
+        "fingerprint": "sha256:864efce0638ccff08fb36691c1c3510485db7d2a5973f659d426dbad0250145f",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -7812,7 +7854,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:0b2e9556a551148f26b127b71cf12b8d6c57076dfde5ef8d6348575e0ff01c9e",
+        "fingerprint": "sha256:d919f1135152db8f0109f41c22f19f8faca203f008e577d12ce4ab2217d70f33",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -7931,7 +7973,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:537f8b3c1863bff3aee92579db6faff01245f911f3baf498dbbed0779f257cf3",
+        "fingerprint": "sha256:21239e57a568154c1e57e84109dd3d4958359f4b2a05f8daba39bc5f3dcac8c2",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -7965,7 +8007,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:15fbffb1874ac24f77362b68156b0baf60cae7c772050262ddd4ba85bd9c59b6",
+        "fingerprint": "sha256:826a9bbac7ef934a5b51bd89e4f118d87235c572f0cdda886427dd110dbafcc6",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

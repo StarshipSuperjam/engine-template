@@ -1,6 +1,6 @@
 {
   "id": "engine/check/contract-frontmatter",
-  "target": { "path": ".engine/contracts/*.md" },
+  "target": { "path": ".engine/contracts/**/eADR-*.md" },
   "kind": "schema",
   "params": {},
   "tier": "hard",

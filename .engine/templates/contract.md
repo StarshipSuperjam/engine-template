@@ -4,6 +4,12 @@ allowed_sections: ["Supersedes"]
 length_budget: 120
 ---
 
+<!-- Two eADR homes, told apart by folder (repository-topology law 5 / D-169): the engine's own founding
+canon lives here in .engine/contracts/ and is replaced wholesale on an engine update; a DEPLOYMENT's own
+engine-decision eADRs live in .engine/contracts/instance/ and are preserved across every update. If you are
+recording a decision this project made about ITS OWN engine, author it under instance/ (see
+.engine/contracts/instance/README.md). This guidance is not part of the record — do not copy it into the eADR. -->
+
 ## Decision
 
 <State the single decision in one or two sentences — what was chosen, in plain words. Name the thing decided, not the discussion that led to it.>
