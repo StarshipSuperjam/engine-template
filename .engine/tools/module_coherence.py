@@ -35,8 +35,9 @@ present", a directory listing, never a hand-authored registry — and the engine
     place an orphan has no other governance; PERMISSION (not engine-identifiable) and ONTOLOGY-ENTRY (the
     engine-owned catalog, covered by the OWNERSHIP leg + the separate catalog-coverage gate) are excluded.
     A drifted same-identity entry is reported once, by the forward leg (not double-flagged). The foundation
-    `.venv` .gitignore block (D-156) is a plain line, not a fence: no manifest declares it and neither
-    direction iterates it.
+    `.gitignore` block (D-156/D-189) IS a keyed fence (FOUNDATION_IGNORES_FENCE), but a library-helper one no
+    manifest declares, so the reverse leg carves it out at wiring.applied_engine_wires (never an orphan —
+    provisioning README L296-299).
   - BLOCK-BUDGET (validate.block_budget_findings over the declared block registry): every block an
     owning system declares sits on a block-eligible event — only PreToolUse and Stop may hard-block
     (hooks/README §the block-budget law). The registry is ASSEMBLED from each owner's declaration
@@ -93,6 +94,9 @@ FOUNDATION_INFRA = (
     ".engine/pyproject.toml",
     ".engine/uv.lock",
     "CLAUDE.md",
+    ".gitignore",          # a platform-shared keyed file like CLAUDE.md/CODEOWNERS — carries the engine's
+    #                        foundation-ignores fence (D-156/D-189); OUT of FOUNDATION_CODE + block-reversed
+    #                        in remove_engine (never overlay-replaced / wholesale-deleted — #409 U14).
     ".github/workflows/engine-ci.yml",
     ".github/workflows/engine-guard.yml",
     ".github/workflows/secret-scan.yml",

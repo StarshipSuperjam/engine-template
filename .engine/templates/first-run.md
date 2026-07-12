@@ -41,6 +41,14 @@ planning mode instead — I'd lay out my plan and wait for your go-ahead before 
 little safer. Use planning mode for this project, or keep your own default? Keeping yours changes nothing.
 Either way, nothing about your setup elsewhere changes and no safety check is removed.
 
+## This project already sets an editing default — keep it, or use the safer one
+
+This project's own settings already choose an editing default, so I've left it exactly as it is. If you'd like,
+this project can start in planning mode instead — I'd lay out my plan and wait for your go-ahead before changing
+anything, which is a little safer. Choosing planning mode replaces the editing default saved in this project;
+keeping yours leaves that setting exactly as it is. Use planning mode for this project, or keep the one it
+already has? Either way no safety check is removed — you still review and approve every change.
+
 ## Your stance came with this project
 
 This project came set up with a starting set of codes of conduct — short notes on how you like me to work with

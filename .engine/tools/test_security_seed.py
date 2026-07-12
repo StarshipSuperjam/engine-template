@@ -98,8 +98,7 @@ class TestSecuritySeedInApply(unittest.TestCase):
             with inst._redirect_root(d):
                 ti._confirmed_fixture(d)
                 res = ti._fake_apply(d, announce=said.append)
-            substrates = res["steps"][4]
-            self.assertEqual(substrates["step"], "substrates")
+            substrates = next(s for s in res["steps"] if s["step"] == "substrates")
             self.assertEqual(substrates["security"], "seeded")
             self.assertTrue(os.path.isfile(os.path.join(d, "SECURITY.md")))
             heading_body = inst.load_copy()["security-seeded"]
@@ -118,7 +117,8 @@ class TestSecuritySeedInApply(unittest.TestCase):
             self.assertTrue(halted["halted"])
             self.assertFalse(absent, "no SECURITY.md while the runtime halt blocks step 5")
             self.assertFalse(resumed["halted"])
-            self.assertEqual(resumed["steps"][4]["security"], "seeded", "the seed lands on the resume")
+            resumed_substrates = next(s for s in resumed["steps"] if s["step"] == "substrates")
+            self.assertEqual(resumed_substrates["security"], "seeded", "the seed lands on the resume")
             self.assertTrue(present)
 
 

@@ -108,6 +108,7 @@ COPY_HEADINGS = {
     "tool-runtime-degraded": "If the engine's tools couldn't be set up",
     "plan-mode-adopted": "Your safer default is on",
     "plan-mode-conflict": "Your editing default — keep yours, or use the safer one",
+    "plan-mode-conflict-here": "This project already sets an editing default — keep it, or use the safer one",
     "conduct-seeded": "Your stance came with this project",
     "security-seeded": "A security-contact file came with this project",
     "readme-seeded": "Your project's front page is now yours",
@@ -158,6 +159,14 @@ FALLBACK_COPY = {
         "anything, which is a little safer. Use planning mode for this project, or keep your own default? "
         "Keeping yours changes nothing. Either way, nothing about your setup elsewhere changes and no safety "
         "check is removed."
+    ),
+    "plan-mode-conflict-here": (
+        "This project's own settings already choose an editing default, so I've left it exactly as it is. If "
+        "you'd like, this project can start in planning mode instead — I'd lay out my plan and wait for your "
+        "go-ahead before changing anything, which is a little safer. Choosing planning mode replaces the "
+        "editing default saved in this project; keeping yours leaves that setting exactly as it is. Use "
+        "planning mode for this project, or keep the one it already has? Either way no safety check is removed "
+        "— you still review and approve every change."
     ),
     "security-seeded": (
         "I added a short file called SECURITY.md at the top of your project. It tells anyone who finds a "
@@ -675,6 +684,18 @@ def _apply_delete_unselected(manifest: dict, say) -> dict:
     return {"step": "remove-unselected", "status": "done", "deleted": deleted, "refused": refused}
 
 
+def _apply_foundation_ignores(say) -> dict:
+    """STEP (foundation ignores) — place the engine's keyed `.gitignore` fence (`.engine/.venv/`,
+    `.engine/.uv/`, `.claude/worktrees/`) via the wiring library helper (#409 U14). Runs BEFORE codeowners so
+    the file exists when `codeowners_path_set()` globs it (the `/.gitignore @owner` line renders on first
+    brownfield apply), and pre-runtime so a tool-runtime halt still leaves `.venv/` ignored — the strand
+    pre-check's clean-tree read stays true. Idempotent (fence_apply inserts iff absent); fails open (the
+    helper degrades, never crashes). No operator disclosure — this is engine infra placement, not operator
+    config (unlike plan-mode / conduct)."""
+    outcome = wiring.apply_foundation_ignores(wiring.GITIGNORE_PATH)
+    return {"step": "foundation-ignores", "status": outcome["status"]}
+
+
 def _apply_codeowners(handle, say, copy) -> dict:
     """STEP 2 — render the engine's code-ownership block so any change to the engine's own files routes to
     the operator for review. The owner is the stored handle; with no handle the renderer refuses, so the step
@@ -698,20 +719,33 @@ def _apply_codeowners(handle, say, copy) -> dict:
 
 def _apply_plan_mode(home_reader, settings_path, consent, say, copy) -> dict:
     """STEP 3 — recommend the planning permission-mode as this repo's interactive default, obeying
-    yield-to-the-operator (D-185). Read the operator's GLOBAL default read-only (never write `~/.claude`);
-    with no conflicting preference (or one already planning) ADOPT it into the project settings with a plain
-    disclosure; on a conflict OFFER adopt-or-keep once — keep writes nothing (the yield). Idempotent: a
-    project default already set to planning is a no-op. The project write is surgical (preserves the
-    operator's other settings)."""
+    yield-to-the-operator (D-185). Read the operator's existing default read-only — BOTH the GLOBAL default
+    (`~/.claude`, never written) AND, on brownfield, any default this project's own committed
+    `.claude/settings.json` already carries (provisioning README L214-226: "on brownfield also any pre-existing
+    project settings"). With no conflicting preference (or one already planning) ADOPT plan into the project
+    settings with a plain disclosure; on a conflict OFFER adopt-or-keep once — keep writes nothing / leaves the
+    project value exactly as it is (the yield). The project scalar is checked INDEPENDENTLY of the global value:
+    a committed project default is a recorded operator decision in THIS repo, so a global default of plan/unset
+    must never license silently overwriting it (#409 U17). Idempotent: a project default already set to planning
+    is a no-op. The project write is surgical (preserves the operator's other settings)."""
     proj_path = settings_path or wiring.SETTINGS_PATH
     proj, err = wiring._read_json_tolerant(proj_path, create=True)
     if err is not None:
         return {"step": "plan-mode", "status": "degraded", "detail": "project settings unreadable"}
-    if (proj.get("permissions") or {}).get("defaultMode") == "plan":
+    proj_mode = (proj.get("permissions") or {}).get("defaultMode")
+    if proj_mode == "plan":
         return {"step": "plan-mode", "status": "already"}
     home = home_reader() if home_reader is not None else _read_home_settings()
     global_mode = (home.get("permissions") or {}).get("defaultMode") if isinstance(home, dict) else None
-    if global_mode not in (None, "plan"):                      # a conflicting operator preference → offer once
+    # A conflicting operator preference in EITHER place → offer adopt-or-keep once. The project-here conflict
+    # takes precedence: its consequence differs (adopt REPLACES a value the operator committed in this repo;
+    # keep leaves it untouched), so it gets copy that names that — not the global copy, which would falsely
+    # reassure that "nothing about your setup elsewhere changes" while the setting being changed is right here.
+    if proj_mode not in (None, "plan"):                        # the operator's own committed PROJECT default
+        if not (consent("plan-mode-adopt") if consent is not None else False):
+            say(copy["plan-mode-conflict-here"])
+            return {"step": "plan-mode", "status": "kept-operator-default"}
+    elif global_mode not in (None, "plan"):                    # a conflicting GLOBAL preference (elsewhere)
         if not (consent("plan-mode-adopt") if consent is not None else False):
             say(copy["plan-mode-conflict"])
             return {"step": "plan-mode", "status": "kept-operator-default"}
@@ -761,12 +795,17 @@ _EMPTY_OPERATOR = (
 
 def _seed_conduct(say, copy=None) -> str:
     """Seed the operator's codes-of-conduct override from the maintainer's template seed — the seed-then-own
-    pattern (like the permission-mode default). Copies .engine/provisioning/conduct-seed.md into the committed
-    .engine/conduct/operator.md; an absent or empty seed yields a valid empty override, never an error. Then
-    discloses, in plain language, that the stance is present and theirs to tune (never silent). Paths are
-    validate.ROOT-relative, so a redirected demo/test seeds only the fixture, never the real tree."""
+    pattern, the same SHAPE and DISCLOSURE as _seed_security, and like it COPY-IF-ABSENT: once
+    .engine/conduct/operator.md exists it is operator config, so the engine NEVER overwrites it — a
+    resumed/re-run apply leaves a /engine-conduct-tuned stance exactly as it is (returns "present"). On first
+    run copies .engine/provisioning/conduct-seed.md into the committed .engine/conduct/operator.md; an absent or
+    empty seed yields a valid empty override, never an error. Then discloses, in plain language, that the stance
+    is present and theirs to tune — only when it actually seeds. Paths are validate.ROOT-relative, so a
+    redirected demo/test seeds only the fixture, never the real tree."""
     seed_path = os.path.join(validate.ROOT, ".engine", "provisioning", "conduct-seed.md")
     target = os.path.join(validate.ROOT, ".engine", "conduct", "operator.md")
+    if os.path.exists(target):
+        return "present"                        # once seeded, operator.md is operator config — never overwrite it
     try:
         content = ""
         if os.path.isfile(seed_path):
@@ -804,8 +843,8 @@ _SECURITY_LOCATIONS = ("SECURITY.md", os.path.join(".github", "SECURITY.md"), os
 
 def _seed_security(say, copy=None) -> str:
     """Seed a root SECURITY.md vulnerability-disclosure channel from the maintainer's template seed — the
-    seed-then-own pattern, the same SHAPE and DISCLOSURE as _seed_conduct, but COPY-IF-ABSENT: unlike the conduct
-    seed it NEVER overwrites. If the project already carries a SECURITY.md in any GitHub-recognized location
+    seed-then-own pattern, the same SHAPE, DISCLOSURE, and COPY-IF-ABSENT posture as _seed_conduct: it NEVER
+    overwrites. If the project already carries a SECURITY.md in any GitHub-recognized location
     (root, .github/, or docs/), the engine leaves it exactly as it is and seeds nothing (returns "present").
     Otherwise it copies .engine/provisioning/security-seed.md into a ROOT SECURITY.md; an absent or empty seed
     yields a minimal default, never an error. The seeded file is operator-owned product config — in no `provides`,
@@ -1424,7 +1463,7 @@ def _apply_security_toggles(control_transport, say, copy, repo=None, token=None)
 def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_present=None,
           uv_installer=None, uv_runner=None, consent=None, control_transport=None, gh_refresh=None,
           control_issues=None, control_repo=None, control_token=None, handle=None) -> dict:
-    """The apply phase: run the eight ordered steps against the confirmed manifest. Refuses (no change) when
+    """The apply phase: run the nine ordered steps against the confirmed manifest. Refuses (no change) when
     the manifest is absent — apply presupposes a confirmed selection. The handle is the passed one, else the
     one the manifest stored. Returns a step ledger: {refused, halted, steps:[…]}. A degraded tool-runtime
     sets `halted` and the remaining steps are not attempted (they presuppose the runtime); every other step
@@ -1437,6 +1476,7 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
         return {"refused": True, "reason": "not-confirmed", "halted": False, "steps": []}
     handle = handle if handle is not None else manifest.get("handle")
     steps = [_apply_delete_unselected(manifest, say),
+             _apply_foundation_ignores(say),
              _apply_codeowners(handle, say, copy),
              _apply_plan_mode(home_reader, settings_path, consent, say, copy)]
     runtime = _apply_tool_runtime(uv_present, uv_installer, uv_runner, consent, say, copy)
@@ -1961,7 +2001,7 @@ def _print_apply_ledger(steps: list, faked: dict) -> None:
 
 
 def _apply_demo() -> int:
-    """Operator-runnable demonstration of the APPLY phase. Runs the REAL seven-step apply logic against a
+    """Operator-runnable demonstration of the APPLY phase. Runs the REAL nine-step apply logic against a
     throwaway generated-repo fixture, faking ONLY the external boundaries (your computer's settings, the uv
     install + sync, the GitHub review-gate calls — each marked in the ledger). Shows the full happy path, an
     interrupted-then-resumed run, a tools-failure that halts safely, and a review-gate that can't be turned
@@ -2050,7 +2090,7 @@ def _apply_demo() -> int:
                         uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
                         control_transport=_defer_transport(), **dict(common, gh_refresh=lambda s: False))
         cp = _step(res["steps"], "control-plane")
-        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 8
+        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 9
         print(f"    → the review-gate step: {cp['status']} (the engine never pretends it's on: "
               f"protected={cp.get('protected')}).")
         print(f"    → setup still completed every other step and ended cleanly ({ended}).")

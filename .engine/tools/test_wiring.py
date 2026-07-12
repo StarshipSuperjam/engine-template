@@ -699,5 +699,99 @@ class TestApplyCodeowners(unittest.TestCase):
             self.assertFalse(os.path.exists(co))                   # nothing written on refusal
 
 
+class TestFoundationIgnores(_Redirected):
+    """#409 U14: the foundation `.gitignore` block — a library-helper keyed fence (FOUNDATION_IGNORES_FENCE),
+    NOT a module `wires` seam. It is placed by apply_foundation_ignores, is idempotent, never touches operator
+    lines or module fences, and is carved out of the orphan-wire reverse leg (provisioning README L294-302 /
+    L296-299)."""
+
+    def _gi(self):
+        return wiring.GITIGNORE_PATH
+
+    def test_apply_writes_the_keyed_fence_with_exactly_the_three_lines(self):
+        outcome = wiring.apply_foundation_ignores(self._gi())
+        self.assertEqual(outcome["status"], "written")
+        text = _read(self._gi())
+        b = wiring._find_fence(text.split("\n"), wiring.FOUNDATION_IGNORES_FENCE)
+        self.assertIsNotNone(b)
+        body = text.split("\n")[b[0] + 1:b[1]]
+        self.assertEqual(body, wiring.FOUNDATION_IGNORE_LINES)
+
+    def test_apply_is_idempotent_byte_for_byte(self):
+        wiring.apply_foundation_ignores(self._gi())
+        first = _read(self._gi())
+        second_outcome = wiring.apply_foundation_ignores(self._gi())
+        self.assertEqual(second_outcome["status"], "already")
+        self.assertEqual(_read(self._gi()), first, "a re-apply of the foundation fence changes nothing")
+
+    def test_operator_lines_and_a_module_fence_are_untouched(self):
+        # pre-seed an operator line + a module gitignore fence, then place the foundation block
+        with open(self._gi(), "w", encoding="utf-8") as fh:
+            fh.write("# my own ignores\nnode_modules/\n")
+        wiring.gitignore_apply({"type": "gitignore", "key": "some-module", "lines": [".engine/some/.cache/"]})
+        wiring.apply_foundation_ignores(self._gi())
+        text = _read(self._gi())
+        self.assertIn("node_modules/", text)                       # the operator's own line survives
+        self.assertIn("BEGIN engine-managed block: some-module", text)   # the module fence survives
+        self.assertIn("BEGIN engine-managed block: foundation-ignores", text)
+
+    def test_reverse_removes_only_the_foundation_fence(self):
+        with open(self._gi(), "w", encoding="utf-8") as fh:
+            fh.write("keep-me/\n")
+        wiring.apply_foundation_ignores(self._gi())
+        remainder = wiring.fence_reverse(_read(self._gi()), wiring.FOUNDATION_IGNORES_FENCE)
+        self.assertIn("keep-me/", remainder)
+        self.assertNotIn("foundation-ignores", remainder)
+        self.assertNotIn(".engine/.venv/", remainder)
+
+    def test_foundation_fence_is_NOT_reported_as_an_applied_engine_wire(self):
+        # THE #409 U14 regression guard (B1): the orphan-wire reverse leg reads applied_engine_wires; the
+        # foundation fence must be carved out there, or check_coherence flags it as a HARD undeclared orphan
+        # (pausing first-run + deadlocking retire) and tells the operator to remove the very fix.
+        wiring.apply_foundation_ignores(self._gi())
+        # also apply a real MODULE fence, which SHOULD appear (the carve-out is specific, not blanket)
+        wiring.gitignore_apply({"type": "gitignore", "key": "some-module", "lines": [".engine/some/.cache/"]})
+        gitignore_wires = [key for (seam, key, _label) in wiring.applied_engine_wires() if seam == "gitignore"]
+        self.assertIn("some-module", gitignore_wires, "a real module fence IS an applied engine wire")
+        self.assertNotIn(wiring.FOUNDATION_IGNORES_FENCE, gitignore_wires,
+                         "the foundation fence is a library-helper block — never an orphan wire")
+
+    def test_degrades_without_raising_on_a_marker_forging_file(self):
+        # a file whose content forges a fence marker → fence_apply raises WiringError; the helper swallows it
+        with open(self._gi(), "w", encoding="utf-8") as fh:
+            fh.write("# BEGIN engine-managed block: foundation-ignores - do not edit inside\n")  # unterminated
+        outcome = wiring.apply_foundation_ignores(self._gi())
+        self.assertEqual(outcome["status"], "degraded")
+
+    def test_a_module_wire_may_not_claim_the_reserved_foundation_key(self):
+        # deliverable-gate hardening: a module `gitignore` wire keyed 'foundation-ignores' would collide with
+        # the foundation body and its uninstall reverser would rip out the foundation block (hidden from
+        # coherence by the orphan carve-out). Both apply and reverse must refuse it fail-closed, writing nothing.
+        directive = {"type": "gitignore", "key": wiring.FOUNDATION_IGNORES_FENCE, "lines": [".engine/x/"]}
+        apply_finding = wiring.gitignore_apply(directive)
+        self.assertEqual(apply_finding["severity"], "hard")
+        self.assertIn("reserved", apply_finding["message"])
+        self.assertFalse(os.path.exists(self._gi()), "a refused reserved-key apply writes nothing")
+        reverse_finding = wiring.gitignore_reverse(directive)
+        self.assertEqual(reverse_finding["severity"], "hard")
+        self.assertIn("reserved", reverse_finding["message"])
+
+
+class TestCommittedFoundationIgnores(unittest.TestCase):
+    """The binding between the single-source constant and the committed file (#409 U14, plan-gate S-A): the
+    committed `.gitignore`'s foundation fence body MUST equal wiring.FOUNDATION_IGNORE_LINES, or the two homes
+    (the constant + the hand-committed file) can silently drift and a generated repo sees an unexplained
+    first-apply diff. Reads the REAL committed file (not a redirected fixture)."""
+
+    def test_committed_gitignore_fence_body_matches_the_constant(self):
+        gi = os.path.join(validate.ROOT, ".gitignore")
+        text = _read(gi)
+        span = wiring._find_fence(text.split("\n"), wiring.FOUNDATION_IGNORES_FENCE)
+        self.assertIsNotNone(span, "the committed .gitignore carries the foundation-ignores fence")
+        body = text.split("\n")[span[0] + 1:span[1]]
+        self.assertEqual(body, wiring.FOUNDATION_IGNORE_LINES,
+                         "the committed fence body must equal the single-source constant (no drift)")
+
+
 if __name__ == "__main__":
     unittest.main()
