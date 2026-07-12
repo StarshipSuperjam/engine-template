@@ -156,6 +156,39 @@ class TestRemoveEndToEnd(unittest.TestCase):
             self.assertTrue(module_manager.run_demo())
 
 
+class TestRemoveDeletesProvidesAtAnyPath(unittest.TestCase):
+    """#409 U16: per-module remove() deletes a module's sole-owned provides regardless of path — so a removed
+    module's .claude/ personas + skills do not orphan on disk (before U16 the deletion was gated to .engine/,
+    leaving e.g. a removed /engine-design skill live and erroring). The manifest-derived reversal law
+    (provisioning README L546-551 / L773-777) deletes the engine-identified files a module provides, wherever
+    they live — matching what whole-engine remove_engine already does."""
+
+    def test_remove_deletes_a_claude_skill_provide_not_only_engine_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            with module_manager._redirect_root(d):
+                module_manager._build_fixture(d)
+                # give optx a .claude/ skill provide (sole-owned) alongside its .engine/ tool
+                mpath = os.path.join(d, ".engine", "modules", "optx", "manifest.json")
+                module_manager._write_json(mpath, {
+                    "id": "optx", "version": "0.0.0", "status": "optional",
+                    "provides": {"tool": [".engine/tools/optx_tool.py"],
+                                 "skill": [".claude/skills/optx/SKILL.md"]},
+                    "wires": [{"type": "gitignore", "key": "optx-cache", "lines": [".engine/optx/.cache/"]},
+                              {"type": "permission", "value": "Bash(optx-tool:*)"}],
+                    "depends": {}})
+                skill_abs = os.path.join(d, ".claude", "skills", "optx", "SKILL.md")
+                os.makedirs(os.path.dirname(skill_abs), exist_ok=True)
+                with open(skill_abs, "w", encoding="utf-8") as fh:
+                    fh.write("# optx skill\n")
+                res = module_manager.remove("optx")
+                skill_gone = not os.path.exists(skill_abs)
+                tool_gone = not os.path.exists(os.path.join(d, ".engine", "tools", "optx_tool.py"))
+        self.assertFalse(res["refused"])
+        self.assertTrue(skill_gone, "the removed module's .claude/ skill must be deleted, not orphaned")
+        self.assertTrue(tool_gone, "the module's .engine/ tool is still deleted (the path-agnostic sweep)")
+        self.assertIn(".claude/skills/optx/SKILL.md", res["deleted"])
+
+
 class TestAddRefusals(unittest.TestCase):
     """Pure plan_add refusal policy over an injected present set + a fetched candidate — no disk, no fetch."""
 
@@ -1212,7 +1245,9 @@ class TestRemoveEngine(unittest.TestCase):
         self.assertIsNotNone(r["pr"])
 
     def test_github_member_is_in_the_delete_set_unlike_per_module_remove(self):
-        # per-module remove() deletes only under .engine/; whole-engine removal deletes the .github/ files too
+        # whole-engine removal deletes the .github/ foundation files + root CLAUDE.md too — these are
+        # foundation infra, NOT any module's `provides`, so per-module remove() (which deletes only the
+        # sole-owned files a module provides, at any path since #409 U16) never touches them
         opener, transport, _, _ = self._fakes(True)
         with tempfile.TemporaryDirectory() as d:
             with module_manager._redirect_root(d):

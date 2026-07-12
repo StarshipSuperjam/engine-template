@@ -260,12 +260,17 @@ def remove(module_id: str) -> dict:
     for f in wiring.reverse_all(target.get("wires") or []):
         result["reversed"].append(validate.fmt(f))
 
-    # (2) delete the engine-identified files the module owns — sole-owner, under .engine/ only
+    # (2) delete the engine-identified files the module owns — sole-owner, at ANY path (the reversal law
+    #     deletes the engine-identified files a module provides regardless of where they live; whole-engine
+    #     remove_engine already does this, so a per-module remove that stopped at .engine/ left a removed
+    #     module's .claude/ personas + skills orphaned on disk — #409 U16). A module's `provides` are always
+    #     wholly engine-owned files; anything shared with the operator (a settings.json hook, a permission)
+    #     arrives via `wires` and is reversed in step (1), so the sole-owner guard is the only gate needed.
     target_claims = module_coherence.provides_claims([(manifest_path, target)])
     others = [(p, m) for p, m in manifests if m.get("id") != module_id]
     other_claims = module_coherence.provides_claims(others)
     for rel in sorted(target_claims):
-        if rel not in other_claims and rel.startswith(".engine/"):
+        if rel not in other_claims:
             try:
                 os.remove(os.path.join(validate.ROOT, rel))
                 result["deleted"].append(rel)

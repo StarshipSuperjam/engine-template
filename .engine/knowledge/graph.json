@@ -5058,7 +5058,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:4468757658556b3af10241e18415bee6a3b20c338eb537f649bcd81aacc907fa",
+        "fingerprint": "sha256:ced0d883cadc45dcbd1102d80ef8e1a5ade183e64252674b27c052cd573eda27",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -5415,7 +5415,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:3005d59cb4b41d5e3f28082c8810c2b2d38f6a886f9ac05e3fd9651093d83c84",
+        "fingerprint": "sha256:54e769f3365801db87fb4b56d00942928058e78050ee2ce99398c545a9020c65",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -6656,7 +6656,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:418ca6e7616de19395f00dd5438807f396d2f8a0953f6c1b570eac428fa59366",
+        "fingerprint": "sha256:7bc5d2ad2254a7fcdaa64df4c314a0bb7937ec822015c9cbece7f638c50c1c4c",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -6945,7 +6945,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:c189e4aec90a426937119c0ad5cc89161c05557b04b3013654dbcf7078ea6848",
+        "fingerprint": "sha256:310fed216f91fbd4163edf4956ff0206495954c09a12e040a431c8cc992c10fe",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

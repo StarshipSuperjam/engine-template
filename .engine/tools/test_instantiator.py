@@ -539,6 +539,60 @@ class TestApplyStep3PlanMode(unittest.TestCase):
                 _fake_apply(d, home_reader=reader, consent=lambda kind: False)
             self.assertGreaterEqual(calls["n"], 1, "the global default is READ")
 
+    # --- #409 U17: a pre-existing PROJECT-level non-plan defaultMode is a conflict too (not silently
+    #     overwritten), detected independently of the global value. The plan-mode step is found by NAME (its
+    #     positional index shifts when U14 inserts the foundation-ignores step ahead of it).
+    def _plan_step(self, res):
+        return next(s for s in res["steps"] if s["step"] == "plan-mode")
+
+    def _set_project_mode(self, d, mode):
+        inst.wiring._write_json(os.path.join(d, ".claude", "settings.json"),
+                                {"permissions": {"defaultMode": mode}})
+
+    def test_project_scalar_conflict_keeps_the_committed_value_when_declined(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                self._set_project_mode(d, "acceptEdits")           # the operator's OWN committed project default
+                res = _fake_apply(d, home_reader=lambda: {}, consent=lambda kind: False)
+            self.assertEqual(self._plan_step(res)["status"], "kept-operator-default")
+            self.assertEqual(self._mode(d), "acceptEdits",
+                             "keep leaves the operator's committed project value exactly as it was")
+
+    def test_project_scalar_conflict_is_independent_of_a_plan_global(self):
+        # The bug U17 fixes: home=plan, project=acceptEdits fell straight through to a silent overwrite. A
+        # global preference (even 'plan') must never license overwriting a value committed in THIS repo.
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                self._set_project_mode(d, "acceptEdits")
+                res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "plan"}},
+                                  consent=lambda kind: False)
+            self.assertEqual(self._plan_step(res)["status"], "kept-operator-default")
+            self.assertEqual(self._mode(d), "acceptEdits", "the committed project value is preserved")
+
+    def test_project_scalar_conflict_adopts_replaces_the_committed_value(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                self._set_project_mode(d, "acceptEdits")
+                res = _fake_apply(d, home_reader=lambda: {},
+                                  consent=lambda kind: kind == "plan-mode-adopt")
+            self.assertEqual(self._plan_step(res)["status"], "adopted")
+            self.assertEqual(self._mode(d), "plan", "on adopt the committed value is replaced with plan")
+
+    def test_project_scalar_already_plan_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            with inst._redirect_root(d):
+                _confirmed_fixture(d)
+                self._set_project_mode(d, "plan")
+                res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "acceptEdits"}})
+            self.assertEqual(self._plan_step(res)["status"], "already")
+
 
 class TestApplyStep4ToolRuntime(unittest.TestCase):
     def test_materializes_when_present_and_synced(self):
@@ -844,6 +898,65 @@ class TestRepoReadmeLeadsWithMarker(unittest.TestCase):
             + " (marketing copy goes BELOW it) so provisioning still recognizes and replaces the marketing "
             "front at first run; a copy edit that displaced the marker would silently kill the front-door "
             "replace and the engine's marketing page would land as a generated repo's product README.")
+
+
+class TestSeedConduct(unittest.TestCase):
+    """U18 (#409): the conduct operator-override seed is COPY-IF-ABSENT — once .engine/conduct/operator.md
+    exists it is operator config, so a resumed/re-run apply never clobbers a /engine-conduct-tuned stance (the
+    seed-then-own law; provisioning README L237-263 / L802-807). Mirrors _seed_security's existence guard."""
+
+    def _plant_seed(self, root, body):
+        os.makedirs(os.path.join(root, ".engine", "provisioning"), exist_ok=True)
+        with open(os.path.join(root, ".engine", "provisioning", "conduct-seed.md"), "w", encoding="utf-8") as fh:
+            fh.write(body)
+
+    def test_seeds_operator_md_from_the_template_seed_when_absent(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            self._plant_seed(d, "---\ncodes: []\n---\n\nRECOGNIZABLE CONDUCT SEED\n")
+            with inst._redirect_root(d):
+                outcome = inst._seed_conduct(lambda _t: None, None)
+                now = inst._read_text_or(os.path.join(d, ".engine", "conduct", "operator.md"), "")
+        self.assertEqual(outcome, "seeded")
+        self.assertIn("RECOGNIZABLE CONDUCT SEED", now)
+
+    def test_falls_back_to_the_empty_override_when_seed_absent(self):
+        with tempfile.TemporaryDirectory() as d:                  # no seed source planted
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            with inst._redirect_root(d):
+                outcome = inst._seed_conduct(lambda _t: None, None)
+                now = inst._read_text_or(os.path.join(d, ".engine", "conduct", "operator.md"), "")
+        self.assertEqual(outcome, "seeded")
+        self.assertEqual(now, inst._EMPTY_OPERATOR, "an absent seed yields the valid empty override")
+
+    def test_never_overwrites_a_tuned_operator_md(self):
+        tuned = "---\ncodes: [my-own-rule]\n---\n\nMY TUNED STANCE -- DO NOT CLOBBER\n"
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            self._plant_seed(d, "---\ncodes: []\n---\n\nthe seed that must NOT be used\n")
+            target = os.path.join(d, ".engine", "conduct", "operator.md")
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w", encoding="utf-8") as fh:
+                fh.write(tuned)
+            with inst._redirect_root(d):
+                # a skip discloses NOTHING — a `say` that fails the test if called catches a wrongful re-seed
+                outcome = inst._seed_conduct(self.fail, inst.load_copy())
+                now = inst._read_text_or(target, "")
+        self.assertEqual(outcome, "present")
+        self.assertEqual(now, tuned, "a /engine-conduct-tuned operator.md is left exactly as it was")
+
+    def test_resume_is_idempotent_a_second_seed_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst.os.makedirs(os.path.join(d, ".engine"))
+            self._plant_seed(d, "---\ncodes: []\n---\n\nseed body\n")
+            target = os.path.join(d, ".engine", "conduct", "operator.md")
+            with inst._redirect_root(d):
+                first = inst._seed_conduct(lambda _t: None, None)
+                body1 = inst._read_text_or(target, "")
+                second = inst._seed_conduct(self.fail, inst.load_copy())  # a re-run must not re-seed or disclose
+                body2 = inst._read_text_or(target, "")
+        self.assertEqual((first, second), ("seeded", "present"))
+        self.assertEqual(body1, body2, "a resumed seed never rewrites the file")
 
 
 class TestSeedReadme(unittest.TestCase):
