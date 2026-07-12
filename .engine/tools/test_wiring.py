@@ -545,6 +545,18 @@ class TestOntologyEntry(_Redirected):
         self.assertIn("rank", f["message"])
         self.assertEqual(_read(wiring.CATALOG_PATH), before)     # catalog untouched
 
+    def test_seam_degrades_gracefully_on_a_non_string_authority(self):
+        # a module wire whose record.authority is a JSON list (module.v1.json puts no constraint on it) must
+        # NOT crash the apply with an unhashable-type TypeError — the reservation guard stays total and the
+        # schema re-check owns the graceful refusal (a hard finding, catalog untouched)
+        wiring._write_json(wiring.CATALOG_PATH, VALID_CATALOG)
+        before = _read(wiring.CATALOG_PATH)
+        malformed = {"type": "ontology-entry", "name": "newthing",
+                     "record": dict(RECORD, location=".engine/newthing/", authority=["decisions"])}
+        f = wiring.ontology_entry_apply(malformed)
+        self.assertEqual(f["severity"], "hard")               # gracefully refused, not an uncaught crash
+        self.assertEqual(_read(wiring.CATALOG_PATH), before)   # catalog untouched
+
     def test_seam_allows_the_legit_reserved_pair(self):
         wiring._write_json(wiring.CATALOG_PATH, VALID_CATALOG)
         legit = {"type": "ontology-entry", "name": "policy",

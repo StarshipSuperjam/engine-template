@@ -941,13 +941,16 @@ def reserved_authority_reason(name: str, authority) -> "str | None":
     own "the engine made no change" while the merge-gate finding reads correctly over an already-committed
     catalog. TOTAL: an absent/None (or otherwise non-matching) authority is never a violation — an incomplete
     record is the schema layer's concern, not this rule's."""
-    required = _RESERVED_AUTHORITY.get(name)
+    # isinstance guards keep the law TOTAL: a non-string name/authority (a JSON list/object reaching here from
+    # a malformed catalog or an under-constrained module wire) is simply "no reserved match", never an
+    # unhashable-key TypeError — the schema layer owns rejecting the malformed shape.
+    required = _RESERVED_AUTHORITY.get(name) if isinstance(name, str) else None
     if required is not None and authority != required:
         rank, keeper = _reserved_rank_phrase(required)
         return (f"The engine's {keeper} has to hold the engine's {rank} authority rank and no other — the "
                 f"engine keeps that ranking fixed so nothing can quietly outrank its own rules — and this "
                 f"record puts it at a different rank.")
-    owner = _RESERVED_TIER_OWNER.get(authority)
+    owner = _RESERVED_TIER_OWNER.get(authority) if isinstance(authority, str) else None
     if owner is not None and name != owner:
         rank, keeper = _reserved_rank_phrase(authority)
         return (f"The surface '{name}' is set to the engine's {rank} authority rank — the rank the engine "
@@ -991,7 +994,9 @@ def authority_reservation_findings(catalog: dict, manifests: list, tier: str, me
             wname = wire.get("name")
             record = wire.get("record")
             authority = record.get("authority") if isinstance(record, dict) else None
-            if wname in reserved_names or authority in reserved_tiers:
+            # isinstance guards before set membership — a non-string name/authority never raises unhashable-type
+            if (isinstance(wname, str) and wname in reserved_names) or \
+                    (isinstance(authority, str) and authority in reserved_tiers):
                 by_name[wname] = finding(tier, f"The module '{mid}', which is not the engine's own core, "
                                 f"declares the surface '{wname}' in the space the engine keeps only for its own "
                                 f"core rulebook and core standing rules (its two highest authority ranks). Only "

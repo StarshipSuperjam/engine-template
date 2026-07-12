@@ -618,6 +618,16 @@ class TestReservedAuthorityReason(unittest.TestCase):
         self.assertIsNone(validate.reserved_authority_reason("check", "nonsense-tier"))
         self.assertIsNone(validate.reserved_authority_reason("widget", None))
 
+    def test_a_non_string_name_or_authority_never_raises(self):
+        # a JSON list/object reaching the law (a malformed catalog / an under-constrained wire record) must
+        # never raise an unhashable-type TypeError — the docstring's TOTAL promise. A non-string AUTHORITY
+        # can't match a reserved tier (-> None); a reserved authority under a non-string NAME is still a
+        # squatter (the name isn't the reserved surface). The contract is "never crash", not "always None".
+        self.assertIsNone(validate.reserved_authority_reason("usurper", ["decisions"]))
+        self.assertIsNone(validate.reserved_authority_reason("usurper", {"x": 1}))
+        self.assertIsNone(validate.reserved_authority_reason(["contract"], ["decisions"]))
+        self.assertIsNotNone(validate.reserved_authority_reason(["contract"], "decisions"))
+
 
 class TestAuthorityReservationFindings(unittest.TestCase):
     """The pure two-leg merge-gate scan (issue #401): Leg A over the catalog, Leg B over non-core
@@ -678,11 +688,16 @@ class TestAuthorityReservationFindings(unittest.TestCase):
         self.assertIn("rogue", fs[0]["message"])        # the module-naming (Leg B) finding wins
 
     def test_the_scan_is_total_on_malformed_records_and_wires(self):
+        # includes non-HASHABLE authority values (a JSON list/object) — the shape that would raise
+        # unhashable-type on a bare set/dict lookup; the scan must stay total and simply not match them
         cat = {"surfaces": {"x": {"class": "structured"}, "y": "not-a-dict",
+                            "listy": {"authority": ["decisions"]}, "objy": {"authority": {"k": 1}},
                             "contract": {"authority": "decisions"}}}
-        m1 = {"id": "rogue", "wires": [{"type": "ontology-entry", "name": "z", "record": {}}]}
+        m1 = {"id": "rogue", "wires": [{"type": "ontology-entry", "name": "z", "record": {}},
+                                       {"type": "ontology-entry", "name": ["bad"],
+                                        "record": {"authority": ["decisions"]}}]}
         m2 = {"id": "rogue2", "wires": ["not-a-dict", {"type": "hook"}]}
-        # nothing touches the reserved space -> empty, and crucially no crash on the malformed inputs
+        # nothing well-formed touches the reserved space -> empty, and crucially no crash on the malformed inputs
         self.assertEqual(validate.authority_reservation_findings(cat, [m1, m2], "hard", "M"), [])
 
     def test_the_real_repository_holds_the_reservation(self):
