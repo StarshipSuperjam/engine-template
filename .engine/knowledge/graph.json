@@ -1195,6 +1195,31 @@
       "type": "check"
     },
     {
+      "id": "check:ontology-authority-reservation",
+      "kind": "custom/script",
+      "name": ".engine/check/ontology-authority-reservation.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "ontology-authority-reservation",
+      "source": {
+        "fingerprint": "sha256:4e6e14f2b8c009493545d1994f4ffb24107241b81976d287a40fef360cd288c0",
+        "path": ".engine/check/ontology-authority-reservation.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:operation-frontmatter",
       "kind": "schema",
       "name": ".engine/check/operation-frontmatter.json",
@@ -2815,7 +2840,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:33c7874349eaf7c789afb0fae734efb670da5fea64396686a1f16b610e94abf1",
+        "fingerprint": "sha256:4d2f9e4c6df2e2944c0651c39f5b37cd9817adce2ff54bb0703f28ffc3bd56b0",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4210,6 +4235,23 @@
       "source": {
         "fingerprint": "sha256:76f603d89647c3ead686b56fee151bf8e14e29ed9e8f965197796214cd00878b",
         "path": ".engine/tools/audit_soft_promote.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:authority_reservation_check",
+      "name": ".engine/tools/authority_reservation_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "authority_reservation_check",
+      "source": {
+        "fingerprint": "sha256:385cff4c162a062707a11a072c2ca2736a236eda29ca713f601bc6de2b1fb1c8",
+        "path": ".engine/tools/authority_reservation_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -7047,7 +7089,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:c9e1f89e666328c6d7a8f58378f38f74d276b67601660650c31d458606e1b28a",
+        "fingerprint": "sha256:4aa9f30c3561255fde7e8d99dd69aa04b594c98657a52eb012f18e1b693871c4",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -7795,7 +7837,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:31d9cfd28c448e6f587a347852836c286bd2b5169707969b763ced000255eda4",
+        "fingerprint": "sha256:864efce0638ccff08fb36691c1c3510485db7d2a5973f659d426dbad0250145f",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -7812,7 +7854,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:0b2e9556a551148f26b127b71cf12b8d6c57076dfde5ef8d6348575e0ff01c9e",
+        "fingerprint": "sha256:d919f1135152db8f0109f41c22f19f8faca203f008e577d12ce4ab2217d70f33",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -7931,7 +7973,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:537f8b3c1863bff3aee92579db6faff01245f911f3baf498dbbed0779f257cf3",
+        "fingerprint": "sha256:21239e57a568154c1e57e84109dd3d4958359f4b2a05f8daba39bc5f3dcac8c2",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -7965,7 +8007,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:15fbffb1874ac24f77362b68156b0baf60cae7c772050262ddd4ba85bd9c59b6",
+        "fingerprint": "sha256:826a9bbac7ef934a5b51bd89e4f118d87235c572f0cdda886427dd110dbafcc6",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",
