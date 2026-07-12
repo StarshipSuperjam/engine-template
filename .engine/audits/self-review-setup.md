@@ -192,8 +192,9 @@ as your check that it's working.
 
 This part is optional. The setup above — the scheduled run on GitHub — is the supported way, and you don't need
 anything more. If you'd rather the review run on Anthropic's cloud, so it can run even while your computer is
-off, you can set up a **Cloud Routine** instead. The engine never depends on this: if a cloud run ever stops,
-the engine tells you on your next start, and the normal GitHub schedule is still there to fall back on.
+off, you can set up a **Cloud Routine** instead. The engine never depends on this: the normal GitHub schedule
+above stays your dependable path, and a cloud run is an extra on top of it — with one thing worth knowing, in
+the note after the setup steps below.
 
 To set one up, in Claude create a **Remote** routine — not a Local one, which only runs while your computer is
 awake — on a **recurring** schedule, not a one-time run, pointed at **this project**, and paste this exactly as
@@ -204,6 +205,18 @@ Act as this project's audit. Load and follow the instructions in .claude/agents/
 ```
 
 Then use **Run now** once and check that a fresh summary appears, so you know it's working.
+
+**One thing to know about the freshness reminder.** The engine works out whether your self-review is up to date
+from the record each *scheduled* run leaves behind in the project — and a Cloud Routine gives you its summary in
+chat without leaving that record. So if a cloud run is your only path, the engine can't tell those runs
+happened: on your next start it may still say the self-review *hasn't run yet*, or that it
+*hasn't reviewed its own health in a while*, and point you back to the GitHub schedule — to set it up, or to
+re-arm it if it has stopped — even while your cloud runs are going fine.
+That reminder is trustworthy; it is only ever tracking the scheduled runs, so this is a blind spot, not a sign
+anything is broken — and unlike the preview caveat just below, it won't settle as the cloud feature matures,
+because the cloud path simply never leaves the record the engine reads. If you want the engine to keep track
+that the review ran, keep the GitHub schedule above as your main path and let a cloud run be the extra
+convenience it is.
 
 A few honest notes: a Cloud Routine needs a paid plan with Claude Code on the web turned on; it's a newer,
 preview feature that may change; and it counts against your account's daily routine allowance. And in fairness:

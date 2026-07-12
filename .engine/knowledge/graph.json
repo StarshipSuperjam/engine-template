@@ -7616,7 +7616,7 @@
       },
       "slug": "test_self_review_setup",
       "source": {
-        "fingerprint": "sha256:041a54300a7907d6a2f4711cd1782d8ba98323d67e8184bd631b0450b2556b08",
+        "fingerprint": "sha256:3aad76fb6c9ff55b676c9fb71e24ec08f63a598842af7ec04811a9156f646042",
         "path": ".engine/tools/test_self_review_setup.py"
       },
       "status": "active",
