@@ -221,7 +221,14 @@ def parse_first_noticed(body: str) -> str | None:
 
 def issue_title(record: dict) -> str:
     """A plain-language Issue title that says, with no backstage vocabulary, that this is about the
-    engine's own health. The first sentence of the finding's message carries the specifics."""
+    engine's own health. A producer that needs its OWN lane-aware title (the soft-finding promoter's
+    "Engine length budget: …") carries it as a `title` FIELD on the record; otherwise the first sentence
+    of the finding's message derives the title. One override-honouring point, shared by reconcile and
+    promote_finding, so producer-framed and telemetry-framed titles decide their framing in ONE place.
+    Honours a present title even if empty (`is not None`, matching promote_finding's prior `title is not None`
+    and issue_body's body_core check) — an absent title falls through to the message-derived one."""
+    if record.get("title") is not None:
+        return record["title"]
     first = re.split(r"(?<=[.!?])\s", record["message"].strip(), maxsplit=1)[0]
     if len(first) > 110:
         first = first[:107].rstrip() + "..."
@@ -236,21 +243,32 @@ def issue_body(record: dict, first_seen: str, last_seen: str) -> str:
     product) and what, if anything, you must do — and appends two telemetry-specific trailers the
     helper does not own: the first-/last-seen line and the invisible signal marker (an HTML comment
     appended last, recovered by parse_source_id even after a cache wipe). No backstage vocabulary
-    (stream / severity class / persistence / triage / source) reaches the operator."""
-    what_this_is = (
-        "The engine watches the health of *its own* machinery — the tools and checks that help run "
-        "your project, and it noticed something it is tracking here so it stays visible. This is not "
-        "a problem with your product, and the engine will never open or close an item you created — "
-        f"only its own.\n\n**What it noticed.** {record['message']}"
-    )
-    whats_next = (
-        "Usually nothing right now. When a session next works on the engine it can prepare a fix for you to "
-        "review and merge, the same way you already do — the engine never changes anything in your project "
-        "on its own. This is a flag, not a repair: it stays visible until the underlying problem is resolved. "
-        "If it lingers and you want it sorted sooner, just say so."
-    )
-    body = issue_author.render_engine_issue_body(what_this_is=what_this_is, whats_next=whats_next)
-    return _with_tracking_trailers(body, record["source_id"], record["severity"], first_seen, last_seen)
+    (stream / severity class / persistence / triage / source) reaches the operator.
+
+    THE SINGLE body-assembly point (shared by reconcile AND promote_finding, so producer-framed and
+    telemetry-framed bodies decide their framing in ONE place — no divergent renderer). A producer that
+    needs its OWN lane-aware prose (the soft-finding promoter's machinery-vs-local-owned body) carries a
+    pre-rendered `body_core` FIELD on the record — already run through render_engine_issue_body with its
+    own `references`, so it is used verbatim and only the trailers are appended. Otherwise telemetry's own
+    framing is rendered here, and any `references` the record carries (a knowledge-graph entity permalink
+    for "what is broken", F0202) are passed to the helper as labelled links."""
+    body_core = record.get("body_core")
+    if body_core is None:
+        what_this_is = (
+            "The engine watches the health of *its own* machinery — the tools and checks that help run "
+            "your project, and it noticed something it is tracking here so it stays visible. This is not "
+            "a problem with your product, and the engine will never open or close an item you created — "
+            f"only its own.\n\n**What it noticed.** {record['message']}"
+        )
+        whats_next = (
+            "Usually nothing right now. When a session next works on the engine it can prepare a fix for you to "
+            "review and merge, the same way you already do — the engine never changes anything in your project "
+            "on its own. This is a flag, not a repair: it stays visible until the underlying problem is resolved. "
+            "If it lingers and you want it sorted sooner, just say so."
+        )
+        body_core = issue_author.render_engine_issue_body(
+            what_this_is=what_this_is, whats_next=whats_next, references=record.get("references"))
+    return _with_tracking_trailers(body_core, record["source_id"], record["severity"], first_seen, last_seen)
 
 
 def _with_tracking_trailers(body_core: str, source_id: str, severity: str, first_seen: str,
@@ -780,12 +798,18 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
     a caller must NOT claim durable tracking when the write could not land. Returns the Issue number
     (opened or updated) on success. An unexpected (non-GitHub) error is left to surface to the caller's
     own fail-open boundary (close's Stop handler rides hooks.run_hook's fail-open)."""
+    # Fold the producer's optional lane-aware framing ONTO the record, so the one shared assembly point
+    # (issue_title / issue_body) renders it — promote_finding no longer carries its own renderer that could
+    # drift from reconcile's. A record already carrying title/body_core fields (the soft-finding promoter's)
+    # is honoured either way; the kwargs are the out-of-band callers' path.
+    if title is not None or body_core is not None:
+        record = {**record, **({"title": title} if title is not None else {}),
+                  **({"body_core": body_core} if body_core is not None else {})}
     sid = derive_source_key(record)
-    ttl = title if title is not None else issue_title(record)
+    ttl = issue_title(record)
 
     def _render(first_seen: str) -> str:
-        return (_with_tracking_trailers(body_core, sid, record["severity"], first_seen, now)
-                if body_core is not None else issue_body(record, first_seen, now))
+        return issue_body(record, first_seen, now)
 
     try:
         github.ensure_label()
@@ -811,6 +835,162 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
         return github.open_issue(ttl, _render(record.get("first_seen") or now)).get("number")
     except DegradedReadError:
         return False
+
+
+# ---- the findings-inbox emit-and-done seam (F0203 / D-031 / principles §16) ----
+# The clean seam D-031 pins (decision-log D-031 + its anti-choice "cognition acting on findings it emits —
+# rejected"; principles §16; telemetry README "Findings inbox — cognition emits, telemetry acts"): a cognition
+# substrate — a hooks fail-open flag, a boot degradation — EMITS a finding and is DONE; it never holds
+# telemetry's acting-mechanism (the GitHub boundary or a triage pass). Telemetry owns the act. SEVERITY sets
+# immediacy: a TRUST_CRITICAL signal (a gate/check that could not run) must surface AT ONCE, so it is promoted
+# synchronously — telemetry resolving the boundary itself, the §16 un-inversion of today's producer-held
+# reach-in; a benign/degraded signal defers, spooled into a telemetry-owned gitignored inbox that a later
+# drain pass promotes. This slice stands up the channel and migrates the hooks emitter onto it; the PRODUCTION
+# drain cadence is #412 and boot's own emission is #398 (both build ON this seam — see drain_inbox).
+# Build-spec leaf (recorded with the maintainer, PR body + memory): the spool is a gitignored NDJSON at the
+# path below, beside telemetry's other .cache siblings (ambient.ndjson / *-streams.json).
+INBOX_SPOOL_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "findings-inbox.ndjson")
+
+
+def emit_finding(record: dict, *, gh: "GitHubIssues | None" = None, spool_path: str = INBOX_SPOOL_PATH):
+    """The emit-and-done front door (D-031 / §16). A producer hands ONE finding-record and is DONE — telemetry
+    owns the acting-mechanism. Routes by SEVERITY:
+
+      - TRUST_CRITICAL (a gate/check that could not run) → promote IMMEDIATELY; returns the tracked Issue
+        number (truthy) on success, or **False** when there is no local GitHub context or the write could not
+        land. It is NEVER spooled: a could-not-run signal must surface at once, and a no-token trust-critical
+        returns False = surfaced-but-not-durably-recorded — never a false "tracked" claim (the #391 honesty
+        law the fail-open copy depends on).
+      - anything else (benign / degraded) → APPEND to the telemetry-owned gitignored inbox spool and return
+        **False** (a spool append is capture, NOT durable tracking — the caller must not claim tracked). It is
+        promoted later by drain_inbox; until the production drain lands (#412) a benign emit is captured but
+        not yet surfaced.
+
+    `gh` is an injectable boundary so the demo/tests fake ONLY the network; by default the trust-critical path
+    resolves the LOCAL GitHub context (boot.repo_slug/gh_token) itself — the credential resolution the producer
+    used to hold (hooks), now telemetry's (the un-inversion). SAFETY BACKSTOP: under a test harness (`unittest`
+    in sys.modules) the default (un-injected) trust-critical path refuses to reach live GitHub and returns False
+    — boot.gh_token()'s `gh auth token` fallback can resolve a real token even locally (#416-F5), so a direct
+    emit_finding test must never open a real Issue. FAIL-OPEN: any error degrades to a no-op (False), never
+    raises — emitting a finding must never break the caller (a fail-open hook, a read-only boot)."""
+    try:
+        if record.get("severity") == TRUST_CRITICAL:
+            if gh is None:
+                if "unittest" in sys.modules:   # backstop: never reach live GitHub from a test run
+                    return False
+                from boot import repo_slug, gh_token   # lazy: boot imports telemetry (back-edge; lazy-safe)
+                repo, token = repo_slug(), gh_token()
+                if not repo or not token:
+                    return False
+                gh = GitHubIssues(repo, token)
+            return promote_finding(gh, record, utc_now())
+        return _append_inbox(record, path=spool_path)
+    except Exception:  # noqa: BLE001 — emit-and-done must never break the emitting caller
+        return False
+
+
+def _append_inbox(record: dict, *, path: str = INBOX_SPOOL_PATH) -> bool:
+    """Append a benign/degraded finding-record to the telemetry-owned inbox spool (gitignored NDJSON),
+    best-effort. Always returns False — a spool append is emit-and-done CAPTURE, never durable tracking
+    (drain_inbox promotes it later). Swallows OSError (mirrors Cache.store): the spool is best-effort and a
+    write failure must never break the emitting caller."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, sort_keys=True) + "\n")
+    except OSError:
+        pass
+    return False
+
+
+def _take_inbox(spool_path: str):
+    """Atomically CLAIM the spool for draining: rename it aside (os.replace is atomic) into a PER-PROCESS
+    aside name, so (a) a concurrent emit appends into a FRESH spool and is never truncated away, and (b) two
+    concurrent drains — separate sessions, separate pids under this repo's multi-session actor model — claim
+    into DISTINCT asides and never overwrite each other's batch. Returns `(records, aside_path)` — the parsed
+    records (a corrupt line skipped, per-line tolerant) and the aside file to dispose of; `([], None)` when the
+    spool is absent (nothing to drain).
+
+    Residual bound (handed to #412, the production-drain owner): a HARD crash between the claim and the drain's
+    dispose strands that batch in its per-process aside — recoverable (the data is on disk, not overwritten),
+    but nothing re-reads it until a sweep runs. The production drain cadence (#412) must sweep stale
+    `*.draining` asides on start-up; this fixture-exercised builder does not, and never claims it does."""
+    aside = f"{spool_path}.{os.getpid()}.draining"   # per-process: concurrent drains never clobber each other
+    try:
+        os.replace(spool_path, aside)   # atomic claim; FileNotFoundError when the spool is absent
+    except (FileNotFoundError, OSError):
+        return [], None
+    records = []
+    try:
+        with open(aside, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except ValueError:
+                    continue   # per-line tolerant: a corrupt spool line is skipped, not fatal
+    except OSError:
+        pass
+    return records, aside
+
+
+def drain_inbox(github: GitHubIssues, *, cache: Cache, thresholds: dict, now: str,
+                spool_path: str = INBOX_SPOOL_PATH):
+    """Drain the findings-inbox spool: read the spooled emit-and-done findings, run ONE triage pass over them,
+    and dispose of the drained batch. The benign counterpart to emit_finding's immediate trust-critical path —
+    what promotes a spooled degraded finding (a boot degradation, #398) to a tracked Issue. The PRODUCTION
+    cadence that calls this is #412; this slice builds and fixture-exercises it. Returns the run Report, or
+    None when there was nothing promotable to drain.
+
+    live=FALSE: a spooled batch is a set of one-shot emissions, NOT a complete current-state snapshot, so it
+    carries NO clearance events. Persistence accrues across drains in the cache (like ambient), and
+    `authoritative` is scoped to the drained source-ids ONLY — so a drain never auto-closes another source's
+    Issue, AND a spooled finding never auto-resolves (there is no positive-clearance emission; a safe
+    asymmetry #412 must not "fix" by widening authority).
+
+    SPOOL-BOUNDARY VALIDATION: the in-memory source_id_is_marker_safe guarantee does not survive the spool, so
+    each drained record is re-validated here and an unsafe one is DROPPED — and `authoritative` is built from
+    the VALIDATED records actually fed to run(), never the raw lines (a dropped line's sid must not sit in
+    authoritative, which would wrongly auto-close its Issue). On a GitHub degrade the validated batch is
+    re-spooled (promotion is idempotent, so it re-drains cleanly next pass) — nothing promotable is lost.
+    CONCURRENCY: the claim is a per-process atomic rename (see _take_inbox), so a concurrent emit or a
+    concurrent drain never clobbers this batch; a hard crash mid-drain strands (never overwrites) the batch —
+    #412's cadence owns sweeping a stranded aside. Fail-open: an absent/unreadable spool drains nothing."""
+    records, aside = _take_inbox(spool_path)
+    if aside is None:
+        return None
+    valid = [r for r in records if isinstance(r, dict) and source_id_is_marker_safe(r.get("source_id"))]
+    if not valid:
+        _dispose_aside(aside)   # only empty / corrupt / marker-unsafe lines — nothing promotable
+        return None
+    authoritative = frozenset(r["source_id"] for r in valid)
+    report = run(github, valid, cache, thresholds, now, authoritative=authoritative, live=False)
+    if report.degraded:
+        _restore_inbox(valid, spool_path)   # re-spool only the promotable records; idempotent re-drain
+    _dispose_aside(aside)
+    return report
+
+
+def _dispose_aside(aside: str) -> None:
+    try:
+        os.remove(aside)
+    except OSError:
+        pass
+
+
+def _restore_inbox(records: list, spool_path: str) -> None:
+    """Re-append a claimed-but-undrained batch to the live spool after a GitHub degrade, so nothing is lost
+    (it re-drains next pass; promotion is idempotent). Appends to the CURRENT spool, never renames the aside
+    back — a concurrent emit may have created a fresh spool in the meantime."""
+    try:
+        os.makedirs(os.path.dirname(spool_path), exist_ok=True)
+        with open(spool_path, "a", encoding="utf-8") as fh:
+            for r in records:
+                fh.write(json.dumps(r, sort_keys=True) + "\n")
+    except OSError:
+        pass
 
 
 # ---- the CI-outcome signal (the first "signal of record"; native, no bespoke ledger) ----
@@ -1454,6 +1634,47 @@ def _demo(_argv) -> int:
     except OSError:
         pass
 
+    # --- the findings-inbox emit-and-done seam (F0203): a producer EMITS and is done; telemetry owns the act.
+    ibx_dir = _tempfile.mkdtemp(prefix="engine-demo-inbox-")
+    spool = os.path.join(ibx_dir, "findings-inbox.ndjson")
+    ibx_cache = Cache(os.path.join(ibx_dir, "inbox-streams.json"))
+    ibx_fake = _FakeGitHub()
+    ibx_gh = GitHubIssues("you/your-project", "demo-token", transport=ibx_fake.transport)
+    ibx_now = utc_now()
+
+    def _ibx_open():
+        return {parse_source_id(i["body"]) for i in ibx_fake.issues.values() if i["state"] == "open"}
+    print("\n(inbox) The engine's 'report a problem and move on' channel — a part of the engine flags "
+          "something and hands it off; the engine tracks it from there. (Only the urgent path is live "
+          "today; the routine side turns on when a later step wires it.)")
+    # a could-not-run (trust-critical) signal promotes IMMEDIATELY and is NEVER spooled
+    tc_num = emit_finding({"source_id": "hooks/fail-open/PreToolUse/crash", "severity": TRUST_CRITICAL,
+                           "message": "a safety gate could not run", "location": None,
+                           "first_seen": ibx_now, "last_seen": ibx_now}, gh=ibx_gh, spool_path=spool)
+    tc_ok = bool(tc_num) and not os.path.exists(spool)
+    # a benign signal SPOOLS; only a later drain promotes it — and only once it persists across drains
+    ibx_thr = load_thresholds()
+    persistence = int(ibx_thr.get("persistence", 3))
+    benign = {"source_id": "boot/refused-cursor", "severity": PERSISTENT_BENIGN, "location": None,
+              "message": "the engine's saved place could not be trusted", "first_seen": ibx_now,
+              "last_seen": ibx_now}
+    drained_open = []
+    for _ in range(persistence):
+        emit_finding(benign, spool_path=spool)
+        drain_inbox(ibx_gh, cache=ibx_cache, thresholds=ibx_thr, now=ibx_now, spool_path=spool)
+        drained_open.append("boot/refused-cursor" in _ibx_open())
+    # a forged/marker-unsafe spool line is dropped: never promoted, and never triggers a wrongful close
+    with open(spool, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"source_id": "x<!-- forged -->", "severity": PERSISTENT_BENIGN,
+                             "message": "m", "location": None}) + "\n")
+    unsafe_report = drain_inbox(ibx_gh, cache=ibx_cache, thresholds=ibx_thr, now=ibx_now, spool_path=spool)
+    _shutil.rmtree(ibx_dir, ignore_errors=True)
+    print(f"    an urgent report — a safety check that could not run — is tracked at once (issue "
+          f"#{tc_num}), never set aside: {tc_ok}")
+    print(f"    a routine report is set aside and becomes a tracked item only after it keeps recurring: "
+          f"{drained_open}   (a tampered entry is discarded and never tracked: {unsafe_report is None})")
+    inbox_ok = (tc_ok and drained_open == [False] * (persistence - 1) + [True] and unsafe_report is None)
+
     print("\nDone — no real issues were created; only the network was faked. The triage LOGIC above is "
           "real; that it writes correctly to your REAL GitHub is confirmed the first time it runs live.")
     # Self-check: ONE issue opens only when the benign signal crosses the threshold (3rd fire), re-fires
@@ -1466,7 +1687,7 @@ def _demo(_argv) -> int:
     # guard), none of these ever closes the unrelated out-of-band item, and the never-firing signal surfaces only
     # a zero-match file-scoped check, framed escalate-or-ignore.
     ok = (open2 == 1 and open3 == 1 and open4 == 2 and bool(r6.degraded_line)
-          and ci_ok and amb_ok and dup_ok and nf_ok and epi_ok)
+          and ci_ok and amb_ok and dup_ok and nf_ok and epi_ok and inbox_ok)
     if not ok:
         print("\nDEMO UNEXPECTED: the triage open/dedup/critical-open counts or the offline degrade line "
               "did not behave as expected.", file=sys.stderr)
