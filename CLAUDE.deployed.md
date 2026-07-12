@@ -23,6 +23,11 @@ session, so they don't crowd the briefing; but before I change how a part of the
 the record that governs it, so a settled decision isn't quietly undone. You can read them too — each one stands
 on its own in plain prose.
 
+**What your Engine is made of.** If you ever want to see what your Engine is built from — its version, the
+kinds of files it governs, and the modules installed and how they depend on each other — type **`/engine-parts`**,
+or just ask "what is my engine made of?". It's a plain-language readout, and it only reads — it never changes
+anything.
+
 **I work in an isolated copy — never in your project folder's git history.** Your top-level project folder is
 yours, a place to look at the project, not a workspace I rewrite. I don't change its git state — I won't detach
 it, reset it, switch its branch, or commit directly into it — as part of doing build work, on my own, or

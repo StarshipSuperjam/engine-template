@@ -452,6 +452,32 @@ def recently_shipped(count: int = RECENTLY_SHIPPED_COUNT) -> list[str]:
 # relay never becomes a firehose — routine status carries no marker and is pulled via the status verb.
 RELAY_MARKER = "INFORM THE USER THAT"
 
+# #400 F1 — the engine's live-helper (MCP substrate) availability notice. CONSENT-CRITICAL: when a server is
+# not live this session the operator runs on the committed-file fallback and, unable to read code, has no other
+# way to know. Boot CANNOT detect MCP tool routing — it reads committed files only, so RELAY-NOT-DETECT is
+# preserved (boot computes nothing here); the check is one the MODEL runs against its own tool list. It is
+# therefore emitted in the operator-RELAY portion of the pack (a numbered must-do, NOT the AI-orientation zone
+# where KNOWLEDGE_FACULTY_NOTE sits), so an absent server carries the same "do not skip" force as any gathered
+# alarm. Per-server naming; status-not-fault framing; host-agnostic fix (no Code-only `/mcp` baked into consent-
+# critical copy — consistent with the deployed floor's "reopen Claude"). Single-homed: the PR-Validation runbook
+# and the first-run guide point at THIS behaviour, they do not re-type the words. Residual bound (no non-AI
+# correlate, disclosed at the merge gate): a skipped self-check leaves a degraded engine looking healthy, and a
+# mis-read can false-fire on a healthy one — the must-relay placement is the strongest available mitigation.
+MCP_AVAILABILITY_CHECK = (
+    "Check your own available tools for the engine's two live helpers — each is a server the operator approves "
+    "once, and it only comes online after the Claude app is fully restarted:\n"
+    "     - `mcp__engine-memory__*` — their saved memory (recall of past decisions and notes)\n"
+    "     - `mcp__engine-knowledge-graph__*` — the engine's wiring map (how the parts connect)\n"
+    "   For EACH of these families ABSENT from your tools this session, you MUST tell the operator, in plain "
+    "words (this is consent-critical — treat it like any must-relay alarm above, never as internal machinery): "
+    "that its live version isn't switched on this session, so you're working from their saved files instead — "
+    "which still works, but can be out of date; and that to switch it on they approve the engine's servers when "
+    "their Claude app prompts them (or in its MCP settings), then fully quit and reopen Claude. If no prompt "
+    "appears, or they say they already approved it but a family is still missing, offer to help them turn it on "
+    "— find the setting for their Claude app, or look into why the server won't start. If BOTH families are "
+    "present, say nothing about this."
+)
+
 
 def gather_signals(session_id: str | None = None) -> dict:
     """Read + DETECT every signal the dashboard renders — the substrates' own detection, which boot only
@@ -1186,7 +1212,9 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
                    "again, answer plainly, without the boot-time framing.)")
     else:
         out.append("2. No governance alarm to relay this session.")
-    out.append("3. Then surface a brief plain-language headline of anything in the status below that needs "
+    out.append("3. Check the engine's live helpers and tell the operator about any that are off — a check you "
+               "run against your own tools, since the engine cannot see them for you: " + MCP_AVAILABILITY_CHECK)
+    out.append("4. Then surface a brief plain-language headline of anything in the status below that needs "
                "their attention. When the operator asks where things stand or what's next, run "
                "`uv run --directory .engine -- python tools/engine_status.py` and show its output verbatim "
                "— the same dashboard the `/engine-status` verb prints — rather than paraphrasing it. The "

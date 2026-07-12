@@ -34,6 +34,8 @@ Alongside plain conversation, the Engine gives you a set of shortcuts — short 
 
 You never have to memorize anything; the list is always a few keystrokes or one question away.
 
+One question worth knowing you can ask: **"what is my engine made of?"** — its version, the parts it is built from, and how they fit together. Ask it in plain words, or type **`/engine-parts`** for the same plain readout. It only reads; it never changes anything.
+
 ## When the engine suggests removing a part of itself
 
 From time to time the Engine checks over its own parts and may suggest **retiring** something it no longer needs — a rule, a document, or a piece of its own machinery.

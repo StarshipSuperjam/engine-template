@@ -48,8 +48,10 @@ record, so the fingerprint covers the whole record (a repointed governing_schema
 Scope (named): the map renders module `wires` as the directive TYPE list only — the closed seam
 vocabulary (hook/mcp/ontology-entry/permission/gitignore), the part locked in module.v1.json; the
 per-type directive BODY rendering lands with the first wires-bearing manifest (slice 25). The
-polished operator-reachable access path is a provisioning/operations leaf (slice-8 roadmap leaf);
-`show` + the directly-openable committed file are the interim readout.
+operator-reachable access path is the `/engine-parts` command (`.claude/skills/engine-parts/`), the
+plain-language "what is my engine made of" readout — it runs `show`, is auto-advertised by /engine-help,
+and is pointed at from getting-started.md and CLAUDE.deployed.md; `show` and the directly-openable
+committed file remain the readout it renders (#400 F3).
 """
 from __future__ import annotations
 import os

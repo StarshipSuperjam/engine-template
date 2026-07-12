@@ -854,8 +854,10 @@ def wiring_findings(declared: list, tier: str, message: str) -> list:
 
     The MCP carve-out is APPROVAL-BLINDNESS, not a soft tier: the applied flag for an `mcp` wire
     reflects the committed `.mcp.json` definition (engine wiring), never the operator's runtime
-    approval (operator state, surfaced loudly at boot and in the control-plane PR-Validation section,
-    not here) — so a defined-but-unapproved server is simply is_applied=True and never flags
+    approval (operator state — a server that is not live for a session, whether unapproved or awaiting
+    an app restart, shows up as an ABSENT tool and is surfaced to the operator by boot's AI-observed
+    live-helper check and the control-plane PR-Validation section, not here; availability subsumes the
+    approval case) — so a defined-but-unapproved server is simply is_applied=True and never flags
     (module-system/README.md §"MCP registration", §Coherence). FORWARD direction only; the orphan-wire
     REVERSE direction (nothing engine-identified applied that no manifest declares) is the companion
     `orphan_wire_findings` below, over the module-coherence consumer's per-seam applied-wire enumerator."""

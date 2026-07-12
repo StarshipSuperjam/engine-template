@@ -939,6 +939,25 @@ def _seed_readme_root(tmp, *, readme=None, seed=None):
 _MARKED_FRONT = inst._MARKETING_SEED_MARKER + "\n\n# engine-template\n"   # the traveled marketing landing front
 
 
+class TestFirstRunWalksThroughMcpApproval(unittest.TestCase):
+    """#400 F2: the first-run procedure walks the operator through turning on the engine's live helpers —
+    approving the engine-memory + engine-knowledge-graph servers and restarting Claude. first-run.md is itself
+    a first-run asset (retired after setup), so this is construction-scoped: it skips once the walkthrough has
+    been tidied away (the deployed post-retire tree), exactly as the reference-closure gate no-ops then."""
+
+    def test_first_run_names_the_two_servers_and_the_approve_plus_restart_fix(self):
+        path = os.path.join(validate.ROOT, ".engine", "operations", "first-run.md")
+        if not os.path.exists(path):
+            self.skipTest("first-run.md already retired (deployed post-setup tree)")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("engine-memory", text)                 # both live helpers named
+        self.assertIn("engine-knowledge-graph", text)
+        self.assertIn("approve", text.lower())               # the approval half of the fix
+        self.assertIn("reopen Claude", text)                 # the restart half (host-agnostic)
+        self.assertIn("committed-file fallback", text)       # names the fallback state the operator is in
+
+
 class TestReadmeRecognizer(unittest.TestCase):
     def test_marker_constant_is_the_exact_committed_token(self):
         # A typo here would silently break the replace on every generated repo — pin the exact string.
