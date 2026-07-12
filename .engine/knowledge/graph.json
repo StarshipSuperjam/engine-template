@@ -5219,7 +5219,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:cd3393f86c0f9d8b77b1e1ef13e1f208b73caa561b191cfb8324401dcc379943",
+        "fingerprint": "sha256:d3f83d099609d0a50491b97dac6254360402ebad02702f366244768b041b800f",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",

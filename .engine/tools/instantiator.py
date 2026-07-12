@@ -1539,6 +1539,7 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_reverse_adjacency.py",
     ".engine/tools/demo_remember_this.py",
     ".engine/tools/demo_release_pr_mergeable.py",
+    ".engine/tools/demo_build_entry_depth_gate.py",
     # The committed audit self-review digest is THIS template repo's own construction history — a generated repo
     # must not boot reporting a self-review it never ran, nor read the template's findings as its own. So it
     # retires at first-run: a fresh repo starts with no inherited digest (its absence is the honest "not yet
