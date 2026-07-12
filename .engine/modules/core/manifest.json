@@ -37,6 +37,7 @@
     "skill": [
       ".claude/skills/engine-conduct/SKILL.md",
       ".claude/skills/engine-help/SKILL.md",
+      ".claude/skills/engine-parts/SKILL.md",
       ".claude/skills/engine-setup/SKILL.md",
       ".claude/skills/engine-start/SKILL.md",
       ".claude/skills/engine-status/SKILL.md",

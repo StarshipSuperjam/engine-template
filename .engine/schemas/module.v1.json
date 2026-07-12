@@ -12,9 +12,9 @@
       "pattern": "^[a-z][a-z0-9-]*$"
     },
     "version": {
-      "description": "The module's version, as a dotted number (for example 1.4.0), optionally with a pre-release suffix such as -dev during development. This is internal bookkeeping used to drive upgrades and migrations; an operator sees a single engine version, not per-module numbers.",
+      "description": "The module's version, as a dotted number MAJOR.MINOR.PATCH (for example 1.4.0), optionally with a pre-release suffix such as -dev during development. This is internal bookkeeping used to drive upgrades and migrations; an operator sees a single engine version, not per-module numbers. The semver shape is enforced by the pattern below, so a non-numeric version fails the manifest schema at the merge rather than silently parsing to version zero in migration selection.",
       "type": "string",
-      "minLength": 1
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
     },
     "status": {
       "description": "How the module is carried: required (a foundation, always present), default-on (installed unless the operator opts out), optional (installed only if chosen), experimental (opt-in, not yet stable), or retired (kept for migration history, no longer active).",

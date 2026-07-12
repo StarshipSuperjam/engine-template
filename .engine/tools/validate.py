@@ -724,10 +724,17 @@ def catalog_coverage_findings(surfaces: dict, present_locations: set, tier: str,
                               message: str, infra=()) -> list:
     """Pure catalog-coverage: given the catalogued surfaces {name: record} and the set of
     surface-location strings present on disk, return findings — a catalogued surface whose
-    `location` directory is absent, or a present surface-location no surface claims (an
-    orphan), skipping a known non-surface infra location. The 'uncatalogued surface in use'
-    leg (a surface referenced with no record) is not mechanically general here — a named
-    limitation. Kept pure so it is testable without the live filesystem."""
+    `location` directory is absent; a present surface-location no surface claims (an orphan),
+    skipping a known non-surface infra location; and an infra exemption that names a catalogued
+    surface's own home (which must never happen — an exemption may not shadow a surface's
+    coverage). The spec's third coverage leg — 'no uncatalogued surface is in use' — is, for the
+    surface-shaped-instance case, a build-spec leaf resolved as authoring judgment at the
+    cataloguing pull request (ontology 'The catalog': a surface's soundness is weighed when it is
+    catalogued, not re-attested by a green coverage check), because a general mechanical rule
+    cannot tell an uncatalogued surface apart from a legitimate non-surface bucket — module
+    `provides` legitimately groups non-surface files (module.v1: 'a foundation group … that are
+    not a surface'). What is mechanized here beyond the two directory legs is the disjointness
+    invariant below. Kept pure so it is testable without the live filesystem."""
     catalogued = {rec.get("location") for rec in surfaces.values()}
     findings = []
     for name, rec in surfaces.items():
@@ -738,6 +745,10 @@ def catalog_coverage_findings(surfaces: dict, present_locations: set, tier: str,
         if location not in catalogued and location not in set(infra):
             findings.append(finding(tier, f"Directory '{location}' exists but no catalogued "
                             f"surface claims it (orphan surface directory). {message}"))
+    for location in sorted(set(infra) & catalogued):
+        findings.append(finding(tier, f"Infrastructure exemption '{location}' names a catalogued "
+                        f"surface's home directory; an infra exemption must never shadow a "
+                        f"surface's coverage. {message}"))
     return findings
 
 

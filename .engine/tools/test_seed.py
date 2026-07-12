@@ -333,6 +333,19 @@ class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
             errs = list(v.iter_errors(rule))
             self.assertEqual(errs, [], f"{name} does not conform to check.v1.json: {errs}")
 
+    def test_status_lifecycle_optional_and_enforced(self):
+        # #402 U07b: the optional artifact-lifecycle status slot on a check rule (mirrors doc/operation).
+        # Omitted means active; active/deprecated/retired conform; a value outside the set is rejected; the
+        # required set is still exactly the seven (asserted above).
+        v = validate.Draft202012Validator(self._schema())
+        base = {"id": "engine/check/x", "target": {"path": "a"}, "kind": "presence",
+                "params": {}, "tier": "soft", "suites": [], "message": "m"}
+        self.assertEqual(list(v.iter_errors(base)), [])                               # omitted -> active
+        for st in ("active", "deprecated", "retired"):
+            self.assertEqual(list(v.iter_errors({**base, "status": st})), [], f"{st} must conform")
+        for st in ("draft", "bogus"):
+            self.assertNotEqual(list(v.iter_errors({**base, "status": st})), [], f"{st} must be rejected")
+
 
 class TestGetPrAuthor(unittest.TestCase):
     """get_pr_author() reads the trusted event context (.pull_request.user.login) and degrades
@@ -1387,6 +1400,28 @@ class TestCoverageKind(unittest.TestCase):
         rule = validate.load_json(os.path.join(validate.ROOT, ".engine", "check", "catalog-coverage.json"))
         self.assertIn(".engine/boot/", rule["params"]["infra_dirs"],
                       "the shipped catalog-coverage rule must exempt boot's topology-sanctioned artifact home")
+
+    def test_infra_exemption_may_not_shadow_a_surface_home(self):
+        # #402 U06b: the disjointness invariant — an infra exemption that names a catalogued surface's own home
+        # is a HARD finding (the allowlist may not silently suppress a surface's own coverage). This is the
+        # green, mechanically-general slice of the spec's third coverage leg; the full "no uncatalogued
+        # surface-shaped instance in use" leg is a logged build-spec leaf (authoring judgment at the cataloguing
+        # PR), because a general rule cannot tell an uncatalogued surface apart from a legitimate non-surface
+        # bucket (provides groups non-surface files).
+        surfaces = {"check": {"location": ".engine/check/"}}
+        shadow = " ".join(f["message"] for f in validate.catalog_coverage_findings(
+            surfaces, {".engine/check/"}, "hard", "m", infra=[".engine/check/"]))
+        self.assertIn("shadow", shadow, "an infra exemption naming a catalogued surface's home must fire HARD")
+        # A genuine non-surface infra dir does NOT trip the invariant (only shadowing a surface home does).
+        clean = " ".join(f["message"] for f in validate.catalog_coverage_findings(
+            surfaces, {".engine/check/", ".engine/boot/"}, "hard", "m", infra=[".engine/boot/"]))
+        self.assertNotIn("shadow", clean)
+        # The live shipped rule + catalog satisfy the invariant (no exemption names a surface home).
+        rule = validate.load_json(os.path.join(validate.ROOT, ".engine", "check", "catalog-coverage.json"))
+        catalog = validate.load_json(validate.CATALOG_PATH)
+        surface_locs = {r.get("location") for r in catalog.get("surfaces", {}).values()}
+        self.assertEqual(set(rule["params"]["infra_dirs"]) & surface_locs, set(),
+                         "no infra exemption may name a catalogued surface's home directory")
 
 
 class TestCoherenceKind(unittest.TestCase):
