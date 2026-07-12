@@ -1123,13 +1123,15 @@ def derive_episodic_records(live_session_id: str | None = None, cwd: str | None 
     the next append — an accepted, documented bound, not gated."""
     from memory import capture, consolidate, ledger   # lazy: the canonical intra-core import (no cycle)
     try:
+        # The WHOLE read is fail-safe: an unreadable memory environment (probe OR the backlog scan) must
+        # close nothing, never crash the pass — so `detect_unconsolidated` is inside the guard too.
         observed = (any(True for _ in ledger.iter_records(path=ledger.ledger_path(cwd)))
                     and capture.read_lease_state(ledger.ledger_dir(cwd)) is not None)
-    except Exception:  # noqa: BLE001 — an unreadable memory environment must close nothing, never crash the pass
+        if not observed:
+            return [], frozenset()   # no trustworthy observation on this machine → resolve nothing
+        pending = consolidate.detect_unconsolidated(live_session_id, cwd=cwd)
+    except Exception:  # noqa: BLE001
         return [], frozenset()
-    if not observed:
-        return [], frozenset()   # no trustworthy observation on this machine → resolve nothing
-    pending = consolidate.detect_unconsolidated(live_session_id, cwd=cwd)
     records = []
     if len(pending) >= EPISODIC_BACKLOG_THRESHOLD:
         records = [{"source_id": EPISODIC_BACKLOG_SID, "severity": PERSISTENT_BENIGN,
@@ -1394,7 +1396,8 @@ def _demo(_argv) -> int:
           f"{nf_scoped_ok}")
     print(f"    the feed frames it escalate-or-ignore (a question, not a retire verdict): {nf_framing_ok}")
 
-    print("\n(11) The THIRD live signal source — the memory ledger's consolidation backlog (F0210). When the")
+    print("\n(11) The THIRD signal source — the memory ledger's consolidation backlog (F0210, cache-accrued")
+    print("    like ambient, not a live read). When the")
     print("    engine's memory tidy-up stays behind across sessions it is tracked; once the backlog is genuinely")
     print("    cleared its item resolves; an absent/unreadable ledger claims NO authority (a per-machine read")
     print("    must not resolve a global issue); and it NEVER touches an unrelated item:")

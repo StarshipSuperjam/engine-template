@@ -1645,11 +1645,35 @@ class TestEpisodicLiveLoop(_EpisodicBase):
                         "an episodic pass claiming only the episodic/ sid must never close the out-of-band item")
 
 
-class TestRunEpisodicCLI(unittest.TestCase):
+class TestRunEpisodicCLI(_EpisodicBase):
     def test_no_local_repo_or_token_skips_cleanly(self):
         # the normal state on a machine not logged in — fail-open exit 0, no crash, no stdin read.
         with mock.patch("boot.repo_slug", return_value=None), mock.patch("boot.gh_token", return_value=None):
             self.assertEqual(telemetry._run_episodic_cli([]), 0)
+
+    def test_happy_path_assembles_records_over_the_episodic_cache_and_reports(self):
+        # the production driver's success path: local context present -> derive over the fixture ledger ->
+        # run() with the episodic cache + live=False, reporting the counts and exiting 0.
+        self._seed_unconsolidated(telemetry.EPISODIC_BACKLOG_THRESHOLD)   # a deep backlog
+        captured = {}
+
+        def fake_run(github, records, cache, thresholds, now, state_path=None, *, authoritative, live=False):
+            captured.update(records=records, authoritative=authoritative, live=live, cache_path=cache.path)
+            return telemetry.Report(degraded=False, opened=1, updated=0, closed=0)
+
+        with mock.patch("boot.repo_slug", return_value="o/r"), \
+             mock.patch("boot.gh_token", return_value="tok"), \
+             mock.patch("sys.stdin", io.StringIO("")), \
+             mock.patch.object(telemetry, "run", side_effect=fake_run), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = telemetry._run_episodic_cli([])
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(captured["records"]), 1)
+        self.assertEqual(captured["records"][0]["source_id"], telemetry.EPISODIC_BACKLOG_SID)
+        self.assertEqual(captured["authoritative"], frozenset({telemetry.EPISODIC_BACKLOG_SID}))
+        self.assertFalse(captured["live"])                                # cache-accrued, not live-derived
+        self.assertTrue(captured["cache_path"].endswith("episodic-streams.json"))   # its OWN accrual cache
+        self.assertIn("opened=1", out.getvalue())
 
     def test_hook_payload_session_id_prefers_the_payload(self):
         with mock.patch("sys.stdin", io.StringIO('{"session_id": "abc123"}')):
