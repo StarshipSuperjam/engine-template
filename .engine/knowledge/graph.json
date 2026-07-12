@@ -2155,7 +2155,7 @@
       },
       "slug": "eADR-0014-one-history-living-documents",
       "source": {
-        "fingerprint": "sha256:0a13ccbd13574953288509b81d5278a54196531e6c8378357167762b6bfaabdc",
+        "fingerprint": "sha256:1aeab5d4475ec21b96984c2a10d6976b2b89a6070e433143e207a08f8d165447",
         "path": ".engine/contracts/eADR-0014-one-history-living-documents.md"
       },
       "status": "accepted",
@@ -2295,7 +2295,7 @@
       },
       "slug": "eADR-0021-control-plane-enforcement-layer",
       "source": {
-        "fingerprint": "sha256:919223bea737ad022f63f9e180b879ab8cdbc673e189af8172e8c13c54c83de1",
+        "fingerprint": "sha256:ea50a422701146d8d2a58e7ecc291f254631a6c81de19383efe96e4b9811fe3e",
         "path": ".engine/contracts/eADR-0021-control-plane-enforcement-layer.md"
       },
       "status": "accepted",
