@@ -3201,7 +3201,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:cc1f1c961a12d35b36dd0e3e13cf2fbde2f8f8d9ca952ef31658dac2769a1a74",
+        "fingerprint": "sha256:7531542d1e9cf33fd750c74ae8a45d3ddd2917f7613d6ff47be8aa6f65a04d79",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -4008,7 +4008,7 @@
       },
       "slug": "engine-routine",
       "source": {
-        "fingerprint": "sha256:c345cc7aa223131b9532024cd7b31666c86a9f232bf8514df9d6634c1b469038",
+        "fingerprint": "sha256:810434b766919c273553354178d4ddce1d5646b494b19a3ea3a1a34e1b646313",
         "path": ".claude/skills/engine-routine/SKILL.md"
       },
       "status": "active",
@@ -4284,7 +4284,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:134c74629f8e4dbc7c926484e8f7d3796785d766f34f94acaf38d4a5d166bce0",
+        "fingerprint": "sha256:ea9951ef4056e1fc74bf47b0e4e4857c8779994c5550590499009b8d92dc0222",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5168,7 +5168,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:4426acf38e5740c9dac364aa198cd242379aa1265d0139589f50d13cc9983952",
+        "fingerprint": "sha256:cc69607171713c02f5bae0392517e9d6e875beaebeefc2c8232181501a9fcde3",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -6239,7 +6239,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:cbce98645ab008f03f4659a56c1106aa98e0653e4fc40ed74a9508d3e9d0b728",
+        "fingerprint": "sha256:274e1ce39586141973ea2159d4e654f20c9d8773f5ca24c42eec3b57729150a2",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -6783,7 +6783,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:1579064043f0a1dbedb53f82c7038445b13ceee49650633f9290bffac07134f3",
+        "fingerprint": "sha256:36ac336ca4cd651aec04083bb43a71a13f2883ade3c5b1916962a00e1dc7f2be",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -7803,7 +7803,7 @@
       },
       "slug": "test_upstream_clean",
       "source": {
-        "fingerprint": "sha256:67243ee522c1e1dec88f173674da8e1002f7fc23d72eb2555a3c0392f91064db",
+        "fingerprint": "sha256:b7d76c752dc56aafb8ab7d1a4dc01357d3a2914f12d6fb726330161ed8f91b6d",
         "path": ".engine/tools/external_contribution/test_upstream_clean.py"
       },
       "status": "active",
@@ -7871,7 +7871,7 @@
       },
       "slug": "test_work_record",
       "source": {
-        "fingerprint": "sha256:c168e71df763885005308e6b11ac18cf7bfd77012d85980854cb1f51358322c8",
+        "fingerprint": "sha256:724546d6e325b7288771205f568f5fc383acb1f63ab47895cb79f2fa92d371b9",
         "path": ".engine/tools/test_work_record.py"
       },
       "status": "active",
@@ -7939,7 +7939,7 @@
       },
       "slug": "upstream_clean_check",
       "source": {
-        "fingerprint": "sha256:6e77f91cb3faa887683d3f2ee5c28b1a5898097ce8898bc34fbaf8a260e5d162",
+        "fingerprint": "sha256:76a03ee80ed2e678946f8f56c8dce63fbd80a58bca3cdb74e3d966202b9f6f24",
         "path": ".engine/tools/external_contribution/upstream_clean_check.py"
       },
       "status": "active",
@@ -8024,7 +8024,7 @@
       },
       "slug": "work_record",
       "source": {
-        "fingerprint": "sha256:6a89837975f1fe0fd57cf54a092323328002f6181ee31ef97369518ac6c174a7",
+        "fingerprint": "sha256:29f40406a16c54cce2ce3785b9f348355ba809d482794e43558e931ac6ddb69d",
         "path": ".engine/tools/work_record.py"
       },
       "status": "active",

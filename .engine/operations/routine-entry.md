@@ -15,10 +15,10 @@ procedure references and does not restate.
 ## Steps
 
 1. **Confirm the run is non-interactive (it genuinely cannot ask).** The operator configured this routine
-   to run with permissions handled automatically (Claude Desktop's "Auto mode"), so it proceeds without
-   prompts. This is the operator's setup, not something the engine sets here. If at any point an action
-   would require an approval this run cannot give — including Auto mode being unavailable for the run —
-   treat it as a blocker: do not wait silently, go to step 6 (file an Issue and halt).
+   with a non-interactive permission mode — set in their Claude Desktop permission settings — so it proceeds
+   without prompts. This is the operator's setup, not something the engine sets here. If at any point an
+   action would require an approval this run cannot give — including that mode being unavailable for the
+   run — treat it as a blocker: do not wait silently, go to step 6 (file an Issue and halt).
 2. **Confirm isolation from the operator's checkout.** A scheduled run does not isolate into its own
    worktree by default, so the `/engine-routine` setup has the operator enable worktree mode ("Work in an
    isolated copy of the repo"). Confirm the run is in an isolated worktree, not the operator's top-level
@@ -71,6 +71,6 @@ tier as the Explore write-gate. The only unbypassable wall is the protected-bran
 never performs; the interactive Finalize review is the cohesion backstop. Single-flight is the Desktop
 scheduler's skip-a-run-while-one-is-in-progress behavior; orphan recovery is reading git state, not a
 lease — a run that dies mid-task leaves its commits (or none) and the PR open, and the next run resumes
-from git and the checklist. The non-interactive (Auto mode) posture and the per-task worktree toggle are
+from git and the checklist. The non-interactive permission mode and the per-task worktree toggle are
 operator-side Claude Desktop settings set during `/engine-routine` setup; this procedure confirms them in
 effect but never sets them.
