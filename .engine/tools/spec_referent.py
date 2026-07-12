@@ -256,12 +256,19 @@ def _criteria(text: str) -> list:
     return out
 
 
-def resolve_doc(root: str, pointer: str) -> dict:
+def resolve_doc(root: str, pointer: str, *, require_locked: bool = True) -> dict:
     """Resolve a single `docs/spec/<doc>.md` pointer (repo-root-relative) to its referent, or a disclosed no-op.
     The CONFINED-READ guard runs first: the real path must stay under `docs/spec/`, or it is a
     `pointer-not-under-docs-spec` no-op and the file is NEVER opened (the engine/product wall). Then: the doc
     must exist (`doc-missing`), be settled (`doc-not-locked` for stub/draft/none), and carry at least one
-    acceptance criterion (`no-criteria`)."""
+    acceptance criterion (`no-criteria`).
+
+    `require_locked` defaults True — the BUILD-REFERENT contract: a build is only ever checked against a SETTLED
+    spec, so the lock gate is load-bearing and every build-path caller (`resolve` / `resolve_from_body`) inherits
+    it. `require_locked=False` is the intake-time acceptance-split path ONLY (#420): at intake a capability doc is
+    still a draft, so the count skips the lock gate — but every OTHER guard (the confined-read wall, existence,
+    `no-criteria`) still runs, and the returned `status` is the doc's OBSERVED frontmatter (never a hardcoded
+    "locked"), so a relaxed resolution can never be mistaken for a settled build referent."""
     spec_real = os.path.realpath(os.path.join(root, _SPEC_DIR))
     real = os.path.realpath(os.path.join(root, pointer))
     if not (real == spec_real or real.startswith(spec_real + os.sep)):
@@ -269,13 +276,14 @@ def resolve_doc(root: str, pointer: str) -> dict:
     if not os.path.isfile(real):
         return _noop("doc-missing")
     text = _read_doc(real)
-    if _frontmatter_status(text) != _LOCKED:
+    status = _frontmatter_status(text)
+    if require_locked and status != _LOCKED:
         return _noop("doc-not-locked")
     criteria = _criteria(text)
     if not criteria:
         return _noop("no-criteria")
     rel = os.path.relpath(real, os.path.realpath(root))
-    return {"ok": True, "doc_path": rel, "status": _LOCKED, "criteria": criteria}
+    return {"ok": True, "doc_path": rel, "status": status, "criteria": criteria}
 
 
 def resolve_from_body(root: str, body: str) -> dict:
@@ -372,6 +380,36 @@ def render_review_steps(resolved: dict) -> str:
         out += "\n\n" + engine_block(proj["engine_account"])
     out += "\n\n" + _PROMISE_CAVEAT
     return out
+
+
+# ---- the acceptance-split projection (#420 — the two-tier count for the intake/settle surface) -----
+# The SAME classification as review-steps, projected to a COUNT rather than the verbatim steps: at the PR/merge
+# moment the operator reads the grouped steps; at the intake/settle moment they read the count, before they lock.
+# Reusing review_steps() (not a second classifier) is the point — a criterion is typed identically at both
+# moments, so the split the operator sees at settle cannot drift from the one the merge readout shows for that
+# same doc. Per §17 the readout NEVER collapses into one "all good": both numbers are always stated.
+
+def acceptance_split(resolved: dict) -> dict:
+    """Counts of a resolved doc's acceptance criteria by who discharges them, reusing review_steps' classifier:
+    `{"operator_verifiable": <n>, "engine_account": <m>}`. A no-op resolution yields zeros on both sides — the
+    counts alone cannot tell a genuine zero from a no-op, so a caller that must distinguish them (as
+    render_acceptance_split does) consults review_steps()'s `no_op_reason`, never the two ints."""
+    proj = review_steps(resolved)
+    return {"operator_verifiable": len(proj["runnable"]), "engine_account": len(proj["engine_account"])}
+
+
+def render_acceptance_split(resolved: dict) -> str:
+    """The plain-language two-tier count for a SINGLE capability, for the intake/settle surface. §17: the readout
+    never collapses into one "all good" — it always states BOTH numbers, even when one side is zero, so structure
+    cannot manufacture confidence the verification does not deliver. A resolved no-op renders a plain reason-named
+    line (never a raw token — D-120). It reports the shape of acceptance (criteria as written), never a pass/green
+    tally. Deterministic, so it is testable. The no-op is read from the resolution, never from the {0, 0} counts."""
+    proj = review_steps(resolved)
+    if not resolved.get("ok"):
+        return f"There's nothing to count for this description yet — {_PLAIN_NOOP[proj['no_op_reason']]}."
+    n, m = len(proj["runnable"]), len(proj["engine_account"])
+    return (f"Of what this description says must be true, {n} {'is' if n == 1 else 'are'} something you can "
+            f"confirm yourself and {m} {'is' if m == 1 else 'are'} on the engine's account.")
 
 
 # ---- the GitHub boundary (the only network seam; transport is injectable) --------------------------
@@ -527,6 +565,15 @@ def _demo() -> int:
     r12 = resolve(alleng, doc="docs/spec/x.md")
     render_eng = render_review_steps(r12)
 
+    # (13) acceptance-split (#420): the intake two-tier COUNT, over a DRAFT doc (pre-lock), reusing the SAME
+    #      classifier. Same four rows as (1): two plain operator rows are verify-yourself; the operator-but-
+    #      terminal row and the engine row are on the engine's account (rule 4 in the count, matching merge).
+    draft_split = _seed({"docs/spec/index.md": "# Spec\n",
+                         "docs/spec/checkout.md": _doc("draft", [op_row, verb_row, cmd_row, eng_row])})
+    split_resolved = resolve_doc(draft_split, "docs/spec/checkout.md", require_locked=False)
+    split = acceptance_split(split_resolved)
+    split_render = render_acceptance_split(split_resolved)
+
     print("A settled checkout description resolved with these criteria (typed by who can check them):")
     for c in (r1.get("criteria") or []):
         print(f"   - [{c['who']}] {c['criterion']}")
@@ -546,7 +593,8 @@ def _demo() -> int:
     leak_tokens = ("locked", "stub", "draft", "referent", "lens", "spec-conformance",
                    "all-engine-account", "no-issue-pointer", "doc-not-locked", "[operator]", "[engine]",
                    "who checks it")
-    leaks = [t for t in leak_tokens if t.lower() in render.lower() or t.lower() in render_eng.lower()]
+    leaks = [t for t in leak_tokens if t.lower() in render.lower() or t.lower() in render_eng.lower()
+             or t.lower() in split_render.lower()]        # #420: the intake split render is D-120-scanned too
 
     checks = {
         "a settled doc resolves to its criteria": r1.get("ok") and len(r1["criteria"]) == 4,
@@ -568,9 +616,18 @@ def _demo() -> int:
         "a traversal pointer is a no-op and never read": r11["no_op_reason"] == "pointer-not-under-docs-spec",
         "an all-engine doc renders a plain reason-named no-op": "run yourself" in render_eng.lower(),
         "no framework/typing token leaks into the operator render": not leaks,
+        # (#420) the pre-lock intake count reuses the classifier: 2 verify-yourself, 2 on the engine's account
+        # (the terminal-command operator row demotes, matching the merge readout), and a draft doc counts.
+        "a draft doc resolves for the count (require_locked=False), keeping its observed status":
+            split_resolved.get("ok") and split_resolved.get("status") == "draft",
+        "the intake count reuses the classifier (rule-4 demotion in the count)":
+            split == {"operator_verifiable": 2, "engine_account": 2},
+        "the split render states BOTH numbers and never collapses to 'all good'":
+            "confirm yourself" in split_render and "engine's account" in split_render
+            and "all good" not in split_render.lower() and "all green" not in split_render.lower(),
     }
     bad = [name for name, ok in checks.items() if not ok]
-    for d in (rich, draft, two, nocrit, bare, walled, alleng):
+    for d in (rich, draft, two, nocrit, bare, walled, alleng, draft_split):
         shutil.rmtree(d, ignore_errors=True)
 
     if bad:
@@ -649,8 +706,20 @@ def main(argv: "list | None" = None) -> int:
             return out
         print(render_review_steps(out))
         return 0
-    print("usage: spec_referent.py [resolve|review-steps|demo] [--issue N | --doc docs/spec/<doc>.md]",
-          file=sys.stderr)
+    if argv and argv[0] == "acceptance-split":
+        # Intake-time two-tier count (#420): a LOCAL, OFFLINE `--doc`-only read — at intake there is no settled
+        # work item to follow, so `--issue` (the remote path) is deliberately not offered here. It routes
+        # STRAIGHT through resolve_doc (so the confined-read wall guard still runs) with require_locked=False,
+        # because at step 5 the capability doc is still a draft.
+        _, doc = _parse_target(argv[1:])
+        if doc is None:
+            print("usage: spec_referent.py acceptance-split --doc docs/spec/<doc>.md   (a local, offline read; "
+                  "--issue is not supported for this verb)", file=sys.stderr)
+            return 2
+        print(render_acceptance_split(resolve_doc(_ROOT, doc, require_locked=False)))
+        return 0
+    print("usage: spec_referent.py [resolve|review-steps|acceptance-split|demo] "
+          "[--issue N | --doc docs/spec/<doc>.md]", file=sys.stderr)
     return 2
 
 

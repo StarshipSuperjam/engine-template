@@ -977,6 +977,11 @@ class TestReadmeRecognizer(unittest.TestCase):
             self.assertIn("keeps your work safe", low)
             self.assertIn("clean-code", low)                  # the D-095 gap named
             self.assertNotIn("required", low, "never 'the memory package is required'")
+            # D-086: the disclosure must NOT surface the carved-out experimental engine-knowledge-graph
+            # capability (the operator cannot yet enable it). Pin the negative next to the "required" one — the
+            # disclosure renders capabilities by plain name, so guard both the slug and the plain phrase.
+            self.assertNotIn("engine-knowledge-graph", low, "never surface the carved-out experimental capability (D-086)")
+            self.assertNotIn("knowledge graph", low, "nor by its plain name (D-086)")
 
 
 class TestRepoReadmeLeadsWithMarker(unittest.TestCase):
