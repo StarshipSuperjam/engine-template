@@ -181,6 +181,18 @@ class TestShapeRule(unittest.TestCase):
         self.assertTrue(passed)
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])
 
+    def test_live_audit_persona_is_read_only_and_bash_locked(self):
+        # F0189: the audit persona reports and never runs a command, so its read-only guarantee must block
+        # Bash too — the same lock the design-review lenses carry — not only the file-writing tools. The
+        # coherence leg enforces only the write-tool floor (Bash is above it), so this pins the audit
+        # persona's own frontmatter lock: a future edit can't silently reopen Bash on the self-audit.
+        fm = validate.frontmatter(os.path.join(AGENTS_DIR, "audit.md"))
+        self.assertEqual(fm.get("role"), "audit")
+        denied = fm.get("disallowedTools", [])
+        for tool in ("Edit", "Write", "NotebookEdit", "Bash"):
+            self.assertIn(tool, denied,
+                          f"the audit persona must block {tool} (read-only, no command execution)")
+
     def test_well_formed_body_passes(self):
         with tempfile.TemporaryDirectory() as d:
             p = _write(d, "demo.md", VALID_BODY)

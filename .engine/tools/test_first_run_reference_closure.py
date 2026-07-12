@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import first_run_reference_closure_check as frc  # noqa: E402
@@ -82,6 +83,40 @@ class TestClosureScan(unittest.TestCase):
             findings = frc.check(d)
         self.assertEqual(len(findings), 1)
         self.assertIn("reads or runs", findings[0]["message"])
+
+    def test_a_regenerated_retired_asset_is_not_flagged_but_a_gone_for_good_one_is(self):
+        # #404 F0195 carve-out: a removed path the engine rewrites at runtime (named in
+        # _REGENERATED_RETIRED_ASSETS — the audit digest) is not permanently gone, so a surviving literal
+        # reference to it is not a dangling reference and the path leg skips it. But the carve-out is a NARROW
+        # named set, NOT "anything provided": a removed path NOT in that set (e.g. a construction-only asset
+        # that is gone for good) is still caught. This pins both directions so the carve-out can't silently
+        # widen to gone-for-good paths.
+        with tempfile.TemporaryDirectory() as d:
+            _build(d, files=[".engine/tools/removed_mod.py", ".engine/audits/regen.md",
+                             ".engine/operations/gone-for-good.md"],
+                   survivors={"reader.py": ('open(".engine/audits/regen.md")\n'
+                                            'open(".engine/operations/gone-for-good.md")\n')})
+            with mock.patch.object(frc, "_REGENERATED_RETIRED_ASSETS", frozenset({".engine/audits/regen.md"})):
+                findings = frc.check(d)
+            # the regenerated asset is exempt; the gone-for-good one is still one hard finding
+            self.assertEqual(len(findings), 1, "only the gone-for-good removed path should be flagged")
+            self.assertIn("gone-for-good.md", findings[0]["message"])
+            self.assertNotIn("regen.md", findings[0]["message"])
+
+    def test_the_carve_out_is_path_leg_only_a_regenerated_import_still_fails_closed(self):
+        # The carve-out never covers the import leg: a genuine `import` of a removed module dangles at import
+        # time regardless of the allowlist, so it must still be one hard finding.
+        with tempfile.TemporaryDirectory() as d:
+            _build(d, files=[".engine/tools/removed_mod.py"], survivors={"s.py": "import removed_mod\n"})
+            with mock.patch.object(frc, "_REGENERATED_RETIRED_ASSETS", frozenset({".engine/tools/removed_mod.py"})):
+                self.assertEqual(len(frc.check(d)), 1, "a regenerated-but-imported removed module must still fail closed")
+
+    def test_the_real_allowlist_holds_only_the_regenerated_digest(self):
+        # Guards the allowlist itself: the audit digest is the sole regenerated-retired asset today. This exact
+        # equality proves no other retired path (e.g. `.engine/operations/first-run.md`, provided by core but
+        # gone for good) is exempt — without naming one as a bare string literal, which would itself trip this
+        # very closure check (an exact-path constant in a surviving file).
+        self.assertEqual(frc._REGENERATED_RETIRED_ASSETS, frozenset({".engine/audits/audit-digest.md"}))
 
     def test_a_prose_mention_is_not_flagged(self):
         # module_catalog.py mentions `instantiator.py` in a docstring; an exact-path-only match must not flag it.

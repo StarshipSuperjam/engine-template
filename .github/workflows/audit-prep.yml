@@ -112,7 +112,7 @@ jobs:
           # gap rather than silently skipping concern #2.
           if ! uv run --directory .engine --frozen -- python tools/telemetry.py engine-issues \
                  > "${RUNNER_TEMP}/engine-issues.md"; then
-            printf '%s\n' "OPEN ENGINE-LABELLED ISSUES (the debt register): could not be read this run (the fetch step failed). Treat concern #2 as unreviewed and say so plainly in your digest." \
+            printf '%s\n' "OPEN ENGINE-LABELLED ISSUES (the debt register): could not be read this run (the fetch step failed). Treat the engine-labelled issue backlog as unreviewed and say so plainly in your digest." \
               > "${RUNNER_TEMP}/engine-issues.md"
           fi
       - name: Fetch the engine's own recent self-reviews (audit-over-audit corroboration)
@@ -172,7 +172,7 @@ jobs:
           # #1's gap rather than silently skipping it or claiming memory is empty.
           if ! uv run --directory .engine --frozen -- python tools/audit_digest.py memory \
                  > "${RUNNER_TEMP}/saved-memory.md"; then
-            printf '%s\n' "YOUR SAVED MEMORY: I couldn't read your saved memory this run (the fetch step failed). Treat concern #1 as not reviewed and say so plainly; do not claim the project has no saved memory." \
+            printf '%s\n' "YOUR SAVED MEMORY: I couldn't read your saved memory this run (the fetch step failed). Treat your saved memory as not reviewed and say so plainly; do not claim the project has no saved memory." \
               > "${RUNNER_TEMP}/saved-memory.md"
           fi
       - name: Fetch the currently-firing soft validator findings for the self-review
@@ -209,12 +209,12 @@ jobs:
           soft="$(cat "${RUNNER_TEMP}/soft-findings.md")"
           prompt="Run your self-review of this project's engine now. Output ONLY the plain-language digest — what you looked at, what you found, and what you recommend — with no preamble.
 
-          For concern #1 (stale saved memory), you cannot reach your saved memory yourself; it was read from the project's off-repo backup and follows between the markers. These are the project's CURRENT saved beliefs — notes memory has already set aside are not shown here, so do not read their absence as 'nothing to retire'. Review what you are shown as the operator's saved decisions and notes: do any now contradict each other, has anything you can see refuted one, or is a heavily-used note actually obsolete? If the markers say the backup isn't set up, couldn't be reached, or couldn't be read, treat concern #1 as not reviewed and say so plainly in your digest — and NEVER claim the project has no saved memory; you simply couldn't see it this run.
+          For your saved memory, you cannot reach it yourself; it was read from the project's off-repo backup and follows between the markers. These are the project's CURRENT saved beliefs — notes memory has already set aside are not shown here, so do not read their absence as 'nothing to retire'. Review what you are shown as the operator's saved decisions and notes: do any now contradict each other, has anything you can see refuted one, or is a heavily-used note actually obsolete? If the markers say the backup isn't set up, couldn't be reached, or couldn't be read, treat your saved memory as not reviewed and say so plainly in your digest — and NEVER claim the project has no saved memory; you simply couldn't see it this run.
           ----- BEGIN YOUR SAVED MEMORY -----
           ${saved}
           ----- END YOUR SAVED MEMORY -----
 
-          For concern #2 (the engine-labelled issue backlog / debt register), you cannot reach GitHub yourself; the COMPLETE set of currently-open engine-labelled issues was fetched for you (read to exhaustion; a read failure would appear in-band, never a silently short list) and follows between the markers. Treat it as the whole open backlog, not a sample, and judge it as part of your review.
+          For the engine-labelled issue backlog (your debt register), you cannot reach GitHub yourself; the COMPLETE set of currently-open engine-labelled issues was fetched for you (read to exhaustion; a read failure would appear in-band, never a silently short list) and follows between the markers. Treat it as the whole open backlog, not a sample, and judge it as part of your review.
           ----- BEGIN OPEN ENGINE-LABELLED ISSUES -----
           ${backlog}
           ----- END OPEN ENGINE-LABELLED ISSUES -----

@@ -18,9 +18,10 @@ fire on; the review/audit personas now ship, so the guard has real subjects and 
 arming its role/model-tier/lens legs live for the first time alongside the new permissions rule.
 
 HONEST LIMIT: the guard enforces the write-tool floor; it deliberately does NOT police `Bash`, which
-the execution roles (pre-submission-review, audit) legitimately keep to run the suite in a scratch
-worktree. Bash-via-shell confinement is the orchestration worktree's + the protected-branch merge
-gate's job, not a static frontmatter invariant this leg can see.
+the execution role (pre-submission-review) legitimately keeps to run the suite in a scratch worktree.
+(The audit persona is read-only AND Bash-locked in its own frontmatter — it reports, never runs a
+command — so it is not among the Bash-keepers here.) Bash-via-shell confinement is the orchestration
+worktree's + the protected-branch merge gate's job, not a static frontmatter invariant this leg can see.
 
 Reads local committed files only — no network, no token — so it runs unchanged in the head-checkout
 engine-ci context. Emits finding.v1 JSON on stdout and returns 0 on a successful evaluation: an empty
@@ -123,7 +124,7 @@ def _demo() -> int:
           "file-writing tools — the check catches it before it could be merged.")
     print("\nThe honest limit: this check confirms the lock on the file-writing tools "
           "(Edit/Write/NotebookEdit) is declared. It does NOT police writes through other paths — the "
-          "Bash shell (which qa and audit keep to run checks) or any write-capable MCP tools the session "
+          "Bash shell (which the qa lenses keep to run checks) or any write-capable MCP tools the session "
           "exposes; confining those to a throwaway copy is the build's worktree isolation, and your merge "
           "gate is the guarantee that nothing a reviewer touches reaches your main branch.")
     if not found:
