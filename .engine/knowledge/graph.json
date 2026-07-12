@@ -4284,7 +4284,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:2a1c59b91f974c9438f85392cc33ba431fdc536a59d2bfcf3a1a57c27610f540",
+        "fingerprint": "sha256:fd8603c1678da7f07ce8fdda47415bb574c44b1d4201988e105d078effd528ef",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4733,6 +4733,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_hook_runner",
+      "name": ".engine/tools/demo_hook_runner.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_hook_runner",
+      "source": {
+        "fingerprint": "sha256:01f3839ba779c7d2f2b0e275056aaf57bf4fc938392a908f2df7b961b78b6cb8",
+        "path": ".engine/tools/demo_hook_runner.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_map_reachability",
       "name": ".engine/tools/demo_map_reachability.py",
       "owner": "core",
@@ -5117,7 +5134,7 @@
       },
       "slug": "hook-runner",
       "source": {
-        "fingerprint": "sha256:9c115fa98aa24a1d54dfb59c8c8dcac18b3e38651a16b0cf2f5929df19ac4bc5",
+        "fingerprint": "sha256:e1f1e6cbce0d0adcaab433ba8fa9ee9ad2b07ae74bed00c664529d459fbbcf41",
         "path": ".engine/tools/hook-runner.sh"
       },
       "status": "active",
@@ -5134,7 +5151,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:05b03e8cfae5f746444632c7891e1abd26d14d9844c39a0ac9c58f1fcc5cefd0",
+        "fingerprint": "sha256:a76c1f8dcebbf7bb077dc856f2fa3ac5f517e0324d91ca89b12e70aa1a884dcc",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -6749,7 +6766,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:cabc648ccb6027783184546fb2ac25ea9490f639755ddf39cbd046e82bafa60f",
+        "fingerprint": "sha256:45c0af155bd4fca4d069312e5d47a8e919d8f798640253f2a5a80b5223d19282",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
