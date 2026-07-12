@@ -83,7 +83,7 @@ _FLOOR_VALIDATOR = (".engine/tools/validate.py", ".engine/tools/weakening_guard.
 # The provisioning ruleset-applying operation — the §15 "ruleset-affecting file". The branch ruleset does not
 # travel as a file, so its APPLYING CODE is the guarded proxy (D-268): gutting it could apply a weakened ruleset
 # with no on-disk correlate to surface it.
-_FLOOR_RULESET_PROXY = (".engine/tools/bootstrap.py",)
+_FLOOR_RULESET_PROXY = (".engine/tools/bootstrap.py", ".engine/tools/team_switch.py")
 # Enforcement-HOOK logic: files whose weakening loosens a live RUNTIME gate with NO on-disk floored correlate to
 # surface it (unlike CODEOWNERS/settings.json CONTENT, whose weakenings appear as flagged diffs to those floored
 # files). Hand-listed because they are not check-scripts and CANNOT be derived from settings.json: it wires gate

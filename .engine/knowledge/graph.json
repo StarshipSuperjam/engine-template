@@ -1214,6 +1214,7 @@
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
           "operation:engine-remove",
+          "operation:engine-team-switch",
           "operation:engine-upgrade",
           "operation:external-contribution-submit",
           "operation:first-run",
@@ -1259,6 +1260,7 @@
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
           "operation:engine-remove",
+          "operation:engine-team-switch",
           "operation:engine-upgrade",
           "operation:external-contribution-submit",
           "operation:first-run",
@@ -2608,7 +2610,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:a95e99439190ef1a87b5744f6ba69bffdd0bec018140ac0d75c2d26d4995a58f",
+        "fingerprint": "sha256:50444a3cc4d5ab1128c9ac6004260d0052edc95a6b28a2b75b6a6a832ed55d8c",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -2931,6 +2933,26 @@
       "source": {
         "fingerprint": "sha256:a083ede66e98c355d138d13c5bcf950b542881c6b8dc04b2c0b106e91b59e1c2",
         "path": ".engine/operations/engine-remove.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:engine-team-switch",
+      "name": ".engine/operations/engine-team-switch.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-team-switch",
+      "source": {
+        "fingerprint": "sha256:9716f06894f224240211a7255989b8c7befb354440d78a2e347bc3687e163e16",
+        "path": ".engine/operations/engine-team-switch.md"
       },
       "status": "active",
       "type": "operation"
@@ -5834,6 +5856,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:team_switch",
+      "name": ".engine/tools/team_switch.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "team_switch",
+      "source": {
+        "fingerprint": "sha256:c75290b9df81ddc58de7a89dd8f28591c001d84dd1c86fc6caebff589c76835c",
+        "path": ".engine/tools/team_switch.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:telemetry",
       "name": ".engine/tools/telemetry.py",
       "owner": "core",
@@ -7500,6 +7539,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_team_switch",
+      "name": ".engine/tools/test_team_switch.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_team_switch",
+      "source": {
+        "fingerprint": "sha256:6618d420f9ca95387090054e59d86eb5c272ce1c86048d5310124e8daa79dd60",
+        "path": ".engine/tools/test_team_switch.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_telemetry",
       "name": ".engine/tools/test_telemetry.py",
       "owner": "core",
@@ -7748,7 +7804,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:3a0fb494810ae72609ac5d13612641b76b360f0755b0455eb1dcdbb6e2494156",
+        "fingerprint": "sha256:b8051b73a1faf3e32621f06348d280f4cde2de4144d9fab3e26da3c54d2ff8c5",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
