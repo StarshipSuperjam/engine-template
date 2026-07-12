@@ -243,6 +243,27 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
                                     "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})       # ~0.15 s bound, fast
             self.assertEqual(r.stdout, "")                  # nothing ran — no system-Python fallback
             self.assertNotEqual(r.returncode, 0)            # neither venv layout exists → no exec → fail-open
+            self.assertNotEqual(r.returncode, 2)            # and NEVER the platform's block code (#390 stranding)
+
+    def test_launcher_fails_open_when_the_interpreter_is_present_but_not_executable(self):
+        # a corrupt/partial venv: the named interpreter file EXISTS but is not runnable. The launcher must
+        # still reach the plain-language fail-open readout (exit 1, non-blocking) — NOT exec the file and
+        # surface a raw shell error (126). This pins the fix for the `-f`-guard regression the gate found:
+        # the exec is gated on `-x`, so a non-executable interpreter waits out the bound and fails open.
+        with tempfile.TemporaryDirectory() as td:
+            interp = os.path.join(td, ".venv", "bin", "python")
+            os.makedirs(os.path.dirname(interp))
+            with open(interp, "w") as fh:                   # present as a regular file...
+                fh.write("#!/bin/sh\necho SHOULD-NOT-RUN\n")
+            os.chmod(interp, 0o644)                         # ...but NOT executable
+            r = subprocess.run(["sh", self.WRAPPER, interp, os.path.join(td, "boot.py")],
+                               capture_output=True, text=True, timeout=10,
+                               env={**os.environ, "ENGINE_HOOK_WAIT_POLLS": "3",
+                                    "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})
+            self.assertEqual(r.stdout, "")                  # did not exec the non-executable file
+            self.assertNotEqual(r.returncode, 0)            # fail-open readout path
+            self.assertNotEqual(r.returncode, 2)            # never the block code
+            self.assertIn("not a block", r.stderr)          # the friendly readout, not a raw exec error
 
     def test_launcher_resolves_the_windows_sibling_when_the_posix_layout_is_absent(self):
         # the #407 fix, exercised on a POSIX host with a STUB at the Windows layout path: the committed
@@ -290,13 +311,14 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
     def test_launcher_os_literals_match_the_resolver_single_source(self):
         # F2 / single-source-of-truth: the per-OS layout fact (bin/python vs Scripts/python.exe) is DEFINED
         # once in hooks.interpreter_path; the launcher necessarily restates the two subpaths in shell. Pin
-        # them to the resolver's forms so the two homes can never silently diverge.
+        # them to the resolver's forms — checking the EXECUTABLE lines only (the comments carry the literals
+        # too, so a whole-file match would not catch a mangled code line) — so the two homes cannot diverge.
         with open(self.WRAPPER) as fh:
-            src = fh.read()
+            code = "\n".join(ln for ln in fh.read().splitlines() if not ln.lstrip().startswith("#"))
         self.assertTrue(hooks.interpreter_path("posix").endswith("/bin/python"))
         self.assertTrue(hooks.interpreter_path("nt").endswith("/Scripts/python.exe"))
-        self.assertIn("/bin/python", src)                        # the POSIX layout the resolver defines
-        self.assertIn("/Scripts/python.exe", src)                # the Windows layout the resolver defines
+        self.assertIn("/bin/python", code)                       # the POSIX layout, in the executable body
+        self.assertIn("/Scripts/python.exe", code)               # the Windows layout, in the executable body
 
 
 class TestHookCommandMatchesWiredLiterals(unittest.TestCase):

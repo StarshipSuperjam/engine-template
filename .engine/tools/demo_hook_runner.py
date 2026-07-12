@@ -63,7 +63,7 @@ def demo() -> int:
     with tempfile.TemporaryDirectory() as td:
         r = _run(td, posix=True, windows=False)
         ran = "POSIX-RAN" in r.stdout and "WINDOWS-RAN" not in r.stdout
-        print(f"  (1) POSIX layout present            -> {'ran bin/python' if ran else 'MISRESOLVED'} "
+        print(f"  (1) Mac/Linux layout present        -> {'ran bin/python' if ran else 'MISRESOLVED'} "
               f"(exit {r.returncode})")
         ok = ok and ran and r.returncode == 0
 

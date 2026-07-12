@@ -50,17 +50,21 @@ alt="$venv/Scripts/python.exe"
 polls="${ENGINE_HOOK_WAIT_POLLS:-50}"
 interval="${ENGINE_HOOK_WAIT_INTERVAL:-0.1}"
 n=0
-while [ ! -x "$interp" ] && [ ! -f "$alt" ] && [ "$n" -lt "$polls" ]; do
+# Wait (bounded) for an EXECUTABLE interpreter of either layout — `-x`, not `-f`: a half-written file in
+# the #83 provisioning window is not run before it is complete, and a present-but-non-runnable interpreter
+# still reaches the fail-open readout below instead of a raw `exec` error. Git Bash reports a `.exe` as
+# executable, so `-x` resolves the Windows layout too.
+while [ ! -x "$interp" ] && [ ! -x "$alt" ] && [ "$n" -lt "$polls" ]; do
     sleep "$interval"
     n=$((n + 1))
 done
 # Prefer the named ($1) interpreter; fall back to the Windows sibling under the same venv root when the
 # POSIX layout is absent (a Windows / mixed-OS machine). The winner resolves into $interp, so there is
 # still a single run of one venv-rooted interpreter — never a bare/system Python.
-if [ ! -x "$interp" ] && [ "$venv" != "$interp" ] && [ -f "$alt" ]; then
+if [ ! -x "$interp" ] && [ "$venv" != "$interp" ] && [ -x "$alt" ]; then
     interp="$alt"
 fi
-if [ -x "$interp" ] || [ -f "$interp" ]; then
+if [ -x "$interp" ]; then
     exec "$interp" "$@"
 fi
 # Neither the POSIX nor the Windows venv interpreter appeared within the wait bound (issue #83's
@@ -70,5 +74,5 @@ fi
 # the platform reads as a hard block: the #390 fail-closed stranding). Boot carries the standing DURABLE
 # surfacing of an unhealthy runtime (hooks/README §Fail-open-and-flag, D-156; the promotion is #391/#412).
 # Fail-safe: this readout cannot fail the script closed.
-printf '%s\n' "The engine could not run its own tools: its private Python runtime is not ready ($interp). I have not verified this step — this is not a block. If it keeps happening, the engine's environment needs to be set up (provisioning)." >&2
+printf '%s\n' "The engine could not run its own tools: its private Python runtime is not ready (looked for $interp and its Windows equivalent). I have not verified this step — this is not a block. If it keeps happening, the engine's environment needs to be set up (provisioning)." >&2
 exit 1

@@ -4743,7 +4743,7 @@
       },
       "slug": "demo_hook_runner",
       "source": {
-        "fingerprint": "sha256:01f3839ba779c7d2f2b0e275056aaf57bf4fc938392a908f2df7b961b78b6cb8",
+        "fingerprint": "sha256:8655b47a120beb8d32165c39edef26f6d34a5c47fdbedf9fb0906d6a818c41f6",
         "path": ".engine/tools/demo_hook_runner.py"
       },
       "status": "active",
@@ -5134,7 +5134,7 @@
       },
       "slug": "hook-runner",
       "source": {
-        "fingerprint": "sha256:e1f1e6cbce0d0adcaab433ba8fa9ee9ad2b07ae74bed00c664529d459fbbcf41",
+        "fingerprint": "sha256:6a47340d24872ec632cd39f53f740e98e40d0c025eb7d19ee63cacbf8876174e",
         "path": ".engine/tools/hook-runner.sh"
       },
       "status": "active",
@@ -6766,7 +6766,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:45c0af155bd4fca4d069312e5d47a8e919d8f798640253f2a5a80b5223d19282",
+        "fingerprint": "sha256:35ce1efcf1e52c5cfda58308e5f8b0ce7745d88a6d6dfe1c1e0db07a2e6606af",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
