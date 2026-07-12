@@ -7,9 +7,9 @@
   "required": ["id", "title", "status", "date"],
   "properties": {
     "id": {
-      "description": "The decision record's identifier: the letters 'eADR-' followed by a four-digit zero-padded number (eADR-0001, eADR-0002, …). The 'eADR-' prefix is the engine's, so an engine decision record never collides with a product's own ADR system; the four digits are the width the directory listing sorts on and set the one-project ceiling at eADR-9999, a deliberate bound matching the locked design's example. This is the bare identifier; the file is additionally slug-named (eADR-0001-a-short-slug.md), so the filename carries the slug while this id does not.",
+      "description": "The decision record's identifier. The engine's own founding canon uses the letters 'eADR-' followed by a four-digit zero-padded number (eADR-0001, eADR-0002, …); the 'eADR-' prefix is the engine's, so an engine decision record never collides with a product's own ADR system, and the four digits set the one-project ceiling at eADR-9999 (a deliberate bound matching the locked design's example). A deployment's OWN per-instance engine decisions — authored under contracts/instance/ and preserved across engine updates — additionally carry a per-project prefix, '<project-slug>-eADR-####' (for example, acme-eADR-0007), so a deployment's own record never collides with the engine's canon as that canon grows. The prefix is a human-facing wall only: which population a record belongs to is decided by its folder / provides-membership, never by this id, so a prefix that ever disagreed with its folder defers to the folder. The engine writes the id (the operator never types it); the project-slug is lowercase letters and digits joined by single hyphens. The file is additionally title-slug-named (eADR-0001-a-short-slug.md).",
       "type": "string",
-      "pattern": "^eADR-[0-9]{4}$"
+      "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*-)?eADR-[0-9]{4}$"
     },
     "title": {
       "description": "A short, plain-language label for the decision, written for a human scanning the index (for example, 'The validator is a thin core over a kind registry'). One line; no trailing punctuation needed.",
@@ -27,9 +27,9 @@
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
     },
     "supersedes": {
-      "description": "The eADR identifier this record replaces — present ONLY when this decision supersedes an earlier one. A first-of-its-kind decision supersedes nothing and omits this field entirely. When present, it pairs with a Supersedes section in the body; that pairing, and the rule that a superseding decision must name what it replaces, are reviewed at the pull request rather than enforced by this schema in core.",
+      "description": "The eADR identifier this record replaces — present ONLY when this decision supersedes an earlier one. Supersession is within a single population: a canon record supersedes a canon 'eADR-####', and a deployment's per-instance record supersedes another per-instance record in the same stream (so it carries the same '<project-slug>-eADR-####' form). A first-of-its-kind decision supersedes nothing and omits this field entirely. When present, it pairs with a Supersedes section in the body; that pairing, and the rule that a superseding decision must name what it replaces, are reviewed at the pull request rather than enforced by this schema in core.",
       "type": "string",
-      "pattern": "^eADR-[0-9]{4}$"
+      "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*-)?eADR-[0-9]{4}$"
     }
   }
 }

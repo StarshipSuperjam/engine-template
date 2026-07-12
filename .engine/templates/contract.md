@@ -8,7 +8,16 @@ length_budget: 120
 canon lives here in .engine/contracts/ and is replaced wholesale on an engine update; a DEPLOYMENT's own
 engine-decision eADRs live in .engine/contracts/instance/ and are preserved across every update. If you are
 recording a decision this project made about ITS OWN engine, author it under instance/ (see
-.engine/contracts/instance/README.md). This guidance is not part of the record — do not copy it into the eADR. -->
+.engine/contracts/instance/README.md).
+
+Naming (eADR-0017 / D-298): the engine's own canon records here in .engine/contracts/ are named `eADR-####`
+(bare — e.g. eADR-0017). A deployment's OWN record under instance/ is named `<project-slug>-eADR-####` (e.g.
+acme-eADR-0007): the project-slug prefix keeps a deployment's own record from ever clashing with the engine's
+canon as that canon grows. The slug is the project's identity resolved at first-run, lowercased with any
+non-alphanumeric run collapsed to a single hyphen; BOTH the frontmatter `id` and the filename carry it
+(e.g. acme-eADR-0007-a-short-slug.md). Which population a record belongs to is decided by its folder, never by
+the name — so a canon record stays bare and only an instance/ record takes the prefix. This guidance is not
+part of the record — do not copy it into the eADR. -->
 
 ## Decision
 
@@ -32,4 +41,4 @@ recording a decision this project made about ITS OWN engine, author it under ins
 
 ## Supersedes
 
-<Include this section only when this decision replaces an earlier one: name the eADR it replaces (for example, eADR-0003) and add one line on what changed. Delete this whole section for a first-of-its-kind decision.>
+<Include this section only when this decision replaces an earlier one: name the eADR it replaces (a canon record names an earlier canon eADR, e.g. eADR-0003; a deployment's own record names an earlier record in this same instance/ stream, e.g. acme-eADR-0003) and add one line on what changed. Delete this whole section for a first-of-its-kind decision.>

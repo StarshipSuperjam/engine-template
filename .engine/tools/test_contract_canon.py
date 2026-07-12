@@ -62,12 +62,19 @@ class ContractCanonCoverage(unittest.TestCase):
         contract_ents = [e for e in graph["entities"] if e.get("type") == "contract"]
         ids = sorted(e["id"] for e in contract_ents)
         self.assertEqual(len(ids), len(set(ids)), "a contract record must derive at most one entity")
-        # every committed file has an entity, and every contract entity traces to a committed file
-        entity_eadr = {e["slug"][:9] for e in contract_ents}   # slug == 'eADR-0001-...'
+        # Canon-only coverage. A deployment's per-instance eADR is also a `contract` entity, but it carries NO
+        # `provided_by` edge (it is in no module's provides) and its slug is `instance.<stem>` — so filter to
+        # canon (provided_by present) before matching the `eADR-NNNN` filename ids. `_committed_record_ids`
+        # already globs only the canon root (.engine/contracts/eADR-*.md), so both sides are canon. This keeps
+        # teeth against the two regressions: a canon record that lost `provided_by` drops out of `canon_ents`
+        # (→ mismatch → fail), and a deployment record that gained one has an `instance.<stem>` slug whose
+        # `[:9]` is `instance.` (→ mismatch → fail).
+        canon_ents = [e for e in contract_ents if (e.get("predicates") or {}).get("provided_by")]
+        entity_eadr = {e["slug"][:9] for e in canon_ents}   # canon slug == 'eADR-0001-...'
         files = _committed_record_ids()
         self.assertTrue(files, "expected committed eADR records under .engine/contracts/")
         self.assertEqual(entity_eadr, files,
-                         "every committed contract record must derive one entity and vice-versa")
+                         "every committed canon record must derive one entity and vice-versa")
 
 
 class NoForwardEdgeIntoTheCanon(unittest.TestCase):
@@ -77,13 +84,20 @@ class NoForwardEdgeIntoTheCanon(unittest.TestCase):
         self.assertEqual(offenders, [], "the graph must derive no `ratifies` edge (canon is reached on demand)")
 
     def test_contracts_emit_only_the_two_ownership_edges(self):
-        """Each contract entity emits exactly `provided_by` -> the core module and `governed_by` -> the
+        """Each CANON contract entity emits exactly `provided_by` -> the core module and `governed_by` -> the
         contract schema, and nothing else — so the prose cross-references never became graph edges, and no
-        `supersedes` (or any other forward edge) is derived out of the canon."""
+        `supersedes` (or any other forward edge) is derived out of the canon. Canon is identified by the
+        `provided_by` edge: a deployment's per-instance eADR is a `contract` entity with NO `provided_by`, and
+        any `supersedes` it carries lives inside its own stream (checked in test_knowledge.py, not here). The
+        canon-entity count is cross-checked against the committed canon files, so a canon record that lost its
+        `provided_by` edge (mis-reading as non-canon) fails here rather than passing silently."""
         graph = _graph()
         contracts = [e for e in graph["entities"] if e.get("type") == "contract"]
         self.assertTrue(contracts)
-        for e in contracts:
+        canon = [e for e in contracts if (e.get("predicates") or {}).get("provided_by")]
+        self.assertEqual(len(canon), len(_committed_record_ids()),
+                         "every committed canon record must derive a canon (provided_by) entity")
+        for e in canon:
             preds = e.get("predicates") or {}
             self.assertEqual(set(preds), {"provided_by", "governed_by"},
                              f"{e['id']} must emit only provided_by + governed_by, got {sorted(preds)}")

@@ -5,6 +5,7 @@
     ".engine/tools/test_instantiator.py",
     ".engine/tools/test_security_seed.py",
     ".engine/tools/demo_security_seed.py",
+    ".engine/tools/demo_467_deployment_eadr_namespace.py",
     ".engine/tools/demo_audit_concern_list.py",
     ".engine/tools/demo_audit_digest.py",
     ".engine/tools/demo_boot_slice.py",
