@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "audit",
       "source": {
-        "fingerprint": "sha256:6e34efb55566366112afd0cb2c2611f0967d5a574c1bd54550ca44cf2ce08f27",
+        "fingerprint": "sha256:0e9492fc0fe04dc4f57b6d3cf4b89a848f9ab6f7b080590994d6049d3ed1144b",
         "path": ".claude/agents/audit.md"
       },
       "status": "active",
@@ -5925,7 +5925,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:d170d0b588388e73ede73625d3ab101ddbda5f2aabc0d2e27b2bda81ab12239a",
+        "fingerprint": "sha256:b24e68ab8a5c0960fda917f6e1649eeeef1e778d0786e362244aff2521a74ef3",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -6044,7 +6044,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:48521c61381ef251e2eb2d7d8c3223b18f92342604812bef025598eab65b3962",
+        "fingerprint": "sha256:de9b8e2cf273f5b6ad6ab6fc38dfb0a5fabb74df22ac0a5624bf574b7ca466d3",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -7625,7 +7625,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:024dde78e6e219bac20b2ab8fa2f63fe8387eef4b53f09004b9a65b3f94c8f73",
+        "fingerprint": "sha256:3d5a21f5120818e438d8217201b7fff5fe6e6453ca3020d36d029f25ce9a426c",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
