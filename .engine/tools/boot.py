@@ -639,6 +639,14 @@ def gather_signals(session_id: str | None = None) -> dict:
     }
 
 
+# #416 U10-F1: the degraded inputs a Claude Desktop restart actually reconnects — the MCP/GitHub background
+# reads (the knowledge map service, the GitHub-backed open-problems read). NOT git (a subprocess, not a
+# service), state (a committed file), or the ranker (in-process logic): a restart does not fix those, so the
+# self-serve restart line is scoped to this set (boot/README "Degradation is loud and consented" —
+# "usually a Claude Desktop restart away from full capability").
+_RESTART_FIXABLE = {"telemetry", "knowledge"}
+
+
 def render_dashboard(s: dict) -> str:
     """The operator-toned `Project status` dashboard, rendered from gathered signals (gather_signals) as
     DATA — PURE: no I/O, computes no new state. Governance alarms pin warm at the top, then a stranded-
@@ -898,6 +906,18 @@ def render_dashboard(s: dict) -> str:
             "A memory update didn't finish cleanly — nothing was lost, and everything saved is still there and "
             "readable. I clean up the leftover automatically the next time I tidy your memory; if you keep "
             "seeing this across sessions, tell me and I'll clear it right away.")
+
+    # #416 U10-F1: name the single self-serve fix the spec's loud notice owes ("usually a Claude Desktop
+    # restart away from full capability", boot/README §"Degradation is loud and consented"). SCOPED — fires
+    # only when a restart-fixable substrate outage is present (a dropped MCP/GitHub connection, or the
+    # gate-unknown no-GitHub-access case), never for the regenerate-a-file or self-healing lines above (a
+    # restart does not fix those). Hedged ("if any of that … the usual cause") per the spec's "usually", so it
+    # never over-promises on a genuine remote outage or expired auth.
+    restart_fixable = (s.get("gate") == "unknown") or bool(set(s.get("att_degraded") or []) & _RESTART_FIXABLE)
+    if degraded and restart_fixable:
+        degraded.append(
+            "If any of that is a dropped connection — the usual cause — quitting and reopening Claude Desktop "
+            "reconnects it, and I'll re-check.")
 
     if degraded:
         out.append("")

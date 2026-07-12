@@ -242,6 +242,19 @@ class TestChangedPaths(unittest.TestCase):
         self.assertEqual(len(recs), 5)
         self.assertEqual(recs, ["f00.py", "f01.py", "f02.py", "f03.py", "f04.py"])  # the sorted prefix
 
+    def test_cap_none_returns_the_uncapped_full_set(self):
+        # #416 U21-F4: cap=None yields the WHOLE diff (not the _PATHS_CAP=50 prefix), so the upstream-clean
+        # safety nudge sees every path — a capped read could drop an engine file that sorts past the cap and
+        # let it slip the leak intersection (a false negative).
+        many = [f"f{i:03d}.py" for i in range(120)]  # >50, so the default cap would truncate it
+        capped = wr.changed_paths(run=_run_paths(committed=many))          # default _PATHS_CAP
+        uncapped = wr.changed_paths(run=_run_paths(committed=many), cap=None)
+        self.assertEqual(len(capped), 50)
+        self.assertEqual(len(uncapped), 120)
+        self.assertEqual(uncapped, sorted(many))
+        self.assertIn("f119.py", uncapped)   # the tail — present uncapped, dropped when capped
+        self.assertNotIn("f119.py", capped)
+
 
 if __name__ == "__main__":
     unittest.main()

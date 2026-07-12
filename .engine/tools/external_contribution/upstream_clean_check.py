@@ -15,23 +15,30 @@ nudge catches an accidental engine path before submission; and the upstream's ow
 one exists. Read-only: it inspects path lists only and never writes a file (the R5 mutation firewall).
 
 Where the inputs come from (both injectable, so tests and the demo run fully offline):
-  - `changed`: defaults to `work_record.changed_paths()` — the branch's outgoing diff paths. The submission
-    flow (a later slice) supplies the cross-fork diff (the product branch against the upstream's default)
-    when it invokes this nudge; until then the default is the local branch diff. `changed_paths` is capped
-    (currently 50 paths), so an extremely large accidental leak may list only the first paths by sort order
-    — the nudge still FIRES on any engine-owned hit; the listed set is a heads-up, not an exhaustive
-    inventory.
+  - `changed`: defaults to `work_record.changed_paths(cap=None)` — the branch's outgoing diff paths, read
+    UNCAPPED (#416 U21). The live caller is `submit.py` (`clean_findings`), which supplies the cross-fork
+    outgoing diff (the product branch against the upstream's default) through `changed`; the no-argument
+    default is the local branch diff. The read is uncapped because this is a SAFETY predicate: `changed_paths`
+    caps at 50 for orientation, and a cap could let an engine path sort past it and slip the leak intersection
+    (a false negative), so every engine-owned hit is seen — the listed set is the complete intersection, not a
+    truncated heads-up.
   - `owned`: defaults to `module_coherence.engine_owned_paths(discover_manifests())` — the exact
     file-precise engine-owned set that CODEOWNERS is rendered from, so this nudge and CODEOWNERS share one
     source of truth. A path counts as engine-owned only if a present module's `provides` claims it or it is
     foundation infrastructure (CLAUDE.md, the engine workflows, .github/CODEOWNERS, the tool-runtime
     lockfiles, ...).
 
-Suite / trigger: this rule rides the `pre-close` suite only (never CI). It is a local pre-submission nudge:
-in an ordinary same-repo deployment the Engine's files legitimately live alongside the work, so a CI-firing
-version would warn on every normal engine change. It is meaningful only against an OUTGOING cross-fork
-contribution, which the submission flow runs it against. (On this tree nothing yet invokes the pre-close
-suite, so the nudge ships exercised only by its `demo` self-check — it is wired live by a later slice.)
+Suite / trigger: this rule rides the `pre-close` suite only (never CI). In an ordinary same-repo deployment
+the Engine's files legitimately live alongside the work, so a CI-firing version would warn on every normal
+engine change; it is meaningful only against an OUTGOING cross-fork contribution. The live caller is the
+submission flow — `submit.py.clean_findings` runs the predicate (`findings()`) against the cross-fork diff
+(#416 U21: no longer dormant — Slice 2 / #415 wired it). The no-argument validator surface (`emit_findings`,
+below) is a PURE read-only print and deliberately does NOT emit telemetry: the `pre-close` suite is collected
+on every clean turn-close (close.py's advisory pass, dispatched by suite membership — `target.context` is not
+enforced), and a GitHub write there would break close.py's "a local run reaches no GitHub event" invariant.
+So the "emits a telemetry finding when it fires" duty (external-contribution/README §"Keeping the
+contribution clean") is the submission flow's, at submit time over a real outgoing diff — it lives in
+`submit.py`, never this validator entry (#416 U21-F5, rejected as unsafe).
 
 Contract: invoked by the validator with NO arguments, it prints a finding.v1 JSON array to stdout and exits
 0. A separate `demo` subcommand runs a falsifiable self-check.
@@ -77,7 +84,8 @@ def findings(tier: str, *, changed=None, owned=None) -> list:
     supplies the cross-fork diff through `changed` without touching this predicate.
     """
     if changed is None:
-        changed = work_record.changed_paths()
+        changed = work_record.changed_paths(cap=None)  # #416 U21-F4: UNCAPPED — a safety predicate must see
+        #                                                 every engine-owned hit, never drop one past a cap
     if owned is None:
         owned = module_coherence.engine_owned_paths(module_coherence.discover_manifests())
     owned_set = set(owned)

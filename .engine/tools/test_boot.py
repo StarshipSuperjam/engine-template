@@ -126,6 +126,27 @@ class TestDegradedNotice(unittest.TestCase):
         self.assertIn("I couldn't reach your work-priority ranking this session", dash)
         self.assertNotIn("I couldn't reach attention", dash)   # the internal noun must not reach the operator
 
+    def test_restart_self_serve_line_fires_on_a_reconnectable_substrate_outage(self):
+        # #416 U10-F1: the loud degraded notice must name the single self-serve fix — quit and reopen Claude
+        # Desktop — for a reconnectable MCP/GitHub outage (spec boot/README §"Degradation is loud and
+        # consented": "usually a Claude Desktop restart away from full capability"). Fires for telemetry (the
+        # GitHub read) and knowledge (the map service), and for the gate-unknown no-GitHub-access case.
+        for sub in ("telemetry", "knowledge"):
+            dash = boot.render_dashboard(_signals(att_degraded=[sub]))
+            self.assertIn("dropped connection", dash, f"{sub}: the restart self-serve line should fire")
+            self.assertIn("reopening Claude Desktop", dash)
+        self.assertIn("dropped connection", boot.render_dashboard(_signals(gate="unknown")))
+
+    def test_restart_self_serve_line_absent_for_non_reconnectable_degrades(self):
+        # SCOPED honesty (#416 U10-F1): a Claude Desktop restart does NOT fix a committed-state read, the
+        # ranker, a missing git binary, a rebuilt/absent map, or a self-healing memory notice — so the restart
+        # line must NOT attach to those (it would falsely promise a fix). It also never appears on a healthy boot.
+        for sig in (dict(att_degraded=["state"]), dict(att_degraded=["attention"]), dict(att_degraded=["git"]),
+                    dict(map_rebuilt=True), dict(ledger_malformed=2), dict(migration_stalled=True), dict()):
+            dash = boot.render_dashboard(_signals(**sig))
+            self.assertNotIn("dropped connection", dash,
+                             f"{sig}: the restart line must not attach to a non-reconnectable degrade")
+
     def test_live_rebuild_shows_a_distinct_heads_up_not_a_couldnt_reach(self):
         # When orientation ran on a LIVE rebuild (the committed graph.json is absent), the dashboard surfaces a
         # DISTINCT heads-up — inform + consequence, never the "couldn't reach" alarm: the map IS reachable, the

@@ -22,10 +22,11 @@ you're away — not something I start on my own. To set one up:
 3. Turn on **"Work in an isolated copy of the repo"** (worktree mode), so each run works in its own copy,
    not your main one. A scheduled run won't do this on its own — this is the step that keeps it off your
    working checkout.
-4. In the routine's settings, set it to handle permissions automatically (turn on **Auto mode**) so it can
-   work without stopping to ask. If your plan can't turn Auto mode on, the run will stop and ask instead of
-   working unattended — and you'll know, because it leaves a note (a GitHub Issue) rather than silently
-   stalling.
+4. Give the run a non-interactive permission posture so it can act without stopping to ask you for each
+   step. This is set in your **Claude Code permission settings**, not in the routine's own settings — choose
+   the option that lets a run proceed on its own. If your plan or model doesn't offer one, the run stops and
+   asks instead of working unattended — and you'll know, because it leaves a note (a GitHub Issue) rather
+   than silently stalling.
 5. Make sure your computer won't go to sleep during the scheduled time — a local routine only runs while
    your machine is awake.
 
