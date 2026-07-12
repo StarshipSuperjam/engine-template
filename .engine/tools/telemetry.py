@@ -2141,12 +2141,14 @@ def _run_drain_cli(argv: list) -> int:
     cache = Cache(argv[0]) if argv else Cache(DEFAULT_INBOX_STREAMS_PATH)
     report = drain_inbox(gh, cache=cache, thresholds=load_thresholds(), now=utc_now())
     if report is not None and report.degraded:
-        print("Could not reach GitHub to drain the engine's findings inbox; nothing was changed.")
+        print("Could not reach GitHub to check the engine's own health inbox; nothing was changed.")
         return 0
     opened = report.opened if report is not None else 0
     updated = report.updated if report is not None else 0
     closed = report.closed if report is not None else 0
-    print(f"Drained the engine's findings inbox: runtime_alert={'yes' if runtime_alert else 'no'}, "
+    # Plain-voice summary (matching the run-ambient/run-episodic sibling drivers) — no backstage words.
+    alert = "a broken-tool-runtime alert was raised" if runtime_alert else "no new alerts"
+    print(f"Checked the engine's own health inbox ({alert}): "
           f"opened={opened}, updated={updated}, closed={closed}.")
     return 0
 

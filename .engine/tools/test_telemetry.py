@@ -1844,6 +1844,43 @@ class TestFindingsInbox(unittest.TestCase):
              mock.patch.object(boot, "gh_token", return_value=""):
             self.assertEqual(telemetry._run_drain_cli([]), 0)         # no token/repo -> exit 0, touches nothing
 
+    def test_drain_cli_runs_promote_then_sweep_then_drain_and_reports(self):
+        # The "wire into production" seam: with a GitHub context present, the driver runs its three jobs IN
+        # ORDER (promote the runtime marker -> sweep stranded asides -> drain the spool) and prints the counts.
+        import boot
+        calls = []
+        class _Rep:
+            degraded = False; opened = 1; updated = 0; closed = 0
+        with mock.patch.object(boot, "repo_slug", return_value="o/r"), \
+             mock.patch.object(boot, "gh_token", return_value="tok"), \
+             mock.patch.object(telemetry, "GitHubIssues", return_value="GH"), \
+             mock.patch.object(telemetry, "promote_runtime_marker", side_effect=lambda gh: calls.append("promote") or True), \
+             mock.patch.object(telemetry, "_sweep_stranded_asides", side_effect=lambda p: calls.append("sweep") or 0), \
+             mock.patch.object(telemetry, "drain_inbox", side_effect=lambda gh, **kw: calls.append("drain") or _Rep()):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = telemetry._run_drain_cli([os.path.join(self._td, "c.json")])
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ["promote", "sweep", "drain"])       # promote -> sweep -> drain, in order
+        self.assertIn("opened=1", out.getvalue())                    # the counts branch renders the report
+        self.assertIn("a broken-tool-runtime alert was raised", out.getvalue())  # plain-voice alert clause
+
+    def test_drain_cli_all_quiet_reports_nothing_done(self):
+        # Fully idle (no marker, no spool, no stale aside): report is None -> all-zeros, no alert, no crash.
+        import boot
+        with mock.patch.object(boot, "repo_slug", return_value="o/r"), \
+             mock.patch.object(boot, "gh_token", return_value="tok"), \
+             mock.patch.object(telemetry, "GitHubIssues", return_value="GH"), \
+             mock.patch.object(telemetry, "promote_runtime_marker", return_value=False), \
+             mock.patch.object(telemetry, "_sweep_stranded_asides", return_value=0), \
+             mock.patch.object(telemetry, "drain_inbox", return_value=None):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = telemetry._run_drain_cli([os.path.join(self._td, "c.json")])
+        self.assertEqual(code, 0)
+        self.assertIn("no new alerts", out.getvalue())
+        self.assertIn("opened=0", out.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6109,7 +6109,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:5cd2c7fa9b88f9ddc1cd63af07811a53ccd90b9a712a53651ecf4e39f4b71419",
+        "fingerprint": "sha256:6cf8acb0c9947d1943d30c1be38d20c86b7d9f3437177aca998dabe20067bfd2",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -7826,7 +7826,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:6a5b3e12fa6db3c4b2a702148831fe51d29633642ca8ca9614b971607d901d3b",
+        "fingerprint": "sha256:61fd20bbfcd38e9779b50c67a28f9bf7d5ae7951eeaa934364de8417b163ea8b",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
