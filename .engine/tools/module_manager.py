@@ -584,7 +584,7 @@ _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives her
 # release — a release's block would carry the wrong owner + paths); and root CLAUDE.md (keyed-merged by
 # `_merge_claude_floor` from the release's CLAUDE.deployed.md so operator content is preserved and the
 # release's construction-governance CLAUDE.md never overlays an adopter's floor); and root `.gitignore`
-# (the foundation-ignores fence is re-asserted locally by apply_foundation_ignores on upgrade — step (2d)
+# (the foundation-ignores fence is re-asserted locally by apply_foundation_ignores on upgrade — step (2f)
 # below — never fetched, since a release's file would clobber the adopter's own ignore lines + module
 # fences). Gitignored data and the deployment's per-instance eADR stream are in no `provides`/FOUNDATION_CODE,
 # so the overlay leaves them untouched (config + data preserved). A member may be a glob (the issue
@@ -938,6 +938,14 @@ def _upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -
     elif cf == "skipped-no-section":
         lines += ["", "Did not update your project's working guide — I found no engine marked block in "
                   "CLAUDE.md, so I left the file unchanged."]
+    fi = (result.get("foundation_ignores") or {}).get("status")
+    if fi == "written":
+        lines += ["", "Updated the engine's ignore list (the marked block in .gitignore that keeps the "
+                  "engine's own tool files and per-session folders out of git) to this version. Any ignore "
+                  "lines you added yourself are untouched."]
+    elif fi == "degraded":
+        lines += ["", "Could not update the engine's ignore list — the marked block in .gitignore looked "
+                  "damaged, so I left the file unchanged. Check the marker lines, then update again."]
     lines += ["", "The engine's own consistency check passed. Merging this is your review and consent; "
               "reverting this pull request undoes the update."]
     return "\n".join(lines)

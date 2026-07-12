@@ -562,15 +562,27 @@ def ontology_entry_reverse(directive: dict) -> dict:
                        "Nothing to remove - the surface record is not present.", create=True)
 
 
+# Fence keys the FOUNDATION owns in .gitignore — a module `gitignore` wire must never claim one, or its
+# apply would collide with the foundation body and its uninstall reverser would rip out the foundation block
+# (which the orphan-wire carve-out then hides from coherence). Reserved and refused fail-closed (#409 U14).
+_RESERVED_GITIGNORE_KEYS = {FOUNDATION_IGNORES_FENCE}
+
+
 def gitignore_apply(directive: dict) -> dict:
     if "key" not in directive or "lines" not in directive:
         return _fail("refused: a gitignore directive needs 'key' and 'lines'.", GITIGNORE_PATH)
+    if directive["key"] in _RESERVED_GITIGNORE_KEYS:
+        return _fail(f"refused: '{directive['key']}' is a reserved foundation fence key — a module may not "
+                     "claim it.", GITIGNORE_PATH)
     return _text_fence_apply(GITIGNORE_PATH, directive["key"], directive["lines"], create=True)
 
 
 def gitignore_reverse(directive: dict) -> dict:
     if "key" not in directive:
         return _fail("refused: a gitignore directive needs 'key'.", GITIGNORE_PATH)
+    if directive["key"] in _RESERVED_GITIGNORE_KEYS:
+        return _fail(f"refused: '{directive['key']}' is a reserved foundation fence key — a module may not "
+                     "claim it.", GITIGNORE_PATH)
     return _text_fence_reverse(GITIGNORE_PATH, directive["key"])
 
 

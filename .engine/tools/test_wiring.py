@@ -763,6 +763,19 @@ class TestFoundationIgnores(_Redirected):
         outcome = wiring.apply_foundation_ignores(self._gi())
         self.assertEqual(outcome["status"], "degraded")
 
+    def test_a_module_wire_may_not_claim_the_reserved_foundation_key(self):
+        # deliverable-gate hardening: a module `gitignore` wire keyed 'foundation-ignores' would collide with
+        # the foundation body and its uninstall reverser would rip out the foundation block (hidden from
+        # coherence by the orphan carve-out). Both apply and reverse must refuse it fail-closed, writing nothing.
+        directive = {"type": "gitignore", "key": wiring.FOUNDATION_IGNORES_FENCE, "lines": [".engine/x/"]}
+        apply_finding = wiring.gitignore_apply(directive)
+        self.assertEqual(apply_finding["severity"], "hard")
+        self.assertIn("reserved", apply_finding["message"])
+        self.assertFalse(os.path.exists(self._gi()), "a refused reserved-key apply writes nothing")
+        reverse_finding = wiring.gitignore_reverse(directive)
+        self.assertEqual(reverse_finding["severity"], "hard")
+        self.assertIn("reserved", reverse_finding["message"])
+
 
 class TestCommittedFoundationIgnores(unittest.TestCase):
     """The binding between the single-source constant and the committed file (#409 U14, plan-gate S-A): the

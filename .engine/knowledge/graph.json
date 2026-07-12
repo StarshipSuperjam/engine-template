@@ -5415,7 +5415,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:1d8dea46a87858eea023b383eda988a767920d89740bf142b4643e7550d21208",
+        "fingerprint": "sha256:6902a9065b351cd8c4369ad86988ce34e59d0ed14535e354aec95f8010490b0b",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -6945,7 +6945,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:5d73b8ef8accd2e1e4067c8a6e1ceae62aac73bfcf43e8d87d9bb81a785782de",
+        "fingerprint": "sha256:39eeb5d23a4836c6ef7f1d3f158022bea603c9ab50552bbdb5feb90c8a716a08",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -7727,7 +7727,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:26006e77cb47f953e6b1a7b565e2fd1aacccb54da282091b08b6c01f54b6c920",
+        "fingerprint": "sha256:0b2e9556a551148f26b127b71cf12b8d6c57076dfde5ef8d6348575e0ff01c9e",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -7880,7 +7880,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:a0117724c114f5c9b35b7b926191889f39a750bdf4d50fe0a03252c2e5a6bcd2",
+        "fingerprint": "sha256:15fbffb1874ac24f77362b68156b0baf60cae7c772050262ddd4ba85bd9c59b6",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

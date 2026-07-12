@@ -1124,6 +1124,17 @@ class TestUpgradeSurfacesClaudeFloor(unittest.TestCase):
                                             "claude_floor": "degraded"})
         self.assertIn("working guide", buf.getvalue().lower())
 
+    def test_pr_body_surfaces_the_foundation_ignores_reassertion(self):
+        # #409 U14 (deliverable-gate nit 2): the .gitignore fence re-assert gets an operator-facing line on
+        # upgrade, like its CODEOWNERS / CLAUDE.md siblings — not just a raw git diff.
+        body = module_manager._upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
+                                               {"foundation_ignores": {"status": "written"}})
+        self.assertIn("ignore list", body.lower())
+        # an unchanged ("already") re-assert stays silent — nothing changed to disclose
+        quiet = module_manager._upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
+                                                {"foundation_ignores": {"status": "already"}})
+        self.assertNotIn("ignore list", quiet.lower())
+
 
 class TestFrozenCheckNames(unittest.TestCase):
     """The engine CI check names are a FROZEN contract across versions — an upgrade/migration may never
