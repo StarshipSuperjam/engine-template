@@ -21,12 +21,21 @@ leak, emits a telemetry finding (the design's "emits a telemetry finding when it
 `leak-decision-needed` rather than opening the pull request. The operator may clear the files (recommended) or
 tell the engine to proceed anyway (`proceed_despite_leak=True`), which still passes through the ordinary human
 `confirm` gate — a leaked engine file is a §6 hygiene failure, "never a bare block" (external-contribution
-README), not a §15 guardrail weakening. Two guards keep it honest: the intersection runs over the UNCAPPED
-outgoing diff (a large accidental leak can never sort past a cap and slip through), and a foundation-named path
-the upstream PRODUCT legitimately owns (its OWN CLAUDE.md / CODEOWNERS — content differs from the engine's) is
-disambiguated OUT by content provenance, while a genuine engine back-merge (content IS the engine's) still
-fires. Telemetry-on-fire is emitted whichever way the operator decides, so a knowingly-carried leak still
-leaves a durable trace. The upstream's own review is the backstop.
+README), not a §15 guardrail weakening. Telemetry-on-fire is emitted whichever way the operator decides, so a
+knowingly-carried leak still leaves a durable trace. The intersection runs over the UNCAPPED outgoing diff, so
+a large accidental leak can never sort past a cap and slip through; the upstream's own review is the backstop.
+
+  ONE KNOWN OVER-FLAG (a foundation-name collision; the disambiguation is a deferred build-spec leaf). The
+  predicate is a NAME set — exact inside a fork, but ambiguous for the few foundation members that live outside
+  .engine/: the root CLAUDE.md and the .github/ control-plane files an upstream PRODUCT can co-occupy. So an
+  upstream that keeps its OWN CLAUDE.md / CODEOWNERS has that file flagged too. Telling it apart from a genuine
+  engine back-merge (the real leak — the fork's engine content on the product branch) requires comparing the
+  contributed content against the engine's OWN copy read from a source DISTINCT from the contribution checkout
+  (the fork's engine tree/ref) — which the concrete cross-fork worktree/branch mechanics establish, and those
+  are an explicit build-spec leaf, un-exercised at v1. A content check against the running checkout would be
+  degenerate (working tree == HEAD), so it is deliberately NOT attempted here; until the branch mechanics land,
+  the safe behavior is to over-flag by name (never under-flag), made non-harmful by the operator-decidability
+  above — §6 "posture, not a mechanical guarantee", backstopped by the upstream maintainer's review.
 
 DEGRADATION (never stranded). If the upstream is unreachable when opening the pull request, nothing is lost:
 the work is committed on the operator's own fork (a working fork they fully own). The stalled submission is
@@ -128,55 +137,6 @@ def clean_findings(base: str, *, run=_run_git, owned=None) -> list:
     (with `run`) to keep tests and the demo fully offline."""
     changed = outgoing_diff(base, run=run)
     return upstream_clean_check.findings("soft", changed=changed, owned=_resolve_owned(owned))
-
-
-# ---- content-provenance disambiguation of foundation-named paths (F2 / plan-gate B1) ----------
-# The engine-owned predicate is a file-precise NAME set (topology README §"The engine/product wall"). That is
-# exact INSIDE a fork, but a few foundation members live OUTSIDE .engine/ — the root CLAUDE.md and the .github/
-# control-plane files — in containers an upstream PRODUCT co-occupies. So an upstream that keeps its OWN
-# CLAUDE.md / CODEOWNERS would, on a name-only intersection, have its own file misread as an engine leak. The
-# real leak the nudge must still catch is "a back-merge of the fork's engine branch" (external-contribution
-# README) — which puts the ENGINE's content at that path. So the two are told apart by CONTENT, not presence:
-# the contributed version IS the engine's own copy -> a leak; it differs -> the product's own file. A product
-# never carries .engine/… files, so only the non-.engine foundation members are ambiguous; the set is derived
-# from the single FOUNDATION_INFRA source so it cannot drift.
-
-def _ambiguous_foundation() -> set:
-    """The foundation infrastructure paths that live outside .engine/ — the only ones name-ambiguous against a
-    foreign product's own tree (a product never carries .engine/… files)."""
-    return set(module_coherence.foundation_infra_paths()) - module_coherence.NAMED_INFRA
-
-
-def _read_engine_file(path: str, *, root: str) -> str | None:
-    """The engine's OWN copy of `path` from its live tree (the fork the engine runs in), or None if unreadable."""
-    try:
-        with open(os.path.join(root, path), encoding="utf-8") as fh:
-            return fh.read()
-    except Exception:  # noqa: BLE001 — cannot read the engine's own copy -> the caller fails SAFE (flags)
-        return None
-
-
-def _engine_introduced(path: str, *, root: str, run=_run_git) -> bool:
-    """True iff the outgoing branch's version of a foundation-named `path` IS the engine's own copy (a leak —
-    e.g. a back-merge of the fork's engine branch), False iff its content differs (the upstream product's own
-    same-named file, legitimately carried). FAIL-SAFE: any inconclusive read returns True (flag it) — a false
-    nudge is a heads-up the operator can wave past, a missed engine leak is not."""
-    contributed = run(["show", f"HEAD:{path}"])
-    if contributed is None:                       # could not read the contributed content -> flag (fail-safe)
-        return True
-    engine_own = _read_engine_file(path, root=root)
-    if engine_own is None:                        # could not read the engine's own copy -> flag (fail-safe)
-        return True
-    return contributed.strip() == engine_own.strip()
-
-
-def _disambiguate_foundation(changed: list, *, root: str, run=_run_git) -> list:
-    """Drop from `changed` the ambiguous foundation-named paths that carry the PRODUCT's own content (not the
-    engine's) — content provenance, so a product's own CLAUDE.md / CODEOWNERS is not misread as an engine leak
-    while a genuine engine back-merge still fires. .engine/… paths and non-foundation paths pass through."""
-    ambiguous = _ambiguous_foundation()
-    return [p for p in changed
-            if p not in ambiguous or _engine_introduced(p, root=root, run=run)]
 
 
 # ---- upstream pull-request template detection (follow the host's conventions) ------------------
@@ -477,7 +437,6 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
     reached only when `confirm=True` (and never while a leak is unacknowledged).
     """
     now = now or telemetry.utc_now()
-    root = root if root is not None else validate.ROOT
 
     # 0. Refuse to assert cleanliness on an UNINSPECTED diff (fail-open-AND-flag). A git failure yields
     #    changed=[] just like a clean diff, so without this an unread diff would narrate "carries no engine
@@ -492,11 +451,13 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
         }
 
     # 1. Keep the contribution clean — an operator-DECIDABLE nudge (§6 "not a hard gate"), over the uncapped
-    #    outgoing diff. Disambiguate foundation-named paths by CONTENT provenance FIRST, so one disambiguated
-    #    set feeds findings, the decision, `offending`, and the telemetry record together — a product's own
-    #    CLAUDE.md / CODEOWNERS is dropped, while a genuine engine back-merge (its content) still fires.
+    #    outgoing diff. The predicate is the file-precise engine-owned NAME set (topology README). It can
+    #    over-flag an upstream product's OWN foundation-named file (its own CLAUDE.md / CODEOWNERS) — but that
+    #    is now a soft, waveable nudge, not a block. Telling a product's own file apart from a genuine engine
+    #    back-merge needs the engine's own tree as a source distinct from the contribution checkout, which is
+    #    the deferred cross-repo branch-mechanics build-spec leaf (see the module docstring); until it lands the
+    #    safe direction is to over-flag by name, never under-flag.
     owned_resolved = _resolve_owned(owned)
-    changed = _disambiguate_foundation(changed, root=root, run=run)
     findings = upstream_clean_check.findings("soft", changed=changed, owned=owned_resolved)
     if findings:
         owned_set = set(owned_resolved)
@@ -707,43 +668,7 @@ def demo() -> int:
         if "engine opened this item itself" not in r5["draft"]:
             failures.append("degrade case: the draft was not assembled through the engine-Issue body contract")
 
-        # Case 6 — content provenance on a foundation-named path (root CLAUDE.md). A temp tree stands in for the
-        #          engine's own copy; a fake git returns the CONTRIBUTED version for `show HEAD:CLAUDE.md`.
-        root_prov = tempfile.mkdtemp(prefix="engine-submit-demo-prov-")
-        engine_claude = "# The Engine's own floor\nthis is the engine's own CLAUDE.md content\n"
-        with open(os.path.join(root_prov, "CLAUDE.md"), "w", encoding="utf-8") as fh:
-            fh.write(engine_claude)
-
-        def run_prov(contributed_claude):
-            def _r(args):
-                if args and args[0] == "diff":
-                    return "CLAUDE.md\nsrc/app.py"
-                if args and args[0] == "show":               # ["show", "HEAD:CLAUDE.md"]
-                    return contributed_claude
-                return ""
-            return _r
-
-        # 6a — the PRODUCT's own CLAUDE.md (content differs from the engine's) is NOT misread as a leak.
-        r6a = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
-                     title="Fix", summary="Fixes.",
-                     run=run_prov("# The product's own CLAUDE.md\ncompletely different content\n"),
-                     root=root_prov, owned=owned, gh_run=gh_ok, github=None, confirm=False, now=now)
-        print("--- the upstream product's OWN CLAUDE.md: not misread as an engine leak (clean) ---")
-        print(r6a["narration"], "\n")
-        if r6a["status"] != "prepared":
-            failures.append(f"provenance case: a product's own CLAUDE.md was misread as an engine leak, got "
-                            f"{r6a['status']}")
-        # 6b — a genuine engine back-merge (contributed content IS the engine's own) STILL fires.
-        r6b = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
-                     title="Fix", summary="Fixes.",
-                     run=run_prov(engine_claude),
-                     root=root_prov, owned=owned, gh_run=gh_ok, github=None, confirm=False, now=now)
-        if r6b["status"] != "leak-decision-needed" or "CLAUDE.md" not in r6b.get("offending", []):
-            failures.append(f"provenance case: an engine CLAUDE.md back-merge did NOT fire, got {r6b['status']}"
-                            f" / offending={r6b.get('offending')}")
-        shutil.rmtree(root_prov, ignore_errors=True)
-
-        # Case 7 — the status verb: where a submission stands, restating submitted-is-not-accepted every time,
+        # Case 6 — the status verb: where a submission stands, restating submitted-is-not-accepted every time,
         #          and degrading honestly when the state can't be read.
         pr_url = "https://github.com/upstream/project/pull/42"
         s_open = status(pr_url=pr_url, gh_run=lambda args: (0, '{"state":"OPEN","merged":false}', ""))
@@ -767,12 +692,11 @@ def demo() -> int:
             print(f"  - {f}")
         return 1
     print("DEMO PASSED — an unreadable diff is held rather than narrated clean or opened; a leaked engine file "
-          "pauses for your decision (clear it, or proceed anyway) rather than a bare halt; the upstream "
-          "product's own CLAUDE.md is not misread as an engine leak, while a genuine engine back-merge still "
-          "fires; a clean contribution is only PREPARED until you authorize it; on your go-ahead it opens "
-          "following the host's template (or the engine's fallback shape); an unreachable upstream degrades to "
-          "a drafted submission, nothing lost; and the status check tells you honestly where a submission "
-          "stands, or that it couldn't be read.")
+          "pauses for your decision (clear it, or proceed anyway) rather than a bare halt, and traces to "
+          "telemetry either way; a clean contribution is only PREPARED until you authorize it; on your go-ahead "
+          "it opens following the host's template (or the engine's fallback shape); an unreachable upstream "
+          "degrades to a drafted submission, nothing lost; and the status check tells you honestly where a "
+          "submission stands, or that it couldn't be read.")
     return 0
 
 

@@ -6,10 +6,11 @@ Every boundary is injected — the git diff reader (`run`), the template-detecti
 deterministic surface runs fully offline: no git, no gh, no network. The assertions pin the load-bearing
 behaviors: the outgoing diff is uncapped (a leak can never sort past a cap), a leaked engine path is
 operator-decidable (it PAUSES for a decision, never a bare halt) yet still traces to telemetry and never opens
-without a double opt-in, a foundation-named path the product legitimately owns is not misread as a leak while a
-genuine engine back-merge still fires, a clean contribution is only PREPARED until an affirmative decision, the
-body follows the host's template (or the engine's fallback shape), an unreachable upstream degrades to a
-drafted submission, and the on-demand status check reports live state honestly or says it couldn't be read.
+without a double opt-in, a foundation-named path is flagged by name (the safe over-flag; content-provenance
+disambiguation is a deferred cross-repo build-spec leaf), a clean contribution is only PREPARED until an
+affirmative decision, the body follows the host's template (or the engine's fallback shape), an unreachable
+upstream degrades to a drafted submission, and the on-demand status check reports live state honestly or says
+it couldn't be read.
 """
 from __future__ import annotations
 import os
@@ -33,19 +34,6 @@ OWNED = [
 def _run(paths):
     """A fake git transport that returns the given diff as `git diff --name-only` would (newline-joined)."""
     return lambda args: "\n".join(paths)
-
-
-def _run_provenance(diff_paths, contents):
-    """A fake git transport that answers BOTH `git diff --name-only` (the outgoing paths) and
-    `git show HEAD:<path>` (the contributed content of a path) — so the content-provenance disambiguation of
-    a foundation-named path can be exercised offline."""
-    def run(args):
-        if args and args[0] == "diff":
-            return "\n".join(diff_paths)
-        if args and args[0] == "show":                       # ["show", "HEAD:<path>"]
-            return contents.get(args[1].split(":", 1)[1], "")
-        return ""
-    return run
 
 
 def _gh_ok(record):
@@ -196,48 +184,15 @@ class TestSubmitFlow(unittest.TestCase):
         self.assertNotIn("args", rec)                    # still not opened (confirm=False) — double opt-in
         self.assertEqual(len(opened), 1)                 # ...but the leak still left a durable trace
 
-    def _root_with_engine_file(self, rel, content):
-        root = tempfile.mkdtemp(prefix="engine-submit-prov-")
-        self.addCleanup(__import__("shutil").rmtree, root, True)
-        os.makedirs(os.path.join(root, os.path.dirname(rel)), exist_ok=True) if os.path.dirname(rel) else None
-        with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
-            fh.write(content)
-        return root
-
-    def test_product_owned_foundation_name_is_not_flagged(self):
-        # An upstream product's OWN CLAUDE.md (content differs from the engine's) must NOT be misread as an
-        # engine leak — content provenance drops it, so a legitimate product contribution stays clean (B1).
-        root = self._root_with_engine_file("CLAUDE.md", "# engine floor\nthe engine's own CLAUDE.md\n")
-        run = _run_provenance(["CLAUDE.md", "src/app.py"],
-                              {"CLAUDE.md": "# the product's own CLAUDE.md\nunrelated content\n"})
-        r = submit.submit(**self.BASE, run=run, owned=OWNED, root=root,
+    def test_foundation_name_over_flags_by_name_safe_direction(self):
+        # The predicate is a NAME set (topology README). It over-flags an upstream product's OWN foundation-named
+        # file (its own CLAUDE.md) — the SAFE direction (never under-flag), now made non-harmful by the
+        # operator-decidable nudge above. Content disambiguation is a deferred cross-repo build-spec leaf; see
+        # submit.py's "ONE KNOWN OVER-FLAG" docstring. This test pins the safe-over-flag behavior so a future
+        # provenance build is a deliberate, tested change rather than a silent one.
+        r = submit.submit(**self.BASE, run=_run(["CLAUDE.md", "src/app.py"]), owned=OWNED, root=self.root,
                           gh_run=_gh_ok({}), github=None, confirm=False)
-        self.assertEqual(r["status"], "prepared")        # not misread as a leak -> clean -> prepared
-
-    def test_engine_introduced_foundation_name_still_fires(self):
-        # A genuine engine back-merge (the contributed CLAUDE.md IS the engine's own content) still fires —
-        # content provenance closes the false positive WITHOUT opening a false negative (B1).
-        engine_claude = "# engine floor\nthe engine's own CLAUDE.md\n"
-        root = self._root_with_engine_file("CLAUDE.md", engine_claude)
-        run = _run_provenance(["CLAUDE.md", "src/app.py"], {"CLAUDE.md": engine_claude})
-        r = submit.submit(**self.BASE, run=run, owned=OWNED, root=root,
-                          gh_run=_gh_ok({}), github=None, confirm=False)
-        self.assertEqual(r["status"], "leak-decision-needed")
-        self.assertIn("CLAUDE.md", r["offending"])
-
-    def test_provenance_fail_safe_flags_when_content_unreadable(self):
-        # FAIL-SAFE: if the contributed content can't be read (git show fails), the ambiguous path is FLAGGED,
-        # never silently cleared — a missed engine leak is the direction never to fail toward.
-        root = self._root_with_engine_file("CLAUDE.md", "# engine floor\n")
-
-        def run(args):
-            if args and args[0] == "diff":
-                return "CLAUDE.md\nsrc/app.py"
-            return None                                       # git show fails -> content unreadable
-
-        r = submit.submit(**self.BASE, run=run, owned=OWNED, root=root,
-                          gh_run=_gh_ok({}), github=None, confirm=False)
-        self.assertEqual(r["status"], "leak-decision-needed")
+        self.assertEqual(r["status"], "leak-decision-needed")   # flagged by name (safe over-flag)
         self.assertIn("CLAUDE.md", r["offending"])
 
     def test_unreadable_diff_is_not_asserted_clean(self):

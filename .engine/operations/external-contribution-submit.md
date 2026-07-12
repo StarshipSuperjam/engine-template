@@ -19,9 +19,10 @@ open-the-pull-request step has not yet been exercised against a live project —
    - *Contributing to a project you forked (the usual case):* you've forked the upstream project and the engine
      is installed in your fork (an ordinary brownfield install). You own the fork; the upstream you only
      contribute *to*.
-   - *Building engine-template itself (the engine-mechanic):* your workspace is a **separate checkout** of
+   - *Building engine-template itself (the engine-mechanic):* your workspace is a **separate copy** of
      engine-template that you contribute to — the engine is not installed *into* it (that would put the engine
-     inside a repo that already is the engine). The dependency runs one way: your mechanic → the template.
+     inside a repo that already is the engine). It only ever contributes up to the template; the template
+     never depends on it.
 
    If neither fits — if this is a repo you own and control outright — stop here; this runbook is only for
    contributing to a project you don't own.
@@ -34,9 +35,10 @@ open-the-pull-request step has not yet been exercised against a live project —
    default and runs the leaked-engine-files check. **If it finds any of the engine's own files, it pauses and
    shows you which ones** — most likely slipped in by accident — and names exactly which to take off the branch
    (your fork keeps its copy — nothing is lost). Clearing them is the clean fix; but this is a decision, not a
-   wall — if you're sure, you can tell the engine to go ahead and open it as is. It won't be fooled by a file
-   the upstream project legitimately owns that happens to share a name with an engine file (a project's own
-   `CLAUDE.md`, say): it checks the actual contents, not just the name. A clean contribution passes silently.
+   wall — if you're sure, you can tell the engine to go ahead and open it as is. It flags by file name, so if
+   the upstream project happens to keep its own file with an engine-like name (its own `CLAUDE.md`, say),
+   you'll see that flagged too — clearing it or telling the engine to proceed is your call. A clean
+   contribution passes silently.
 5. **Review the prepared pull request.** The engine assembles the pull-request text to the **project's own
    template** when it has one (a contributor follows the host's conventions), or a plain fallback shape when
    it doesn't. It shows you what it will open — the title, the text, and which branch goes where.

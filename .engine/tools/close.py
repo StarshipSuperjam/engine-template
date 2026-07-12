@@ -268,7 +268,7 @@ def summary(session_id):
 # exit-0 stdout is debug-log only), so their DURABLE record stays the logged Issue — never dressed as a
 # guaranteed operator line. No backstage vocabulary leaks (§12): no "Stop hook", "block budget", etc.
 _LOOP_LINE = "sorting out where the open findings should go — one moment."
-_CAP_APPROACH = "if we can't settle this, I'll save the open item(s) as tracked follow-ups and finish up."
+_CAP_APPROACH = "If we can't settle this, I'll save them as tracked follow-ups and finish up."
 _CAP_STOP = "I've saved the open follow-up(s) as tracked items so they're not lost, and finished up."
 _FAIL_OPEN_NOTICE = ("I couldn't run the check that confirms nothing was dropped — review this turn's work "
                      "with extra care.")
