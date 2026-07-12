@@ -265,18 +265,20 @@ def _promote_fail_open(event: str, kind: str, message: str) -> bool:
 
 
 def _do_promote_fail_open(event: str, kind: str, message: str) -> bool:
-    """The real promotion wiring (lazy imports, token resolution, `promote_finding`), split out so it is
-    directly testable against a mocked boot+telemetry without the test-harness backstop above."""
+    """The real promotion wiring, split out so it is directly testable against a mocked telemetry without the
+    test-harness backstop above. Emits the fail-open finding through telemetry's EMIT-AND-DONE seam
+    (`telemetry.emit_finding`, F0203 / D-031 / §16): the hook hands telemetry a TRUST_CRITICAL record and is
+    done — telemetry now OWNS resolving the GitHub boundary (the repo slug + token it used to resolve here) and
+    promoting it. Un-inverts the §16 seam (the producer no longer holds telemetry's acting-mechanism) while
+    preserving the exact fail-open behaviour: a trust-critical finding promotes immediately, returns the Issue
+    number (truthy) when it lands and False offline / with no token (surfaced-not-durably-recorded, the honest
+    tail #391 depends on)."""
     try:
         import telemetry  # lazy: keep telemetry's stack + the network off every hook's happy path
-        import boot        # lazy: boot is the single source of the repo slug + GitHub token (close.py seam)
-        repo, token = boot.repo_slug(), boot.gh_token()
-        if not repo or not token:
-            return False
         now = telemetry.utc_now()
         record = {"source_id": _fail_open_source_id(event, kind), "severity": telemetry.TRUST_CRITICAL,
                   "message": message, "first_seen": now, "last_seen": now}
-        return bool(telemetry.promote_finding(telemetry.GitHubIssues(repo, token), record, now))
+        return bool(telemetry.emit_finding(record))
     except Exception:  # noqa: BLE001 — recording the crash must NEVER fail-close the gate; degrade silently
         return False
 
@@ -430,17 +432,17 @@ def _translate(event: str, decision, out, err, promote) -> int:
 # ---- the operator-runnable demo (a throwaway fixture; no registered hook exists until slice 20) ----
 
 def _demo_promoter(event: str, kind: str, message: str):
-    """The demo's fail-open promoter: runs the REAL `telemetry.promote_finding` relay against a FAKE GitHub
-    transport (only the network is faked — the demo-fidelity rule), so the demo shows the finding actually
-    being promoted and the honest "recorded" copy WITHOUT touching live GitHub. Returns the (fake) Issue
-    number, so the demo renders the promoted case."""
+    """The demo's fail-open promoter: runs the REAL `telemetry.emit_finding` seam against a FAKE GitHub
+    transport injected as the boundary (only the network is faked — the demo-fidelity rule), so the demo
+    exercises the SAME emit-and-done path production uses (not one layer below it) and shows the finding
+    actually being promoted plus the honest "recorded" copy WITHOUT touching live GitHub. Returns the (fake)
+    Issue number, so the demo renders the promoted case."""
     import telemetry
     fake = telemetry._FakeGitHub()
     gh = telemetry.GitHubIssues("you/your-project", "demo-token", transport=fake.transport)
-    now = telemetry.utc_now()
     record = {"source_id": _fail_open_source_id(event, kind), "severity": telemetry.TRUST_CRITICAL,
-              "message": message, "first_seen": now, "last_seen": now}
-    return telemetry.promote_finding(gh, record, now)
+              "message": message, "first_seen": telemetry.utc_now(), "last_seen": telemetry.utc_now()}
+    return telemetry.emit_finding(record, gh=gh)
 
 
 def _run_capture(event: str, handler, payload: dict, promote=None):

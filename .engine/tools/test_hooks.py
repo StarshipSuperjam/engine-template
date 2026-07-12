@@ -612,26 +612,28 @@ class TestFailOpenPromotion(unittest.TestCase):
         self.assertIn("unittest", sys.modules)
         self.assertFalse(hooks._promote_fail_open("PreToolUse", "crash", "msg"))
 
-    def test_do_promote_offline_returns_false(self):
-        import boot
-        with mock.patch.object(boot, "repo_slug", return_value="o/r"), \
-             mock.patch.object(boot, "gh_token", return_value=None):
+    def test_do_promote_degrades_to_false_when_emit_does(self):
+        # After the §16 un-inversion the hook no longer resolves the GitHub boundary — telemetry.emit_finding
+        # does (and owns the no-token/offline -> False behaviour, covered in test_telemetry). Here the hook's
+        # job is only to relay emit_finding's verdict: a False emit -> a False promote (surfaced-not-recorded).
+        import telemetry
+        with mock.patch.object(telemetry, "emit_finding", return_value=False):
             self.assertFalse(hooks._do_promote_fail_open("Stop", "crash", "m"))
 
-    def test_do_promote_calls_promote_finding_with_a_trust_critical_sourced_record(self):
-        import boot
+    def test_do_promote_emits_a_trust_critical_sourced_record(self):
+        # The hook builds the coarse, marker-safe, trust-critical record and hands it to the emit-and-done
+        # seam; it NO LONGER holds telemetry's GitHub boundary (that reach-in was the inverted seam F0203 fixed).
         import telemetry
         captured = {}
 
-        def fake_pf(_gh, record, _now):
+        def fake_emit(record, *, gh=None):
             captured["record"] = record
+            captured["gh"] = gh
             return 77
-        with mock.patch.object(boot, "repo_slug", return_value="o/r"), \
-             mock.patch.object(boot, "gh_token", return_value="tok"), \
-             mock.patch.object(telemetry, "GitHubIssues", return_value=object()), \
-             mock.patch.object(telemetry, "promote_finding", side_effect=fake_pf):
+        with mock.patch.object(telemetry, "emit_finding", side_effect=fake_emit):
             got = hooks._do_promote_fail_open("PreToolUse", "input", "could not read input")
         self.assertTrue(got)                                # a landed promotion -> truthy
+        self.assertIsNone(captured["gh"])                   # telemetry resolves the boundary, not the hook
         self.assertEqual(captured["record"]["source_id"], "hooks/fail-open/PreToolUse/input")
         self.assertEqual(captured["record"]["severity"], telemetry.TRUST_CRITICAL)
         self.assertEqual(captured["record"]["message"], "could not read input")

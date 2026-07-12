@@ -22,6 +22,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -1691,6 +1692,100 @@ def tearDownModule():
             os.remove(p)
         except OSError:
             pass
+
+
+class TestFindingsInbox(unittest.TestCase):
+    """The emit-and-done seam (F0203 / D-031 / §16): a producer emits and is done; telemetry owns the act.
+    A TRUST_CRITICAL signal promotes immediately (via the injected boundary in tests, or refused under the
+    test-harness backstop); a benign one spools, and a later drain promotes it under the cache-accrued
+    persistence latency, authoritative-scoped and marker-safe at the spool boundary. Faking ONLY the network."""
+    _NOW = "2026-06-05T01:00:00Z"
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._td, ignore_errors=True)
+        self.spool = os.path.join(self._td, "findings-inbox.ndjson")
+        self.cachep = os.path.join(self._td, "inbox-streams.json")
+
+    def _tc(self, sid="hooks/fail-open/PreToolUse/crash"):
+        return {"source_id": sid, "severity": telemetry.TRUST_CRITICAL, "message": "a gate could not run",
+                "location": None, "first_seen": self._NOW, "last_seen": self._NOW}
+
+    def _benign(self, sid="boot/refused-cursor"):
+        return {"source_id": sid, "severity": telemetry.PERSISTENT_BENIGN, "location": None,
+                "message": "the engine's saved place could not be trusted",
+                "first_seen": self._NOW, "last_seen": self._NOW}
+
+    def _gh(self, **kw):
+        fake = telemetry._FakeGitHub(**kw)
+        return fake, telemetry.GitHubIssues("o/r", "tok", transport=fake.transport)
+
+    def _drain(self, gh):
+        return telemetry.drain_inbox(gh, cache=telemetry.Cache(self.cachep),
+                                     thresholds=telemetry.load_thresholds(), now=self._NOW, spool_path=self.spool)
+
+    def _open_sids(self, fake):
+        return [telemetry.parse_source_id(i["body"]) for i in fake.issues.values() if i["state"] == "open"]
+
+    def test_trust_critical_promotes_immediately_via_injected_boundary(self):
+        fake, gh = self._gh()
+        n = telemetry.emit_finding(self._tc(), gh=gh, spool_path=self.spool)
+        self.assertTrue(n)                                             # returns the Issue number
+        self.assertEqual(sum(1 for i in fake.issues.values() if i["state"] == "open"), 1)
+        self.assertFalse(os.path.exists(self.spool))                  # trust-critical is NEVER spooled
+
+    def test_trust_critical_without_boundary_never_hits_live_github_under_test(self):
+        self.assertIn("unittest", sys.modules)                        # the safety-backstop condition
+        self.assertFalse(telemetry.emit_finding(self._tc(), spool_path=self.spool))
+        self.assertFalse(os.path.exists(self.spool))                  # not spooled either
+
+    def test_benign_is_spooled_not_promoted(self):
+        self.assertFalse(telemetry.emit_finding(self._benign(), spool_path=self.spool))  # spool != tracked
+        with open(self.spool, encoding="utf-8") as fh:
+            lines = [ln for ln in fh if ln.strip()]
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(json.loads(lines[0])["source_id"], "boot/refused-cursor")
+
+    def test_drain_promotes_after_persistence_and_clears_the_spool(self):
+        fake, gh = self._gh()
+        n = int(telemetry.load_thresholds().get("persistence", 3))
+        for _ in range(n):                                            # a persistent degradation re-emits + drains
+            telemetry.emit_finding(self._benign(), spool_path=self.spool)
+            self._drain(gh)
+            self.assertFalse(os.path.exists(self.spool))              # each drain claims + clears the spool
+        self.assertIn("boot/refused-cursor", self._open_sids(fake))   # promoted once persistence crossed
+
+    def test_drain_is_authoritative_scoped_and_never_closes_another_source(self):
+        fake, gh = self._gh()
+        telemetry.promote_finding(gh, {"source_id": "ci/build", "severity": telemetry.PERSISTENT_BENIGN,
+                                       "message": "a required check is red", "location": None}, self._NOW)
+        telemetry.emit_finding(self._benign(), spool_path=self.spool)
+        self._drain(gh)
+        self.assertIn("ci/build", self._open_sids(fake))              # a different source's Issue is untouched
+
+    def test_drain_drops_a_marker_unsafe_line_without_promoting_or_closing(self):
+        # The spool is a persistence boundary: an unsafe source_id must be dropped (never promoted) AND must
+        # not land in `authoritative` (which would wrongly auto-close its Issue). A corrupt line is tolerated.
+        fake, gh = self._gh()
+        with open(self.spool, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"source_id": "x<!-- forged -->", "severity": telemetry.PERSISTENT_BENIGN,
+                                 "message": "m", "location": None}) + "\n")
+            fh.write("this is not json\n")
+        self.assertIsNone(self._drain(gh))                            # nothing promotable -> no run
+        self.assertEqual(len(fake.issues), 0)
+
+    def test_drain_of_absent_spool_is_a_noop(self):
+        _fake, gh = self._gh()
+        self.assertIsNone(self._drain(gh))
+
+    def test_drain_respools_the_batch_on_a_github_degrade(self):
+        fake, gh = self._gh(fail_status=403)
+        telemetry.emit_finding(self._benign(), spool_path=self.spool)
+        report = self._drain(gh)
+        self.assertTrue(report.degraded)
+        with open(self.spool, encoding="utf-8") as fh:                # nothing lost — it re-drains next pass
+            lines = [ln for ln in fh if ln.strip()]
+        self.assertEqual([json.loads(ln)["source_id"] for ln in lines], ["boot/refused-cursor"])
 
 
 if __name__ == "__main__":

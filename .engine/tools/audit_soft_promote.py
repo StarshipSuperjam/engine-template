@@ -3,10 +3,13 @@
 
 Slice 1 lets the weekly self-review SEE the firing soft validator findings; this closes the loop by giving
 a standing one a durable home — a deduped, lane-aware engine-labelled Issue — so it reaches boot and the
-issue tracker even when no one reads the digest closely. It only ever OPENS or UPDATES: it never closes an
-Issue. A finding that has cleared is recommended for closure by the self-review's own backlog concern
-(the audit reports and the operator decides — recommend, don't act), so this producer holds no autonomous
-close.
+issue tracker even when no one reads the digest closely. It runs a LIVE-DERIVED telemetry pass (F0204):
+open/update an Issue for each over-budget surface AND auto-resolve the Issue of a surface seen back under
+its budget — telemetry's standard source-scoped resolution, confined to `soft-budget:` sids so it can never
+close another source's Issue. This SUPERSEDES the original open/update-only stance: once telemetry gained a
+safe source-scoped auto-resolve (403.1), a trimmed file self-closing its own stale Issue is the honest
+behaviour and the same as every other engine health signal (CI, ambient, episodic). Auto-resolve clears the
+FLAG — it never repairs the file; trimming or raising the budget is still work someone does.
 
 SCOPE — length-budget nudges ONLY. The report-only `audit-prep` suite also carries other soft findings
 (e.g. the audit-digest staleness warning) whose remedy is different and which already have an escalation
@@ -45,9 +48,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402  (the collect seam + the prompt-fence defang)
-import telemetry         # noqa: E402  (the GitHub boundary + promote_finding + the benign severity class)
+import telemetry         # noqa: E402  (the GitHub boundary + the live triage pass + the benign severity class)
 import issue_author      # noqa: E402  (the shared engine-Issue body contract)
 import module_coherence  # noqa: E402  (provides_claims — the authoritative machinery test)
+import knowledge_query   # noqa: E402  (resolve the over-budget surface to its knowledge entity — F0202)
 
 # The report-only suite the length-budget nudges join (slice 1). Read here, never the CI gate.
 FEED_SUITE = "audit-prep"
@@ -55,6 +59,13 @@ FEED_SUITE = "audit-prep"
 # (`rule:` / `check/`) and the other producers (`close/disposition/`, `migration/version-stamp/`), so this
 # producer's Issues never collide with theirs.
 SOURCE_PREFIX = "soft-budget:"
+
+# This producer's OWN reconcile-accrual cache, separate from the CI / ambient / episodic stream caches so no
+# other local `run` can clobber it. Under the live-derived pass (below) the cache is not RELIED upon — the
+# durable Issue set is the truth — but `run` still takes and writes one; on the ephemeral audit runner that
+# write is harmless waste (the same reason the CI signal is live-derived, telemetry.py §CI-outcome signal).
+DEFAULT_SOFT_BUDGET_STREAMS_PATH = os.path.join(
+    validate.ROOT, ".engine", "telemetry", ".cache", "soft-budget-streams.json")
 
 
 def _neutralize(text: str) -> str:
@@ -73,11 +84,33 @@ def _neutralize(text: str) -> str:
     return text
 
 
-def _render(rel: str, message: str, machinery: bool) -> tuple:
+def _entity_reference(rel: str, repo: str | None) -> list | None:
+    """A single labelled link to the knowledge entity for "what is broken" (F0202 / D-031: a debt Issue
+    references knowledge entity-ids so telemetry owns the debt while knowledge stays surface-derived). The
+    entity IS the over-budget surface; the link is a GitHub blob permalink to it. `blob/HEAD/` resolves to
+    the default branch with NO branch lookup, so it needs no workflow env / extra ack. Returns None (no
+    reference — the Issue still opens; a reference is enrichment, never a gate) when there is no repo context,
+    the path resolves to no catalogued knowledge entity, or the resolve degrades. The label is neutralised
+    (author-influenced path); a catalogued surface path carries no url-breaking characters (budget_records
+    already drops an anomalous one), so the url is a plain, safe segment."""
+    if not repo:
+        return None
+    try:
+        entities = knowledge_query.find(path_glob=rel)
+    except Exception:  # noqa: BLE001 — a knowledge-read failure must never break promotion
+        return None
+    if not entities:
+        return None
+    url = f"https://github.com/{repo}/blob/HEAD/{rel}"
+    return [(_neutralize(f"The file that is over its length limit — {rel}"), url)]
+
+
+def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None) -> tuple:
     """The lane-aware (title, body_core) for one over-budget surface. `rel` is the raw repo path (the
     title is plain text, not rendered markdown) and `message` is the raw finding message; both the path
     and the message are neutralised before they enter the rendered body. body_core is prose only —
-    telemetry appends its tracking trailers + signal marker."""
+    telemetry appends its tracking trailers + signal marker. When the surface resolves to a knowledge
+    entity, a blob-permalink reference to it is folded in (F0202)."""
     where = _neutralize(rel)
     message = _neutralize(message)
     title = f"Engine length budget: {rel} is over its limit"
@@ -99,8 +132,9 @@ def _render(rel: str, message: str, machinery: bool) -> tuple:
             "- **Or leave it** — it is only a nudge and never blocks anything.\n"
             "- The engine has not sent anything to that upstream project and will not; logging it there "
             "is yours to decide.\n"
-            "- This is also noted in your weekly self-review — this Issue just keeps it tracked until it "
-            "is resolved or you close it."
+            "- This is also noted in your weekly self-review. The engine will **close this tracking issue "
+            "on its own** once the file is back under its limit — that only clears the flag, it does not "
+            "change the file for you."
         )
     else:
         what_this_is = (
@@ -114,19 +148,22 @@ def _render(rel: str, message: str, machinery: bool) -> tuple:
             "- **Trim it** in an ordinary change, or\n"
             "- **Raise its budget** with a recorded reason, or\n"
             "- **Leave it** — it is only a nudge and never blocks anything.\n"
-            "- This is also noted in your weekly self-review — this Issue just keeps it tracked until it "
-            "is resolved or you close it."
+            "- This is also noted in your weekly self-review. The engine will **close this tracking issue "
+            "on its own** once the file is back under its limit — that only clears the flag, it does not "
+            "change the file for you."
         )
-    body_core = issue_author.render_engine_issue_body(what_this_is=what_this_is, whats_next=whats_next)
+    body_core = issue_author.render_engine_issue_body(
+        what_this_is=what_this_is, whats_next=whats_next, references=_entity_reference(rel, repo))
     return title, body_core
 
 
-def budget_records(now: str, *, claims: dict | None = None) -> list:
+def budget_records(now: str, *, claims: dict | None = None, repo: str | None = None) -> list:
     """One finding-record per firing length-budget nudge — soft, kind `shape`, with a file location —
-    each carrying a lane-aware `title` + `body_core` ready for telemetry.promote_finding. Lane is the
+    each carrying a lane-aware `title` + `body_core` ready for the live triage pass. Lane is the
     authoritative machinery test: a file a present module manifest claims is overlaid on every upgrade.
     `claims` (the {relpath: [owner,...]} ownership map) is injectable so the demo/tests can exercise both
-    lanes on a real over-budget finding without mutating shipped files; by default it is computed live."""
+    lanes on a real over-budget finding without mutating shipped files; by default it is computed live.
+    `repo` (owner/name) is threaded to the body render for the F0202 entity permalink; None omits it."""
     findings = validate.collect(FEED_SUITE, {}, with_source=True)
     if claims is None:
         claims = module_coherence.provides_claims(module_coherence.discover_manifests())
@@ -145,7 +182,7 @@ def budget_records(now: str, *, claims: dict | None = None) -> list:
             # depth alongside the body neutralisation below.
             continue
         machinery = bool(claims.get(rel))            # claimed by a manifest's provides => machinery
-        title, body_core = _render(rel, f.get("message", ""), machinery)
+        title, body_core = _render(rel, f.get("message", ""), machinery, repo=repo)
         records.append({
             "source_id": f"{SOURCE_PREFIX}{rel}",
             "severity": telemetry.PERSISTENT_BENIGN,
@@ -157,22 +194,50 @@ def budget_records(now: str, *, claims: dict | None = None) -> list:
     return records
 
 
-def promote(repo: str, token: str, now: str, *, transport=None, claims: dict | None = None) -> tuple:
-    """Open-or-update one deduped, lane-aware tracked Issue per firing budget nudge. No close.
-    Returns (tracked_count, degraded). `transport` is injectable so the demo/tests fake only the network;
-    `claims` is passed through to budget_records for lane control in the demo/tests."""
-    records = budget_records(now, claims=claims)
-    if not records:
-        return 0, False
+def budget_surfaces() -> set:
+    """Every file the length-budget (`shape`) rules EVALUATE this pass — the full budget-governed surface set,
+    over AND under budget — as `soft-budget:<rel>` source-ids. This is the `authoritative` set for the live
+    triage pass (below): it is exactly `derive_ci_records`'s move — a now-passing check is authoritative so its
+    Issue can auto-resolve — applied here, so a file that DROPPED back under its budget (still evaluated, no
+    longer firing → absent from the records) auto-resolves its tracked Issue. Confined to `soft-budget:` sids
+    BY CONSTRUCTION, so a soft-budget pass can never close a `ci/`/`ambient/`/`episodic/`/out-of-band Issue
+    (the 403.1 scoping law — never AUTHORITATIVE_ALL). An anomalous path that could break the tracking marker
+    is dropped (marker-safety, mirroring budget_records)."""
+    surfaces = set()
+    for rule in validate.load_rules():
+        if rule.get("kind") != "shape":          # the length-budget nudge lives on the shape rules
+            continue
+        for path in validate.target_files(rule):
+            rel = os.path.relpath(path, validate.ROOT)
+            if any(c in rel for c in "<>\n\r"):
+                continue
+            surfaces.add(f"{SOURCE_PREFIX}{rel}")
+    return surfaces
+
+
+def promote(repo: str, token: str, now: str, *, transport=None, claims: dict | None = None,
+            cache_path: str = DEFAULT_SOFT_BUDGET_STREAMS_PATH):
+    """Run ONE live-derived triage pass over the firing budget nudges: open/update a deduped, lane-aware
+    tracked Issue for each over-budget surface, and AUTO-RESOLVE the Issue of any surface that dropped back
+    under its budget. Returns the telemetry `Report` (opened/updated/closed/degraded). `transport` is
+    injectable so the demo/tests fake only the network; `claims` is passed through to budget_records for lane
+    control; `cache_path` overrides the accrual cache so the demo/tests isolate it (a shared default cache with
+    a fresh fake GitHub — whose issue numbers reset per run — would misattribute across runs). Under live=True
+    the cache is not RELIED upon, but it is still read/written, so isolating it keeps the demo/tests deterministic.
+
+    LIVE-DERIVED (live=True), like the CI signal: a length-budget overrun is a re-derivable STANDING condition
+    (not a flicker), so it promotes on first observation and its Issue auto-resolves the first pass it is seen
+    back under budget — telemetry's standard resolution (README "Resolution closes the issue"; auto-resolve
+    clears the flag, it does NOT repair the file). `authoritative` is the FULL budget-checked surface set
+    (`budget_surfaces()`), confined to `soft-budget:` sids, so the pass closes a cleared budget Issue but never
+    another source's. This supersedes the earlier open-or-update-only stance: telemetry's source-scoped
+    auto-resolve (403.1) now makes a safe close possible, so a trimmed file no longer leaves a stale Issue open
+    forever."""
+    records = budget_records(now, claims=claims, repo=repo)
     github = telemetry.GitHubIssues(repo, token, transport=transport)
-    tracked, degraded = 0, False
-    for r in records:
-        result = telemetry.promote_finding(github, r, now, title=r["title"], body_core=r["body_core"])
-        if result is False:
-            degraded = True
-        else:
-            tracked += 1
-    return tracked, degraded
+    return telemetry.run(github, records, telemetry.Cache(cache_path),
+                         telemetry.load_thresholds(), now,
+                         authoritative=budget_surfaces(), live=True)
 
 
 def main(argv: list) -> int:
@@ -183,16 +248,17 @@ def main(argv: list) -> int:
               "in the environment; it uses the GitHub token, never the Claude token)", file=sys.stderr)
         return 2
     try:
-        tracked, degraded = promote(repo, token, telemetry.utc_now())
+        report = promote(repo, token, telemetry.utc_now())
     except Exception as exc:  # noqa: BLE001 — fail-open: a transient blip must never fail the self-review
         print(f"Could not track standing soft findings this run ({exc}); the self-review continues and the "
               f"finding will re-fire next run. Nothing was lost.")
         return 0
-    if degraded:
-        print("Could not reach GitHub to track one or more standing soft findings this run; they will "
+    if report.degraded:
+        print("Could not reach GitHub to track standing length-budget findings this run; they will "
               "re-fire next run. Nothing was lost.")
-    elif tracked:
-        print(f"Tracked {tracked} standing length-budget finding(s) as engine issue(s).")
+    elif report.opened or report.updated or report.closed:
+        print(f"Length-budget triage: opened {report.opened}, updated {report.updated}, "
+              f"closed {report.closed} engine issue(s).")
     else:
         print("No standing length-budget findings are firing — nothing to track this run.")
     return 0
