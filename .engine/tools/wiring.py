@@ -484,6 +484,14 @@ def catalog_add(data: dict, directive: dict, schema: dict):
     if not isinstance(name, str) or not _SURFACE_NAME_RE.match(name):
         raise WiringError(f"refused: {name!r} is not a valid surface name (lowercase letters and "
                           f"hyphens).")
+    # Authority-tier reservation (issue #401): the top two authority ranks are reserved to the
+    # self-referential core (`contract`/`policy`); a module `ontology-entry` may not mint or downgrade one.
+    # Name-bound half (the seam has no module identity) — the owner-based half is authority_reservation_findings
+    # at the merge gate. Refused fail-closed here so a bad record never lands, mirroring the schema re-check.
+    reason = validate.reserved_authority_reason(
+        name, record.get("authority") if isinstance(record, dict) else None)
+    if reason:
+        raise WiringError(f"refused to add the ontology-entry '{name}': {reason} The engine made no change.")
     surfaces = data.setdefault("surfaces", {})
     if surfaces.get(name) == record:
         return data, False

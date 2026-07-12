@@ -589,5 +589,108 @@ class TestModuleKindDiscovery(unittest.TestCase):
         self.assertIs(validate.REGISTRY["schema"], real_schema)  # live registry: mutation undone
 
 
+class TestReservedAuthorityReason(unittest.TestCase):
+    """The single-homed authority-tier reservation law (issue #401): the bijection
+    contract<->decisions, policy<->standing-rules, broken by a squatter OR a downgrade/swap."""
+
+    def test_the_reserved_pairs_are_allowed(self):
+        self.assertIsNone(validate.reserved_authority_reason("contract", "decisions"))
+        self.assertIsNone(validate.reserved_authority_reason("policy", "standing-rules"))
+
+    def test_an_additive_surface_at_a_lower_tier_is_allowed(self):
+        self.assertIsNone(validate.reserved_authority_reason("check", "mechanics-and-guidance"))
+        self.assertIsNone(validate.reserved_authority_reason("report", "derived-observational"))
+
+    def test_a_squatter_claiming_a_reserved_tier_is_flagged(self):
+        for nm in ("usurper", "check"):
+            self.assertIn("outrank", validate.reserved_authority_reason(nm, "decisions"))
+            self.assertIn("outrank", validate.reserved_authority_reason(nm, "standing-rules"))
+
+    def test_a_reserved_surface_off_its_rank_is_flagged(self):
+        self.assertIsNotNone(validate.reserved_authority_reason("contract", "mechanics-and-guidance"))
+        self.assertIsNotNone(validate.reserved_authority_reason("policy", "mechanics-and-guidance"))
+        # a swap (a reserved surface set to the OTHER reserved tier) is also flagged
+        self.assertIsNotNone(validate.reserved_authority_reason("contract", "standing-rules"))
+        self.assertIsNotNone(validate.reserved_authority_reason("policy", "decisions"))
+
+    def test_absent_or_unknown_authority_is_never_a_violation(self):
+        self.assertIsNone(validate.reserved_authority_reason("check", None))
+        self.assertIsNone(validate.reserved_authority_reason("check", "nonsense-tier"))
+        self.assertIsNone(validate.reserved_authority_reason("widget", None))
+
+
+class TestAuthorityReservationFindings(unittest.TestCase):
+    """The pure two-leg merge-gate scan (issue #401): Leg A over the catalog, Leg B over non-core
+    manifests. `manifests` is a list of manifest DICTS (the check script feeds discover_manifests()
+    unpacked to dicts) — the tests feed that identical shape so a green test can't mask a no-op."""
+
+    CLEAN = {"surfaces": {
+        "contract": {"authority": "decisions"},
+        "policy": {"authority": "standing-rules"},
+        "check": {"authority": "mechanics-and-guidance"},
+    }}
+
+    def test_a_clean_catalog_and_no_modules_pass(self):
+        self.assertEqual(validate.authority_reservation_findings(self.CLEAN, [], "hard", "M"), [])
+
+    def test_leg_a_flags_a_hand_edited_squatter(self):
+        cat = {"surfaces": dict(self.CLEAN["surfaces"], usurper={"authority": "decisions"})}
+        fs = validate.authority_reservation_findings(cat, [], "hard", "M")
+        self.assertEqual(len(fs), 1)
+        self.assertEqual(fs[0]["severity"], "hard")
+        self.assertIn("usurper", fs[0]["message"])
+        self.assertIn("outrank", fs[0]["message"])
+
+    def test_leg_a_flags_a_downgraded_contract(self):
+        cat = {"surfaces": dict(self.CLEAN["surfaces"], contract={"authority": "mechanics-and-guidance"})}
+        fs = validate.authority_reservation_findings(cat, [], "hard", "M")
+        self.assertEqual(len(fs), 1)
+        self.assertIn("contract", fs[0]["message"])
+
+    def test_leg_b_flags_a_non_core_module_claiming_a_reserved_tier(self):
+        m = {"id": "rogue", "wires": [
+            {"type": "ontology-entry", "name": "usurper", "record": {"authority": "decisions"}}]}
+        fs = validate.authority_reservation_findings(self.CLEAN, [m], "hard", "M")
+        self.assertEqual(len(fs), 1)
+        self.assertIn("rogue", fs[0]["message"])
+        self.assertIn("usurper", fs[0]["message"])
+
+    def test_leg_b_flags_a_non_core_module_claiming_a_reserved_name(self):
+        # the reserved-NAME hijack the name-bound seam guard passes — Leg B is the owner-based catch
+        m = {"id": "rogue", "wires": [
+            {"type": "ontology-entry", "name": "contract", "record": {"authority": "decisions"}}]}
+        fs = validate.authority_reservation_findings(self.CLEAN, [m], "hard", "M")
+        self.assertEqual(len(fs), 1)
+        self.assertIn("rogue", fs[0]["message"])
+        self.assertIn("contract", fs[0]["message"])
+
+    def test_core_may_hold_the_reserved_surfaces(self):
+        m = {"id": "core", "wires": [
+            {"type": "ontology-entry", "name": "contract", "record": {"authority": "decisions"}}]}
+        self.assertEqual(validate.authority_reservation_findings(self.CLEAN, [m], "hard", "M"), [])
+
+    def test_one_root_cause_reports_once_naming_the_module(self):
+        cat = {"surfaces": dict(self.CLEAN["surfaces"], usurper={"authority": "decisions"})}
+        m = {"id": "rogue", "wires": [
+            {"type": "ontology-entry", "name": "usurper", "record": {"authority": "decisions"}}]}
+        fs = validate.authority_reservation_findings(cat, [m], "hard", "M")
+        self.assertEqual(len(fs), 1)                    # deduped by surface name
+        self.assertIn("rogue", fs[0]["message"])        # the module-naming (Leg B) finding wins
+
+    def test_the_scan_is_total_on_malformed_records_and_wires(self):
+        cat = {"surfaces": {"x": {"class": "structured"}, "y": "not-a-dict",
+                            "contract": {"authority": "decisions"}}}
+        m1 = {"id": "rogue", "wires": [{"type": "ontology-entry", "name": "z", "record": {}}]}
+        m2 = {"id": "rogue2", "wires": ["not-a-dict", {"type": "hook"}]}
+        # nothing touches the reserved space -> empty, and crucially no crash on the malformed inputs
+        self.assertEqual(validate.authority_reservation_findings(cat, [m1, m2], "hard", "M"), [])
+
+    def test_the_real_repository_holds_the_reservation(self):
+        import module_coherence
+        catalog = validate.load_json(validate.CATALOG_PATH)
+        manifests = [m for _p, m in module_coherence.discover_manifests()]
+        self.assertEqual(validate.authority_reservation_findings(catalog, manifests, "hard", "M"), [])
+
+
 if __name__ == "__main__":
     unittest.main()
