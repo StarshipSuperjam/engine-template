@@ -78,6 +78,14 @@ USER_AGENT = "engine-telemetry"
 # comment, so it never renders as visible prose — no backstage vocabulary reaches the operator.
 _SENTINEL_TEMPLATE = "<!-- engine-signal: {sid} -->"
 _SENTINEL_RE = re.compile(r"<!--\s*engine-signal:\s*(.+?)\s*-->")
+# The severity class carried in a SECOND invisible marker alongside the signal id, so the durable Issue
+# itself records whether it is a low-impact (persistent-but-benign) or trust-critical item. This is what lets
+# boot count the COMPLETE open low-severity set for the render-only triage-pressure meter from its existing
+# read-only Issue read — authoritative from the durable record, never a per-machine cache that a scoped pass
+# (CI on an ephemeral runner, ambient on one laptop) can only partially see. The two constants are marker-safe
+# by construction; parse_severity takes the LAST match, so forged body prose cannot hijack it (as source-id).
+_SEVERITY_TEMPLATE = "<!-- engine-severity: {sev} -->"
+_SEVERITY_RE = re.compile(r"<!--\s*engine-severity:\s*(.+?)\s*-->")
 
 DEFAULT_POLICY_PATH = os.path.join(validate.ROOT, ".engine", "policies", "triage-threshold.md")
 DEFAULT_STATE_PATH = os.path.join(validate.ROOT, ".engine", "state", "state.json")
@@ -157,8 +165,8 @@ def triage_pressure_line(open_low_severity_count: int, threshold: int) -> str | 
     meter never becomes an item itself, so it cannot feed the volume it measures."""
     if open_low_severity_count > threshold:
         # The trailing sentence is the reactive retune offer (D-167): the threshold that decides when this
-        # reminder fires is itself tunable, so the command is offered at the moment it surfaces. Dormant until
-        # the triage-pressure stream renders live (a later slice wires the run); the offer rides the template.
+        # reminder fires is itself tunable, so the command is offered at the moment it surfaces. Boot renders
+        # this line live from the complete open low-severity count (#403.2), so the offer fires on a real backlog.
         return ("The engine's self-monitoring backlog is growing — there are several low-priority "
                 "engine items open. Nothing here is urgent; you can review them when convenient. "
                 "You can also change when this reminder appears — type /engine-tune.")
@@ -174,6 +182,16 @@ def parse_source_id(body: str) -> str | None:
     contains a forged `<!-- engine-signal: ... -->`, the real trailing marker still wins and dedup
     cannot be hijacked by an earlier forgery."""
     matches = _SENTINEL_RE.findall(body or "")
+    return matches[-1] if matches else None
+
+
+def parse_severity(body: str) -> str | None:
+    """Recover a tracked Issue's severity class from its invisible severity marker — the read boot counts
+    for the render-only triage-pressure meter (the COMPLETE open low-severity set, authoritative from the
+    durable Issue itself). Takes the LAST marker (telemetry appends its own last, so forged body prose cannot
+    hijack it), mirroring parse_source_id. None when the marker is absent (a pre-severity Issue, counted once
+    telemetry next updates it) or was stripped."""
+    matches = _SEVERITY_RE.findall(body or "")
     return matches[-1] if matches else None
 
 
@@ -208,21 +226,24 @@ def issue_body(record: dict, first_seen: str, last_seen: str) -> str:
         "If it lingers and you want it sorted sooner, just say so."
     )
     body = issue_author.render_engine_issue_body(what_this_is=what_this_is, whats_next=whats_next)
-    return _with_tracking_trailers(body, record["source_id"], first_seen, last_seen)
+    return _with_tracking_trailers(body, record["source_id"], record["severity"], first_seen, last_seen)
 
 
-def _with_tracking_trailers(body_core: str, source_id: str, first_seen: str, last_seen: str) -> str:
-    """Append telemetry's two own trailers to an already-rendered issue body: the first-/last-seen
-    line and the invisible signal marker (an HTML comment, recovered by parse_source_id even after a
-    cache wipe). Telemetry OWNS the marker, which it appends LAST — so even if a caller's body prose
-    carries a forged `<!-- engine-signal: ... -->`, parse_source_id (which takes the LAST match) still
-    recovers this real one. The producer's contract: the source_id must be marker-safe (no `<!--`/`-->`
-    or newline — every producer's source_id is a plain key, and the soft-finding promoter skips any path
-    that is not). Shared by issue_body (telemetry's own health framing) and promote_finding's
-    pre-rendered-body path (a producer's lane-aware framing), so the trailer/marker shape is stated once."""
+def _with_tracking_trailers(body_core: str, source_id: str, severity: str, first_seen: str,
+                            last_seen: str) -> str:
+    """Append telemetry's own trailers to an already-rendered issue body: the first-/last-seen line and
+    two invisible markers — the signal id (recovered by parse_source_id) and the severity class (recovered
+    by parse_severity), both HTML comments surviving a cache wipe. Telemetry OWNS the markers, appended LAST —
+    so even if a caller's body prose carries a forged marker, parse_source_id / parse_severity (each taking
+    the LAST match) still recover the real ones. The producer's contract: the source_id must be marker-safe
+    (no `<!--`/`-->` or newline — every producer's source_id is a plain key, and the soft-finding promoter
+    skips any path that is not); severity is one of the two known classes, marker-safe by construction. Shared
+    by issue_body (telemetry's own health framing) and promote_finding's pre-rendered-body path (a producer's
+    lane-aware framing), so the trailer/marker shape is stated once."""
     return (
         f"{body_core}\n"
         f"*First noticed {first_seen}; last reconfirmed {last_seen}.*\n\n"
+        f"{_SEVERITY_TEMPLATE.format(sev=severity)}\n"
         f"{_SENTINEL_TEMPLATE.format(sid=source_id)}\n"
     )
 
@@ -409,6 +430,7 @@ class GitHubIssues:
             page += 1
         for i in out:
             i["source_id"] = parse_source_id(i["body"])
+            i["severity"] = parse_severity(i["body"])
         return out
 
     def open_issue(self, title: str, body: str) -> dict:
@@ -684,8 +706,8 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
     sid = derive_source_key(record)
     first_seen = record.get("first_seen") or now
     ttl = title if title is not None else issue_title(record)
-    body = (_with_tracking_trailers(body_core, sid, first_seen, now) if body_core is not None
-            else issue_body(record, first_seen, now))
+    body = (_with_tracking_trailers(body_core, sid, record["severity"], first_seen, now)
+            if body_core is not None else issue_body(record, first_seen, now))
     try:
         github.ensure_label()
         existing = next((i for i in github.list_open_engine_issues() if i.get("source_id") == sid), None)
@@ -759,6 +781,189 @@ def derive_ci_records(github: GitHubIssues, ref: str, now: str):
             authoritative.add(sid)   # a definitive pass -> authoritative so any stale red Issue resolves
         # else: indeterminate (skipped/neutral/still-running) -> neither promoted nor authoritative
     return records, authoritative
+
+
+# ---- the ambient signal (best-effort local check-fires; the second signal of record) ----
+
+# The source-id namespace for an ambient signal (parallel to `ci/`). Ambient capture is telemetry's second
+# native signal: the local checks that run while you work append their fire + pass/fail (read from the check's
+# verdict, NOT the hook's exit) to a gitignored cache, and this reader derives persistent-warning finding-
+# records from it. It is best-effort and never complete (a local run is skippable), so nothing treats it as a
+# guarantee — a reliable signal is read from CI or a tracked Issue, never assumed from this cache (spec :45-48).
+AMBIENT_NAMESPACE = "ambient/"
+# Telemetry OWNS the ambient record shape (ambient-capture.v1) and where the cache lives. The cache path is a
+# build-spec leaf decided here: an NDJSON append-log (one check-fire per line), a SEPARATE file from the
+# reconcile persistence cache (streams.json) — raw fires vs derived accrual. It sits under the already whole-
+# dir-gitignored `.engine/telemetry/.cache/`, so it never commits and no new gitignore wire is owed.
+DEFAULT_AMBIENT_CACHE_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "ambient.ndjson")
+# The ambient driver's OWN reconcile-accrual cache — separate from the CI run's streams.json, so a local CI
+# `run` (which prunes any sid not currently an open Issue) can never clobber ambient's cross-session accrual.
+DEFAULT_AMBIENT_STREAMS_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache",
+                                            "ambient-streams.json")
+# The freshness WATERMARK: the observed_at of the newest fire the last pass consumed. Each pass considers only
+# fires NEWER than it for PROMOTION, so persistence counts genuinely FRESH re-fails across sessions — a one-time
+# transient fail that is never re-run does not climb to promotion (the persistence threshold is patience, not a
+# stale replay). Stored as one UTC-Z line in its own gitignored file.
+DEFAULT_AMBIENT_WATERMARK_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache",
+                                              "ambient-watermark")
+
+
+def _ambient_target_exists(target: str) -> bool:
+    """Whether an ambient fire's recorded target still exists. The target is stored RELATIVE to the repo root
+    (evaluate_touched_fires → os.path.relpath(…, ROOT)), so it MUST be resolved against ROOT, never the process
+    CWD — a SessionStart hook or a manual `run-ambient` from a subdirectory would otherwise mis-read a still-
+    present file as vanished and wrongly auto-resolve a still-failing check's Issue (a false all-clear)."""
+    return os.path.exists(os.path.join(validate.ROOT, target))
+
+
+def load_ambient_watermark(path: str = DEFAULT_AMBIENT_WATERMARK_PATH) -> str:
+    """The last consumed fire's observed_at (a UTC-Z string), or "" when absent — on "" every fire is fresh
+    (a first run promotes nothing extra: each rule's first observation is persist=1)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+def store_ambient_watermark(observed_at: str, path: str = DEFAULT_AMBIENT_WATERMARK_PATH) -> None:
+    """Persist the new watermark — best-effort (a failure just re-considers some fires fresh next pass, which
+    at worst nudges one extra persistence increment; never raises)."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write((observed_at or "") + "\n")
+    except OSError:
+        pass
+
+
+def ambient_record(rule_id: str, passed: bool, target, observed_at: str) -> dict:
+    """One ambient-capture.v1 check-fire record: a named check ran locally and did/didn't pass, plus the
+    touched target (or None when the moment names none) and when. Deliberately NOT a finding — a signal
+    source telemetry later derives findings from (the promotion happens in derive_ambient_records)."""
+    return {"rule_id": rule_id, "outcome": "pass" if passed else "fail",
+            "target": target, "observed_at": observed_at}
+
+
+def append_ambient(records: list, path: str = DEFAULT_AMBIENT_CACHE_PATH) -> None:
+    """Append check-fire records to the gitignored NDJSON cache — best-effort: it makes the dir, appends one
+    JSON object per line, and swallows any OSError. It NEVER raises into the caller (the PostToolUse hot
+    path); a lost fire is acceptable (the capture is never a guarantee)."""
+    if not records:
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            for rec in records:
+                fh.write(json.dumps(rec, sort_keys=True) + "\n")
+    except OSError:
+        pass
+
+
+def load_ambient(path: str = DEFAULT_AMBIENT_CACHE_PATH) -> list:
+    """Read the NDJSON check-fire log, tolerant PER LINE: a corrupt line is skipped, not the whole file (so
+    one bad byte never discards all accrual). An absent/unreadable file reads as [] (best-effort)."""
+    out = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        return []
+    return out
+
+
+def capture_touched_fires(paths: list, now: str, *, cache_path: str = DEFAULT_AMBIENT_CACHE_PATH) -> int:
+    """The PostToolUse ambient writer (telemetry OWNS the record + cache; the check-running hook RELAYS).
+    For each local check that evaluated a touched file, append a check-fire record with its pass/fail (read
+    from the check's verdict via validate.evaluate_touched_fires, not the hook's exit). Best-effort — the
+    file work is swallowed by append_ambient and the caller wraps this too, so it never breaks a tool call.
+    Returns the number of fires recorded."""
+    fires = validate.evaluate_touched_fires(paths)
+    records = [ambient_record(rid, passed, target, now) for (rid, passed, target) in fires]
+    append_ambient(records, cache_path)
+    return len(records)
+
+
+def _ambient_message(rule_id: str) -> str:
+    """The plain-language operator line for a persistently-failing local check. No backstage vocabulary; it is
+    honest that ambient reflects the LAST local run and may be stale (the capture is best-effort, and absence
+    is never read as resolved — it clears only when the check is seen passing again or its file is gone)."""
+    return (f"One of the engine's own checks — “{rule_id}” — was failing the last time it ran locally while "
+            "you were working (it may be stale if you haven't touched that area since). This is about the "
+            "engine's own checks, not your project, and it changes nothing on its own; it stays tracked here "
+            "until that check is seen passing again.")
+
+
+def derive_ambient_records(path: str = DEFAULT_AMBIENT_CACHE_PATH, watermark: str = "", *,
+                           exists=_ambient_target_exists):
+    """Derive telemetry finding-records from the ambient check-fire cache — a CACHE-ACCRUED signal (live=False).
+    Returns `(records, authoritative, new_watermark)`. Two distinct reads over the NDJSON log, deliberately so:
+
+    PROMOTION is FRESH-gated. Only fires NEWER than `watermark` count — the latest FRESH fire per rule wins. A
+    rule whose fresh latest is a FAIL (and whose target still exists) becomes a PERSISTENT_BENIGN record keyed
+    `source_id = "ambient/{rule_id}"`; every FRESHLY-observed rule (pass or fail) is `authoritative`. So a rule
+    freshly seen PASSING is authoritative-not-a-record → its Issue auto-resolves (a POSITIVE clearance, never
+    assumed from absence). Because only fresh fails feed the persistence count, a one-time/transient fail that
+    is never re-run does NOT climb to promotion — the persistence threshold stays what it is meant to be, a
+    patience window over genuinely recurring fresh fails, not a stale replay of one observation.
+
+    VANISHED-TARGET resolution reads the FULL cache (freshness-independent): a rule whose LATEST fire overall is
+    a fail but whose target file no longer exists is authoritative-to-resolve — the source is objectively gone,
+    a real positive observation, so its Issue clears even if the operator never re-runs it.
+
+    A rule with a stale still-failing fire (target exists, not freshly re-observed) is in NEITHER records NOR
+    authoritative → carried forward UNTOUCHED: an already-open Issue stays open honestly (the copy says it may
+    be stale), and it is never wrongly resolved on mere absence. A rule wiped from the cache is likewise carried
+    forward. `authoritative` is the OBSERVED-scoped `ambient/` set, NEVER AUTHORITATIVE_ALL — the cache is
+    per-machine and never complete, so a pass may only ever auto-resolve the `ambient/` Issues it actually saw.
+
+    `new_watermark` is the newest observed_at consumed (>= the old one) for the caller to persist. A rule whose
+    derived source-id is not marker-safe is SKIPPED. `exists` is injectable for tests (default root-anchored)."""
+    fresh_latest, full_latest, new_wm = {}, {}, watermark or ""
+    for f in load_ambient(path):
+        if not isinstance(f, dict):
+            continue
+        rid = f.get("rule_id")
+        ts = str(f.get("observed_at") or "")
+        if not rid or f.get("outcome") not in ("pass", "fail"):
+            continue
+        if full_latest.get(rid) is None or ts >= str(full_latest[rid].get("observed_at") or ""):
+            full_latest[rid] = f
+        if ts > (watermark or ""):                       # fresh: newer than the last consumed fire
+            if ts > new_wm:
+                new_wm = ts
+            if fresh_latest.get(rid) is None or ts >= str(fresh_latest[rid].get("observed_at") or ""):
+                fresh_latest[rid] = f
+    records, authoritative = [], set()
+    for rid, full in full_latest.items():
+        sid = f"{AMBIENT_NAMESPACE}{rid}"
+        if not source_id_is_marker_safe(sid):
+            continue
+        target = full.get("target")
+        outcome = full.get("outcome")
+        # RESOLUTION reads the FULL cache (a rule's current true state is STABLE across passes, so auto-resolve
+        # can accrue its `absent` count): a positive clearance is the latest fire being a PASS, or a FAIL whose
+        # target file has objectively vanished. Never assumed from mere absence.
+        if outcome == "pass" or (outcome == "fail" and target and not exists(target)):
+            authoritative.add(sid)
+            continue
+        # PROMOTION reads only FRESH fires (anti-transient): a still-failing rule becomes a record only when its
+        # FRESH latest is a fail whose target exists, so a one-time fail never re-run does not climb persistence.
+        fresh = fresh_latest.get(rid)
+        if fresh is not None and fresh.get("outcome") == "fail":
+            ftarget = fresh.get("target")
+            if not ftarget or exists(ftarget):
+                records.append({"source_id": sid, "severity": PERSISTENT_BENIGN,
+                                "message": _ambient_message(rid),
+                                "location": {"file": ftarget, "line": None} if ftarget else None})
+    return records, frozenset(authoritative), new_wm
 
 
 # ---- the operator demo (faked GitHub, REAL reconcile logic) ----------------
@@ -909,14 +1114,82 @@ def _demo(_argv) -> int:
             os.remove(path)
         except OSError:
             pass
+    print("\n(9) The SECOND signal source — best-effort AMBIENT capture of local check-fires. A local check")
+    print("    that keeps failing across sessions is tracked after it persists; once it is seen passing again")
+    print("    — or its file is gone — its item clears; and it NEVER touches an unrelated item:")
+    amb_fake = _FakeGitHub()
+    amb_gh = GitHubIssues("you/your-project", "demo-token", transport=amb_fake.transport)
+    amb_cache = Cache(os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo_ambient_streams.json"))
+    amb_ndjson = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo_ambient.ndjson")
+    for p in (amb_cache.path, amb_ndjson):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+    aclock = ["2026-06-07T0%d:00:00Z" % n for n in range(1, 9)]
+    amb_oob = _rec("hooks/fail-open/Stop/close", TRUST_CRITICAL, "A safety gate could not run this session.")
+    promote_finding(amb_gh, amb_oob, aclock[0])                       # an unrelated out-of-band item, opened directly
+    amb_oob_open = lambda: any(i["state"] == "open" and "fail-open" in i["body"] for i in amb_fake.issues.values())
+    amb_open = lambda rid: any(i["state"] == "open" and rid in i["body"] for i in amb_fake.issues.values())
+    seen_open, wm = [], ""
+    for k in range(3):                                               # a local check FRESHLY fails across 3 sessions
+        append_ambient([ambient_record("engine/check/policy-shape", False, "README.md", aclock[k])], amb_ndjson)
+        recs, auth, wm = derive_ambient_records(amb_ndjson, wm, exists=lambda p: True)
+        run(amb_gh, recs, amb_cache, th, aclock[k], authoritative=auth, live=False)
+        seen_open.append(amb_open("policy-shape"))
+    print(f"    fails freshly across 3 sessions -> tracked only after it persists: {seen_open}   "
+          f"(unrelated item untouched: {amb_oob_open()})")
+    # A ONE-TIME fail that is never re-run must NOT promote — persistence is a patience window over recurring
+    # FRESH fails, not a stale replay of one observation (the freshness watermark makes this real):
+    tr_fake = _FakeGitHub()
+    tr_gh = GitHubIssues("you/your-project", "demo-token", transport=tr_fake.transport)
+    tr_cache = Cache(os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo_ambient_tr.json"))
+    tr_ndjson = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo_ambient_tr.ndjson")
+    for p in (tr_cache.path, tr_ndjson):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+    append_ambient([ambient_record("engine/check/one-off", False, "x.md", aclock[0])], tr_ndjson)  # fires ONCE
+    tr_wm, tr_open = "", []
+    for k in range(3):                                              # three passes, NO new fire appended
+        recs, auth, tr_wm = derive_ambient_records(tr_ndjson, tr_wm, exists=lambda p: True)
+        run(tr_gh, recs, tr_cache, th, aclock[k], authoritative=auth, live=False)
+        tr_open.append(any(i["state"] == "open" for i in tr_fake.issues.values()))
+    transient_ok = tr_open == [False, False, False]
+    print(f"    a ONE-TIME fail never re-run -> NEVER promoted: {transient_ok}  (open across 3 passes: {tr_open})")
+    for p in (tr_cache.path, tr_ndjson):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+    append_ambient([ambient_record("engine/check/policy-shape", True, "README.md", aclock[3])], amb_ndjson)
+    for k in range(3, 6):                                           # now it is seen PASSING -> clears
+        recs, auth, wm = derive_ambient_records(amb_ndjson, wm, exists=lambda p: True)
+        run(amb_gh, recs, amb_cache, th, aclock[k], authoritative=auth, live=False)
+    cleared = not amb_open("policy-shape")
+    print(f"    seen passing again -> it clears: {cleared}   (unrelated item STILL untouched: {amb_oob_open()})")
+    append_ambient([ambient_record("engine/check/gone-rule", False, "deleted.md", aclock[6])], amb_ndjson)
+    gone_recs, gone_auth, _ = derive_ambient_records(amb_ndjson, "", exists=lambda p: p != "deleted.md")
+    gone_ok = ("ambient/engine/check/gone-rule" in gone_auth
+               and not any(r["source_id"] == "ambient/engine/check/gone-rule" for r in gone_recs))
+    print(f"    a failing check whose file was deleted is treated as gone, not stuck open: {gone_ok}")
+    amb_ok = (seen_open == [False, False, True] and transient_ok and cleared and amb_oob_open() and gone_ok)
+    for p in (amb_cache.path, amb_ndjson):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
     print("\nDone — no real issues were created; only the network was faked. The triage LOGIC above is "
           "real; that it writes correctly to your REAL GitHub is confirmed the first time it runs live.")
     # Self-check: ONE issue opens only when the benign signal crosses the threshold (3rd fire), re-fires
     # never duplicate it, a distinct trust-critical signal opens a 2nd, an unreachable GitHub degrades
-    # in-band (never a silent or wrong zero), and the LIVE CI source is tracked on the first failing pass
-    # and clears on the first green pass EVEN WITH THE CACHE WIPED, while never closing the unrelated
+    # in-band (never a silent or wrong zero), the LIVE CI source is tracked on the first failing pass and
+    # clears on the first green pass EVEN WITH THE CACHE WIPED, and the cache-accrued AMBIENT source promotes
+    # only after it persists, clears when seen passing or its file is gone, and never closes the unrelated
     # out-of-band item.
-    ok = open2 == 1 and open3 == 1 and open4 == 2 and bool(r6.degraded_line) and ci_ok
+    ok = (open2 == 1 and open3 == 1 and open4 == 2 and bool(r6.degraded_line) and ci_ok and amb_ok)
     if not ok:
         print("\nDEMO UNEXPECTED: the triage open/dedup/critical-open counts or the offline degrade line "
               "did not behave as expected.", file=sys.stderr)
@@ -1062,20 +1335,57 @@ def _run_cli(argv: list) -> int:
     return 0
 
 
+def _run_ambient_cli(argv: list) -> int:
+    """The ambient triage verb — the LOCAL SessionStart driver (a sibling of the memory/backup SessionStart
+    writers). Reads the gitignored local check-fire cache (the second signal of record) and reconciles the
+    engine-labelled issues for the `ambient/` source: a local check that keeps failing across sessions is
+    tracked, and once it is seen passing again — or its target file is gone — its item auto-resolves.
+
+    Unlike the CI `run` verb (which runs on the EPHEMERAL audit-prep runner that wipes the cache), this runs
+    on the LOCAL machine that OWNS the per-machine ambient cache — so it resolves the GitHub context the LOCAL
+    way (boot's repo_slug/gh_token, as close._github borrows), NOT CI env vars, and accrues persistence in its
+    OWN cache (ambient-streams.json) across sessions, separate from the CI run's streams.json. CACHE-ACCRUED
+    (live=False): it promotes only after the persistence threshold (smoothing a transient). SAFETY: auto-
+    resolve is scoped to the `ambient/` source-ids OBSERVED this pass, so it can never touch a `ci/` or other
+    out-of-band issue. Fail-open: no local repo/token (the normal state on a machine not logged in), or an
+    unreachable GitHub, degrades to exit 0 touching nothing; main()'s boundary backstops any other error. An
+    optional argv[0] overrides the ambient stream-cache path (for tests)."""
+    from boot import repo_slug, gh_token   # lazy: boot imports telemetry, a back-edge safe only lazily
+    repo, token = repo_slug(), gh_token()
+    if not repo or not token:
+        return 0   # no local GitHub context — the normal state off a logged-in machine; skip silently
+    now = utc_now()
+    gh = GitHubIssues(repo, token)
+    cache = Cache(argv[0]) if argv else Cache(DEFAULT_AMBIENT_STREAMS_PATH)
+    watermark = load_ambient_watermark()
+    records, authoritative, new_watermark = derive_ambient_records(watermark=watermark)
+    report = run(gh, records, cache, load_thresholds(), now, authoritative=authoritative, live=False)
+    if report.degraded:
+        print("Could not reach GitHub to run the engine's ambient check-health triage; nothing was changed.")
+        return 0   # leave the watermark unadvanced — the un-consumed fires stay fresh for the next pass
+    store_ambient_watermark(new_watermark)   # advance only after a clean pass, so nothing is silently skipped
+    print(f"Ran the engine's ambient check-health triage: opened={report.opened}, "
+          f"updated={report.updated}, closed={report.closed}.")
+    return 0
+
+
 def main(argv: list) -> int:
     """Fail-open: telemetry is self-surfacing and must never break a session. Any unexpected error
     emits a plain finding and exits 0."""
     try:
         if argv and argv[0] == "run":
             return _run_cli(argv[1:])
+        if argv and argv[0] == "run-ambient":
+            return _run_ambient_cli(argv[1:])
         if argv and argv[0] == "demo":
             return _demo(argv[1:])
         if argv and argv[0] == "refresh":
             return _refresh_cli(argv[1:])
         if argv and argv[0] == "engine-issues":
             return _engine_issues_cli(argv[1:])
-        print("usage: telemetry.py {run|demo|refresh|engine-issues}   (`run` is the live CI-health triage "
-              "the scheduled audit-prep workflow drives; demo shows the logic on a fake GitHub)",
+        print("usage: telemetry.py {run|run-ambient|demo|refresh|engine-issues}   (`run` is the live "
+              "CI-health triage the scheduled audit-prep workflow drives; `run-ambient` is the local "
+              "SessionStart triage over local check-fires; demo shows the logic on a fake GitHub)",
               file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 — fail-open is the whole point
