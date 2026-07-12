@@ -120,6 +120,15 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(_errors(AGENT_SCHEMA, VALID_WORKER), [])      # absent (a worker)
         self.assertEqual(_errors(AGENT_SCHEMA, VALID_REVIEWER), [])    # present (a reviewer)
 
+    def test_status_lifecycle_optional_and_enforced(self):
+        # #402 U07b: the optional artifact-lifecycle status slot (mirrors doc/operation). Omitted means active;
+        # active/deprecated/retired conform; a value outside the set is rejected; status is NOT required.
+        self.assertEqual(_errors(AGENT_SCHEMA, VALID_WORKER), [])                      # omitted -> active
+        for st in ("active", "deprecated", "retired"):
+            self.assertEqual(_errors(AGENT_SCHEMA, {**VALID_WORKER, "status": st}), [], f"{st} must conform")
+        for st in ("draft", "proposed", "bogus"):
+            self.assertNotEqual(_errors(AGENT_SCHEMA, {**VALID_WORKER, "status": st}), [], f"{st} must be rejected")
+
     def test_platform_passthrough_keys_conform(self):
         rich = {**VALID_WORKER, "tools": ["Read", "Edit"], "permissionMode": "acceptEdits",
                 "model": "sonnet", "effort": "low"}

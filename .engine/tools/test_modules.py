@@ -74,6 +74,17 @@ class TestModuleSchema(unittest.TestCase):
     def test_status_outside_the_closed_set_is_flagged(self):
         self.assertTrue(_errors(MODULE_SCHEMA, {**VALID_MODULE, "status": "bogus"}))
 
+    def test_version_must_be_semver(self):
+        # #402 U07a: a non-semver version fails the hard schema gate rather than silently parsing to (0,) in
+        # migration selection (validate._ver_tuple), which would mis-select/skip migrations. Strict
+        # MAJOR.MINOR.PATCH (all shipped manifests are 0.1.0); the -dev/-rc pre-release suffix is allowed.
+        for good in ("0.1.0", "1.4.0", "1.4.0-dev", "2.0.0-rc1", "10.20.30"):
+            self.assertEqual(_errors(MODULE_SCHEMA, {**VALID_MODULE, "version": good}), [],
+                             f"{good} is valid semver and must pass")
+        for bad in ("abc", "latest", "v1", "1.4", "1", "", "1.2.3.4", "0"):
+            self.assertTrue(_errors(MODULE_SCHEMA, {**VALID_MODULE, "version": bad}),
+                            f"{bad} is not MAJOR.MINOR.PATCH semver and must be rejected")
+
     def test_field_outside_the_grammar_is_flagged(self):
         self.assertTrue(_errors(MODULE_SCHEMA, {**VALID_MODULE, "extra": 1}))
 
@@ -296,6 +307,21 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(claims.get(".engine/suites.json"), ["core"])  # the foundation group
         self.assertEqual(claims.get(".engine/tools/validate.py"), ["core"])
 
+    def test_engine_parts_skill_is_claimed_by_core(self):
+        # #402 U06a: engine-parts (shipped in #400) was committed under .claude/skills/ but claimed by NO
+        # module's provides, so it rode along invisibly — the ownership walk is .engine/-only, and the
+        # claim-driven graph inventory only entitizes CLAIMED files. Core now claims it, so the graph tracks it.
+        # The ownership walk is deliberately NOT widened to .claude/ (co-occupied with operators' own
+        # un-prefixed product skills — knowledge_gen.surface_instance_inventory / skill.v1); the residual
+        # "an unclaimed engine skill under .claude/ can still ride invisibly" is a logged gap, not closed here.
+        import knowledge_gen
+        parts = ".claude/skills/engine-parts/SKILL.md"
+        claims = module_coherence.provides_claims(module_coherence.discover_manifests())
+        self.assertEqual(claims.get(parts), ["core"], "core must claim the engine-parts skill")
+        catalog = validate.load_json(validate.CATALOG_PATH)
+        self.assertIn(parts, knowledge_gen.surface_instance_inventory(catalog, claims),
+                      "engine-parts must now be a tracked surface instance in the claim-driven inventory")
+
     def test_check_corpus_split_core_two_guards_validators_core_forty(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
@@ -464,14 +490,29 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # so claiming it keeps a committed digest from reading as an ownership orphan — the gap the first
         # real run (digest PR #194) exposed. The literal path (not a `*.md` glob) avoids double-claiming the
         # setup page. It owns NO check or schema this slice — the concern-list check is validators-core's and
-        # the schema rides core's schema glob — and it depends on core + validators-core (the semantic audit
-        # assumes the mechanical floor).
+        # the schema rides core's schema glob — and it depends on validators-core only (see the dedicated
+        # depends test below for why the explicit core edge was dropped).
         manifests = module_coherence.discover_manifests()
         al = next((m for _p, m in manifests if m.get("id") == "audit-library"), None)
         self.assertIsNotNone(al, "audit-library must be a present module")
         self.assertEqual(al.get("status"), "required")
         self.assertEqual(al.get("wires"), [])
-        self.assertEqual(al.get("depends"), {"core": "", "validators-core": ""})
+        self.assertEqual(al.get("depends"), {"validators-core": ""})
+
+    def test_audit_library_depends_on_validators_core_only(self):
+        # #402 U08a: the explicit `core` edge is redundant and was dropped. The catalog table
+        # (modules/README.md), the dependency graph, and audit-library's own spec all name validators-core
+        # ONLY (D-136); core reaches audit-library transitively (core -> validators-core -> audit-library),
+        # since validators-core declares depends {core}. Dropping the edge is behaviour-neutral: the install
+        # order is unchanged because core stays present and still orders before validators-core.
+        manifests = module_coherence.discover_manifests()
+        al = next(m for _p, m in manifests if m.get("id") == "audit-library")
+        self.assertEqual(set(al.get("depends", {})), {"validators-core"},
+                         "audit-library's only direct dependency is validators-core (the redundant core edge is gone)")
+        # core still present and still transitively reached, so the topological order is unchanged.
+        order = [m["id"] for m in validate.topological_order([m for _p, m in manifests])]
+        self.assertLess(order.index("core"), order.index("validators-core"))
+        self.assertLess(order.index("validators-core"), order.index("audit-library"))
         self.assertEqual(al.get("provides"), {
             "agent": [".claude/agents/audit.md"],
             "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md",

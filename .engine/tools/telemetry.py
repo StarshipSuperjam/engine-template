@@ -39,6 +39,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -850,6 +851,26 @@ def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str 
 # Build-spec leaf (recorded with the maintainer, PR body + memory): the spool is a gitignored NDJSON at the
 # path below, beside telemetry's other .cache siblings (ambient.ndjson / *-streams.json).
 INBOX_SPOOL_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "findings-inbox.ndjson")
+# The drain driver's OWN reconcile-accrual cache — separate from streams.json / ambient-streams.json /
+# episodic-streams.json, so a sibling run() (which prunes any sid not currently an open Issue) can never
+# clobber the inbox drain's cross-session persistence accrual.
+DEFAULT_INBOX_STREAMS_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "inbox-streams.json")
+
+# The broken-runtime marker (build-spec leaf, recorded with the maintainer). The hook LAUNCHER (hook-runner.sh)
+# fails BEFORE any Python runs when `.engine/.venv/` is absent, so it cannot reach telemetry to emit a finding;
+# instead it best-effort drops this PRESENCE marker (a single file, no schema — the shell only knows the path),
+# and the drain-inbox SessionStart driver, on a later session where the runtime is healthy again, converts a
+# present marker into ONE TRUST_CRITICAL "could-not-run" finding promoted IMMEDIATELY (hooks/README
+# fail-open-and-flag: a missing tool-runtime surfaces as a crash would, on first occurrence, not persistence-
+# gated; D-156) and clears it. Presence-based, NOT a parsed format, so the drift test pins the whole shell↔Python
+# contract by the path literal alone; the marker's bytes NEVER enter the finding (fixed source_id + fixed
+# message), so a poisoned marker cannot forge a signal sentinel. The fixed source_id de-dups across sessions.
+RUNTIME_HEALTH_MARKER_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "runtime-health.marker")
+RUNTIME_UNHEALTHY_SOURCE_ID = "runtime/tool-runtime-unhealthy"
+# A `*.draining` aside is swept back through the drain only when it is older than this — far beyond any real
+# drain (a few GitHub calls, seconds) — so the sweep recovers a CRASHED drain's stranded batch without ever
+# scavenging a CONCURRENT live drain's in-flight aside (per-PID asides overlap under the multi-session model).
+_ASIDE_STALE_SECONDS = 300.0
 
 
 def emit_finding(record: dict, *, gh: "GitHubIssues | None" = None, spool_path: str = INBOX_SPOOL_PATH):
@@ -991,6 +1012,79 @@ def _restore_inbox(records: list, spool_path: str) -> None:
                 fh.write(json.dumps(r, sort_keys=True) + "\n")
     except OSError:
         pass
+
+
+def _runtime_marker_message() -> str:
+    """The plain-language operator line for a broken tool-runtime finding. Engine's-own-health, not the
+    operator's project; names the absent runtime (no stack trace exists — the launcher failed pre-Python);
+    honest that it is a PAST condition retired by review / the provisioning fix (never self-closing); no
+    backstage vocabulary (no marker / spool / drain / severity)."""
+    return ("The engine couldn't run its own tools during a recent session — its private Python environment "
+            "wasn't ready, so one of its safety checks could not run and that session's work was not verified. "
+            "This is about the engine's own setup, not your project, and it changes nothing on its own. If it "
+            "keeps happening, the engine's environment needs to be set up again; once that's done you can "
+            "retire this note.")
+
+
+def promote_runtime_marker(github: GitHubIssues, *, marker_path: str = RUNTIME_HEALTH_MARKER_PATH) -> bool:
+    """Convert a present broken-runtime marker into ONE tracked finding. The hook launcher drops the marker
+    when it cannot start the engine's Python (see RUNTIME_HEALTH_MARKER_PATH); here — on a session where the
+    runtime IS healthy — that becomes a TRUST_CRITICAL "could-not-run" finding, promoted IMMEDIATELY (never
+    spooled/persistence-gated: hooks/README fail-open-and-flag, a missing tool-runtime surfaces as a crash
+    would). The marker is cleared ONLY on a successful promote, so a no-token / GitHub-unreachable pass leaves
+    it to retry next session (nothing lost). De-duped across sessions by the fixed source_id. Presence-only:
+    the marker's bytes never enter the finding. Returns True when a marker was promoted. Fail-open: any error
+    is a no-op (False) — surfacing a finding must never break the session-start driver."""
+    try:
+        if not os.path.exists(marker_path):
+            return False
+        record = {"source_id": RUNTIME_UNHEALTHY_SOURCE_ID, "severity": TRUST_CRITICAL,
+                  "message": _runtime_marker_message(), "location": None}
+        if emit_finding(record, gh=github):   # trust-critical -> promote_finding at once; truthy on success
+            try:
+                os.remove(marker_path)         # clear ONLY after a durable promote; else leave it to retry
+            except OSError:
+                pass
+            return True
+    except Exception:  # noqa: BLE001 — fail-open: a marker promote must never break the driver
+        pass
+    return False
+
+
+def _sweep_stranded_asides(spool_path: str = INBOX_SPOOL_PATH, *, min_age_seconds: float = _ASIDE_STALE_SECONDS) -> int:
+    """Recover a crashed drain's stranded batch (the residual _take_inbox hands to #412): re-append any
+    mtime-STALE `<spool>.<pid>.draining` aside back to the LIVE spool, so the next drain_inbox picks it up
+    through the SINGLE validation + authoritative-scoping path (never a second run() that could widen
+    authority). AGE-GATED: only asides older than `min_age_seconds` — far beyond any real drain — are swept,
+    so a CONCURRENT live drain's in-flight aside is never scavenged. A double-sweep of one aside re-appends
+    idempotently (promotion is source_id-deduped), so the un-claimed read/remove race is harmless. Returns the
+    count swept. Fail-open throughout."""
+    directory = os.path.dirname(spool_path)
+    prefix = os.path.basename(spool_path) + "."
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return 0
+    now_ts = time.time()
+    swept = 0
+    for name in names:
+        if not (name.startswith(prefix) and name.endswith(".draining")):
+            continue
+        aside = os.path.join(directory, name)
+        try:
+            if now_ts - os.path.getmtime(aside) < min_age_seconds:
+                continue   # young enough to be a live concurrent drain's aside — never scavenge it
+            with open(aside, encoding="utf-8") as fh:
+                lines = [ln for ln in fh if ln.strip()]
+            os.makedirs(directory, exist_ok=True)
+            with open(spool_path, "a", encoding="utf-8") as out:
+                for ln in lines:
+                    out.write(ln if ln.endswith("\n") else ln + "\n")
+            os.remove(aside)
+            swept += 1
+        except OSError:
+            continue
+    return swept
 
 
 # ---- the CI-outcome signal (the first "signal of record"; native, no bespoke ledger) ----
@@ -2021,6 +2115,44 @@ def _run_episodic_cli(argv: list) -> int:
     return 0
 
 
+def _run_drain_cli(argv: list) -> int:
+    """The findings-inbox drain verb — the LOCAL SessionStart driver (a sibling of run-ambient/run-episodic and
+    the memory/backup SessionStart writers) that stands the emit-and-done seam's drain up in PRODUCTION (the
+    cadence #412 owns). Three fail-open jobs:
+      1) promote the broken-runtime marker → ONE TRUST_CRITICAL could-not-run finding, immediately (the live
+         producer this slice delivers; the hook launcher drops the marker when the engine's Python is absent);
+      2) sweep mtime-stale `*.draining` asides (a crashed drain's stranded batch) back through the drain;
+      3) drain the findings-inbox spool → promote the benign/degraded findings a producer emitted out-of-band
+         (the boot degradation emitter that FEEDS this benign path is #398 — until it lands the spool is fed
+         only by tests/fixtures, so this leg is live infrastructure, not yet a live benign producer).
+    Runs on the LOCAL machine (the spool + marker are per-machine, gitignored), resolving the GitHub context the
+    LOCAL way (boot's repo_slug/gh_token). SAFETY: drain_inbox scopes auto-resolve to the drained source-ids
+    ONLY (never a ci/ambient/episodic/out-of-band issue), and the marker promote is de-duped by a fixed
+    source_id. Fail-open: no local repo/token (the normal state off a logged-in machine), or an unreachable
+    GitHub, degrades to exit 0 touching nothing; main()'s boundary backstops any other error. Optional argv[0]
+    overrides the drain stream-cache path (for tests)."""
+    from boot import repo_slug, gh_token   # lazy: boot imports telemetry, a back-edge safe only lazily
+    repo, token = repo_slug(), gh_token()
+    if not repo or not token:
+        return 0   # no local GitHub context — the normal state off a logged-in machine; skip silently
+    gh = GitHubIssues(repo, token)
+    runtime_alert = promote_runtime_marker(gh)
+    _sweep_stranded_asides(INBOX_SPOOL_PATH)
+    cache = Cache(argv[0]) if argv else Cache(DEFAULT_INBOX_STREAMS_PATH)
+    report = drain_inbox(gh, cache=cache, thresholds=load_thresholds(), now=utc_now())
+    if report is not None and report.degraded:
+        print("Could not reach GitHub to check the engine's own health inbox; nothing was changed.")
+        return 0
+    opened = report.opened if report is not None else 0
+    updated = report.updated if report is not None else 0
+    closed = report.closed if report is not None else 0
+    # Plain-voice summary (matching the run-ambient/run-episodic sibling drivers) — no backstage words.
+    alert = "a broken-tool-runtime alert was raised" if runtime_alert else "no new alerts"
+    print(f"Checked the engine's own health inbox ({alert}): "
+          f"opened={opened}, updated={updated}, closed={closed}.")
+    return 0
+
+
 def main(argv: list) -> int:
     """Fail-open: telemetry is self-surfacing and must never break a session. Any unexpected error
     emits a plain finding and exits 0."""
@@ -2031,6 +2163,8 @@ def main(argv: list) -> int:
             return _run_ambient_cli(argv[1:])
         if argv and argv[0] == "run-episodic":
             return _run_episodic_cli(argv[1:])
+        if argv and argv[0] == "drain-inbox":
+            return _run_drain_cli(argv[1:])
         if argv and argv[0] == "demo":
             return _demo(argv[1:])
         if argv and argv[0] == "refresh":
@@ -2039,12 +2173,13 @@ def main(argv: list) -> int:
             return _engine_issues_cli(argv[1:])
         if argv and argv[0] == "never-fired":
             return _never_fired_cli(argv[1:])
-        print("usage: telemetry.py {run|run-ambient|run-episodic|demo|refresh|engine-issues|never-fired}   "
-              "(`run` is the live CI-health triage the scheduled audit-prep workflow drives; `run-ambient` and "
-              "`run-episodic` are the local SessionStart triages — over local check-fires and over the memory "
-              "tidy-up backlog; `engine-issues` and `never-fired` (the engine's own checks that currently match "
-              "no files) feed the scheduled self-review; demo shows the logic on a fake GitHub)",
-              file=sys.stderr)
+        print("usage: telemetry.py {run|run-ambient|run-episodic|drain-inbox|demo|refresh|engine-issues|"
+              "never-fired}   (`run` is the live CI-health triage the scheduled audit-prep workflow drives; "
+              "`run-ambient`, `run-episodic`, and `drain-inbox` are the local SessionStart triages — over local "
+              "check-fires, over the memory tidy-up backlog, and over the findings inbox (promoting a broken "
+              "tool-runtime alert and any out-of-band findings); `engine-issues` and `never-fired` (the engine's "
+              "own checks that currently match no files) feed the scheduled self-review; demo shows the logic on "
+              "a fake GitHub)", file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 — fail-open is the whole point
         print(json.dumps(validate.finding(

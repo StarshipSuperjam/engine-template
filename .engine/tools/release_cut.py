@@ -79,14 +79,18 @@ MODULE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "module.v1.json")
 
 
 # --------------------------------------------------------------------------- version ordering
-_VERSION_RE = re.compile(r"^\d+(\.\d+)*(-[0-9A-Za-z.]+)?$")
+# Strict MAJOR.MINOR.PATCH with an optional pre-release suffix — the SAME grammar the module.v1 schema
+# now enforces on the manifest `version` field (#402 U07a), so the writer here and the schema gate at CI
+# cannot bless different shapes. Kept in sync deliberately: the schema is the harder gate, and this writer
+# check catches a nonsense version before it ever reaches a release manifest.
+_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 
 
 def _valid_version(v: str) -> bool:
-    """A dotted-number version, optionally with a pre-release suffix (1.2.0, 1.0.0-rc1, 0.0.0-dev).
-    The manifest schema only requires a non-empty string, so a free-form value (a typo, a shell
-    fragment) would otherwise pass the schema AND fool the digit-only ordering — the grammar is
-    enforced HERE at the writer so a nonsense version never reaches a release manifest."""
+    """A MAJOR.MINOR.PATCH version, optionally with a pre-release suffix (1.2.0, 1.0.0-rc1, 0.0.0-dev).
+    The manifest schema requires this exact shape (module.v1 version pattern), and it is enforced HERE at
+    the writer too so a nonsense version (a typo, a shell fragment, a 1- or 2-component number) never
+    reaches a release manifest and never fools the digit-only ordering."""
     return bool(_VERSION_RE.match(v or ""))
 
 

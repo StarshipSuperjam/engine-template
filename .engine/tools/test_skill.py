@@ -117,6 +117,15 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(_errors(SKILL_SCHEMA, {"description": "x", "invocation": "banana"}), [])
         self.assertEqual(_errors(SKILL_SCHEMA, {"description": "x", "invocation": "model-auto"}), [])
 
+    def test_status_lifecycle_optional_and_enforced(self):
+        # #402 U07b: the optional artifact-lifecycle status slot. Omitted means active; the enum is enforced
+        # even though the schema is open, because status is a DEFINED property.
+        self.assertEqual(_errors(SKILL_SCHEMA, VALID_AUTO), [])                       # omitted -> active
+        for st in ("active", "deprecated", "retired"):
+            self.assertEqual(_errors(SKILL_SCHEMA, {**VALID_AUTO, "status": st}), [], f"{st} must conform")
+        for st in ("draft", "proposed", "bogus"):
+            self.assertNotEqual(_errors(SKILL_SCHEMA, {**VALID_AUTO, "status": st}), [], f"{st} must be rejected")
+
     def test_unknown_extra_keys_pass_the_open_schema(self):
         """additionalProperties: true — operators' un-prefixed product skills and the platform's evolving
         passthrough keys must not be rejected by the engine grammar (skills/README §location-and-collision)."""

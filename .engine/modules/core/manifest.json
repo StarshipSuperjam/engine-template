@@ -37,6 +37,7 @@
     "skill": [
       ".claude/skills/engine-conduct/SKILL.md",
       ".claude/skills/engine-help/SKILL.md",
+      ".claude/skills/engine-parts/SKILL.md",
       ".claude/skills/engine-setup/SKILL.md",
       ".claude/skills/engine-start/SKILL.md",
       ".claude/skills/engine-status/SKILL.md",
@@ -142,6 +143,24 @@
       "hook": {
         "type": "command",
         "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/telemetry.py\" run-episodic"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "SessionStart",
+      "matcher": "startup",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/telemetry.py\" drain-inbox"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "SessionStart",
+      "matcher": "resume",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/telemetry.py\" drain-inbox"
       }
     },
     {

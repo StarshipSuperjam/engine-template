@@ -162,14 +162,32 @@ class TestForcedContinuation(CloseBase):
     def test_forced_continuation_keeps_untracked_finding_never_lost(self):
         # Offline at the cap: promotion fails, so the leftover is KEPT (it re-surfaces next turn) rather
         # than silently dropped — close/README "the finding survives regardless". The turn still ENDS.
+        # U08c (#412): the notice is HONEST about what failed — the disposition check RAN (it found the
+        # leftover); only the durable SAVE was offline. So it says "couldn't save them as tracked", NOT the
+        # gate-CRASH line "couldn't run the check" (which now belongs to a genuine gate crash).
         close.record_finding(self.sid, "an unsettled concern")
         with unittest.mock.patch.object(close, "_github", lambda: None):   # offline -> promotion fails
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 decision = close.handler({"session_id": self.sid, "stop_hook_active": True})
         self.assertEqual(decision, hooks.proceed())              # still proceeds (never deadlocks/strands)
-        self.assertIn("review this turn's work with extra care", err.getvalue())  # honest fail-open notice
+        self.assertIn("couldn't save them as tracked items", err.getvalue())   # honest: the save failed, not the check
+        self.assertNotIn("couldn't run the check", err.getvalue())             # NOT the gate-crash wording
         self.assertEqual(len(close.pending(self.sid)), 1)        # KEPT — never lost (re-surfaces next turn)
+
+    def test_close_hook_wires_its_own_gate_crash_notice_into_run_hook(self):
+        # U08c: the Stop hook hands run_hook close's OWN crash line, so a disposition-gate CRASH surfaces
+        # "couldn't run the check that confirms nothing was dropped" (close/README "fails open, and says so"),
+        # not run_hook's generic wording — while the single central emit path is preserved.
+        captured = {}
+        def fake_run_hook(event, handler, **kw):
+            captured.update(event=event, **kw)
+            return 0
+        with unittest.mock.patch.object(hooks, "run_hook", fake_run_hook):
+            close.main(["hook"])
+        self.assertEqual(captured.get("event"), "Stop")
+        self.assertEqual(captured.get("fail_open_notice"), close._FAIL_OPEN_NOTICE)
+        self.assertIn("couldn't run the check that confirms nothing was dropped", close._FAIL_OPEN_NOTICE)
 
     def test_normal_then_forced_one_block_then_ends(self):
         # Reading A end-to-end: a pending finding blocks once (sha False), then the forced continuation
