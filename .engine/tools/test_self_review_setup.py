@@ -99,6 +99,15 @@ class TestSetupPageContent(unittest.TestCase):
     def test_discloses_the_cloud_path_is_unrun_at_v1(self):
         self.assertIn("not yet been run end-to-end", self.text)
 
+    def test_discloses_the_cloud_path_leaves_no_committed_freshness_record(self):
+        # #406/F0196: the Cloud-Routine path yields a chat summary but never refreshes the committed record the
+        # freshness reminder reads — so a cloud-only operator is told the review is due even while it runs. The
+        # page must disclose this substantive fact (not a cosmetic string): that the cloud path leaves no record
+        # the engine reads, AND it must name the actual boot phrasing so the disclosure is honest for the
+        # never-run sub-case (not just the "gone too long" one).
+        self.assertIn("never leaves the record the engine reads", self.text)
+        self.assertIn("hasn't run yet", self.text)
+
     def test_gives_a_copy_paste_monthly_cadence_line(self):
         self.assertIn("17 7 1 * *", self.text)
 
