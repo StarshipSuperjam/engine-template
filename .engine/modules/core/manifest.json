@@ -128,6 +128,24 @@
     },
     {
       "type": "hook",
+      "event": "SessionStart",
+      "matcher": "startup",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/telemetry.py\" run-episodic"
+      }
+    },
+    {
+      "type": "hook",
+      "event": "SessionStart",
+      "matcher": "resume",
+      "hook": {
+        "type": "command",
+        "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/telemetry.py\" run-episodic"
+      }
+    },
+    {
+      "type": "hook",
       "event": "PreToolUse",
       "matcher": "",
       "hook": {
