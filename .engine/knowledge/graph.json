@@ -4960,7 +4960,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:181e84223836310423cc01baa3ba518ea0ae46023ced1d21fdab16dce981f66b",
+        "fingerprint": "sha256:96ba5f47132f362b894479044851997c64cf87436651a6d0bee2be0316c37171",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -5844,7 +5844,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:5e2762caf092b84c6601cc34fc588d984974a2741409ebf3aed06fc4165a4f70",
+        "fingerprint": "sha256:4396b50f25d4bf0d8edd4e66788166e857ba22c0ed0f57bbf95af30a2406d796",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -6524,7 +6524,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:ed040c226d717a1bb7521f5011185a9e28a368641d8f235afb4ad3f4449fcfab",
+        "fingerprint": "sha256:7340b5298ca5fed01c4a070d748103e3de8d82727cf089233ffae22c1452b305",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -7510,7 +7510,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:6d3e83e28d16b2aa8932385684b5b88108f2f5a1b1e2f5421079ba3f1a9ed8b0",
+        "fingerprint": "sha256:b762639315bdb5f557150372f935be10d8713e4558117815c8f10a19e7df878b",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

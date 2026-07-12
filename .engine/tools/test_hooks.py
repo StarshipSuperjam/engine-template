@@ -353,6 +353,29 @@ class TestHarnessFailOpen(unittest.TestCase):
         self.assertTrue(err.strip(), "a fail-open crash must emit a plain-language finding")
         self.assertNotIn("Traceback", err)
 
+    def test_a_crash_writes_a_diagnostic_locator_to_the_debug_channel(self):
+        # A fail-open crash records only the exception TYPE in the operator-facing finding (plain language).
+        # The exception MESSAGE + a file:line locator go to the stderr debug channel, so a transient crash
+        # (e.g. a mid-edit NameError) is diagnosable rather than anonymous — and the two must not bleed into
+        # each other: no raw message or code location may reach the operator-facing (promoted) text.
+        recorded = {}
+        def promote(event, kind, message):
+            recorded["message"] = message
+            return True
+        def boom(_payload):
+            raise NameError("name 'wibble' is not defined")
+        out, err = io.StringIO(), io.StringIO()
+        code = hooks.run_hook("PreToolUse", boom, stdin=io.StringIO("{}"),
+                              stdout=out, stderr=err, promote=promote)
+        errtext = err.getvalue()
+        self.assertEqual(code, hooks.EXIT_NONBLOCKING)
+        self.assertIn("(engine-debug)", errtext)                       # the debug line is present...
+        self.assertIn("name 'wibble' is not defined", errtext)         # ...with the exception message...
+        self.assertRegex(errtext, r"@ \S+\.py:\d+")                    # ...and a file:line locator
+        self.assertIn("NameError", recorded["message"])                # operator text: the TYPE only
+        self.assertNotIn("wibble", recorded["message"])                # never the raw message...
+        self.assertNotRegex(recorded["message"], r"\.py:\d+")          # ...and never a code location
+
     def test_no_handler_proceeds(self):
         code, out, err = _run("Stop", None)
         self.assertEqual(code, hooks.EXIT_PROCEED)

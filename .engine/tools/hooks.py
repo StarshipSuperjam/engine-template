@@ -38,6 +38,7 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
@@ -295,6 +296,19 @@ def _emit_finding(err, severity: str, event: str, kind: str, message: str, promo
     err.write(f["message"] + "\n")
 
 
+def _crash_debug_line(event: str, exc: BaseException) -> str:
+    """A compact DIAGNOSTIC line for a fail-open handler crash — for the engine's OWN later debugging,
+    never operator-facing. It names the exception (type + message) and the last traceback frame
+    (file:line), so a transient crash (e.g. a mid-edit NameError that fires the gate once and is then
+    fixed) leaves a locatable trail instead of the anonymous type name the operator Issue carries. It is
+    written ONLY to stderr — the platform's hook debug log, never the transcript and never the promoted
+    Issue body — so no backstage detail (a path, a line number, a raw message) reaches the operator."""
+    tb = getattr(exc, "__traceback__", None)
+    frames = traceback.extract_tb(tb) if tb else []
+    where = f" @ {os.path.basename(frames[-1].filename)}:{frames[-1].lineno}" if frames else ""
+    return f"(engine-debug) {event} handler crash: {type(exc).__name__}: {exc}{where}"
+
+
 def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promote=None) -> int:
     """Run one hook event under the fail-open-and-flag law and the platform contract. `event` is the
     Claude Code event name (the calling hook script declares it); `handler(payload) -> decision` is the
@@ -344,6 +358,10 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
         #   sys.exit() (e.g. exit 2 to force a block) must STILL fail open — the harness owns the exit
         #   code, so a handler bug can never fail-closed and strand a non-engineer. KeyboardInterrupt /
         #   GeneratorExit (not caught here) stay propagating so an operator can still interrupt.
+        try:
+            err.write(_crash_debug_line(event, exc) + "\n")
+        except Exception:  # noqa: BLE001 — a diagnostic aid must NEVER re-break fail-open into a block or
+            pass           #   a crash: if even the trace-format fails, drop it and still flag + proceed.
         _emit_finding(err, "hard", event, "crash",
                       f"A safety check on the {event} step could not run ({type(exc).__name__}); the "
                       f"action was allowed to proceed. The work was not verified by that check.", promote)
