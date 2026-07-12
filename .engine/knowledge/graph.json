@@ -2991,7 +2991,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:61ee6964bf55e44612ad037f4d89ae5a2a5d9f021dd708e88c2a16cc2e4a9bdc",
+        "fingerprint": "sha256:34bdd7d1e384a5b074d683bf8a1d35c7d6e9e3c9498273ef282e14b55dde8cbc",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -3275,7 +3275,7 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:754208b013aa93a2a2623eceb2e650d45b7864c87b4038ced081340bcaf3d406",
+        "fingerprint": "sha256:267a625e288c2a33ac13457914635a3fcb9d40ec1a657cb61fc6b759fc42cfcf",
         "path": ".engine/policies/external-contribution.md"
       },
       "status": "active",
@@ -4285,7 +4285,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:edad290be2edbe7b85f3a178d2a65a3856c59d78a21f0fa7b170e19e006e9c39",
+        "fingerprint": "sha256:850ef75f99392b98ab7002f2f213f151677aa3fba9d0f599790c8295d59caff7",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -5849,7 +5849,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:95cb346dbe3710c2f4bf6bb575175e0aff3d32321bc7edb41de65f42b2b9bea4",
+        "fingerprint": "sha256:3cfebca150ed73ccbfd88ee3c3a62459d11461b6a6593c2d5239390287ad7acf",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -6206,7 +6206,7 @@
       },
       "slug": "test_close",
       "source": {
-        "fingerprint": "sha256:e0b5c4f7115f1e564871185de851b666b5c3687619768bd0a949961c4b6bd692",
+        "fingerprint": "sha256:7b038e0c25050a092e27bdd103e789d49332a1617077a0f7a00626665b854e02",
         "path": ".engine/tools/test_close.py"
       },
       "status": "active",
@@ -7532,7 +7532,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:2b1d7821fa63119949df7fb451429cb18e0387861719232ce37aaedbdd51b534",
+        "fingerprint": "sha256:992b0323ff05a2c75c10ac4553bf5beef6526b624cf8b14f1cafbd395c57ff64",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

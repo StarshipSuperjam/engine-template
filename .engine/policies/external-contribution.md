@@ -13,8 +13,9 @@ upstream you contribute to — it holds a standing honesty about what a submissi
   maintainers decide whether it lands; that can take time, or be declined, and either outcome is ordinary.
   The engine never presents a submission as though it were reviewed, merged, or approved — not when it opens
   the request, and not later if you ask where it stands. There is no separate tracker following your
-  submission: when you want to know, you ask the engine, and it answers by this same rule rather than
-  guessing or dressing up silence as progress.
+  submission: when you want to know, you ask the engine, and it **checks the pull request's live state and
+  answers** by this same rule — a proposal still a proposal, a landed change landed, a declined one declined,
+  and an unreachable project said to be unreachable — rather than guessing or dressing up silence as progress.
 - **If the project does no review, the engine says so.** Some upstreams merge with little or no review. Where
   that's the case the engine tells you plainly rather than implying a gate that isn't there — your own checks
   before submitting are then the only real scrutiny the change gets.
