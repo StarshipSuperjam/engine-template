@@ -335,10 +335,19 @@ def _record_crash_debug(event: str, exc: BaseException, path: str | None = None)
         fh.write(f"{stamp} {event} handler crash: {type(exc).__name__}: {exc}{where}\n")
 
 
-def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promote=None) -> int:
+def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promote=None,
+             fail_open_notice: str | None = None) -> int:
     """Run one hook event under the fail-open-and-flag law and the platform contract. `event` is the
     Claude Code event name (the calling hook script declares it); `handler(payload) -> decision` is the
     owning system's behavior. Returns the process exit code (the caller does `sys.exit(run_hook(...))`).
+
+    `fail_open_notice` lets the owning system supply the OPERATOR-facing sentence for a handler CRASH,
+    instead of the generic "a safety check on the {event} step could not run" line — so a gate can speak in
+    its own plain terms (close's disposition gate passes the spec's "I couldn't run the check that confirms
+    nothing was dropped — review this turn's work with extra care", close/README "fails open, and says so").
+    It replaces ONLY the operator message on the crash branch; the single promote path, the engine-only
+    crash-debug trace (which still records the exception type + file:line), and the honest recorded/not-
+    recorded tail are unchanged — the copy is owned by the caller, the acting-mechanism stays here.
 
     The law, in order:
       1. Read the event JSON from stdin (tolerant). A payload the platform cannot even deliver is the
@@ -388,9 +397,10 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
             _record_crash_debug(event, exc)
         except Exception:  # noqa: BLE001 — a diagnostic aid must NEVER re-break fail-open into a block or a
             pass           #   crash: if recording the trace fails (disk, perms), drop it and still flag + proceed.
-        _emit_finding(err, "hard", event, "crash",
-                      f"A safety check on the {event} step could not run ({type(exc).__name__}); the "
-                      f"action was allowed to proceed. The work was not verified by that check.", promote)
+        crash_message = fail_open_notice if fail_open_notice else (
+            f"A safety check on the {event} step could not run ({type(exc).__name__}); the "
+            f"action was allowed to proceed. The work was not verified by that check.")
+        _emit_finding(err, "hard", event, "crash", crash_message, promote)
         return EXIT_NONBLOCKING
 
     if forced_stop and isinstance(decision, dict) and decision.get("action") == "block":

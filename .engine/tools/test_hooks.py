@@ -320,6 +320,33 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
         self.assertIn("/bin/python", code)                       # the POSIX layout, in the executable body
         self.assertIn("/Scripts/python.exe", code)               # the Windows layout, in the executable body
 
+    def test_launcher_drops_the_runtime_marker_when_no_interpreter_appears(self):
+        # #412: a missing tool-runtime cannot reach Python, so the launcher leaves a PRESENCE marker for the
+        # drain-inbox driver to promote next session. It is best-effort, EMPTY, and never changes the exit code.
+        with tempfile.TemporaryDirectory() as td:
+            interp = os.path.join(td, ".engine", ".venv", "bin", "python")   # named, never created
+            os.makedirs(os.path.dirname(interp))
+            r = subprocess.run(["sh", self.WRAPPER, interp, os.path.join(td, ".engine", "tools", "boot.py")],
+                               capture_output=True, text=True, timeout=10,
+                               env={**os.environ, "ENGINE_HOOK_WAIT_POLLS": "3", "ENGINE_HOOK_WAIT_INTERVAL": "0.05"})
+            self.assertNotEqual(r.returncode, 0)                 # fail-open readout path
+            self.assertNotEqual(r.returncode, 2)                 # never the block code (#390 stranding)
+            marker = os.path.join(td, ".engine", "telemetry", ".cache", "runtime-health.marker")
+            self.assertTrue(os.path.exists(marker), "the launcher drops the runtime-health marker")
+            self.assertEqual(os.path.getsize(marker), 0)         # presence-only — no bytes can enter the finding
+
+    def test_launcher_marker_path_matches_the_python_constant(self):
+        # #412 single-source: the shell builds the marker path from the venv root; pin its two components to
+        # telemetry.RUNTIME_HEALTH_MARKER_PATH so the shell↔Python contract cannot drift.
+        import telemetry
+        engine = os.path.join(validate.ROOT, ".engine")
+        dir_tail = os.path.relpath(os.path.dirname(telemetry.RUNTIME_HEALTH_MARKER_PATH), engine)  # telemetry/.cache
+        base = os.path.basename(telemetry.RUNTIME_HEALTH_MARKER_PATH)                               # runtime-health.marker
+        with open(self.WRAPPER) as fh:
+            code = "\n".join(ln for ln in fh.read().splitlines() if not ln.lstrip().startswith("#"))
+        self.assertIn(dir_tail, code)
+        self.assertIn(base, code)
+
 
 class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     """The wired hook commands ARE `hook_command`'s output, so the form and the literals can never drift:
@@ -339,7 +366,8 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
                      ".engine/tools/self_map.py hook", ".engine/tools/validate.py hook",
                      ".engine/tools/modes.py accept-hook", ".engine/tools/validate.py accept-hook",
                      ".engine/tools/close.py", ".engine/tools/scent.py",
-                     ".engine/tools/telemetry.py run-ambient", ".engine/tools/telemetry.py run-episodic")
+                     ".engine/tools/telemetry.py run-ambient", ".engine/tools/telemetry.py run-episodic",
+                     ".engine/tools/telemetry.py drain-inbox")
     MEMORY_RELPATHS = (".engine/tools/memory/consolidate.py session-start",
                        ".engine/tools/memory/consolidate.py pre-compact",
                        ".engine/tools/memory/erasure_observer.py session-start",
@@ -367,9 +395,10 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
-        self.assertEqual(len(c_cmds), 15, "the fifteen venv-rooted core hook wires (boot ×3 + 8: modes, "
+        self.assertEqual(len(c_cmds), 17, "the seventeen venv-rooted core hook wires (boot ×3 + 8: modes, "
                          "knowledge_gen, self_map, validate pre-commit, modes accept, validate accept, close, "
-                         "scent + telemetry run-ambient ×2 + telemetry run-episodic ×2: startup + resume)")
+                         "scent + telemetry run-ambient ×2 + telemetry run-episodic ×2 + telemetry drain-inbox ×2: "
+                         "startup + resume)")
         self.assertEqual(set(c_cmds), expected_core, "every core manifest hook command is hook_command's output")
 
         memory = validate.load_json(
@@ -393,14 +422,14 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         self.assertEqual(set(pd_cmds), expected_product_design,
                          "product-design's manifest hook command is hook_command's output")
 
-        # settings.json registers all installed modules' hooks: 15 core + 13 memory + 2 board-sync + 1 product-design venv-rooted.
+        # settings.json registers all installed modules' hooks: 17 core + 13 memory + 2 board-sync + 1 product-design venv-rooted.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 31,
-                         "the thirty-one venv-rooted hook commands in settings "
-                         "(15 core + 13 memory + 2 board-sync + 1 product-design)")
+        self.assertEqual(len(s_cmds), 33,
+                         "the thirty-three venv-rooted hook commands in settings "
+                         "(17 core + 13 memory + 2 board-sync + 1 product-design)")
         self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects | expected_product_design,
                          "settings matches the form (and so all four manifests) exactly")
 
@@ -442,6 +471,31 @@ class TestHarnessFailOpen(unittest.TestCase):
         self.assertEqual(code, hooks.EXIT_NONBLOCKING)
         self.assertTrue(err.strip(), "a fail-open crash must emit a plain-language finding")
         self.assertNotIn("Traceback", err)
+
+    def test_fail_open_notice_overrides_the_operator_crash_line(self):
+        # U08c (#412): a gate can supply its OWN operator-facing crash sentence (close passes the spec's
+        # "I couldn't run the check that confirms nothing was dropped"). fail_open_notice replaces ONLY the
+        # operator message; the promote path + non-blocking exit are unchanged.
+        seen = {}
+        def promote(event, kind, message):
+            seen["message"] = message
+            return True
+        def boom(_payload):
+            raise RuntimeError("kaboom")
+        out, err = io.StringIO(), io.StringIO()
+        code = hooks.run_hook("Stop", boom, stdin=io.StringIO("{}"), stdout=out, stderr=err,
+                              promote=promote, fail_open_notice="MY-OWN-CRASH-LINE")
+        self.assertEqual(code, hooks.EXIT_NONBLOCKING)
+        self.assertIn("MY-OWN-CRASH-LINE", err.getvalue())                 # operator hears the gate's own line
+        self.assertNotIn("a safety check on the stop step", err.getvalue().lower())  # not the generic wording
+        self.assertIn("MY-OWN-CRASH-LINE", seen["message"])               # and it rides the promoted Issue too
+
+    def test_without_a_fail_open_notice_the_generic_crash_line_is_used(self):
+        def boom(_payload):
+            raise RuntimeError("kaboom")
+        code, _out, err = _run("PreToolUse", boom)
+        self.assertEqual(code, hooks.EXIT_NONBLOCKING)
+        self.assertIn("could not run", err.lower())                       # the generic fallback still applies
 
     def test_a_crash_records_a_locator_to_the_engine_only_file_not_the_operator_channel(self):
         # A fail-open crash records only the exception TYPE on the operator-facing surfaces (the plain
