@@ -326,7 +326,9 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
     now = int(time.time()) if now is None else now
     cutoff = now - age_days * 86400
     access = _access_index(src)
-    marker_ts: dict = {}          # session_id -> latest `consolidated` marker ts (the gist-stability clock)
+    session_markers: dict = {}    # session_id -> [(ts, batch)] for every `consolidated` marker (folded to the clock below)
+    reflected_batches: set = set()  # batch ids that produced an EPISODIC — a pass that actually stood a gist in
+    marker_ts: dict = {}          # session_id -> latest REFLECTING marker ts (the gist-stability clock; see below)
     curated: dict = {}            # session_id -> [curated stand-in ids: episodics + the gist that rolls them up]
     deltas: dict = {}             # session_id -> [that session's raw turn-delta records]
     id_to_session: dict = {}      # record id -> real session_id (episodics/gists), to resolve cross-session gists
@@ -341,10 +343,13 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
         if kind == records.MARKER_KIND:
             ts = record.get("ts")
             if isinstance(ts, int) and not isinstance(ts, bool):
-                prev = marker_ts.get(sid)
-                marker_ts[sid] = ts if prev is None else max(prev, ts)
+                session_markers.setdefault(sid, []).append((ts, record.get(records.BATCH_KEY)))
         elif kind in (records.EPISODIC_KIND, records.GIST_KIND):
             rid = record.get(records.RECORD_ID_KEY)
+            if kind == records.EPISODIC_KIND:
+                batch = record.get(records.BATCH_KEY)
+                if isinstance(batch, str) and batch:
+                    reflected_batches.add(batch)     # this pass produced a gist stand-in for its fuel
             if rid:
                 id_to_session[rid] = sid
                 if kind == records.GIST_KIND and records.is_cross_session_sentinel(sid):
@@ -355,6 +360,17 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
                     curated.setdefault(sid, []).append(rid)
         elif kind == records.AMBIENT_CAPTURE_KIND:
             deltas.setdefault(sid, []).append(record)
+    # The gist-stability clock is the latest marker that ACTUALLY REFLECTED — its batch produced an episodic. An
+    # incremental "examined, nothing to summarize" termination marker (#446) advances the consolidation watermark
+    # but writes NO episodic, so its later ts must NOT pull the erasure boundary forward over a genuine tail that
+    # has no gist standing in for it (that would erase un-reflected content — a content-loss the durability law
+    # forbids). A batch-LESS marker (pre-#446 legacy) is treated as reflecting: it predates the empty-termination
+    # path, so it always carried a summary.
+    for sid, entries in session_markers.items():
+        reflecting = [ts for ts, batch in entries
+                      if not (isinstance(batch, str) and batch) or batch in reflected_batches]
+        if reflecting:
+            marker_ts[sid] = max(reflecting)
     # Credit each cross-session gist as a live stand-in for EVERY real session that fed it (#235): after a roll-up,
     # recall lands on the gist, so an episodic-only veto keyed to the sentinel would leave a contributing session's
     # raw turn-deltas erasure-eligible while their content is alive in an actively-recalled gist. Resolving the

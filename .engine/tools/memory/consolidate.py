@@ -431,10 +431,10 @@ def _consolidation_directive(pending: list) -> str:
         "subagent must preserve THAT as its own summary typed `preference` — a durable operator instruction, "
         "never folded into another thread's summary and never dropped as a passing note. The subagent then "
         "stores the summaries with `… consolidate.py store <session-id>` (a JSON array of "
-        "{\"role\": …, \"text\": …, \"tags\": [\"…\", …]} on stdin; tags may be an empty list). If a session "
-        "turns out to have nothing worth summarizing, STILL run `store` for it with an empty array `[]` — that "
-        "records it as examined so it is not flagged again every session; skipping the store entirely leaves it "
-        "pending forever. This is "
+        "{\"role\": …, \"text\": …, \"tags\": [\"…\", …]} on stdin; a summary's own tags may be omitted). If a "
+        "whole session turns out to have nothing worth summarizing, STILL run `store` for it, passing a JSON "
+        "array with no summaries in it (`[]`) — that records the session as examined so it is not flagged again "
+        "every session; skipping the store entirely leaves it pending forever. This is "
         "reflection, not re-litigation — be terse. The "
         "operator's request always comes first; the subagent keeps the mechanics off the main transcript — "
         "but do it this session, not someday."
@@ -688,8 +688,8 @@ def _demo_body() -> bool:
     terminates_ok = before_term and session_c not in detect_unconsolidated(live_session_id=session_live)
     print(f"  A trivial tail ('thanks, that's all') is examined and settled with no new summary -> terminates: "
           f"{terminates_ok}")
-    print(f"  => '{session_c}' is re-tidied for each later half, and the sweep always settles — the backlog only "
-          f"shrinks, never loops.")
+    print(f"  => '{session_c}' is re-tidied for each later half, and the sweep always settles — it drains real "
+          f"work and never re-does what's already summarized.")
 
     print("\nPART 5 — a past session that was never tidied is detected (e.g. one closed without a clean finish)")
     print("-" * 80)

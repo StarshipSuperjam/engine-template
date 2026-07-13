@@ -274,17 +274,20 @@ class EarnedConsolidatedRawTests(_Base):
         self._delta("Y", "hi", self.NOW - 6 * self.DAY)
         self.assertNotIn("Y", self._earned())
 
-    def test_an_examined_but_unsummarized_tail_after_the_marker_is_not_erasure_eligible(self):
-        # #446 erasure boundary: incremental consolidation lets a marked session carry a genuine tail the sweep
-        # examined but did not summarize (ts > marker.ts), so that tail has NO gist stand-in. The `ts <= m_ts`
-        # filter must keep it OUT of the erasure class — only fuel actually stood-in-for by a gist earns erasure.
-        self._episodic_at("A", "b1", self._settled())
-        self._marker_at("A", "b1", self._settled())
-        covered = self._delta("A", "summarized turn", self._settled() - self.DAY)          # ts <= marker.ts
-        tail = self._delta("A", "later un-summarized turn", self._settled() + self.DAY)     # ts >  marker.ts
+    def test_an_examined_but_unsummarized_tail_under_a_termination_marker_is_not_erasure_eligible(self):
+        # #446 erasure boundary (the two-marker termination case): pass 1 summarizes turn 0 (a reflecting marker
+        # with an episodic); a genuine tail is then added; a later "examined, nothing to summarize" EMPTY
+        # termination marker (no episodic) advances the consolidation watermark past the tail. That empty marker's
+        # newer ts must NOT pull the erasure clock forward over the tail — the tail has NO gist standing in for it,
+        # and erasing it would destroy un-reflected content. The clock is bound by the latest REFLECTING marker.
+        self._episodic_at("A", "b1", self.NOW - 45 * self.DAY)                 # the reflection (a gist stands in)
+        self._marker_at("A", "b1", self.NOW - 45 * self.DAY)                   # reflecting marker (batch b1 has an episodic)
+        covered = self._delta("A", "the summarized turn", self.NOW - 46 * self.DAY)   # captured before the reflecting marker
+        tail = self._delta("A", "IMPORTANT un-summarized tail", self.NOW - 44 * self.DAY)  # captured AFTER it
+        self._marker_at("A", "b2", self.NOW - 42 * self.DAY)                   # LATER empty termination marker: NO b2 episodic
         earned_ids = {r[records.RECORD_ID_KEY] for r in self._earned().get("A", [])}
-        self.assertIn(covered, earned_ids)          # the consolidated fuel earns erasure (its gist stands in)
-        self.assertNotIn(tail, earned_ids)          # the un-summarized tail does NOT (no stand-in -> never erase)
+        self.assertIn(covered, earned_ids)          # the reflected fuel earns erasure (its gist stands in)
+        self.assertNotIn(tail, earned_ids)          # the un-summarized tail does NOT — no empty marker can erase it
 
     def test_a_recalled_episodic_keeps_the_whole_sessions_raw(self):
         e = self._episodic_at("R", "b1", self._settled())

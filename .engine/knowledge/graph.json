@@ -4592,7 +4592,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:826dd2dd3310b84c13bd3fef18f5d81ba8bcec23daf6f2ef818b431b0c733304",
+        "fingerprint": "sha256:bf26daeaff0c99c17ef342436857fcdb62bc6c3da51bfc297c55bedcbdc552fc",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -5221,7 +5221,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:fb97c9b74e075f0c096bd6a014b497ef892f1c53e3f96b05d749a5ca59856d25",
+        "fingerprint": "sha256:44d76fdf28cf1a56abf5784a2a8f8010e37b2a0ba70e386754810eb52399917e",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -6870,7 +6870,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:d9973d3876a76b03ad1dbf2f00ab7fea10328deb6ea11f9cb1e80ee1a1787f36",
+        "fingerprint": "sha256:3004e42f44c53668c111b2fa04abca566a831aeab454d291d1dc9e75a4f111fc",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
