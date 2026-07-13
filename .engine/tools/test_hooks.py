@@ -40,6 +40,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hooks     # noqa: E402
+import modes     # noqa: E402  (the canonical stance vocabulary the block-registry leg validates against)
 import validate  # noqa: E402
 
 
@@ -650,18 +651,23 @@ class TestInjectAndDecide(unittest.TestCase):
 
 class TestBlockBudgetFindings(unittest.TestCase):
     MSG = "Register the block with its owning system on an eligible event."
+    STANCES = modes.STANCES  # the canonical vocabulary the mode-dimension rule validates against
 
     def test_empty_set_is_silent(self):
-        self.assertEqual(validate.block_budget_findings([], "hard", self.MSG), [])
+        self.assertEqual(validate.block_budget_findings([], "hard", self.MSG, stances=self.STANCES), [])
 
-    def test_eligible_events_pass(self):
-        blocks = [{"event": "Stop", "name": "findings-disposition", "owner": "close"},
-                  {"event": "PreToolUse", "name": "explore-write-gate", "owner": "modes"}]
-        self.assertEqual(validate.block_budget_findings(blocks, "hard", self.MSG), [])
+    def test_eligible_events_with_declared_modes_pass(self):
+        blocks = [{"event": "Stop", "name": "findings-disposition", "owner": "close",
+                   "modes": ["explore", "build", "routine"]},
+                  {"event": "PreToolUse", "name": "explore-write-gate", "owner": "modes",
+                   "modes": ["explore"]}]
+        self.assertEqual(validate.block_budget_findings(blocks, "hard", self.MSG, stances=self.STANCES), [])
 
     def test_non_eligible_event_is_flagged(self):
+        # A declared `modes` isolates the event rule so only it fires (len 1).
         found = validate.block_budget_findings(
-            [{"event": "PostToolUse", "name": "bad"}], "hard", self.MSG)
+            [{"event": "PostToolUse", "name": "bad", "modes": ["explore"]}], "hard", self.MSG,
+            stances=self.STANCES)
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0]["severity"], "hard")
         self.assertIn("PostToolUse", found[0]["message"])
@@ -669,18 +675,44 @@ class TestBlockBudgetFindings(unittest.TestCase):
 
     def test_owner_is_used_when_name_absent(self):
         found = validate.block_budget_findings(
-            [{"event": "PreCompact", "owner": "memory"}], "soft", self.MSG)
+            [{"event": "PreCompact", "owner": "memory", "modes": ["explore"]}], "soft", self.MSG,
+            stances=self.STANCES)
         self.assertEqual(len(found), 1)
         self.assertIn("memory", found[0]["message"])
         self.assertEqual(found[0]["severity"], "soft")
 
+    def test_missing_modes_is_flagged(self):
+        # The mode dimension is declared data: a block that names no stances it is active in fires.
+        found = validate.block_budget_findings(
+            [{"event": "PreToolUse", "name": "no-modes", "owner": "modes"}], "hard", self.MSG,
+            stances=self.STANCES)
+        self.assertEqual(len(found), 1)
+        self.assertIn("does not declare the modes it is active in", found[0]["message"])
+
+    def test_empty_modes_is_flagged(self):
+        found = validate.block_budget_findings(
+            [{"event": "Stop", "name": "empty", "owner": "close", "modes": []}], "hard", self.MSG,
+            stances=self.STANCES)
+        self.assertEqual(len(found), 1)
+        self.assertIn("does not declare the modes", found[0]["message"])
+
+    def test_unknown_mode_is_flagged(self):
+        found = validate.block_budget_findings(
+            [{"event": "Stop", "name": "typo", "owner": "close", "modes": ["explor"]}], "hard", self.MSG,
+            stances=self.STANCES)
+        self.assertEqual(len(found), 1)
+        self.assertIn("unknown mode", found[0]["message"])
+        self.assertIn("explor", found[0]["message"])
+
     def test_agrees_with_runtime_block_eligible_events(self):
         """Drift guard: for every governed event, the static leg flags a block on it iff the event is
         outside the runtime's BLOCK_ELIGIBLE_EVENTS constant — the leg's own {PreToolUse, Stop} literal
-        and the harness's eligibility constant cannot drift. (The runtime _translate gate itself is
-        exercised in TestHarnessBlock.test_block_on_every_non_eligible_event_fails_open.)"""
+        and the harness's eligibility constant cannot drift. A declared `modes` isolates the event rule.
+        (The runtime _translate gate itself is exercised in
+        TestHarnessBlock.test_block_on_every_non_eligible_event_fails_open.)"""
         for ev in hooks.EVENTS:
-            findings = validate.block_budget_findings([{"event": ev, "name": ev}], "hard", "")
+            findings = validate.block_budget_findings(
+                [{"event": ev, "name": ev, "modes": ["explore"]}], "hard", "", stances=self.STANCES)
             flagged = bool(findings)
             self.assertEqual(flagged, ev not in hooks.BLOCK_ELIGIBLE_EVENTS, f"{ev} agreement")
 

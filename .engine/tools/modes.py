@@ -74,10 +74,19 @@ BUILD = "build"
 ROUTINE = "routine"
 STANCES = frozenset({EXPLORE, BUILD, ROUTINE})
 
-# The block this owning system declares for the hook block budget. hooks.py "names no invariant
+# The blocks this owning system declares for the hook block budget. hooks.py "names no invariant
 # itself", so the consumer (module_coherence.block_eligible_registrations) assembles the registry
-# from each owner's declaration; the validator reads only `event`. PreToolUse is block-eligible.
-BLOCK_INVARIANT = {"event": "PreToolUse", "name": "explore-write-gate", "owner": "modes"}
+# from each owner's declaration; the block-registry leg (validate.block_budget_findings) reads `event`
+# (only PreToolUse/Stop may block) AND `modes` (the mode dimension declared as data, not code-only —
+# hooks/README §Mode-awareness). Modes carries the *stances the block is active in*: the write-gate
+# enforces only in EXPLORE (it lets writes through in Build/Routine); the engine-Issue reroute is
+# STANCE-INDEPENDENT — it fires in every stance (a non-conforming engine-labeled `gh issue create` is
+# rerouted whether exploring, building, or in a routine run) — so it declares all three. modes' single
+# handler composes both PreToolUse blocks; each is its own invariant because their mode sets differ.
+BLOCK_INVARIANT = {"event": "PreToolUse", "name": "explore-write-gate", "owner": "modes",
+                   "modes": [EXPLORE]}
+REROUTE_BLOCK_INVARIANT = {"event": "PreToolUse", "name": "engine-issue-conformance", "owner": "modes",
+                           "modes": [EXPLORE, BUILD, ROUTINE]}
 
 
 # ---- the stance signal: ephemeral, session-keyed, OS-temp, non-committed --------------------

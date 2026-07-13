@@ -166,8 +166,9 @@ class TestShapeRule(unittest.TestCase):
         self.assertEqual(SHAPE_RULE["target"], {"path": ".claude/skills/*/SKILL.md"})
         self.assertEqual(SHAPE_RULE["tier"], "hard")
 
-    def test_live_rule_is_green_on_the_empty_stream(self):
-        # the real rule over the real .claude/skills/ — only .gitkeep, zero */SKILL.md matches, green.
+    def test_live_rule_is_green_on_the_committed_skills(self):
+        # the real shape rule over the real .claude/skills/ — the committed engine-* SKILL.md files are
+        # well-shaped, so green.
         passed, found = validate.kind_shape(SHAPE_RULE, {})
         self.assertTrue(passed)
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])

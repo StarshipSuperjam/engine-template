@@ -19,6 +19,7 @@ import yaml  # the #416 U28-F7 uv-pin tie parses the CI workflows structurally (
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import instantiator as inst  # noqa: E402
+import module_coherence  # noqa: E402
 import validate  # noqa: E402
 
 
@@ -124,6 +125,57 @@ class TestPresentGather(unittest.TestCase):
             self.assertIn("• Reviews your plans before you build.", out, "offered by its description")
             self.assertNotIn("• —", out, "no empty command handle")
             self.assertNotIn("design-review", out, "the raw module id is never shown as a command")
+
+    def test_menu_annotates_the_optional_dependency_closure(self):
+        # #411 U25: an optional feature that depends on ANOTHER optional feature surfaces that pull-in at the
+        # choice moment (provisioning §gather step 1). Synthetic manifests: optional 'a' depends on optional
+        # 'b' (and on required 'core', which must NOT be surfaced).
+        manifests = [
+            ("a", {"id": "a", "status": "optional", "depends": {"b": "", "core": ""}}),
+            ("b", {"id": "b", "status": "optional", "depends": {}}),
+            ("core", {"id": "core", "status": "required", "depends": {}}),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "c.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump([{"id": "a", "verb": "engine-a", "description": "Does a.",
+                            "category": "Product Management"}], fh)
+            with mock.patch.object(inst.boot, "repo_slug", return_value="acme/widgets"):
+                out = inst.present_gather(catalog_path=p, manifests=manifests)
+        self.assertIn("Including this also turns on: b", out, "the optional pull-in is surfaced")
+        self.assertNotIn("core", out, "an always-present required dependency is never surfaced")
+
+
+class TestOptionalDependencyClosure(unittest.TestCase):
+    @staticmethod
+    def _m(mid, status, deps):
+        return (mid, {"id": mid, "status": status, "depends": {d: "" for d in deps}})
+
+    def test_optional_on_optional_is_surfaced(self):
+        closure = inst.optional_dependency_closure(
+            [self._m("a", "optional", ["b"]), self._m("b", "optional", [])])
+        self.assertEqual(closure["a"], ["b"])
+        self.assertEqual(closure["b"], [])
+
+    def test_required_dependencies_are_excluded(self):
+        closure = inst.optional_dependency_closure(
+            [self._m("a", "optional", ["core"]), self._m("core", "required", [])])
+        self.assertEqual(closure["a"], [], "core is the always-present spine, never surfaced")
+        self.assertNotIn("core", closure, "required modules are not keys in the optional closure")
+
+    def test_transitive_optional_chain(self):
+        closure = inst.optional_dependency_closure(
+            [self._m("a", "optional", ["b"]), self._m("b", "optional", ["c"]),
+             self._m("c", "optional", [])])
+        self.assertEqual(closure["a"], ["b", "c"], "the closure is transitive")
+
+    def test_live_manifests_are_vacuous(self):
+        # Every optional module depends only on core today, so the live closure is all-empty — the mechanism
+        # is armed but untriggered (§20: shipped complete, not deferred).
+        closure = inst.optional_dependency_closure(module_coherence.discover_manifests())
+        self.assertTrue(closure, "there are optional modules to key on")
+        self.assertTrue(all(pulls == [] for pulls in closure.values()),
+                        "no optional module depends on another optional one yet")
 
 
 class TestConfirm(unittest.TestCase):
@@ -707,12 +759,15 @@ class TestApplyStep4ToolRuntime(unittest.TestCase):
         # #416 U28-F7: the instantiator's UV_PIN and every CI workflow's astral-sh/setup-uv `version:` must
         # agree, or a one-sided bump silently ships a bootstrap runtime that mismatches the engine's resolved
         # uv.lock. This test IS that tie — it reads the real workflow files and asserts each setup-uv step
-        # pins UV_PIN, replacing the old hard-coded "0.11.8" literal (a third copy, not a tie). It runs under
-        # CI's `unittest discover`, so a divergence is caught at merge (the check instantiator.py's comment
-        # said was owed). Parsed via the YAML structure (jobs->steps->uses/with), NOT a bare `version:` scan,
-        # so it never false-hits an unrelated `engine_version:` input or a comment.
-        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(inst.__file__))))
-        wf_dir = os.path.join(repo_root, ".github", "workflows")
+        # pins UV_PIN. It lives HERE, in the instantiator's own tests, on purpose: UV_PIN is bootstrap-only,
+        # and instantiator.py + this test file both RETIRE at first-run (_FIRST_RUN_ASSET_FILES), so the tie
+        # is construction-coupled — the concern (a new adopter's bootstrap runtime matches uv.lock) exists
+        # only while the instantiator does. #411 U22 weighed a first-class traveling check for this and found
+        # it INFEASIBLE: a surviving validators-core check reading UV_PIN would reference the retired
+        # instantiator (first-run reference-closure), and the tie is moot once the instantiator is gone. So the
+        # construction-coupled unittest is the correct form. Parsed via the YAML structure (jobs->steps->uses/
+        # with), NOT a bare `version:` scan, so it never false-hits an unrelated input or a comment.
+        wf_dir = os.path.join(validate.ROOT, ".github", "workflows")
         checked = []  # (filename, version) for every setup-uv step reached through the parsed structure
         for fn in sorted(f for f in os.listdir(wf_dir) if f.endswith((".yml", ".yaml"))):
             with open(os.path.join(wf_dir, fn), encoding="utf-8") as fh:

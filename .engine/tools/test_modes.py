@@ -216,12 +216,27 @@ class TestFailOpenAndChannel(unittest.TestCase):
 
 
 class TestBlockInvariantAndVocabulary(unittest.TestCase):
-    def test_block_invariant_is_on_a_block_eligible_event(self):
+    def test_block_invariant_is_on_a_block_eligible_event_and_declares_its_modes(self):
         self.assertEqual(modes.BLOCK_INVARIANT["event"], "PreToolUse")
         self.assertIn(modes.BLOCK_INVARIANT["event"], hooks.BLOCK_ELIGIBLE_EVENTS)
         self.assertEqual(modes.BLOCK_INVARIANT["owner"], "modes")
-        # the block-budget leg produces no finding over modes' declaration (it sits on an eligible event)
-        self.assertEqual(validate.block_budget_findings([modes.BLOCK_INVARIANT], "hard", "x"), [])
+        # the write-gate enforces only in Explore (it lets writes through in Build/Routine).
+        self.assertEqual(modes.BLOCK_INVARIANT["modes"], [modes.EXPLORE])
+        # the block-registry leg produces no finding over modes' declaration.
+        self.assertEqual(
+            validate.block_budget_findings([modes.BLOCK_INVARIANT], "hard", "x", stances=modes.STANCES), [])
+
+    def test_reroute_invariant_is_stance_independent_and_block_eligible(self):
+        # The engine-Issue-conformance reroute is a PreToolUse deny modes' handler composes; it fires in
+        # every stance, so it declares all three — owner modes (it registers with modes), and it is a real
+        # third member of the block-eligible registry.
+        self.assertEqual(modes.REROUTE_BLOCK_INVARIANT["event"], "PreToolUse")
+        self.assertEqual(modes.REROUTE_BLOCK_INVARIANT["name"], "engine-issue-conformance")
+        self.assertEqual(modes.REROUTE_BLOCK_INVARIANT["owner"], "modes")
+        self.assertEqual(sorted(modes.REROUTE_BLOCK_INVARIANT["modes"]), sorted(modes.STANCES))
+        self.assertEqual(
+            validate.block_budget_findings([modes.REROUTE_BLOCK_INVARIANT], "hard", "x",
+                                           stances=modes.STANCES), [])
 
     def test_describe_stance_is_plain_and_falls_back_to_explore(self):
         self.assertIn("Exploring", modes.describe_stance(modes.EXPLORE))

@@ -43,12 +43,20 @@ local copy on the project, which the engine retires after setup.
 5. **Review and merge the pull request.** The arrival lands as one pull request the owner approves. Until it is
    merged, the project's main branch is unchanged; merging it is the owner's consent, and reverting it removes
    the engine again.
+6. **Get grounded — the onboarding read.** Once the arrival is merged, the engine's **first act on the existing
+   project is to read it**, not to build. In Explore mode, go through the project and save a durable
+   understanding of it to the engine's memory, so every later session starts grounded instead of cold — the
+   engine joined a project with a history it does not yet carry, and this read is how it catches up. Follow the
+   onboarding-read operation, then hand off to the first build. This is a read of the project, not a change to
+   it.
 
 ## Done when
 
 The engine's files are in place alongside the project's, every overlap was surfaced and settled by the owner's
 choice, setup ran and turned on the review gate, and the arrival is open as a pull request the owner can approve
-— or the arrival stopped cleanly at an overlap the owner chose to keep, with nothing changed.
+— or the arrival stopped cleanly at an overlap the owner chose to keep, with nothing changed. Once the arrival
+is merged, the engine has run the onboarding read (Explore-mode, saved to memory) so it starts grounded on the
+project it joined.
 
 ## Notes
 
@@ -58,8 +66,10 @@ clearly-marked block and keeps the rest. The later consistency check expects the
 re-flag them — the overlap check is the single place overlaps are reported.
 
 **The project's front page and license stay the project's.** On an existing project the engine seeds no README
-and no LICENSE, and leaves any the project has untouched. A security-contact file is added only if the project
-has none.
+and no LICENSE, and leaves any the project has untouched. A security-contact file (`SECURITY.md`) is added only
+if the project has none: if the project already carries one — in its root, `.github/`, or `docs/` — the overlap
+check surfaces it and the engine leaves it exactly as it is, seeding nothing, so the owner sees plainly that
+their existing disclosure channel was found and kept, not quietly replaced.
 
 **Your branch protection is added to, never replaced.** If the project already protects its main branch with
 its own rule, the engine adds its checks to that rule in place — and adds any missing force-push, deletion, or

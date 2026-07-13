@@ -426,19 +426,22 @@ def declared_wire_identities(manifests: list) -> set:
 
 
 def block_eligible_registrations() -> list:
-    """The block declarations the block-budget leg governs, ASSEMBLED from each owning system's own
+    """The block declarations the block-registry leg governs, ASSEMBLED from each owning system's own
     declaration — hooks names no invariant itself (hooks/README §the block-budget law), so the registry
-    is the hooks-owned set (none) PLUS each owning lifecycle system's block: modes' explore write-gate on
-    PreToolUse (modes.BLOCK_INVARIANT, slice 21) and close's findings-disposition gate on Stop
-    (close.BLOCK_INVARIANT, slice 22). Each entry is {event, name, owner}; the validator reads only
-    `event`. These — NOT bare .claude/settings.json hook registrations — are the authoritative "this
-    blocks" source: a wired hook command is opaque, so registration alone never implies a block (boot's
-    SessionStart hook is wired yet declares none). So the leg validates two REAL members on block-eligible
-    events (PreToolUse, Stop) → green; it would fire the moment any owner declared a block on a
-    non-eligible event. (owes → 25: if the block-owner set grows past 2–3 the module manager may refactor
-    this consumer-side assembly to a registry-discovery pattern.)"""
+    is the hooks-owned set (none) PLUS each owning lifecycle system's block: modes' explore write-gate
+    (modes.BLOCK_INVARIANT) and its engine-Issue-conformance reroute (modes.REROUTE_BLOCK_INVARIANT) —
+    both PreToolUse blocks modes' single handler composes, named a member by hooks/README §the
+    block-budget law — and close's findings-disposition gate on Stop (close.BLOCK_INVARIANT). Each entry
+    is {event, name, owner, modes}; the leg reads `event` and `modes`. These — NOT bare
+    .claude/settings.json hook registrations — are the authoritative "this blocks" source: a wired hook
+    command is opaque, so registration alone never implies a block (boot's SessionStart hook is wired yet
+    declares none). So the leg validates three REAL members on block-eligible events (PreToolUse, Stop) →
+    green; it would fire the moment any owner declared a block on a non-eligible event or without its
+    modes. (owes → 25: if the block-owner set grows past 2–3 the module manager may refactor this
+    consumer-side assembly to a registry-discovery pattern.)"""
     return ([dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS]
-            + [dict(modes.BLOCK_INVARIANT), dict(close.BLOCK_INVARIANT)])
+            + [dict(modes.BLOCK_INVARIANT), dict(modes.REROUTE_BLOCK_INVARIANT),
+               dict(close.BLOCK_INVARIANT)])
 
 
 def check_coherence(tier: str = "hard") -> list:
@@ -464,7 +467,8 @@ def check_coherence(tier: str = "hard") -> list:
         "Each applied engine setting must belong to an installed module.")
     block = validate.block_budget_findings(
         block_eligible_registrations(), tier,
-        "Only PreToolUse and Stop may hard-block; move the block to an eligible event before merging.")
+        "Only PreToolUse and Stop may hard-block, and every block must declare the stances it is active "
+        "in; fix the block's event or its modes before merging.", stances=modes.STANCES)
     kinds = validate.kind_discovery_findings(
         tier,
         "A module-provided check kind is discovered by the name of its file; two kinds cannot share a "
