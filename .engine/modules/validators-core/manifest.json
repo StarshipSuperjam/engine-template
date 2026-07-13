@@ -12,6 +12,7 @@
       ".engine/check/audit-digest-staleness.json",
       ".engine/check/block-coherence.json",
       ".engine/check/catalog-coverage.json",
+      ".engine/check/census-completeness.json",
       ".engine/check/conduct-frontmatter.json",
       ".engine/check/conduct-shape.json",
       ".engine/check/conduct-weakening-guard.json",

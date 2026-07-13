@@ -1665,6 +1665,29 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_release_pr_mergeable.py",
     ".engine/tools/demo_build_entry_depth_gate.py",
     ".engine/tools/demo_state_cursor_honesty.py",
+    # #424 U13a: nine further construction demos brought into the census. Each is maintainer build evidence,
+    # imported by NOTHING (no surviving tool or test reaches them) and wired to no operator capability, so they
+    # retire here rather than travel into a generated repo (D-228). Five OTHER out-of-census demos are
+    # deliberately NOT walled — demo_pr_reconcile (a subcommand delegate of the surviving pr_reconcile.py) and
+    # demo_actionlint / demo_secret_scan / demo_security_floor / demo_first_run_reference_closure (each imported
+    # by a traveling companion test): walling any of them would dangle that surviving reference (the reference-
+    # closure invariant, D-219/D-220). The census-completeness check (engine/check/census-completeness) guards
+    # this boundary going forward, so this set cannot silently drift again.
+    ".engine/tools/demo_map_reachability.py",
+    ".engine/tools/demo_audit_soft_findings.py",
+    ".engine/tools/demo_audit_soft_promote.py",
+    ".engine/tools/demo_boot_alarm_collapse.py",
+    ".engine/tools/demo_hook_runner.py",
+    ".engine/tools/demo_inbox_drain.py",
+    ".engine/tools/demo_release_cut.py",
+    ".engine/tools/demo_release_terminal.py",
+    ".engine/tools/demo_weakening_guard_narrowed_set.py",
+    # #424 U13b — a KEEP disposition recorded on the census for memory_pointer_public_safety_check.py: it is
+    # construction-scoped (self-no-ops outside this repo) yet is deliberately NOT retired here. Its check.json
+    # (.engine/check/memory-pointer-public-safety.json) travels in validators-core `provides.check`, so retiring
+    # the script would leave that check pointing at a deleted file — a first-run reference-closure violation (the
+    # #411 U22 trap). It ships and harmlessly no-ops in a generated repo; that is the correct fate, not an
+    # oversight. (It is not a demo_*.py, so the census-completeness check does not enumerate it.)
     # The committed audit self-review digest is THIS template repo's own construction history — a generated repo
     # must not boot reporting a self-review it never ran, nor read the template's findings as its own. So it
     # retires at first-run: a fresh repo starts with no inherited digest (its absence is the honest "not yet
@@ -1773,10 +1796,14 @@ def retire(*, root=None, announce=None) -> dict:
             deleted.append(rel)
         else:
             already.append(rel)
-    _drop_bytecode(base, ("instantiator", "test_instantiator", "test_security_seed", "demo_security_seed",
-                          "demo_audit_concern_list", "demo_audit_digest", "demo_boot_slice",
-                          "demo_ci_author_exempt", "demo_derived_reconcile", "demo_focus_read",
-                          "demo_reverse_adjacency", "demo_remember_this"))
+    # Derive the retiring tool-module stems from the census itself (single source) — every `.engine/tools/*.py`
+    # in _FIRST_RUN_ASSET_FILES, so this can never drift out of sync with the retire set (#424 U13; it was a
+    # hand-maintained partial copy before). Bytecode drop is best-effort hygiene, so a wider-but-correct set is
+    # strictly fine.
+    _tool_stems = tuple(os.path.splitext(os.path.basename(rel))[0]
+                        for rel in _FIRST_RUN_ASSET_FILES
+                        if rel.startswith(".engine/tools/") and rel.endswith(".py"))
+    _drop_bytecode(base, _tool_stems)
     graph_status = "regenerated"
     try:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)  # so the saved information no longer lists the
