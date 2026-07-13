@@ -283,6 +283,22 @@ class Prose(unittest.TestCase):
             release_cut.classify = saved
         self.assertIsNone(out)
 
+    def test_proposal_for_publish_threads_the_merged_pr_list(self):
+        # with a target commit, the recomputed proposal carries the merged-PR work list (best-effort helper is
+        # stubbed so the test stays offline); without a target, the list is skipped.
+        saved_classify, saved_prs = release_cut.classify, release_cut.merged_pr_titles
+        release_cut.classify = lambda *a, **k: {"mode": "diff", "change_inventory": [], "impacts": []}
+        release_cut.merged_pr_titles = lambda prev, target, **k: ["Fix a thing (#7)"] if target else []
+        try:
+            with_target = rt._proposal_for_publish(baseline=release_cut.Baseline("v0.1.0", False, "n"),
+                                                   baseline_tree="/tmp", target="deadbeef")
+            without = rt._proposal_for_publish(baseline=release_cut.Baseline("v0.1.0", False, "n"),
+                                               baseline_tree="/tmp")
+        finally:
+            release_cut.classify, release_cut.merged_pr_titles = saved_classify, saved_prs
+        self.assertEqual(with_target["merged_prs"], ["Fix a thing (#7)"])
+        self.assertEqual(without["merged_prs"], [])
+
     def test_comment_bodies_read_distinct_across_outcomes(self):
         published = rt._comment_body({"published": True, "reason": "published", "tag": "v0.1.0"})
         already = rt._comment_body({"published": True, "reason": "already-published", "tag": "v0.1.0"})

@@ -150,17 +150,19 @@ class TerminalCutClient:
 
 
 # --------------------------------------------------------------------------- release notes + PR comment prose
-def _proposal_for_publish(baseline=None, baseline_tree=None):
-    """The release proposal (change inventory + interface impacts + floor level) for the published Release
-    notes, recomputed from the merged tree against the prior release (the same `release_cut.classify` the cut
-    ran). BEST-EFFORT by design: any anomaly — an unreachable home, a malformed tarball, or a first-cut
-    baseline where a prior release MUST exist at publish — yields None so the notes degrade to the minimal
-    version + readiness line and NEVER block or crash the publish. This matters because the git tag is already
-    created by the time the notes render (publish() step 4); a notes failure must not strand a tag with no
-    Release and no PR comment.
+def _proposal_for_publish(baseline=None, baseline_tree=None, target=None):
+    """The release proposal (change inventory + interface impacts + floor level + the merged-PR work list) for
+    the published Release notes, recomputed from the merged tree against the prior release (the same
+    `release_cut.classify` the cut ran). BEST-EFFORT by design: any anomaly — an unreachable home, a malformed
+    tarball, or a first-cut baseline where a prior release MUST exist at publish — yields None so the notes
+    degrade to the minimal version + readiness line and NEVER block or crash the publish. This matters because
+    the git tag is already created by the time the notes render (publish() step 4); a notes failure must not
+    strand a tag with no Release and no PR comment.
 
+    `target` is the merged commit being published (the generate-notes head for the pull-request list).
     `baseline`/`baseline_tree` are injectable so tests run offline: the recompute reaches GitHub through
-    `module_manager` (NOT this tool's `transport` seam), so an injected local tree is the only offline path."""
+    `module_manager` (NOT this tool's `transport` seam), so an injected local tree is the only offline path,
+    and the pull-request list is skipped unless a `target` is passed."""
     try:
         b = baseline if baseline is not None else release_cut.resolve_baseline()
         if b.first_cut:
@@ -168,13 +170,18 @@ def _proposal_for_publish(baseline=None, baseline_tree=None):
             # notes render), so first-cut is the CORRECT state, not an anomaly. There is nothing to diff, but
             # classify still authors the first-release framing line — render that (offline, no tree), so the
             # first published Release is not barer than the pull request that was merged.
-            return release_cut.classify(b, None)
-        tree, cleanup = release_cut._baseline_tree_for(b, baseline_tree)
-        try:
-            return release_cut.classify(b, tree)
-        finally:
-            if cleanup:
-                shutil.rmtree(cleanup, ignore_errors=True)
+            proposal = release_cut.classify(b, None)
+        else:
+            tree, cleanup = release_cut._baseline_tree_for(b, baseline_tree)
+            try:
+                proposal = release_cut.classify(b, tree)
+            finally:
+                if cleanup:
+                    shutil.rmtree(cleanup, ignore_errors=True)
+        # the body of work: the pull requests merged since the last release (best-effort; [] on the first cut,
+        # when no `target` is passed, or on any failure — the section is then simply omitted).
+        proposal["merged_prs"] = release_cut.merged_pr_titles(b.ref, target) if target else []
+        return proposal
     except Exception:                     # noqa: BLE001 — any failure degrades to minimal notes, never blocks
         return None
 
@@ -370,8 +377,9 @@ def _cmd_publish(args) -> int:
     run_url = os.environ.get("RUN_URL", "").strip() or None   # the workflow's own run URL, for a re-run link
 
     # The Release-notes proposal is recomputed HERE, at the CLI edge — best-effort, so a network hiccup
-    # yields the minimal notes and never blocks the publish (which has already created the tag by then).
-    proposal = _proposal_for_publish()
+    # yields the minimal notes and never blocks the publish (which has already created the tag by then). The
+    # merged commit is the head for the merged-PR list.
+    proposal = _proposal_for_publish(target=args.commit)
 
     client = TerminalCutClient(repo, token)
     result = run(client, engine_release, args.commit, pr_number, run_url=run_url, proposal=proposal)
