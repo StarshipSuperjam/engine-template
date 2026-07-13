@@ -5637,7 +5637,7 @@
       },
       "slug": "memory_pointer_public_safety_check",
       "source": {
-        "fingerprint": "sha256:672788951050c68d7649055849448ee7056c2a237ce9a3d4ddcbd694c4553210",
+        "fingerprint": "sha256:612a98eb703ab276989aee97c78383ad6ff1614c73a04002feaacaf092b97f0d",
         "path": ".engine/tools/memory_pointer_public_safety_check.py"
       },
       "status": "active",
