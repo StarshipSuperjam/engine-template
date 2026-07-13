@@ -41,10 +41,10 @@ def _module(mid, ver="0.0.0-dev", migrations=None):
     return m
 
 
-def _tree(modules, home="acme/engine-home"):
+def _tree(modules, home="acme/engine-home", engine_release="0.0.0-dev"):
     root = tempfile.mkdtemp()
     _write(os.path.join(root, ".engine", "engine.json"),
-           {"engine_release": "0.0.0-dev",
+           {"engine_release": engine_release,
             "packages": {mid: m["version"] for mid, m in modules.items()},
             "identity": "solo", "home_repository": home})
     for mid, m in modules.items():
@@ -131,21 +131,49 @@ def main() -> int:
         body = rc.render_pr_body(p6, a6)
         states = {rc._gate_path_line(s) for s in ("passed", "sub-bar", "errored")}
         print("\n6. RELEASE-PR BODY (the maintainer's evidence bundle)")
+        guidance = "## Review" in body and "Go ahead" in body and "higher version" in body
         print(f"   version move shown, sentinel hidden           = {'no earlier version → 0.1.0' in body and '0.0.0-dev' not in body}")
         print(f"   readiness stated (no automated check ran)     = {'no automated check' in body.lower()}")
-        print(f"   confirm/raise/reject guidance present         = {'Before you merge' in body}")
+        print(f"   confirm/raise/reject guidance present         = {guidance}")
         print(f"   the three readiness states read distinct      = {len(states) == 3}")
         ok &= ("no earlier version → 0.1.0" in body and "0.0.0-dev" not in body
                and "no automated check" in body.lower()
-               and "Before you merge" in body and len(states) == 3)
+               and guidance and len(states) == 3)
+
+        # 7. ENGINE-ONLY CUT: the engine version moves, no capability changed — the reported failure, fixed.
+        # Unchanged capabilities keep their version (not refused as "not strictly greater"); only engine.json
+        # is written. (Before the fix this refused with reason=raise-only across every capability.)
+        root5 = _tree({"core": _module("core", ver="0.1.0"), "qa-review": _module("qa-review", ver="0.1.0")},
+                      engine_release="0.1.0")
+        trees.append(root5)
+        validate.ROOT, validate.ENGINE_DIR = root5, os.path.join(root5, ".engine")
+        r7 = rc.apply("0.2.0", None, {}, {"engine_floor_version": "0.2.0", "package_floor": {}}, dry_run=False)
+        eng7 = json.load(open(os.path.join(root5, ".engine", "engine.json"), encoding="utf-8"))
+        core_ver = json.load(open(os.path.join(root5, ".engine", "modules", "core", "manifest.json"),
+                                  encoding="utf-8"))["version"]
+        print("\n7. ENGINE-ONLY CUT (engine moves; unchanged capabilities hold — the reported failure, fixed)")
+        print(f"   applied={r7['applied']}  engine 0.1.0 -> {eng7['engine_release']}  capabilities written={list(r7['targets'])}")
+        print(f"   core held at its version = {core_ver == '0.1.0'}")
+        ok &= (r7["applied"] and eng7["engine_release"] == "0.2.0" and r7["targets"] == {} and core_ver == "0.1.0")
+
+        # 8. CHANGE SUMMARY collates a contract-only change (empty structural inventory + one impact), so the
+        # release notes' "what changed" is not blank when a changed contract is what forced the bump.
+        summ = rc.change_summary({"change_inventory": [],
+                                  "impacts": [{"what": "the contract surface 'eADR-0014-one-history.md' changed",
+                                               "why": "read it against consumers"}]})
+        print("\n8. CHANGE SUMMARY (contract-only release still lists what changed)")
+        for s in summ:
+            print(f"   - {s}")
+        ok &= (len(summ) == 1 and "eADR-0014-one-history.md" in summ[0])
     finally:
         validate.ROOT, validate.ENGINE_DIR = saved
         for t in trees:
             shutil.rmtree(t, ignore_errors=True)
 
     print("\n" + ("DEMO PASSED: the classifier derived the right floors, refused a non-raise, wrote "
-                  "atomically preserving the update home, rolled back a failed write, and rendered a "
-                  "legible release-PR body with three distinct readiness states."
+                  "atomically preserving the update home, rolled back a failed write, rendered a legible "
+                  "release-PR body with three distinct readiness states, applied an engine-only cut while "
+                  "holding unchanged capabilities, and collated a contract-only change into the summary."
                   if ok else "DEMO DID NOT BEHAVE AS EXPECTED — see above."))
     return 0 if ok else 1
 
