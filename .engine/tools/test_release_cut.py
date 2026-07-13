@@ -446,7 +446,7 @@ class RenderPRBody(unittest.TestCase):
                     "merged_prs": [f"PR number {i} (#{i})" for i in range(20)]}
         applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {}}
         scope = rc.render_pr_body(proposal, applied).split("## Scope", 1)[1].split("## Out of scope", 1)[0]
-        self.assertIn("<details><summary>Show the merged pull requests</summary>", scope)  # long list collapsed
+        self.assertIn("<details open>", scope)          # foldable, but OPEN by default so the work shows on load
         self.assertIn("(20 pull requests)", scope)
 
     def test_first_cut_pr_body_heading_does_not_say_since_the_last_release(self):
@@ -633,6 +633,27 @@ class MergedPrList(unittest.TestCase):
                 "* Fix a thing by @a in https://github.com/o/r/pull/50\n"
                 "* Release 0.2.0 by @engine in https://github.com/o/r/pull/60\n")
         self.assertEqual(rc._parse_pr_lines(body), ["Fix a thing (#50)"])
+
+    def test_defuses_closing_keywords_in_titles(self):
+        # a title's "Closes #N" must not auto-close the issue from the release PR body — keyword dropped, ref kept
+        self.assertEqual(rc._defuse_closing_keywords("Raise the ceiling (Closes #460)"),
+                         "Raise the ceiling (#460)")
+        self.assertEqual(rc._defuse_closing_keywords("Wire the tier (U11, closes #408)"),
+                         "Wire the tier (U11, #408)")
+        self.assertEqual(rc._defuse_closing_keywords("Fix the parser fixes #12"), "Fix the parser #12")
+        self.assertEqual(rc._defuse_closing_keywords("Resolves #5 and resolved #6"), "#5 and #6")
+
+    def test_defuse_leaves_a_non_closing_reference_untouched(self):
+        # "fail closed (#390)" is NOT a close (the '(' breaks the keyword->#N bond), mirroring GitHub — leave it
+        self.assertEqual(rc._defuse_closing_keywords("doesn't fail closed (#390)"), "doesn't fail closed (#390)")
+        self.assertEqual(rc._defuse_closing_keywords("Part of #405"), "Part of #405")
+
+    def test_parse_pr_lines_defuses_closing_keywords(self):
+        body = ("## What's Changed\n"
+                "* Raise boot ceiling to 150 (Closes #460) by @a in https://github.com/o/r/pull/482\n")
+        self.assertEqual(rc._parse_pr_lines(body), ["Raise boot ceiling to 150 (#460) (#482)"])
+        # and the rendered release-PR body carries no active closing keyword
+        self.assertNotRegex(rc._parse_pr_lines(body)[0], r"(?i)\bcloses?\b[:\s]+#\d+")
 
     def test_merged_pr_titles_uses_injected_fetch_offline(self):
         prs = rc.merged_pr_titles("v0.1.0", "deadbeef", repo="o/r", _fetch=lambda *a, **k: self._BODY)

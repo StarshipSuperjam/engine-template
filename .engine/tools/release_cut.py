@@ -192,17 +192,30 @@ _PR_LINE_RE = re.compile(r"^\* (.+) by @\S+ in \S+/pull/(\d+)\s*$")
 # are generated over previous_tag..merge_sha, which spans the release PR's own merge — so without this it would
 # list itself and the count would be one high. Past release PRs sit before previous_tag, out of range.
 _RELEASE_PR_RE = re.compile(r"^Release \d+\.\d+\.\d+")
+# A closing keyword directly bound to an issue reference (GitHub's own auto-close grammar: close/closes/closed,
+# fix/fixes/fixed, resolve/resolves/resolved, then optional colon/whitespace, then `#N`). A merged PR's author
+# often writes "(Closes #N)" into the PR title; rendered VERBATIM into the RELEASE pull-request body it makes
+# GitHub attribute that close to the release — so on merge the release would (re-)close #N. We strip the
+# KEYWORD and keep the `#N` reference (readable, inert). Mirrors GitHub: a `(` between keyword and `#` (e.g.
+# "fail closed (#390)") is NOT a close and is left untouched.
+_CLOSING_KEYWORD_RE = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[:\s]+(#\d+)")
+
+
+def _defuse_closing_keywords(text: str) -> str:
+    """Neutralise any `Closes #N` / `Fixes #N` / `Resolves #N` in a merged-PR title so it cannot auto-close the
+    issue from the release pull-request body — the keyword is dropped, the `#N` reference is kept."""
+    return _CLOSING_KEYWORD_RE.sub(r"\1", text)
 
 
 def _parse_pr_lines(body: str) -> list:
     """GitHub's generated 'What's Changed' body -> plain 'Title (#N)' lines, dropping the author + URL noise
-    the engine's plain-language notes don't carry, and the engine's own release pull request (a release must
-    not list itself)."""
+    the engine's plain-language notes don't carry, the engine's own release pull request (a release must not
+    list itself), and any closing keyword the title carries (so the release does not re-close those issues)."""
     out = []
     for line in (body or "").splitlines():
         m = _PR_LINE_RE.match(line.strip())
         if m and not _RELEASE_PR_RE.match(m.group(1).strip()):
-            out.append(f"{m.group(1).strip()} (#{m.group(2)})")
+            out.append(f"{_defuse_closing_keywords(m.group(1).strip())} (#{m.group(2)})")
     return out
 
 
@@ -829,10 +842,11 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
         n = len(merged)
         header = f"What changed since the last release ({n} pull request{'' if n == 1 else 's'}):"
         pr_lines = [f"- {p}" for p in merged]
-        # a long list is collapsed so it does not push the Review guidance (how to act) far down the consent
-        # surface; GitHub renders the <details> inline and the reader expands it.
+        # a long list is wrapped in a foldable <details> so the reader CAN collapse it (it otherwise pushes the
+        # Review guidance far down the consent surface) — but rendered OPEN by default, so the work is visible on
+        # load, not hidden behind a click.
         if n > 15:
-            scope += ["", header, "", "<details><summary>Show the merged pull requests</summary>", "", *pr_lines,
+            scope += ["", header, "", "<details open><summary>Merged pull requests</summary>", "", *pr_lines,
                       "", "</details>"]
         else:
             scope += ["", header, *pr_lines]
