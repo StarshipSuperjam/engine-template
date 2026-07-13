@@ -4498,7 +4498,7 @@
       },
       "slug": "census_completeness_check",
       "source": {
-        "fingerprint": "sha256:f097aa0d75e7f44a1717b077b66f00d3e557f7aa0447add9ff382a332dd06da6",
+        "fingerprint": "sha256:721ff72452eec9e4d04028470331ea3b2372ba5fd62ed184a0aed0685cdbf0fb",
         "path": ".engine/tools/census_completeness_check.py"
       },
       "status": "active",
@@ -6572,7 +6572,7 @@
       },
       "slug": "test_census_completeness",
       "source": {
-        "fingerprint": "sha256:8cab196246328bdadab1f2bfca90c3adb610986490b61f93b33c8c689a9244db",
+        "fingerprint": "sha256:c261f302eeee25191ee2635dbbd224ac98764a35e731d85de00f55baa1ccd212",
         "path": ".engine/tools/test_census_completeness.py"
       },
       "status": "active",

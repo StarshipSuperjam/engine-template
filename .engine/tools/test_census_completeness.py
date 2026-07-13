@@ -105,6 +105,15 @@ class OrphanTests(_Construction):
                   census_files=[])
             self.assertEqual(guard.check(root), [])
 
+    def test_a_dynamic_import_counts(self):
+        # importlib.import_module("demo_x") / __import__("demo_x") — the dynamic legs; defensive today (no real
+        # traveler uses them) but the scan claims to handle them, so a witness holds that claim honest.
+        with tempfile.TemporaryDirectory() as root:
+            _seed(root, demos=["demo_used.py"],
+                  non_demos=[("t.py", 'import importlib\nimportlib.import_module("demo_used")\n')],
+                  census_files=[])
+            self.assertEqual(guard.check(root), [])
+
     def test_reach_only_from_a_retired_importer_does_not_count(self):
         # A demo imported only by a census-listed (retiring) file is still orphan drift — that importer is gone in
         # a generated repo, so the demo would dangle there.

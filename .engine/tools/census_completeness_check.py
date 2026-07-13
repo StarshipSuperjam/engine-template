@@ -76,8 +76,11 @@ def _census(root: str) -> "set | None":
 
 
 def _demos(root: str) -> list:
-    """Every committed `.engine/tools/**/demo_*.py`, repo-relative. Recursive, to reach a demo in a package
-    subdirectory just as `unittest discover` would. This tool is NOT itself a `demo_*.py` (it is
+    """Every committed `.engine/tools/**/demo_*.py`, repo-relative. Recursive, so a demo in a package
+    subdirectory is still enumerated (the engine's demos are flat today; the walk fails SAFE if that ever
+    changes — a subdir demo reached via a dotted `import pkg.demo_x` keys on `pkg`, not the demo's stem, so it
+    would be FLAGGED for review, never silently shipped; if subdir demos become real the reachability keying
+    below would extend to match module paths). This tool is NOT itself a `demo_*.py` (it is
     census_completeness_check.py), so it never enumerates itself — the self-flag trap the plan gate caught."""
     out = []
     tools = os.path.join(root, _TOOLS_REL)
@@ -95,7 +98,11 @@ def _imports_of_surviving_non_demos(root: str, census: set) -> set:
     reachable), demos do NOT (a demo kept alive only by another orphan demo is itself orphan drift). Uses
     `ast.walk` so an import INSIDE a function body is caught (e.g. pr_reconcile.py's `_demo()` delegates to
     `demo_pr_reconcile` at module-body depth > 0), and keys on the imported MODULE name so an alias
-    (`import demo_x as demo`) still counts. Mirrors first_run_reference_closure_check._references's import legs."""
+    (`import demo_x as demo`) still counts. Mirrors first_run_reference_closure_check._references's import legs
+    — and, like that helper, assumes the engine's flat absolute-import tool layout: a relative import
+    (`from . import demo_x`) or a package-name from-import (`from pkg import demo_x`) is out of that layout's
+    reach and is not matched. The direction is FAIL-SAFE: an unmatched importer leaves its demo looking
+    unreached, which SURFACES the demo as a hard finding for review — it never hides an orphan."""
     imported: set = set()
     tools = os.path.join(root, _TOOLS_REL)
     for cur, dirs, names in os.walk(tools):
