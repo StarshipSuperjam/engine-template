@@ -431,11 +431,15 @@ class TestPlanAcceptanceBuildEntry(unittest.TestCase):
         # The directive is assistant-facing machine context (D-270/D-271): it NAMES Build, is self-labelled
         # do-not-relay, points the turn into the kickoff, and carries NO imperative relay marker (the glossary
         # `INFORM THE USER THAT…` class) and no raw mechanism jargon — so if it ever leaks it reads plainly.
+        # It ALSO names the pre-work consent gate (the risk assessment + the operator's depth choice) as a
+        # short label, so a cold session is primed to run it — without reproducing the risk-assessment copy.
         text = modes._build_entry_directive()
         self.assertIn(modes._STANCE_LINES[modes.BUILD], text)         # names the new stance (fidelity anchor)
         self.assertIn("don't relay", text.lower())                   # self-labelled do-not-relay
         self.assertIn("kickoff", text.lower())                       # triggers, never replaces, the kickoff
         self.assertIn("modes.py stance", text)                       # the live-signal re-read guard names its tool
+        self.assertIn("risk assessment", text.lower())               # step 2: names the pre-work consent gate
+        self.assertIn("depth", text.lower())                         # ... and the operator's how-careful choice
         low = text.lower()
         for marker in ("inform the user", "tell the operator", "let the user know"):
             self.assertNotIn(marker, low)                            # no imperative relay marker
