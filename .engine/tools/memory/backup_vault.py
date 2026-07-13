@@ -755,21 +755,30 @@ def _consent_prompt(vault_name: str, scope: str) -> str:
         "Create the private backup now? [y/N]: ")
 
 
-def _disclosure_text(scope: "str | None" = None) -> str:
+def _disclosure_text(scope: "str | None" = None, *, question: bool = True) -> str:
     """Floor-1 disclosure as PLAIN TEXT — no prompt, no stdin, no side effect — for the agent-mediated first-run
     to relay verbatim (#397 U10). With no scope it returns the shared-vs-per-repo CHOICE (`_choice_prompt`); with a
     scope it returns the consent NAMING that destination + its must-stay-private requirement (`_consent_prompt`).
     Single-homed on the same copy the interactive prompts use, so the runbook never re-types consent-critical text
-    and the operator always sees the destination name before anything is created."""
+    and the operator always sees the destination name before anything is created. `question=False` drops the
+    trailing interactive '…? [y/N]:' line, for the setup-time belt that RECORDS an already-given consent rather
+    than re-asking it (so the emitted copy never staples a live question to its own answer)."""
     if scope is None:
-        return _choice_prompt()
-    chosen = "per-project" if str(scope).strip().lower() in ("per-project", "per_project", "n", "no") else "shared"
-    try:
-        project = _project_slug()
-    except Exception:  # noqa: BLE001 — best-effort disclosure copy; never let a slug read break the presentation
-        project = None
-    project_name = project.split("/")[-1] if project and "/" in project else "this project"
-    return _consent_prompt(_vault_name(project_name, chosen), chosen)
+        text = _choice_prompt()
+    else:
+        chosen = "per-project" if str(scope).strip().lower() in ("per-project", "per_project", "n", "no") else "shared"
+        try:
+            project = _project_slug()
+        except Exception:  # noqa: BLE001 — best-effort disclosure copy; never let a slug read break the presentation
+            project = None
+        project_name = project.split("/")[-1] if project and "/" in project else "this project"
+        text = _consent_prompt(_vault_name(project_name, chosen), chosen)
+    if not question:
+        lines = text.rstrip().split("\n")
+        if lines and lines[-1].rstrip().endswith(":"):
+            lines = lines[:-1]                        # drop the trailing "…? [y/N]:" interrogative
+        text = "\n".join(lines).rstrip()
+    return text
 
 
 def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
@@ -1170,7 +1179,7 @@ def main(argv: list) -> int:
         # naming the destination + its must-stay-private requirement BEFORE it acts — so consent-before-create stays
         # code-surfaced, never only runbook prose. On a real TTY (no flags) `setup` shows the interactive prompts.
         if consent is not None:
-            print(_disclosure_text(scope if scope is not None else _DEFAULT_SCOPE))
+            print(_disclosure_text(scope if scope is not None else _DEFAULT_SCOPE, question=False))
         print(setup(scope=scope, consent=consent)["message"])
         return 0
     if cmd == "now":

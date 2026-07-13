@@ -239,7 +239,9 @@ class TestDegradedNotice(unittest.TestCase):
         self.assertIn("couldn't open your saved memory", dash)
         self.assertIn("recall", dash.lower())
         self.assertIn("isn't lost", dash)
-        self.assertIn("restore it from your backup", dash)
+        self.assertIn("ask me to restore", dash)            # the recourse is named...
+        self.assertIn("backup", dash.lower())               # ...and points at a backup (without presuming one exists)
+        self.assertNotIn("committed", dash.lower())         # "saved project files", not the git term "committed"
         for jargon in ("ledger", "index", "substrate", "fts5", "offline", "sqlite"):
             self.assertNotIn(jargon, dash.lower())   # "(memory offline)" is the internal name; the render is plainer
 

@@ -3,7 +3,7 @@ name: engine-setup
 description: Set up your project for the first time — I'll walk you through a few choices, then get everything ready.
 invocation: operator-typed
 disable-model-invocation: true
-allowed-tools: Bash(python3 .engine/tools/instantiator.py *), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py *)
+allowed-tools: Bash(python3 .engine/tools/instantiator.py *), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py disclosure*), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py setup*)
 ---
 
 ## Steps

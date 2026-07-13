@@ -994,8 +994,9 @@ def render_dashboard(s: dict) -> str:
         # so a fixed-signals test fixture without the key never KeyErrors.
         degraded.append(
             "I couldn't open your saved memory, so my recall of past decisions and notes is unavailable this "
-            "session — I'm still oriented by the rest of your committed files. Your saved memory isn't lost; to "
-            "get recall working again, ask me to restore it from your backup.")
+            "session — I'm still oriented by the rest of your saved project files. Your saved memory isn't lost. "
+            "If you set up a backup, ask me to restore it from there; if not, tell me and I'll help you get your "
+            "recall working again.")
 
     malformed = s.get("ledger_malformed")
     if malformed:

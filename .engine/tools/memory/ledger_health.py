@@ -64,18 +64,22 @@ def detect_stalled_migration(cwd: "str | None" = None) -> bool:
 def detect_recall_offline(cwd: "str | None" = None) -> bool:
     """True iff the saved-memory ledger is PRESENT but structurally unreadable — recall genuinely cannot answer.
 
-    A MISSING ledger reads as empty ("no memories yet" — the shipped-empty normal state) and draws no signal;
-    only a present ledger file the read cannot OPEN (a permission change, a directory where the file should be,
-    a filesystem fault) is "offline". `ledger.read` returns empty for a missing file and RAISES the OSError
-    family for a present-but-unreadable one, so the open failure is the signal. Any other import/read fault
-    degrades to False (no-signal): this is a best-effort readout, never a gate — it must never break boot nor
-    false-alarm a healthy or empty store.
+    A MISSING ledger is empty ("no memories yet" — the shipped-empty normal state) and draws no signal; only a
+    present ledger file that cannot be OPENED (a permission change, a directory where the file should be, a
+    filesystem fault) is "offline". The probe is a cheap OPEN — not a full parse — because the only question is
+    "does the store open?"; the same open failure is what makes `detect_ledger_malformed` return None, so the two
+    signals are mutually exclusive by construction. Any other fault degrades to False (no-signal): a best-effort
+    readout, never a gate — it must never break boot nor false-alarm a healthy or empty store.
     """
     try:
         from memory import ledger
-        ledger.read(path=ledger.ledger_path(cwd))  # missing -> empty (no raise); present-but-unreadable -> OSError
+        target = ledger.ledger_path(cwd)
+        if not os.path.exists(target):
+            return False                     # no ledger yet = "no memories yet", the normal empty state
+        with open(target, "rb"):             # a present-but-unopenable ledger raises the OSError family here
+            pass
         return False
     except OSError:
-        return True
+        return True                          # present but unopenable = offline
     except Exception:  # noqa: BLE001 — any other fault degrades to no-signal, never breaks boot
         return False

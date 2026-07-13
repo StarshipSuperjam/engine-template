@@ -75,7 +75,7 @@ def _u09() -> bool:
     detect_ok = (missing is False and healthy is False and offline is True and malformed_on_unopenable is None)
 
     off_line = "I couldn't open your saved memory"
-    rendered = off_line in _dash(recall_offline=True) and "restore it from your backup" in _dash(recall_offline=True)
+    rendered = off_line in _dash(recall_offline=True) and "ask me to restore" in _dash(recall_offline=True)
     silent = off_line not in _dash(recall_offline=False)
     exclusive = (off_line in _dash(recall_offline=True, ledger_malformed=None)
                  and off_line not in _dash(recall_offline=False, ledger_malformed=2)
