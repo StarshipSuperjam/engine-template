@@ -251,8 +251,10 @@ class TestCapabilityAndConsent(unittest.TestCase):
             return True
         result = cp(fake, refresh_fn=refresh).apply(announce=announced.append)
         self.assertEqual(result.status, "applied")
-        self.assertTrue(any("authorization screen" in a or "manage my repository" in a
-                            for a in announced))  # the pre-bootstrap explanation was shown first
+        # the pre-bootstrap explanation was shown first, and it NAMES + defuses the felt-sweeping label
+        # rather than paraphrasing it away (U19).
+        self.assertTrue(any("full control of your repositories" in a for a in announced))
+        self.assertTrue(any("you already" in a and "control" in a for a in announced))
 
     def test_refresh_that_does_not_persist_degrades_didnt_save(self):
         fake = FakeGitHub(scopes="read:org", floor_met=False, rulesets=[])
@@ -293,7 +295,32 @@ class TestCopySurface(unittest.TestCase):
             self.assertIn(heading, sections, f"copy section {key!r} ({heading!r}) missing from the template")
             self.assertTrue(sections[heading].strip(), f"copy section {key!r} is empty in the template")
         # And the template body, not the built-in fallback, is what load_copy returns.
-        self.assertIn("repo", bootstrap.load_copy(bootstrap.TEMPLATE_PATH)["before-you-approve"])
+        approve = bootstrap.load_copy(bootstrap.TEMPLATE_PATH)["before-you-approve"]
+        self.assertIn("repo", approve)
+
+    @staticmethod
+    def _norm(text):
+        # load_copy preserves the markdown paragraph's line wrapping, so normalize whitespace before a
+        # word-level comparison — a wrap point is not a copy change, but a different word is.
+        return " ".join(text.split())
+
+    def test_before_you_approve_names_and_defuses_the_full_control_label(self):
+        # U19: the operator reads the TEMPLATE body at first run. It must NAME the sweeping,
+        # full-control-sounding wording GitHub's screen uses and defuse it (scoped to repos the operator
+        # already controls) — never the forbidden milder paraphrase that lets the scary label land
+        # uninterpreted. This locks the operator-visible surface, which no test guarded before.
+        approve = self._norm(bootstrap.load_copy(bootstrap.TEMPLATE_PATH)["before-you-approve"])
+        self.assertIn("full control of your repositories", approve, "names the felt-sweeping label")
+        self.assertIn("you already control", approve, "defuses it: scoped to repos the operator controls")
+        self.assertNotIn("manage my repository", approve, "the forbidden milder paraphrase is gone")
+
+    def test_template_and_fallback_before_you_approve_do_not_drift(self):
+        # The operator normally reads the TEMPLATE body; the FALLBACK is the degraded path. Nothing guarded
+        # that they say the same thing, so a copy fix could land in one and not the other (all tests still
+        # green, the operator-visible copy unchanged). This guards it — word-for-word, tolerating only the
+        # template's line wrapping.
+        self.assertEqual(self._norm(bootstrap.load_copy(bootstrap.TEMPLATE_PATH)["before-you-approve"]),
+                         self._norm(bootstrap.FALLBACK_COPY["before-you-approve"]))
 
     def test_missing_template_falls_back_not_crashes(self):
         copy = bootstrap.load_copy("/no/such/template.md")

@@ -48,3 +48,15 @@ check, and updating or removing the whole engine, are different steps other capa
 **Where the files come from.** The files are fetched from the engine's current released version, pinned to
 that exact version — never an in-progress copy — so an add installs files that match the engine the
 repository already runs. If the release cannot be reached, the add reports that plainly and changes nothing.
+
+**When to reactively offer a module — the offer, never a silent install.** Most adds start with the operator
+asking. But the engine may also *offer* one: when an operator's request maps to a capability that an **installed
+optional package does not provide but an uninstalled one would**, offer to add that module via this same add
+path — say what it turns on and let the operator decide. This is always an **offer**, never a silent install:
+the operator's yes is what installs it, exactly as when they ask directly (the deployed floor,
+`CLAUDE.deployed.md`, carries this as a standing rule). The threshold is judgment, kept deliberately plain so it
+guides without a brittle rule: offer when the request **clearly** maps to what an uninstalled module is built
+for — a direct ask for its capability, or the same need coming up more than once — not on a faint keyword brush
+that would turn every mention into a prompt to install. When unsure, name the capability and ask, rather than
+either installing or staying silent. Run `module_manager.py status` first (as in step 1) to confirm the
+capability really is uninstalled before offering.

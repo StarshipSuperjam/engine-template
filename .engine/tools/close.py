@@ -70,9 +70,14 @@ import validate   # noqa: E402  (collect + local_ctx: the pre-close local full-s
 
 # ---- the block this owning system declares for the hook block budget ------------------------
 # hooks.py "names no invariant itself", so the consumer (module_coherence.block_eligible_registrations)
-# assembles the registry from each owner's declaration; the validator reads only `event`. Stop is
-# block-eligible. (This exact dict is fixtured by test_hooks.py's block-eligibility test.)
-BLOCK_INVARIANT = {"event": "Stop", "name": "findings-disposition", "owner": "close"}
+# assembles the registry from each owner's declaration; the block-registry leg
+# (validate.block_budget_findings) reads `event` (only PreToolUse/Stop may block) AND `modes` (the mode
+# dimension declared as data — hooks/README §Mode-awareness). Stop is block-eligible. The
+# findings-disposition gate fires on ANY turn-close, so it is active in every stance — and its close
+# must stay satisfiable non-interactively in a routine run (an unattended run cannot answer a prompt).
+# (This exact dict is fixtured by test_hooks.py's block-eligibility test.)
+BLOCK_INVARIANT = {"event": "Stop", "name": "findings-disposition", "owner": "close",
+                   "modes": ["explore", "build", "routine"]}
 
 # The three durable dispositions every raised concern must reach (finding-disposition policy).
 DISPOSITIONS = frozenset({"fixed", "logged", "escalated"})

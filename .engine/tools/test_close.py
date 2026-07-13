@@ -31,6 +31,7 @@ import unittest.mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import close      # noqa: E402
 import hooks      # noqa: E402
+import modes      # noqa: E402  (the canonical stance vocabulary the block-registry leg validates against)
 import telemetry  # noqa: E402
 import validate   # noqa: E402
 
@@ -366,15 +367,20 @@ class TestRoutineSatisfiable(CloseBase):
 
 
 class TestBlockInvariant(CloseBase):
-    def test_block_invariant_is_stop_and_block_eligible(self):
+    def test_block_invariant_is_stop_block_eligible_and_declares_its_modes(self):
         self.assertEqual(close.BLOCK_INVARIANT,
-                         {"event": "Stop", "name": "findings-disposition", "owner": "close"})
+                         {"event": "Stop", "name": "findings-disposition", "owner": "close",
+                          "modes": ["explore", "build", "routine"]})
         self.assertIn(close.BLOCK_INVARIANT["event"], hooks.BLOCK_ELIGIBLE_EVENTS)
+        # the findings-disposition gate fires on any turn-close, so it is active in every stance.
+        self.assertEqual(sorted(close.BLOCK_INVARIANT["modes"]), sorted(modes.STANCES))
 
     def test_block_budget_leg_clean_with_the_close_member(self):
-        # The static block-budget leg is silent when the close member sits on a block-eligible event.
+        # The block-registry leg is silent when the close member sits on a block-eligible event and
+        # declares the stances it is active in.
         findings = validate.block_budget_findings(
-            [dict(close.BLOCK_INVARIANT)], "hard", "a block must sit on a block-eligible event")
+            [dict(close.BLOCK_INVARIANT)], "hard", "a block must sit on a block-eligible event",
+            stances=modes.STANCES)
         self.assertEqual(findings, [])
 
 

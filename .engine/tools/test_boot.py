@@ -22,6 +22,7 @@ from unittest import mock
 import audit_digest
 import boot
 import hooks
+import modes
 import module_coherence
 import validate
 
@@ -1379,31 +1380,47 @@ class TestHookRegistration(unittest.TestCase):
 
 
 class TestBlockBudgetLeg(unittest.TestCase):
-    """The block-budget coherence leg (validate.block_budget_findings, run live in module_coherence).
-    Slice 20 born it green-but-present; slice 21 registered modes' explore write-gate (PreToolUse) and
-    slice 22 registers close's findings-disposition gate (Stop), so it now validates TWO real members —
-    and still has teeth for a misplaced block."""
+    """The block-registry coherence leg (validate.block_budget_findings, run live in module_coherence).
+    It now validates THREE real members — modes' explore write-gate + engine-Issue reroute (PreToolUse)
+    and close's findings-disposition gate (Stop), each declaring the stances it is active in — and still
+    has teeth for a block on an ineligible event or one missing its mode declaration."""
 
-    def test_registry_has_both_block_members_and_leg_is_green(self):
-        # The registry assembles each owning system's declaration: modes' explore write-gate on PreToolUse
-        # (slice 21) and close's findings-disposition gate on Stop (slice 22) — both block-eligible, so the
-        # leg stays green over the whole assembled set.
+    def test_registry_has_all_three_block_members_and_leg_is_green(self):
+        # The registry assembles each owning system's declaration: modes' explore write-gate + the
+        # engine-Issue-conformance reroute on PreToolUse and close's findings-disposition gate on Stop —
+        # all block-eligible and each naming its modes, so the leg stays green over the whole set.
         registry = module_coherence.block_eligible_registrations()
-        self.assertIn({"event": "PreToolUse", "name": "explore-write-gate", "owner": "modes"}, registry)
-        self.assertIn({"event": "Stop", "name": "findings-disposition", "owner": "close"}, registry)
-        # every declared block sits on a block-eligible event -> the leg produces no finding.
-        self.assertEqual(validate.block_budget_findings(registry, "hard", "move it."), [])
+        self.assertIn({"event": "PreToolUse", "name": "explore-write-gate", "owner": "modes",
+                       "modes": ["explore"]}, registry)
+        self.assertIn({"event": "PreToolUse", "name": "engine-issue-conformance", "owner": "modes",
+                       "modes": ["explore", "build", "routine"]}, registry)
+        self.assertIn({"event": "Stop", "name": "findings-disposition", "owner": "close",
+                       "modes": ["explore", "build", "routine"]}, registry)
+        # every declared block sits on a block-eligible event and names its modes -> no finding.
+        self.assertEqual(
+            validate.block_budget_findings(registry, "hard", "fix it.", stances=modes.STANCES), [])
 
     def test_leg_has_teeth_when_a_block_is_misplaced(self):
-        msg = "move it."
-        self.assertEqual(validate.block_budget_findings([], "hard", msg), [])  # green-but-present
+        msg = "fix it."
+        self.assertEqual(
+            validate.block_budget_findings([], "hard", msg, stances=modes.STANCES), [])  # green-but-present
         fired = validate.block_budget_findings(
-            [{"event": "SessionStart", "name": "x", "owner": "modes"}], "hard", msg)
+            [{"event": "SessionStart", "name": "x", "owner": "modes", "modes": ["explore"]}], "hard", msg,
+            stances=modes.STANCES)
         self.assertEqual(len(fired), 1)                       # a block on an ineligible event fires
         self.assertIn("SessionStart", fired[0]["message"])
         clean = validate.block_budget_findings(
-            [{"event": "Stop", "name": "findings-disposition", "owner": "close"}], "hard", msg)
-        self.assertEqual(clean, [])                           # an eligible event is clean
+            [{"event": "Stop", "name": "findings-disposition", "owner": "close",
+              "modes": ["explore", "build", "routine"]}], "hard", msg, stances=modes.STANCES)
+        self.assertEqual(clean, [])                           # an eligible event with modes is clean
+
+    def test_leg_has_teeth_when_a_block_omits_its_modes(self):
+        # The mode dimension is declared data: a registered block that names no stances fires.
+        fired = validate.block_budget_findings(
+            [{"event": "Stop", "name": "no-modes", "owner": "close"}], "hard", "fix it.",
+            stances=modes.STANCES)
+        self.assertEqual(len(fired), 1)
+        self.assertIn("does not declare the modes it is active in", fired[0]["message"])
 
 
 class TestStanceLine(unittest.TestCase):

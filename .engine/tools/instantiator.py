@@ -355,14 +355,51 @@ def selectable(catalog_entries: list) -> dict:
     return {c: sorted(grouped[c], key=lambda e: (e.get("verb", ""), e.get("id", ""))) for c in ordered + extra}
 
 
-def present_gather(root: str | None = None, catalog_path: str | None = None, team=None) -> str:
+def optional_dependency_closure(manifests) -> dict:
+    """For each OPTIONAL module, the OTHER OPTIONAL modules it transitively `depends` on — the
+    optional→optional pull-ins the gather step surfaces at the choice moment (provisioning §gather step 1:
+    "present module selection with its dependency closure"; "the closure still surfaces any optional→optional
+    dependency at confirm; it does not surface always-present required dependencies"). Always-present
+    `required` dependencies (core, validators-core, …) are DELIBERATELY excluded — they are the spine, never
+    offered as a choice (D-067), so surfacing them would only add noise. `manifests` is the
+    (path, manifest) list module_coherence.discover_manifests yields.
+
+    Vacuous today: every optional module depends only on core, so every list is empty. The mechanism is
+    spec-mandated and armed for the first optional module that depends on another — v1 ships it complete, not
+    deferred (§20)."""
+    depends, status = {}, {}
+    for _path, manifest in manifests:
+        mid = manifest.get("id")
+        if not mid:
+            continue
+        depends[mid] = manifest.get("depends") or {}
+        status[mid] = manifest.get("status")
+    optional = {mid for mid, s in status.items() if s == "optional"}
+    closure = {}
+    for mid in optional:
+        seen, stack = set(), list(depends.get(mid, {}))
+        while stack:
+            dep = stack.pop()
+            if dep in seen:
+                continue
+            seen.add(dep)
+            stack.extend(depends.get(dep, {}))
+        closure[mid] = sorted(d for d in seen if d in optional and d != mid)
+    return closure
+
+
+def present_gather(root: str | None = None, catalog_path: str | None = None, team=None,
+                   manifests=None) -> str:
     """The plain-language GATHER walkthrough the operator reads: the repo coordinates I derived, the one
     identity choice (plus a team-tier recommendation when an existing team is detected — brownfield arrival,
     provisioning §identity-and-tokens; a suggestion, not a seizure), the optional features to pick from
     (grouped by discipline, or the no-add-ons line when the catalog is empty), and the plain statement that
     not-kept add-ons are deleted on confirm. Pure text — no prompts, no writes; the skill/runbook does the
-    asking. `team` (the detect_team result) is injectable for tests/the demo."""
+    asking. `team` (the detect_team result) and `manifests` (the discover_manifests list, for the
+    dependency closure annotation) are injectable for tests/the demo."""
     ident = derive_identity(root)
+    closure = optional_dependency_closure(
+        manifests if manifests is not None else module_coherence.discover_manifests())
     coords = (f"{ident['owner']}/{ident['name']}" if ident["owner"] and ident["name"]
               else "(I couldn't read your project's name from GitHub — I'll ask you instead)")
     lines = [
@@ -396,6 +433,13 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
                     lines.append(f"    • {entry['verb']} — {entry['description']}")
                 else:
                     lines.append(f"    • {entry['description']}")
+                # Its dependency closure: any OTHER optional feature this one pulls in (required-spine deps
+                # are never surfaced — they are always present). Vacuous until an optional module depends on
+                # another optional one, but presented at the choice moment so the pull-in is never a surprise.
+                pulls = closure.get(entry.get("id")) or []
+                if pulls:
+                    lines.append(f"        Including this also turns on: {', '.join(pulls)} "
+                                 f"(it depends on {'them' if len(pulls) > 1 else 'it'}).")
             lines.append("")
     lines.append(_DESELECT_PREFACE)
     return "\n".join(lines)
@@ -403,7 +447,7 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
 
 def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
             engine_release: str | None = None, handle: str | None = None,
-            default_branch: str | None = None) -> dict:
+            default_branch: str | None = None, manifests=None) -> dict:
     """CONFIRM — write the engine manifest, the resumability checkpoint (D-024). Records the engine release,
     the identity tier, the kept package set (the always-present required spine plus the optional features the
     operator kept — an unkept optional is simply left out of the manifest, its files removed later in the
@@ -413,11 +457,19 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     of a frequently-unset `origin/HEAD`), and the engine's update HOME carried forward from the traveled/seed
     manifest (where the engine fetches its own updates from — D-281/D-282, #367). Each derived/carried field is
     omitted when None, keeping the manifest valid either way. This is the single committing step; before it,
-    nothing is written. Returns the written path and the manifest. `root`, `engine_release`, `handle`, and
-    `default_branch` are injectable for tests and the demo."""
+    nothing is written. Returns the written path and the manifest. `root`, `engine_release`, `handle`,
+    `default_branch`, and `manifests` (for the dependency closure) are injectable for tests and the demo."""
     kept = set(kept_optional_ids or [])
+    manifests = manifests if manifests is not None else module_coherence.discover_manifests()
+    # Honor the dependency closure the gather step surfaced: keeping an optional module also installs the
+    # optional modules it depends on (the pull-ins present_gather annotated with "Including this also turns
+    # on: …"), so the written manifest never records a kept module without its optional dependency — the
+    # annotation's promise is kept, and the apply phase never halts on a missing-dependency coherence finding.
+    # Vacuous today (no optional module depends on another optional one); required deps are already always-present.
+    closure = optional_dependency_closure(manifests)
+    kept |= {dep for mid in list(kept) for dep in closure.get(mid, [])}
     packages: dict = {}
-    for _rel, manifest in module_coherence.discover_manifests():
+    for _rel, manifest in manifests:
         mid, status = manifest.get("id"), manifest.get("status")
         if not mid:
             continue  # a manifest with no id fails the module schema upstream; never crash the committing step
@@ -603,8 +655,11 @@ UV_PIN = "0.11.8"  # the pinned uv version to bootstrap — MUST match the commi
                    # .github/workflows/*.yml astral-sh/setup-uv `version:`) so the runtime the instantiator
                    # materializes matches the engine's resolved uv.lock. (Faked in every test and the demo; a
                    # real install runs only on a generated repo.) The tie is enforced at merge by
-                   # test_instantiator.test_uv_pin_ties_to_every_ci_workflow_setup_uv_version — a one-sided
-                   # bump of this constant or a workflow pin fails that test under CI's unittest discover.
+                   # test_instantiator.test_uv_pin_ties_to_every_ci_workflow_setup_uv_version — construction-
+                   # coupled ON PURPOSE: UV_PIN is bootstrap-only and this file + that test both retire at
+                   # first-run, so the tie lives with the instantiator rather than as a traveling check that
+                   # would reference retired code once the instantiator is gone (#411 U22 weighed and rejected
+                   # a first-class check here for exactly that reason).
 UV_INSTALL_DIR_REL = os.path.join(".engine", ".uv")
 UV_INSTALL_URL = f"https://astral.sh/uv/{UV_PIN}/install.sh"
 

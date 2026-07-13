@@ -3,17 +3,22 @@ sections by heading and renders them; built-in fallbacks keep it working if this
 This is the single review surface for what the operator is told when the safety gate is turned on or can't
 be. Plain language only — keep the engine's internal machinery out of what the operator reads: name each thing
 by what it does for them, not by its engine/maintainer term. That is a relevance judgment made in the writing
-and the review, never a banned-word list (none is kept here or anywhere). The one literal the operator will
-see on GitHub's screen (`repo`) is pre-translated here before it appears. Edit the wording here; the section
-HEADINGS are stable keys the tool matches, so don't rename them. -->
+and the review, never a banned-word list (none is kept here or anywhere). The scope literal the operator will
+see on GitHub's screen (`repo`) AND the sweeping, full-control-sounding way the screen describes it are named
+and defused here before they appear — never softened into a milder paraphrase that would let the scary wording
+land uninterpreted. The exact on-screen label is GitHub's to word and re-verified live at build, so this copy
+names its felt intensity ("full control of your repositories") durably rather than quoting a dated string. Edit
+the wording here; the section HEADINGS are stable keys the tool matches, so don't rename them. -->
 
 ## Before you approve
 
 I'm about to turn on your safety gate — the branch protection that keeps work from reaching your main
 branch without passing checks and your review. To do that I need permission to manage this repository's
-settings. GitHub will show an authorization screen asking for `repo` access — the standard "manage my
-repository" permission. Approving it lets me set the protection rules; I can't grant it to myself, which is
-the point. Nothing changes until you approve.
+settings. GitHub will show an authorization screen for `repo` access, and it describes that access in sweeping
+terms — it reads as full control of your repositories. That sounds far broader than what happens here: it's the
+standard GitHub permission for turning on the review gate, and it reaches only repositories you already
+control — not your wider account, and nothing you don't already own. Approving it lets me set the protection
+rules; I can't grant it to myself, which is the point. Nothing changes until you approve.
 
 ## When it's on
 

@@ -1341,38 +1341,61 @@ def skill_coherence_findings(skills: list, tier: str, message: str) -> list:
     return findings
 
 
-def block_budget_findings(blocks: list, tier: str, message: str) -> list:
-    """Pure hook block-budget coherence — the hooks substrate's coherence leg, beside dependency
+def block_budget_findings(blocks: list, tier: str, message: str, *, stances) -> list:
+    """Pure block-registry coherence — the hooks substrate's coherence leg, beside dependency
     (coherence_findings), ownership (ownership_findings), forward wiring (wiring_findings), interface
     resolution (interface_resolution_findings), persona coherence (agent_coherence_findings), and
-    skill coherence (skill_coherence_findings). The block-budget law
-    (systems/infrastructure/hooks/README.md §"The block-budget law"): only PreToolUse and Stop may
-    HARD-BLOCK; every other event nudges or injects. The platform would let PreCompact /
-    UserPromptSubmit / SubagentStop block too — the Engine declines (a local hard-block buys friction
-    without proportional trust; principles §6).
+    skill coherence (skill_coherence_findings). It asserts TWO cross-field rules over the block-eligible
+    registry (the multi-rule agent_coherence_findings shape), so one leg — and the one first-class check
+    that wraps it — validates the whole invariant, never half of it:
 
-    Given the present block-eligible registrations [{event, name?, owner?}, ...] — assembled by the
-    consumer from the owning systems' declarations and passed in (filesystem-free, the agent/skill
-    precedent) — return a finding for any block declared on an event OUTSIDE {PreToolUse, Stop}.
+      1. BLOCK BUDGET (systems/infrastructure/hooks/README.md §"The block-budget law"): only PreToolUse
+         and Stop may HARD-BLOCK; every other event nudges or injects. The platform would let PreCompact /
+         UserPromptSubmit / SubagentStop block too — the Engine declines (a local hard-block buys friction
+         without proportional trust; principles §6).
+      2. MODE DIMENSION (hooks/README §"Mode-awareness", eADR-0022): every block behavior DECLARES the
+         modes it is active in — "the dimension is the law; the bindings are membership." This makes the
+         mode-activeness DECLARED DATA rather than code-only: a block must carry a non-empty `modes` list
+         drawn from the valid stance vocabulary (`stances`, passed in so the canonical set lives once in
+         `modes` — this leg never hardcodes it). Honest per principles §7: it verifies the dimension is
+         declared and well-formed, NOT the un-mechanizable "satisfiable without a human present" (that
+         stays a reviewed property the declaration now makes visible at the merge).
+
+    Given the present block-eligible registrations [{event, name?, owner?, modes}, ...] — assembled by
+    the consumer from the owning systems' declarations and passed in (filesystem-free, the agent/skill
+    precedent) — return a finding per violated rule. It covers every DECLARED block; a PreToolUse/Stop
+    deny that fires in code but is never registered here escapes both this leg and the check that wraps
+    it (the registry is consumer-assembled by hand — owes → 25's registry-discovery pattern), so the leg
+    is honest about validating the declared set, not "every block that can fire".
 
     The block-eligible invariant set STARTS EMPTY: this leg names no invariant itself (hooks owns the
     BUDGET — which events may block — not the invariants). Owning systems register their block
-    additively — close's findings-disposition Stop block (slice 22), modes' explore write-gate
-    PreToolUse block (slice 21) — so with the set empty (core today) this returns nothing. No live
-    rule wires it in core: the registration source is the committed `.claude/settings.json` + the
-    owning systems' declarations, born at the first hook-wiring slice (slice 20), which runs this leg
-    live — the interface_resolution_findings / agent_coherence_findings precedent (built +
-    fixture-tested, no live rule). The closed eligible set lives HERE (the leg) and in the runtime
-    harness (hooks.py); the locked hooks README is the single source both cite."""
+    additively — close's findings-disposition Stop block, modes' explore write-gate + engine-Issue
+    reroute PreToolUse blocks. No live rule wires it in core: the registration source is the owning
+    systems' declarations, run live by module_coherence.check_coherence and by the first-class
+    block-coherence check — the interface_resolution_findings / agent_coherence_findings precedent (a
+    pure leg wrapped by a custom/script check, no data rule). The closed eligible set lives HERE (the
+    leg) and in the runtime harness (hooks.py); the locked hooks README is the single source both cite."""
     eligible = {"PreToolUse", "Stop"}
+    valid_stances = set(stances)
     findings = []
     for b in blocks:
+        name = b.get("name") or b.get("owner") or "(unnamed)"
         event = b.get("event")
         if event not in eligible:
-            name = b.get("name") or b.get("owner") or "(unnamed)"
             findings.append(finding(tier, f"The hook block '{name}' is declared on the '{event}' "
                             f"event, but only {sorted(eligible)} may hard-block; every other event "
                             f"nudges or injects. {message}"))
+        declared = b.get("modes")
+        if not isinstance(declared, list) or not declared:
+            findings.append(finding(tier, f"The hook block '{name}' does not declare the modes it is "
+                            f"active in — every block behavior must name a non-empty set of stances "
+                            f"(the mode dimension is declared data, not code-only). {message}"))
+        else:
+            unknown = [m for m in declared if m not in valid_stances]
+            if unknown:
+                findings.append(finding(tier, f"The hook block '{name}' declares unknown mode(s) "
+                                f"{unknown}; the valid stances are {sorted(valid_stances)}. {message}"))
     return findings
 
 

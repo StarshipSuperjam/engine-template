@@ -184,8 +184,8 @@ class TestShapeRule(unittest.TestCase):
         self.assertEqual(SHAPE_RULE["tier"], "hard")
 
     def test_live_shape_rule_is_green_on_the_committed_personas(self):
-        # the real shape rule over the real .claude/agents/ — the committed audit persona (plus .gitkeep)
-        # is well-shaped, so green; persona validity is load-bearing (this is no longer an empty stream).
+        # the real shape rule over the real .claude/agents/ — the committed personas are well-shaped, so
+        # green; persona validity is load-bearing (this is no longer an empty stream).
         passed, found = validate.kind_shape(SHAPE_RULE, {})
         self.assertTrue(passed)
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])

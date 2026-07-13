@@ -31,6 +31,7 @@
       ".engine/operations/knowledge-impact-check.md",
       ".engine/operations/module-add.md",
       ".engine/operations/module-remove.md",
+      ".engine/operations/onboarding-read.md",
       ".engine/operations/operating-modes.md",
       ".engine/operations/tune-policy.md"
     ],
@@ -41,11 +42,7 @@
       ".claude/skills/engine-setup/SKILL.md",
       ".claude/skills/engine-start/SKILL.md",
       ".claude/skills/engine-status/SKILL.md",
-      ".claude/skills/engine-tune/SKILL.md",
-      ".claude/skills/.gitkeep"
-    ],
-    "agent": [
-      ".claude/agents/.gitkeep"
+      ".claude/skills/engine-tune/SKILL.md"
     ],
     "doc": [
       ".engine/docs/getting-started.md"

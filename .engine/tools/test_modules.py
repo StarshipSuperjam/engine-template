@@ -322,6 +322,20 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertIn(parts, knowledge_gen.surface_instance_inventory(catalog, claims),
                       "engine-parts must now be a tracked surface instance in the claim-driven inventory")
 
+    def test_core_provides_no_gitkeep_placeholders_and_no_agent_group(self):
+        # #411 U30: core once carried .claude/skills/.gitkeep and a .claude/agents/.gitkeep-only `agent`
+        # group as empty-dir placeholders. Both directories are now populated in every deployed repo (core
+        # provides the engine-* skills; required audit-library provides .claude/agents/audit.md), so the
+        # placeholders are obsolete and a literal provides-kind read must be coherent: no .gitkeep in any
+        # group, and core declares no `agent` group (it provides no persona).
+        core = next(m for _p, m in module_coherence.discover_manifests() if m.get("id") == "core")
+        provides = core.get("provides") or {}
+        flat = [f for group in provides.values() for f in group]
+        self.assertFalse(any(f.endswith("/.gitkeep") or f.endswith(".gitkeep") for f in flat),
+                         "no .gitkeep placeholder remains in core's provides")
+        self.assertNotIn("agent", provides, "core provides no persona, so it declares no agent group")
+        self.assertIn(".claude/skills/engine-parts/SKILL.md", provides.get("skill", []))
+
     def test_check_corpus_split_core_two_guards_validators_core_forty(self):
         # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
         # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
@@ -387,6 +401,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/audit-concern-list.json",
             ".engine/check/audit-digest-fingerprint.json",
             ".engine/check/audit-digest-staleness.json",
+            ".engine/check/block-coherence.json",
             ".engine/check/catalog-coverage.json",
             ".engine/check/conduct-frontmatter.json",
             ".engine/check/conduct-shape.json",
@@ -426,7 +441,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/template-shape-spec.json",
             ".engine/check/untracked-surface.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 45 corpus rules")
+        ], "validators-core owns exactly the 46 corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])
