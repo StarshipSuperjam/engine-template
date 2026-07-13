@@ -165,6 +165,18 @@ def main() -> int:
         for s in summ:
             print(f"   - {s}")
         ok &= (len(summ) == 1 and "eADR-0014-one-history.md" in summ[0])
+
+        # 9. PUBLISHED RELEASE NOTES: a human-readable body with a breaking callout, a "what changed" section,
+        # and interface changes WITH descriptions — the same signals as the PR body, formatted for the release.
+        rich = {"engine_floor_level": "major",
+                "change_inventory": ["Added the 'routine-mode' capability.", "Removed the 'legacy' capability."],
+                "impacts": [{"what": "the contract surface 'eADR-0021-control-plane.md' changed",
+                             "why": "a changed contract can be additive or breaking — read it against consumers."}]}
+        notes = rc.render_release_notes("v1.0.0", rich)
+        print("\n9. PUBLISHED RELEASE NOTES (sectioned, bulleted, described)")
+        print("\n".join("   " + ln for ln in notes.splitlines()))
+        ok &= ("breaking change" in notes.lower() and "## What changed since the last release" in notes
+               and "## Interface changes to read" in notes and "read it against consumers" in notes)
     finally:
         validate.ROOT, validate.ENGINE_DIR = saved
         for t in trees:

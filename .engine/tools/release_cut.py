@@ -603,6 +603,42 @@ def change_summary(proposal: dict) -> list:
     return lines
 
 
+def _cap(text: str) -> str:
+    """Capitalize the first letter of a plain-language fragment (the impact `what` strings are lower-case)."""
+    text = (text or "").strip()
+    return (text[0].upper() + text[1:]) if text else text
+
+
+def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str = "sub-bar") -> str:
+    """The published GitHub Release body — a human-readable, self-contained account of the release: the
+    version, the §6 readiness line, a breaking-change callout when the release is breaking, a "What changed"
+    section (the structural changes), and an "Interface changes to read" section carrying each changed
+    contract/interface WITH its plain-language description. It is a derived VIEW of the same signals the
+    release pull-request body renders (one source — the proposal recomputed at publish — never a second
+    history store, eADR-0014); it does not restate the version-by-version manifest table (that is the pull
+    request's job), it tells a reader of the published release what changed and why it matters. A None/empty
+    proposal (the best-effort fallback when the publish-time recompute could not run) degrades to the version
+    + readiness line alone. Maintainer register (§8/§12): 'engine version vX.Y.Z', no internal vocabulary."""
+    out = [f"Engine version {tag}.", "", _gate_path_line(gate_state)]
+    proposal = proposal or {}
+    if proposal.get("engine_floor_level") == "major":
+        out += ["", "⚠️ **This release makes a breaking change.** Something an earlier version provided was "
+                    "removed, or changed in a way that is not backward-compatible — so anything that relied on "
+                    "it will need attention. See the changes below."]
+    inventory = proposal.get("change_inventory") or []
+    if inventory:
+        out += ["", "## What changed since the last release", ""]
+        out += [f"- {c}" for c in inventory]
+    impacts = proposal.get("impacts") or []
+    if impacts:
+        out += ["", "## Interface changes to read", ""]
+        for im in impacts:
+            what = _cap(im.get("what")) or "A contract surface changed"
+            why = _cap(im.get("why"))          # its own sentence after the bold heading — capitalized, not a run-on
+            out.append(f"- **{what}.**" + (f" {why}" if why else ""))
+    return "\n".join(out)
+
+
 # --------------------------------------------------------------------------- release-PR body (§6 legibility)
 def _gate_path_line(state: str) -> str:
     """The §6 legible gate-path line: the three release-readiness states must read as VISIBLY DISTINCT, never

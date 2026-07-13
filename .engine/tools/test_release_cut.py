@@ -488,6 +488,42 @@ class ChangeSummary(unittest.TestCase):
         self.assertEqual(len(lines), 1)
 
 
+class ReleaseNotes(unittest.TestCase):
+    def test_human_readable_with_sections_bullets_and_descriptions(self):
+        proposal = {"engine_floor_level": "major",
+                    "change_inventory": ["Added the 'x' capability.", "Removed the 'legacy' capability."],
+                    "impacts": [{"what": "the contract surface 'c.md' changed",
+                                 "why": "read it against consumers before confirming."}]}
+        notes = rc.render_release_notes("v1.0.0", proposal)
+        self.assertIn("Engine version v1.0.0.", notes)
+        self.assertIn("no automated check", notes.lower())               # readiness line
+        self.assertIn("breaking change", notes.lower())                  # major callout
+        self.assertIn("## What changed since the last release", notes)   # section
+        self.assertIn("- Added the 'x' capability.", notes)              # bullets
+        self.assertIn("## Interface changes to read", notes)             # distinct section
+        self.assertIn("**The contract surface 'c.md' changed.** Read it against consumers", notes)  # bold + desc
+
+    def test_minor_release_has_no_breaking_callout(self):
+        notes = rc.render_release_notes("v0.2.0", {"engine_floor_level": "minor",
+                                                   "change_inventory": ["Added the 'x' capability."], "impacts": []})
+        self.assertNotIn("breaking change", notes.lower())
+        self.assertNotIn("## Interface changes to read", notes)          # no impacts -> no section
+
+    def test_no_proposal_degrades_to_version_and_readiness_only(self):
+        notes = rc.render_release_notes("v0.2.0", None)
+        self.assertIn("Engine version v0.2.0.", notes)
+        self.assertIn("no automated check", notes.lower())
+        self.assertNotIn("## What changed", notes)
+        self.assertNotIn("## Interface changes", notes)
+
+    def test_no_internal_vocabulary_leaks(self):
+        notes = rc.render_release_notes("v1.0.0", {"engine_floor_level": "major",
+                                                   "change_inventory": ["Removed the 'legacy' capability."],
+                                                   "impacts": []})
+        for banned in ("release-cut", "release_cut", "terminal cut", "engine_floor", "first-cut"):
+            self.assertNotIn(banned, notes)
+
+
 class BaselineTreeSeam(unittest.TestCase):
     def test_injected_tree_wins_and_never_fetches(self):
         # an injected tree short-circuits the fetch (the test/`--baseline-tree` path stays network-free)
