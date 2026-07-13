@@ -193,12 +193,15 @@ _PR_LINE_RE = re.compile(r"^\* (.+) by @\S+ in \S+/pull/(\d+)\s*$")
 # list itself and the count would be one high. Past release PRs sit before previous_tag, out of range.
 _RELEASE_PR_RE = re.compile(r"^Release \d+\.\d+\.\d+")
 # A closing keyword directly bound to an issue reference (GitHub's own auto-close grammar: close/closes/closed,
-# fix/fixes/fixed, resolve/resolves/resolved, then optional colon/whitespace, then `#N`). A merged PR's author
-# often writes "(Closes #N)" into the PR title; rendered VERBATIM into the RELEASE pull-request body it makes
-# GitHub attribute that close to the release — so on merge the release would (re-)close #N. We strip the
-# KEYWORD and keep the `#N` reference (readable, inert). Mirrors GitHub: a `(` between keyword and `#` (e.g.
-# "fail closed (#390)") is NOT a close and is left untouched.
-_CLOSING_KEYWORD_RE = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[:\s]+(#\d+)")
+# fix/fixes/fixed, resolve/resolves/resolved, then optional colon/whitespace, then `#N` or a cross-repo
+# `owner/repo#N`). A merged PR's author often writes "(Closes #N)" into the PR title; rendered VERBATIM into the
+# RELEASE pull-request body it makes GitHub attribute that close to the release — so on merge the release would
+# (re-)close it. We strip the KEYWORD and keep the reference (readable, inert). A keyword NOT directly adjacent
+# to the reference is not a GitHub close (e.g. "fail closed (#390)" — the `(` breaks the bond; "Fixed several
+# bugs, see #5") and is left untouched (confirmed empirically against GitHub). The bare-URL and `GH-N` forms are
+# out of scope: GitHub's documented auto-close grammar does not include them.
+_CLOSING_KEYWORD_RE = re.compile(
+    r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[:\s]+((?:[\w.-]+/[\w.-]+)?#\d+)")
 
 
 def _defuse_closing_keywords(text: str) -> str:

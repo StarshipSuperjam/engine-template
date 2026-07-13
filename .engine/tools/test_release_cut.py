@@ -441,7 +441,7 @@ class RenderPRBody(unittest.TestCase):
         self.assertIn("Capability and data changes:", scope)
         self.assertIn("gained a data/config migration", scope)          # the migration is not lost
 
-    def test_scope_collapses_a_long_pr_list(self):
+    def test_scope_long_pr_list_is_foldable_but_open_by_default(self):
         proposal = {"change_inventory": [], "impacts": [], "engine_floor_level": "minor",
                     "merged_prs": [f"PR number {i} (#{i})" for i in range(20)]}
         applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {}}
@@ -643,17 +643,37 @@ class MergedPrList(unittest.TestCase):
         self.assertEqual(rc._defuse_closing_keywords("Fix the parser fixes #12"), "Fix the parser #12")
         self.assertEqual(rc._defuse_closing_keywords("Resolves #5 and resolved #6"), "#5 and #6")
 
+    def test_defuses_the_cross_repo_close_form(self):
+        # GitHub also auto-closes a cross-repo "Closes owner/repo#N" — strip the keyword, keep the reference
+        self.assertEqual(rc._defuse_closing_keywords("Port the fix (Fixes octo-org/octo-repo#100)"),
+                         "Port the fix (octo-org/octo-repo#100)")
+
     def test_defuse_leaves_a_non_closing_reference_untouched(self):
         # "fail closed (#390)" is NOT a close (the '(' breaks the keyword->#N bond), mirroring GitHub — leave it
         self.assertEqual(rc._defuse_closing_keywords("doesn't fail closed (#390)"), "doesn't fail closed (#390)")
         self.assertEqual(rc._defuse_closing_keywords("Part of #405"), "Part of #405")
+        self.assertEqual(rc._defuse_closing_keywords("Fixed several bugs, see #5"), "Fixed several bugs, see #5")
 
     def test_parse_pr_lines_defuses_closing_keywords(self):
         body = ("## What's Changed\n"
                 "* Raise boot ceiling to 150 (Closes #460) by @a in https://github.com/o/r/pull/482\n")
         self.assertEqual(rc._parse_pr_lines(body), ["Raise boot ceiling to 150 (#460) (#482)"])
-        # and the rendered release-PR body carries no active closing keyword
-        self.assertNotRegex(rc._parse_pr_lines(body)[0], r"(?i)\bcloses?\b[:\s]+#\d+")
+
+    def test_rendered_pr_body_carries_no_active_closing_keyword(self):
+        # end-to-end on the REAL path: titles enter only via _parse_pr_lines (which defuses), then feed
+        # render_pr_body (the auto-closing consent surface). The rendered body must carry no active closing
+        # keyword bound to a reference — across close/fix/resolve — while keeping the references.
+        gh_body = ("## What's Changed\n"
+                   "* Do a thing (Closes #10) by @a in https://github.com/o/r/pull/20\n"
+                   "* Fix it (fixes #11) by @b in https://github.com/o/r/pull/21\n"
+                   "* Sort it (Resolves owner/repo#12) by @c in https://github.com/o/r/pull/22\n")
+        proposal = {"engine_floor_level": "minor", "impacts": [], "change_inventory": [],
+                    "merged_prs": rc._parse_pr_lines(gh_body)}
+        applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {}}
+        body = rc.render_pr_body(proposal, applied)
+        self.assertNotRegex(body, r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[:\s]+(?:[\w.-]+/[\w.-]+)?#\d+")
+        for ref in ("#10", "#11", "#12"):                # the references themselves are kept
+            self.assertIn(ref, body)
 
     def test_merged_pr_titles_uses_injected_fetch_offline(self):
         prs = rc.merged_pr_titles("v0.1.0", "deadbeef", repo="o/r", _fetch=lambda *a, **k: self._BODY)
