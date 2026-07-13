@@ -57,6 +57,19 @@ class LiveRecordsTests(_Base):
         self.assertIn(records.EPISODIC_KIND, kinds)            # the completed pass's episodic is live
         self.assertIn(records.MARKER_KIND, kinds)              # markers always pass through
 
+    def test_two_consolidated_markers_per_session_keep_both_passes_live(self):
+        # #446: a re-swept session carries more than one `consolidated` marker (one per pass). Both passes' batches
+        # are closed, so neither pass's episodic is orphaned — the recall-closure keying tolerates multiple markers.
+        consolidate.store_episodic("S", [{"role": "decision", "text": "first pass summary"}])
+        ledger.append(capture._make_record("S", 1, "user", "a later turn"))
+        consolidate.store_episodic("S", [{"role": "lesson", "text": "second pass summary"}])
+        self.assertEqual(len(self._records_of(records.MARKER_KIND)), 2)
+        live = {r["text"] for r in self._live_episodics()}
+        self.assertEqual(live, {"first pass summary", "second pass summary"})   # both stay live, neither orphaned
+
+    def _records_of(self, kind):
+        return [r for r in ledger.iter_records() if r.get("kind") == kind]
+
     def test_a_batchless_episodic_is_always_live(self):
         # a pre-4a episodic with no batch field — nothing to resolve, so never retired (back-compat)
         ledger.append({"v": 1, "kind": records.EPISODIC_KIND, "session_id": "S", "text": "old note", "tags": []})
@@ -260,6 +273,21 @@ class EarnedConsolidatedRawTests(_Base):
         self._marker_at("Y", "b1", self.NOW - 5 * self.DAY)        # consolidated 5 days ago -> gist not yet stable
         self._delta("Y", "hi", self.NOW - 6 * self.DAY)
         self.assertNotIn("Y", self._earned())
+
+    def test_an_examined_but_unsummarized_tail_under_a_termination_marker_is_not_erasure_eligible(self):
+        # #446 erasure boundary (the two-marker termination case): pass 1 summarizes turn 0 (a reflecting marker
+        # with an episodic); a genuine tail is then added; a later "examined, nothing to summarize" EMPTY
+        # termination marker (no episodic) advances the consolidation watermark past the tail. That empty marker's
+        # newer ts must NOT pull the erasure clock forward over the tail — the tail has NO gist standing in for it,
+        # and erasing it would destroy un-reflected content. The clock is bound by the latest REFLECTING marker.
+        self._episodic_at("A", "b1", self.NOW - 45 * self.DAY)                 # the reflection (a gist stands in)
+        self._marker_at("A", "b1", self.NOW - 45 * self.DAY)                   # reflecting marker (batch b1 has an episodic)
+        covered = self._delta("A", "the summarized turn", self.NOW - 46 * self.DAY)   # captured before the reflecting marker
+        tail = self._delta("A", "IMPORTANT un-summarized tail", self.NOW - 44 * self.DAY)  # captured AFTER it
+        self._marker_at("A", "b2", self.NOW - 42 * self.DAY)                   # LATER empty termination marker: NO b2 episodic
+        earned_ids = {r[records.RECORD_ID_KEY] for r in self._earned().get("A", [])}
+        self.assertIn(covered, earned_ids)          # the reflected fuel earns erasure (its gist stands in)
+        self.assertNotIn(tail, earned_ids)          # the un-summarized tail does NOT — no empty marker can erase it
 
     def test_a_recalled_episodic_keeps_the_whole_sessions_raw(self):
         e = self._episodic_at("R", "b1", self._settled())

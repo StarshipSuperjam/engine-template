@@ -182,8 +182,15 @@ class RejectionTests(_Base):
         report = consolidate.store_episodic("S", [{"role": "decision", "text": "   "}])
         self.assertEqual(report["status"], "rejected")
 
-    def test_empty_batch_is_rejected(self):
-        self.assertEqual(consolidate.store_episodic("S", [])["status"], "rejected")
+    def test_empty_batch_with_nothing_new_is_a_clean_no_op(self):
+        # #446: an empty batch is no longer a rejection — it is the "examined, nothing to summarize" signal. On a
+        # session with nothing new to sweep it is a clean no-op that writes NOTHING (no episodic, no marker), so it
+        # never mints a junk marker. (The advancing case — an empty batch over a genuine tail — is covered in the
+        # IncrementalConsolidationTests termination test.)
+        out = consolidate.store_episodic("S", [])
+        self.assertEqual(out["status"], "already-consolidated")
+        self.assertEqual(out["stored"], 0)
+        self.assertEqual(self._records(), [])
 
     def test_missing_session_id_is_rejected(self):
         self.assertEqual(consolidate.store_episodic("", [{"role": "lesson", "text": "t"}])["status"], "rejected")
@@ -290,6 +297,109 @@ class DetectTests(_Base):
         ledger.append(capture._make_record("M", 0, "user", "<task-notification>\n<id>x</id>", injected=True))
         self._delta("M", 1, "user", "a genuine note worth tidying")
         self.assertIn("M", consolidate.detect_unconsolidated())
+
+
+class IncrementalConsolidationTests(_Base):
+    """#446: the marker is a per-session high-water-mark, so a session tidied mid-run is re-swept for its later
+    half, the sweep terminates on an unsummarizable tail, and a pre-#446 ledger is not re-tidied wholesale."""
+
+    def _delta_at(self, session, seq, ts, text="a genuine note"):
+        rec = capture._make_record(session, seq, "user", text)
+        rec["ts"] = ts
+        ledger.append(rec)
+
+    def _legacy_marker(self, session, ts, batch="legacy-batch"):
+        marker = consolidate._make_marker(session, batch)      # no through_seq => a pre-#446 (legacy) marker
+        self.assertNotIn(consolidate.THROUGH_SEQ_KEY, marker)  # guard: the projection path is what we exercise
+        marker["ts"] = ts
+        ledger.append(marker)
+
+    def test_a_never_consolidated_single_seq0_turn_is_detected(self):
+        # The sentinel must sit BELOW seq 0 (0-based), or a session whose only genuine turn is at seq 0 would
+        # read `0 > 0 == False` and never be tidied — reflection lost forever, not deferred.
+        self._delta("S", 0, "user", "the one and only turn")
+        self.assertIn("S", consolidate.detect_unconsolidated())
+
+    def test_a_tidied_session_is_re_swept_for_its_later_half_only(self):
+        self._delta("S", 0, "user", "first half")
+        consolidate.store_episodic("S", [{"role": "decision", "text": "summary of the first half"}])
+        self.assertNotIn("S", consolidate.detect_unconsolidated())        # nothing new yet
+        self._delta("S", 1, "user", "second half, added after the tidy")
+        self.assertIn("S", consolidate.detect_unconsolidated())           # the later half re-flags it
+        # the `read` verb scopes to the tail: only the later half is re-read
+        _g, wm, _h = consolidate._session_states().get("S")
+        tail = [d["text"] for d in consolidate.read_deltas("S", after_seq=wm)]
+        self.assertEqual(tail, ["second half, added after the tidy"])
+        consolidate.store_episodic("S", [{"role": "lesson", "text": "summary of the second half"}])
+        self.assertNotIn("S", consolidate.detect_unconsolidated())        # settled again
+        markers = self._records(consolidate.MARKER_KIND)
+        self.assertEqual(len(markers), 2)                                 # two passes, two markers
+        self.assertEqual(max(m[consolidate.THROUGH_SEQ_KEY] for m in markers), 1)  # effective watermark advanced
+
+    def test_read_default_stays_a_full_history_read(self):
+        # read_deltas with no after_seq is unchanged (the sweep-orthogonality contract): a consolidated delta is
+        # still returned, so a non-sweep caller reading the whole session is not silently truncated.
+        self._delta("S", 0, "user", "the note")
+        consolidate.store_episodic("S", [{"role": "decision", "text": "t"}])
+        self.assertEqual([d["text"] for d in consolidate.read_deltas("S")], ["the note"])
+
+    def test_an_unsummarizable_tail_terminates_via_an_empty_store(self):
+        # The termination guarantee (README §86-89): a genuine-but-unsummarizable tail advances the watermark
+        # even though it yields no record, so it does not re-fire every session.
+        self._delta("S", 0, "user", "worth summarizing")
+        consolidate.store_episodic("S", [{"role": "decision", "text": "the summary"}])
+        self._delta("S", 1, "user", "thanks, that's all for today")      # genuine, but nothing to summarize
+        self.assertIn("S", consolidate.detect_unconsolidated())
+        out = consolidate.store_episodic("S", [])                        # "examined, nothing to summarize"
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["stored"], 0)
+        self.assertEqual(len(self._records(consolidate.EPISODIC_KIND)), 1)  # no new episodic written
+        self.assertNotIn("S", consolidate.detect_unconsolidated())       # TERMINATES — not re-flagged
+        self.assertEqual(consolidate.store_episodic("S", [])["status"], "already-consolidated")  # stays settled
+
+    def test_an_all_injected_tail_never_re_fires(self):
+        self._delta("S", 0, "user", "a real note")
+        consolidate.store_episodic("S", [{"role": "decision", "text": "t"}])
+        ledger.append(capture._make_record("S", 1, "user", "<task-notification>\ndone\n</task-notification>",
+                                           injected=True))
+        self.assertNotIn("S", consolidate.detect_unconsolidated())       # injected tail is not fuel, not a trigger
+
+    def test_a_legacy_marker_is_projected_not_re_consolidated_wholesale(self):
+        # A pre-#446 marker has no through_seq; its ts boundary projects to the seq it was tidied through, so a
+        # historically-tidied session is NOT re-summarized end-to-end on rollout.
+        self._delta_at("S", 0, ts=100, text="tidied long ago")
+        self._delta_at("S", 1, ts=200, text="also tidied long ago")
+        self._legacy_marker("S", ts=250)
+        self.assertNotIn("S", consolidate.detect_unconsolidated())       # projected watermark covers seq 0..1
+        self._delta_at("S", 2, ts=300, text="added after the legacy tidy")
+        self.assertIn("S", consolidate.detect_unconsolidated())          # only the genuinely-newer tail re-flags
+        _g, wm, _h = consolidate._session_states().get("S")
+        self.assertEqual([d["text"] for d in consolidate.read_deltas("S", after_seq=wm)],
+                         ["added after the legacy tidy"])
+
+    def test_a_concurrent_second_sweep_of_the_same_window_is_a_no_op(self):
+        # Two boot sweeps racing on one idle session: the first advances the watermark; the second recomputes the
+        # residual under the lock, finds it empty, and no-ops — never double-consolidating the prefix.
+        self._delta("S", 0, "user", "the note")
+        first = consolidate.store_episodic("S", [{"role": "decision", "text": "first sweep"}])
+        second = consolidate.store_episodic("S", [{"role": "decision", "text": "second sweep"}])
+        self.assertEqual(first["status"], "ok")
+        self.assertEqual(second["status"], "already-consolidated")
+        self.assertEqual(len(self._records(consolidate.EPISODIC_KIND)), 1)
+
+    def test_a_revived_session_aborts_the_re_tidy_without_advancing(self):
+        # The revival race: a genuine tail whose session checked in since detection (fresh lease) is left for its
+        # own tidy — the store aborts and does NOT advance the watermark, so the tail is preserved.
+        self._delta("S", 0, "user", "first half")
+        consolidate.store_episodic("S", [{"role": "decision", "text": "summary"}])
+        self._delta("S", 1, "user", "second half")
+        capture._write_lease_state(self._tmp.name, 5, {"S": 5})          # S is live again (fresh lease)
+        out = consolidate.store_episodic("S", [{"role": "lesson", "text": "would-be tail summary"}])
+        self.assertEqual(out["status"], "live")
+        self.assertEqual(out["stored"], 0)
+        self.assertEqual(len(self._records(consolidate.MARKER_KIND)), 1)   # watermark NOT advanced (no 2nd marker)
+        capture._write_lease_state(self._tmp.name, 5, {"S": 1})          # S goes silent again (aged 4 >= 3)
+        self.assertIn("S", consolidate.detect_unconsolidated())          # its later half is preserved, re-flagged
 
 
 class DirectiveTests(_Base):

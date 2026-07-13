@@ -234,6 +234,38 @@ class NeverDropsRecallContentTests(_Base):
         self.assertEqual(len(self._by_id(aid)), 1)             # but still resident in the ledger
 
 
+class WatermarkSurvivesCompactionTests(_Base):
+    """#446: the per-session consolidation watermark must survive compaction (a reset would re-consolidate an
+    already-summarized session wholesale). It survives because `consolidated` markers pass through the fold
+    verbatim — this pins that, and that an erasure pass never drops one."""
+
+    def _watermark(self, session):
+        return consolidate._session_states().get(session, (-1, -1, False))[1]
+
+    def test_the_max_through_seq_survives_compaction(self):
+        ledger.append(capture._make_record("S", 0, "user", "first half"))
+        consolidate.store_episodic("S", [{"role": "decision", "text": "a"}])   # marker through_seq 0
+        ledger.append(capture._make_record("S", 1, "user", "second half"))
+        consolidate.store_episodic("S", [{"role": "lesson", "text": "b"}])     # marker through_seq 1
+        self.assertEqual(self._watermark("S"), 1)
+        compact.compact()
+        self.assertEqual(self._watermark("S"), 1)                              # NOT reset
+        self.assertNotIn("S", consolidate.detect_unconsolidated())            # so not re-consolidated wholesale
+        markers = [r for r in ledger.iter_records() if r.get("kind") == records.MARKER_KIND]
+        self.assertEqual(len(markers), 2)                                      # both markers verbatim
+        self.assertTrue(all(records.THROUGH_SEQ_KEY in m for m in markers))    # the field carried through
+
+    def test_an_erasure_pass_never_drops_a_consolidated_marker(self):
+        ledger.append(capture._make_record("S", 0, "user", "the note"))
+        consolidate.store_episodic("S", [{"role": "decision", "text": "the summary"}])
+        gone = self._episodic("erase this unrelated note")
+        compact.enact_erasure(gone[records.RECORD_ID_KEY], "merge-sha-abc")
+        report = compact.compact()
+        self.assertEqual(report["erased"], 1)                                  # the erasure did happen...
+        self.assertIn(records.MARKER_KIND, self._kinds())                      # ...but the marker survived
+        self.assertEqual(self._watermark("S"), 0)                             # watermark intact
+
+
 class Layer2ErasureTests(_Base):
     """Slice 4e — the gated Layer-2 physical erasure (the single irreversible act). Compaction removes a recall
     record IFF a VALID operator-adjudicated-erasure marker targets it; an UNMARKED record is never removed; the

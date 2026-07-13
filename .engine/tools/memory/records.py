@@ -81,6 +81,16 @@ BATCH_KEY = "batch"                 # one id per consolidation pass, stamped on 
                                     # which episodics a *completed* pass closed — and which are orphans from a
                                     # crashed pass (their batch carries no marker), to logically retire.
 
+THROUGH_SEQ_KEY = "through_seq"     # on the `consolidated` marker (#446): the per-session HIGH-WATER-MARK — the
+                                    # `seq` of the last genuine turn the pass EXAMINED (reusing capture's own
+                                    # per-message seq, never a parallel counter). It turns the marker from a
+                                    # binary done-flag into "swept through here", so a session tidied mid-run is
+                                    # re-swept for only its later half. An INT (so, like seq/ts, it stays out of
+                                    # the string-leaf search body by type — no _NON_BODY_KEYS entry needed).
+                                    # OPTIONAL on read: a LEGACY marker written before #446 lacks it and is
+                                    # projected into seq-space from its `ts`; always present on a marker written
+                                    # now. Effective per-session watermark = the MAX across the session's markers.
+
 # The stable, content-free record id (slice 4b). Minted at capture in each record factory — one per record, on
 # every kind (turn-delta, episodic, marker). It is a durable NAME for a record: a uuid hex, so it reveals nothing
 # about the gitignored content (content-free) and survives the index rebuild and the future compaction rewrite (it
