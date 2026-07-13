@@ -1301,7 +1301,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:7930b5c041e0f13f7750be591facade05c89117074d96916094b419baf91bc55",
+        "fingerprint": "sha256:1ed393daa844d80a5505cb7749f3bc7cc3831114d411675de1fc0a188c9acaff",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
