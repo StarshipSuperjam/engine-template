@@ -3062,7 +3062,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:deba896e43062750098a785e5baa346c80bfd91742a87557fbbef891dcb29a59",
+        "fingerprint": "sha256:f716517875c064981b265f2113063fb80a08e804b34fc963e09d3ee4c68b83bc",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -4307,7 +4307,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:fd8603c1678da7f07ce8fdda47415bb574c44b1d4201988e105d078effd528ef",
+        "fingerprint": "sha256:2c23190c84243d0936b83274e78601afe980358824eb368960790438108286e7",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4977,6 +4977,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_state_cursor_honesty",
+      "name": ".engine/tools/demo_state_cursor_honesty.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_state_cursor_honesty",
+      "source": {
+        "fingerprint": "sha256:14fabf6ad90132e04257070fed836829ef13c982c6a34ee2537be17aa9936524",
+        "path": ".engine/tools/demo_state_cursor_honesty.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_weakening_guard_narrowed_set",
       "name": ".engine/tools/demo_weakening_guard_narrowed_set.py",
       "owner": "core",
@@ -5259,7 +5276,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:d3f83d099609d0a50491b97dac6254360402ebad02702f366244768b041b800f",
+        "fingerprint": "sha256:9ebe30893228d8f5b2b4bfe97778acab7a67170de0147ee5049dfbb72a90467c",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -6330,7 +6347,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:c311fe7aca7c113dae8a5ab96f0b9cf00cecc794a682e461142e9c74f2c8d1bb",
+        "fingerprint": "sha256:d2b5ee96d6555b8dc4ac93de4c3b80119dec7524ca131d4df2aa3d4588ed5b09",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -6874,7 +6891,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:bfe221fd77a301771b88393c3b89058632ca6c51f294be80c4df4e8de8506cb5",
+        "fingerprint": "sha256:9fde19b98bdab9aaee6ca43245419c35d55aad3bbd5079ce26b9066c476f3a50",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",

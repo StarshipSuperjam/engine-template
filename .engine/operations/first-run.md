@@ -31,7 +31,9 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    and leaves theirs alone if they decline); **sets up the engine's own programs in a private project folder —
    asking the operator's one-time go-ahead first, because this downloads software onto their machine**; seeds the
    operator's starting codes of conduct from the project's seed and tells them, plainly, that the stance is
-   present and theirs to tune; switches the engine on; and turns on the branch review gate that makes every
+   present and theirs to tune; resets the project's starting place-marker to a clean slate so a new project
+   never inherits the template's own focus, open-work count, or issue list (disclosed in plain language, and
+   left untouched once the project has set its own); switches the engine on; and turns on the branch review gate that makes every
    change go through approval (which may ask for a one-time GitHub approval, explained in plain words first). Show the operator the plain-language result
    of each step. If the engine's programs can't be set up (for example, no internet), setup **stops safely at
    that point and never falls back to a different setup** — say so, and run `apply --first-run` again later to

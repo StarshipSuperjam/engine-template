@@ -95,6 +95,14 @@ something you need to edit. The part that's yours to shape — how you like me t
 codes of conduct instead: change it any time with `/engine-conduct`. I didn't do this silently — this note is me
 telling you.
 
+## Your project starts from a clean slate
+
+I reset this project's starting point to a clean slate. The engine keeps a small saved note of where a project
+stands — its current focus and how much work is open. The copy that arrived with the template still pointed at the
+engine's **own** workshop, so I cleared it: no borrowed focus, no borrowed counts, nothing pointing back at the
+template's own to-do list. Nothing of yours was lost — a brand-new project has nothing there yet — and this changes
+nothing else. I didn't do it silently — this note is me telling you.
+
 ## If I couldn't set up file ownership for reviews
 
 I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files for
