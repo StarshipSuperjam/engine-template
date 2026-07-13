@@ -431,9 +431,12 @@ def refresh_lease_locked(data_dir: str, session_id: str) -> None:
 
 
 def drop_lease_locked(data_dir: str, session_id: str) -> None:
-    """Reap a session's lease (called when its consolidation marker is written — a marked session can never be
-    live again). The CALLER MUST HOLD the lock; this RE-READS the sidecar under that lock and rewrites, so it
-    never clobbers a concurrent heartbeat by writing back a copy cached across the lock. No-op on corrupt/absent."""
+    """Reap a session's lease (called when a consolidation marker is written). This stays safe even though a
+    marked session CAN now be re-swept for a later half (#446): if the session revives it re-stamps its lease
+    on its next captured turn (refresh_lease_locked), and a concurrent sweep landing in the gap recomputes an
+    empty residual and no-ops — so reaping only bounds the per-turn-rewritten lease map, never strands a live
+    session. The CALLER MUST HOLD the lock; this RE-READS the sidecar under that lock and rewrites, so it never
+    clobbers a concurrent heartbeat by writing back a copy cached across the lock. No-op on corrupt/absent."""
     state = read_lease_state(data_dir)
     if state is None:
         return

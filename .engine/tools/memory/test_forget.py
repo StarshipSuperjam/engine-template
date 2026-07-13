@@ -57,6 +57,19 @@ class LiveRecordsTests(_Base):
         self.assertIn(records.EPISODIC_KIND, kinds)            # the completed pass's episodic is live
         self.assertIn(records.MARKER_KIND, kinds)              # markers always pass through
 
+    def test_two_consolidated_markers_per_session_keep_both_passes_live(self):
+        # #446: a re-swept session carries more than one `consolidated` marker (one per pass). Both passes' batches
+        # are closed, so neither pass's episodic is orphaned — the recall-closure keying tolerates multiple markers.
+        consolidate.store_episodic("S", [{"role": "decision", "text": "first pass summary"}])
+        ledger.append(capture._make_record("S", 1, "user", "a later turn"))
+        consolidate.store_episodic("S", [{"role": "lesson", "text": "second pass summary"}])
+        self.assertEqual(len(self._records_of(records.MARKER_KIND)), 2)
+        live = {r["text"] for r in self._live_episodics()}
+        self.assertEqual(live, {"first pass summary", "second pass summary"})   # both stay live, neither orphaned
+
+    def _records_of(self, kind):
+        return [r for r in ledger.iter_records() if r.get("kind") == kind]
+
     def test_a_batchless_episodic_is_always_live(self):
         # a pre-4a episodic with no batch field — nothing to resolve, so never retired (back-compat)
         ledger.append({"v": 1, "kind": records.EPISODIC_KIND, "session_id": "S", "text": "old note", "tags": []})
@@ -260,6 +273,18 @@ class EarnedConsolidatedRawTests(_Base):
         self._marker_at("Y", "b1", self.NOW - 5 * self.DAY)        # consolidated 5 days ago -> gist not yet stable
         self._delta("Y", "hi", self.NOW - 6 * self.DAY)
         self.assertNotIn("Y", self._earned())
+
+    def test_an_examined_but_unsummarized_tail_after_the_marker_is_not_erasure_eligible(self):
+        # #446 erasure boundary: incremental consolidation lets a marked session carry a genuine tail the sweep
+        # examined but did not summarize (ts > marker.ts), so that tail has NO gist stand-in. The `ts <= m_ts`
+        # filter must keep it OUT of the erasure class — only fuel actually stood-in-for by a gist earns erasure.
+        self._episodic_at("A", "b1", self._settled())
+        self._marker_at("A", "b1", self._settled())
+        covered = self._delta("A", "summarized turn", self._settled() - self.DAY)          # ts <= marker.ts
+        tail = self._delta("A", "later un-summarized turn", self._settled() + self.DAY)     # ts >  marker.ts
+        earned_ids = {r[records.RECORD_ID_KEY] for r in self._earned().get("A", [])}
+        self.assertIn(covered, earned_ids)          # the consolidated fuel earns erasure (its gist stands in)
+        self.assertNotIn(tail, earned_ids)          # the un-summarized tail does NOT (no stand-in -> never erase)
 
     def test_a_recalled_episodic_keeps_the_whole_sessions_raw(self):
         e = self._episodic_at("R", "b1", self._settled())

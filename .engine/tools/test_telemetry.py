@@ -1561,6 +1561,20 @@ class TestEpisodicReader(_EpisodicBase):
         self.assertEqual(recs, [])
         self.assertEqual(auth, frozenset())
 
+    def test_a_partially_tidied_session_re_grows_the_backlog(self):
+        # #446: telemetry reuses detect_unconsolidated, so a session tidied and then given a LATER turn is
+        # pending again and must count — a backlog that re-grows after tidying still surfaces.
+        n = telemetry.EPISODIC_BACKLOG_THRESHOLD
+        self._seed_unconsolidated(n)
+        for i in range(n):
+            self._consolidate(i)                                       # all tidied -> backlog clears
+        self.assertEqual(telemetry.derive_episodic_records()[0], [])
+        for i in range(n):
+            self._led.append(self._cap._make_record(f"sess-{i}", 2, "user", f"a later turn {i}"))
+        recs, _auth = telemetry.derive_episodic_records()
+        self.assertEqual(len(recs), 1)                                 # the re-grown backlog surfaces again
+        self.assertIn(str(n), recs[0]["message"])
+
     def test_corrupt_lease_claims_no_authority(self):
         self._seed_unconsolidated(telemetry.EPISODIC_BACKLOG_THRESHOLD)
         with open(os.path.join(self._led.ledger_dir(), self._cap.LEASE_FILENAME), "w",

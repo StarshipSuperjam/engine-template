@@ -4456,7 +4456,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:f0ab2a520798f4cb3a592770ef2d7c925001ce87fa64bae53029da7d8846a05a",
+        "fingerprint": "sha256:ae7e480d0f1cfcfcdff04fe0ef69527723c7527a7473aa221c103fb79306be03",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -4592,7 +4592,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:502c826a1029c4cc6e2388c94229978f0813f18708caa05237b375c00cdb5700",
+        "fingerprint": "sha256:826dd2dd3310b84c13bd3fef18f5d81ba8bcec23daf6f2ef818b431b0c733304",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -5884,7 +5884,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:3097b24457af86918846dafcf14b0dac251874bc67705aea9535c8faa77bd01d",
+        "fingerprint": "sha256:7a06c6274540fe4163299679990b76f4028edf08855af0365af1351ee349ffae",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -6581,7 +6581,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:a6ade98eb606656d8c5a017bbb7d2a7539de3dbf6661b83ea63439a59b6675d0",
+        "fingerprint": "sha256:57297b8240def538e599138c0ab29e4302bbd4c925ae2245918e5076186e4507",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
@@ -6649,7 +6649,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:18e1b3ac74e5bdb29b11d94ca14f8d3c6492ce5581908ec9a41b1e3b6d8a559d",
+        "fingerprint": "sha256:40de27f0e4cf987fdb73eedd8dfb2e8805999ee170f6b3d9869b61b6229aa173",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
@@ -6870,7 +6870,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:3ab53c234445bbf882cee8158da2574a7c38e6369876acb3aaf0eaceac00e4d6",
+        "fingerprint": "sha256:d9973d3876a76b03ad1dbf2f00ab7fea10328deb6ea11f9cb1e80ee1a1787f36",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -7941,7 +7941,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:61fd20bbfcd38e9779b50c67a28f9bf7d5ae7951eeaa934364de8417b163ea8b",
+        "fingerprint": "sha256:cf6d4c339ed3dc4b6a04cc5fb12453a4d98bb01af4c13d5b3d8c890a28bdfc90",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
