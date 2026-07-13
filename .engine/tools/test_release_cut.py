@@ -430,6 +430,34 @@ class RenderPRBody(unittest.TestCase):
         self.assertIn("**The contract surface 'eADR-0014-one-history.md' changed.** Read it against consumers",
                       risk)
 
+    def test_scope_pr_list_leads_and_migration_surfaces_beside_it(self):
+        proposal = {"change_inventory": ["'memory-store' gained a data/config migration (0.2.0)."],
+                    "impacts": [], "engine_floor_level": "minor", "engine_floor_version": "0.2.0",
+                    "merged_prs": ["Refactor storage (#41)", "Tidy CLI (#42)"]}
+        applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {"memory-store": "0.2.0"}}
+        scope = rc.render_pr_body(proposal, applied).split("## Scope", 1)[1].split("## Out of scope", 1)[0]
+        self.assertIn("What changed since the last release (2 pull requests):", scope)
+        self.assertIn("- Refactor storage (#41)", scope)
+        self.assertIn("Capability and data changes:", scope)
+        self.assertIn("gained a data/config migration", scope)          # the migration is not lost
+
+    def test_scope_collapses_a_long_pr_list(self):
+        proposal = {"change_inventory": [], "impacts": [], "engine_floor_level": "minor",
+                    "merged_prs": [f"PR number {i} (#{i})" for i in range(20)]}
+        applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {}}
+        scope = rc.render_pr_body(proposal, applied).split("## Scope", 1)[1].split("## Out of scope", 1)[0]
+        self.assertIn("<details><summary>Show the merged pull requests</summary>", scope)  # long list collapsed
+        self.assertIn("(20 pull requests)", scope)
+
+    def test_first_cut_pr_body_heading_does_not_say_since_the_last_release(self):
+        # the first-cut PR body must not contradict itself (no "since the last release" for a first release)
+        with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}):
+            proposal = rc.classify(rc.Baseline(None, True, "no prior release"), None)
+            applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+        scope = rc.render_pr_body(proposal, applied).split("## Scope", 1)[1].split("## Out of scope", 1)[0]
+        self.assertIn("What this release establishes:", scope)
+        self.assertNotIn("since the last release", scope)
+
     def test_gate_path_three_states_are_visibly_distinct(self):
         passed, subbar, errored = (rc._gate_path_line("passed"), rc._gate_path_line("sub-bar"),
                                    rc._gate_path_line("errored"))
@@ -541,6 +569,113 @@ class ReleaseNotes(unittest.TestCase):
                                                    "impacts": []})
         for banned in ("release-cut", "release_cut", "terminal cut", "engine_floor", "first-cut"):
             self.assertNotIn(banned, notes)
+
+    def test_merged_prs_lead_what_changed_and_are_counted(self):
+        # when the merged-PR list is present it IS the "what changed" section (the actual work), with a count
+        proposal = {"engine_floor_level": "minor", "change_inventory": [], "impacts": [],
+                    "merged_prs": ["Fix the thing (#12)", "Add the other thing (#13)"]}
+        notes = rc.render_release_notes("v0.2.0", proposal)
+        self.assertIn("## What changed since the last release (2 pull requests)", notes)
+        self.assertIn("- Fix the thing (#12)", notes)
+        self.assertIn("- Add the other thing (#13)", notes)
+
+    def test_single_merged_pr_uses_singular(self):
+        notes = rc.render_release_notes("v0.2.0", {"change_inventory": [], "impacts": [],
+                                                   "merged_prs": ["Only change (#9)"]})
+        self.assertIn("(1 pull request)", notes)
+
+    def test_falls_back_to_structural_signals_when_no_pr_list(self):
+        # best-effort failure / first cut => no merged_prs => the structural inventory is still shown
+        notes = rc.render_release_notes("v0.2.0", {"change_inventory": ["Added the 'x' capability."],
+                                                   "impacts": [], "merged_prs": []})
+        self.assertIn("## What changed since the last release", notes)
+        self.assertIn("- Added the 'x' capability.", notes)
+        self.assertNotIn("pull request", notes)
+
+    def test_migration_signal_surfaces_beside_the_pr_list(self):
+        # the consent-critical case: with a PR list present, a data migration must STILL be named (it has no
+        # other callout), not be replaced by flat PR titles.
+        proposal = {"engine_floor_level": "minor", "impacts": [],
+                    "change_inventory": ["'memory-store' gained a data/config migration (0.2.0)."],
+                    "merged_prs": ["Refactor storage layout (#41)", "Tidy CLI (#42)"]}
+        notes = rc.render_release_notes("v0.2.0", proposal)
+        self.assertIn("## What changed since the last release (2 pull requests)", notes)   # the work
+        self.assertIn("## Capability and data changes", notes)                             # + the signals
+        self.assertIn("gained a data/config migration", notes)                             # the migration is NAMED
+
+    def test_no_signal_caveat_is_not_shown_beside_the_pr_list(self):
+        # when nothing structural fired, the "No module added…" caveat is not a per-item signal — don't show it
+        # next to the PR list.
+        proposal = {"engine_floor_level": "none", "impacts": [],
+                    "change_inventory": [rc._NO_STRUCTURAL_SIGNAL_NOTE],
+                    "merged_prs": ["Tidy CLI (#42)"]}
+        notes = rc.render_release_notes("v0.2.0", proposal)
+        self.assertNotIn("## Capability and data changes", notes)
+        self.assertNotIn("No module added or removed", notes)
+
+
+class MergedPrList(unittest.TestCase):
+    _BODY = ("## What's Changed\n"
+             "* Render the body in template form by @alice in https://github.com/o/r/pull/388\n"
+             "* Bump setup-uv from 8.2.0 to 8.3.0 by @dependabot[bot] in https://github.com/o/r/pull/389\n"
+             "\n**Full Changelog**: https://github.com/o/r/compare/v0.1.0...v0.2.0\n")
+
+    def test_parses_titles_and_pr_numbers(self):
+        self.assertEqual(rc._parse_pr_lines(self._BODY),
+                         ["Render the body in template form (#388)", "Bump setup-uv from 8.2.0 to 8.3.0 (#389)"])
+
+    def test_ignores_non_pr_lines(self):
+        self.assertEqual(rc._parse_pr_lines("## What's Changed\n**Full Changelog**: x\nrandom\n"), [])
+
+    def test_excludes_the_engine_own_release_pr(self):
+        # a release must not list itself: the "Release X.Y.Z" PR (in range at publish) is dropped
+        body = ("## What's Changed\n"
+                "* Fix a thing by @a in https://github.com/o/r/pull/50\n"
+                "* Release 0.2.0 by @engine in https://github.com/o/r/pull/60\n")
+        self.assertEqual(rc._parse_pr_lines(body), ["Fix a thing (#50)"])
+
+    def test_merged_pr_titles_uses_injected_fetch_offline(self):
+        prs = rc.merged_pr_titles("v0.1.0", "deadbeef", repo="o/r", _fetch=lambda *a, **k: self._BODY)
+        self.assertEqual(prs, ["Render the body in template form (#388)", "Bump setup-uv from 8.2.0 to 8.3.0 (#389)"])
+
+    def test_best_effort_returns_empty_on_failure(self):
+        def boom(*a, **k):
+            raise RuntimeError("network down")
+        self.assertEqual(rc.merged_pr_titles("v0.1.0", "sha", repo="o/r", _fetch=boom), [])
+
+    def test_empty_without_previous_tag_or_target(self):
+        # a first release (no previous tag) or a missing target -> no PR list, no network attempt
+        self.assertEqual(rc.merged_pr_titles(None, "sha", repo="o/r", _fetch=lambda *a, **k: self._BODY), [])
+        self.assertEqual(rc.merged_pr_titles("v0.1.0", None, repo="o/r", _fetch=lambda *a, **k: self._BODY), [])
+
+
+class NestedContractDetection(unittest.TestCase):
+    def test_dir_bytes_recurses_into_subdirectories(self):
+        d = tempfile.mkdtemp()
+        try:
+            _write(os.path.join(d, "eADR-0001-top.md"), {"x": 1})              # a top-level file
+            _write(os.path.join(d, "sub", "nested.md"), {"y": 2})              # + a nested file
+            keys = set(rc._dir_bytes(d).keys())
+            self.assertIn("eADR-0001-top.md", keys)
+            self.assertIn(os.path.join("sub", "nested.md"), keys)              # the subtree is no longer skipped
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_impact_statement_fires_for_a_nested_contract_change(self):
+        # a contract surface added in a subdirectory must produce an impact (the non-recursive read missed it)
+        base = tempfile.mkdtemp()
+        os.makedirs(os.path.join(base, ".engine", "contracts", "instance"), exist_ok=True)
+        with _Tree({"core": _module("core", ver="0.1.0")}, engine_release="0.1.0"):
+            # add a nested contract file only in the LIVE tree
+            live_nested = os.path.join(validate.ROOT, ".engine", "contracts", "instance", "README.md")
+            os.makedirs(os.path.dirname(live_nested), exist_ok=True)
+            with open(live_nested, "w") as f:
+                f.write("a new nested contract surface")
+            impacts = rc._impact_statements(base)   # base has an empty contracts dir -> the nested file is "added"
+        surfaces = [im["surface"] for im in impacts]
+        self.assertTrue(any("instance/README.md" in s for s in surfaces),
+                        f"nested contract change not detected: {surfaces}")
+        shutil.rmtree(base, ignore_errors=True)
 
 
 class BaselineTreeSeam(unittest.TestCase):
