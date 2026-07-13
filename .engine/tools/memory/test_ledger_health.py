@@ -55,6 +55,59 @@ class DetectLedgerMalformedTests(unittest.TestCase):
         self.assertEqual(ledger_health.detect_ledger_malformed(), 0)
 
 
+class DetectRecallOfflineTests(unittest.TestCase):
+    """detect_recall_offline reports the AVAILABILITY floor: a present-but-unreadable ledger (#397 U09)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._prev = os.environ.get(ledger.ENV_DIR)
+        os.environ[ledger.ENV_DIR] = self._tmp.name
+
+    def tearDown(self):
+        if self._prev is None:
+            os.environ.pop(ledger.ENV_DIR, None)
+        else:
+            os.environ[ledger.ENV_DIR] = self._prev
+        self._tmp.cleanup()
+
+    def test_a_missing_ledger_is_not_offline(self):
+        # The substrate ships empty — "no memories yet" is the normal state, never "offline".
+        self.assertFalse(ledger_health.detect_recall_offline())
+
+    def test_a_readable_ledger_is_not_offline(self):
+        ledger.append({"kind": "episodic", "text": "readable"})
+        self.assertFalse(ledger_health.detect_recall_offline())
+
+    def test_a_malformed_but_readable_ledger_is_not_offline(self):
+        # A corrupt LINE the read skips is rot (detect_ledger_malformed's job), not offline — the file still OPENS.
+        ledger.append({"kind": "episodic", "text": "ok"})
+        with open(ledger.ledger_path(), "a", encoding="utf-8") as fh:
+            fh.write("not json at all\n")
+        self.assertFalse(ledger_health.detect_recall_offline())
+
+    def test_a_present_but_unreadable_ledger_is_offline(self):
+        # A present ledger the read cannot OPEN (here: a directory where the file should be) => recall can't answer.
+        path = ledger.ledger_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.mkdir(path)                                   # IsADirectoryError on open -> the OSError family -> offline
+        try:
+            self.assertTrue(ledger_health.detect_recall_offline())
+        finally:
+            os.rmdir(path)
+
+    def test_offline_is_mutually_exclusive_with_malformed_on_an_unopenable_ledger(self):
+        # On the same unopenable ledger, offline fires True while malformed degrades to None (no line count) — so the
+        # two boot signals can never co-fire (the render precedence rests on this).
+        path = ledger.ledger_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.mkdir(path)
+        try:
+            self.assertTrue(ledger_health.detect_recall_offline())
+            self.assertIsNone(ledger_health.detect_ledger_malformed())
+        finally:
+            os.rmdir(path)
+
+
 class DetectStalledMigrationTests(unittest.TestCase):
     """detect_stalled_migration reports an ORPHANED in-flight marker (tidying paused) — #396 U26."""
 

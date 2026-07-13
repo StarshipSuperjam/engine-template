@@ -50,7 +50,20 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    setup tool itself — now that they've done their job, and confirms setup is complete. Everything the project
    needs to keep running stays in place, and the operator's choices are saved. (If the check still finds a
    problem, this step refuses and changes nothing — the tidy-up never runs on a setup that isn't consistent.)
-8. **Turn on the engine's live helpers.** The engine ships two live helpers — its saved-memory recall and its
+8. **Offer to back up the project's memory.** The engine can keep a private, off-computer copy of the notes it
+   saves about this project — the decisions, lessons, and plans it remembers (never the operator's code or work) —
+   so a copy is always safe if this machine is ever lost. Present the choice and get plain-language consent
+   **before anything is created**: run `uv run --directory .engine -- python tools/memory/backup_vault.py
+   disclosure` and show the operator, in its own words, the shared-vs-separate choice — one shared backup that
+   holds every engine project (simplest), or a separate backup just for this project — and the trade-off (a shared
+   backup keeps everything in one place, but one accidental flip to public would expose every project at once).
+   Take their answer; then run the same command with `--scope shared` (or `--scope per-project`) to show them
+   exactly which private repository will be created and that it must stay private. **Only on a clear yes**, run
+   `uv run --directory .engine -- python tools/memory/backup_vault.py setup --scope <their choice> --consent y` to
+   create it. If they decline, or there is no GitHub access yet, nothing is created — say so plainly, and note they
+   can set a backup up later by asking the engine to. This choice is offered at every new project's setup; the
+   operator's memory is never backed up to a destination they weren't shown and didn't agree to.
+9. **Turn on the engine's live helpers.** The engine ships two live helpers — its saved-memory recall and its
    wiring-map (the `engine-memory` and `engine-knowledge-graph` servers, defined in the project's `.mcp.json`).
    Until they are switched on, the engine runs on its **committed-file fallback**: fully functional, but recall
    and the wiring map read from saved files rather than the live version. Walk the operator through switching
@@ -63,9 +76,12 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
 ## Done when
 
 The operator's choices are saved, the engine has installed them and turned on the review gate, the consistency
-check passed, and the one-time setup files have been tidied away — or setup has clearly told the operator, in
-plain words, what one step is left (for example, a one-time approval to turn on the review gate, turning on the
-engine's live helpers by approving its servers and restarting Claude, or a problem to fix before it can finish). On a project that was already set up, the command reported so and nothing changed.
+check passed, the operator was offered a memory backup and their choice was honored (a backup created only if
+they said yes, nothing created if they declined or deferred), and the one-time setup files have been tidied away
+— or setup has clearly told the operator, in plain words, what one step is left (for example, a one-time approval
+to turn on the review gate, setting up a memory backup later, turning on the engine's live helpers by approving
+its servers and restarting Claude, or a problem to fix before it can finish). On a project that was already set
+up, the command reported so and nothing changed.
 
 ## Notes
 

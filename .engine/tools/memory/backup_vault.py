@@ -755,6 +755,32 @@ def _consent_prompt(vault_name: str, scope: str) -> str:
         "Create the private backup now? [y/N]: ")
 
 
+def _disclosure_text(scope: "str | None" = None, *, question: bool = True) -> str:
+    """Floor-1 disclosure as PLAIN TEXT — no prompt, no stdin, no side effect — for the agent-mediated first-run
+    to relay verbatim (#397 U10). With no scope it returns the shared-vs-per-repo CHOICE (`_choice_prompt`); with a
+    scope it returns the consent NAMING that destination + its must-stay-private requirement (`_consent_prompt`).
+    Single-homed on the same copy the interactive prompts use, so the runbook never re-types consent-critical text
+    and the operator always sees the destination name before anything is created. `question=False` drops the
+    trailing interactive '…? [y/N]:' line, for the setup-time belt that RECORDS an already-given consent rather
+    than re-asking it (so the emitted copy never staples a live question to its own answer)."""
+    if scope is None:
+        text = _choice_prompt()
+    else:
+        chosen = "per-project" if str(scope).strip().lower() in ("per-project", "per_project", "n", "no") else "shared"
+        try:
+            project = _project_slug()
+        except Exception:  # noqa: BLE001 — best-effort disclosure copy; never let a slug read break the presentation
+            project = None
+        project_name = project.split("/")[-1] if project and "/" in project else "this project"
+        text = _consent_prompt(_vault_name(project_name, chosen), chosen)
+    if not question:
+        lines = text.rstrip().split("\n")
+        if lines and lines[-1].rstrip().endswith(":"):
+            lines = lines[:-1]                        # drop the trailing "…? [y/N]:" interrogative
+        text = "\n".join(lines).rstrip()
+    return text
+
+
 def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
     """Floor 2: the plain-language README committed into the backup repo on creation. Leads with the engine's
     self-describing marker (adopt verifies it). The shared variant is multi-project-framed, says accurately what the
@@ -1117,13 +1143,44 @@ def status(*, now: "int | None" = None) -> int:
     return 0
 
 
+def _parse_setup_flags(argv: list) -> dict:
+    """Parse `--scope shared|per-project` and `--consent y|n` for the non-interactive (agent-mediated) first-run
+    path (#397 U10). An absent flag stays None so `setup` falls back to its interactive prompts on a real TTY."""
+    opts: dict = {}
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--scope" and i + 1 < len(argv):
+            opts["scope"] = argv[i + 1]
+            i += 2
+            continue
+        if tok == "--consent" and i + 1 < len(argv):
+            opts["consent"] = argv[i + 1]
+            i += 2
+            continue
+        i += 1
+    return opts
+
+
 def main(argv: list) -> int:
     cmd = argv[0] if argv else "demo"
     if cmd == "session-start":
         import hooks  # noqa: E402 — lazy
         return hooks.run_hook("SessionStart", _session_start_handler)
+    if cmd == "disclosure":
+        # Read-only: PRINT the floor-1 choice (no --scope) or the consent naming the destination (--scope X), for
+        # the agent-mediated first-run to relay verbatim before it ever passes `setup --consent y` (#397 U10).
+        print(_disclosure_text(_parse_setup_flags(argv[1:]).get("scope")))
+        return 0
     if cmd == "setup":
-        print(setup()["message"])
+        opts = _parse_setup_flags(argv[1:])
+        scope, consent = opts.get("scope"), opts.get("consent")
+        # When consent is driven by flag (the agent-mediated path), the TOOL still emits the floor-1 disclosure
+        # naming the destination + its must-stay-private requirement BEFORE it acts — so consent-before-create stays
+        # code-surfaced, never only runbook prose. On a real TTY (no flags) `setup` shows the interactive prompts.
+        if consent is not None:
+            print(_disclosure_text(scope if scope is not None else _DEFAULT_SCOPE, question=False))
+        print(setup(scope=scope, consent=consent)["message"])
         return 0
     if cmd == "now":
         print(_now_message(push_now()))
@@ -1132,8 +1189,9 @@ def main(argv: list) -> int:
         return status()
     if cmd == "demo":
         return _demo_live() if "--live" in argv[1:] else _demo()
-    print(f"usage: backup_vault.py [setup|now|status|session-start|demo [--live]]\nunknown command {cmd!r}",
-          file=sys.stderr)
+    print("usage: backup_vault.py [disclosure [--scope shared|per-project] | "
+          "setup [--scope shared|per-project --consent y|n] | now | status | session-start | demo [--live]]\n"
+          f"unknown command {cmd!r}", file=sys.stderr)
     return 2
 
 

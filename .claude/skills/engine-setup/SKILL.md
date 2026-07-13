@@ -3,7 +3,7 @@ name: engine-setup
 description: Set up your project for the first time — I'll walk you through a few choices, then get everything ready.
 invocation: operator-typed
 disable-model-invocation: true
-allowed-tools: Bash(python3 .engine/tools/instantiator.py *)
+allowed-tools: Bash(python3 .engine/tools/instantiator.py *), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py disclosure*), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py setup*)
 ---
 
 ## Steps
@@ -12,8 +12,9 @@ allowed-tools: Bash(python3 .engine/tools/instantiator.py *)
    `python3 .engine/tools/instantiator.py show` to present the choices — who reviews changes here, and which
    optional add-ons to include — take the operator's answers, then confirm to save their choices. From there
    the engine continues: it installs the choices and turns on the review gate, checks that everything fits
-   together (pausing in plain words if something needs fixing — the operator's choices are never lost), and
-   finally tidies away the one-time setup files.
+   together (pausing in plain words if something needs fixing — the operator's choices are never lost), offers the
+   operator a private off-computer backup of the project's memory (creating one only on a clear yes to a named
+   destination), and finally tidies away the one-time setup files.
 
 ## Notes
 

@@ -2609,7 +2609,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:4777073afd5a40f828e3fe8b252daefa17380d44a2b2a220ddc33b8138cadfac",
+        "fingerprint": "sha256:f36f6d533866943da5f24fe7c4f27326528862d6f9c74642b1c6e85e8eb2449d",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -3114,7 +3114,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:f716517875c064981b265f2113063fb80a08e804b34fc963e09d3ee4c68b83bc",
+        "fingerprint": "sha256:2f00d9f489dba47e03e0e0f738d63940c2cb31bdc2894d5c385607c198f0eb71",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -4125,7 +4125,7 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:c853cb8abbe83ce4505b870e1157058efb774e3cf42d0fe499eaab40793b94a0",
+        "fingerprint": "sha256:171998f47315e5c3f37e48da8069ac5c12d23d8f63cda26140f436d5706d499e",
         "path": ".claude/skills/engine-setup/SKILL.md"
       },
       "status": "active",
@@ -4362,7 +4362,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:9201068b370682e8edcd5cd84cac744190d851005513c3ccb3d79245bcd5f38c",
+        "fingerprint": "sha256:cd06c0eecc0ef2b2479c86f204424c064c5206064ee38a48212bf995a0c401c2",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -4396,7 +4396,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:2c23190c84243d0936b83274e78601afe980358824eb368960790438108286e7",
+        "fingerprint": "sha256:c4692d83e3a693d700d51c9337acbfb10ce678bdd0e468197a0dd8d1bcd8caeb",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4930,6 +4930,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_memory_degradation_backup",
+      "name": ".engine/tools/demo_memory_degradation_backup.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_memory_degradation_backup",
+      "source": {
+        "fingerprint": "sha256:c29482d8cbc2149266f0d89fa6f71dfbbf3a3325799e927b12b3683d99d8cb04",
+        "path": ".engine/tools/demo_memory_degradation_backup.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_pr_reconcile",
       "name": ".engine/tools/demo_pr_reconcile.py",
       "owner": "core",
@@ -5382,7 +5399,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:eac69448cf4870359e61438fd9f833d5a31023bd92b04ada8e38c7430a43aad4",
+        "fingerprint": "sha256:c5a6fe08bed844032a1e8bf345171d61889cc5232b1f3895b45078faeb694d7b",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -5552,7 +5569,7 @@
       },
       "slug": "ledger_health",
       "source": {
-        "fingerprint": "sha256:bd517346f30f263a71644edf8a36fea8b31f969d09068522f46e20a19f3dfc37",
+        "fingerprint": "sha256:6995786b847ca92ff90e7c8808ac3b43328c853e722e1fe9b0df231d10fb7b3c",
         "path": ".engine/tools/memory/ledger_health.py"
       },
       "status": "active",
@@ -5603,7 +5620,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:5319e91b9bec66ab1f943969dc0deaa5003f26d00befceeb01b8489633c1f1c5",
+        "fingerprint": "sha256:21b61961ba16ef407bbe463aba5a6b7566577266a437dc3ba4623cca912ecbe0",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -6436,7 +6453,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:8e40424d983a9e629f4c05ab76514fa2bf5d7d072013ca1c047f39747d8174b0",
+        "fingerprint": "sha256:477bbe0575508fe14b06c5eb6baa58a59ec2edcd7b03ac4ad3d310628661e431",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -6470,7 +6487,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:e16053c3df41830169c7bab1843b42ec0c8ae0284bc530a184602a9cf2fe41f5",
+        "fingerprint": "sha256:0f94ebd668daed2aa1e96dff21442871265dab0886d6b499f12e0dd325104a11",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -7184,7 +7201,7 @@
       },
       "slug": "test_ledger_health",
       "source": {
-        "fingerprint": "sha256:ed778b19abf675fa6b4612eb3ab021870772deba85cf356d7888bae7089c46f4",
+        "fingerprint": "sha256:0b332fee2afe7ba200c2840b68664140721f9f0d0ea1185a547bb7967497f8f5",
         "path": ".engine/tools/memory/test_ledger_health.py"
       },
       "status": "active",
