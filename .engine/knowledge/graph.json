@@ -455,6 +455,31 @@
       "type": "check"
     },
     {
+      "id": "check:census-completeness",
+      "kind": "custom/script",
+      "name": ".engine/check/census-completeness.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "census-completeness",
+      "source": {
+        "fingerprint": "sha256:de9ed9ea99bb7bdff920af5aeacbdff113f1a7ab1f303fad7ac92a4bee1964b8",
+        "path": ".engine/check/census-completeness.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:conduct-frontmatter",
       "kind": "schema",
       "name": ".engine/check/conduct-frontmatter.json",
@@ -2868,7 +2893,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:7c4251536be03665b4497a9332233138e297e38caa60bb8450739bcfe55a03de",
+        "fingerprint": "sha256:e093471873501b45caa41f96102b3516e4f461e2c861df3130b8ae5516480f75",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -4463,6 +4488,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:census_completeness_check",
+      "name": ".engine/tools/census_completeness_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "census_completeness_check",
+      "source": {
+        "fingerprint": "sha256:721ff72452eec9e4d04028470331ea3b2372ba5fd62ed184a0aed0685cdbf0fb",
+        "path": ".engine/tools/census_completeness_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:checkout_health",
       "name": ".engine/tools/checkout_health.py",
       "owner": "core",
@@ -5340,7 +5382,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:5817cf97c01f5e8514d19edfd1eea004a75c419703e42304569f7117d4becbf8",
+        "fingerprint": "sha256:eac69448cf4870359e61438fd9f833d5a31023bd92b04ada8e38c7430a43aad4",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -6520,6 +6562,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_census_completeness",
+      "name": ".engine/tools/test_census_completeness.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_census_completeness",
+      "source": {
+        "fingerprint": "sha256:c261f302eeee25191ee2635dbbd224ac98764a35e731d85de00f55baa1ccd212",
+        "path": ".engine/tools/test_census_completeness.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_checkout_health",
       "name": ".engine/tools/test_checkout_health.py",
       "owner": "core",
@@ -6972,7 +7031,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:572888563665640a210de6c587ad7d244025bf76255d894406c594df998543af",
+        "fingerprint": "sha256:d63c65c6442ad3c0e23789565a9d1109300553afbc4b869572cc13830cadf358",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -7278,7 +7337,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:d884b6b4eda5c184f4421038e05393c61781133f8707821070612679a5a7fbb7",
+        "fingerprint": "sha256:a562d859467a5b6b27f40680483916f3a59d5210801ef96357dc595c1ec03920",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
