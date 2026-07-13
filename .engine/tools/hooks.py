@@ -19,11 +19,12 @@ that registers a hook is born at the first hook-wiring slice (20); the keyed, re
 MECHANISM is the wiring library's (wiring.py), applied by provisioning — hooks fixes only that
 registration must be keyed and reversible, never the mechanism (hooks/README §"Registration ...").
 
-The STATIC half of the block-budget law — the pure `block_budget_findings` coherence leg that flags a
-block declared on a non-eligible event — lives in validate.py beside its sibling legs (agent/skill/
-interface/policy), fixture-tested with no live rule until the first hook-wiring slice (20) gives it a
-registration source to read (the agent/skill-coherence precedent). This module owns the RUNTIME half:
-the harness enforces the same budget at the moment a handler asks to block.
+The STATIC half of the block-budget law — the pure `block_budget_findings` block-registry coherence leg,
+which flags a block declared on a non-eligible event AND a block that does not declare the stances it is
+active in (the mode dimension, hooks/README §Mode-awareness) — lives in validate.py beside its sibling
+legs (agent/skill/interface/policy), fixture-tested and wrapped by the first-class engine/check/
+block-coherence check (the agent/skill-coherence precedent). This module owns the RUNTIME half: the
+harness enforces the same budget at the moment a handler asks to block.
 
 BOUNDARY (hooks/README §"Boundary"): a hook script is a `tool` instance — deterministic engine code
 homed at `.engine/tools/`, not a dedicated surface. Hook registrations and the settings file are
@@ -82,8 +83,9 @@ BLOCK_ELIGIBLE_EVENTS = frozenset(e for e, m in EVENT_INVENTORY.items() if m["bl
 # systems register their block into it additively when designed — close's findings-disposition Stop
 # block (slice 22) and modes' explore write-gate PreToolUse block (slice 21). Hooks names no
 # invariant itself, so it presupposes none of the systems that will populate the set. A registration
-# is {event, name, owner} (forward-compatible: a consumer may add modes/other fields); the validator
-# (validate.block_budget_findings) reads only `event`.
+# is {event, name, owner, modes}; the block-registry leg (validate.block_budget_findings) reads `event`
+# (only PreToolUse/Stop may block) AND `modes` (the stances the block is active in, declared as data per
+# hooks/README §Mode-awareness — not code-only).
 BLOCK_ELIGIBLE_INVARIANTS: tuple = ()
 
 

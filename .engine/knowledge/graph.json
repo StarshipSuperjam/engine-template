@@ -5289,7 +5289,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:53682f2dad346e7f49a3e907d2a7bc7213862a3dc19ddc986e531ec62fea31aa",
+        "fingerprint": "sha256:b2850f7da55f48a0aeab5e1c0d65ce45ff31174758e6d5eabf026d0d21a59e5d",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -5340,7 +5340,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:8ed52d6f77068e952f941ac5c300ee1f738171592c2fc2aa323b6dec4b25361a",
+        "fingerprint": "sha256:5817cf97c01f5e8514d19edfd1eea004a75c419703e42304569f7117d4becbf8",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -6972,7 +6972,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:1a56e277df7bd274836d9b61f8165dac7c32d5983be3739fef496f03f4602caf",
+        "fingerprint": "sha256:572888563665640a210de6c587ad7d244025bf76255d894406c594df998543af",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",

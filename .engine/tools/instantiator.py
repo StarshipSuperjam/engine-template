@@ -447,7 +447,7 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
 
 def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
             engine_release: str | None = None, handle: str | None = None,
-            default_branch: str | None = None) -> dict:
+            default_branch: str | None = None, manifests=None) -> dict:
     """CONFIRM — write the engine manifest, the resumability checkpoint (D-024). Records the engine release,
     the identity tier, the kept package set (the always-present required spine plus the optional features the
     operator kept — an unkept optional is simply left out of the manifest, its files removed later in the
@@ -457,11 +457,19 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     of a frequently-unset `origin/HEAD`), and the engine's update HOME carried forward from the traveled/seed
     manifest (where the engine fetches its own updates from — D-281/D-282, #367). Each derived/carried field is
     omitted when None, keeping the manifest valid either way. This is the single committing step; before it,
-    nothing is written. Returns the written path and the manifest. `root`, `engine_release`, `handle`, and
-    `default_branch` are injectable for tests and the demo."""
+    nothing is written. Returns the written path and the manifest. `root`, `engine_release`, `handle`,
+    `default_branch`, and `manifests` (for the dependency closure) are injectable for tests and the demo."""
     kept = set(kept_optional_ids or [])
+    manifests = manifests if manifests is not None else module_coherence.discover_manifests()
+    # Honor the dependency closure the gather step surfaced: keeping an optional module also installs the
+    # optional modules it depends on (the pull-ins present_gather annotated with "Including this also turns
+    # on: …"), so the written manifest never records a kept module without its optional dependency — the
+    # annotation's promise is kept, and the apply phase never halts on a missing-dependency coherence finding.
+    # Vacuous today (no optional module depends on another optional one); required deps are already always-present.
+    closure = optional_dependency_closure(manifests)
+    kept |= {dep for mid in list(kept) for dep in closure.get(mid, [])}
     packages: dict = {}
-    for _rel, manifest in module_coherence.discover_manifests():
+    for _rel, manifest in manifests:
         mid, status = manifest.get("id"), manifest.get("status")
         if not mid:
             continue  # a manifest with no id fails the module schema upstream; never crash the committing step

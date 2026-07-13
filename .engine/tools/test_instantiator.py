@@ -177,6 +177,22 @@ class TestOptionalDependencyClosure(unittest.TestCase):
         self.assertTrue(all(pulls == [] for pulls in closure.values()),
                         "no optional module depends on another optional one yet")
 
+    def test_confirm_folds_the_closure_so_a_kept_module_brings_its_optional_dep(self):
+        # #411 U25 (deliverable-gate fold): present_gather promises "keeping a also turns on b", so confirm
+        # must WRITE b into the manifest when the operator keeps a — else the annotation lies and the apply
+        # phase would halt on a missing-dependency coherence finding. Keep only 'a'; expect a, b, and core.
+        manifests = [
+            ("a", {"id": "a", "status": "optional", "version": "1.0.0", "depends": {"b": "", "core": ""}}),
+            ("b", {"id": "b", "status": "optional", "version": "1.0.0", "depends": {}}),
+            ("core", {"id": "core", "status": "required", "version": "1.0.0", "depends": {}}),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            result = inst.confirm(["a"], "solo", root=d, engine_release="1.0.0", manifests=manifests)
+        packages = result["manifest"]["packages"]
+        self.assertIn("a", packages, "the operator's kept module")
+        self.assertIn("b", packages, "its optional pull-in is folded in, honoring the gather annotation")
+        self.assertIn("core", packages, "the required spine")
+
 
 class TestConfirm(unittest.TestCase):
     def test_writes_required_plus_kept_omitting_unkept(self):
