@@ -18,9 +18,19 @@ process died, or it is far past any real migration's span) — automatic tidying
 until it clears. The clear itself is compaction's job (it self-heals a stale marker under the lock); this
 detector is read-only, for boot's heads-up. A LIVE marker (a migration genuinely in progress) is normal
 and draws no signal.
+
+`detect_recall_offline` reports the AVAILABILITY floor: the saved-memory ledger present-but-unreadable, so
+recall genuinely cannot answer (even the plain scan the index falls back to has nothing to read from). This
+is the local, boot-detectable instance of the spec's "memory offline" — distinct from the LATENCY axis (a
+missing/broken derived index self-heals via that scan, so it is NOT offline) and from `detect_ledger_malformed`
+(some lines unreadable, the rest intact). A MISSING/empty ledger is the normal "no memories yet" state, never
+offline. The live MCP server being down is a separate axis boot cannot read (it reads committed files only);
+that case is surfaced by the model's own live-helper check, not here.
 """
 
 from __future__ import annotations
+
+import os
 
 
 def detect_ledger_malformed(cwd: "str | None" = None) -> "int | None":
@@ -48,4 +58,24 @@ def detect_stalled_migration(cwd: "str | None" = None) -> bool:
         from memory import capture, ledger
         return capture.detect_orphaned_migration(ledger.ledger_dir(cwd)) is not None
     except Exception:  # noqa: BLE001 — a health readout degrades to no-signal, never breaks boot
+        return False
+
+
+def detect_recall_offline(cwd: "str | None" = None) -> bool:
+    """True iff the saved-memory ledger is PRESENT but structurally unreadable — recall genuinely cannot answer.
+
+    A MISSING ledger reads as empty ("no memories yet" — the shipped-empty normal state) and draws no signal;
+    only a present ledger file the read cannot OPEN (a permission change, a directory where the file should be,
+    a filesystem fault) is "offline". `ledger.read` returns empty for a missing file and RAISES the OSError
+    family for a present-but-unreadable one, so the open failure is the signal. Any other import/read fault
+    degrades to False (no-signal): this is a best-effort readout, never a gate — it must never break boot nor
+    false-alarm a healthy or empty store.
+    """
+    try:
+        from memory import ledger
+        ledger.read(path=ledger.ledger_path(cwd))  # missing -> empty (no raise); present-but-unreadable -> OSError
+        return False
+    except OSError:
+        return True
+    except Exception:  # noqa: BLE001 — any other fault degrades to no-signal, never breaks boot
         return False

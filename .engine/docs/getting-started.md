@@ -12,6 +12,8 @@ Your project has an **Engine**: a system that helps an AI assistant work on your
 
 An AI assistant starts each conversation fresh — it does not remember what happened last time. On its own, that means re-explaining where things stand every time, and hoping it does not quietly forget a decision you made last week. The Engine fixes that. It keeps your project's running state, its memory, the decisions you have made, and a set of safety rules, all written down in your project where the assistant reads them at the start of every session. So instead of starting from nothing, the assistant starts already oriented — it knows where the project stands and what was decided before.
 
+That memory lives on your own computer. When you first set your project up, the Engine offers to keep a private, off-computer **backup** of it — a copy of the notes it saves about your work (never your code) — so nothing is lost if anything happens to your machine. It asks you first, shows you exactly where the backup would live and that it must stay private, and creates nothing until you say yes; you can pick one shared backup for all your projects or a separate one just for this project, or decline and set one up later. If the Engine ever can't read your saved memory at the start of a session, it tells you plainly and points you to restore it from that backup.
+
 You work with the Engine entirely through your AI assistant, in plain conversation. There is nothing to install. You point the assistant at what you want done; the Engine is what keeps it honest, grounded, and consistent while it does it.
 
 ## How you direct the engine

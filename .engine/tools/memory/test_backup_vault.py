@@ -9,6 +9,8 @@ committed pointer is ever touched.
 from __future__ import annotations
 
 import base64
+import contextlib
+import io
 import json
 import os
 import sys
@@ -105,6 +107,64 @@ class SetupTests(_Base):
         self.assertIsNone(bv.read_pointer())
         for banned in ("http", "git", "status", "404", "403"):
             self.assertNotIn(banned, res["message"].lower())            # never a git/HTTP error
+
+
+class DisclosureAndFlagTests(_Base):
+    """#397 U10: the non-interactive `disclosure` / `setup --scope/--consent` surface for the agent-mediated
+    first-run. The tool stays the floor-1 disclosure home (single-homed on _choice_prompt/_consent_prompt); a
+    flagged setup still EMITS that disclosure before it acts, so consent-before-create is code-surfaced."""
+
+    def _run(self, argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = bv.main(argv)
+        return rc, buf.getvalue()
+
+    def test_parse_setup_flags(self):
+        self.assertEqual(bv._parse_setup_flags(["--scope", "per-project", "--consent", "y"]),
+                         {"scope": "per-project", "consent": "y"})
+        self.assertEqual(bv._parse_setup_flags([]), {})
+
+    def test_disclosure_no_scope_prints_the_choice(self):
+        rc, out = self._run(["disclosure"])
+        self.assertEqual(rc, 0)
+        self.assertIn("SHARED BACKUP", out)
+        self.assertIn("SEPARATE BACKUP", out)
+
+    def test_disclosure_with_scope_names_the_destination_and_privacy(self):
+        rc, out = self._run(["disclosure", "--scope", "shared"])
+        self.assertEqual(rc, 0)
+        self.assertIn("engine-memory-vault", out)                              # the shared destination is NAMED
+        self.assertIn("Nothing leaves your computer until you say yes", out)
+        self.assertIn("private", out.lower())
+
+    def test_flagged_setup_emits_the_disclosure_then_declines_and_creates_nothing(self):
+        fake = bv._FakeVault()
+        orig = bv._gh
+        bv._gh = lambda transport=None: bv._Boundary(fake.transport)
+        try:
+            rc, out = self._run(["setup", "--scope", "shared", "--consent", "n"])
+        finally:
+            bv._gh = orig
+        self.assertEqual(rc, 0)
+        self.assertIn("Nothing leaves your computer until you say yes", out)   # the tool emitted the disclosure...
+        self.assertEqual(fake.created, [])                                     # ...and created nothing on decline
+        self.assertIsNone(bv.read_pointer())
+
+    def test_flagged_setup_yes_emits_disclosure_then_creates_the_chosen_destination(self):
+        fake = bv._FakeVault()
+        orig = bv._gh
+        bv._gh = lambda transport=None: bv._Boundary(fake.transport)
+        try:
+            rc, out = self._run(["setup", "--scope", "per-project", "--consent", "y"])
+        finally:
+            bv._gh = orig
+        self.assertEqual(rc, 0)
+        self.assertIn("Nothing leaves your computer until you say yes", out)   # disclosure emitted first
+        self.assertEqual(len(fake.created), 1)                                 # then the chosen repo is created
+        p = bv.read_pointer()
+        self.assertIsNotNone(p)
+        self.assertNotEqual(p["repo"], "engine-memory-vault")                  # per-project, NOT the shared vault
 
 
 class PointerCommitTests(_Base):

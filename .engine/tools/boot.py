@@ -673,6 +673,16 @@ def gather_signals(session_id: str | None = None) -> dict:
         migration_stalled = _lh.detect_stalled_migration()
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         migration_stalled = False
+    try:
+        # The memory-availability signal (#397 U09), RELAYED from memory's own LOCAL read: True iff the saved
+        # ledger is present-but-unreadable, so recall genuinely can't answer (the availability floor — distinct
+        # from the malformed-LINES rot below, which the file still opens, and from the FTS5 slower-mode the scent
+        # renders). Read-only; degrades quietly to False on any fault. The dead-MCP-SERVER case is the model's own
+        # live-helper check (MCP_AVAILABILITY_CHECK), not here — boot reads committed files only.
+        from memory import ledger_health as _lh_off
+        recall_offline = _lh_off.detect_recall_offline()
+    except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        recall_offline = False
     # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
@@ -721,6 +731,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         # the stalled-migration signal (#396 U26): True iff a memory migration didn't finish (orphaned marker) and
         # tidying is paused until it clears; False on a clean/live state (a live migration is normal, not a stall)
         "migration_stalled": migration_stalled,
+        # the memory-availability signal (#397 U09): True iff the saved ledger is present-but-unreadable so recall
+        # can't answer (the "memory offline" floor); False on a healthy, empty, or unreadable-to-detect state
+        "recall_offline": recall_offline,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
         "audit_stale": audit_stale,
         # the live-derived {milestone, phase}, or None when GitHub was unreachable (-> render the cached copy)
@@ -969,6 +982,20 @@ def render_dashboard(s: dict) -> str:
             "I'm running on a rebuilt project map — your committed map file is present but damaged, so I "
             f"couldn't read it. Orientation still works, but regenerate it with `{knowledge_gen.REGEN_CMD}` "
             "and commit the result to replace the damaged file.")
+
+    if s.get("recall_offline"):
+        # #397 U09: the spec's "running degraded (memory offline)" notice — the saved-memory store is present but
+        # couldn't be OPENED at all, so recall can't work this session. Distinct from and mutually exclusive with
+        # the "N unreadable lines" rot below (there the file DID open and was read past line-by-line; an unopenable
+        # file yields no line count — detect_ledger_malformed returns None). Boot RELAYS memory's own read result
+        # read-only; it never repairs. Peer voice: name what's degraded, that the saved store isn't gone, and the
+        # ONE self-serve action (restore from backup) — NOT a Claude restart, which cannot fix an unreadable local
+        # file (so memory is deliberately kept out of the restart-fixable hedge below). No backstage vocab. .get()
+        # so a fixed-signals test fixture without the key never KeyErrors.
+        degraded.append(
+            "I couldn't open your saved memory, so my recall of past decisions and notes is unavailable this "
+            "session — I'm still oriented by the rest of your committed files. Your saved memory isn't lost; to "
+            "get recall working again, ask me to restore it from your backup.")
 
     malformed = s.get("ledger_malformed")
     if malformed:

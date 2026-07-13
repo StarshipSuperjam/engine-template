@@ -11,9 +11,11 @@ approve it the tool is simply switched off — recall never half-runs.
 
 Built on the official MCP SDK (the `mcp` package) so protocol conformance — the handshake, framing, and future
 protocol-version changes — is maintained upstream rather than hand-written; a richer semantic-recall implementation
-overrides this lexical floor by presence at the same engine-prefixed server name (degrade-to-git-native: if this
-server is unavailable the boot says so in plain language and the session is never blocked — boot's render, not this
-module's).
+overrides this lexical floor by presence at the same engine-prefixed server name. Degrade-to-git-native: recall
+never blocks the session, and its being-down is surfaced in plain language by the part that can actually see it —
+NOT by this module. If the live server is simply switched off, the model's own live-helper check relays it
+(`boot.MCP_AVAILABILITY_CHECK` — boot reads committed files only and cannot detect MCP routing); if the local
+saved store itself can't be read, boot renders the "memory offline" notice read-only (`ledger_health.detect_recall_offline`).
 
 Run (normally launched by the platform via .mcp.json over stdio):
   uv run --directory .engine --frozen -- python tools/memory/mcp_server.py

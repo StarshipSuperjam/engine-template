@@ -79,7 +79,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "behind_origin": None, "off_main": None,
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
-            "ledger_malformed": None, "migration_stalled": False}
+            "ledger_malformed": None, "migration_stalled": False, "recall_offline": False}
 
 
 def _signals(**over):
@@ -143,7 +143,8 @@ class TestDegradedNotice(unittest.TestCase):
         # ranker, a missing git binary, a rebuilt/absent map, or a self-healing memory notice — so the restart
         # line must NOT attach to those (it would falsely promise a fix). It also never appears on a healthy boot.
         for sig in (dict(att_degraded=["state"]), dict(att_degraded=["attention"]), dict(att_degraded=["git"]),
-                    dict(map_rebuilt=True), dict(ledger_malformed=2), dict(migration_stalled=True), dict()):
+                    dict(map_rebuilt=True), dict(ledger_malformed=2), dict(migration_stalled=True),
+                    dict(recall_offline=True), dict()):
             dash = boot.render_dashboard(_signals(**sig))
             self.assertNotIn("dropped connection", dash,
                              f"{sig}: the restart line must not attach to a non-reconnectable degrade")
@@ -229,6 +230,46 @@ class TestDegradedNotice(unittest.TestCase):
     def test_no_stalled_migration_shows_no_heads_up(self):
         for clean in (_signals(), _signals(migration_stalled=False)):
             self.assertNotIn("A memory update didn't finish", boot.render_dashboard(clean))
+
+    def test_recall_offline_shows_the_memory_offline_notice_with_a_restore_recourse(self):
+        # #397 U09: an unreadable saved-memory store => the spec's "memory offline" notice. Plain peer voice: names
+        # recall is unavailable, that the saved store isn't lost, and the ONE self-serve action (restore from
+        # backup) — never a Claude restart (proven absent above), never internal terms.
+        dash = boot.render_dashboard(_signals(recall_offline=True))
+        self.assertIn("couldn't open your saved memory", dash)
+        self.assertIn("recall", dash.lower())
+        self.assertIn("isn't lost", dash)
+        self.assertIn("restore it from your backup", dash)
+        for jargon in ("ledger", "index", "substrate", "fts5", "offline", "sqlite"):
+            self.assertNotIn(jargon, dash.lower())   # "(memory offline)" is the internal name; the render is plainer
+
+    def test_no_recall_offline_shows_no_notice(self):
+        for clean in (_signals(), _signals(recall_offline=False)):
+            self.assertNotIn("couldn't open your saved memory", boot.render_dashboard(clean))
+
+    def test_offline_and_malformed_are_mutually_exclusive_by_construction(self):
+        # The two ledger signals never co-fire: an unreadable-to-OPEN store yields the offline notice and NO line
+        # count (detect_ledger_malformed returns None on the same raise), while some-unreadable-LINES yields the
+        # malformed line and no offline notice. Assert each renders only its own line for its own signal.
+        offline = boot.render_dashboard(_signals(recall_offline=True, ledger_malformed=None))
+        self.assertIn("couldn't open your saved memory", offline)
+        self.assertNotIn("unreadable line", offline)
+        malformed = boot.render_dashboard(_signals(recall_offline=False, ledger_malformed=2))
+        self.assertIn("unreadable line", malformed)
+        self.assertNotIn("couldn't open your saved memory", malformed)
+
+    def test_gather_relays_the_recall_offline_signal_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            with mock.patch("memory.ledger_health.detect_recall_offline", return_value=True):
+                relayed = boot.gather_signals()
+            with mock.patch("memory.ledger_health.detect_recall_offline", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertTrue(relayed["recall_offline"])          # the detector's signal is relayed verbatim
+        self.assertFalse(failed["recall_offline"])          # a detector fault degrades quietly to False, never breaks
 
     def test_gather_relays_the_stalled_migration_signal_and_degrades_quietly(self):
         patchers = _offline()
