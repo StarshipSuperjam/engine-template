@@ -9,8 +9,11 @@ the floor (always) + this pack (when the hook runs).
 
 Boot's laws, all load-bearing here (systems/lifecycle/boot/README.md):
   - READ-ONLY OF CANONICAL STATE (D-269). Boot regenerates NO derived or committed state; it reads and
-    surfaces. Its ONE local write is the gitignored, non-canonical standing-alarm presentation ledger
+    surfaces. Its own local write is the gitignored, non-canonical standing-alarm presentation ledger
     (boot_alarm_ledger) — a record of what was already shown, not a regeneration of any canonical state.
+    The one durable FINDING boot emits — a refused state cursor (D-059 law 1, U15b) — is handed to
+    telemetry's inbox spool via emit_finding: telemetry owns that write, it is a local gitignored append
+    (NEVER a GitHub write), and the #412 drain promotes it — so the read-only-AGAINST-GITHUB posture holds.
   - ANTI-HABITUATION BY COLLAPSE, NOT SUPPRESSION (D-269). A standing governance alarm renders every
     session it is live, but one whose structured condition is UNCHANGED since last shown in full collapses
     to a terse reminder (consequence + fix offer kept); a new/changed/worsened one relays in full. The
@@ -112,6 +115,15 @@ SESSION_START_SOURCES = ("startup", "resume", "clear")
 
 PROTECTED_BRANCH = os.environ.get("PROTECTED_BRANCH", "main")
 STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
+# The schema read_state validates the committed cursor against on read (U15a): a schema_version-1 cursor
+# whose INNER shape is broken is refused, never rendered as a confident cursor (D-059 law 1). Loaded lazily
+# inside _cursor_conforms, so a missing/corrupt schema is an engine fault that never blames a good cursor.
+_STATE_SCHEMA_PATH = os.path.join(validate.SCHEMAS_DIR, "state.v1.json")
+# The fixed source-id + severity of the durable refused-cursor finding (D-059 law 1's telemetry half, U15b).
+# A FIXED literal message (see _refused_cursor_message) — no bytes from the malformed cursor flow into the
+# finding, so a hand-crafted cursor can neither inject Issue-body content nor forge the signal sentinel;
+# marker-safe by construction, deduped downstream by source_id.
+REFUSED_CURSOR_SOURCE_ID = "boot/refused-cursor"
 
 RECENTLY_SHIPPED_COUNT = 5   # the bounded "what just happened" digest
 
@@ -170,22 +182,74 @@ def gh_token() -> str | None:
 
 # ---- committed state (the card facts; refuse-on-malformed) ----------------------------------
 
-def read_state() -> tuple[dict | None, bool]:
-    """Return (state, refused). `refused` is True when the committed cursor is unreadable or not a
-    schema_version-1 cursor — boot then says project status is unknown and falls through to the rest of
-    the pack, NEVER halting. A readable cursor returns (state, False), rendered defensively with .get().
+def _cursor_conforms(state: dict) -> bool:
+    """True iff `state` validates against the state.v1 schema — the INNER-shape check read_state layers over
+    the cheap version gate (U15a), so a schema_version-1 cursor with a broken/missing inner shape is REFUSED,
+    not rendered as a confident 'all clear' (D-059 law 1: a malformed cursor fails loud, never misleads).
 
-    Boot surfaces the refusal in-band (the operator-facing half). The spec also has boot emit a telemetry
-    FINDING on a refused cursor; that is a WRITE, which is the deferred hooks-stderr->findings-inbox relay
-    telemetry owns — not boot's read-only path. So boot surfaces the refusal here and the finding-emission
-    rides telemetry's writer relay (owes -> telemetry writer)."""
+    An INFRASTRUCTURE fault — the schema file itself unreadable, or the validator unavailable — is NOT the
+    cursor's fault, so it does NOT refuse: it returns True (falling back to the pre-existing version-only
+    acceptance) rather than blame a good cursor for the engine's own missing schema. Only a genuine
+    non-conformance (the validator reporting errors on a present schema) refuses."""
+    try:
+        schema = validate.load_json(_STATE_SCHEMA_PATH)
+    except Exception:  # noqa: BLE001 — a missing / corrupt schema is an engine fault, never the cursor's
+        return True
+    try:
+        return not list(validate.Draft202012Validator(schema).iter_errors(state))
+    except Exception:  # noqa: BLE001 — a validator fault must not blame a good cursor
+        return True
+
+
+def read_state() -> tuple[dict | None, bool]:
+    """Return (state, refused). `refused` is True when the committed cursor is unreadable, is not a
+    schema_version-1 cursor, or does not conform to the state.v1 schema (a version-1 cursor with a broken
+    INNER shape is refused, never rendered as a confident cursor — U15a / D-059 law 1) — boot then says
+    project status is unknown and falls through to the rest of the pack, NEVER halting. A readable,
+    conforming cursor returns (state, False), rendered defensively with .get().
+
+    This is a PURE read/predicate. Boot surfaces the refusal in-band (the operator-facing half) in the
+    dashboard/marker renders. The DURABLE half — the D-059 telemetry finding on a refused cursor — is emitted
+    on the REAL SessionStart path only (assemble_pack, use_ledger), as a benign inbox-spool append via
+    emit_refused_cursor_finding(): a GitHub write here would break boot's read-only posture, so the benign
+    spool carries it and the #412 drain promotes it. Keeping the emit out of this read leaves the status
+    verb / `pack` debug view side-effect-free and this predicate cheaply unit-testable."""
     try:
         state = validate.load_json(STATE_PATH)
         if not isinstance(state, dict) or state.get("schema_version") != 1:
             return None, True
+        if not _cursor_conforms(state):
+            return None, True
         return state, False
     except Exception:  # noqa: BLE001 — absent / malformed cursor degrades to "unknown", never a crash
         return None, True
+
+
+def _refused_cursor_message() -> str:
+    """The plain-language, engine's-own-health copy of the durable refused-cursor finding (U15b). Names what
+    the operator must do (correct the saved record, or let the engine re-ground) and does NOT imply the
+    engine self-repairs or self-closes it; no backstage vocabulary (spool / drain / severity / schema). The
+    first sentence is a clean, title-length summary (issue_title derives the title from it)."""
+    return (
+        "The engine couldn't trust its saved record of where this project stands. "
+        "That record no longer has the shape it needs, so the engine is treating the project's status as "
+        "unknown rather than show a confident-but-wrong summary — this is about the engine's own bookkeeping, "
+        "not your project or its data. Correcting that saved record, or letting the engine re-ground from "
+        "GitHub, is what clears it; until then, don't rely on any 'where we are' status."
+    )
+
+
+def emit_refused_cursor_finding(*, spool_path: str | None = None) -> bool:
+    """Emit ONE benign refused-cursor finding to the telemetry inbox spool (D-059 law 1's durable half, U15b).
+    PERSISTENT_BENIGN routes emit_finding to a LOCAL gitignored spool append — boot never writes GitHub
+    (read-only posture); the #412 drain promotes it once it persists across sessions, and the immediate
+    operator surfacing is the existing in-band notice. Best-effort / fail-open (emit_finding swallows every
+    fault). `spool_path` defaults to telemetry's inbox spool, resolved at CALL time (not frozen in the
+    signature) so a test can redirect it at telemetry.INBOX_SPOOL_PATH. Returns emit_finding's result (falsy
+    on the benign path — a spool append is capture, promoted later)."""
+    record = {"source_id": REFUSED_CURSOR_SOURCE_ID, "severity": telemetry.PERSISTENT_BENIGN,
+              "message": _refused_cursor_message(), "location": None}
+    return telemetry.emit_finding(record, spool_path=spool_path or telemetry.INBOX_SPOOL_PATH)
 
 
 # ---- governance alarms (relayed from the substrates; pinned at the top of the card) ---------
@@ -1180,6 +1244,13 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     s = gather_signals(session_id)
     marker = present_marker_line(s)
     push = _relay_lines(s) if use_ledger else must_push(s)
+    # DURABLE half of the refused-cursor posture (D-059 law 1, U15b): on the REAL SessionStart path only
+    # (use_ledger — never the `pack` debug view or the read-only status verb, both use_ledger=False), a
+    # refused cursor spools ONE benign finding the #412 drain later promotes. A local gitignored append only,
+    # so boot's read-only-against-GitHub posture holds; best-effort (emit_finding swallows every fault), so it
+    # never perturbs the pack. Consistent with the one other use_ledger-gated side effect (the alarm ledger).
+    if use_ledger and s["refused"]:
+        emit_refused_cursor_finding()
     try:
         dashboard = render_dashboard(s)
     except Exception:

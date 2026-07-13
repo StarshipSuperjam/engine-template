@@ -114,6 +114,7 @@ COPY_HEADINGS = {
     "readme-seeded": "Your project's front page is now yours",
     "license-cleared": "Your project starts without a license — and that's normal",
     "claude-floor-seeded": "Your project's working guide",
+    "state-reseeded": "Your project starts from a clean slate",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
     # The finish (verify + tidy-up) phase — slice 27c.
@@ -277,6 +278,14 @@ FALLBACK_COPY = {
         "lines around it, that part is mine to maintain, not something you need to edit. The part that's "
         "yours to shape — how you like me to work with you — lives in your codes of conduct instead: change "
         "it any time with /engine-conduct. I didn't do this silently — this note is me telling you."
+    ),
+    "state-reseeded": (
+        "I reset this project's starting point to a clean slate. The engine keeps a small saved note of where "
+        "a project stands — its current focus and how much work is open. The copy that arrived with the "
+        "template still pointed at the engine's OWN workshop, so I cleared it: no borrowed focus, no borrowed "
+        "counts, nothing pointing back at the template's own to-do list. Nothing of yours was lost — a "
+        "brand-new project has nothing there yet — and this changes nothing else. I didn't do it silently — "
+        "this note is me telling you."
     ),
     "conduct-seeded": (
         "This project came set up with a starting set of codes of conduct — short notes on how you like me "
@@ -1354,10 +1363,69 @@ def _seed_deployed_floor(say, copy=None) -> str:
     return "swapped"
 
 
+# The genesis cursor a brand-new project starts from (U16 / D-059 state.v1 field descriptions: both
+# standing-situation pointers null, the debt count zero, the register null until the project sets one).
+# Provably schema-valid (a test binds it to state.v1.json), so a re-seeded generated repo never ships a
+# cursor read_state would then refuse.
+_GENESIS_CURSOR = {
+    "schema_version": 1,
+    "standing_situation": {"milestone": None, "phase": None},
+    "integration_debt": {"open_count": 0, "as_of": None, "register": None},
+}
+_STATE_REL = os.path.join(".engine", "state", "state.json")
+
+
+def _seed_state(say, copy=None) -> str:
+    """Reset a generated repo's committed state cursor to genesis at first-run (U16), so a fresh project does
+    not inherit the engine's OWN construction cursor — the workshop phase, debt count, and register URL that
+    "Use this template" copies in verbatim (it would otherwise surface on an offline/degraded first boot and
+    sit in the committed file). Seed-then-own, but RISK-ORIENTED for state: the traveled cursor carries NO
+    operator content at first-run (it is engine scaffolding), so the danger is UNDER-matching (leaving the
+    workshop's data in place), never over-matching.
+
+    Recognition is STRUCTURAL and rename-immune (no hardcoded upstream slug): a cursor is traveled/foreign
+    when its `integration_debt.register` is a non-empty URL that does NOT name THIS repo's own origin
+    (boot.repo_slug()). The construction repo's own cursor names its own origin -> preserved; a genesis cursor
+    (null register) -> a no-op; an operator who has re-grounded (register names their repo) -> preserved.
+    BELT: _root_is_construction() (this seed is ordered AFTER _seed_deployed_floor, so a generated repo's root
+    is already the swapped floor -> the guard passes; the real workshop, or an un-redirected test whose root is
+    the construction file -> preserved), which also makes the unknown-origin fallback safe. Fail-open: an
+    unreadable/malformed/wrong-shape cursor is preserved, never crashing the phase. Paths are
+    validate.ROOT-relative, so a redirected demo/test touches only the fixture. Discloses only on an actual
+    reset (never silent, never on a no-op)."""
+    if _root_is_construction():
+        return "present"                          # workshop / pre-swap -> never reset (belt: protects the real cursor)
+    path = os.path.join(validate.ROOT, _STATE_REL)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            register = json.load(fh)["integration_debt"]["register"]
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return "present"                          # unreadable / malformed / wrong shape -> preserve, never crash
+    if not isinstance(register, str) or not register.strip():
+        return "present"                          # already genesis (null / empty register) -> idempotent no-op
+    own = boot.repo_slug()
+    # SEGMENT-anchored match (not a bare substring): a register URL is `…/OWNER/REPO/issues?…`, so the own
+    # slug must appear as a whole `/OWNER/REPO/` path segment (or trailing) — else `acme/engine` would falsely
+    # match `…/acme/engine-template/…` and wrongly PRESERVE a borrowed cursor (the leak U16 exists to prevent).
+    if own and (f"/{own}/" in register or register.rstrip("/").endswith(f"/{own}")):
+        return "present"                          # register names THIS repo -> operator's own cursor -> preserve
+    try:                                          # foreign / traveled register (or unknown origin past the belt) -> reset
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(_GENESIS_CURSOR, fh, indent=2)
+            fh.write("\n")
+    except OSError:
+        return "skipped"                          # unwritable -> never strand the phase
+    if copy is not None:
+        say(copy["state-reseeded"])
+    return "reseeded"
+
+
 def _apply_substrates(say, copy=None) -> dict:
     """STEP 5 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
-    re-derive the knowledge graph (idempotent), confirm the state seed is present, seed the operator's
-    codes-of-conduct override from the template seed, seed a root SECURITY.md disclosure channel, seed the
+    re-derive the knowledge graph (idempotent), confirm the state seed is present AND reset a traveled
+    construction cursor to a clean genesis start (U16, AFTER the floor swap so its construction-repo belt is
+    valid), seed the operator's codes-of-conduct override from the template seed, seed a root SECURITY.md
+    disclosure channel, seed the
     product's own starter README over the engine's marketing landing front, clear the traveled template
     LICENSE, and swap the thin deployed floor in as the root CLAUDE.md (retiring the traveled construction
     file) (all disclosed in plain language). The root reconciles sit here — co-located, AFTER the runtime — a
@@ -1382,6 +1450,7 @@ def _apply_substrates(say, copy=None) -> dict:
     result["readme"] = _seed_readme(say, copy)
     result["license"] = _seed_license(say, copy)
     result["claude_floor"] = _seed_deployed_floor(say, copy)
+    result["state"] = _seed_state(say, copy)   # AFTER the floor swap (its construction-repo belt reads the swapped root)
     return result
 
 
@@ -1540,6 +1609,7 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_remember_this.py",
     ".engine/tools/demo_release_pr_mergeable.py",
     ".engine/tools/demo_build_entry_depth_gate.py",
+    ".engine/tools/demo_state_cursor_honesty.py",
     # The committed audit self-review digest is THIS template repo's own construction history — a generated repo
     # must not boot reporting a self-review it never ran, nor read the template's findings as its own. So it
     # retires at first-run: a fresh repo starts with no inherited digest (its absence is the honest "not yet

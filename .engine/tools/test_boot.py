@@ -316,28 +316,90 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
                         "orientation zone")
 
 
+_GOOD_CURSOR = {"schema_version": 1, "standing_situation": {"milestone": None, "phase": None},
+                "integration_debt": {"open_count": 0, "as_of": None, "register": None}}
+
+
 class TestRefusedState(unittest.TestCase):
-    def test_read_state_accepts_v1_and_refuses_otherwise(self):
+    def test_read_state_accepts_valid_and_refuses_malformed(self):
         with tempfile.TemporaryDirectory() as d:
             good = os.path.join(d, "good.json")
             with open(good, "w") as fh:
-                json.dump({"schema_version": 1, "standing_situation": {}, "integration_debt": {}}, fh)
+                json.dump(_GOOD_CURSOR, fh)
             with mock.patch.object(boot, "STATE_PATH", good):
                 state, refused = boot.read_state()
             self.assertFalse(refused)
             self.assertIsNotNone(state)
 
-            bad = os.path.join(d, "bad.json")
-            with open(bad, "w") as fh:
+            badver = os.path.join(d, "badver.json")
+            with open(badver, "w") as fh:
                 json.dump({"schema_version": 2}, fh)  # not a v1 cursor
-            with mock.patch.object(boot, "STATE_PATH", bad):
+            with mock.patch.object(boot, "STATE_PATH", badver):
                 state, refused = boot.read_state()
             self.assertTrue(refused)
             self.assertIsNone(state)
 
+            # U15a: a version-1 cursor whose INNER shape is broken is REFUSED, not rendered as a confident
+            # "all clear" — a missing required pointer set, and a wrong-typed open_count.
+            for payload in ({"schema_version": 1},
+                            {"schema_version": 1, "standing_situation": {"milestone": None, "phase": None},
+                             "integration_debt": {"open_count": "lots", "as_of": None, "register": None}}):
+                bad = os.path.join(d, "badshape.json")
+                with open(bad, "w") as fh:
+                    json.dump(payload, fh)
+                with mock.patch.object(boot, "STATE_PATH", bad):
+                    _state, refused = boot.read_state()
+                self.assertTrue(refused, payload)
+
             with mock.patch.object(boot, "STATE_PATH", os.path.join(d, "absent.json")):
                 _state, refused = boot.read_state()
             self.assertTrue(refused)  # absent cursor also degrades, never raises
+
+    def test_infra_fault_does_not_blame_a_good_cursor(self):
+        # U15a fold: a missing/corrupt SCHEMA file is an ENGINE fault, not the cursor's — a good cursor must
+        # NOT be refused just because the validator couldn't load, else boot blames the wrong thing.
+        with tempfile.TemporaryDirectory() as d:
+            good = os.path.join(d, "good.json")
+            with open(good, "w") as fh:
+                json.dump(_GOOD_CURSOR, fh)
+            with mock.patch.object(boot, "STATE_PATH", good), \
+                    mock.patch.object(boot, "_STATE_SCHEMA_PATH", os.path.join(d, "no-schema.json")):
+                _state, refused = boot.read_state()
+            self.assertFalse(refused)
+
+    def test_refused_cursor_emits_one_benign_finding_only_on_real_sessionstart(self):
+        # U15b: the durable refused-cursor finding is spooled ONCE on the real SessionStart path
+        # (use_ledger=True), never from the read-only status verb / `pack` debug view (use_ledger=False), and
+        # never for a healthy cursor. A LOCAL spool append only — a benign severity never resolves a GitHub
+        # token, so this cannot write GitHub.
+        patchers = _offline()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                spool = os.path.join(d, "findings-inbox.ndjson")
+                with mock.patch.object(boot.telemetry, "INBOX_SPOOL_PATH", spool), \
+                        mock.patch.dict(os.environ, {boot.boot_alarm_ledger.ENV_DIR: d}):  # hermetic ledger
+                    # refused + real SessionStart -> exactly one benign boot/refused-cursor record spooled
+                    with mock.patch.object(boot, "read_state", return_value=(None, True)):
+                        boot.assemble_pack(use_ledger=True)
+                    with open(spool) as fh:
+                        lines = fh.read().splitlines()
+                    self.assertEqual(len(lines), 1)
+                    rec = json.loads(lines[0])
+                    self.assertEqual(rec["source_id"], "boot/refused-cursor")
+                    self.assertEqual(rec["severity"], boot.telemetry.PERSISTENT_BENIGN)
+                    self.assertTrue(boot.telemetry.source_id_is_marker_safe(rec["source_id"]))
+                    # the read-only status verb / debug view (use_ledger=False) must NOT emit
+                    os.remove(spool)
+                    with mock.patch.object(boot, "read_state", return_value=(None, True)):
+                        boot.assemble_pack(use_ledger=False)
+                    self.assertFalse(os.path.exists(spool))
+                    # a healthy cursor never emits, even on the real path
+                    with mock.patch.object(boot, "read_state", return_value=(dict(_GOOD_CURSOR), False)):
+                        boot.assemble_pack(use_ledger=True)
+                    self.assertFalse(os.path.exists(spool))
+        finally:
+            for p in patchers:
+                p.stop()
 
     def test_refused_state_degrades_in_the_pack_but_card_still_renders(self):
         patchers = _offline()
