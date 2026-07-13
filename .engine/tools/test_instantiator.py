@@ -1276,6 +1276,107 @@ class TestSeedLicense(unittest.TestCase):
         self.assertEqual(outcome, "present", "no LICENSE to recognize → preserve-on-doubt, delete nothing")
 
 
+class TestSeedState(unittest.TestCase):
+    """U16 — reset a generated repo's traveled construction cursor to genesis; recognition is a structural,
+    rename-immune foreign-register predicate + a construction-repo belt; risk-oriented and fail-safe."""
+
+    def _write_cursor(self, d, register, phase="workshop phase #449", count=31):
+        os.makedirs(os.path.join(d, ".engine", "state"), exist_ok=True)
+        cur = {"schema_version": 1,
+               "standing_situation": {"milestone": "wp", "phase": phase, "as_of": "2026-07-12T09:21:38Z"},
+               "integration_debt": {"open_count": count, "as_of": "2026-07-12T09:21:38Z", "register": register}}
+        with open(os.path.join(d, ".engine", "state", "state.json"), "w") as fh:
+            json.dump(cur, fh, indent=2)
+
+    def _cursor(self, d):
+        with open(os.path.join(d, ".engine", "state", "state.json")) as fh:
+            return json.load(fh)
+
+    def test_genesis_constant_conforms_to_the_state_schema(self):
+        # F3: the inline genesis constant is BOUND to the live schema, so a future state.v1 field can't
+        # silently make it invalid (which would ship a generated repo a cursor read_state then refuses).
+        schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "state.v1.json"))
+        errs = list(validate.Draft202012Validator(schema).iter_errors(inst._GENESIS_CURSOR))
+        self.assertEqual(errs, [], errs)
+
+    def test_foreign_register_is_reset_to_genesis_and_disclosed(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
+                mock.patch.object(inst.boot, "repo_slug", return_value="acme/proj"):
+            self._write_cursor(d, "https://github.com/StarshipSuperjam/engine-template/issues?q=is:open")
+            outcome = inst._seed_state(said.append, inst.load_copy())
+            cur = self._cursor(d)
+        self.assertEqual(outcome, "reseeded")
+        self.assertEqual(cur, inst._GENESIS_CURSOR, "the traveled workshop cursor is cleared to genesis")
+        self.assertTrue(said, "the reset is disclosed, never silent")
+        self.assertIn("clean slate", "\n".join(said).lower())
+
+    def test_own_origin_cursor_is_preserved(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
+                mock.patch.object(inst.boot, "repo_slug", return_value="acme/proj"):
+            self._write_cursor(d, "https://github.com/acme/proj/issues?q=is:open", phase="my real phase", count=7)
+            outcome = inst._seed_state(said.append, inst.load_copy())
+            cur = self._cursor(d)
+        self.assertEqual(outcome, "present", "a cursor naming THIS repo's own origin is the operator's — preserved")
+        self.assertEqual(cur["standing_situation"]["phase"], "my real phase")
+        self.assertEqual(cur["integration_debt"]["open_count"], 7)
+        self.assertEqual(said, [], "no disclosure on a no-op")
+
+    def test_genesis_cursor_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
+                mock.patch.object(inst.boot, "repo_slug", return_value="acme/proj"):
+            self._write_cursor(d, None)  # null register == genesis
+            outcome = inst._seed_state(lambda t: None, inst.load_copy())
+        self.assertEqual(outcome, "present")
+
+    def test_malformed_cursor_is_preserved_never_crashes(self):
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
+                mock.patch.object(inst.boot, "repo_slug", return_value="acme/proj"):
+            os.makedirs(os.path.join(d, ".engine", "state"))
+            with open(os.path.join(d, ".engine", "state", "state.json"), "w") as fh:
+                fh.write("{not valid json")
+            outcome = inst._seed_state(lambda t: None, inst.load_copy())   # must not raise
+        self.assertEqual(outcome, "present", "an unreadable/malformed cursor is preserved, never crashes the phase")
+
+    def test_construction_root_belt_preserves_the_real_cursor(self):
+        # BELT: with the construction-governance CLAUDE.md at root (the workshop, or an un-redirected test),
+        # _seed_state preserves even a foreign-register cursor — it can NEVER clobber the real construction cursor.
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
+                mock.patch.object(inst.boot, "repo_slug", return_value="acme/proj"):
+            with open(os.path.join(d, "CLAUDE.md"), "w") as fh:
+                fh.write("# engine-template — construction governance\n\nbody\n")
+            self._write_cursor(d, "https://github.com/StarshipSuperjam/engine-template/issues", count=31)
+            outcome = inst._seed_state(lambda t: None, inst.load_copy())
+            cur = self._cursor(d)
+        self.assertEqual(outcome, "present")
+        self.assertEqual(cur["integration_debt"]["open_count"], 31, "the construction-repo belt preserved the real cursor")
+
+    def test_prefix_slug_org_sibling_is_not_falsely_preserved(self):
+        # a bare substring would falsely PRESERVE a repo whose slug is a PREFIX of the template's within the
+        # same org (own "acme/engine" vs a register naming ".../acme/engine-template/..."). The segment-anchored
+        # match resets it correctly — the borrowed-cursor leak U16 exists to prevent.
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
+                mock.patch.object(inst.boot, "repo_slug", return_value="acme/engine"):
+            self._write_cursor(d, "https://github.com/acme/engine-template/issues?q=is:open")
+            outcome = inst._seed_state(lambda t: None, inst.load_copy())
+            cur = self._cursor(d)
+        self.assertEqual(outcome, "reseeded", "a prefix-slug org sibling is a foreign register, not preserved")
+        self.assertEqual(cur["integration_debt"]["open_count"], 0)
+
+    def test_unknown_origin_past_the_belt_resets(self):
+        # repo_slug None (offline/no-remote) past the construction belt: a non-null register can only be the
+        # traveled workshop cursor (a fresh repo hasn't set its own), so reset — risk-oriented, and safe
+        # because the belt already ruled out the workshop.
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
+                mock.patch.object(inst.boot, "repo_slug", return_value=None):
+            self._write_cursor(d, "https://github.com/StarshipSuperjam/engine-template/issues")
+            outcome = inst._seed_state(lambda t: None, inst.load_copy())
+            cur = self._cursor(d)
+        self.assertEqual(outcome, "reseeded")
+        self.assertEqual(cur["integration_debt"]["open_count"], 0)
+
+
 # ==== the deployed-floor swap-in (issue #272) ========================================================
 
 def _seed_floor_root(tmp, *, claude=None, floor=None):
