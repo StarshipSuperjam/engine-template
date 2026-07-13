@@ -216,6 +216,20 @@ class Apply(unittest.TestCase):
         self.assertIn("not higher", err)
         self.assertIn("choose a higher version", err)
 
+    def test_cmd_apply_json_refusal_exits_one_and_writes_reason_to_stderr(self):
+        # the actual "bare exit code 1" fix: `apply --json` on a refusal must exit 1, print the JSON to stdout
+        # (captured by the workflow into applied.json) AND the plain reason to stderr (shown in the run log).
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+        with _Tree({"core": _module("core", ver="0.1.0")}, engine_release="0.1.0"):
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = rc.main(["apply", "--engine", "0.0.9", "--all", "0.0.9", "--json"])  # a lowering
+        self.assertEqual(code, 1)
+        self.assertIn('"reason": "raise-only"', out.getvalue())   # machine-readable JSON on stdout
+        self.assertIn("Refused (raise-only)", err.getvalue())     # plain reason on stderr
+        self.assertIn("To fix:", err.getvalue())
+
     def test_apply_writes_versions_and_preserves_home_repository(self):
         with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}) as t:
             before_home_line = [ln for ln in t.engine_text().splitlines() if "home_repository" in ln][0]
@@ -410,6 +424,11 @@ class RenderPRBody(unittest.TestCase):
         scope = body.split("## Scope", 1)[1].split("## Out of scope", 1)[0]
         self.assertIn("What changed since the last release:", scope)
         self.assertIn("eADR-0014-one-history.md", scope)             # the contract change is in "what changed"
+        # the Risk section renders the interface change with the SAME polish as the published Release notes —
+        # a bold heading + its description as a sentence — so the consent surface is not rougher (usability).
+        risk = body.split("## Risk", 1)[1].split("## Validation", 1)[0]
+        self.assertIn("**The contract surface 'eADR-0014-one-history.md' changed.** Read it against consumers",
+                      risk)
 
     def test_gate_path_three_states_are_visibly_distinct(self):
         passed, subbar, errored = (rc._gate_path_line("passed"), rc._gate_path_line("sub-bar"),

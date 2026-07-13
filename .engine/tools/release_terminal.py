@@ -164,7 +164,11 @@ def _proposal_for_publish(baseline=None, baseline_tree=None):
     try:
         b = baseline if baseline is not None else release_cut.resolve_baseline()
         if b.first_cut:
-            return None                   # at publish a prior release exists; a first-cut result is an anomaly
+            # The GENUINE first release: the home has no prior release yet (the new tag is created after these
+            # notes render), so first-cut is the CORRECT state, not an anomaly. There is nothing to diff, but
+            # classify still authors the first-release framing line — render that (offline, no tree), so the
+            # first published Release is not barer than the pull request that was merged.
+            return release_cut.classify(b, None)
         tree, cleanup = release_cut._baseline_tree_for(b, baseline_tree)
         try:
             return release_cut.classify(b, tree)

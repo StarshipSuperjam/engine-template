@@ -258,9 +258,18 @@ class Prose(unittest.TestCase):
         self.assertNotIn("What changed since the last release", notes)
         self.assertIn("v0.2.0", notes)
 
-    def test_proposal_for_publish_first_cut_is_none(self):
-        # at publish a prior release MUST exist; a first-cut baseline is an anomaly -> None (minimal notes)
-        self.assertIsNone(rt._proposal_for_publish(baseline=release_cut.Baseline(None, True, "n")))
+    def test_proposal_for_publish_first_cut_renders_the_first_release_line(self):
+        # the GENUINE first release: no prior release to diff, but the first-cut proposal still carries the
+        # first-release framing line, so the first published Release is not barer than the merged PR.
+        p = rt._proposal_for_publish(baseline=release_cut.Baseline(None, True, "n"))
+        self.assertIsNotNone(p)
+        self.assertEqual(p["mode"], "first-cut")
+        self.assertTrue(any("First release" in c for c in p["change_inventory"]))
+        # and it renders into human-readable notes with a first-release section (not "since the last release")
+        notes = rt._release_notes("v0.1.0", proposal=p)
+        self.assertIn("## What this release establishes", notes)
+        self.assertNotIn("since the last release", notes)
+        self.assertIn("First release", notes)
 
     def test_proposal_for_publish_degrades_on_failure(self):
         # any exception in the recompute degrades to None rather than raising into the publish path (the tag is

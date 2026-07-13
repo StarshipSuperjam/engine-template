@@ -149,12 +149,9 @@ jobs:
               > "${RUNNER_TEMP}/applied.json" || apply_ok=0
           fi
           if [ "${apply_ok}" -eq 0 ]; then
-            # The tool's stderr above says WHY; add a top-line annotation naming the reason, with a fallback
-            # when applied.json is empty/unparseable (an uncaught tool error exits before writing a result).
-            reason="$(uv run --directory .engine --frozen -- python -c \
-              "import json; print(json.load(open('${RUNNER_TEMP}/applied.json')).get('reason') or 'unknown')" \
-              2>/dev/null || echo unreadable)"
-            echo "::error::Recording the versions was refused (${reason}) — nothing was changed. The reason is shown above; fix it and run this again."
+            # The tool already printed the plain-language reason and a "To fix:" line to this step's log above.
+            # Keep the top-line banner jargon-free (no internal reason code) and point the maintainer at it.
+            echo "::error::Recording the versions was refused — nothing was changed. Open this step's log above to see why and how to fix it, then run this again."
             exit 1
           fi
           # Carry the version actually recorded (the authoritative value in applied.json) forward to the later

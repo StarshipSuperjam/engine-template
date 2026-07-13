@@ -599,7 +599,7 @@ def change_summary(proposal: dict) -> list:
     for im in proposal.get("impacts") or []:
         what = im.get("what")
         if what:                       # e.g. "the contract surface 'X' changed" -> "The contract surface 'X' changed."
-            lines.append(what[0].upper() + what[1:] + ".")
+            lines.append(_cap(what) + ".")
     return lines
 
 
@@ -627,7 +627,10 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
                     "it will need attention. See the changes below."]
     inventory = proposal.get("change_inventory") or []
     if inventory:
-        out += ["", "## What changed since the last release", ""]
+        # "since the last release" would contradict a first release (there is no last release); title it plainly.
+        heading = "What this release establishes" if proposal.get("mode") == "first-cut" \
+            else "What changed since the last release"
+        out += ["", f"## {heading}", ""]
         out += [f"- {c}" for c in inventory]
     impacts = proposal.get("impacts") or []
     if impacts:
@@ -750,7 +753,10 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
             risk.append("")  # being absorbed into that bullet as a lazy markdown continuation (the two would
                              # otherwise fuse, hiding the interface-changes signpost on the highest-stakes release).
         risk.append("Interface changes to read before you merge:")
-        risk += [f"- {im.get('what', '')}: {im.get('why', '')}" for im in impacts]
+        # Same polished rendering as the published Release notes — a bold heading, then the description as its
+        # own sentence — so the consent surface the maintainer reads FIRST is no rougher than the Release body.
+        risk += [f"- **{_cap(im.get('what')) or 'A contract surface changed'}.**"
+                 + (f" {_cap(im.get('why'))}" if im.get("why") else "") for im in impacts]
     else:
         risk.append("- No changes to interface contract files were detected — this does not cover a removed "
                     "capability or a data migration, which would be listed under Scope. The summary can only "
