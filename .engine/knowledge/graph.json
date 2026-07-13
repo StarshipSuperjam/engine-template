@@ -5960,7 +5960,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:637599a138d9823d1684296c73b679fc884b08ed0465a556e4ee59953d6502e9",
+        "fingerprint": "sha256:42398c6f3281df7502b628448af3f2abc2350affb97a5ca6fef593991d388ecd",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -7575,7 +7575,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:a6eb420b64b02f8ad24d6de308a9a6c126e75cd80109e1af13f180d475cfcc88",
+        "fingerprint": "sha256:72c53225c81cf4ab6ba5d2758a5a59dc0104abfcab96564cd4e9c85fd5730597",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",

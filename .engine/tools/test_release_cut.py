@@ -430,6 +430,34 @@ class RenderPRBody(unittest.TestCase):
         self.assertIn("**The contract surface 'eADR-0014-one-history.md' changed.** Read it against consumers",
                       risk)
 
+    def test_scope_pr_list_leads_and_migration_surfaces_beside_it(self):
+        proposal = {"change_inventory": ["'memory-store' gained a data/config migration (0.2.0)."],
+                    "impacts": [], "engine_floor_level": "minor", "engine_floor_version": "0.2.0",
+                    "merged_prs": ["Refactor storage (#41)", "Tidy CLI (#42)"]}
+        applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {"memory-store": "0.2.0"}}
+        scope = rc.render_pr_body(proposal, applied).split("## Scope", 1)[1].split("## Out of scope", 1)[0]
+        self.assertIn("What changed since the last release (2 pull requests):", scope)
+        self.assertIn("- Refactor storage (#41)", scope)
+        self.assertIn("Capability and data changes:", scope)
+        self.assertIn("gained a data/config migration", scope)          # the migration is not lost
+
+    def test_scope_collapses_a_long_pr_list(self):
+        proposal = {"change_inventory": [], "impacts": [], "engine_floor_level": "minor",
+                    "merged_prs": [f"PR number {i} (#{i})" for i in range(20)]}
+        applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {}}
+        scope = rc.render_pr_body(proposal, applied).split("## Scope", 1)[1].split("## Out of scope", 1)[0]
+        self.assertIn("<details><summary>Show the merged pull requests</summary>", scope)  # long list collapsed
+        self.assertIn("(20 pull requests)", scope)
+
+    def test_first_cut_pr_body_heading_does_not_say_since_the_last_release(self):
+        # the first-cut PR body must not contradict itself (no "since the last release" for a first release)
+        with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}):
+            proposal = rc.classify(rc.Baseline(None, True, "no prior release"), None)
+            applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+        scope = rc.render_pr_body(proposal, applied).split("## Scope", 1)[1].split("## Out of scope", 1)[0]
+        self.assertIn("What this release establishes:", scope)
+        self.assertNotIn("since the last release", scope)
+
     def test_gate_path_three_states_are_visibly_distinct(self):
         passed, subbar, errored = (rc._gate_path_line("passed"), rc._gate_path_line("sub-bar"),
                                    rc._gate_path_line("errored"))
@@ -564,6 +592,27 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn("- Added the 'x' capability.", notes)
         self.assertNotIn("pull request", notes)
 
+    def test_migration_signal_surfaces_beside_the_pr_list(self):
+        # the consent-critical case: with a PR list present, a data migration must STILL be named (it has no
+        # other callout), not be replaced by flat PR titles.
+        proposal = {"engine_floor_level": "minor", "impacts": [],
+                    "change_inventory": ["'memory-store' gained a data/config migration (0.2.0)."],
+                    "merged_prs": ["Refactor storage layout (#41)", "Tidy CLI (#42)"]}
+        notes = rc.render_release_notes("v0.2.0", proposal)
+        self.assertIn("## What changed since the last release (2 pull requests)", notes)   # the work
+        self.assertIn("## Capability and data changes", notes)                             # + the signals
+        self.assertIn("gained a data/config migration", notes)                             # the migration is NAMED
+
+    def test_no_signal_caveat_is_not_shown_beside_the_pr_list(self):
+        # when nothing structural fired, the "No module added…" caveat is not a per-item signal — don't show it
+        # next to the PR list.
+        proposal = {"engine_floor_level": "none", "impacts": [],
+                    "change_inventory": [rc._NO_STRUCTURAL_SIGNAL_NOTE],
+                    "merged_prs": ["Tidy CLI (#42)"]}
+        notes = rc.render_release_notes("v0.2.0", proposal)
+        self.assertNotIn("## Capability and data changes", notes)
+        self.assertNotIn("No module added or removed", notes)
+
 
 class MergedPrList(unittest.TestCase):
     _BODY = ("## What's Changed\n"
@@ -577,6 +626,13 @@ class MergedPrList(unittest.TestCase):
 
     def test_ignores_non_pr_lines(self):
         self.assertEqual(rc._parse_pr_lines("## What's Changed\n**Full Changelog**: x\nrandom\n"), [])
+
+    def test_excludes_the_engine_own_release_pr(self):
+        # a release must not list itself: the "Release X.Y.Z" PR (in range at publish) is dropped
+        body = ("## What's Changed\n"
+                "* Fix a thing by @a in https://github.com/o/r/pull/50\n"
+                "* Release 0.2.0 by @engine in https://github.com/o/r/pull/60\n")
+        self.assertEqual(rc._parse_pr_lines(body), ["Fix a thing (#50)"])
 
     def test_merged_pr_titles_uses_injected_fetch_offline(self):
         prs = rc.merged_pr_titles("v0.1.0", "deadbeef", repo="o/r", _fetch=lambda *a, **k: self._BODY)

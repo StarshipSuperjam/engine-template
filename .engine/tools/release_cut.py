@@ -82,6 +82,13 @@ SENTINEL = "0.0.0-dev"
 ENGINE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "engine.v1.json")
 MODULE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "module.v1.json")
 
+# The change-inventory line classify() adds when NOTHING structural fired — a caveat, not a per-item signal,
+# so the renderers exclude it when listing the structural signals beside the merged-PR list (one home for the
+# string, referenced in both places).
+_NO_STRUCTURAL_SIGNAL_NOTE = ("No module added or removed and no new migration since the last release — "
+                              "so at most a patch. A behaviour change with no structural signal would not "
+                              "show here; cross-check against what you actually shipped.")
+
 
 # --------------------------------------------------------------------------- version ordering
 # Strict MAJOR.MINOR.PATCH with an optional pre-release suffix — the SAME grammar the module.v1 schema
@@ -181,15 +188,20 @@ def _baseline_tree_for(baseline: Baseline, injected: str | None) -> tuple:
 # (merge / squash / rebase), so it holds in a generated repo too. This is a derived view of the pull requests
 # themselves (the one history store, eADR-0014), never a second store.
 _PR_LINE_RE = re.compile(r"^\* (.+) by @\S+ in \S+/pull/(\d+)\s*$")
+# The engine's OWN release pull request (title "Release X.Y.Z", authored by release.yml). At publish the notes
+# are generated over previous_tag..merge_sha, which spans the release PR's own merge — so without this it would
+# list itself and the count would be one high. Past release PRs sit before previous_tag, out of range.
+_RELEASE_PR_RE = re.compile(r"^Release \d+\.\d+\.\d+")
 
 
 def _parse_pr_lines(body: str) -> list:
     """GitHub's generated 'What's Changed' body -> plain 'Title (#N)' lines, dropping the author + URL noise
-    the engine's plain-language notes don't carry."""
+    the engine's plain-language notes don't carry, and the engine's own release pull request (a release must
+    not list itself)."""
     out = []
     for line in (body or "").splitlines():
         m = _PR_LINE_RE.match(line.strip())
-        if m:
+        if m and not _RELEASE_PR_RE.match(m.group(1).strip()):
             out.append(f"{m.group(1).strip()} (#{m.group(2)})")
     return out
 
@@ -197,7 +209,10 @@ def _parse_pr_lines(body: str) -> list:
 def _generate_notes_body(slug: str, previous_tag: str, target: str, token: str | None) -> str:
     """POST /repos/{slug}/releases/generate-notes -> the generated markdown body. Despite the POST verb this
     creates nothing — it is GitHub's read-only release-notes generator. `tag_name` is a placeholder label; the
-    listed pull requests depend only on the previous_tag..target range."""
+    listed pull requests depend only on the previous_tag..target range. This builds its own request rather than
+    routing through `github_client` DELIBERATELY: the host is a hardcoded literal, it is a single POST with no
+    pagination / Link-following, so the off-host guard `github_client` carries has nothing to protect here; a
+    future edit that adds pagination should reconsider that."""
     import urllib.request, json as _json, boot   # local: only the real fetch needs these (mirrors resolve_baseline)
     tok = token if token is not None else boot.gh_token()
     payload = _json.dumps({"tag_name": "unreleased", "previous_tag_name": previous_tag,
@@ -336,9 +351,7 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
             engine_level = _max_level(engine_level, im["floor_level"])
 
     if not inventory and not impacts:
-        inventory.append("No module added or removed and no new migration since the last release — "
-                         "so at most a patch. A behaviour change with no structural signal would not "
-                         "show here; cross-check against what you actually shipped.")
+        inventory.append(_NO_STRUCTURAL_SIGNAL_NOTE)
 
     # The concrete mechanical floor version: the minimum next engine version a minor/major signal forces
     # (None when nothing structural fired — a patch is discretionary, so raise-only alone bounds it). This is
@@ -668,6 +681,17 @@ def _cap(text: str) -> str:
     return (text[0].upper() + text[1:]) if text else text
 
 
+def _structural_signals(proposal: dict) -> list:
+    """The capability + data signals from the change inventory — 'Added the X capability', 'Removed the X
+    capability', and (consent-critical for an upgrader) ''X' gained a data/config migration' — with the
+    no-signal caveat and the first-release framing excluded. These answer 'what does upgrading DO to me?', a
+    question the flat merged-PR list does not, so they are surfaced BESIDE the pull-request list, not replaced
+    by it. A new migration in particular has no other callout (a removed capability rides the breaking
+    warning, a changed contract rides the interface section)."""
+    return [c for c in (proposal.get("change_inventory") or [])
+            if c != _NO_STRUCTURAL_SIGNAL_NOTE and not c.startswith("First release:")]
+
+
 def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str = "sub-bar") -> str:
     """The published GitHub Release body — a human-readable, self-contained account of the release: the
     version, the §6 readiness line, a breaking-change callout when the release is breaking, a "What changed"
@@ -687,13 +711,19 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
                     "it will need attention. See the changes below."]
     # "What changed" leads with the pull requests merged since the last release — the actual body of work —
     # when the list is available; otherwise it falls back to the structural signals (a first release, or a
-    # best-effort failure to reach the pull-request list). The interface-change detail follows either way.
+    # best-effort failure to reach the pull-request list). Either way, the capability + data signals are
+    # surfaced BESIDE the list (a flat PR title does not answer 'does this migrate my data?'), and the
+    # interface-change detail follows.
     merged = proposal.get("merged_prs") or []
     inventory = proposal.get("change_inventory") or []
     if merged:
         n = len(merged)
         out += ["", f"## What changed since the last release ({n} pull request{'' if n == 1 else 's'})", ""]
         out += [f"- {p}" for p in merged]
+        signals = _structural_signals(proposal)
+        if signals:
+            out += ["", "## Capability and data changes", ""]
+            out += [f"- {c}" for c in signals]
     elif inventory:
         # "since the last release" would contradict a first release (there is no last release); title it plainly.
         heading = "What this release establishes" if proposal.get("mode") == "first-cut" \
@@ -792,14 +822,28 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
         scope.append(f"- The least this release could be is **{floor_v}** — that is what the changes below "
                      f"require; a higher version is fine, a lower one is not.")
     # "What changed" leads with the pull requests merged since the last release (the actual work) when the
-    # list is available; otherwise the structural floor-signal summary. The interface detail is under Risk.
+    # list is available; otherwise the structural floor-signal summary. The capability + data signals are
+    # surfaced beside the list (the migration signal has no other home); the interface detail is under Risk.
     merged = proposal.get("merged_prs") or []
     if merged:
-        scope += ["", f"What changed since the last release ({len(merged)} pull request"
-                  f"{'' if len(merged) == 1 else 's'}):"]
-        scope += [f"- {p}" for p in merged]
+        n = len(merged)
+        header = f"What changed since the last release ({n} pull request{'' if n == 1 else 's'}):"
+        pr_lines = [f"- {p}" for p in merged]
+        # a long list is collapsed so it does not push the Review guidance (how to act) far down the consent
+        # surface; GitHub renders the <details> inline and the reader expands it.
+        if n > 15:
+            scope += ["", header, "", "<details><summary>Show the merged pull requests</summary>", "", *pr_lines,
+                      "", "</details>"]
+        else:
+            scope += ["", header, *pr_lines]
+        signals = _structural_signals(proposal)
+        if signals:
+            scope += ["", "Capability and data changes:"]
+            scope += [f"- {c}" for c in signals]
     else:
-        scope += ["", "What changed since the last release:"]
+        heading = "What this release establishes" if proposal.get("mode") == "first-cut" \
+            else "What changed since the last release"
+        scope += ["", f"{heading}:"]
         scope += [f"- {c}" for c in change_summary(proposal)]
     out += _pr_section(
         "Scope",
