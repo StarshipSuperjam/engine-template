@@ -10,6 +10,7 @@ half-done publish converging on re-run); the tag/Release create-failure split-br
 plain-language PR comment posted on BOTH success and failure."""
 import unittest
 
+import release_cut
 import release_terminal as rt
 
 COMMIT = "a" * 40
@@ -229,11 +230,43 @@ class Announce(unittest.TestCase):
 
 class Prose(unittest.TestCase):
     def test_release_notes_are_plain_carry_the_readiness_line_and_no_jargon(self):
-        notes = rt._release_notes("v0.1.0")
+        # inject the summary so the test never reaches the network (the recompute goes through module_manager,
+        # not the transport seam); the minimal-notes shape is asserted with an empty summary.
+        notes = rt._release_notes("v0.1.0", summary=[])
         self.assertIn("v0.1.0", notes)
         self.assertIn("no automated check", notes.lower())          # the §6 readiness line
         for banned in ("terminal cut", "release-cut", "release_cut", "target_commitish"):
             self.assertNotIn(banned, notes)
+
+    def test_release_notes_carry_the_change_summary_when_present(self):
+        notes = rt._release_notes("v0.2.0", summary=["Added the 'x' capability.",
+                                                     "The contract surface 'c.md' changed."])
+        self.assertIn("v0.2.0", notes)
+        self.assertIn("What changed since the last release", notes)
+        self.assertIn("- Added the 'x' capability.", notes)
+        self.assertIn("- The contract surface 'c.md' changed.", notes)
+
+    def test_release_notes_degrade_to_minimal_on_empty_summary(self):
+        # a recompute that failed or found nothing yields [] -> the notes fall back to version + readiness only
+        notes = rt._release_notes("v0.2.0", summary=[])
+        self.assertNotIn("What changed since the last release", notes)
+        self.assertIn("v0.2.0", notes)
+
+    def test_change_summary_for_publish_first_cut_is_empty(self):
+        # at publish a prior release MUST exist; a first-cut baseline is an anomaly -> [] (minimal notes)
+        self.assertEqual(rt._change_summary_for_publish(baseline=release_cut.Baseline(None, True, "n")), [])
+
+    def test_change_summary_for_publish_degrades_on_failure(self):
+        # any exception in the recompute degrades to [] rather than raising into the publish path (the tag is
+        # already created by then — a notes failure must not strand a tag with no Release)
+        saved = release_cut.classify
+        release_cut.classify = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            out = rt._change_summary_for_publish(baseline=release_cut.Baseline("v0.1.0", False, "n"),
+                                                 baseline_tree="/tmp")
+        finally:
+            release_cut.classify = saved
+        self.assertEqual(out, [])
 
     def test_comment_bodies_read_distinct_across_outcomes(self):
         published = rt._comment_body({"published": True, "reason": "published", "tag": "v0.1.0"})

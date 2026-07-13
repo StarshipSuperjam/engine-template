@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import urllib.error
 import urllib.request
@@ -149,12 +150,46 @@ class TerminalCutClient:
 
 
 # --------------------------------------------------------------------------- release notes + PR comment prose
-def _release_notes(tag: str) -> str:
+def _change_summary_for_publish(baseline=None, baseline_tree=None) -> list:
+    """The "what changed since the last release" summary for the published Release notes, recomputed from the
+    merged tree against the prior release (the same `release_cut.classify` the cut ran). BEST-EFFORT by
+    design: any anomaly — an unreachable home, a malformed tarball, or a first-cut baseline where a prior
+    release MUST exist at publish — yields [] so the notes degrade to the minimal version + readiness line
+    and NEVER block or crash the publish. This matters because the git tag is already created by the time the
+    notes render (publish() step 4); a notes failure must not strand a tag with no Release and no PR comment.
+
+    `baseline`/`baseline_tree` are injectable so tests run offline: the recompute reaches GitHub through
+    `module_manager` (NOT this tool's `transport` seam), so an injected local tree is the only offline path."""
+    try:
+        b = baseline if baseline is not None else release_cut.resolve_baseline()
+        if b.first_cut:
+            return []                     # at publish a prior release exists; a first-cut result is an anomaly
+        tree, cleanup = release_cut._baseline_tree_for(b, baseline_tree)
+        try:
+            return release_cut.change_summary(release_cut.classify(b, tree))
+        finally:
+            if cleanup:
+                shutil.rmtree(cleanup, ignore_errors=True)
+    except Exception:                     # noqa: BLE001 — any failure degrades to minimal notes, never blocks
+        return []
+
+
+def _release_notes(tag: str, summary=None) -> str:
     """The published Release's notes — a human-only surface (no consumer reads the body; the updater reads
-    only the tag + the tarball). Minimal and plain: the version and the §6 readiness line, in the same voice
-    as the release PR. No internal vocabulary (§8/§12) — 'engine version vX.Y.Z', never 'terminal cut'."""
-    return (f"Engine version {tag}.\n\n"
-            f"{release_cut._gate_path_line('sub-bar')}")
+    only the tag + the tarball). The version and the §6 readiness line, in the same voice as the release PR,
+    plus (when a summary is supplied) what changed since the last release. That change summary is a DERIVED
+    VIEW of the same signals the release PR body renders — one shared renderer, never a second history store
+    (eADR-0014). It is recomputed from the MERGED tree (by the caller, see `_change_summary_for_publish`), so
+    it describes what actually shipped and can legitimately differ from the cut-time PR body if `main` moved
+    between the cut and the merge. No internal vocabulary (§8/§12) — 'engine version vX.Y.Z', never 'terminal
+    cut'. This renderer is PURE (no network): the caller passes the summary or None; `None`/empty degrades to
+    the minimal version + readiness line — so the network recompute stays at the CLI edge, off the publish
+    logic tests exercise offline."""
+    base = f"Engine version {tag}.\n\n{release_cut._gate_path_line('sub-bar')}"
+    if not summary:
+        return base
+    body = "\n".join(f"- {ln}" for ln in summary)
+    return f"{base}\n\n## What changed since the last release\n\n{body}"
 
 
 def _rerun_hint(run_url: "str | None") -> str:
@@ -192,9 +227,11 @@ def _comment_body(result: dict, run_url: "str | None" = None) -> str:
 
 
 # --------------------------------------------------------------------------- the publish decision
-def publish(client: TerminalCutClient, engine_release: str, commit_sha: str) -> dict:
+def publish(client: TerminalCutClient, engine_release: str, commit_sha: str, summary=None) -> dict:
     """Publish `engine_release` at `commit_sha` (idempotent, exact-commit, raise-only). Returns a result
-    dict carrying `published`, a `reason`, the `tag`, and plain-language `message`/`recovery`. Writes only
+    dict carrying `published`, a `reason`, the `tag`, and plain-language `message`/`recovery`. `summary` is
+    the pre-computed "what changed" list for the Release notes (the network recompute lives at the CLI edge,
+    so this decision stays offline-testable); None/empty publishes the minimal notes. Writes only
     a git tag + a Release; refuses loudly (never silently) on any doubt."""
     # 1. version grammar first — a malformed string (which may itself contain a '-') is 'invalid', distinct
     #    from a well-formed pre-release. In the real flow release_cut.apply already enforced this; the check
@@ -258,7 +295,7 @@ def publish(client: TerminalCutClient, engine_release: str, commit_sha: str) -> 
     if client.release_exists(tag):
         return {"published": True, "reason": "already-published", "tag": tag, "commit": commit_sha,
                 "message": f"engine version {tag} is already released."}
-    status = client.create_release(tag, tag, _release_notes(tag))
+    status = client.create_release(tag, tag, _release_notes(tag, summary=summary))
     if status not in (200, 201):
         return {"published": False, "reason": "release-create-failed", "tag": tag,
                 "message": f"the tag {tag} was created at this commit, but the release could not be published "
@@ -275,12 +312,13 @@ def _bare(tag: str) -> str:
 
 
 def run(client: TerminalCutClient, engine_release: str, commit_sha: str, pr_number: "int | None",
-        run_url: "str | None" = None) -> dict:
+        run_url: "str | None" = None, summary=None) -> dict:
     """Publish, then announce the outcome on the merged PR (both success AND failure — the §6 legibility
     surface). A comment failure is NOTED, never allowed to flip the publish verdict: the published Release
-    is the durable success artifact, and a missing comment is a legibility gap, not a publish failure."""
+    is the durable success artifact, and a missing comment is a legibility gap, not a publish failure.
+    `summary` is the pre-computed Release-notes change list, threaded to `publish` (None => minimal notes)."""
     try:
-        result = publish(client, engine_release, commit_sha)
+        result = publish(client, engine_release, commit_sha, summary=summary)
     except PublishError as exc:
         # a read/transport failure mid-publish (an unreachable host or an unexpected status while checking
         # the release/tag state) — the most likely real-world failure, a transient GitHub blip. Convert it to
@@ -332,8 +370,12 @@ def _cmd_publish(args) -> int:
     pr_number = int(args.pr) if args.pr else None
     run_url = os.environ.get("RUN_URL", "").strip() or None   # the workflow's own run URL, for a re-run link
 
+    # The Release-notes change summary is recomputed HERE, at the CLI edge — best-effort, so a network hiccup
+    # yields the minimal notes and never blocks the publish (which has already created the tag by then).
+    summary = _change_summary_for_publish()
+
     client = TerminalCutClient(repo, token)
-    result = run(client, engine_release, args.commit, pr_number, run_url=run_url)
+    result = run(client, engine_release, args.commit, pr_number, run_url=run_url, summary=summary)
 
     # plain-language outcome to the run log (the PR comment carries the same words to the maintainer)
     print(result.get("message", ""))
