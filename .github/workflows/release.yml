@@ -133,17 +133,33 @@ jobs:
             echo "::error::Nothing that changed since the last release forces a particular version, so there is no default to use — run this again and enter the version you want, like 1.0.1. Nothing was changed."
             exit 1
           fi
+          # Record the versions. On a refusal the tool prints the machine-readable result to stdout (captured
+          # into applied.json) AND the plain-language reason to stderr (shown in this log); `|| apply_ok=0`
+          # keeps `set -e` from aborting before we can surface a top-line annotation naming the reason.
+          apply_ok=1
           if [ "${mode}" = "first-cut" ]; then
             # The first cut establishes every capability's baseline at the engine's own new version.
             uv run --directory .engine --frozen -- python tools/release_cut.py apply \
-              --engine "${target}" --all "${target}" --json > "${RUNNER_TEMP}/applied.json"
+              --engine "${target}" --all "${target}" --json > "${RUNNER_TEMP}/applied.json" || apply_ok=0
           else
             # A later cut enforces the mechanical engine floor AND the per-capability floors the proposal
             # computed: the version may be raised above the floor, and a value below it is refused (not lowered).
             uv run --directory .engine --frozen -- python tools/release_cut.py apply \
               --engine "${target}" --proposal "${RUNNER_TEMP}/proposal.json" --json \
-              > "${RUNNER_TEMP}/applied.json"
+              > "${RUNNER_TEMP}/applied.json" || apply_ok=0
           fi
+          if [ "${apply_ok}" -eq 0 ]; then
+            # The tool already printed the plain-language reason and a "To fix:" line to this step's log above.
+            # Keep the top-line banner jargon-free (no internal reason code) and point the maintainer at it.
+            echo "::error::Recording the versions was refused — nothing was changed. Open this step's log above to see why and how to fix it, then run this again."
+            exit 1
+          fi
+          # Carry the version actually recorded (the authoritative value in applied.json) forward to the later
+          # steps, so the release branch, commit, and pull request are named for it even when the maintainer
+          # left the version blank and let the engine derive it.
+          RESOLVED_VERSION="$(uv run --directory .engine --frozen -- python -c \
+            "import json; print(json.load(open('${RUNNER_TEMP}/applied.json'))['engine'])")"
+          echo "RESOLVED_VERSION=${RESOLVED_VERSION}" >> "${GITHUB_ENV}"
       # The version write above changed .engine/engine.json and every module manifest. Two GENERATED maps mirror
       # those versions — the knowledge graph (.engine/knowledge/graph.json) and the self-map (.engine/self-map.md)
       # — so they are now stale, and their CI drift checks (knowledge-coverage, self-map-drift) would turn the
@@ -169,23 +185,25 @@ jobs:
       - name: Open the release pull request
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
-          ENGINE_VERSION: ${{ inputs.engine_version }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           git config user.name "engine release"
           git config user.email "engine-release@users.noreply.github.com"
+          # Name the branch/commit/PR for the version actually recorded (RESOLVED_VERSION, carried from the
+          # record step), never the possibly-blank dispatch input — so the derive-the-version path produces a
+          # correctly named release, not "release/" / "Release " (blank).
           # A collision-proof branch name (the run id + attempt are unique), so a leftover branch from a failed
           # earlier run never blocks this push with a non-fast-forward and no force-push is ever needed.
-          branch="release/${ENGINE_VERSION}-${RUN_ID}-${RUN_ATTEMPT}"
+          branch="release/${RESOLVED_VERSION}-${RUN_ID}-${RUN_ATTEMPT}"
           git checkout -b "${branch}"
           git add -A
           if git diff --cached --quiet; then
-            echo "::error::The release produced no version changes to record — the versions may already be set to ${ENGINE_VERSION}. Nothing was changed."
+            echo "::error::The release produced no version changes to record — the versions may already be set to ${RESOLVED_VERSION}. Nothing was changed."
             exit 1
           fi
-          git commit -m "Release ${ENGINE_VERSION}"
+          git commit -m "Release ${RESOLVED_VERSION}"
           # Push with the built-in token (the persisted checkout credential); the PR-open below uses the PAT.
           if ! git push --set-upstream origin "${branch}"; then
             echo "::error::Could not push the release branch ${branch}. No release was made. Run this again to retry."
@@ -195,7 +213,7 @@ jobs:
           # the "present-but-broken" credential case (expired PAT, or missing Pull requests: write), distinct
           # from the "not set up" failure at the first step.
           if ! gh pr create --base main --head "${branch}" \
-                --title "Release ${ENGINE_VERSION}" \
+                --title "Release ${RESOLVED_VERSION}" \
                 --body-file "${RUNNER_TEMP}/pr-body.md"; then
             echo "::error::The release branch ${branch} was pushed, but the release pull request could not be opened. This usually means the RELEASE_PAT secret is expired or is missing the Pull requests: write permission on this repository. No release was made. Fix the token, delete the branch ${branch}, and run this again."
             exit 1

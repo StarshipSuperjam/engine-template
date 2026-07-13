@@ -4974,7 +4974,7 @@
       },
       "slug": "demo_release_cut",
       "source": {
-        "fingerprint": "sha256:69dbcd66bd278b29699b6181a50874df96bc9658b04585350c3a22b84c7bf72e",
+        "fingerprint": "sha256:8d264a633a6fdeb4c1f4b45108a4029e8ed266b14b89a230ac01c45059d10f51",
         "path": ".engine/tools/demo_release_cut.py"
       },
       "status": "active",
@@ -5960,7 +5960,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:dab0c7cd12344fc9cb93a2c2650a3b5a44fec32a318360c57f838a9327f85ec7",
+        "fingerprint": "sha256:f9a8e7bbabd5685db80d8be0a28d42e03a57ffab9e0907787521918746ed8e7b",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -5994,7 +5994,7 @@
       },
       "slug": "release_terminal",
       "source": {
-        "fingerprint": "sha256:4b611c9fda70a1c4e589b012428c4bf500dc8f96bbf7339415a88a9f13f5eca2",
+        "fingerprint": "sha256:361561841098cc9c813469e41cc8b3502d686b52085c0ed42ffda246a72c72d4",
         "path": ".engine/tools/release_terminal.py"
       },
       "status": "active",
@@ -7575,7 +7575,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:645d5f034961880c127fc0e3124b116d299e481313c90c0b2aeafea75b8303a9",
+        "fingerprint": "sha256:b50af34a25aa0b7ce0db3fe5d41e55a74c43448b1e7f103c31c634ec5097b403",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -7592,7 +7592,7 @@
       },
       "slug": "test_release_terminal",
       "source": {
-        "fingerprint": "sha256:51c7fe46c8b8b9aeb1d9aff0330f3729a14a9f1349c54313617d18f9ca1d8eeb",
+        "fingerprint": "sha256:a5b7a66ed81478cc537e544b80d0a8c58bfe324ab17e5fbcad3802f55f79d4bf",
         "path": ".engine/tools/test_release_terminal.py"
       },
       "status": "active",

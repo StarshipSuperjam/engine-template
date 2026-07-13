@@ -160,11 +160,75 @@ class Classify(unittest.TestCase):
 
 
 class Apply(unittest.TestCase):
-    def test_raise_only_refuses_non_increase(self):
+    def test_raise_only_refuses_engine_non_increase(self):
+        # the ENGINE version must strictly increase — an equal engine version is refused (a cut always moves it)
         with _Tree({"core": _module("core")}):
             r = rc.apply("0.0.0-dev", "0.0.0-dev", {}, None, dry_run=True)
         self.assertFalse(r["applied"])
         self.assertEqual(r["reason"], "raise-only")
+
+    def test_engine_only_cut_holds_unchanged_capabilities(self):
+        # the reported-failure shape: the engine version moves but no capability changed. Unchanged
+        # capabilities keep their version (not refused as "not strictly greater"); only engine.json is written.
+        with _Tree({"core": _module("core", ver="0.1.0"), "qa-review": _module("qa-review", ver="0.1.0")},
+                   engine_release="0.1.0") as t:
+            proposal = {"engine_floor_version": "0.2.0", "package_floor": {}}
+            r = rc.apply("0.2.0", None, {}, proposal, dry_run=False)
+            self.assertTrue(r["applied"])
+            self.assertEqual(r["targets"], {})                          # nothing written but the engine
+            self.assertEqual(t.engine()["engine_release"], "0.2.0")
+            self.assertEqual(t.engine()["packages"]["core"], "0.1.0")   # held
+            self.assertEqual(t.module_version("core"), "0.1.0")
+            self.assertEqual(t.module_version("qa-review"), "0.1.0")
+
+    def test_diff_cut_auto_raises_floored_capability_holds_others(self):
+        # a migration-bearing cut on the derive path (no --package): the floored capability is auto-raised to
+        # its floor, the rest hold. This is the case that would otherwise refuse on below-confirmed-floor.
+        with _Tree({"core": _module("core", ver="0.1.0"), "qa-review": _module("qa-review", ver="0.1.0")},
+                   engine_release="0.1.0") as t:
+            proposal = {"engine_floor_version": "0.2.0", "package_floor": {"core": "0.2.0"}}
+            r = rc.apply("0.2.0", None, {}, proposal, dry_run=False)
+            self.assertTrue(r["applied"])
+            self.assertEqual(r["targets"], {"core": "0.2.0"})           # only core written
+            self.assertEqual(t.module_version("core"), "0.2.0")         # raised to its floor
+            self.assertEqual(t.module_version("qa-review"), "0.1.0")    # held
+            self.assertEqual(t.engine()["packages"]["core"], "0.2.0")
+
+    def test_explicit_package_below_current_still_refused(self):
+        # loosening the write set to allow a no-op keep must NOT allow a genuine lowering: an explicit
+        # --package below the current version is still refused by raise-only.
+        with _Tree({"core": _module("core", ver="0.1.0")}, engine_release="0.1.0"):
+            r = rc.apply("0.2.0", None, {"core": "0.0.9"}, None, dry_run=True)
+        self.assertFalse(r["applied"])
+        self.assertEqual(r["reason"], "raise-only")
+
+    def test_refusal_prints_reason_to_stderr(self):
+        # Fix: a refusal must say WHY on stderr (the workflow redirects the --json stdout into a file, so a
+        # bare non-zero exit would otherwise be reasonless).
+        import io
+        from contextlib import redirect_stderr
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            rc._print_refusal({"reason": "raise-only", "violations": ["engine version 0.0.9 is not higher"],
+                               "recovery": "choose a higher version."})
+        err = buf.getvalue()
+        self.assertIn("raise-only", err)
+        self.assertIn("not higher", err)
+        self.assertIn("choose a higher version", err)
+
+    def test_cmd_apply_json_refusal_exits_one_and_writes_reason_to_stderr(self):
+        # the actual "bare exit code 1" fix: `apply --json` on a refusal must exit 1, print the JSON to stdout
+        # (captured by the workflow into applied.json) AND the plain reason to stderr (shown in the run log).
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+        with _Tree({"core": _module("core", ver="0.1.0")}, engine_release="0.1.0"):
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = rc.main(["apply", "--engine", "0.0.9", "--all", "0.0.9", "--json"])  # a lowering
+        self.assertEqual(code, 1)
+        self.assertIn('"reason": "raise-only"', out.getvalue())   # machine-readable JSON on stdout
+        self.assertIn("Refused (raise-only)", err.getvalue())     # plain reason on stderr
+        self.assertIn("To fix:", err.getvalue())
 
     def test_apply_writes_versions_and_preserves_home_repository(self):
         with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}) as t:
@@ -347,6 +411,25 @@ class RenderPRBody(unittest.TestCase):
         self.assertEqual(lines[idx - 1], "")                                  # a blank line precedes the intro
         self.assertTrue(any("breaking change" in ln.lower() for ln in lines[:idx]))  # the breaking bullet is above
 
+    def test_scope_what_changed_includes_contract_impacts(self):
+        # a contract-only release has an EMPTY structural change_inventory (no module add/remove/migration),
+        # so the "what changed" list would read blank without the impacts — yet a changed contract is exactly
+        # what forced the bump. The Scope collation must surface the contract change so the version is justified.
+        proposal = {"change_inventory": [],
+                    "impacts": [{"what": "the contract surface 'eADR-0014-one-history.md' changed",
+                                 "why": "read it against consumers", "floor_level": "minor"}],
+                    "engine_floor_level": "minor", "engine_floor_version": "0.2.0"}
+        applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {}}
+        body = rc.render_pr_body(proposal, applied)
+        scope = body.split("## Scope", 1)[1].split("## Out of scope", 1)[0]
+        self.assertIn("What changed since the last release:", scope)
+        self.assertIn("eADR-0014-one-history.md", scope)             # the contract change is in "what changed"
+        # the Risk section renders the interface change with the SAME polish as the published Release notes —
+        # a bold heading + its description as a sentence — so the consent surface is not rougher (usability).
+        risk = body.split("## Risk", 1)[1].split("## Validation", 1)[0]
+        self.assertIn("**The contract surface 'eADR-0014-one-history.md' changed.** Read it against consumers",
+                      risk)
+
     def test_gate_path_three_states_are_visibly_distinct(self):
         passed, subbar, errored = (rc._gate_path_line("passed"), rc._gate_path_line("sub-bar"),
                                    rc._gate_path_line("errored"))
@@ -404,6 +487,60 @@ class RenderPRBody(unittest.TestCase):
             self.assertIn("no earlier version → 0.1.0", buf.getvalue())
         finally:
             shutil.rmtree(d, ignore_errors=True)
+
+
+class ChangeSummary(unittest.TestCase):
+    def test_merges_inventory_and_contract_impacts(self):
+        proposal = {"change_inventory": ["Added the 'x' capability."],
+                    "impacts": [{"what": "the contract surface 'c.md' changed", "why": "..."}]}
+        lines = rc.change_summary(proposal)
+        self.assertIn("Added the 'x' capability.", lines)
+        self.assertIn("The contract surface 'c.md' changed.", lines)   # capitalized, period added
+
+    def test_empty_when_nothing_changed(self):
+        self.assertEqual(rc.change_summary({"change_inventory": [], "impacts": []}), [])
+
+    def test_contract_only_release_is_not_empty(self):
+        # the case that made the PR body's "what changed" read blank: no structural inventory, only impacts
+        lines = rc.change_summary({"change_inventory": [],
+                                   "impacts": [{"what": "the contract surface 'c.md' changed", "why": "..."}]})
+        self.assertEqual(len(lines), 1)
+
+
+class ReleaseNotes(unittest.TestCase):
+    def test_human_readable_with_sections_bullets_and_descriptions(self):
+        proposal = {"engine_floor_level": "major",
+                    "change_inventory": ["Added the 'x' capability.", "Removed the 'legacy' capability."],
+                    "impacts": [{"what": "the contract surface 'c.md' changed",
+                                 "why": "read it against consumers before confirming."}]}
+        notes = rc.render_release_notes("v1.0.0", proposal)
+        self.assertIn("Engine version v1.0.0.", notes)
+        self.assertIn("no automated check", notes.lower())               # readiness line
+        self.assertIn("breaking change", notes.lower())                  # major callout
+        self.assertIn("## What changed since the last release", notes)   # section
+        self.assertIn("- Added the 'x' capability.", notes)              # bullets
+        self.assertIn("## Interface changes to read", notes)             # distinct section
+        self.assertIn("**The contract surface 'c.md' changed.** Read it against consumers", notes)  # bold + desc
+
+    def test_minor_release_has_no_breaking_callout(self):
+        notes = rc.render_release_notes("v0.2.0", {"engine_floor_level": "minor",
+                                                   "change_inventory": ["Added the 'x' capability."], "impacts": []})
+        self.assertNotIn("breaking change", notes.lower())
+        self.assertNotIn("## Interface changes to read", notes)          # no impacts -> no section
+
+    def test_no_proposal_degrades_to_version_and_readiness_only(self):
+        notes = rc.render_release_notes("v0.2.0", None)
+        self.assertIn("Engine version v0.2.0.", notes)
+        self.assertIn("no automated check", notes.lower())
+        self.assertNotIn("## What changed", notes)
+        self.assertNotIn("## Interface changes", notes)
+
+    def test_no_internal_vocabulary_leaks(self):
+        notes = rc.render_release_notes("v1.0.0", {"engine_floor_level": "major",
+                                                   "change_inventory": ["Removed the 'legacy' capability."],
+                                                   "impacts": []})
+        for banned in ("release-cut", "release_cut", "terminal cut", "engine_floor", "first-cut"):
+            self.assertNotIn(banned, notes)
 
 
 class BaselineTreeSeam(unittest.TestCase):

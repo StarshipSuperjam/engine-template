@@ -27,9 +27,14 @@ Two subcommands, split so consent attaches to a proposal the writer cannot silen
              It writes nothing.
 
   apply    — the writer. Records the chosen engine + per-package versions into the manifests, with:
-               * RAISE-ONLY enforcement (release-process §3): every target is compared against the
-                 current on-disk version and a value not strictly greater is REFUSED loudly (the dev
-                 sentinel `0.0.0-dev` sorts below any real release); nothing is ever silently lowered;
+               * RAISE-ONLY enforcement (release-process §3): the engine version and every CHANGED
+                 capability are compared against the current on-disk version, and a target that is a
+                 detectable LOWERING is REFUSED loudly (the dev sentinel `0.0.0-dev` sorts below any
+                 real release). An unchanged capability keeps its recorded version — it is a no-op keep,
+                 not a lowering, so it is neither rewritten nor refused; a capability a change requires
+                 to bump (its package_floor) is auto-raised to that floor. Nothing is ever silently
+                 lowered, and a required bump is never silently skipped (below-confirmed-floor is
+                 checked over the full floor set);
                * an ATOMIC staged write: every touched file is written to a temp sibling and
                  schema-re-validated (plus a packages<->manifest equality check) BEFORE any swap, then
                  all swapped together; a validation failure changes nothing, and a write error mid-swap
@@ -374,7 +379,10 @@ def _target_versions(engine_ver: str, all_ver: str | None, packages: dict, prese
 
 def _raise_only_violations(engine_ver: str, targets: dict, engine_cur: str, present: dict) -> list[str]:
     """Every target that is NOT strictly greater than its current on-disk version — the raise-only
-    guard (release-process §3). A returned non-empty list means the write must be refused."""
+    guard (release-process §3). The guard itself is strict; the caller passes only the capabilities
+    actually being WRITTEN (a no-op keep at the current version is excluded upstream, so this flags a
+    genuine lowering, never an unchanged capability). A returned non-empty list means the write must be
+    refused."""
     bad = []
     if not _strictly_greater(engine_ver, engine_cur):
         bad.append(f"engine version {engine_ver} is not higher than the current {engine_cur}")
@@ -402,6 +410,17 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
     engine_cur = engine.get("engine_release", SENTINEL)
     targets = _target_versions(engine_ver, all_ver, packages, present)
 
+    # Auto-raise each floored capability to its mechanical floor (release-process §3). When a proposal is
+    # supplied, a capability a change REQUIRES to bump (a new migration => its package_floor entry) is
+    # written to that floor unless the caller set it explicitly with `--package`. This is the per-capability
+    # analogue of the engine version auto-deriving to its floor: the release workflow passes no `--package`,
+    # so without this a migration-bearing cut would keep the capability at its current version and then refuse
+    # on below-confirmed-floor with no way to bump it.
+    if proposal:
+        for mid, floor in (proposal.get("package_floor") or {}).items():
+            if mid in present and mid not in packages and _strictly_greater(floor, targets[mid]):
+                targets[mid] = floor
+
     # version grammar: refuse a non-version string at the door (a typo must not reach a manifest)
     bad_fmt = []
     if not _valid_version(engine_ver):
@@ -413,8 +432,18 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
         return {"applied": False, "reason": "invalid-version", "violations": bad_fmt,
                 "recovery": "use dotted-number versions, optionally with a -prerelease suffix (1.2.0, 1.0.0-rc1)."}
 
-    # raise-only: refuse loudly, never silently lower (release-process §3)
-    violations = _raise_only_violations(engine_ver, targets, engine_cur, present)
+    # The capabilities this cut actually WRITES: those whose version changes. A capability left at its current
+    # version is a no-op keep — an unchanged capability keeps its recorded version (the locked module-system
+    # law: per-package versions are independent recorded state, bumped only on that capability's own signal),
+    # not a lowering — so it is neither rewritten nor raise-only-checked. This is what lets an engine-only cut
+    # (the engine version moves; no capability changed) apply, instead of refusing because unchanged
+    # capabilities are not strictly greater than themselves.
+    changed = {mid: ver for mid, ver in targets.items() if ver != present[mid].get("version", SENTINEL)}
+
+    # raise-only over the engine + the CHANGED set (release-process §3): a target that is a detectable
+    # lowering is refused loudly (the guard is strict and unchanged — only the set it sees is narrowed to the
+    # capabilities being written); the engine version must strictly increase. Nothing is ever silently lowered.
+    violations = _raise_only_violations(engine_ver, changed, engine_cur, present)
     if violations:
         return {"applied": False, "reason": "raise-only", "violations": violations,
                 "recovery": "choose versions strictly higher than the current ones, then re-run."}
@@ -448,19 +477,19 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
         new_engine = dict(engine)
         new_engine["engine_release"] = engine_ver
         pkgs = dict(new_engine.get("packages", {}))
-        for mid, ver in targets.items():
+        for mid, ver in changed.items():
             if mid in pkgs:
                 pkgs[mid] = ver
         new_engine["packages"] = pkgs
         errors += [f"engine.json: {m}" for m in _schema_ok(new_engine, ENGINE_SCHEMA)]
 
-        # each module manifest — mutate version only
+        # each CHANGED module manifest — mutate version only; unchanged capabilities are left untouched
         module_new: dict[str, dict] = {}
         for _rel, man in module_coherence.discover_manifests():
             mid = man.get("id")
-            if mid in targets:
+            if mid in changed:
                 nm = dict(man)
-                nm["version"] = targets[mid]
+                nm["version"] = changed[mid]
                 module_new[_rel] = nm
                 errors += [f"{_rel}: {m}" for m in _schema_ok(nm, MODULE_SCHEMA)]
 
@@ -476,7 +505,7 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
                     "recovery": "the computed manifests did not validate; nothing was written."}
 
         if dry_run:
-            return {"applied": False, "reason": "dry-run", "targets": targets, "engine": engine_ver,
+            return {"applied": False, "reason": "dry-run", "targets": changed, "engine": engine_ver,
                     "from_engine": engine_cur}
 
         # write temps
@@ -518,7 +547,7 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
             except OSError:
                 pass
 
-    return {"applied": True, "engine": engine_ver, "from_engine": engine_cur, "targets": targets,
+    return {"applied": True, "engine": engine_ver, "from_engine": engine_cur, "targets": changed,
             "proposed_floor": (proposal or {}).get("package_floor", {})}
 
 
@@ -552,6 +581,65 @@ def _render_proposal(p: dict) -> str:
             for mid, ver in p["package_floor"].items():
                 lines.append(f"  - {mid}: at least {ver}")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- change summary (one renderer)
+def change_summary(proposal: dict) -> list:
+    """The plain-language "what changed since the last release" list that JUSTIFIES the version — the
+    single derived view rendered into BOTH the release pull-request body and the published GitHub Release
+    notes. One renderer over one proposal, never a second history store (eADR-0014): history routes to the
+    pull-request body and, as a derived view of the same signals, the Release notes.
+
+    It merges the structural change inventory (a capability added or removed, a new migration) with a
+    one-line surface note for each CHANGED contract/interface — because a contract-only release carries no
+    structural inventory line, so without the impact surfaces the "what changed" list would read empty even
+    though a changed contract is exactly what forced the bump. The detail on each impact (why it may be
+    breaking) is rendered separately in the pull-request Risk section; this is the summary line."""
+    lines = list(proposal.get("change_inventory") or [])
+    for im in proposal.get("impacts") or []:
+        what = im.get("what")
+        if what:                       # e.g. "the contract surface 'X' changed" -> "The contract surface 'X' changed."
+            lines.append(_cap(what) + ".")
+    return lines
+
+
+def _cap(text: str) -> str:
+    """Capitalize the first letter of a plain-language fragment (the impact `what` strings are lower-case)."""
+    text = (text or "").strip()
+    return (text[0].upper() + text[1:]) if text else text
+
+
+def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str = "sub-bar") -> str:
+    """The published GitHub Release body — a human-readable, self-contained account of the release: the
+    version, the §6 readiness line, a breaking-change callout when the release is breaking, a "What changed"
+    section (the structural changes), and an "Interface changes to read" section carrying each changed
+    contract/interface WITH its plain-language description. It is a derived VIEW of the same signals the
+    release pull-request body renders (one source — the proposal recomputed at publish — never a second
+    history store, eADR-0014); it does not restate the version-by-version manifest table (that is the pull
+    request's job), it tells a reader of the published release what changed and why it matters. A None/empty
+    proposal (the best-effort fallback when the publish-time recompute could not run) degrades to the version
+    + readiness line alone. Maintainer register (§8/§12): 'engine version vX.Y.Z', no internal vocabulary."""
+    out = [f"Engine version {tag}.", "", _gate_path_line(gate_state)]
+    proposal = proposal or {}
+    if proposal.get("engine_floor_level") == "major":
+        out += ["", "⚠️ **This release makes a breaking change.** Something an earlier version provided was "
+                    "removed, or changed in a way that is not backward-compatible — so anything that relied on "
+                    "it will need attention. See the changes below."]
+    inventory = proposal.get("change_inventory") or []
+    if inventory:
+        # "since the last release" would contradict a first release (there is no last release); title it plainly.
+        heading = "What this release establishes" if proposal.get("mode") == "first-cut" \
+            else "What changed since the last release"
+        out += ["", f"## {heading}", ""]
+        out += [f"- {c}" for c in inventory]
+    impacts = proposal.get("impacts") or []
+    if impacts:
+        out += ["", "## Interface changes to read", ""]
+        for im in impacts:
+            what = _cap(im.get("what")) or "A contract surface changed"
+            why = _cap(im.get("why"))          # its own sentence after the bold heading — capitalized, not a run-on
+            out.append(f"- **{what}.**" + (f" {why}" if why else ""))
+    return "\n".join(out)
 
 
 # --------------------------------------------------------------------------- release-PR body (§6 legibility)
@@ -636,7 +724,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
         scope.append(f"- The least this release could be is **{floor_v}** — that is what the changes below "
                      f"require; a higher version is fine, a lower one is not.")
     scope += ["", "What changed since the last release:"]
-    scope += [f"- {c}" for c in proposal.get("change_inventory", [])]
+    scope += [f"- {c}" for c in change_summary(proposal)]
     out += _pr_section(
         "Scope",
         "The engine and capability versions this records, and the changes that set them.",
@@ -665,7 +753,10 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
             risk.append("")  # being absorbed into that bullet as a lazy markdown continuation (the two would
                              # otherwise fuse, hiding the interface-changes signpost on the highest-stakes release).
         risk.append("Interface changes to read before you merge:")
-        risk += [f"- {im.get('what', '')}: {im.get('why', '')}" for im in impacts]
+        # Same polished rendering as the published Release notes — a bold heading, then the description as its
+        # own sentence — so the consent surface the maintainer reads FIRST is no rougher than the Release body.
+        risk += [f"- **{_cap(im.get('what')) or 'A contract surface changed'}.**"
+                 + (f" {_cap(im.get('why'))}" if im.get("why") else "") for im in impacts]
     else:
         risk.append("- No changes to interface contract files were detected — this does not cover a removed "
                     "capability or a data migration, which would be listed under Scope. The summary can only "
@@ -740,6 +831,16 @@ def _cmd_pr_body(args) -> int:
     return 0
 
 
+def _print_refusal(result: dict) -> None:
+    """The plain-language reason a cut was refused, to stderr — the one legible account shared by the
+    `--json` and human paths, so a refusal always says WHY (never a bare non-zero exit)."""
+    print(f"Refused ({result.get('reason')}):", file=sys.stderr)
+    for v in result.get("violations", []):
+        print(f"  - {v}", file=sys.stderr)
+    if result.get("recovery"):
+        print(f"To fix: {result['recovery']}", file=sys.stderr)
+
+
 def _cmd_apply(args) -> int:
     packages = {}
     for spec in args.package or []:
@@ -756,9 +857,15 @@ def _cmd_apply(args) -> int:
             return 2
         proposal = validate.load_json(args.proposal)
     result = apply(args.engine, getattr(args, "all"), packages, proposal, args.dry_run)
+    ok = bool(result.get("applied")) or result.get("reason") == "dry-run"
     if args.json:
         print(json.dumps(result, indent=2))
-        return 0 if result.get("applied") or result.get("reason") == "dry-run" else 1
+        # The machine-readable refusal goes to stdout (the caller captures it, e.g. into applied.json). Print
+        # the plain-language reason to STDERR too, so a refusal is never a bare non-zero exit: the release
+        # workflow redirects stdout into a file, so without this the maintainer would see only "exit code 1".
+        if not ok:
+            _print_refusal(result)
+        return 0 if ok else 1
     if result.get("applied"):
         print(f"Applied: engine {result['from_engine']} -> {result['engine']}; "
               f"{len(result['targets'])} package version(s) recorded.")
@@ -767,11 +874,7 @@ def _cmd_apply(args) -> int:
         print(f"Dry run: engine {result['from_engine']} -> {result['engine']} across "
               f"{len(result['targets'])} package(s); nothing written.")
         return 0
-    print(f"Refused ({result['reason']}):", file=sys.stderr)
-    for v in result.get("violations", []):
-        print(f"  - {v}", file=sys.stderr)
-    if result.get("recovery"):
-        print(f"To fix: {result['recovery']}", file=sys.stderr)
+    _print_refusal(result)
     return 1
 
 
