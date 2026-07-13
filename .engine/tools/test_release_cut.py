@@ -542,6 +542,85 @@ class ReleaseNotes(unittest.TestCase):
         for banned in ("release-cut", "release_cut", "terminal cut", "engine_floor", "first-cut"):
             self.assertNotIn(banned, notes)
 
+    def test_merged_prs_lead_what_changed_and_are_counted(self):
+        # when the merged-PR list is present it IS the "what changed" section (the actual work), with a count
+        proposal = {"engine_floor_level": "minor", "change_inventory": [], "impacts": [],
+                    "merged_prs": ["Fix the thing (#12)", "Add the other thing (#13)"]}
+        notes = rc.render_release_notes("v0.2.0", proposal)
+        self.assertIn("## What changed since the last release (2 pull requests)", notes)
+        self.assertIn("- Fix the thing (#12)", notes)
+        self.assertIn("- Add the other thing (#13)", notes)
+
+    def test_single_merged_pr_uses_singular(self):
+        notes = rc.render_release_notes("v0.2.0", {"change_inventory": [], "impacts": [],
+                                                   "merged_prs": ["Only change (#9)"]})
+        self.assertIn("(1 pull request)", notes)
+
+    def test_falls_back_to_structural_signals_when_no_pr_list(self):
+        # best-effort failure / first cut => no merged_prs => the structural inventory is still shown
+        notes = rc.render_release_notes("v0.2.0", {"change_inventory": ["Added the 'x' capability."],
+                                                   "impacts": [], "merged_prs": []})
+        self.assertIn("## What changed since the last release", notes)
+        self.assertIn("- Added the 'x' capability.", notes)
+        self.assertNotIn("pull request", notes)
+
+
+class MergedPrList(unittest.TestCase):
+    _BODY = ("## What's Changed\n"
+             "* Render the body in template form by @alice in https://github.com/o/r/pull/388\n"
+             "* Bump setup-uv from 8.2.0 to 8.3.0 by @dependabot[bot] in https://github.com/o/r/pull/389\n"
+             "\n**Full Changelog**: https://github.com/o/r/compare/v0.1.0...v0.2.0\n")
+
+    def test_parses_titles_and_pr_numbers(self):
+        self.assertEqual(rc._parse_pr_lines(self._BODY),
+                         ["Render the body in template form (#388)", "Bump setup-uv from 8.2.0 to 8.3.0 (#389)"])
+
+    def test_ignores_non_pr_lines(self):
+        self.assertEqual(rc._parse_pr_lines("## What's Changed\n**Full Changelog**: x\nrandom\n"), [])
+
+    def test_merged_pr_titles_uses_injected_fetch_offline(self):
+        prs = rc.merged_pr_titles("v0.1.0", "deadbeef", repo="o/r", _fetch=lambda *a, **k: self._BODY)
+        self.assertEqual(prs, ["Render the body in template form (#388)", "Bump setup-uv from 8.2.0 to 8.3.0 (#389)"])
+
+    def test_best_effort_returns_empty_on_failure(self):
+        def boom(*a, **k):
+            raise RuntimeError("network down")
+        self.assertEqual(rc.merged_pr_titles("v0.1.0", "sha", repo="o/r", _fetch=boom), [])
+
+    def test_empty_without_previous_tag_or_target(self):
+        # a first release (no previous tag) or a missing target -> no PR list, no network attempt
+        self.assertEqual(rc.merged_pr_titles(None, "sha", repo="o/r", _fetch=lambda *a, **k: self._BODY), [])
+        self.assertEqual(rc.merged_pr_titles("v0.1.0", None, repo="o/r", _fetch=lambda *a, **k: self._BODY), [])
+
+
+class NestedContractDetection(unittest.TestCase):
+    def test_dir_bytes_recurses_into_subdirectories(self):
+        d = tempfile.mkdtemp()
+        try:
+            _write(os.path.join(d, "eADR-0001-top.md"), {"x": 1})              # a top-level file
+            _write(os.path.join(d, "sub", "nested.md"), {"y": 2})              # + a nested file
+            keys = set(rc._dir_bytes(d).keys())
+            self.assertIn("eADR-0001-top.md", keys)
+            self.assertIn(os.path.join("sub", "nested.md"), keys)              # the subtree is no longer skipped
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_impact_statement_fires_for_a_nested_contract_change(self):
+        # a contract surface added in a subdirectory must produce an impact (the non-recursive read missed it)
+        base = tempfile.mkdtemp()
+        os.makedirs(os.path.join(base, ".engine", "contracts", "instance"), exist_ok=True)
+        with _Tree({"core": _module("core", ver="0.1.0")}, engine_release="0.1.0"):
+            # add a nested contract file only in the LIVE tree
+            live_nested = os.path.join(validate.ROOT, ".engine", "contracts", "instance", "README.md")
+            os.makedirs(os.path.dirname(live_nested), exist_ok=True)
+            with open(live_nested, "w") as f:
+                f.write("a new nested contract surface")
+            impacts = rc._impact_statements(base)   # base has an empty contracts dir -> the nested file is "added"
+        surfaces = [im["surface"] for im in impacts]
+        self.assertTrue(any("instance/README.md" in s for s in surfaces),
+                        f"nested contract change not detected: {surfaces}")
+        shutil.rmtree(base, ignore_errors=True)
+
 
 class BaselineTreeSeam(unittest.TestCase):
     def test_injected_tree_wins_and_never_fetches(self):
