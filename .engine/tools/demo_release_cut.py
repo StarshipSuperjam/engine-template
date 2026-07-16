@@ -192,19 +192,35 @@ def main() -> int:
                and notes.index("### Feature") < notes.index("### Maintenance") < notes.index("### Other changes")
                and "## Interface changes to read" in notes and "read it against consumers" in notes)
 
-        # 10. LEGACY / UNPREFIXED TITLES: titles that predate the convention carry no `Kind:` prefix, so they
-        # all collect under a single "Other changes" group — grouping degrades to exactly the old flat list,
-        # never worse, never a crash. This is why re-rendering a historical release (its titles predate the
-        # convention) shows grouping is INERT on legacy data — the win shows on convention-following titles.
+        # 10. LEGACY / UNPREFIXED TITLES — the state EVERY generated repo starts in. Nothing carries a kind,
+        # so there is nothing to contrast: the lone "Other changes" heading is OMITTED and the notes degrade to
+        # EXACTLY the old flat list, never worse, never a crash. (A heading reading "other" over a reader's
+        # whole release would label all their work as leftovers.) Real v0.2.0 titles, which predate the
+        # convention — which is also why re-rendering a historical release proves nothing about the win; the
+        # win shows on convention-following titles, in step 9.
         legacy = {"engine_floor_level": "minor", "change_inventory": [], "impacts": [],
                   "merged_prs": ["Fix the release workflow's derive-version path (#487)",  # 'Fix the' — no colon
                                  "Bump astral-sh/setup-uv from 8.3.0 to 8.3.2 (#489)",
                                  "Wire the findings-inbox drain into production (#479)"]}
         lnotes = rc.render_release_notes("v0.2.1", legacy)
-        print("\n10. LEGACY UNPREFIXED TITLES (all -> one 'Other changes' group; grouping inert, never worse)")
+        print("\n10. LEGACY UNPREFIXED TITLES (no lone 'other' heading — exactly the old flat list)")
         print("\n".join("   " + ln for ln in lnotes.splitlines()))
-        ok &= (lnotes.count("### ") == 1 and "### Other changes" in lnotes
+        ok &= ("###" not in lnotes and "Other changes" not in lnotes
                and "- Fix the release workflow's derive-version path (#487)" in lnotes)
+
+        # 11. A SECURITY FIX IS NEVER FILED AS UPKEEP. A dependency bot appends "[Security] " AFTER any
+        # configured prefix, so in a repo that prefixes its bumps a CVE fix arrives titled
+        # "Maintenance: [Security] bump ..." — the marker WINS, or the notes would call a security fix
+        # "upkeep that doesn't change what you can do" on the one class a reader most needs to see.
+        sec = {"engine_floor_level": "minor", "change_inventory": [], "impacts": [],
+               "merged_prs": ["Maintenance: [Security] bump cryptography from 41.0.0 to 41.0.6 (#102)",
+                              "Maintenance: bump astral-sh/setup-uv from 8.3.0 to 8.3.2 (#101)"]}
+        snotes = rc.render_release_notes("v0.2.2", sec)
+        print("\n11. A BOT'S SECURITY FIX OUTRANKS ITS OWN 'Maintenance' PREFIX")
+        print("\n".join("   " + ln for ln in snotes.splitlines()))
+        ok &= (snotes.index("### Security") < snotes.index("### Maintenance")
+               and "- bump cryptography from 41.0.0 to 41.0.6 (#102)" in snotes
+               and snotes.split("### Maintenance")[1].count("cryptography") == 0)  # NOT filed as upkeep
     finally:
         validate.ROOT, validate.ENGINE_DIR = saved
         for t in trees:

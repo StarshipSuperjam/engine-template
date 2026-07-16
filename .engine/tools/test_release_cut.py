@@ -634,6 +634,19 @@ class MergedPrList(unittest.TestCase):
                 "* Release 0.2.0 by @engine in https://github.com/o/r/pull/60\n")
         self.assertEqual(rc._parse_pr_lines(body), ["Fix a thing (#50)"])
 
+    def test_the_release_workflow_title_stays_unprefixed_so_a_release_excludes_itself(self):
+        # The release pull request is the ONE title deliberately left without a change-kind prefix: _RELEASE_PR_RE
+        # is anchored at "Release X.Y.Z" and is what stops a release listing itself (count one high). "Conforming"
+        # release.yml for consistency would silently break that, so the two are pinned together here.
+        wf = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                          ".github", "workflows", "release.yml")
+        if not os.path.exists(wf):                       # not a repo carrying the workflow — nothing to pin
+            self.skipTest("release.yml is not present in this tree")
+        with open(wf, encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn('--title "Release ${RESOLVED_VERSION}"', body)      # unprefixed, exactly as the RE expects
+        self.assertTrue(rc._RELEASE_PR_RE.match("Release 0.2.0"))         # ...and the RE still matches it
+
     def test_defuses_closing_keywords_in_titles(self):
         # a title's "Closes #N" must not auto-close the issue from the release PR body — keyword dropped, ref kept
         self.assertEqual(rc._defuse_closing_keywords("Raise the ceiling (Closes #460)"),
@@ -750,9 +763,47 @@ class KindGrouping(unittest.TestCase):
         groups = rc._group_prs_by_kind(["fix: lower (#1)", "FEATURE: upper (#2)"])
         self.assertEqual(dict(groups), {"Feature": ["upper (#2)"], "Fix": ["lower (#1)"]})
 
-    def test_all_six_kinds_are_recognised_in_order(self):
-        lines = [f"{k}: item (#{i})" for i, k in enumerate(rc._RELEASE_NOTE_KINDS)]
-        self.assertEqual([k for k, _ in rc._group_prs_by_kind(lines)], rc._RELEASE_NOTE_KINDS)
+    def test_the_six_kinds_are_exactly_these_in_this_order(self):
+        # PINNED LITERALLY, never derived from the constant: the PR template promises the operator these six
+        # by name, so a silent edit here must fail rather than have the test agree with whatever the list says.
+        self.assertEqual(rc._RELEASE_NOTE_KINDS,
+                         ["Feature", "Improvement", "Fix", "Security", "Removal", "Maintenance"])
+
+    def test_each_named_kind_actually_buckets(self):
+        lines = [f"{k}: item {i} (#{i})" for i, k in
+                 enumerate(["Feature", "Improvement", "Fix", "Security", "Removal", "Maintenance"])]
+        self.assertEqual([k for k, _ in rc._group_prs_by_kind(lines)],
+                         ["Feature", "Improvement", "Fix", "Security", "Removal", "Maintenance"])
+
+    def test_the_shipped_matcher_is_the_escaped_one(self):
+        # the escaping proof must bind the SHIPPED constant, not merely show the helper CAN escape — otherwise
+        # a refactor that builds _KIND_PREFIX_RE without re.escape leaves every test green.
+        self.assertEqual(rc._KIND_PREFIX_RE.pattern,
+                         rc._compile_kind_prefix(rc._RELEASE_NOTE_KINDS).pattern)
+
+    def test_a_wider_case_fold_match_falls_to_other_instead_of_raising(self):
+        # `re.I` case-folds wider than str.lower(): Turkish `İ`/`ı` and long-s `ſ` MATCH the pattern but have
+        # no key in the lower-cased map. render_* is not best-effort wrapped, so this must never raise — a
+        # release cut cannot be blocked by how someone's keyboard capitalised a title.
+        for title in ("İmprovement: turkish capital I (#1)",
+                      "ımprovement: dotless i (#2)",
+                      "ſecurity: long s (#3)"):
+            groups = rc._group_prs_by_kind([title])                    # must not raise
+            self.assertEqual(groups, [("Other changes", [title])])     # whole title kept, nothing lost
+
+    def test_a_security_marker_wins_over_the_declared_kind(self):
+        # a dependency bot appends "[Security] " AFTER a configured prefix, so a CVE fix arrives as
+        # "Maintenance: [Security] bump ..." — it must NOT file as the upkeep that prefix claims.
+        groups = rc._group_prs_by_kind([
+            "Maintenance: [Security] bump cryptography from 41.0.0 to 41.0.6 (#1)",
+            "Maintenance: bump setup-uv from 8.3.0 to 8.3.2 (#2)"])
+        self.assertEqual(groups, [("Security", ["bump cryptography from 41.0.0 to 41.0.6 (#1)"]),
+                                  ("Maintenance", ["bump setup-uv from 8.3.0 to 8.3.2 (#2)"])])
+
+    def test_a_security_marker_with_no_prefix_still_routes_to_security(self):
+        # the same bot in a repo that configures no prefix titles it "[Security] bump ..." with no kind at all
+        self.assertEqual(rc._group_prs_by_kind(["[security] bump cryptography (#1)"]),
+                         [("Security", ["bump cryptography (#1)"])])
 
     def test_unprefixed_and_non_kind_colon_titles_fall_to_other_changes_last(self):
         groups = rc._group_prs_by_kind([
@@ -800,6 +851,26 @@ class KindGrouping(unittest.TestCase):
         self.assertIn("**Feature**", scope)
         self.assertIn("- add recall (#1)", scope)
         self.assertNotIn("### Feature", scope)                        # no heading inside Scope
+
+    def test_an_all_unprefixed_release_renders_a_flat_list_with_no_lone_other_heading(self):
+        # the state EVERY generated repo starts in. A lone "Other changes" heading would label the reader's
+        # whole release as leftovers — worse than the flat list it replaced. So it is omitted entirely.
+        proposal = {"engine_floor_level": "minor", "change_inventory": [], "impacts": [],
+                    "merged_prs": ["Refactor storage (#1)", "Tidy the CLI (#2)"]}
+        notes = rc.render_release_notes("v0.2.0", proposal)
+        self.assertIn("## What changed since the last release (2 pull requests)", notes)
+        self.assertNotIn("Other changes", notes)                      # no lone "other" heading
+        self.assertNotIn("###", notes)                                # degrades to exactly the old flat list
+        self.assertIn("- Refactor storage (#1)", notes)
+        self.assertIn("- Tidy the CLI (#2)", notes)
+
+    def test_one_kind_present_still_groups_so_other_is_meaningful(self):
+        # "Other changes" is suppressed only when it is ALONE; beside a real kind it is a meaningful contrast
+        notes = rc.render_release_notes("v0.2.0", {"engine_floor_level": "minor", "change_inventory": [],
+                                                   "impacts": [], "merged_prs": ["Feature: add recall (#1)",
+                                                                                 "Refactor storage (#2)"]})
+        self.assertIn("### Feature", notes)
+        self.assertIn("### Other changes", notes)
 
 
 if __name__ == "__main__":

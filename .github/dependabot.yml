@@ -9,10 +9,12 @@
 # floor's traveling presence: keep the engine's dependencies reachable for security
 # and version updates on any plan.
 #
-# `commit-message.prefix` carries the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS):
-# Dependabot titles its pull requests from the commit message, so this makes each bump read
-# "Maintenance: bump X from Y to Z" and group as upkeep in the release notes — keeping recurring dependency
-# noise out of the list of what actually changed for a reader.
+# `commit-message.prefix` carries the release notes' change-kind prefix. Dependabot titles its pull requests
+# from the commit message, so this makes each routine bump read "Maintenance: bump X from Y to Z" and group as
+# upkeep — keeping recurring dependency noise out of the list of what actually changed for a reader.
+# A SECURITY fix is NOT upkeep, and Dependabot writes its "[Security]" marker AFTER this prefix
+# ("Maintenance: [Security] bump ..."). The release notes read that marker and file such a fix under Security
+# regardless of this prefix, so a CVE fix is never presented as routine upkeep.
 version: 2
 updates:
   - package-ecosystem: "uv"
