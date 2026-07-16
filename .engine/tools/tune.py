@@ -124,7 +124,9 @@ def write_override(policy_id: str, key: str, value, *, path: str = OVERRIDES_PAT
 
 
 def _pr_title(policy_id: str, key: str) -> str:
-    return f"Save an engine setting change ({policy_id}: {key})"
+    # `Maintenance:` — the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS): a setting change
+    # is upkeep. Only the LEADING prefix is matched, so the `{policy_id}: {key}` colon inside is untouched.
+    return f"Maintenance: save an engine setting change ({policy_id}: {key})"
 
 
 def _pr_body(policy_id: str, key: str, value) -> str:

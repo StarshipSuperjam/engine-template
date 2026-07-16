@@ -8,13 +8,22 @@
 # this floor — it belongs to the dependency-discipline module. This file is only the
 # floor's traveling presence: keep the engine's dependencies reachable for security
 # and version updates on any plan.
+#
+# `commit-message.prefix` carries the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS):
+# Dependabot titles its pull requests from the commit message, so this makes each bump read
+# "Maintenance: bump X from Y to Z" and group as upkeep in the release notes — keeping recurring dependency
+# noise out of the list of what actually changed for a reader.
 version: 2
 updates:
   - package-ecosystem: "uv"
     directory: "/.engine"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "Maintenance"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "Maintenance"
