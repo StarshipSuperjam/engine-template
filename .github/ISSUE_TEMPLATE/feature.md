@@ -1,6 +1,7 @@
 ---
 name: Feature or change request
 about: Ask for something new, or a change to how the project works.
+title: 'Feature: '
 ---
 
 <!-- Write under each heading; these hints won't show in your posted issue. Leave anything blank that doesn't apply — nothing here is required. -->
