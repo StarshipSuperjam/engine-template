@@ -167,21 +167,44 @@ def main() -> int:
         ok &= (len(summ) == 1 and "eADR-0014-one-history.md" in summ[0])
 
         # 9. PUBLISHED RELEASE NOTES: a human-readable body with a breaking callout, the pull requests merged
-        # since the last release (the actual work), and interface changes WITH descriptions — the same signals
-        # as the PR body, formatted for the release. (The PR list is best-effort; here a fixed list stands in.)
+        # since the last release (the actual work) GROUPED under their change-kind, and interface changes WITH
+        # descriptions — the same signals as the PR body, formatted for the release. A title's leading `Kind:`
+        # prefix sorts it under that kind; the prefix is stripped from the line (the heading carries it) and an
+        # unprefixed title (the last one) falls to "Other changes", rendered last. (The PR list is best-effort;
+        # here a fixed list stands in.)
         rich = {"engine_floor_level": "major",
                 "change_inventory": ["Added the 'routine-mode' capability.", "Removed the 'legacy' capability."],
-                "merged_prs": ["Add the routine-mode capability (#41)", "Remove the legacy sync path (#42)",
-                               "Tidy the memory consolidation CLI (#43)"],
-                "impacts": [{"what": "the contract surface 'eADR-0021-control-plane.md' changed",
-                             "why": "a changed contract can be additive or breaking — read it against consumers."}]}
+                "merged_prs": ["Feature: add the routine-mode capability (#41)",
+                               "Removal: remove the legacy sync path (#42)",
+                               "Maintenance: bump setup-uv from 8.3.0 to 8.3.2 (#43)",
+                               "Fix: stop the self-review digest double-posting (#44)",
+                               "Reword the onboarding copy (#45)"]}     # no prefix -> "Other changes"
+        rich["impacts"] = [{"what": "the contract surface 'eADR-0021-control-plane.md' changed",
+                            "why": "a changed contract can be additive or breaking — read it against consumers."}]
         notes = rc.render_release_notes("v1.0.0", rich)
-        print("\n9. PUBLISHED RELEASE NOTES (sectioned, bulleted, described; merged PRs are the work list)")
+        print("\n9. PUBLISHED RELEASE NOTES (merged PRs grouped by change-kind; unprefixed => 'Other changes')")
         print("\n".join("   " + ln for ln in notes.splitlines()))
         ok &= ("breaking change" in notes.lower()
-               and "## What changed since the last release (3 pull requests)" in notes
-               and "- Tidy the memory consolidation CLI (#43)" in notes
+               and "## What changed since the last release (5 pull requests)" in notes
+               and "### Feature" in notes and "- add the routine-mode capability (#41)" in notes  # prefix stripped
+               and all(f"### {k}" in notes for k in ("Feature", "Removal", "Fix", "Maintenance"))
+               and "### Other changes" in notes and "- Reword the onboarding copy (#45)" in notes
+               and notes.index("### Feature") < notes.index("### Maintenance") < notes.index("### Other changes")
                and "## Interface changes to read" in notes and "read it against consumers" in notes)
+
+        # 10. LEGACY / UNPREFIXED TITLES: titles that predate the convention carry no `Kind:` prefix, so they
+        # all collect under a single "Other changes" group — grouping degrades to exactly the old flat list,
+        # never worse, never a crash. This is why re-rendering a historical release (its titles predate the
+        # convention) shows grouping is INERT on legacy data — the win shows on convention-following titles.
+        legacy = {"engine_floor_level": "minor", "change_inventory": [], "impacts": [],
+                  "merged_prs": ["Fix the release workflow's derive-version path (#487)",  # 'Fix the' — no colon
+                                 "Bump astral-sh/setup-uv from 8.3.0 to 8.3.2 (#489)",
+                                 "Wire the findings-inbox drain into production (#479)"]}
+        lnotes = rc.render_release_notes("v0.2.1", legacy)
+        print("\n10. LEGACY UNPREFIXED TITLES (all -> one 'Other changes' group; grouping inert, never worse)")
+        print("\n".join("   " + ln for ln in lnotes.splitlines()))
+        ok &= (lnotes.count("### ") == 1 and "### Other changes" in lnotes
+               and "- Fix the release workflow's derive-version path (#487)" in lnotes)
     finally:
         validate.ROOT, validate.ENGINE_DIR = saved
         for t in trees:

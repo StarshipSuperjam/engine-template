@@ -732,5 +732,75 @@ class BaselineTreeSeam(unittest.TestCase):
         self.assertIsNone(cleanup)
 
 
+class KindGrouping(unittest.TestCase):
+    """The merged-PR list groups by the change-kind a title declares as a leading `Kind:` prefix."""
+
+    def test_groups_by_prefix_and_strips_it(self):
+        groups = rc._group_prs_by_kind(
+            ["Feature: cold-start recall (#1)", "Fix: quote the hook path (#2)"])
+        self.assertEqual(groups,
+                         [("Feature", ["cold-start recall (#1)"]), ("Fix", ["quote the hook path (#2)"])])
+
+    def test_output_follows_declared_kind_order_not_input_order(self):
+        # input arrives Maintenance-first; output follows _RELEASE_NOTE_KINDS (Feature precedes Maintenance)
+        groups = rc._group_prs_by_kind(["Maintenance: bump x (#2)", "Feature: add y (#1)"])
+        self.assertEqual([k for k, _ in groups], ["Feature", "Maintenance"])
+
+    def test_prefix_match_is_case_insensitive_and_canonicalises(self):
+        groups = rc._group_prs_by_kind(["fix: lower (#1)", "FEATURE: upper (#2)"])
+        self.assertEqual(dict(groups), {"Feature": ["upper (#2)"], "Fix": ["lower (#1)"]})
+
+    def test_all_six_kinds_are_recognised_in_order(self):
+        lines = [f"{k}: item (#{i})" for i, k in enumerate(rc._RELEASE_NOTE_KINDS)]
+        self.assertEqual([k for k, _ in rc._group_prs_by_kind(lines)], rc._RELEASE_NOTE_KINDS)
+
+    def test_unprefixed_and_non_kind_colon_titles_fall_to_other_changes_last(self):
+        groups = rc._group_prs_by_kind([
+            "Feature: real (#1)",
+            "Refactor storage (#2)",                              # no prefix at all
+            "Fix the thing without a colon (#3)",                 # kind word, but no colon => not a prefix
+            "Add dark mode: respect the system setting (#4)"])    # a colon, but the lead token is not a kind
+        self.assertEqual(groups[0], ("Feature", ["real (#1)"]))
+        self.assertEqual(groups[-1], ("Other changes", [
+            "Refactor storage (#2)",
+            "Fix the thing without a colon (#3)",
+            "Add dark mode: respect the system setting (#4)"]))
+
+    def test_empty_input_yields_no_groups(self):
+        self.assertEqual(rc._group_prs_by_kind([]), [])
+
+    def test_kind_vocabulary_edit_with_a_metacharacter_matches_literally(self):
+        # the kind list is the one edit point for a deployer; a kind carrying a regex metacharacter must match
+        # literally and never make the (non-best-effort) render throw.
+        pat = rc._compile_kind_prefix(["C++", ".NET"])
+        self.assertTrue(pat.match("C++: ship it (#1)"))
+        self.assertTrue(pat.match(".NET: ship it (#2)"))
+        self.assertIsNone(pat.match("CXX: not this (#3)"))          # `+` is literal, not "one-or-more C"
+
+    def test_release_notes_render_groups_under_kind_subheadings(self):
+        proposal = {"engine_floor_level": "minor", "change_inventory": [], "impacts": [],
+                    "merged_prs": ["Feature: add recall (#1)", "Maintenance: bump dep (#2)",
+                                   "Reword copy (#3)"]}                # unprefixed => Other changes
+        notes = rc.render_release_notes("v0.2.0", proposal)
+        self.assertIn("## What changed since the last release (3 pull requests)", notes)
+        self.assertIn("### Feature", notes)
+        self.assertIn("- add recall (#1)", notes)                      # prefix stripped in the bullet
+        self.assertIn("### Other changes", notes)
+        self.assertIn("- Reword copy (#3)", notes)
+        self.assertLess(notes.index("### Feature"), notes.index("### Maintenance"))
+        self.assertLess(notes.index("### Maintenance"), notes.index("### Other changes"))
+
+    def test_pr_body_render_groups_under_bold_labels_not_headings(self):
+        # inside the single ## Scope section the kinds must be BOLD LABELS, never ### headings (a heading would
+        # out-rank the plain-text "Capability and data changes:" peer and invert the outline).
+        proposal = {"engine_floor_level": "minor", "change_inventory": [], "impacts": [],
+                    "merged_prs": ["Feature: add recall (#1)", "Fix: patch it (#2)"]}
+        applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {}}
+        scope = rc.render_pr_body(proposal, applied).split("## Scope", 1)[1].split("## Out of scope", 1)[0]
+        self.assertIn("**Feature**", scope)
+        self.assertIn("- add recall (#1)", scope)
+        self.assertNotIn("### Feature", scope)                        # no heading inside Scope
+
+
 if __name__ == "__main__":
     unittest.main()
