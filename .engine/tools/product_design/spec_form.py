@@ -122,20 +122,28 @@ def _read(root: str, rel: str) -> str:
         return fh.read()
 
 
-def _frontmatter_status(text: str) -> "str | None":
-    """The lowercased value of the first `status:` key inside the leading `---` frontmatter block, or None
-    when there is no frontmatter or no status key. Tolerant of malformed content — it never raises."""
+def _frontmatter_value(text: str, key: str) -> "str | None":
+    """The lowercased value of the first `<key>:` line inside the leading `---` frontmatter block, or None when
+    there is no frontmatter or no such key. The package's one frontmatter-scalar reader, so every check reads a
+    frontmatter key the same way (no drifting second copy). Tolerant of malformed content — it never raises."""
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         return None
+    pattern = re.compile(r"\s*" + re.escape(key) + r"\s*:\s*(.+?)\s*$")
     for line in lines[1:]:
         if line.strip() == "---":
             break
-        m = re.match(r"\s*status\s*:\s*(.+?)\s*$", line)
+        m = pattern.match(line)
         if m:
             value = re.sub(r"\s+#.*$", "", m.group(1).strip())  # drop a trailing inline YAML comment
             return value.strip().strip("'\"").lower()
     return None
+
+
+def _frontmatter_status(text: str) -> "str | None":
+    """The lowercased value of the first `status:` key inside the leading `---` frontmatter block, or None
+    when there is no frontmatter or no status key. Tolerant of malformed content — it never raises."""
+    return _frontmatter_value(text, "status")
 
 
 def _h2_headings(text: str) -> set:

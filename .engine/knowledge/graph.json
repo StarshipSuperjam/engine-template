@@ -4261,7 +4261,7 @@
       },
       "slug": "adr_form",
       "source": {
-        "fingerprint": "sha256:9d6b5555dedd3ce2dc77da45ae1f2ffb3914753642cbab38b616665eaba16d6b",
+        "fingerprint": "sha256:1bb0f339cf7e359d9e781f248ef62b7fbce1467544b375ff2ddf40fcd98bab0f",
         "path": ".engine/tools/product_design/adr_form.py"
       },
       "status": "active",
@@ -6318,7 +6318,7 @@
       },
       "slug": "spec_form",
       "source": {
-        "fingerprint": "sha256:4b0af037043ea65150b7538905c3077da45dc96685d567331b07643ff6af296b",
+        "fingerprint": "sha256:50536c7b4ebd5ebfb8791049754c163eba6868befc2a6d92993ce0b873943abe",
         "path": ".engine/tools/product_design/spec_form.py"
       },
       "status": "active",
