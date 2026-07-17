@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavioral demo for the soft-finding promoter (issue #273 half 2, slice 2): a STANDING length-budget
+"""Behavioral demo for the soft-finding promoter (issue #273 half 2): a STANDING length-budget
 finding becomes a deduped, lane-aware engine issue. The network (GitHub) is the only thing faked — the
 over-budget file is REAL, and the collect -> filter-to-budget -> derive-lane -> render -> promote/dedup
 logic all runs for real. It can fail: every step below asserts, and the self-check at the end is the
@@ -91,7 +91,7 @@ def _demo() -> int:
         print("    └─ (the last line is an invisible marker; it does not render in GitHub)")
         marker_ok = "<!-- engine-signal: " + mrec["source_id"] + " -->" in body
 
-        # (6) The LIVE-DERIVED pass (F0204): a full run opens the over-budget surface's issue, then — once the
+        # (6) The LIVE-DERIVED pass: a full run opens the over-budget surface's issue, then — once the
         #     file is back UNDER budget (still an evaluated surface, just no longer firing) — AUTO-RESOLVES it,
         #     while never touching another source's issue. Firing is stubbed here so the ONE surface is
         #     deterministic; budget_surfaces() (the authoritative set) still reads the REAL shape rules, and the
@@ -122,7 +122,7 @@ def _demo() -> int:
               f"issue survives ({'ci/build' in open2}).")
         resolve_ok = (fixture_sid in open1 and fixture_sid not in open2 and "ci/build" in open2)
 
-        # (7) The permalink to "what is broken" (F0202): a debt body for a CATALOGUED surface links to it on
+        # (7) The permalink to "what is broken": a debt body for a CATALOGUED surface links to it on
         #     GitHub. Shown on a real catalogued file (the fixture is a throwaway, so it has no entity to link).
         cat_rel = ".engine/operations/build-orchestration.md"
         validate.collect = lambda s, c, **k: [
@@ -134,7 +134,7 @@ def _demo() -> int:
             validate.collect = _orig_collect
         link = f"https://github.com/you/your-project/blob/HEAD/{cat_rel}"
         link_ok = any(link in r["body_core"] for r in cat_recs if r["source_id"] == f"{asp.SOURCE_PREFIX}{cat_rel}")
-        print(f"(7) A debt body for a catalogued surface links to \"what is broken\" on GitHub (F0202): {link_ok}.")
+        print(f"(7) A debt body for a catalogued surface links to \"what is broken\" on GitHub: {link_ok}.")
 
         ok = (one_local and (not local_has_caveat) and mach_has_caveat and dedup_ok and marker_ok
               and resolve_ok and link_ok)

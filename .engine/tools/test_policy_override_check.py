@@ -1,4 +1,4 @@
-"""Tests for the stale-operator-override check (core slice 26c).
+"""Tests for the stale-operator-override check.
 
 Verifies: with no override (the normal state) the check surfaces nothing; a saved value on a current,
 eligible setting surfaces nothing; a saved key the policy no longer carries is surfaced as stale; a saved

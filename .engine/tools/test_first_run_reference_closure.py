@@ -1,4 +1,4 @@
-"""Tests for the first-run reference-closure gate (issue #150; engine-planning D-219/D-220).
+"""Tests for the first-run reference-closure gate (issue #150).
 
 This test is PERMANENT (it must survive first-run retirement), so it imports only `validate` and the check
 module — never the retired `instantiator`/`test_instantiator` (that is the very defect the check exists to
@@ -85,7 +85,7 @@ class TestClosureScan(unittest.TestCase):
         self.assertIn("reads or runs", findings[0]["message"])
 
     def test_a_regenerated_retired_asset_is_not_flagged_but_a_gone_for_good_one_is(self):
-        # #404 F0195 carve-out: a removed path the engine rewrites at runtime (named in
+        # #404 carve-out: a removed path the engine rewrites at runtime (named in
         # _REGENERATED_RETIRED_ASSETS — the audit digest) is not permanently gone, so a surviving literal
         # reference to it is not a dangling reference and the path leg skips it. But the carve-out is a NARROW
         # named set, NOT "anything provided": a removed path NOT in that set (e.g. a construction-only asset
@@ -154,7 +154,7 @@ class TestClosureScan(unittest.TestCase):
 
     def test_fails_closed_when_the_manifest_is_missing(self):
         # The removed-files list is PERMANENT (it never self-retires), so a missing one is a fault, never a
-        # legitimate state — the check must fail closed, not silently pass (§7: a guard can never silently pass).
+        # legitimate state — the check must fail closed, not silently pass (a guard can never silently pass).
         with tempfile.TemporaryDirectory() as d:
             os.makedirs(os.path.join(d, ".engine", "tools"))
             findings = frc.check(d)

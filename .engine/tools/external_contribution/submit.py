@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Cross-fork submission tooling — the external-contribution module's submission operation (Slice 2).
+"""Cross-fork submission tooling — the external-contribution module's submission operation.
 
 WHAT IT DOES. When the Engine runs inside an operator's FORK of a product repo the operator does NOT own (an
 open-source upstream, or the engine-mechanic building engine-template), this prepares and opens a product-only
 contribution to that upstream as a cross-fork pull request (`upstream ← fork:feature`). It is the live caller
-that finally exercises Slice 1's dormant upstream-clean nudge against a real outgoing diff, and it follows the
+that finally exercises the dormant upstream-clean nudge against a real outgoing diff, and it follows the
 host project's pull-request conventions rather than imposing the Engine's own.
 
 THE HUMAN GATE (the irreversible act is never the engine's alone). Opening a pull request on a repo the
@@ -12,16 +12,15 @@ operator does not own is irreversible and outward-facing (it notifies maintainer
 under the operator's fork identity). So `submit()` PREPARES everything — the outgoing diff, the engine-clean
 check, the body to the host's template — and stops. It opens the pull request ONLY when handed an explicit
 affirmative decision (`confirm=True`). Without it, the prepared submission is returned for the operator to
-approve. This is the §6/§13 posture: the engine reads-and-proposes; the human authorizes the outward act.
+approve. This is the read-and-propose posture at the engine/product wall: the engine reads-and-proposes; the human authorizes the outward act.
 
-KEEPING THE CONTRIBUTION CLEAN (an operator-DECIDABLE nudge, §6 — "not a hard gate"). Before any submit, the
-outgoing diff is intersected with the file-precise engine-owned path set (Slice 1's predicate). If an
+KEEPING THE CONTRIBUTION CLEAN (an operator-DECIDABLE nudge — "not a hard gate"). Before any submit, the
+outgoing diff is intersected with the file-precise engine-owned path set (the upstream-clean predicate). If an
 engine-owned path is about to ride upstream, `submit()` PAUSES and surfaces it as a decision — it narrates the
 leak, emits a telemetry finding (the design's "emits a telemetry finding when it fires"), and returns
 `leak-decision-needed` rather than opening the pull request. The operator may clear the files (recommended) or
 tell the engine to proceed anyway (`proceed_despite_leak=True`), which still passes through the ordinary human
-`confirm` gate — a leaked engine file is a §6 hygiene failure, "never a bare block" (external-contribution
-README), not a §15 guardrail weakening. Telemetry-on-fire is emitted whichever way the operator decides, so a
+`confirm` gate — a leaked engine file is an operator-decidable hygiene failure, "never a bare block", not a guardrail weakening. Telemetry-on-fire is emitted whichever way the operator decides, so a
 knowingly-carried leak still leaves a durable trace. The intersection runs over the UNCAPPED outgoing diff, so
 a large accidental leak can never sort past a cap and slip through; the upstream's own review is the backstop.
 
@@ -35,13 +34,13 @@ a large accidental leak can never sort past a cap and slip through; the upstream
   are an explicit build-spec leaf, un-exercised at v1. A content check against the running checkout would be
   degenerate (working tree == HEAD), so it is deliberately NOT attempted here; until the branch mechanics land,
   the safe behavior is to over-flag by name (never under-flag), made non-harmful by the operator-decidability
-  above — §6 "posture, not a mechanical guarantee", backstopped by the upstream maintainer's review.
+  above — a posture, not a mechanical guarantee, backstopped by the upstream maintainer's review.
 
 DEGRADATION (never stranded). If the upstream is unreachable when opening the pull request, nothing is lost:
 the work is committed on the operator's own fork (a working fork they fully own). The stalled submission is
 DRAFTED (the engine drafts, the operator files via their own `gh`) and best-effort tracked via telemetry.
 
-UN-EXERCISED AT v1 (R14, disclosed). Every boundary is injectable — the git diff reader (`run`), the
+UN-EXERCISED AT v1 (disclosed). Every boundary is injectable — the git diff reader (`run`), the
 engine-owned set (`owned`), the `gh` transport (`gh_run`), and the telemetry GitHub boundary (`github`) — so
 the whole deterministic surface (diff, clean-check, template detection, body assembly, degradation) is proven
 fully offline by `test_submit.py` and the falsifiable `demo`. The ONE step not exercised end-to-end at v1 is
@@ -69,7 +68,7 @@ for _p in (_HERE, _PARENT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import upstream_clean_check  # noqa: E402 — the Slice-1 predicate, reused unchanged
+import upstream_clean_check  # noqa: E402 — the upstream-clean predicate, reused unchanged
 import validate  # noqa: E402 — validate.ROOT (the live tree root) for template detection
 import module_coherence  # noqa: E402 — engine_owned_paths: the file-precise engine-owned set
 import telemetry  # noqa: E402 — promote_finding (telemetry-on-fire), utc_now, GitHubIssues, severities
@@ -107,7 +106,7 @@ def outgoing_diff_status(base: str, *, run=_run_git) -> tuple[list, bool]:
 
     DELIBERATELY UNCAPPED. Unlike `work_record.changed_paths` (which caps at 50 for orientation), this feeds a
     safety check: a cap could let a leaked engine path sort past it and slip through the intersection. The
-    `inspected` flag is the fail-open-AND-flag guard (D-016-family / hooks fail-open-and-flag): the clean
+    `inspected` flag is the fail-open-AND-flag guard (the hooks fail-open-and-flag pattern): the clean
     check still fails open to `[]`, but a caller must never narrate cleanliness on an uninspected diff."""
     out = run(["diff", "--name-only", f"{base}...HEAD"])
     if out is None:            # git failed — NOT inspected (distinct from a clean, empty diff)
@@ -122,7 +121,7 @@ def outgoing_diff(base: str, *, run=_run_git) -> list:
     return outgoing_diff_status(base, run=run)[0]
 
 
-# ---- the engine-clean check (the live caller of Slice 1's predicate) --------------------------
+# ---- the engine-clean check (the live caller of the upstream-clean predicate) --------------------------
 
 def _resolve_owned(owned):
     """The engine-owned set: the injected one, or the real file-precise set (CODEOWNERS' source of truth)."""
@@ -132,7 +131,7 @@ def _resolve_owned(owned):
 
 
 def clean_findings(base: str, *, run=_run_git, owned=None) -> list:
-    """The upstream-clean findings for the outgoing contribution: Slice 1's predicate run against the
+    """The upstream-clean findings for the outgoing contribution: the upstream-clean predicate run against the
     cross-fork outgoing diff. Empty list = clean. `owned` defaults to the real engine-owned set; inject it
     (with `run`) to keep tests and the demo fully offline."""
     changed = outgoing_diff(base, run=run)
@@ -142,7 +141,7 @@ def clean_findings(base: str, *, run=_run_git, owned=None) -> list:
 # ---- upstream pull-request template detection (follow the host's conventions) ------------------
 
 # The standard committed locations a GitHub project keeps its pull-request template (the contributor adapts to
-# the host's form — §13). Read from the checkout; no API. The first present file wins.
+# the host's form — the engine/product wall). Read from the checkout; no API. The first present file wins.
 _PR_TEMPLATE_LOCATIONS = (
     os.path.join(".github", "pull_request_template.md"),
     os.path.join(".github", "PULL_REQUEST_TEMPLATE.md"),
@@ -206,7 +205,7 @@ def detect_contributing(root: str | None = None) -> str | None:
 
 # The Engine's own contribution body shape — the FALLBACK used only when the upstream has no template. These
 # are plain, contribution-appropriate sections; this is a SHAPE, never the owner-repo `pr-body-completeness`
-# hard gate (that contract governs the operator's own repo, never a contribution to someone else's — §13).
+# hard gate (that contract governs the operator's own repo, never a contribution to someone else's — the engine/product wall).
 _FALLBACK_SECTIONS = ("Summary", "What changed", "Why", "How it was checked")
 
 
@@ -229,7 +228,7 @@ def build_pr_body(*, summary: str, template_text: str | None = None) -> str:
 def _submitted_narration(upstream_repo: str) -> str:
     """Submitted-is-not-accepted — narrated at the moment of submission. Hedged for the ungoverned-upstream
     case: it never categorically asserts a review will happen (the standalone ungoverned-upstream honesty
-    policy is Slice 3)."""
+    policy is a later refinement)."""
     return (
         f"I've opened the pull request to {upstream_repo}. Submitting it isn't the same as it being "
         "accepted — if the project reviews contributions, its maintainers decide whether it lands, and that "
@@ -246,7 +245,7 @@ def _repo_from_pr_url(pr_url: str) -> str:
 
 def _status_narration(upstream_repo: str, pr_url: str, state: str) -> str:
     """Where a submission stands — restated on EVERY status check (submitted-is-not-accepted, never parked in a
-    doc; external-contribution README "narrated ... on each status check"). Reports the live state honestly,
+    doc — narrated on each status check). Reports the live state honestly,
     keeps the your-fork-always-has-it reassurance, and — when the state can't be read — says so rather than
     inventing progress. Reports only open/merged/declined; never the raw review-decision or a reviewer's name."""
     if state == "merged":
@@ -287,10 +286,10 @@ def _unverified_narration(upstream_repo: str) -> str:
 
 
 def _leak_narration(upstream_repo: str, offending: list) -> str:
-    """The submission's own pause narration — distinct from the Slice-1 check message (which is a merge-gate
+    """The submission's own pause narration — distinct from the upstream-clean check message (which is a merge-gate
     nudge that 'never blocks'). Opening a pull request is a one-way outward act, so the submission tool PAUSES
     here and surfaces the leak as a decision rather than send the engine's files along on its own; it names the
-    files and both ways forward (clear them, or proceed anyway) in plain words. §6 "never a bare block"."""
+    files and both ways forward (clear them, or proceed anyway) in plain words ("never a bare block")."""
     files = ", ".join(offending)
     return (
         f"Before opening the pull request, I checked what it would carry to {upstream_repo} and found files "
@@ -400,7 +399,7 @@ def _degradation_draft(upstream_repo: str, head: str, base: str, url_hint: str |
 def _run_gh(args: list):
     """Run a `gh` command. Returns (returncode, stdout, stderr). Never raises — a missing/failed `gh`
     degrades to a non-zero return so the caller takes the degradation path. This is the one boundary not
-    exercised end-to-end at v1 (R14): the real `gh pr create` runs here for the first time only on a live
+    exercised end-to-end at v1: the real `gh pr create` runs here for the first time only on a live
     submission; tests and the demo inject a fake `gh_run`."""
     try:
         out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60, check=False)
@@ -419,7 +418,7 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
         submitting. Refuses to narrate cleanliness on an unread diff. Carries the plain-language `narration`
         and `promoted` (the fail-open-AND-flag telemetry trace).
       - `"leak-decision-needed"` — the outgoing diff carries engine-owned files; PAUSED and surfaced as an
-        operator decision (§6 "not a hard gate"), not a terminal halt. Carries the findings, the plain-language
+        operator decision ("not a hard gate"), not a terminal halt. Carries the findings, the plain-language
         `narration`, and `promoted` (the telemetry-on-fire result). The operator clears the files, or re-calls
         with `proceed_despite_leak=True` to carry on to the ordinary `confirm` gate.
       - `"prepared"`       — clean (or leak-acknowledged), but no affirmative decision yet; the pull request is
@@ -450,8 +449,8 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
             "narration": _unverified_narration(upstream_repo),
         }
 
-    # 1. Keep the contribution clean — an operator-DECIDABLE nudge (§6 "not a hard gate"), over the uncapped
-    #    outgoing diff. The predicate is the file-precise engine-owned NAME set (topology README). It can
+    # 1. Keep the contribution clean — an operator-DECIDABLE nudge ("not a hard gate"), over the uncapped
+    #    outgoing diff. The predicate is the file-precise engine-owned NAME set. It can
     #    over-flag an upstream product's OWN foundation-named file (its own CLAUDE.md / CODEOWNERS) — but that
     #    is now a soft, waveable nudge, not a block. Telling a product's own file apart from a genuine engine
     #    back-merge needs the engine's own tree as a source distinct from the contribution checkout, which is

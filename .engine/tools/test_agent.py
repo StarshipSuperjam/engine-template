@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the agent surface (slice 16): the agent.v1 persona-frontmatter grammar, the committed
+"""Self-tests for the agent surface: the agent.v1 persona-frontmatter grammar, the committed
 persona template, the live shape + frontmatter validation rules, the catalog flip that wires both in, and
 the pure agent-set coherence leg (validate.agent_coherence_findings).
 
@@ -8,7 +8,7 @@ Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools
 These lock: agent.v1 is a well-formed schema with teeth (a missing required field, an unknown extra field,
 or a permissions value outside {read-only, scoped-write} is rejected, and conforming reviewer/worker/audit
 instances pass); and — the design's load-bearing inverse — agent.v1 ACCEPTS arbitrary role/model-tier/lens
-strings, because closed-set membership is the coherence leg's job, NOT the schema's (agents/README §Coherence).
+strings, because closed-set membership is the coherence leg's job, NOT the schema's.
 The committed template carries exactly the four sections in order, its shape-spec frontmatter is a well-formed
 template.v1, and it is byte-identical to the agent-shape rule's params (no drift between scaffold and rule).
 The shape rule is well-formed, joins CI, dispatches the shape kind over .claude/agents/*.md, is green on the
@@ -43,7 +43,7 @@ PERMISSIONS_ENUM = AGENT_SCHEMA["properties"]["permissions"]["enum"]
 
 # Representative, conforming persona frontmatter — one per role shape.
 # A read-only persona must BLOCK the authoritative-write tools (the permissions↔tools coherence
-# rule, D-272), so the conforming reviewer/audit fixtures carry that lock; the worker is scoped-write
+# rule), so the conforming reviewer/audit fixtures carry that lock; the worker is scoped-write
 # and is not subject to the rule, so it carries none.
 VALID_REVIEWER = {"name": "architecture-plan-reviewer",
                   "description": "Reviews the proposed plan for cross-system seams and scope.",
@@ -136,7 +136,7 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(_errors(AGENT_SCHEMA, {**rich, "tools": "inherit"}), [])  # tools array OR string
 
     def test_disallowedtools_passthrough_conforms_array_or_string(self):
-        """The denylist key (D-272) is platform passthrough like tools: array OR string forms conform,
+        """The denylist key is platform passthrough like tools: array OR string forms conform,
         and its WELL-FORMEDNESS is the schema's job — whether a read-only persona's denylist actually
         blocks the write tools is the coherence leg's (see TestAgentCoherenceLeg)."""
         self.assertEqual(_errors(AGENT_SCHEMA, {**VALID_WORKER, "disallowedTools": ["Edit", "Write"]}), [])
@@ -191,7 +191,7 @@ class TestShapeRule(unittest.TestCase):
         self.assertEqual([f for f in found if f["severity"] == "hard"], [])
 
     def test_live_audit_persona_is_read_only_and_bash_locked(self):
-        # F0189: the audit persona reports and never runs a command, so its read-only guarantee must block
+        # The audit persona reports and never runs a command, so its read-only guarantee must block
         # Bash too — the same lock the design-review lenses carry — not only the file-writing tools. The
         # coherence leg enforces only the write-tool floor (Bash is above it), so this pins the audit
         # persona's own frontmatter lock: a future edit can't silently reopen Bash on the self-audit.
@@ -338,7 +338,7 @@ class TestAgentCoherenceLeg(unittest.TestCase):
         f = validate.agent_coherence_findings([{**VALID_REVIEWER, "lens": "nobody-consumes-this"}], "hard", "m")
         self.assertEqual(f, [])
 
-    # --- the permissions↔write-tools rule (D-272): a read-only persona must BLOCK Edit/Write/NotebookEdit ---
+    # --- the permissions↔write-tools rule: a read-only persona must BLOCK Edit/Write/NotebookEdit ---
 
     def test_readonly_with_denylist_blocking_writes_is_clean(self):
         inst = {**VALID_REVIEWER, "disallowedTools": ["Edit", "Write", "NotebookEdit"]}

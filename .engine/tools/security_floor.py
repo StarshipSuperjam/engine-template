@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""The native-scanning security floor (security floor slice 3 of #124 — control-plane "The security floor",
-provisioning "native-scanning toggles"). Enables GitHub's NATIVE secret scanning + push protection, CodeQL
+"""The native-scanning security floor (issue #124). Enables GitHub's NATIVE secret scanning + push protection, CodeQL
 default code scanning, and private vulnerability reporting WHERE THE REPOSITORY'S TIER SUPPORTS THEM — each by
 a single operator-privileged `gh` call, branching on the call's HTTP status, never fire-and-forget. It never
 reports a feature on when the enabling call did not succeed (verify-after, mirroring bootstrap.ControlPlane),
@@ -12,7 +11,7 @@ silently dropped.
 Reuses the operator-privileged transport the ruleset bootstrap already holds (no new capability): the
 `transport(method, path, body) -> (status, json, headers)` seam is injectable, so tests/the demo replace ONLY
 the network and run the real status-branch logic. The control plane locks these invariants; this is the
-provisioning mechanism (D-211/D-212)."""
+provisioning mechanism."""
 from __future__ import annotations
 import os
 import sys
@@ -99,7 +98,7 @@ class SecurityFloor:
             return Toggle("code-scanning", UNVERIFIED)
         # For CODE SCANNING a 422 is TRANSIENT (a setup run in progress / not-yet-in-the-required-state) →
         # retry once. This is deliberately NOT the PVR 422, which means public-only-unsupported (enable_pvr):
-        # the status is keyed per toggle so neither is misread as the other (D-212).
+        # the status is keyed per toggle so neither is misread as the other.
         if status in (409, 422):
             status, _ = self._call("PATCH", path, payload)
             if status is None:

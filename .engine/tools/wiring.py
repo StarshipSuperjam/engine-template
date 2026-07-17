@@ -6,7 +6,7 @@ A module touches shared state (Claude settings, MCP registration, the ontology c
 reverser*. This library is the permanent home of those applier/reverser pairs — both
 provisioning subsystems (the one-time instantiator and the permanent module manager) and the
 CODEOWNERS renderer call it, so the wiring logic does not die with the self-deleting
-instantiator (systems/grammar/module-system/README.md §"The wiring library").
+instantiator.
 
 THE R5 FIREWALL. The seam vocabulary is closed to five types — hook, mcp, ontology-entry,
 permission, gitignore — and there is **no `custom/script` escape hatch**: an arbitrary
@@ -220,8 +220,7 @@ CODEOWNERS_FENCE = "codeowners"
 def render_codeowners(existing_text: str, path_set: list, handle: str) -> str:
     """Render the engine's comment-fenced CODEOWNERS ownership block into `existing_text`, returning the
     new text. Each engine-owned path becomes one file-precise, root-anchored line `/<path> @<owner>`, so
-    the engine owns exactly its own files (the engine/product wall — repository-topology §the wall;
-    module-system §Coherence; principles §3). Reuses the SAME comment-fenced-block helper the gitignore
+    the engine owns exactly its own files (the engine/product wall). Reuses the SAME comment-fenced-block helper the gitignore
     seam uses, so the block is insert-iff-absent / replaced-only-as-a-block and the operator's own
     CODEOWNERS lines are never touched. The block is APPENDED after any existing content: CODEOWNERS is
     last-match-wins, so the engine block placed last defeats shadowing by earlier product rules over
@@ -229,8 +228,8 @@ def render_codeowners(existing_text: str, path_set: list, handle: str) -> str:
     block in place. The mutator wrapper apply_codeowners() (below) drives this at BOTH render sites — the
     first-run instantiation and an engine upgrade, which re-renders with the new release's engine paths so
     the wall stays complete. The owner `handle` is the operator's, captured at first run as preserved
-    config (provisioning §Identity and tokens) — passed IN here, never read from the network; this
-    renderer is pure — the primitive only. The instantiator (slice 27) wires it into the live first-run
+    config — passed IN here, never read from the network; this
+    renderer is pure — the primitive only. The instantiator wires it into the live first-run
     render with the stored handle, and owns the handle capture + its config home."""
     owner = handle.strip()
     if not owner:
@@ -260,7 +259,7 @@ def apply_codeowners(co_path: str, path_set: list, handle: str) -> dict:
 
 # ---- the foundation .gitignore block (a library helper, NOT a module `wires` seam) -------------
 # The engine's own tool-runtime + platform artifacts are ignored by a SINGLE foundation-keyed fence,
-# distinct from any module `gitignore` block in the same file (provisioning README L294-302; D-156/D-189).
+# distinct from any module `gitignore` block in the same file.
 # Placed by the instantiator's apply step and re-asserted on upgrade, NOT declared by any manifest's
 # `wires` — the CODEOWNERS precedent (a foundation fence a library helper renders), so the orphan-wire
 # reverse coherence leg carves it out (see applied_engine_wires) and a module's uninstall reverser, which
@@ -572,7 +571,7 @@ def ontology_entry_reverse(directive: dict) -> dict:
 
 # Fence keys the FOUNDATION owns in .gitignore — a module `gitignore` wire must never claim one, or its
 # apply would collide with the foundation body and its uninstall reverser would rip out the foundation block
-# (which the orphan-wire carve-out then hides from coherence). Reserved and refused fail-closed (#409 U14).
+# (which the orphan-wire carve-out then hides from coherence). Reserved and refused fail-closed (#409).
 _RESERVED_GITIGNORE_KEYS = {FOUNDATION_IGNORES_FENCE}
 
 
@@ -687,7 +686,7 @@ def is_applied(directive: dict) -> bool:
     return False
 
 
-# ---- the orphan-wire REVERSE enumerator (applied -> declared; slice 25b) ----------------------
+# ---- the orphan-wire REVERSE enumerator (applied -> declared) ----------------------
 # The companion to is_applied()'s forward test: is_applied asks "is THIS declared directive applied?";
 # applied_engine_wires() asks "what engine-identified wiring is applied that may match NO directive?".
 # Both compute identity by the SAME rule (declared_wire_identity below) so the reverse-leg comparison
@@ -720,8 +719,7 @@ def _applied_fence_ids() -> list:
     pair via _find_fence; a malformed/half fence is skipped (the forward leg / fence_reverse surface it).
     Returns EVERY fence id, including the foundation FOUNDATION_IGNORES_FENCE — its carve-out from the
     orphan-wire reverse leg is applied one level up, in applied_engine_wires (it is a library-helper fence
-    no manifest declares, so the reverse leg must not treat it as undeclared module wiring — provisioning
-    README L296-299). This enumerator stays a pure "all fences" reader."""
+    no manifest declares, so the reverse leg must not treat it as undeclared module wiring). This enumerator stays a pure "all fences" reader."""
     pre, post = FENCE_BEGIN.split("{id}")
     lines = _read_text(GITIGNORE_PATH).split("\n")
     ids = []
@@ -747,7 +745,7 @@ def applied_engine_wires() -> list:
       - gitignore: each well-formed engine-managed MODULE fence id in .gitignore.
     PERMISSION (not engine-identifiable), ONTOLOGY-ENTRY (engine-owned catalog, covered by the ownership +
     catalog-coverage gates), and the foundation FOUNDATION_IGNORES_FENCE (a library-helper fence no manifest
-    declares — provisioning README L296-299) are excluded by construction — see declared_wire_identity and
+    declares) are excluded by construction — see declared_wire_identity and
     validate.orphan_wire_findings. Reads the live files with the same tolerant readers is_applied uses;
     an absent/unreadable file yields no entries for that seam (fail-open)."""
     out = []

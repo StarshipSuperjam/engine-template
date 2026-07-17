@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operator-runnable demo of boot's anti-habituation collapse — the standing-alarm presentation ledger (D-269).
+"""Operator-runnable demo of boot's anti-habituation collapse — the standing-alarm presentation ledger.
 
 It answers, in plain words, a question a non-engineer can't read code to verify: *when the same problem is
 still here next time I open a session, does the engine stop re-reading me the whole paragraph — while still

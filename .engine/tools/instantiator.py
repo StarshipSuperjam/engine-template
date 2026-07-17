@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""First-run setup orchestrator (core slice 27a) — the GATHER and CONFIRM half.
+"""First-run setup orchestrator — the GATHER and CONFIRM half.
 
 The instantiator stands a freshly-generated repo up: it derives the repo's coordinates, takes the
 operator's one non-derivable choice (the identity tier) and their feature selection, then writes the engine
@@ -8,14 +8,14 @@ selection and the engine's own guardrails. This file ships the **non-destructive
 (present the choices) and CONFIRM (write the checkpoint). The destructive/installing APPLY phase, the VERIFY
 pause, and self-RETIRE land in core slices 27b/27c.
 
-The signal model (provisioning README §gather→confirm→apply→verify→retire, ground-truthed):
+The signal model:
 - The instantiator's own presence is the "this repo is not set up yet" signal; it self-deletes at retire,
   so its absence means setup is done. Within a run, the **engine manifest** is the checkpoint — absent means
   the operator has not confirmed yet (re-offer everything), present means they have (resume the install).
   We key `is_provisioned()` off the manifest's presence; we introduce **no new state file** (the manifest is
   the checkpoint, by design).
 - THE DEGENERACY (the loudest line): this tool NEVER runs in the construction repo — `engine-template` is the
-  template tree, not a generated repo (stage-0 §6). Its only evidence is the fixture demonstration below,
+  template tree, not a generated repo. Its only evidence is the fixture demonstration below,
   which runs the real GATHER/CONFIRM logic against a throwaway generated-repo fixture. "Works on the fixture
   ⇒ works for a real adopter" is an inductive step the fixture cannot discharge — named, not hidden.
 
@@ -43,12 +43,12 @@ import bootstrap          # noqa: E402  (ControlPlane + render — the control-p
 import security_floor     # noqa: E402  (the native-scanning toggles — reuses ControlPlane's transport)
 
 # These sibling tools import only the Python standard library plus each other (validate binds its two
-# third-party packages LAZILY, slice 27b-pre), and every one carries `from __future__ import annotations`
+# third-party packages LAZILY), and every one carries `from __future__ import annotations`
 # (so an `X | None` annotation never evaluates at import) — both are LOAD-BEARING: the apply phase below
-# runs on the operator's SYSTEM python BEFORE it installs the engine's own 3.11+ tool-runtime (D-156), and
+# runs on the operator's SYSTEM python BEFORE it installs the engine's own 3.11+ tool-runtime, and
 # system python on macOS is 3.9. `test_instantiator` proves the whole chain imports + starts there.
 
-# The recognized SDLC discipline groups the optional features are presented under (D-067 / D-046: recognized,
+# The recognized SDLC discipline groups the optional features are presented under (recognized,
 # googleable labels the operator prefers), in a fixed order, each with a plain one-line gloss.
 _CATEGORY_ORDER = ("Product Management", "Software Configuration Management", "Verification & Validation")
 _CATEGORY_GLOSS = {
@@ -118,7 +118,7 @@ COPY_HEADINGS = {
     "state-reseeded": "Your project starts from a clean slate",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
-    # The finish (verify + tidy-up) phase — slice 27c.
+    # The finish (verify + tidy-up) phase.
     "verify-paused": "If something needs fixing before finishing",
     "verify-next-actions": "Your two ways forward",
     "verify-ok": "Setup checks out",
@@ -334,7 +334,7 @@ def is_provisioned(root: str | None = None) -> bool:
 def derive_identity(root: str | None = None) -> dict:
     """The repo coordinates read from git/GitHub (derive-first) — owner, name, and the protected branch.
     Best-effort: any field is None when it cannot be read, and the walkthrough says so rather than guessing.
-    (The operator handle, used later to render code-ownership, is captured in the apply phase — slice 27b.)"""
+    (The operator handle, used later to render code-ownership, is captured in the apply phase.)"""
     slug = boot.repo_slug()
     owner, name = slug.split("/", 1) if slug and "/" in slug else (None, None)
     return {"owner": owner, "name": name, "branch": boot.PROTECTED_BRANCH}
@@ -343,7 +343,7 @@ def derive_identity(root: str | None = None) -> dict:
 def selectable(catalog_entries: list) -> dict:
     """The catalog's optional features grouped by their SDLC discipline, in the fixed category order, ready to
     present as choices. Only the catalog set is offered — the always-present essentials (the required spine)
-    are never a choice (D-067). An entry whose category is unrecognized is grouped last under its own raw label
+    are never a choice. An entry whose category is unrecognized is grouped last under its own raw label
     rather than dropped (degrade, never hide a real option). All entries are presented uniformly today; a
     catalog `status` of `default-on` (added unless opted out) or `experimental` (opt-in) will want a distinct
     default-state/label — `owes →` whoever first populates the catalog (the catalog ships empty here)."""
@@ -358,16 +358,14 @@ def selectable(catalog_entries: list) -> dict:
 
 def optional_dependency_closure(manifests) -> dict:
     """For each OPTIONAL module, the OTHER OPTIONAL modules it transitively `depends` on — the
-    optional→optional pull-ins the gather step surfaces at the choice moment (provisioning §gather step 1:
-    "present module selection with its dependency closure"; "the closure still surfaces any optional→optional
-    dependency at confirm; it does not surface always-present required dependencies"). Always-present
+    optional→optional pull-ins the gather step surfaces at the choice moment. Always-present
     `required` dependencies (core, validators-core, …) are DELIBERATELY excluded — they are the spine, never
-    offered as a choice (D-067), so surfacing them would only add noise. `manifests` is the
+    offered as a choice, so surfacing them would only add noise. `manifests` is the
     (path, manifest) list module_coherence.discover_manifests yields.
 
     Vacuous today: every optional module depends only on core, so every list is empty. The mechanism is
     spec-mandated and armed for the first optional module that depends on another — v1 ships it complete, not
-    deferred (§20)."""
+    deferred."""
     depends, status = {}, {}
     for _path, manifest in manifests:
         mid = manifest.get("id")
@@ -393,7 +391,7 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
                    manifests=None) -> str:
     """The plain-language GATHER walkthrough the operator reads: the repo coordinates I derived, the one
     identity choice (plus a team-tier recommendation when an existing team is detected — brownfield arrival,
-    provisioning §identity-and-tokens; a suggestion, not a seizure), the optional features to pick from
+    a suggestion, not a seizure), the optional features to pick from
     (grouped by discipline, or the no-add-ons line when the catalog is empty), and the plain statement that
     not-kept add-ons are deleted on confirm. Pure text — no prompts, no writes; the skill/runbook does the
     asking. `team` (the detect_team result) and `manifests` (the discover_manifests list, for the
@@ -449,14 +447,14 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
 def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
             engine_release: str | None = None, handle: str | None = None,
             default_branch: str | None = None, manifests=None) -> dict:
-    """CONFIRM — write the engine manifest, the resumability checkpoint (D-024). Records the engine release,
+    """CONFIRM — write the engine manifest, the resumability checkpoint. Records the engine release,
     the identity tier, the kept package set (the always-present required spine plus the optional features the
     operator kept — an unkept optional is simply left out of the manifest, its files removed later in the
     apply phase, not here), the operator's handle when known (the preserved-config owner the apply phase
     renders code-ownership from), and the repo's derived default-branch name when known (the preserved-config
     coordinate offline classification reads — checkout_health's operator-checkout strand model, #342 — instead
     of a frequently-unset `origin/HEAD`), and the engine's update HOME carried forward from the traveled/seed
-    manifest (where the engine fetches its own updates from — D-281/D-282, #367). Each derived/carried field is
+    manifest (where the engine fetches its own updates from — #367). Each derived/carried field is
     omitted when None, keeping the manifest valid either way. This is the single committing step; before it,
     nothing is written. Returns the written path and the manifest. `root`, `engine_release`, `handle`,
     `default_branch`, and `manifests` (for the dependency closure) are injectable for tests and the demo."""
@@ -482,7 +480,7 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
         written["handle"] = handle
     if default_branch:
         written["default_branch"] = default_branch
-    # Carry the engine's update HOME forward from the traveled/seed manifest (D-281/D-282, #367): it is
+    # Carry the engine's update HOME forward from the traveled/seed manifest (#367): it is
     # seeded as data in the template and preserved across setup like the release, not derived here. Omitted
     # when absent so a manifest without it stays valid.
     home_repository = _existing_home_repository(root)
@@ -591,7 +589,7 @@ def _target_slug(target_root: str):
 
 
 def detect_team(*, root: str | None = None, slug: str | None = None, gh_api=None) -> dict:
-    """Brownfield team detection (provisioning §identity-and-tokens): does this project already have a team
+    """Brownfield team detection: does this project already have a team
     reviewing changes? Three READ-ONLY signals — a multi-owner CODEOWNERS (local), an existing required-review
     rule, or an organization-owned repo (both via `gh api`). Any one → a recommendation to use the team tier,
     NEVER a switch (the operator still chooses). Each network signal degrades to 'unknown' (not a false
@@ -627,7 +625,7 @@ def _existing_release(root: str | None = None) -> str | None:
 def _existing_home_repository(root: str | None = None) -> str | None:
     """The engine's HOME repository recorded in the traveled/existing manifest, if any — carried FORWARD so
     first-run setup preserves where the engine updates from (seeded as ground-truth data in the template's
-    committed manifest, never a code constant; D-281/D-282, #367). None when there is no readable manifest
+    committed manifest, never a code constant; #367). None when there is no readable manifest
     or it records no home (a repo generated before this coordinate shipped), in which case the field is
     simply left out and the update path refuses-with-a-remedy rather than guessing a home."""
     try:
@@ -638,14 +636,14 @@ def _existing_home_repository(root: str | None = None) -> str | None:
         return None
 
 
-# ==== APPLY (core slice 27b) — install the confirmed selection and turn on the engine's guardrails =====
+# ==== APPLY — install the confirmed selection and turn on the engine's guardrails =====
 #
-# The seven ordered, idempotent, manifest-driven apply steps (provisioning README §gather→…→apply). The
+# The seven ordered, idempotent, manifest-driven apply steps. The
 # phase runs on the operator's SYSTEM python; steps 1–3 need nothing extra, step 4 materializes the engine's
 # own tool-runtime (uv + the .venv), and steps 5–7 follow. Each step degrades INTERNALLY (it never crashes
 # the phase) — EXCEPT a degraded tool-runtime (step 4), which HALTS the phase, because steps 5–7 presuppose
 # a materialized runtime; a retry resumes from the manifest checkpoint. Apply ENDS after the control-plane
-# attempt — the verify/coherence pause and self-retire are the next phase (slice 27c).
+# attempt — the verify/coherence pause and self-retire are the next phase.
 #
 # THE DEGENERACY (unchanged from gather/confirm): none of this runs in the construction repo. The demo runs
 # the REAL step logic against a throwaway generated-repo fixture, faking ONLY the external boundaries (the
@@ -659,7 +657,7 @@ UV_PIN = "0.11.8"  # the pinned uv version to bootstrap — MUST match the commi
                    # test_instantiator.test_uv_pin_ties_to_every_ci_workflow_setup_uv_version — construction-
                    # coupled ON PURPOSE: UV_PIN is bootstrap-only and this file + that test both retire at
                    # first-run, so the tie lives with the instantiator rather than as a traveling check that
-                   # would reference retired code once the instantiator is gone (#411 U22 weighed and rejected
+                   # would reference retired code once the instantiator is gone (#411 weighed and rejected
                    # a first-class check here for exactly that reason).
 UV_INSTALL_DIR_REL = os.path.join(".engine", ".uv")
 UV_INSTALL_URL = f"https://astral.sh/uv/{UV_PIN}/install.sh"
@@ -671,7 +669,7 @@ def _codeowners_path() -> str:
 
 def _read_home_settings() -> dict:
     """The operator's OWN global Claude settings, read-only. The engine reads the interactive default from
-    here but NEVER writes `~/.claude` — the operator's global settings are the operator's (D-185). Returns
+    here but NEVER writes `~/.claude` — the operator's global settings are the operator's. Returns
     {} when absent or unreadable (the no-conflict path: adopt the safer default)."""
     path = os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
     try:
@@ -697,7 +695,7 @@ def _install_uv() -> str | None:
     installer. `UV_UNMANAGED_INSTALL` places the binary directly in that folder, edits no shell profile or
     environment, and disables self-update (so the engine controls the version). Returns the binary path on
     success, None on any failure (offline / blocked download / unsupported platform) — the caller degrades
-    LOUD and never falls back to system python (D-156)."""
+    LOUD and never falls back to system python."""
     import subprocess
     install_dir = os.path.join(validate.ROOT, UV_INSTALL_DIR_REL)
     os.makedirs(install_dir, exist_ok=True)
@@ -752,7 +750,7 @@ def _apply_delete_unselected(manifest: dict, say) -> dict:
 
 def _apply_foundation_ignores(say) -> dict:
     """STEP (foundation ignores) — place the engine's keyed `.gitignore` fence (`.engine/.venv/`,
-    `.engine/.uv/`, `.claude/worktrees/`) via the wiring library helper (#409 U14). Runs BEFORE codeowners so
+    `.engine/.uv/`, `.claude/worktrees/`) via the wiring library helper (#409). Runs BEFORE codeowners so
     the file exists when `codeowners_path_set()` globs it (the `/.gitignore @owner` line renders on first
     brownfield apply), and pre-runtime so a tool-runtime halt still leaves `.venv/` ignored — the strand
     pre-check's clean-tree read stays true. Idempotent (fence_apply inserts iff absent); fails open (the
@@ -765,7 +763,7 @@ def _apply_foundation_ignores(say) -> dict:
 def _apply_codeowners(handle, say, copy) -> dict:
     """STEP 2 — render the engine's code-ownership block so any change to the engine's own files routes to
     the operator for review. The owner is the stored handle; with no handle the renderer refuses, so the step
-    DEGRADES (announce + skip), never crashes (Q7). Write-iff-changed (idempotent). Delegates the path set
+    DEGRADES (announce + skip), never crashes. Write-iff-changed (idempotent). Delegates the path set
     (module_coherence.codeowners_path_set — which self-adds CODEOWNERS so the block owns its own routing
     rule from the first render) and the render-and-write (wiring.apply_codeowners) to the shared home an
     engine upgrade's re-render also uses, so the two render sites cannot drift."""
@@ -785,14 +783,13 @@ def _apply_codeowners(handle, say, copy) -> dict:
 
 def _apply_plan_mode(home_reader, settings_path, consent, say, copy) -> dict:
     """STEP 3 — recommend the planning permission-mode as this repo's interactive default, obeying
-    yield-to-the-operator (D-185). Read the operator's existing default read-only — BOTH the GLOBAL default
+    yield-to-the-operator. Read the operator's existing default read-only — BOTH the GLOBAL default
     (`~/.claude`, never written) AND, on brownfield, any default this project's own committed
-    `.claude/settings.json` already carries (provisioning README L214-226: "on brownfield also any pre-existing
-    project settings"). With no conflicting preference (or one already planning) ADOPT plan into the project
+    `.claude/settings.json` already carries. With no conflicting preference (or one already planning) ADOPT plan into the project
     settings with a plain disclosure; on a conflict OFFER adopt-or-keep once — keep writes nothing / leaves the
     project value exactly as it is (the yield). The project scalar is checked INDEPENDENTLY of the global value:
     a committed project default is a recorded operator decision in THIS repo, so a global default of plan/unset
-    must never license silently overwriting it (#409 U17). Idempotent: a project default already set to planning
+    must never license silently overwriting it (#409). Idempotent: a project default already set to planning
     is a no-op. The project write is surgical (preserves the operator's other settings)."""
     proj_path = settings_path or wiring.SETTINGS_PATH
     proj, err = wiring._read_json_tolerant(proj_path, create=True)
@@ -939,8 +936,7 @@ def _seed_security(say, copy=None) -> str:
 
 # The engine's marketing landing-front marker — an invisible HTML comment the template's root README LEADS WITH
 # (and the product starter deliberately does NOT carry). It is the ONE positive-match the README seed/replace fires
-# on, so the replace can only ever touch the engine's own landing page, never operator content (D-213/D-214,
-# topology law 2). The landing front LEADS with this marker (the recognizer requires it at the file's start, not
+# on, so the replace can only ever touch the engine's own landing page, never operator content. The landing front LEADS with this marker (the recognizer requires it at the file's start, not
 # merely somewhere inside) — so a README that only mentions the marker in passing is NOT a match and is preserved
 # (the conservative preserve-on-any-doubt law; #134 authors the marketing copy BELOW this leading marker). Stable
 # across marketing-copy rewrites; a fingerprint would instead need updating on every wording tweak or the replace
@@ -949,8 +945,8 @@ def _seed_security(say, copy=None) -> str:
 _MARKETING_SEED_MARKER = "<!-- engine-template:landing-front -->"
 
 # A minimal, valid product-starter README used only when the maintainer's template seed is absent or empty — never
-# an error (the same fallback shape as _DEFAULT_SECURITY_MD). It carries the D-067 required-spine disclosure in plain
-# operator language (no maintainer vocabulary) and the D-095 no-automated-style-floor gap, and it carries NO marker.
+# an error (the same fallback shape as _DEFAULT_SECURITY_MD). It carries the required-spine disclosure in plain
+# operator language (no maintainer vocabulary) and the no-automated-style-floor gap, and it carries NO marker.
 _DEFAULT_README_MD = (
     "# Your project\n\n"
     "<!-- Replace this with your project's name and a one-line description of what it does. This starter was\n"
@@ -984,8 +980,7 @@ def _is_marketing_seed(text) -> bool:
 
 def _seed_readme(say, copy=None) -> str:
     """Seed the product's own starter README over the engine's marketing landing front — the seed-then-own pattern,
-    the same SHAPE and DISCLOSURE as _seed_security, but REPLACE-IFF-MARKETING-SEED instead of copy-if-absent
-    (D-213/D-214). At rest in the template the root README is the engine's marketing landing front; "Use this
+    the same SHAPE and DISCLOSURE as _seed_security, but REPLACE-IFF-MARKETING-SEED instead of copy-if-absent. At rest in the template the root README is the engine's marketing landing front; "Use this
     template" copies it to a generated repo's root, which topology reserves for the product. Apply replaces it with
     a product starter, but ONLY where the current root README still carries the engine's own recognizable marketing
     marker (_is_marketing_seed). Conservative positive-match-or-preserve: greenfield (the traveled marketing front)
@@ -1024,7 +1019,7 @@ def _seed_readme(say, copy=None) -> str:
 
 # The engine's own shipped template LICENSE and its recognizer live in the permanent `license_seeds` module,
 # shared with the standing foreign-`LICENSE`-seed detector (license_health.py). That detector outlives this
-# FIRST-RUN-RETIRED file, so the seed set cannot live here (D-302/D-305, #471). These aliases keep the
+# FIRST-RUN-RETIRED file, so the seed set cannot live here (#471). These aliases keep the
 # first-run clear's call sites — and the retiring parity test that binds the seed to the committed root
 # LICENSE — unchanged. The recognizer is a whitespace-normalized FULL-TEXT match: an adopter who chose
 # another license, or who kept this text but renamed the Licensor/copyright to themselves, is PRESERVED.
@@ -1035,7 +1030,7 @@ _is_template_license = license_seeds.recognize
 def _seed_license(say, copy=None) -> str:
     """Clear the engine's OWN traveled template LICENSE at greenfield first-run — the reconcile-the-root pattern, the
     same SHAPE and DISCLOSURE as the README/SECURITY seeds, but CLEAR-IFF-TEMPLATE-SEED and seeding NO replacement (a
-    license is the adopter's legal choice, never the engine's to make; topology law 2, D-221/D-222). At rest the
+    license is the adopter's legal choice, never the engine's to make). At rest the
     template ships a stock Apache-2.0 + Commons Clause LICENSE (its author's copyright) so the public template repo is legally usable; "Use
     this template" copies it to a generated repo's root, where it would govern the ADOPTER's product. Apply DELETES
     it, but ONLY where the current root LICENSE still positively matches the engine's own shipped template-license
@@ -1078,7 +1073,7 @@ _ROOT_CLAUDE_REL = "CLAUDE.md"
 _DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
 # The floor is written as a keyed, comment-fenced engine section (the Markdown/HTML style) so it can later
 # co-exist inside a brownfield operator's own CLAUDE.md and be keyed-merged on upgrade rather than
-# replaced wholesale (repository-topology law 1; #234). Same fence id the upgrade overlay's keyed-merge uses.
+# replaced wholesale (#234). Same fence id the upgrade overlay's keyed-merge uses.
 _FLOOR_FENCE = "floor"
 
 
@@ -1128,7 +1123,7 @@ def _seed_deployed_floor(say, copy=None) -> str:
     "present". NEVER STRANDS: if CLAUDE.md is the construction file but the floor source is missing/unreadable/
     empty, it preserves the construction file rather than deleting it with nothing to put in its place (returns
     "present") — impossible on a real template copy, but the safe degrade. The root CLAUDE.md is engine-owned
-    foundation infrastructure (repository-topology law 1); the operator's OWN stance lives in their codes of
+    foundation infrastructure; the operator's OWN stance lives in their codes of
     conduct (preserved across an overlay), so the disclosure points customization at /engine-conduct rather than
     inviting edits to CLAUDE.md. Discloses, in plain language, WHAT CHANGED — only when it actually swaps (never
     silent, never on a no-op). Paths are validate.ROOT-relative, so a redirected demo/test touches only the
@@ -1171,7 +1166,7 @@ def _seed_deployed_floor(say, copy=None) -> str:
     return "swapped"
 
 
-# The genesis cursor a brand-new project starts from (U16 / D-059 state.v1 field descriptions: both
+# The genesis cursor a brand-new project starts from (state.v1 field descriptions: both
 # standing-situation pointers null, the debt count zero, the register null until the project sets one).
 # Provably schema-valid (a test binds it to state.v1.json), so a re-seeded generated repo never ships a
 # cursor read_state would then refuse.
@@ -1184,7 +1179,7 @@ _STATE_REL = os.path.join(".engine", "state", "state.json")
 
 
 def _seed_state(say, copy=None) -> str:
-    """Reset a generated repo's committed state cursor to genesis at first-run (U16), so a fresh project does
+    """Reset a generated repo's committed state cursor to genesis at first-run, so a fresh project does
     not inherit the engine's OWN construction cursor — the workshop phase, debt count, and register URL that
     "Use this template" copies in verbatim (it would otherwise surface on an offline/degraded first boot and
     sit in the committed file). Seed-then-own, but RISK-ORIENTED for state: the traveled cursor carries NO
@@ -1214,7 +1209,7 @@ def _seed_state(say, copy=None) -> str:
     own = boot.repo_slug()
     # SEGMENT-anchored match (not a bare substring): a register URL is `…/OWNER/REPO/issues?…`, so the own
     # slug must appear as a whole `/OWNER/REPO/` path segment (or trailing) — else `acme/engine` would falsely
-    # match `…/acme/engine-template/…` and wrongly PRESERVE a borrowed cursor (the leak U16 exists to prevent).
+    # match `…/acme/engine-template/…` and wrongly PRESERVE a borrowed cursor (the leak this match exists to prevent).
     if own and (f"/{own}/" in register or register.rstrip("/").endswith(f"/{own}")):
         return "present"                          # register names THIS repo -> operator's own cursor -> preserve
     try:                                          # foreign / traveled register (or unknown origin past the belt) -> reset
@@ -1231,7 +1226,7 @@ def _seed_state(say, copy=None) -> str:
 def _apply_substrates(say, copy=None) -> dict:
     """STEP 5 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
     re-derive the knowledge graph (idempotent), confirm the state seed is present AND reset a traveled
-    construction cursor to a clean genesis start (U16, AFTER the floor swap so its construction-repo belt is
+    construction cursor to a clean genesis start (AFTER the floor swap so its construction-repo belt is
     valid), seed the operator's codes-of-conduct override from the template seed, seed a root SECURITY.md
     disclosure channel, seed the
     product's own starter README over the engine's marketing landing front, clear the traveled template
@@ -1267,7 +1262,7 @@ def _apply_wires(say) -> dict:
     """STEP 6 — install EVERY kept module's wiring: the hooks (boot, the exploration write-gate, the close
     gate, the commit-boundary refresh), the knowledge query server, and the cache ignores. Until this runs a
     generated repo's settings carry no engine hooks, so the engine is inert — this is the step that turns it
-    on (provisioning README L110–114). Reuses wiring.apply_all exactly as module-add does; insert-iff-absent
+    on. Reuses wiring.apply_all exactly as module-add does; insert-iff-absent
     (idempotent)."""
     applied = []
     for _p, m in module_coherence.discover_manifests():
@@ -1346,7 +1341,7 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     the manifest is absent — apply presupposes a confirmed selection. The handle is the passed one, else the
     one the manifest stored. Returns a step ledger: {refused, halted, steps:[…]}. A degraded tool-runtime
     sets `halted` and the remaining steps are not attempted (they presuppose the runtime); every other step
-    degrades in place. Apply does NOT verify, pause, or retire (slice 27c). Every external boundary is
+    degrades in place. Apply does NOT verify, pause, or retire. Every external boundary is
     injectable, so this runs the REAL control flow under a fixture with nothing real touched."""
     say = announce if announce is not None else (lambda text: print(text))
     copy = load_copy()
@@ -1371,14 +1366,14 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     return {"refused": False, "halted": False, "steps": steps}
 
 
-# ==== VERIFY + RETIRE (core slice 27c) — the first-run lifecycle close =================================
+# ==== VERIFY + RETIRE — the first-run lifecycle close =================================
 #
 # After apply installs the selection and turns the guardrails on, VERIFY confirms the result is consistent
 # and RETIRE tidies the one-time setup assets away. Both run in the SAME system-python instantiator process
 # as apply (they reuse only stdlib + sibling tools — check_coherence and knowledge_gen.generate read JSON +
 # walk the tree, never yaml/jsonschema), so they start on a bare adopter machine like the rest of the phase.
 #
-# The locked ordering (provisioning README §verify/§retire, ground-truthed): a HARD consistency finding at
+# The locked ordering: a HARD consistency finding at
 # verify PAUSES — the engine never proceeds on something inconsistent — and surfaces, in plain language, what
 # is wrong and the two next actions (fix and re-run — resumable from the checkpoint, nothing lost — or stop
 # and report). Retire then self-deletes the orchestrator + first-run assets, but ONLY on a consistent setup:
@@ -1397,13 +1392,13 @@ _FIRST_RUN_ASSET_FILES = (
     # The SECURITY.md-seed test + its demo exercise first-run-only machinery (instantiator._seed_security) and
     # import the retired instantiator / test_instantiator, so they retire in the SAME pass — else they survive
     # into a generated repo and abort its first `unittest discover` at collection (the first-run reference-closure
-    # invariant, engine-planning D-219/D-220). The .engine/provisioning/first-run-assets.json manifest mirrors
+    # invariant). The .engine/provisioning/first-run-assets.json manifest mirrors
     # this list (parity-tested) so the closure check can read the retired set without importing the instantiator.
     ".engine/tools/test_security_seed.py",
     ".engine/tools/demo_security_seed.py",
     # Construction-phase behavioral demos: falsifications over real engine surfaces that are maintainer build
     # evidence, not operator capability — so they retire here rather than travel into a generated repo
-    # (engine-planning D-228; a construction demo does not travel unless promoted by an explicit logged
+    # (a construction demo does not travel unless promoted by an explicit logged
     # decision). Unlike the security-seed pair above, these reference no retiring machinery; they retire only
     # so the construction set does not ship as a junk drawer. Each is mirrored in first-run-assets.json
     # (parity-tested). The per-tool `demo` subcommand convention is the promoted standing form, decided upstream.
@@ -1421,11 +1416,11 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_state_cursor_honesty.py",
     # #424 U13a: nine further construction demos brought into the census. Each is maintainer build evidence,
     # imported by NOTHING (no surviving tool or test reaches them) and wired to no operator capability, so they
-    # retire here rather than travel into a generated repo (D-228). Five OTHER out-of-census demos are
+    # retire here rather than travel into a generated repo. Five OTHER out-of-census demos are
     # deliberately NOT walled — demo_pr_reconcile (a subcommand delegate of the surviving pr_reconcile.py) and
     # demo_actionlint / demo_secret_scan / demo_security_floor / demo_first_run_reference_closure (each imported
     # by a traveling companion test): walling any of them would dangle that surviving reference (the reference-
-    # closure invariant, D-219/D-220). The census-completeness check (engine/check/census-completeness) guards
+    # closure invariant). The census-completeness check (engine/check/census-completeness) guards
     # this boundary going forward, so this set cannot silently drift again.
     ".engine/tools/demo_map_reachability.py",
     ".engine/tools/demo_audit_soft_findings.py",
@@ -1445,12 +1440,12 @@ _FIRST_RUN_ASSET_FILES = (
     # construction-scoped (self-no-ops outside this repo) yet is deliberately NOT retired here. Its check.json
     # (.engine/check/memory-pointer-public-safety.json) travels in validators-core `provides.check`, so retiring
     # the script would leave that check pointing at a deleted file — a first-run reference-closure violation (the
-    # #411 U22 trap). It ships and harmlessly no-ops in a generated repo; that is the correct fate, not an
+    # #411 trap). It ships and harmlessly no-ops in a generated repo; that is the correct fate, not an
     # oversight. (It is not a demo_*.py, so the census-completeness check does not enumerate it.)
     # The committed audit self-review digest is THIS template repo's own construction history — a generated repo
     # must not boot reporting a self-review it never ran, nor read the template's findings as its own. So it
     # retires at first-run: a fresh repo starts with no inherited digest (its absence is the honest "not yet
-    # self-reviewed" state), and the audit cron writes a genuine one on its first run (#404 F0195). Unlike every
+    # self-reviewed" state), and the audit cron writes a genuine one on its first run (#404). Unlike every
     # other asset here — which are construction-only and gone for good — this one stays in audit-library's
     # `provides` and is REGENERATED by the audit cron, so the first-run reference-closure check names it in its
     # narrow _REGENERATED_RETIRED_ASSETS allowlist (a surviving reference to it is not a dangling reference).
@@ -1461,7 +1456,7 @@ _FIRST_RUN_ASSET_FILES = (
     # The engine's marketing banner — go-to-market content referenced only by the template's marketing landing
     # README, carried into every generated repo by "Use this template". Retired at first-run alongside the README
     # reseed (the product starter references no banner), so a generated repo carries no engine marketing residue
-    # (repository-topology law 1; D-213/D-214, #410 U27). Retired as the specific FILE, not the `assets/`
+    # (#410). Retired as the specific FILE, not the `assets/`
     # directory: retire() ALSO runs on the brownfield "add the engine to an existing project" arrival, where
     # `assets/` is the OPERATOR's own directory (the engine provides no `assets/`) — a whole-dir rmtree there
     # would delete their files. Targeting just the banner is provenance-precise: it is absent in brownfield (a
@@ -1556,7 +1551,7 @@ def retire(*, root=None, announce=None) -> dict:
         else:
             already.append(rel)
     # Derive the retiring tool-module stems from the census itself (single source) — every `.engine/tools/*.py`
-    # in _FIRST_RUN_ASSET_FILES, so this can never drift out of sync with the retire set (#424 U13; it was a
+    # in _FIRST_RUN_ASSET_FILES, so this can never drift out of sync with the retire set (#424; it was a
     # hand-maintained partial copy before). Bytecode drop is best-effort hygiene, so a wider-but-correct set is
     # strictly fine.
     _tool_stems = tuple(os.path.splitext(os.path.basename(rel))[0]
@@ -1607,7 +1602,7 @@ def _redirect_root(root: str):
 # A representative subset of core's real wiring for the fixture: hooks across the gating events (boot at
 # session start, the exploration write-gate + commit-boundary refresh on PreToolUse, the close gate on Stop),
 # the knowledge query server, and a cache ignore. The apply phase installs ALL of these — proving a generated
-# repo gets its HOOKS, not only its query server (provisioning README L110–114), into a hook-less settings.
+# repo gets its HOOKS, not only its query server, into a hook-less settings.
 _FIXTURE_CORE_WIRES = [
     {"type": "hook", "event": "SessionStart", "matcher": "startup",
      "hook": {"type": "command", "command": "${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python .engine/tools/boot.py"}},
@@ -1641,7 +1636,7 @@ def _build_fixture(root: str) -> None:
                               # the globs that own the first-run assets the finish-demo plants + retires; the
                               # base fixture has no files under these dirs, so they claim nothing here (apply
                               # is unaffected) and own the planted assets once the finish fixture plants them.
-                              # `audits` owns the planted audit digest (retired-but-provided, #404 F0195):
+                              # `audits` owns the planted audit digest (retired-but-provided, #404):
                               # in the real repo audit-library provides it; here core's glob stands in.
                               "tool": [".engine/tools/*.py"],
                               "operation": [".engine/operations/*.md"],
@@ -2323,8 +2318,7 @@ def _finish_apply(tmp: str) -> dict:
 # When the engine joins an ALREADY-POPULATED project (brownfield), it inspects the project for any overlap
 # between what it would add and what is already there, and SURFACES each overlap in plain language with a
 # concrete consequence + a three-way choice (accept / leave-as-is / abort) — never a raw path-versus-pattern
-# report, and it NEVER silently overwrites (provisioning README §greenfield-and-brownfield; topology §the
-# wall). Three kinds of overlap:
+# report, and it NEVER silently overwrites. Three kinds of overlap:
 #   1. a product file sitting where the engine keeps its own files (the engine would replace it),
 #   2. product content in a file the engine and the project both use (the engine adds its own marked section
 #      and keeps the rest), and
@@ -2339,8 +2333,8 @@ def _finish_apply(tmp: str) -> dict:
 # The engine path set is INJECTED so a test/demo can pass a real one; it defaults to the engine's own owned set.
 
 # The platform-shared root files the engine co-occupies: it adds only its OWN marked/keyed entries and leaves
-# the project's content alone (topology §the wall L40-49). An EXPLICIT set — there is no path constant for the
-# root project guide, and it must CO-EXIST (never be seized, topology L49) — so a pre-existing one is surfaced
+# the project's content alone. An EXPLICIT set — there is no path constant for the
+# root project guide, and it must CO-EXIST (never be seized) — so a pre-existing one is surfaced
 # as additive, never as "the engine would replace it". (CODEOWNERS is a shared file too, but its meaningful
 # overlap is the review-rule shadow — class 3 — so it is handled there, not double-reported here.)
 _COLLISION_SHARED = (".gitignore", ".mcp.json", ".claude/settings.json", "CLAUDE.md")
@@ -2431,7 +2425,7 @@ def _shared_state(rel: str, path: str) -> str:
         return "resume" if _json_has_engine_entry(rel, data) else "additive"
     if rel == "CLAUDE.md":
         # Fence-aware: the engine's CLAUDE.md section shape IS the `floor` fence (wiring.MD_FENCE, the
-        # HTML-comment style, #234 slice 6a). An already-present engine floor is a 'resume' (no flag); a
+        # HTML-comment style, #234). An already-present engine floor is a 'resume' (no flag); a
         # pre-existing project guide with no engine floor is 'additive' (the engine inserts its keyed section
         # and keeps the rest). Mirrors the .gitignore branch below, but with the Markdown begin-token.
         text = _read_text_opt(path)
@@ -2531,7 +2525,7 @@ def collision_check(*, root=None, engine_paths=None, copy=None) -> dict:
 def _insert_floor(release_tree: str) -> str:
     """Insert the engine's root-CLAUDE.md floor into the LIVE project's own CLAUDE.md on arrival — the engine
     `floor` fence, keyed and APPEND-when-absent (wiring.fence_apply, MD_FENCE), so an operator's existing guide
-    keeps all its content and the engine adds its section below it (repository-topology law 1). The floor body
+    keeps all its content and the engine adds its section below it. The floor body
     is read from the RELEASE's CLAUDE.deployed.md (NOT its construction-governance CLAUDE.md, and not the target
     — CLAUDE.deployed.md is not overlaid). This is the INSERT-on-arrival counterpart to module_manager's
     SKIP-on-absent _merge_claude_floor (the upgrade path, which must never duplicate a floor): arrival is the
@@ -2564,7 +2558,7 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
            home_reader=None, settings_path=None, uv_present=None, uv_installer=None, uv_runner=None,
            consent=None, control_transport=None, gh_refresh=None, control_issues=None,
            control_repo=None, control_token=None) -> dict:
-    """BROWNFIELD ARRIVAL (provisioning §greenfield-and-brownfield; #234) — overlay the engine onto a LIVE
+    """BROWNFIELD ARRIVAL (#234) — overlay the engine onto a LIVE
     product tree and run the SAME instantiator, with the collision check as the one brownfield-only gate. The
     engine isn't on the target yet, so this runs from the EXTRACTED release (`release_tree`, the documented
     bootstrap's temp extraction) and is the SOLE writer to the live tree (`target_root`); ROOT is bound to the

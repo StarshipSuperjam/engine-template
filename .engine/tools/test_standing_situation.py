@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the read-only "where we are" derivation (engine-template #100; D-198 -> D-199).
+"""Self-tests for the read-only "where we are" derivation (engine-template #100).
 
 These lock the load-bearing behaviours a non-engineer cannot read code to verify:
   - `milestone` is the active open Milestone's title, or None when there are none ("none set" is the honest
@@ -197,7 +197,7 @@ class TestWhereLinesRendersTheRealCard(unittest.TestCase):
     """`_where_lines` renders the REAL boot dashboard over a hand-built signals dict to extract the
     'Where we are' block. render_dashboard reads its signals by HARD SUBSCRIPT, so this guards that the
     hand-built dict stays complete: a new boot signal not added here would KeyError this operator-runnable
-    demo path — caught here in the suite, not only when the operator runs the demo. (audit-library 3c added
+    demo path — caught here in the suite, not only when the operator runs the demo. (a later change added
     `audit_stale`; this is the test that would have caught the missing key.)"""
 
     def test_renders_without_keyerror_and_returns_the_standing_block(self):

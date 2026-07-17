@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Self-tests for the spec-obligation matrix (product_design/obligation_matrix.py) — the derived-committed
-criterion-by-criterion record of a product's settled acceptance criteria and its §20-safe drift gate.
+criterion-by-criterion record of a product's settled acceptance criteria and its MVP-safe drift gate.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
@@ -9,7 +9,7 @@ These lock the load-bearing facts nothing else does:
     content digest AT the validated table position; `draft`/`stub` docs contribute none; the digest is stable
     under whitespace but moves on a real re-wording; two identical criteria are disambiguated by position.
   - render is deterministic (derive-twice-and-compare is a valid equality test — the fingerprint discipline).
-  - the drift gate is §20-safe: nothing settled ⇒ SOFT disclosed no-op whatever the committed side (never a
+  - the drift gate is MVP-safe: nothing settled ⇒ SOFT disclosed no-op whatever the committed side (never a
     hard block); a present, non-empty, in-sync matrix ⇒ note (silent pass); genuine drift ⇒ HARD.
   - the negative fixture the checker-of-checkers witnesses actually bites (a settled spec + a stale committed
     matrix ⇒ HARD), so hard-check-bite is not vacuous.
@@ -115,12 +115,12 @@ class TestDriftGateIsSection20Safe(unittest.TestCase):
         finally:
             import shutil
             shutil.rmtree(root, ignore_errors=True)
-        self.assertEqual(f["severity"], "soft", "no settled spec must never be a hard block (§20)")
+        self.assertEqual(f["severity"], "soft", "no settled spec must never be a hard block")
 
     def test_stale_nonempty_committed_against_empty_derivation_is_hard(self):
         """A capability un-settled (locked->draft) leaves the committed matrix with stale rows while the
         derivation is empty — real drift the gate must catch, not falsely report as 'nothing to record'
-        (deliverable-gate serious, #454). An empty/absent committed side stays soft (the true MVP, §20)."""
+        (deliverable-gate serious, #454). An empty/absent committed side stays soft (the true MVP)."""
         root = _seed({"README.md": "hi"})  # no docs/spec -> canonical empty
         try:
             with tempfile.TemporaryDirectory() as d:
@@ -131,7 +131,7 @@ class TestDriftGateIsSection20Safe(unittest.TestCase):
                 self.assertEqual(om.check(p, root)["severity"], "hard",
                                  "a stale rows-bearing matrix against an empty spec must be hard, not a false no-op")
                 om.write_matrix(om.render({"schema_version": 1, "source": "docs/spec", "rows": []}), p)
-                self.assertEqual(om.check(p, root)["severity"], "soft", "an empty committed side stays soft (§20)")
+                self.assertEqual(om.check(p, root)["severity"], "soft", "an empty committed side stays soft")
         finally:
             import shutil
             shutil.rmtree(root, ignore_errors=True)

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The operator policy-override FILE reader (core slice 26c) — the single home for reading the
+"""The operator policy-override FILE reader — the single home for reading the
 per-deployment tuning file the `/engine-tune` command writes.
 
 The override is committed **operator config**: a per-deployment file that supersedes named policy
-tuning values per-key at read time (D-167; policies/README §Per-deployment value override). Its shape
+tuning values per-key at read time. Its shape
 is `{policy_id: {key: value}}` — one slice per policy, each a flat map of tuning key to a plain number.
 It is **absent until the operator first tunes a value**, and it is **preserved across an engine update**
-(claimed by no module + the operator-config carve-out in the ownership leg, module-system §Coherence).
+(claimed by no module + the operator-config carve-out in the ownership leg).
 
 This module is a thin, pure READER and nothing more — it never writes (that is the verb tool
 `tune.py`), never merges (that is `validate.effective_policy_values`, the core merge the consumers
@@ -28,8 +28,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 
-# Committed operator config, top-level under .engine/ beside engine.json (topology law 5,
-# "configuration is not data"); preserved across an engine update. Absent until the first tune.
+# Committed operator config, top-level under .engine/ beside engine.json
+# (configuration, not engine data); preserved across an engine update. Absent until the first tune.
 OVERRIDES_PATH = os.path.join(validate.ENGINE_DIR, "operator-overrides.json")
 
 

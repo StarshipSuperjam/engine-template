@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Self-tests for the module manager — slice 25b `remove` + the group-scoped uv-sync derivation, slice 25c
-PR-1 `add` (fetch/overlay), and slice 25c PR-2 the engine `upgrade`/updater + the migrations machinery
+"""Self-tests for the module manager — `remove` + the group-scoped uv-sync derivation, `add`
+(fetch/overlay), and the engine `upgrade`/updater + the migrations machinery
 (select/run, the no-backup guard, the version-stamp check, and the frozen-check-name invariant).
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -157,10 +157,10 @@ class TestRemoveEndToEnd(unittest.TestCase):
 
 
 class TestRemoveDeletesProvidesAtAnyPath(unittest.TestCase):
-    """#409 U16: per-module remove() deletes a module's sole-owned provides regardless of path — so a removed
-    module's .claude/ personas + skills do not orphan on disk (before U16 the deletion was gated to .engine/,
+    """#409: per-module remove() deletes a module's sole-owned provides regardless of path — so a removed
+    module's .claude/ personas + skills do not orphan on disk (before this fix the deletion was gated to .engine/,
     leaving e.g. a removed /engine-design skill live and erroring). The manifest-derived reversal law
-    (provisioning README L546-551 / L773-777) deletes the engine-identified files a module provides, wherever
+    deletes the engine-identified files a module provides, wherever
     they live — matching what whole-engine remove_engine already does."""
 
     def test_remove_deletes_a_claude_skill_provide_not_only_engine_files(self):
@@ -283,7 +283,7 @@ class TestAddSafety(unittest.TestCase):
             self.assertNotIn("feat", (engine or {}).get("packages", {}))
 
     def test_add_fetches_from_the_recorded_home_never_origin(self):
-        # A module's files come from the engine's recorded HOME, never this repo's own origin (#367, D-281).
+        # A module's files come from the engine's recorded HOME, never this repo's own origin (#367).
         seen = {}
         with tempfile.TemporaryDirectory() as d:
             live = os.path.join(d, "live")
@@ -411,7 +411,7 @@ class TestRunMigrations(unittest.TestCase):
     backup seam (a side-effect boundary) is faked."""
 
     def setUp(self):
-        # A data migration now raises an in-flight marker under memory's dir (#396 U26); isolate ENGINE_MEMORY_DIR
+        # A data migration now raises an in-flight marker under memory's dir (#396); isolate ENGINE_MEMORY_DIR
         # to a throwaway so the window never touches the real store (nor flakes on a concurrent session's lock).
         self._memtmp = tempfile.TemporaryDirectory()
         self._prev_mem = os.environ.get("ENGINE_MEMORY_DIR")
@@ -532,7 +532,7 @@ class TestRunMigrations(unittest.TestCase):
             self.assertEqual(calls, [("m@0.2.0", True), ("m@0.3.0", False)])   # floor = first data migration only
 
     def test_a_data_migration_runs_inside_an_in_flight_window_that_clears_after(self):
-        # U26 (#396): the marker is present DURING the migration (the body reads it) and lowered AFTER.
+        # (#396): the marker is present DURING the migration (the body reads it) and lowered AFTER.
         from memory import capture, ledger
         with tempfile.TemporaryDirectory() as d:
             seen = os.path.join(d, "seen.txt")
@@ -552,7 +552,7 @@ class TestRunMigrations(unittest.TestCase):
 
     def test_a_data_migration_is_refused_when_the_window_cannot_open(self):
         # Fail CLOSED: a held single-writer lock => the marker can't be raised => the migration is REFUSED, never
-        # run marker-less (the exact interleave U26 prevents). The body must not run.
+        # run marker-less (the exact interleave this prevents). The body must not run.
         from memory import capture, ledger
         with tempfile.TemporaryDirectory() as d:
             ran = os.path.join(d, "ran.txt")
@@ -608,7 +608,7 @@ class TestVersionStamp(unittest.TestCase):
 
     def test_the_finding_message_is_plain_peer_voice_and_carries_no_raw_ref(self):
         # the promoted Issue body is operator-facing (boot.open_findings renders it): plain peer voice, never a
-        # tag/ref/version-machinery (D-265 S1 — the operator meets a plain handle, not the mechanism).
+        # tag/ref/version-machinery (the operator meets a plain handle, not the mechanism).
         f = module_manager.stamp_mismatch_finding(
             "recall-ledger", "2.0.0", "1.0.0", "ask me to restore the copy saved before the last update")
         msg = f["message"]
@@ -719,7 +719,7 @@ class TestUpgradeSafety(unittest.TestCase):
             self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.0.0")   # unchanged
 
     def test_upgrade_resolves_and_fetches_from_the_recorded_home_never_origin(self):
-        # BOTH the latest-ref resolution and the release fetch target the engine's recorded HOME (#367, D-281).
+        # BOTH the latest-ref resolution and the release fetch target the engine's recorded HOME (#367).
         seen = {}
         with tempfile.TemporaryDirectory() as d:
             live = os.path.join(d, "live")
@@ -802,7 +802,7 @@ class TestUpgradeSafety(unittest.TestCase):
         self.assertNotIn("network", res["reason"].lower())             # not the transport-degrade wording
 
     def test_upgrade_preserves_the_recorded_home_across_the_version_bump(self):
-        # Law 1 (D-281): engine.json is preserved-not-overlaid, so a successful upgrade keeps the home while
+        # engine.json is preserved-not-overlaid, so a successful upgrade keeps the home while
         # the module versions DO bump.
         opened = []
         with tempfile.TemporaryDirectory() as d:
@@ -819,7 +819,7 @@ class TestUpgradeSafety(unittest.TestCase):
         self.assertEqual((engine or {}).get("packages", {}).get("base"), "0.2.0")     # but versions bumped
 
     def test_upgrade_reasserts_the_foundation_gitignore_fence_and_keeps_operator_lines(self):
-        # #409 U14: the foundation fence is release-evolvable — an upgrade re-applies it (like the CODEOWNERS
+        # #409: the foundation fence is release-evolvable — an upgrade re-applies it (like the CODEOWNERS
         # re-render / CLAUDE.md floor merge), so a repo provisioned before/without it converges, and an
         # operator's own ignore lines are preserved (block-scoped apply, never a wholesale overlay).
         with tempfile.TemporaryDirectory() as d:
@@ -875,7 +875,7 @@ class TestUpgradeSafety(unittest.TestCase):
         self.assertEqual(opened, [])                           # the change was never opened for review
 
     def test_a_successful_data_migration_upgrade_discloses_the_saved_copy_once(self):
-        # Floor (c) (D-264): a successful data-migration upgrade tells the operator a pre-update copy was saved —
+        # A successful data-migration upgrade tells the operator a pre-update copy was saved —
         # ONCE per upgrade, plainly, as reassurance for the later restore offer.
         opened = []
         with tempfile.TemporaryDirectory() as d:
@@ -951,7 +951,7 @@ class TestUpgradeSafety(unittest.TestCase):
             self.assertIn("outside the engine", res["reason"])
 
     def test_upgrade_refreshes_codeowners_with_new_engine_files_keeping_operator_rules(self):
-        # The design's upgrade re-render (provisioning §Token substitution; engine.json `handle`): a release
+        # The design's upgrade re-render (engine.json `handle`): a release
         # whose `base` ADDS an engine file must land in the CODEOWNERS wall so the new file still routes to
         # the operator — and an operator's OWN rule must survive (fence-scoped).
         with tempfile.TemporaryDirectory() as d:
@@ -1126,7 +1126,7 @@ class TestRemoveReversesClaudeFloor(unittest.TestCase):
 
 
 class TestRemoveReversesFoundationIgnores(unittest.TestCase):
-    """#409 U14: clean engine removal block-reverses the root `.gitignore` foundation fence — the operator's
+    """#409: clean engine removal block-reverses the root `.gitignore` foundation fence — the operator's
     own ignore lines are KEPT (only the engine `foundation-ignores` block is removed), never wholesale-deleted
     (`.gitignore` is excluded from remove_engine's delete set + block-reversed, like CODEOWNERS/CLAUDE.md)."""
 
@@ -1181,7 +1181,7 @@ class TestUpgradeSurfacesClaudeFloor(unittest.TestCase):
         self.assertIn("working guide", buf.getvalue().lower())
 
     def test_pr_body_surfaces_the_foundation_ignores_reassertion(self):
-        # #409 U14 (deliverable-gate nit 2): the .gitignore fence re-assert gets an operator-facing line on
+        # #409: the .gitignore fence re-assert gets an operator-facing line on
         # upgrade, like its CODEOWNERS / CLAUDE.md siblings — not just a raw git diff.
         body = module_manager._upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
                                                {"foundation_ignores": {"status": "written"}})
@@ -1242,8 +1242,7 @@ class TestLifecycleRendersCarryCoherenceWarrant(unittest.TestCase):
 
 class TestFrozenCheckNames(unittest.TestCase):
     """The engine CI check names are a FROZEN contract across versions — an upgrade/migration may never
-    rename them (a renamed required check 'waits forever' and deadlocks every pull request; provisioning
-    §"The engine CI check's status name is a frozen contract"). Changing this is a guardrail-weakening
+    rename them (a renamed required check 'waits forever' and deadlocks every pull request). Changing this is a guardrail-weakening
     change, caught here and at the guard."""
 
     def test_required_check_names_are_frozen(self):
@@ -1274,8 +1273,8 @@ class TestFoundationInfra(unittest.TestCase):
         self.assertEqual(module_manager.FOUNDATION_CODE, expected)
         # the issue templates are now in the overlay set; the manifest, CODEOWNERS, root CLAUDE.md, and root
         # .gitignore are excluded — CLAUDE.md/.gitignore carry a keyed engine fence re-asserted locally
-        # (_merge_claude_floor / apply_foundation_ignores), not fetched-and-replaced wholesale (#234 6a /
-        # #409 U14), so a release's file never overlays an adopter's own content
+        # (_merge_claude_floor / apply_foundation_ignores), not fetched-and-replaced wholesale (#234 /
+        # #409), so a release's file never overlays an adopter's own content
         self.assertIn(".github/ISSUE_TEMPLATE/*.md", module_manager.FOUNDATION_CODE)
         self.assertNotIn(".engine/engine.json", module_manager.FOUNDATION_CODE)
         self.assertNotIn(".github/CODEOWNERS", module_manager.FOUNDATION_CODE)
@@ -1418,7 +1417,7 @@ class TestRemoveEngine(unittest.TestCase):
     def test_github_member_is_in_the_delete_set_unlike_per_module_remove(self):
         # whole-engine removal deletes the .github/ foundation files + root CLAUDE.md too — these are
         # foundation infra, NOT any module's `provides`, so per-module remove() (which deletes only the
-        # sole-owned files a module provides, at any path since #409 U16) never touches them
+        # sole-owned files a module provides, at any path since #409) never touches them
         opener, transport, _, _ = self._fakes(True)
         with tempfile.TemporaryDirectory() as d:
             with module_manager._redirect_root(d):

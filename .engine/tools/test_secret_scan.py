@@ -1,4 +1,4 @@
-"""Slice 1 of the security floor (issue #124): the traveling git-native files — a committed advisory
+"""The security floor (issue #124): the traveling git-native files — a committed advisory
 secret-scan workflow + dependabot.yml, engine-owned so they travel to every generated repo. These
 tests attest the load-bearing facts a non-engineer cannot read off the YAML: the files exist, are
 engine-owned (travel + render into CODEOWNERS), and the scan is ADVISORY (never a required check, so a

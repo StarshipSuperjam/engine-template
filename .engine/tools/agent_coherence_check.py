@@ -13,7 +13,7 @@ persona authored with no tool lock (the inherit-all trap) reds engine-ci instead
 shipping a reviewer that can edit the work it reviews.
 
 This is the live consumer the agent grammar's coherence leg was built for (validate.py
-agent_coherence_findings): ZERO personas shipped with the grammar (D-066), so the leg had nothing to
+agent_coherence_findings): ZERO personas shipped with the grammar, so the leg had nothing to
 fire on; the review/audit personas now ship, so the guard has real subjects and runs every CI —
 arming its role/model-tier/lens legs live for the first time alongside the new permissions rule.
 

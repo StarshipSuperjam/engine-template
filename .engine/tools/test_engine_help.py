@@ -1,4 +1,4 @@
-"""Tests for `/engine-help`'s listing tool (core slice 26b) — the degradation-proof command index.
+"""Tests for `/engine-help`'s listing tool — the degradation-proof command index.
 
 Verifies: engine-only scoping (un-prefixed product skills ignored); the operator-invocable filter
 (operator-typed AND model-auto listed — including a skill with NO invocation, which defaults to model-auto —

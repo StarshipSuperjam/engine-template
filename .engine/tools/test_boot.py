@@ -1588,7 +1588,7 @@ class TestMigrationRevertOffer(unittest.TestCase):
 
 
 class TestAuditStaleness(unittest.TestCase):
-    """audit-library 3c: boot RELAYS audit_digest's self-review freshness on the operator's return. A SOFT
+    """boot RELAYS audit_digest's self-review freshness on the operator's return. A SOFT
     finding (hasn't-run-yet / has-gone-stale) surfaces gently in the needs-attention body — NEVER pinned, in
     the present-marker, or in must_push, so a never-armed repo still reads "all clear" and it never becomes a
     forced every-session alarm; a `note` (current) digest adds nothing; the read fails open to None."""
@@ -1791,7 +1791,7 @@ class TestHookRegistration(unittest.TestCase):
 
     def test_every_sessionstart_command_points_into_engine_and_uses_the_venv(self):
         for g in self.settings["hooks"]["SessionStart"]:
-            for h in g["hooks"]:                             # boot's AND memory's co-registered sweep (3b)
+            for h in g["hooks"]:                             # boot's AND memory's co-registered sweep
                 self.assertEqual(h["type"], "command")
                 self.assertIn(".engine/", h["command"])      # the wiring guard
                 self.assertIn("/.venv/", h["command"])        # the runtime interpreter, never bare python
@@ -2200,7 +2200,7 @@ class TestForeignLicenseOffer(unittest.TestCase):
 
     def test_relay_lines_honors_a_retired_marker_hook_side(self):
         # End-to-end: a live foreign-license signal + a retired marker for its fingerprint -> _relay_lines stamps
-        # `retired` and the dashboard shows nothing (the hook-side honor, §15/D-306).
+        # `retired` and the dashboard shows nothing (the hook-side honor of a retired marker, which can never silence a governance alarm).
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.dict(os.environ, {boot_alarm_ledger.ENV_DIR: tmp}):
                 boot_alarm_ledger.retire("22e2c095376d", "foreign_license")

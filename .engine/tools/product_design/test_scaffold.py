@@ -3,8 +3,8 @@
 (.engine/modules/product-design/scaffold/).
 
 This is the mechanical "what the engine writes from is what the validator checks" tie behind the maintainer's
-scaffold decision: a docs/spec/ tree authored straight from the committed templates must pass BOTH the Slice-1
-form check (.engine/tools/product_design/spec_form.py) AND the Slice-4a build-order coverage check
+scaffold decision: a docs/spec/ tree authored straight from the committed templates must pass BOTH the
+form check (.engine/tools/product_design/spec_form.py) AND the build-order coverage check
 (.engine/tools/product_design/coverage.py). If an edit to the scaffold OR to either checker drifts them apart,
 this test goes red — so the templates can never silently fall out of conformance with the rules that validate
 the operator's real spec. The test reads the templates from disk (not an embedded copy), so it exercises
@@ -61,7 +61,7 @@ class ScaffoldConformanceTests(unittest.TestCase):
                         "the capability scaffold template must be committed")
 
     def test_a_tree_authored_from_the_scaffold_passes_the_form_check(self):
-        # The load-bearing tie: the committed scaffold, used verbatim, yields a spec the Slice-1 checker
+        # The load-bearing tie: the committed scaffold, used verbatim, yields a spec the form checker
         # accepts cleanly. An empty findings list is a clean pass (no hard problem, and no disclosed no-op,
         # because the authored tree is non-empty).
         fs = spec_form.findings("hard", root=self._tree_from_scaffold())
@@ -85,7 +85,7 @@ class ScaffoldConformanceTests(unittest.TestCase):
                         "the build-order scaffold template must be committed")
 
     def test_a_tree_authored_from_the_scaffold_passes_the_coverage_check(self):
-        # The Slice-4a tie: the committed scaffold, used verbatim, also yields a build order the coverage check
+        # The coverage-check tie: the committed scaffold, used verbatim, also yields a build order the coverage check
         # accepts cleanly. The scaffold capability ships in-progress (not settled) and the build order schedules
         # it, so nothing is orphaned — a clean pass (no hard problem; and not a no-op, because a build order
         # exists). This is the write-from = check-against tie for the build order, paralleling the form-check

@@ -1,4 +1,4 @@
-"""Tests for the shared optional-module catalog reader (core slice 27a).
+"""Tests for the shared optional-module catalog reader.
 
 Verifies the single parse path both readers (the /engine-help index and the first-run walkthrough) share:
 a normalized record per entry sorted by command then id; degrade-to-empty on absent / unreadable / malformed /

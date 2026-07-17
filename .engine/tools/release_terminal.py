@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release publisher — the terminal cut (wbs/release-process.md §4 step 5 + §6).
+"""Release publisher — the terminal cut.
 
 The complement to release_cut.py: where `release_cut` decides + records the next version into the
 manifests (the produce side that lands on `main` through the maintainer's merged release PR), THIS
@@ -13,7 +13,7 @@ different trust — `release_cut` runs pre-merge under the release PAT; this run
 default `GITHUB_TOKEN` on a commit already trusted (it landed on protected `main`). They share no
 state, so folding publish into `release_cut` would couple two things that must stay separable.
 
-The §6 invariants this enforces:
+The invariants this enforces:
   * The tag lands on the EXACT reviewed merge commit. `POST /releases` with `target_commitish` is
     documented "unused if the git tag already exists," so a dangling tag at a wrong commit would be
     silently honored — defeating the guarantee. Instead the tag is created via the Git Data API
@@ -211,7 +211,7 @@ def _comment_body(result: dict, run_url: "str | None" = None) -> str:
     """The plain-language comment posted back to the merged release PR — the legible surface a non-engineer
     actually sees after merging (the Actions run log is not). One home for the release/failure prose. Every
     non-success outcome — including a transient read/transport failure (`errored`) — lands here with a
-    recovery, so the §6 legibility promise holds on the PR for every path, not only the decided refusals."""
+    recovery, so the legibility promise holds on the PR for every path, not only the decided refusals."""
     tag = result.get("tag") or "the new version"
     if result.get("published"):
         if result.get("reason") == "already-published":
@@ -319,7 +319,7 @@ def _bare(tag: str) -> str:
 
 def run(client: TerminalCutClient, engine_release: str, commit_sha: str, pr_number: "int | None",
         run_url: "str | None" = None, proposal=None) -> dict:
-    """Publish, then announce the outcome on the merged PR (both success AND failure — the §6 legibility
+    """Publish, then announce the outcome on the merged PR (both success AND failure — the legibility
     surface). A comment failure is NOTED, never allowed to flip the publish verdict: the published Release
     is the durable success artifact, and a missing comment is a legibility gap, not a publish failure.
     `proposal` is the pre-computed Release-notes proposal, threaded to `publish` (None => minimal notes)."""
@@ -328,7 +328,7 @@ def run(client: TerminalCutClient, engine_release: str, commit_sha: str, pr_numb
     except PublishError as exc:
         # a read/transport failure mid-publish (an unreachable host or an unexpected status while checking
         # the release/tag state) — the most likely real-world failure, a transient GitHub blip. Convert it to
-        # a loud result so the recovery STILL reaches the merged PR (the §6 legibility promise holds for this
+        # a loud result so the recovery STILL reaches the merged PR (the legibility promise holds for this
         # path too, not only the decided refusals — the raise otherwise reaches only the Actions log).
         result = {"published": False, "reason": "errored", "tag": None,
                   "message": "publishing did not finish — GitHub could not be reached or returned an "
@@ -404,7 +404,7 @@ def main(argv: list) -> int:
     try:
         if args.cmd == "publish":
             return _cmd_publish(args)
-    except Exception as exc:  # plain-language failure, never a traceback (release-process §6)
+    except Exception as exc:  # plain-language failure, never a traceback
         print(f"\nRELEASE PUBLISH ERROR: {exc}", file=sys.stderr)
         return 2
     return 2

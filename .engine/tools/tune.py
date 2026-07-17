@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""`/engine-tune` tool (core slice 26c) — adjust a tunable engine setting through a reviewed change.
+"""`/engine-tune` tool — adjust a tunable engine setting through a reviewed change.
 
-Backs the `/engine-tune` operator command (D-167; policies/README §Per-deployment value override): an
+Backs the `/engine-tune` operator command: an
 engine-mediated way for a non-engineer to change one of the engine's tuning numbers, **never a hand-edit**.
 The flow is: show the current effective value → the operator picks a new number → validate it → save it to
 the committed operator-override file → open it as a pull request the operator approves → confirm. The saved
@@ -13,12 +13,11 @@ Design fidelity (for a maintainer reading the source, not the operator):
   reader `operator_overrides`. ELIGIBILITY is the consumer's own structural set, imported (never restated):
   attention's partition precedence + trim order are structural LAWS an override may never retune
   (`attention_rank.PRECEDENCE_KEYS ∪ TRIM_KEYS`); the threshold policies have no structural keys. No
-  enforcement/guardrail value is a tunable policy value, so the override never reaches the §15 surface.
-- The write LANDS as a reviewed pull request (the engine's standard transport to protected `main`,
-  module-system §upgrade/remove): the engine writes + commits the override on a branch and opens a PR; the
-  operator's MERGE is the "confirm" (D-167 "write + commit → confirm", reconciled with the protected-branch
+  enforcement/guardrail value is a tunable policy value, so the override never reaches the weakening-guard surface.
+- The write LANDS as a reviewed pull request (the engine's standard transport to protected `main`): the engine writes + commits the override on a branch and opens a PR; the
+  operator's MERGE is the "confirm" ("write + commit → confirm", reconciled with the protected-branch
   invariant). The PR-opener is INJECTED (`set_value(opener=…)`) and faked in tests/the demo — the real
-  open NEVER runs in the construction repo (a named inductive gap, like the slice-25 upgrade opener).
+  open NEVER runs in the construction repo (a named inductive gap, like the module-manager upgrade opener).
 - All operator-facing strings address the operator plainly — the right word, explained where it carries
   weight, with the engine's internal machinery kept out of view (a judgment in the writing and the review,
   never a word-list); the non-tunable-key refusal is a pinned sentence.
@@ -150,8 +149,7 @@ def _pr_body(policy_id: str, key: str, value) -> str:
 
 def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, token=None) -> dict:
     """THE GIT+PR BOUNDARY: stage the saved override on a new branch, commit, push, and open a pull request
-    so the change is reviewed + reversible like any change (module-system §upgrade lands a reviewed PR;
-    mirrors the slice-25 upgrade opener — git via subprocess, the PR via POST /pulls, slug/token via boot).
+    so the change is reviewed + reversible like any change (mirrors the module-manager upgrade opener — git via subprocess, the PR via POST /pulls, slug/token via boot).
     INJECTED for tests + the demo (`set_value(opener=…)`), so this real path NEVER runs in the construction
     repo (a named inductive gap — no real deployment to tune, no PR to open here)."""
     import subprocess

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Passive pre-arm for a merge blocked by an unresolved review conversation (engine-template #408 U10;
-engine-planning control-plane §"protection floor" conversation-resolution rule; D-134 Q22(b)).
+"""Passive pre-arm for a merge blocked by an unresolved review conversation — the branch ruleset's
+conversation-resolution rule (engine-template #408).
 
 The branch ruleset requires every review conversation to be resolved before merging. When one is still open,
 GitHub simply GREYS the merge button — a native state a non-engineer cannot self-diagnose (all the checks are
@@ -12,7 +12,7 @@ rebase.
 
 **Passive pre-arm only — the engine never acts.** It does NOT fetch the live review threads, does not name the
 specific open comment, and NEVER auto-resolves a thread (auto-resolving a comment that flagged a concern would
-gut the finding-disposition trust spine the rule serves — D-134 declines that active duty). A non-engineer who
+gut the finding-disposition trust spine the rule serves — the engine declines that active duty). A non-engineer who
 still cannot locate the control after reading this is an accepted v1 residual, named honestly rather than closed.
 
 **Not a check, not a gate.** There is no `.engine/check/*.json`, no CI suite entry, no merge gate. Its delivery
@@ -23,7 +23,7 @@ drops into Review verbatim).
 **Standing copy, collapsed by default.** The text is identical on every pull request (no per-PR data), so it is
 rendered as a one-line summary with a `<details>` expansion — present in advance without drowning the per-PR
 Review content on the ~99% of merges where nothing is greyed (the engine's collapse-not-suppress anti-habituation
-posture, D-269). The wording is a tested constant bound by the plain-language leak-guard (principles §12), not
+posture). The wording is a tested constant bound by the plain-language leak-guard, not
 prose re-authored each render, so it cannot drift below the bar that makes the operator's consent informed.
 
 Usage:

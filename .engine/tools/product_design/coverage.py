@@ -19,12 +19,12 @@ How it scales (the verdict, branching on whether a build order exists yet):
   is a real, mechanically-decidable problem reported at the rule's tier (hard, so it blocks the merge). Moving a
   capability between phases is free — only OMITTING a settled capability is caught.
 
-Honest floor — the engine/product wall (§13) and the read-only firewall (R5): it inspects the product's own
+Honest floor — the engine/product wall and the read-only firewall: it inspects the product's own
 `docs/spec/` tree ONLY, never the engine's `.engine/` tooling; it reads file contents to check structure but
 never writes; and it checks FORM (is the settled work scheduled?), never correctness or freshness (whether the
-built work matches the spec stays the separate conformance judgment — R9).
+built work matches the spec stays the separate conformance judgment).
 
-Operator-communication law (D-120): the engine-internal lifecycle ladder (the stub/draft/locked markers a
+Operator-communication law: the engine-internal lifecycle ladder (the stub/draft/locked markers a
 document carries) NEVER surfaces to the operator as a raw token — findings say "settled", "in the build order",
 "capability", in plain language. The raw marker lives only in document frontmatter and in this script's logic.
 
@@ -50,7 +50,7 @@ if _PARENT not in sys.path:
 import validate  # noqa: E402 — ROOT (test-redirectable) + the finding.v1 helper
 from product_design import spec_form  # noqa: E402 — the shared spec-grammar home (readers + path constants)
 
-# The settled lifecycle marker (engine-internal; rendered as "settled" on every operator surface, D-120).
+# The settled lifecycle marker (engine-internal; rendered as "settled" on every operator surface).
 _SETTLED = "locked"
 # The build-order table columns. A prefix match (spec_form._table_with_columns) allows a trailing Notes column.
 _BUILD_PLAN_COLUMNS = ("phase", "capability", "doc")
@@ -220,7 +220,7 @@ def demo() -> int:
     settled capability missing from an existing build order is a HARD, self-clearing finding naming it; a
     structurally broken build order (no phases / a dangling link / a row pointing at the index) is HARD; the
     no-spec / nothing-settled / no-build-order-yet states are SOFT, never a block, never silent; a build order
-    with a UTF-8 byte-order mark is read correctly; no finding ever leaks a raw lifecycle token (D-120); and the
+    with a UTF-8 byte-order mark is read correctly; no finding ever leaks a raw lifecycle token; and the
     rule tier is carried (a hard case run soft drops to soft, while the no-build-order nudge stays soft).
     RETURNS NON-ZERO if any invariant is broken (the falsification can fail). Mutation-free: every case runs
     against a throwaway temp root, so the real working tree is never touched."""
@@ -324,7 +324,7 @@ def demo() -> int:
             result = findings("hard", root=root)
         finally:
             shutil.rmtree(root, ignore_errors=True)
-        # The raw lifecycle ladder must never surface in a finding (D-120 / operator-communication law).
+        # The raw lifecycle ladder must never surface in a finding (the operator-communication law).
         for f in result:
             for token in spec_form._VALID_STATUS:
                 if re.search(rf"\b{token}\b", f["message"]):

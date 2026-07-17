@@ -1,4 +1,4 @@
-"""Tests for the first-run setup orchestrator's GATHER + CONFIRM half (core slice 27a).
+"""Tests for the first-run setup orchestrator's GATHER + CONFIRM half.
 
 Verifies: the not-set-up signal keys off the manifest's presence (no new state); identity is derived
 best-effort and degrades when it can't be read; the optional features group by discipline in the fixed
@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import yaml  # the #416 U28-F7 uv-pin tie parses the CI workflows structurally (already a runtime dep)
+import yaml  # the #416 uv-pin tie parses the CI workflows structurally (already a runtime dep)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import instantiator as inst  # noqa: E402
@@ -128,8 +128,8 @@ class TestPresentGather(unittest.TestCase):
             self.assertNotIn("design-review", out, "the raw module id is never shown as a command")
 
     def test_menu_annotates_the_optional_dependency_closure(self):
-        # #411 U25: an optional feature that depends on ANOTHER optional feature surfaces that pull-in at the
-        # choice moment (provisioning §gather step 1). Synthetic manifests: optional 'a' depends on optional
+        # #411: an optional feature that depends on ANOTHER optional feature surfaces that pull-in at the
+        # choice moment. Synthetic manifests: optional 'a' depends on optional
         # 'b' (and on required 'core', which must NOT be surfaced).
         manifests = [
             ("a", {"id": "a", "status": "optional", "depends": {"b": "", "core": ""}}),
@@ -172,14 +172,14 @@ class TestOptionalDependencyClosure(unittest.TestCase):
 
     def test_live_manifests_are_vacuous(self):
         # Every optional module depends only on core today, so the live closure is all-empty — the mechanism
-        # is armed but untriggered (§20: shipped complete, not deferred).
+        # is armed but untriggered (shipped complete, not deferred).
         closure = inst.optional_dependency_closure(module_coherence.discover_manifests())
         self.assertTrue(closure, "there are optional modules to key on")
         self.assertTrue(all(pulls == [] for pulls in closure.values()),
                         "no optional module depends on another optional one yet")
 
     def test_confirm_folds_the_closure_so_a_kept_module_brings_its_optional_dep(self):
-        # #411 U25 (deliverable-gate fold): present_gather promises "keeping a also turns on b", so confirm
+        # #411 (deliverable-gate fold): present_gather promises "keeping a also turns on b", so confirm
         # must WRITE b into the manifest when the operator keeps a — else the annotation lies and the apply
         # phase would halt on a missing-dependency coherence finding. Keep only 'a'; expect a, b, and core.
         manifests = [
@@ -276,7 +276,7 @@ class TestConfirm(unittest.TestCase):
             self.assertNotIn("default_branch", res["manifest"])
 
     def test_carries_the_recorded_home_forward_across_setup(self):
-        # #367/D-281: the update home is seeded as data and carried across first-run setup (like the release),
+        # #367: the update home is seeded as data and carried across first-run setup (like the release),
         # so a generated repo keeps where its engine updates from. Validates against the closed engine schema.
         import validate as _v
         schema = _v.load_json(os.path.join(_v.SCHEMAS_DIR, "engine.v1.json"))
@@ -380,8 +380,8 @@ class TestCLI(unittest.TestCase):
             self.assertIn("who reviews changes here", out, "an unset project shows the gather walkthrough")
 
 
-# The first-run setup tool is the ONE engine tool that must run BEFORE the tool-runtime it installs exists
-# (D-156): it bootstraps uv, so it cannot presuppose the packages the runtime provides (yaml, jsonschema).
+# The first-run setup tool is the ONE engine tool that must run BEFORE the tool-runtime it installs exists:
+# it bootstraps uv, so it cannot presuppose the packages the runtime provides (yaml, jsonschema).
 # This block runs in a subprocess with those two packages forced absent via a sys.meta_path finder — proving
 # `import instantiator` and the show/demo CLI start on the Python standard library alone, deterministically
 # (independent of whether THIS machine's Python happens to carry the packages — it does, so the block is
@@ -538,7 +538,7 @@ class TestApplyStep1DeleteUnselected(unittest.TestCase):
 
 
 class TestApplyStepFoundationIgnores(unittest.TestCase):
-    """#409 U14: the apply step places the keyed foundation `.gitignore` fence. It runs BEFORE codeowners (so
+    """#409: the apply step places the keyed foundation `.gitignore` fence. It runs BEFORE codeowners (so
     the file exists when the ownership set globs it) and pre-runtime (so a tool-runtime halt still leaves
     `.venv/` ignored), preserves the operator's own lines, and is idempotent."""
 
@@ -670,9 +670,9 @@ class TestApplyStep3PlanMode(unittest.TestCase):
                 _fake_apply(d, home_reader=reader, consent=lambda kind: False)
             self.assertGreaterEqual(calls["n"], 1, "the global default is READ")
 
-    # --- #409 U17: a pre-existing PROJECT-level non-plan defaultMode is a conflict too (not silently
+    # --- #409: a pre-existing PROJECT-level non-plan defaultMode is a conflict too (not silently
     #     overwritten), detected independently of the global value. The plan-mode step is found by NAME (its
-    #     positional index shifts when U14 inserts the foundation-ignores step ahead of it).
+    #     positional index shifts when the foundation-ignores step is inserted ahead of it).
     def _plan_step(self, res):
         return next(s for s in res["steps"] if s["step"] == "plan-mode")
 
@@ -692,7 +692,7 @@ class TestApplyStep3PlanMode(unittest.TestCase):
                              "keep leaves the operator's committed project value exactly as it was")
 
     def test_project_scalar_conflict_is_independent_of_a_plan_global(self):
-        # The bug U17 fixes: home=plan, project=acceptEdits fell straight through to a silent overwrite. A
+        # The bug this fixes: home=plan, project=acceptEdits fell straight through to a silent overwrite. A
         # global preference (even 'plan') must never license overwriting a value committed in THIS repo.
         with tempfile.TemporaryDirectory() as d:
             inst._build_fixture(d)
@@ -768,18 +768,18 @@ class TestApplyStep4ToolRuntime(unittest.TestCase):
 
     def test_install_uses_unmanaged_path_and_pinned_versioned_url(self):
         # The real installer command (faked everywhere else) must use the PATH-independent unmanaged install
-        # and the version-pinned official URL — the deployed supply-chain contract (D-156).
+        # and the version-pinned official URL — the deployed supply-chain contract.
         self.assertIn("UV_UNMANAGED_INSTALL", inst._install_uv.__doc__ or "")
         self.assertEqual(inst.UV_INSTALL_URL, f"https://astral.sh/uv/{inst.UV_PIN}/install.sh")
 
     def test_uv_pin_ties_to_every_ci_workflow_setup_uv_version(self):
-        # #416 U28-F7: the instantiator's UV_PIN and every CI workflow's astral-sh/setup-uv `version:` must
+        # #416: the instantiator's UV_PIN and every CI workflow's astral-sh/setup-uv `version:` must
         # agree, or a one-sided bump silently ships a bootstrap runtime that mismatches the engine's resolved
         # uv.lock. This test IS that tie — it reads the real workflow files and asserts each setup-uv step
         # pins UV_PIN. It lives HERE, in the instantiator's own tests, on purpose: UV_PIN is bootstrap-only,
         # and instantiator.py + this test file both RETIRE at first-run (_FIRST_RUN_ASSET_FILES), so the tie
         # is construction-coupled — the concern (a new adopter's bootstrap runtime matches uv.lock) exists
-        # only while the instantiator does. #411 U22 weighed a first-class traveling check for this and found
+        # only while the instantiator does. #411 weighed a first-class traveling check for this and found
         # it INFEASIBLE: a surviving validators-core check reading UV_PIN would reference the retired
         # instantiator (first-run reference-closure), and the tie is moot once the instantiator is gone. So the
         # construction-coupled unittest is the correct form. Parsed via the YAML structure (jobs->steps->uses/
@@ -993,7 +993,7 @@ class TestApplyChainRunsOnSystemPython39(unittest.TestCase):
         self.assertEqual(missing, [], f"system-python-launched tools must defer annotations: {missing}")
 
 
-# ==== the front-door root-README seed/replace (issue #133, D-213/D-214) ==============================
+# ==== the front-door root-README seed/replace (issue #133) ==============================
 
 def _seed_readme_root(tmp, *, readme=None, seed=None):
     """Plant a fixture root for a _seed_readme test: optionally a root README (its exact text) and the
@@ -1058,7 +1058,7 @@ class TestReadmeRecognizer(unittest.TestCase):
         self.assertNotIn(inst._MARKETING_SEED_MARKER, shipped)
 
     def test_starter_discloses_the_required_spine_in_plain_words(self):
-        # D-067 / D-095: the starter names the always-on spine in operator language and the no-style-floor gap,
+        # The starter names the always-on spine in operator language and the no-style-floor gap,
         # never "the memory package is required" and never maintainer jargon.
         with open(os.path.join(validate.ENGINE_DIR, "provisioning", "readme-seed.md"), encoding="utf-8") as fh:
             shipped = fh.read()
@@ -1066,20 +1066,20 @@ class TestReadmeRecognizer(unittest.TestCase):
             low = text.lower()
             self.assertIn("remembers across sessions", low)   # memory, built in
             self.assertIn("keeps your work safe", low)
-            self.assertIn("clean-code", low)                  # the D-095 gap named
+            self.assertIn("clean-code", low)                  # the gap named
             self.assertNotIn("required", low, "never 'the memory package is required'")
-            # D-086: the disclosure must NOT surface the carved-out experimental engine-knowledge-graph
+            # The disclosure must NOT surface the carved-out experimental engine-knowledge-graph
             # capability (the operator cannot yet enable it). Pin the negative next to the "required" one — the
             # disclosure renders capabilities by plain name, so guard both the slug and the plain phrase.
-            self.assertNotIn("engine-knowledge-graph", low, "never surface the carved-out experimental capability (D-086)")
-            self.assertNotIn("knowledge graph", low, "nor by its plain name (D-086)")
+            self.assertNotIn("engine-knowledge-graph", low, "never surface the carved-out experimental capability")
+            self.assertNotIn("knowledge graph", low, "nor by its plain name")
 
 
 class TestRepoReadmeLeadsWithMarker(unittest.TestCase):
     """A durable guard on the TEMPLATE's OWN root README (issue #134): the committed README must keep
     LEADING with the marketing marker, or provisioning's front-door replace (_seed_readme) silently stops
     recognizing the front — and the engine's marketing README would then travel and land as a generated
-    repo's product README (R26). Unlike the recognizer tests above, this reads the REAL committed README,
+    repo's product README. Unlike the recognizer tests above, this reads the REAL committed README,
     not a fixture: it pins the live template artifact #134 fills with marketing copy. It lives here, among
     the first-run assets the Retire phase deletes at instantiation, so it never runs in a generated repo
     (where the README is correctly replaced and the marker is gone)."""
@@ -1095,9 +1095,9 @@ class TestRepoReadmeLeadsWithMarker(unittest.TestCase):
 
 
 class TestSeedConduct(unittest.TestCase):
-    """U18 (#409): the conduct operator-override seed is COPY-IF-ABSENT — once .engine/conduct/operator.md
+    """#409: the conduct operator-override seed is COPY-IF-ABSENT — once .engine/conduct/operator.md
     exists it is operator config, so a resumed/re-run apply never clobbers a /engine-conduct-tuned stance (the
-    seed-then-own law; provisioning README L237-263 / L802-807). Mirrors _seed_security's existence guard."""
+    seed-then-own law). Mirrors _seed_security's existence guard."""
 
     def _plant_seed(self, root, body):
         os.makedirs(os.path.join(root, ".engine", "provisioning"), exist_ok=True)
@@ -1169,7 +1169,7 @@ class TestSeedReadme(unittest.TestCase):
         blob = "\n".join(said).lower()
         self.assertTrue(said, "the replace is disclosed, never silent")
         self.assertIn("your project", blob)
-        self.assertIn("replaced", blob, "names what changed (D-214: what changed and why it is theirs)")
+        self.assertIn("replaced", blob, "names what changed (what changed and why it is theirs)")
 
     def test_brownfield_operator_readme_is_preserved_untouched(self):
         said = []
@@ -1235,7 +1235,7 @@ class TestSeedReadme(unittest.TestCase):
         self.assertFalse(exists, "the engine never creates a root README out of nothing")
 
 
-# ==== the root LICENSE clear (issue #147, D-221/D-222) ===============================================
+# ==== the root LICENSE clear (issue #147) ===============================================
 
 def _template_license_text(holder="StarshipSuperjam"):
     """Reconstruct a full LICENSE from the recognizer's OWN seed, for fixtures — so the fixtures can never silently
@@ -1349,7 +1349,7 @@ class TestSeedLicense(unittest.TestCase):
 
 
 class TestSeedState(unittest.TestCase):
-    """U16 — reset a generated repo's traveled construction cursor to genesis; recognition is a structural,
+    """Reset a generated repo's traveled construction cursor to genesis; recognition is a structural,
     rename-immune foreign-register predicate + a construction-repo belt; risk-oriented and fail-safe."""
 
     def _write_cursor(self, d, register, phase="workshop phase #449", count=31):
@@ -1427,7 +1427,7 @@ class TestSeedState(unittest.TestCase):
     def test_prefix_slug_org_sibling_is_not_falsely_preserved(self):
         # a bare substring would falsely PRESERVE a repo whose slug is a PREFIX of the template's within the
         # same org (own "acme/engine" vs a register naming ".../acme/engine-template/..."). The segment-anchored
-        # match resets it correctly — the borrowed-cursor leak U16 exists to prevent.
+        # match resets it correctly — the borrowed-cursor leak this exists to prevent.
         with tempfile.TemporaryDirectory() as d, inst._redirect_root(d), \
                 mock.patch.object(inst.boot, "repo_slug", return_value="acme/engine"):
             self._write_cursor(d, "https://github.com/acme/engine-template/issues?q=is:open")
@@ -1571,7 +1571,7 @@ class TestRepoLicenseIsTheTemplateSeed(unittest.TestCase):
     """A durable parity guard on the TEMPLATE's OWN root LICENSE (issue #147): the committed LICENSE must stay
     recognizable as the engine's shipped template-license seed, or provisioning's first-run clear (_seed_license)
     silently stops recognizing it — and the template author's copyright would then travel and govern a generated
-    repo's product (R29). It also documents that the construction repo's own LICENSE WOULD be cleared by a
+    repo's product. It also documents that the construction repo's own LICENSE WOULD be cleared by a
     non-redirected apply (which is why the apply-demo's isolation check lists LICENSE). Like the README guard above,
     it reads the REAL committed LICENSE and lives among the first-run assets the Retire phase deletes, so it never
     runs in a generated repo (where the traveled license is correctly cleared and gone)."""
@@ -1583,11 +1583,11 @@ class TestRepoLicenseIsTheTemplateSeed(unittest.TestCase):
             "the template's root LICENSE must stay recognizable as the engine's shipped template-license seed "
             "(Apache-2.0 + Commons Clause); if it was re-worded (including a copyright-year bump), update "
             "inst._TEMPLATE_LICENSE_SEED to match, or first-run setup will stop clearing the traveled license and "
-            "the template author's copyright would govern a generated repo's product (R29).")
+            "the template author's copyright would govern a generated repo's product.")
         # Byte-parity (stricter than recognize()'s cosmetic-tolerant match): CURRENT_SEED must equal the committed
         # root LICENSE exactly. A future relicense MUST append the new text to license_seeds.HISTORICAL_SEEDS (the
         # tail becomes CURRENT_SEED) — forget it and BOTH the first-run clear and the standing detector go silently
-        # blind (R29, #471). This makes the append-only law mechanical.
+        # blind (#471). This makes the append-only law mechanical.
         self.assertEqual(
             license_seeds.CURRENT_SEED, license_text,
             "license_seeds.CURRENT_SEED must be byte-identical to the committed root LICENSE; append a re-licensed "
@@ -1727,7 +1727,7 @@ class TestFirstRunVerbGuards(unittest.TestCase):
                 self.assertFalse(inst._root_is_construction(), "a non-text root file degrades, never raises")
 
 
-# ==== VERIFY + RETIRE (core slice 27c) ===============================================================
+# ==== VERIFY + RETIRE ===============================================================
 
 _FINISH_KEYS = ("verify-paused", "verify-next-actions", "verify-ok", "verify-gate-on",
                 "verify-gate-pending", "retire-success")
@@ -1834,7 +1834,7 @@ class TestRetire(unittest.TestCase):
             self.assertEqual(res["graph"], "regenerated")
 
     def test_a_brownfield_adopters_own_assets_directory_survives_retire(self):
-        # #410 U27, the blocking brownfield-safety property: retire() ALSO runs on the "add the engine to an
+        # #410, the blocking brownfield-safety property: retire() ALSO runs on the "add the engine to an
         # existing project" arrival, where assets/ is the OPERATOR's own directory (the engine provides none). So
         # the banner is retired as the specific FILE, never the whole assets/ dir — a whole-dir rmtree would delete
         # the adopter's own files. Plant an operator asset beside the engine banner and assert only the banner goes.
@@ -1896,7 +1896,7 @@ class TestFirstRunAssetsManifestParity(unittest.TestCase):
     """The committed .engine/provisioning/first-run-assets.json manifest mirrors the operational retire-set
     literal here, so the first-run reference-closure check can read the removed set without importing this
     (retired) module. The manifest is authored, not derived — this parity test is what binds them (it runs in
-    the construction repo's CI, where both exist; both vanish together at retirement). engine-planning D-219/D-220."""
+    the construction repo's CI, where both exist; both vanish together at retirement)."""
     def _manifest(self):
         with open(os.path.join(inst.validate.ROOT, ".engine", "provisioning", "first-run-assets.json"),
                   encoding="utf-8") as fh:
@@ -1911,7 +1911,7 @@ class TestFirstRunAssetsManifestParity(unittest.TestCase):
                          "first-run-assets.json `directories` drifted from instantiator._FIRST_RUN_ASSET_DIRS")
 
     def test_the_audit_digest_is_retired_so_a_generated_repo_starts_clean(self):
-        # #404 F0195: the committed audit self-review digest is THIS template's construction history; it must be
+        # #404: the committed audit self-review digest is THIS template's construction history; it must be
         # in the retire set (both sources) so a generated repo starts with no inherited self-review — its absence
         # is the honest "not yet self-reviewed" state, and the audit cron writes a real one on its first run.
         self.assertIn(".engine/audits/audit-digest.md", inst._FIRST_RUN_ASSET_FILES)
@@ -1920,14 +1920,14 @@ class TestFirstRunAssetsManifestParity(unittest.TestCase):
     def test_the_467_namespace_demo_is_retired_so_it_does_not_travel(self):
         # #467: the deployment-eADR-namespace falsification is maintainer build evidence (covered by the
         # test_contract / test_knowledge regressions), not operator capability, so it retires at first-run
-        # rather than ship into a generated repo (engine-planning D-228). Mirrored in both sources (parity).
+        # rather than ship into a generated repo. Mirrored in both sources (parity).
         self.assertIn(".engine/tools/demo_467_deployment_eadr_namespace.py", inst._FIRST_RUN_ASSET_FILES)
         self.assertIn(".engine/tools/demo_467_deployment_eadr_namespace.py", self._manifest()["files"])
 
     def test_the_marketing_banner_is_retired_so_a_generated_repo_carries_no_banner(self):
-        # #410 U27: the engine's marketing banner is referenced only by the template's marketing landing README
+        # #410: the engine's marketing banner is referenced only by the template's marketing landing README
         # (which the first-run reseed replaces with a product starter). It must be in the retire set (both sources)
-        # so a generated repo carries no engine marketing residue (repository-topology law 1; D-213/D-214). Retired
+        # so a generated repo carries no engine marketing residue. Retired
         # as the specific FILE, not the assets/ DIRECTORY — see the brownfield-safety test below.
         self.assertIn("assets/engine_banner.jpg", inst._FIRST_RUN_ASSET_FILES)
         self.assertIn("assets/engine_banner.jpg", self._manifest()["files"])
@@ -1984,7 +1984,7 @@ class TestFinishCli(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(d, ".engine", "tools", "instantiator.py")))
 
 
-# ==== BROWNFIELD COLLISION CHECK (core slice 27d) ====================================================
+# ==== BROWNFIELD COLLISION CHECK ====================================================
 
 _COLLISION_KEYS = ("collision-intro", "collision-exclusive", "collision-shared", "collision-codeowners",
                    "collision-none", "collision-unreadable")

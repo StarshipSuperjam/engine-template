@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for the conduct surface (core slice CD): the frontmatter schema is well-formed, the two
+"""Unit tests for the conduct surface: the frontmatter schema is well-formed, the two
 committed layer files conform, the shipped defaults carry the expected codes each with a matching section,
 and the two custom/script checks (shape correspondence + the soft weakening guard) behave on planted
 inputs. The operator-runnable demos in the two check tools are the behavioral correlate; these pin the
@@ -116,7 +116,7 @@ class TestConductWeakeningGuard(unittest.TestCase):
 
 
 class TestConductLoadsInTheWakeupFloor(unittest.TestCase):
-    """The engine loads its codes of conduct at the wake-up floor in EVERY repo (D-192): the active
+    """The engine loads its codes of conduct at the wake-up floor in EVERY repo: the active
     construction floor (root CLAUDE.md) and the deployed floor (CLAUDE.deployed.md) both @import the two
     layer files, so a session — in this construction repo or a generated one — never wakes up without
     conduct. Guards the #299 fix: before it only CLAUDE.deployed.md carried the imports, so the

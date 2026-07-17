@@ -1,4 +1,4 @@
-"""Slice 2 of the security floor (issue #124): the `SECURITY.md` seed-then-own. These tests attest the
+"""The security floor (issue #124): the `SECURITY.md` seed-then-own. These tests attest the
 load-bearing facts: the seed is copy-IF-ABSENT (never overwrites a project's own disclosure file, in any
 GitHub-recognized location), it lands on a RESUME after a tool-runtime halt, the file is operator-owned
 product territory (NOT in FOUNDATION_INFRA; the seed SOURCE carved out in OPERATOR_CONFIG), and the first-run

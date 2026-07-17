@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 25c — the uv-group-drift CI check (engine/check/uv-group-drift) and the
+"""Self-tests for the uv-group-drift CI check (engine/check/uv-group-drift) and the
 `sync-groups` fixer it points at.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 7 — the wiring library + the comment-fenced-block helper.
+"""Self-tests for the wiring library + the comment-fenced-block helper.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
@@ -593,7 +593,7 @@ class TestNoSilentSuccess(_Redirected):
         self.assertEqual(f["severity"], "hard")          # report() never renders this "OK"
 
 
-# ---- is_applied (the reusable presence predicate for slice 25's coherence leg) ---------------
+# ---- is_applied (the reusable presence predicate for the module manager's coherence leg) ---------------
 
 class TestIsApplied(_Redirected):
     def test_reports_presence_after_apply_and_absence_before(self):
@@ -672,7 +672,7 @@ class TestCLI(_Redirected):
 
 class TestRenderCodeowners(unittest.TestCase):
     """The CODEOWNERS ownership-block renderer (core 25c PR-3) — the pure primitive; the live first-run /
-    upgrade wire with the stored operator handle is owed to the instantiator (slice 27)."""
+    upgrade wire with the stored operator handle is owed to the instantiator."""
 
     PATHS = [".engine/engine.json", ".github/workflows/engine-ci.yml", "CLAUDE.md"]
 
@@ -743,10 +743,9 @@ class TestApplyCodeowners(unittest.TestCase):
 
 
 class TestFoundationIgnores(_Redirected):
-    """#409 U14: the foundation `.gitignore` block — a library-helper keyed fence (FOUNDATION_IGNORES_FENCE),
+    """#409: the foundation `.gitignore` block — a library-helper keyed fence (FOUNDATION_IGNORES_FENCE),
     NOT a module `wires` seam. It is placed by apply_foundation_ignores, is idempotent, never touches operator
-    lines or module fences, and is carved out of the orphan-wire reverse leg (provisioning README L294-302 /
-    L296-299)."""
+    lines or module fences, and is carved out of the orphan-wire reverse leg."""
 
     def _gi(self):
         return wiring.GITIGNORE_PATH
@@ -788,7 +787,7 @@ class TestFoundationIgnores(_Redirected):
         self.assertNotIn(".engine/.venv/", remainder)
 
     def test_foundation_fence_is_NOT_reported_as_an_applied_engine_wire(self):
-        # THE #409 U14 regression guard (B1): the orphan-wire reverse leg reads applied_engine_wires; the
+        # THE #409 regression guard (B1): the orphan-wire reverse leg reads applied_engine_wires; the
         # foundation fence must be carved out there, or check_coherence flags it as a HARD undeclared orphan
         # (pausing first-run + deadlocking retire) and tells the operator to remove the very fix.
         wiring.apply_foundation_ignores(self._gi())
@@ -821,7 +820,7 @@ class TestFoundationIgnores(_Redirected):
 
 
 class TestCommittedFoundationIgnores(unittest.TestCase):
-    """The binding between the single-source constant and the committed file (#409 U14, plan-gate S-A): the
+    """The binding between the single-source constant and the committed file (#409, plan-gate S-A): the
     committed `.gitignore`'s foundation fence body MUST equal wiring.FOUNDATION_IGNORE_LINES, or the two homes
     (the constant + the hand-committed file) can silently drift and a generated repo sees an unexplained
     first-apply diff. Reads the REAL committed file (not a redirected fixture)."""

@@ -4,7 +4,7 @@ Two consumers read this: the **first-run clear** in `instantiator.py` (which ret
 **standing foreign-`LICENSE`-seed detector** in `license_health.py` (which is permanent and runs every boot in a
 provisioned repo). Because the detector outlives the retiring first-run clear, the seed set and recognizer live
 here, in a permanent module both import — never in `instantiator.py`, which the standing detector could not depend
-on after first-run retirement (D-302/D-305; issue #471).
+on after first-run retirement (issue #471).
 
 **Recognition is self-seed, never operator-identity.** The engine matches only its *own* shipped template-license
 seed — a build constant — never "a copyright that isn't the operator's" (the engine holds no notion of the
@@ -18,7 +18,7 @@ deliberately-inherited one are structurally never touched.
 **`HISTORICAL_SEEDS` is append-only.** Each entry is a full committed license the template has shipped at a
 release; a repo that upgraded past its generation-era seed is still recognized because every past seed stays in the
 set. A future relicense **appends** the then-current text (and `CURRENT_SEED` follows the tail). Membership is a
-build-spec leaf (D-305). At v1 the set has **one** member — the current Apache-2.0 + Commons Clause seed — and no
+build-spec leaf. At v1 the set has **one** member — the current Apache-2.0 + Commons Clause seed — and no
 pre-Apache (MIT-era) member: no project has ever been generated from the template (issue #471), and "Use this
 template" always copies the current default branch, so no MIT-seed repo can arise now or going forward. The seed↔
 shipped-`LICENSE` byte-parity is held by a construction-scoped parity test (`test_instantiator.py`, which retires

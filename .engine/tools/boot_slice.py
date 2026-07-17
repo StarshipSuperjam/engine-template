@@ -3,18 +3,18 @@
 
 The committed `.engine/knowledge/graph.json` is the source of truth; the SQLite query index
 (`knowledge_index.py`) is the *query* path's rung-1 fast cache. This module is the index's SIBLING: the
-*boot* path's own rung-1 (knowledge/README.md:19-21,:45,:52 + D-060; the two-rung-1 model is named in
+*boot* path's own rung-1 (the two-rung-1 model is named in
 `knowledge_index.py`'s docstring). It caches the focus-INDEPENDENT structural projection boot's orientation
 read consumes — the path->entity map (`derive_focus`) and the bidirectional depth-1 adjacency
 (`neighborhood_of` + the structural-neighbours walk) — so orientation reads a small JSON file instead of
 consulting the SQLite index. It is a CACHE, never committed: delete it and it rebuilds on the next orientation.
 
-Home (D-223): the same gitignored `.engine/knowledge/.cache/` as the index — the KNOWLEDGE cache, NOT
+Home: the same gitignored `.engine/knowledge/.cache/` as the index — the KNOWLEDGE cache, NOT
 `.engine/boot/` (which is for boot's OWN assembled artifacts, not a knowledge-produced cache boot reads).
 Pruned from the ownership walk (module_coherence.PRUNE_DIRS has `.cache`) and invisible to catalog-coverage
 (`.engine/knowledge/` is infra) — regenerable, never an orphan, never committed.
 
-Degrade chain — the BOOT path's four rungs (knowledge/README.md:52, re-locked under D-223): rung-1 = this
+Degrade chain — the BOOT path's four rungs: rung-1 = this
 slice when fresh; rungs 2-4 are SHARED with the query path and reused LITERALLY here via
 `knowledge_index._load_graph` — a missing/stale slice is rebuilt from the committed graph (rung 2); an absent
 committed graph falls back to a LIVE WALK of the surfaces (rung 3, loudly degraded, self-healing); only if
@@ -60,7 +60,7 @@ def _project(graph: dict) -> dict:
 
       by_path   — {source.path: id} for every entity (derive_focus maps each changed file -> its owning entity).
       adjacency — {id: [{"id","predicate","direction"}, ...]} — every entity's depth-1 neighbours over the four
-                  STRUCTURAL edges (WALK_EDGE_KINDS; supersedes excluded, D-203) in BOTH directions, EXACTLY
+                  STRUCTURAL edges (WALK_EDGE_KINDS; supersedes excluded) in BOTH directions, EXACTLY
                   reproducing knowledge_query.neighbors(direction="both"). graph.json stores OUTGOING edges
                   only, so each `A --pred--> B` is recorded as {B,pred,"out"} under A AND {A,pred,"in"} under B;
                   a self-edge (A==B) is skipped and each (id,predicate,direction) is de-duped within a source —
@@ -171,7 +171,7 @@ class Slice:
         # rungs are carried separately so boot names the cause: `from_live` = the committed graph.json was
         # ABSENT (regenerate); `from_corrupt` = it was PRESENT but DAMAGED (regenerate to replace it). `read()`
         # sets them from the build source; a directly-constructed Slice defaults both to False (committed).
-        # See knowledge/README degrade chain + boot_slice module docstring.
+        # See the boot_slice module docstring's degrade chain.
         self.from_live = False
         self.from_corrupt = False
 

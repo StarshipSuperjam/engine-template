@@ -170,8 +170,8 @@ class TestSweepIsolation(unittest.TestCase):
 
 
 class TestRetireAndSection15(unittest.TestCase):
-    """The kept-on-purpose intent-exit (#471/D-306): a retired marker stops a retire-eligible finding, survives
-    the hook's decide() rewrites, and — the §15 guarantee — can NEVER silence a governance alarm."""
+    """The kept-on-purpose intent-exit (#471): a retired marker stops a retire-eligible finding, survives
+    the hook's decide() rewrites, and — the weakening-guard guarantee — can NEVER silence a governance alarm."""
 
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -183,7 +183,7 @@ class TestRetireAndSection15(unittest.TestCase):
         self.assertTrue(bal.is_retired("fp1", "foreign_license", path=self.path))
 
     def test_a_governance_class_marker_is_never_honored(self):
-        # §15 falsification: even with a marker recorded at a fingerprint, a NON-eligible (governance) class is
+        # Weakening-guard falsification: even with a marker recorded at a fingerprint, a NON-eligible (governance) class is
         # never honored — a mis-written / injection-planted marker cannot silence a governance alarm.
         bal.retire("fp-gov", "foreign_license", path=self.path)   # a marker now exists at this fingerprint
         self.assertFalse(bal.is_retired("fp-gov", "gate", path=self.path))
@@ -221,7 +221,7 @@ class TestRetireAndSection15(unittest.TestCase):
         self.assertFalse(bal.is_retired("fp1", "foreign_license", path=self.path))
 
     def test_the_eligible_class_set_is_locked_to_exactly_foreign_license(self):
-        # The §15 drift guard: no future alarm may become retire-eligible (silenceable) without a deliberate edit
+        # The weakening-guard drift guard: no future alarm may become retire-eligible (silenceable) without a deliberate edit
         # to RETIRE_ELIGIBLE_CLASSES AND this assertion. Keeping this exact set is what keeps a governance alarm
         # un-retireable.
         self.assertEqual(bal.RETIRE_ELIGIBLE_CLASSES, frozenset({"foreign_license"}))

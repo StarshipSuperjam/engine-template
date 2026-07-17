@@ -6,7 +6,7 @@ What it does: when a pull request is being checked in CI, it relays GitHub's own
 data — the comparison of the change's dependencies against the project's current ones
 (`GET /repos/{owner}/{repo}/dependency-graph/compare/{base}...{head}`) — and BLOCKS the merge when the change
 ADDS an outside package with EITHER a known security vulnerability OR a license problem. It is read-only: it
-only reads the comparison and emits findings; it never writes or rewrites a lockfile (the R5 mutation firewall).
+only reads the comparison and emits findings; it never writes or rewrites a lockfile (the read-only mutation firewall).
 
 The two license rules (this slice):
   • an UNIDENTIFIABLE license (GitHub can't determine it) blocks on ANY repo — the question is whether you may
@@ -19,8 +19,7 @@ rule inactive and SAYS SO, never a spurious block.
 
 Accepted exceptions: the check carries its OWN committed allow-lists in its rule params — `allow-ghsas` (accept
 a specific security advisory) and `allow-licenses` (accept a specific license) — so a genuinely-unfixable
-finding never strands the operator. Adding an entry edits the guarded check definition, which the existing §15
-weakening guard catches and blocks until the operator's deliberate `guardrail-ack`; this script neither owns nor
+finding never strands the operator. Adding an entry edits the guarded check definition, which the existing weakening guard catches and blocks until the operator's deliberate `guardrail-ack`; this script neither owns nor
 re-implements that acknowledgment — it relays into it. An accepted finding passes with a SOFT note that names
 what was accepted (never a silent pass).
 
@@ -38,7 +37,7 @@ PASSES, never a silent green and never a hard block:
 The script always exits 0 on these handled branches, so the validator's fail-closed path is reserved for a
 genuine crash (a broken check must still fail loud). Every read and parse degrades in-band, never raises.
 
-Engine/product wall (§13): the dependency-review API reports the whole repository's dependency graph, so this
+Engine/product wall: the dependency-review API reports the whole repository's dependency graph, so this
 check filters out any change whose `manifest` is under `.engine/` — it gates the PRODUCT's own dependencies,
 never the engine's walled internal tooling.
 
@@ -70,7 +69,7 @@ import github_client  # noqa: E402  (the shared authenticated GitHub API client;
 
 USER_AGENT = "engine-dependency-review"
 _PRICING_URL = "https://github.com/pricing"
-_ENGINE_PREFIX = ".engine/"  # the §13 wall: manifests here are the engine's own tooling, never product deps
+_ENGINE_PREFIX = ".engine/"  # the engine/product wall: manifests here are the engine's own tooling, never product deps
 # GitHub Actions are declared only in workflow files. GitHub's dependency graph carries NO SPDX license for the
 # Actions ecosystem, so every action classifies as an unidentifiable license — and there is no per-package
 # accept-path for 'unknown'. License-gating them would permanently block any change that adds an action for a
@@ -219,7 +218,7 @@ def _pr_base_head(event) -> tuple:
 def _read_check_params() -> tuple:
     """(allow_ghsas, allow_licenses) from this check's OWN committed definition
     (`.engine/check/dependency-review.json`, resolved via `validate.ROOT` — the single source of truth, so the
-    accept-lists live in the guarded check file the §15 weakening guard watches). Fail-SAFE: on ANY problem
+    accept-lists live in the guarded check file the weakening guard watches). Fail-SAFE: on ANY problem
     (missing / unreadable / malformed JSON, wrong shape) it returns empty lists — honoring NO exceptions, so a
     corrupt config keeps the gate fully blocking rather than silently loosening, and it never raises into the
     validator's fail-closed path. Lists default to empty; a present-but-empty list loosens nothing."""
@@ -593,7 +592,7 @@ def findings(block_tier: str = "hard", *, event_path: "str | None" = None,
             continue
         manifest = change.get("manifest") or ""
         if isinstance(manifest, str) and manifest.startswith(_ENGINE_PREFIX):
-            continue                                          # the §13 wall: never the engine's own tooling
+            continue                                          # the engine/product wall: never the engine's own tooling
         location = {"file": manifest, "line": None} if isinstance(manifest, str) and manifest else None
 
         kept, dropped = _filter_vulns(change.get("vulnerabilities") or [], allow_ghsas)
@@ -710,7 +709,7 @@ def demo() -> int:
             ("a vulnerable added product dependency earns one hard block",
              lambda: run(_Canned([vuln])),
              lambda fs: one_hard(fs) and "GHSA-demo-0000" in fs[0]["message"]),
-            ("the same vulnerability under .engine/ is walled off (the §13 wall)",
+            ("the same vulnerability under .engine/ is walled off (the engine/product wall)",
              lambda: run(_Canned([engine_vuln])), lambda fs: fs == []),
             ("a clean, permissively-licensed added dependency passes",
              lambda: run(_Canned([clean])), lambda fs: fs == []),

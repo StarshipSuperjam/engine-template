@@ -234,7 +234,7 @@ class Prose(unittest.TestCase):
         # the transport seam); the minimal-notes shape is asserted with no proposal.
         notes = rt._release_notes("v0.1.0", proposal=None)
         self.assertIn("v0.1.0", notes)
-        self.assertIn("no automated check", notes.lower())          # the §6 readiness line
+        self.assertIn("no automated check", notes.lower())          # the readiness line
         for banned in ("terminal cut", "release-cut", "release_cut", "target_commitish"):
             self.assertNotIn(banned, notes)
 
@@ -329,7 +329,7 @@ class ExitCode(unittest.TestCase):
 
 class RaisedFailureLegibility(unittest.TestCase):
     """A transient read/transport failure (a PublishError raised mid-publish) must STILL reach the merged PR
-    with a plain recovery — the §6 legibility promise holds for the raise-path, not only decided refusals."""
+    with a plain recovery — the legibility promise holds for the raise-path, not only decided refusals."""
 
     def _flaky_on_latest(self, fake):
         orig = fake.transport
@@ -348,7 +348,7 @@ class RaisedFailureLegibility(unittest.TestCase):
         self.assertEqual(r["reason"], "errored")            # converted to a loud result, not propagated away
         self.assertEqual(rt._exit_code(r), 1)               # a loud non-zero stop
         bodies = fake.comment_bodies()
-        self.assertEqual(len(bodies), 1)                    # the recovery reached the PR (the §6 promise)
+        self.assertEqual(len(bodies), 1)                    # the recovery reached the PR (the legibility promise)
         self.assertIn("did not finish", bodies[0])
 
 

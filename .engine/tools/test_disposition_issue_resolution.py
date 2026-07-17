@@ -1,4 +1,4 @@
-"""Tests for the disposition-issue-resolution check (#292, D-262/D-263) — disposition_issue_resolution_check.
+"""Tests for the disposition-issue-resolution check (#292) — disposition_issue_resolution_check.
 
 The transport is injectable, so every path (404 / PR / non-engine / engine / outage / >=400) is exercised
 OFFLINE and deterministically — the real findings()/classify() logic runs against a faked network. The live

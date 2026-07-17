@@ -16,7 +16,7 @@ The open-removal-PR DEDUPE is a SEPARATE, best-effort, ONLINE step (`removal_pr_
 never sits on the offline detector's critical path (the `checkout_health` offline/online seam).
 
 Fix-never-here: the removal lands as a reviewed pull request the operator merges (build-orchestration's trivial
-fast path), never a boot-time delete (D-303/§8). No-op in the engine's OWN template/construction repo, where the
+fast path), never a boot-time delete. No-op in the engine's OWN template/construction repo, where the
 root LICENSE is legitimately the engine's, not a leftover — judged against the EXAMINED checkout's committed
 `HEAD:CLAUDE.md` (not this process's repo), so the guard tracks the repo whose LICENSE is being judged.
 """

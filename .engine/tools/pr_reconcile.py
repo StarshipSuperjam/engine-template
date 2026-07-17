@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Reconcile a pull request stranded on the engine's derived-committed index files (#136 / principle §19).
+"""Reconcile a pull request stranded on the engine's derived-committed index files (#136).
 
 When two pieces of work are in flight at once they can both rewrite the engine's two internal index files —
 the knowledge graph (`.engine/knowledge/graph.json`) and the self-map (`.engine/self-map.md`) — and a sibling
 pull request merging first leaves THIS pull request in a GitHub `CONFLICTING` state a non-engineer cannot
-clear. Per §19 those two files are *derived-committed*: their content is a pure function of the source tree, so
+clear. Those two files are *derived-committed*: their content is a pure function of the source tree, so
 a conflict on them is **spurious** — resolved by regenerating from the reconciled tree, never a hand-merge,
 never a side-pick, and **never handed to the operator**.
 
@@ -14,7 +14,7 @@ This mirrors `checkout_health`'s detect → assess → execute shape, **lossless
     asynchronously, so an *unknown* state degrades QUIETLY to None (caught next boot) — never a false
     "all clear". The authoritative file-level classifier is `assess`, not GitHub's async field.
   - `assess()` — READ-ONLY classification. A working-tree-free `git merge-tree` against the freshly-fetched
-    default branch decides whether the conflict is confined to the two §19 members (`fixable`, lossless) or
+    default branch decides whether the conflict is confined to the two derived-committed members (`fixable`, lossless) or
     touches authored files (`needs-manual` — a real conflict for human decision, never auto-resolved). It
     refuses on a tree that carries no engine files (an external-contribution / fork-main branch is never
     regenerated onto).
@@ -40,8 +40,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 
-# The two §19 derived-committed members, repo-relative (the exact paths git reports in a conflict). Membership
-# is by property (a fully source-deterministic committed file); v1 has exactly these two (D-218).
+# The two derived-committed members, repo-relative (the exact paths git reports in a conflict). Membership
+# is by property (a fully source-deterministic committed file); v1 has exactly these two.
 MEMBERS = (".engine/knowledge/graph.json", ".engine/self-map.md")
 
 # An inline identity so a merge/commit never fails for lack of a configured git user on the operator's machine.
@@ -121,7 +121,7 @@ def _merge_tree(base: str, root: str, head: str = "HEAD") -> tuple[str, list[str
 
 
 def _members_present(root: str) -> bool:
-    """The §19 members exist in the tree — the external-contribution / fork-main guard (a product/upstream
+    """The derived-committed members exist in the tree — the external-contribution / fork-main guard (a product/upstream
     contribution branch carries no engine files and is NEVER regenerated onto; locked build-orchestration)."""
     return all(os.path.isfile(os.path.join(root, m)) for m in MEMBERS)
 
@@ -169,7 +169,7 @@ def detect_conflict(gh, *, root: str | None = None) -> dict | None:
 def assess(*, root: str | None = None, default: str | None = None, fetch: bool = True) -> dict:
     """Classify the current branch's mergeability against the default branch, OFFLINE of GitHub's async field.
     status ∈ healthy | fixable | needs-manual. `fixable` iff a non-empty conflict set is confined to the two
-    §19 members (lossless regenerate-to-resolve); any authored conflict, an unclassifiable merge, or a tree
+    derived-committed members (lossless regenerate-to-resolve); any authored conflict, an unclassifiable merge, or a tree
     carrying no engine members → `needs-manual` (never `fixable`)."""
     root = root or validate.ROOT
     default = default or _default_branch(root)
@@ -209,7 +209,7 @@ def _regen_members(root: str) -> bool:
 
 
 def reconcile(*, apply: bool = False, root: str | None = None, default: str | None = None) -> dict:
-    """Reconcile the current branch's PR against the default branch, regenerating the two §19 members from the
+    """Reconcile the current branch's PR against the default branch, regenerating the two derived-committed members from the
     reconciled tree. Dry-run (apply=False) returns the assessment without mutating. apply=True executes an
     APPEND-ONLY merge (no history rewrite, NO force-push), resolves a member-only conflict by regeneration,
     re-verifies, and pushes. On ANY surprise it `git reset --hard`es to the captured pre-state and REFUSES —

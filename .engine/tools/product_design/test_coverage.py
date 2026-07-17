@@ -2,7 +2,7 @@
 """Tests for the product-spec coverage inspector (.engine/tools/product_design/coverage.py).
 
 Drives the real `coverage.findings()` over crafted throwaway `docs/spec/` trees (mutation-free temp roots), so
-the verdict table, the D-120 leak rule, the rule-tier carry, and the spec_form/build-plan integration are all
+the verdict table, the operator-communication leak rule, the rule-tier carry, and the spec_form/build-plan integration are all
 exercised against the shipped logic — not a reimplementation. A separate dispatch class confirms the
 demo/main/emit contract.
 """
@@ -230,7 +230,7 @@ class CoverageFindingsTests(unittest.TestCase):
         self.assertTrue(all(f["severity"] == "soft" for f in fs), "structural/orphan findings must carry the tier")
 
     def test_no_finding_leaks_a_raw_lifecycle_token(self):
-        # D-120 / the operator-communication law across a representative spread of cases.
+        # The operator-communication law across a representative spread of cases.
         cases = [
             {"docs/spec/index.md": _index("| A | settled | [A](a.md) |\n"), "docs/spec/a.md": _cap("locked")},
             {"docs/spec/index.md": _index("| A | settled | [A](a.md) |\n"), "docs/spec/a.md": _cap("locked"),

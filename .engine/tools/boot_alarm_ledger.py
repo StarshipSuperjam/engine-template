@@ -25,12 +25,12 @@ Laws (all load-bearing):
     the ledger lives in a distinct gitignored directory.
   - STABLE PER-INSTANCE PATH under the shared clone root's `.engine/boot/.cache/`, so the ledger spans
     separate sessions on the one operator's machine and is never trapped in an ephemeral worktree.
-  - TWO WRITERS, ONE LOCK (#471/D-306). The SessionStart hook's decide() writes the collapse baselines; a
+  - TWO WRITERS, ONE LOCK (#471). The SessionStart hook's decide() writes the collapse baselines; a
     SECOND, model-invoked writer (retire(), the operator's "I meant to keep this") writes the RETIRED
     namespace. Both take the same `<ledger>.lock` for a read-modify-write, and decide() CARRIES the RETIRED
     namespace FORWARD untouched, so neither writer erases the other's state. Retire-eligibility is a code
     constant (RETIRE_ELIGIBLE_CLASSES) checked mechanically at honor time keyed on the LIVE finding class —
-    never a label read from the ledger — so a retired marker can never silence a governance alarm (§15).
+    never a label read from the ledger — so a retired marker can never silence a governance alarm.
 
 CLI (operator-runnable): python tools/boot_alarm_ledger.py path     # print the resolved ledger path
                          python tools/boot_alarm_ledger.py retire   # retire the live leftover-license offer
@@ -57,12 +57,12 @@ CACHE_SUBDIR = os.path.join(".engine", "boot", ".cache")
 LEDGER_FILENAME = "standing-alarms.json"
 
 # The RETIRED namespace — a reserved top-level key holding {fingerprint: true} for findings the operator has
-# deliberately kept ("I meant to keep this", #471/D-306). It lives in the SAME ledger file as the collapse
+# deliberately kept ("I meant to keep this", #471). It lives in the SAME ledger file as the collapse
 # baselines but in its own key, and decide() CARRIES IT FORWARD untouched on every rewrite (a collapse-key
 # rebuild must never erase a retire marker). No alarm key collides with this reserved name.
 _RETIRED_NS = "__retired__"
 
-# The CLOSED set of retire-eligible finding classes — a build-time constant, the §15 gate. A retired marker is
+# The CLOSED set of retire-eligible finding classes — a build-time constant, the retire-eligibility gate. A retired marker is
 # honored ONLY for a class in this set; the class is the LIVE one the caller passes (derived from the producing
 # detector), never a label read from the ledger. A governance/strand/unprovisioned alarm is NOT here, so it can
 # be declined (collapse to terse) but NEVER retired — a mis-written or injection-planted marker cannot silence
@@ -215,7 +215,7 @@ def decide(alarms: list, *, cwd: str | None = None, path: str | None = None) -> 
                 new_ledger[k] = {"value": val, "shown_in_full": True}   # stamp THIS true full relay
         # Keys present last session but not live now are simply absent from new_ledger -> dropped. But the RETIRED
         # namespace is NOT a collapse key and has a lifecycle of its own — carry it forward untouched so a
-        # collapse-key rebuild never erases an operator's "I meant to keep this" (#471/D-306). Preserved only when
+        # collapse-key rebuild never erases an operator's "I meant to keep this" (#471). Preserved only when
         # the ledger read succeeded (ok); a fresh/unreadable ledger seeds an empty namespace, never a false retire.
         retired_ns = old.get(_RETIRED_NS)
         if ok and isinstance(retired_ns, dict) and retired_ns:
@@ -232,7 +232,7 @@ def is_retired(fingerprint: str, cls: str, *, cwd: str | None = None, path: str 
     """True iff `cls` is a retire-eligible finding class AND a retired marker for `fingerprint` is recorded. The
     eligibility gate is a CODE CONSTANT (RETIRE_ELIGIBLE_CLASSES) keyed on the LIVE class the caller passes —
     derived from the producing detector, NEVER a label read from the ledger — so a retired marker planted on a
-    governance alarm's fingerprint is ignored and that alarm still renders (§15, D-306). Read-only, no lock.
+    governance alarm's fingerprint is ignored and that alarm still renders. Read-only, no lock.
     Fail-toward-SHOWING: a non-eligible class, an absent/unreadable/malformed ledger, or a missing marker all
     return False (the finding surfaces)."""
     if cls not in RETIRE_ELIGIBLE_CLASSES:
@@ -247,7 +247,7 @@ def is_retired(fingerprint: str, cls: str, *, cwd: str | None = None, path: str 
 def retire(fingerprint: str, cls: str, *, cwd: str | None = None, path: str | None = None) -> dict:
     """Record a retired marker for `fingerprint` — the operator's deliberate 'I meant to keep this'. Returns
     {"ok": bool, "reason": <str>}. REFUSES a class not in RETIRE_ELIGIBLE_CLASSES (write-time defense-in-depth;
-    is_retired's honor gate is the real §15 guarantee). Read-modify-write UNDER THE LOCK, preserving EVERY
+    is_retired's honor gate is the real guarantee). Read-modify-write UNDER THE LOCK, preserving EVERY
     existing entry (collapse baselines and any prior markers) — this is the model-invoked SECOND writer the
     ledger's concurrency discipline must cover, alongside the SessionStart hook's decide(). Never raises; lock
     contention returns an honest {"ok": False}, never a silent no-op."""

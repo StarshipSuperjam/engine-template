@@ -7,7 +7,7 @@ reroute gate (issue_gate.py) could not inspect. Run by the engine-issue-conforma
 control-plane body contract's shape it FLAGS the Issue — applies the `needs-reauthoring` label and posts ONE
 advisory comment carrying the conforming skeleton — so the slip enters the engine's own detect→surface→remediate
 loop. When a later edit makes the body conform, it removes the label. It NEVER gates Issue creation (GitHub
-cannot), so it is an honest backstop, not a second wall (engine-planning D-235/D-236; control-plane README).
+cannot), so it is an honest backstop, not a second wall.
 
 KEYS ON BODY SHAPE AND THE ENGINE LABEL, NEVER PROVENANCE. The conformance test is the SAME predicate the
 in-session gate uses — `all(marker in body for marker in issue_gate.CONTRACT_MARKERS)` — imported from
@@ -58,7 +58,7 @@ import issue_gate    # noqa: E402
 USER_AGENT = "engine-issue-conformance"
 
 # The label applied to a non-conforming engine Issue. The design names the signal `needs-reauthoring`
-# (control-plane README) and leaves the concrete string an operator-facing build-spec leaf; the maintainer
+# and leaves the concrete string an operator-facing build-spec leaf; the maintainer
 # chose this string verbatim. Because the label keeps the design term, the COMMENT (below) carries the
 # plain-language reassurance that it is not a task for the operator.
 NEEDS_REAUTHORING_LABEL = "needs-reauthoring"

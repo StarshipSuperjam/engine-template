@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the solo<->team migration operation (#408 U11)."""
+"""Tests for the solo<->team migration operation (#408)."""
 import contextlib
 import io
 import json

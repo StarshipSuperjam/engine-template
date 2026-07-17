@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for pr_reconcile — the stranded-PR conflict detector + lossless-or-refuse recovery (#136 / §19).
+"""Tests for pr_reconcile — the stranded-PR conflict detector + lossless-or-refuse recovery (#136).
 
 Lock the behaviours a non-engineer cannot read code to verify: a conflicting pull request is DETECTED (and an
-async-uncomputed merge state degrades QUIETLY, never a false "all clear"); a conflict confined to the two §19
+async-uncomputed merge state degrades QUIETLY, never a false "all clear"); a conflict confined to the two derived-committed
 index files classifies FIXABLE while any authored conflict (or a tree with no engine files) classifies
 NEEDS-MANUAL; the recovery reconciles LOSSLESSLY (both pieces of work survive); and on ANY failure it RESTORES
 the branch to exactly where it was and refuses — never losing work, never side-picking, never claiming a
@@ -41,7 +41,7 @@ def _write(root: str, rel: str, content: str) -> None:
 
 
 def _repo(holder: str, *, members: bool = True) -> tuple[str, str]:
-    """A bare 'origin' + a working clone on `main`, seeded with the two §19 member files (as plain text so they
+    """A bare 'origin' + a working clone on `main`, seeded with the two derived-committed member files (as plain text so they
     can be made to clash) plus an authored seed file. Returns (origin, work)."""
     origin, work = os.path.join(holder, "origin.git"), os.path.join(holder, "work")
     subprocess.run(["git", "init", "-q", "--bare", origin], check=False)

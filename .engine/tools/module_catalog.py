@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared reader for the optional-module catalog (core slice 27a) — the single home that reads
+"""Shared reader for the optional-module catalog — the single home that reads
 `.engine/provisioning/module-catalog.json`.
 
 Provisioning owns the catalog (it ships empty and grows as optional modules are built); two readers RELAY
@@ -9,9 +9,9 @@ it and must never drift in how they parse it, so both go through this one functi
 - the `/engine-help` command index (`engine_help.py`) — lists an uninstalled module's command under
   "available if you install it".
 
-This is the shared skill/command-discovery helper the `/engine-help` slice (26b) recorded as owed once a
+This is the shared skill/command-discovery helper the `/engine-help` work recorded as owed once a
 second reader appeared — that second reader is the instantiator, so it lands here. The reader DEGRADES and
-never raises (`§14`/`§16`, degrade-to-git-native): a missing, unreadable, malformed, or wrong-shaped catalog
+never raises (degrade-to-git-native): a missing, unreadable, malformed, or wrong-shaped catalog
 narrows the relay to nothing rather than breaking either caller. It only relays — it decides nothing about
 what is installed, and validates nothing (the shape is governed by `provisioning-catalog.v1.json`, enforced
 by the `engine/check/provisioning-catalog` schema check, not this read path). Every well-formed entry is

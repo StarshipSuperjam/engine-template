@@ -8,7 +8,7 @@ These lock the load-bearing behavior the deliverable gate attests:
   - resolve: the locked gate, each disclosed no-op reason, and the confined-read guard (a pointer escaping
     docs/spec — by `..` or a symlink — is never opened);
   - review-steps: the two-group split (operator-runnable vs the engine's account), the terminal-command/demo
-    demotion, the all-engine no-op, and the verbatim, D-120-clean render;
+    demotion, the all-engine no-op, and the verbatim, lifecycle-token-clean render;
   - the dispatch (demo returns clean; the env-guarded CLIs; resolve/review-steps over --doc).
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -347,7 +347,7 @@ class AcceptanceSplitTests(unittest.TestCase):
         self.assertIn("1 is on the engine's account", out)
 
     def test_render_never_collapses_to_all_green_when_one_side_is_zero(self):
-        # all-operator: the readout must still STATE the zero, never fold into one "all good" (§17).
+        # all-operator: the readout must still STATE the zero, never fold into one "all good".
         out = spec_referent.render_acceptance_split(self._resolved([
             {"criterion": "A", "how_verified": "open the screen", "who": "operator"},
             {"criterion": "B", "how_verified": "make a purchase and confirm", "who": "operator"},

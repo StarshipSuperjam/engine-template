@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Self-tests for the hooks contract substrate (core slice 17): the closed event inventory, the block
+"""Self-tests for the hooks contract substrate: the closed event inventory, the block
 budget + block cap, the per-OS interpreter-path resolver, the fail-open-and-flag harness, and the pure
 block-budget coherence leg (validate.block_budget_findings).
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
-These lock the laws hooks owns (systems/infrastructure/hooks/README.md):
+These lock the laws hooks owns:
   - the event inventory is the engine's chosen subset, with PostToolUse three-owner (validation·telemetry·
     modes), SessionEnd hooks-owned and non-blocking, UserPromptSubmit boot-owned injection; only PreToolUse
     and Stop are block-eligible;
@@ -17,12 +17,12 @@ These lock the laws hooks owns (systems/infrastructure/hooks/README.md):
     non-eligible event all PROCEED (a non-2 exit) and emit a plain-language finding — never a hard block;
     only a handler that returns block() on PreToolUse/Stop exits 2; on a forced Stop continuation
     (stop_hook_active) the handler STILL runs but its block is downgraded to proceed, so it can never
-    re-block and loop the cap (slice 22 — close needs the give-up moment to log; the guarantee is the
+    re-block and loop the cap (close needs the give-up moment to log; the guarantee is the
     harness's, by construction, not the handler's).
   - the static block-budget leg flags a block declared on a non-eligible event, is silent on an empty set,
     and agrees with the runtime BLOCK_ELIGIBLE_EVENTS (a drift guard). The leg is built + fixture-tested
     with no live rule (the interface_resolution_findings / agent_coherence_findings precedent); the live
-    rule wires at the first hook-wiring slice (20).
+    rule wires at the first hook-wiring slice.
 """
 from __future__ import annotations
 import contextlib
@@ -67,12 +67,12 @@ class TestEventInventory(unittest.TestCase):
 
     def test_posttooluse_enumerates_its_three_owners(self):
         # validation's touched-file run + telemetry's ambient capture + modes' plan-acceptance
-        # Build-entry trigger coexist on one event (D-180 owner inventory).
+        # Build-entry trigger coexist on one event (the owner inventory).
         self.assertEqual(hooks.EVENT_INVENTORY["PostToolUse"]["owners"],
                          ("validation", "telemetry", "modes"))
 
     def test_posttooluse_may_inject_and_stays_non_blocking(self):
-        # D-270/D-271: modes' acceptance trigger injects an assistant-internal stance directive
+        # modes' acceptance trigger injects an assistant-internal stance directive
         # (additionalContext) on Build entry, so PostToolUse may inject — but it never blocks.
         self.assertTrue(hooks.EVENT_INVENTORY["PostToolUse"]["injects"])
         self.assertFalse(hooks.EVENT_INVENTORY["PostToolUse"]["blocks"])
@@ -141,7 +141,7 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
             self.assertNotIn(control, cmd)
 
     def test_command_names_the_explicit_venv_interpreter_never_system_python(self):
-        # the conformance witness (D-156): the explicit ${CLAUDE_PROJECT_DIR}-rooted venv interpreter is
+        # the conformance witness: the explicit ${CLAUDE_PROJECT_DIR}-rooted venv interpreter is
         # named IN the command (the launcher's first arg), never a bare/system interpreter or `uv run`.
         cmd = hooks.hook_command(".engine/tools/boot.py", "posix")
         self.assertIn(f'"{hooks.interpreter_path("posix")}"', cmd)
@@ -355,11 +355,11 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
     lockstep, or this reds (the architect-A1 / adversarial-S1 drift guard for issue #83)."""
 
     # every engine hook wire's script-relpath-with-args. Core wires boot on three SessionStart matchers;
-    # the per-prompt scent on UserPromptSubmit (slice 5, PR 2); the commit-boundary regen for the knowledge
+    # the per-prompt scent on UserPromptSubmit; the commit-boundary regen for the knowledge
     # graph AND the self-map (the #136 self-map/graph-asymmetry close) on PreToolUse; memory-substrate
-    # (slice 3b) wires its consolidation sweep on the same three SessionStart matchers + a PreCompact hook
-    # (the compaction trigger, slice 5 PR 3), (slice 4e-ii/iii) the cross-session erasure OBSERVER and the
-    # earned-erasure PROPOSER, and (slice 6a) the backup-vault push, each on the same three SessionStart matchers.
+    # wires its consolidation sweep on the same three SessionStart matchers + a PreCompact hook
+    # (the compaction trigger), the cross-session erasure OBSERVER and the
+    # earned-erasure PROPOSER, and the backup-vault push, each on the same three SessionStart matchers.
     # telemetry's ambient AND episodic triages each run on two SessionStart matchers (startup + resume), the
     # same command, so each adds ONE entry to the SET while adding TWO to the registration COUNT (like
     # github-projects-sync).
@@ -556,7 +556,7 @@ class TestHarnessFailOpen(unittest.TestCase):
 
 class TestStopHookActive(unittest.TestCase):
     def test_forced_continuation_runs_handler_but_never_reblocks(self):
-        # Slice 22 (deliberate law change from slice 17's skip-the-handler): on a forced continuation the
+        # A deliberate law change from the earlier skip-the-handler behaviour: on a forced continuation the
         # handler STILL runs — close uses the give-up moment to log a still-undispositioned finding — but
         # its block is downgraded to proceed in run_hook, so the no-re-block / no-loop guarantee holds by
         # construction (the harness owns it, not the handler).
@@ -776,7 +776,7 @@ class TestFailOpenPromotion(unittest.TestCase):
         self.assertFalse(hooks._promote_fail_open("PreToolUse", "crash", "msg"))
 
     def test_do_promote_degrades_to_false_when_emit_does(self):
-        # After the §16 un-inversion the hook no longer resolves the GitHub boundary — telemetry.emit_finding
+        # After the un-inversion the hook no longer resolves the GitHub boundary — telemetry.emit_finding
         # does (and owns the no-token/offline -> False behaviour, covered in test_telemetry). Here the hook's
         # job is only to relay emit_finding's verdict: a False emit -> a False promote (surfaced-not-recorded).
         import telemetry
@@ -785,7 +785,7 @@ class TestFailOpenPromotion(unittest.TestCase):
 
     def test_do_promote_emits_a_trust_critical_sourced_record(self):
         # The hook builds the coarse, marker-safe, trust-critical record and hands it to the emit-and-done
-        # seam; it NO LONGER holds telemetry's GitHub boundary (that reach-in was the inverted seam F0203 fixed).
+        # seam; it NO LONGER holds telemetry's GitHub boundary (that reach-in was the inverted seam that was fixed).
         import telemetry
         captured = {}
 

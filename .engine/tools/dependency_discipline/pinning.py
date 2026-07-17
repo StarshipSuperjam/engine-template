@@ -14,9 +14,9 @@ individual version specifiers (a `requirements.txt` with loose ranges counts as 
 hygiene nudge, not a guarantee; a deeper per-package or monorepo audit is a later refinement.
 
 Tiers / blocking: every finding is `soft`, so this check never blocks a merge even in CI's blocking-gate
-context. Read-only: it inspects file presence only and never writes (the R5 mutation firewall).
+context. Read-only: it inspects file presence only and never writes (the read-only mutation firewall).
 
-Engine/product wall (§13): it scans `validate.ROOT` (the repository root) only, never the engine's own
+Engine/product wall: it scans `validate.ROOT` (the repository root) only, never the engine's own
 walled `.engine/` tooling — so `.engine/pyproject.toml` / `.engine/uv.lock` are never mistaken for product
 dependencies. On a repo with no product manifest (such as engine-template itself) it emits the disclosed
 no-op and stays green.
@@ -120,7 +120,7 @@ def emit_findings() -> int:
 
 def demo() -> int:
     """Prove the inspector flags an unpinned manifest, passes a pinned one, discloses the no-op on an empty
-    root, and never counts the engine's own `.engine/` tooling as a product dependency (the §13 wall) —
+    root, and never counts the engine's own `.engine/` tooling as a product dependency (the engine/product wall) —
     RETURNS NON-ZERO if any invariant is broken (the falsification can fail). Mutation-free: every case runs
     against a throwaway temp root, so the real working tree is never touched."""
     import shutil
@@ -148,7 +148,7 @@ def demo() -> int:
     cases.append(("an empty root discloses the no-op (never a silent pass)",
                   {},
                   lambda fs: len(fs) == 1 and "isn't active here yet" in fs[0]["message"]))
-    cases.append(("the engine's own .engine/ tooling is not a product dependency (the §13 wall)",
+    cases.append(("the engine's own .engine/ tooling is not a product dependency (the engine/product wall)",
                   {".engine/pyproject.toml": "[project]\nname = 'engine'\n", ".engine/uv.lock": ""},
                   lambda fs: len(fs) == 1 and "isn't active here yet" in fs[0]["message"]))
 

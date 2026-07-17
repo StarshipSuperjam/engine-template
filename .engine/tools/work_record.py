@@ -3,27 +3,26 @@
 (engine-template #37, the work-record-reader slice; PR 1 of the chain to the gitignored knowledge boot-slice
 producer). Builder B, post-M1.
 
-attention's ranking reads the **in-flight** native git/GitHub record (attention/README:52 "Work
-prioritization"). This module supplies the git-owned halves of it:
+attention's ranking reads the **in-flight** native git/GitHub record. This module supplies the git-owned halves of it:
   - IN-FLIGHT (`read_in_flight`) — open pull requests + the current working branch, as `in_flight` candidates.
     This is also the "work in hand" the #37 knowledge focus keys on.
   - RECENT DECISIONS (`read_recent_decisions`) — recently merged pull requests, as `recent_decisions`
-    candidates: the structured PR body is the decision record and there is no changelog (principle §11).
+    candidates: the structured PR body is the decision record and there is no changelog.
 
-Two things this deliberately does NOT read, because they are other owners' (attention/README:52, D-314):
+Two things this deliberately does NOT read, because they are other owners':
   - **the project's plan** — the operator's open Issues and Milestones. These five categories budget a cold
     session's CONTEXT, and work nobody has started is a plan, not context. The plan belongs to
     product-design's build-plan, which build-orchestration groups under native Milestones; Milestones reach
     the operator through boot's standing-situation field instead.
-  - **the engine's own debt register** — telemetry owns it (attention/README:70) and boot threads its
+  - **the engine's own debt register** — telemetry owns it and boot threads its
     per-issue rows straight into the ranking, so reading it here would double-count it.
 
-Membership is the recorded build-spec leaf (D-052/D-113): in-flight = the repo's open pull requests
+Membership is the recorded build-spec leaf: in-flight = the repo's open pull requests
 (capped) + the current working branch (HEAD, when it is not the default branch), a PR for the current branch
 SUBSUMING its branch record (no double-listing). Deliberately NOT "every local branch" — a worktree repo
 accrues many stale `claude/*` branches that are not in-flight work.
 
-Two layers, so it answers offline and degrades to git-native (principle §5):
+Two layers, so it answers offline and degrades to git-native:
   - the LOCAL-GIT FLOOR (no network, no token): the current branch (HEAD) when not the default — the one
     piece of in-flight work always knowable from the tracked repo alone;
   - the GITHUB LAYER (best-effort, when a reader is injected): the repo's open pull requests, capped. A
@@ -50,7 +49,7 @@ import subprocess
 # How many open PRs to read before stopping — a bound so a busy public repo never hangs orientation.
 _PR_WINDOW = 20
 # How many merge commits the recent-decisions read scans. A READ bound only: how many recent decisions actually
-# surface is the attention policy's `budget_recent_decisions` slice, never a constant here (#394 U01).
+# surface is the attention policy's `budget_recent_decisions` slice, never a constant here (#394).
 _SHIPPED_WINDOW = 20
 # How many in-flight records to surface in all (PRs + the working branch), freshest first.
 _CAP = 12
@@ -181,8 +180,7 @@ def read_recent_decisions(*, run=_run_git, window: int = _SHIPPED_WINDOW) -> lis
     attention candidates, newest first.
 
     "What just happened" is reconstructed from merged pull requests: the structured PR body IS the decision
-    record, and there is no changelog file (boot/README "«What just happened» reads recent pull requests, not a
-    changelog"; principle §11). This is the LOCAL-GIT FLOOR — merge commits, no network and no token — so a cold
+    record, and there is no changelog file. This is the LOCAL-GIT FLOOR — merge commits, no network and no token — so a cold
     session can always read what shipped.
 
     Each record: {"id": "shipped:<n>", "category": "recent_decisions", "recency": <UTC-Z|None>,
@@ -232,7 +230,7 @@ def changed_paths(*, run=_run_git, cap: int | None = _PATHS_CAP) -> list[str]:
     cycle; the path -> entity mapping is attention's job, not this reader's.
 
     `cap` bounds the result for orientation's attention budget (default `_PATHS_CAP`); pass `cap=None` for the
-    UNCAPPED full set — the upstream-clean SAFETY nudge (#416 U21) needs it, since a cap could let an engine
+    UNCAPPED full set — the upstream-clean SAFETY nudge (#416) needs it, since a cap could let an engine
     path sort past it and slip the leak intersection (the same reason submit.py's outgoing-diff is uncapped)."""
     paths: set = set()
     if _current_branch(run) is not None:        # a real branch other than the default -> committed leg applies

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 6 — the module system: manifest grammar (module.v1 / engine.v1),
+"""Self-tests for the module system: manifest grammar (module.v1 / engine.v1),
 the ownership-coherence leg, and the module-coherence consumer.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -143,7 +143,7 @@ class TestEngineSchema(unittest.TestCase):
 
 class TestSchemaRulesIntegration(unittest.TestCase):
     """The two committed schema rules resolve their repo-root-relative params.schema override
-    and bite. Proves the override path (base = ROOT, not the schemas dir) — the slice-6
+    and bite. Proves the override path (base = ROOT, not the schemas dir) — the
     plan-gate's blocking fix — actually validates the manifests it targets."""
 
     def _rule(self, name):
@@ -239,7 +239,7 @@ class TestWiringFindings(unittest.TestCase):
 
 
 class TestOrphanWireFindings(unittest.TestCase):
-    """The pure REVERSE wiring leg (orphan-wire, slice 25b): an applied engine entry no manifest
+    """The pure REVERSE wiring leg (orphan-wire): an applied engine entry no manifest
     declares flags HARD; a declared one does not; a drifted same-identity entry is NOT double-flagged
     (the forward leg owns drift). permission and ontology-entry are excluded by construction —
     declared_wire_identity returns None and the enumerator never emits them."""
@@ -266,8 +266,7 @@ class TestOrphanWireFindings(unittest.TestCase):
             validate.orphan_wire_findings(applied, {("mcp", "engine-knowledge-graph")}, "hard", "m"), [])
 
     def test_hook_with_a_changed_command_is_an_orphan_by_the_identity_model(self):
-        # A hook's identity is the full (event, matcher, type, command) tuple (module-system §"The wiring
-        # library"), so an applied engine hook whose command differs from every declared one IS an orphan
+        # A hook's identity is the full (event, matcher, type, command) tuple, so an applied engine hook whose command differs from every declared one IS an orphan
         # here — while the declared hook is separately reported not-applied by the forward leg. Two
         # accurate findings about two real facts, by design (documented on orphan_wire_findings).
         applied = [("hook", ("Stop", "", "command", ".engine/EDITED.py"), ".claude/settings.json")]
@@ -323,7 +322,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                       "engine-parts must now be a tracked surface instance in the claim-driven inventory")
 
     def test_core_provides_no_gitkeep_placeholders_and_no_agent_group(self):
-        # #411 U30: core once carried .claude/skills/.gitkeep and a .claude/agents/.gitkeep-only `agent`
+        # #411: core once carried .claude/skills/.gitkeep and a .claude/agents/.gitkeep-only `agent`
         # group as empty-dir placeholders. Both directories are now populated in every deployed repo (core
         # provides the engine-* skills; required audit-library provides .claude/agents/audit.md), so the
         # placeholders are obsolete and a literal provides-kind read must be coherent: no .gitkeep in any
@@ -337,46 +336,45 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertIn(".claude/skills/engine-parts/SKILL.md", provides.get("skill", []))
 
     def test_check_corpus_split_core_two_guards_validators_core_forty(self):
-        # The locked engine/corpus boundary (D-089/D-090; validators-core README; validation README):
-        # core ships the validation engine and owns ZERO rules EXCEPT the two §15 frozen-named guards;
+        # The locked engine/corpus boundary:
+        # core ships the validation engine and owns ZERO rules EXCEPT the two frozen-named guards;
         # the self-validation corpus is validators-core's (40 rules: the disposition-issue-resolution check
-        # (engine-template #292; D-262/D-263 — confirms a PR's cited follow-up issues resolve to real
+        # (engine-template #292 — confirms a PR's cited follow-up issues resolve to real
         # engine-labeled issues, the first non-offline meta-check unit) atop the read-only-persona write-lock
-        # guard (this change, D-272 — every read-only review/audit persona must block the file-writing
+        # guard (this change — every read-only review/audit persona must block the file-writing
         # tools, the live consumer of agent_coherence_findings) atop the negative-fixture meta-check
-        # (engine-template #286 — the checker-of-checkers, D-256…D-260; dormant until wired live) atop
+        # (engine-template #286 — the checker-of-checkers; dormant until wired live) atop
         # the untracked-surface detector
         # (engine-template #281 — names a surface file git is not tracking, e.g. sync-conflict cruft) atop
         # the optional-module catalog schema gate
         # (engine-template #254 — keeps the first-run catalog matching provisioning-catalog.v1.json now that a
         # command-less optional module is offerable) atop the memory-backup pointer public-safety
-        # guard (engine-template #224; D-242 — keeps a configured vault pointer from shipping in the public
+        # guard (engine-template #224 — keeps a configured vault pointer from shipping in the public
         # template) atop the in-tool demo failure-path floor
-        # (engine-template #171; D-231/D-232) and the 31 prior plus the two
+        # (engine-template #171) and the 31 prior plus the two
         # audit-digest gates (the audit-library module's seal/fingerprint gate and its staleness signal,
         # validated HERE — the detection-relay shape, audit-library owns the digest machinery while
         # validators-core owns the rules that verify it, exactly as the first-run reference-closure gate
         # enforces provisioning's invariant from here), and before them the audit
         # checklist schema gate (the audit-library module's concern-list, validated HERE because
-        # engine-self-validation consolidates in validators-core, not the surface's owner — README
-        # "Why a separate required package"), and before that the first-run
-        # reference-closure gate (issue #150; engine-planning D-219/D-220), and before it the
+        # engine-self-validation consolidates in validators-core, not the surface's owner), and before that the first-run
+        # reference-closure gate (issue #150), and before it the
         # knowledge-vocabulary parity guard (issue #131) — the 20 after the
-        # operation grammar (slice OG) and the skill grammar (slice SG) plus the doc-frontmatter and
-        # doc-shape grammar rules (slice 19) and the uv-group-drift gate (slice 25c) and the
-        # skill-coherence self-election guard (slice 26a) and the policy-override-stale rule
-        # (slice 26c) — plus the conduct-frontmatter, conduct-shape, and conduct-weakening-guard rules
-        # (slice CD), the grammar plus the soft §15 guard for the new codes-of-conduct surface).
+        # operation grammar and the skill grammar plus the doc-frontmatter and
+        # doc-shape grammar rules and the uv-group-drift gate and the
+        # skill-coherence self-election guard and the policy-override-stale rule
+        # — plus the conduct-frontmatter, conduct-shape, and conduct-weakening-guard rules
+        # the grammar plus the soft guard for the new codes-of-conduct surface).
         # The files stay under .engine/check/ — ownership is a `provides` claim, not a location. This
         # test pins that exact split so a future wildcard re-introduction (which would double-claim the
         # corpus) cannot pass silently.
         # An OPTIONAL module may additionally own a *domain* check — one that inspects the operator's
         # PRODUCT, not the engine itself — categorically distinct from core's two engine guards and from
         # validators-core's engine-self-validation corpus. dependency-discipline is the first: it owns the
-        # dependency-pinning rule (Slice 2) and the dependency-review gate (Slice 3), the module being "the
+        # dependency-pinning rule and the dependency-review gate, the module being "the
         # content" over core's check engine. The partition below therefore admits a third owner; the real
         # boundary this test pins is unchanged — each check is owned by exactly ONE module, core stays frozen
-        # at its two §15 guards, and no wildcard may re-claim the corpus.
+        # at its two guards, and no wildcard may re-claim the corpus.
         manifests = module_coherence.discover_manifests()
         ids = {m.get("id") for _path, m in manifests}
         self.assertIn("validators-core", ids, "validators-core must be a present module")
@@ -393,7 +391,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(core_checks, [
             ".engine/check/guardrail-weakening.json",
             ".engine/check/protection.json",
-        ], "core owns exactly the two §15 guards")
+        ], "core owns exactly the two weakening guards")
         self.assertEqual(vc_checks, [
             ".engine/check/agent-coherence.json",
             ".engine/check/agent-frontmatter.json",
@@ -453,7 +451,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         ], "dependency-discipline owns exactly its pinning and review checks")
         # external-contribution (an optional module) owns the upstream-clean nudge — a check that inspects an
         # OUTGOING cross-fork contribution diff for engine-owned paths. Like dependency-discipline's domain
-        # checks it is an optional-module-owned check, neither core's §15 guard nor validators-core's
+        # checks it is an optional-module-owned check, neither core's guard nor validators-core's
         # self-validation corpus; the partition must admit it. The real boundary is unchanged — exactly one
         # owner per check, core frozen at its two guards, no wildcard re-claiming the corpus.
         ec_checks = sorted(r for r, o in check_owner.items() if o == ["external-contribution"])
@@ -462,7 +460,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         ], "external-contribution owns exactly the upstream-clean nudge")
         # migration-discipline (an optional module) owns the rollback-presence nudge — a check that inspects
         # the PRODUCT's own database migrations for a separate rollback script. Like dependency-discipline's
-        # and external-contribution's domain checks it is an optional-module-owned check, neither core's §15
+        # and external-contribution's domain checks it is an optional-module-owned check, neither core's
         # guard nor validators-core's self-validation corpus; the partition must admit it. The real boundary
         # is unchanged — exactly one owner per check, core frozen at its two guards, no wildcard re-claiming
         # the corpus.
@@ -474,9 +472,9 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # own committed docs/spec/ tree for well-formed structure (required sections, a well-formed
         # acceptance-criteria table, every doc reachable from the index). Like dependency-discipline's,
         # external-contribution's, and migration-discipline's domain checks it is an optional-module-owned
-        # check, neither core's §15 guard nor validators-core's self-validation corpus; the partition must
+        # check, neither core's guard nor validators-core's self-validation corpus; the partition must
         # admit it. The real boundary is unchanged — exactly one owner per check, core frozen at its two
-        # guards, no wildcard re-claiming the corpus. (Slice 4 extends this exact list as the
+        # guards, no wildcard re-claiming the corpus. (This exact list extends as the
         # acceptance-criteria-coverage check lands.)
         pd_checks = sorted(r for r, o in check_owner.items() if o == ["product-design"])
         self.assertEqual(pd_checks, [
@@ -519,9 +517,9 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertEqual(al.get("depends"), {"validators-core": ""})
 
     def test_audit_library_depends_on_validators_core_only(self):
-        # #402 U08a: the explicit `core` edge is redundant and was dropped. The catalog table
-        # (modules/README.md), the dependency graph, and audit-library's own spec all name validators-core
-        # ONLY (D-136); core reaches audit-library transitively (core -> validators-core -> audit-library),
+        # #402: the explicit `core` edge is redundant and was dropped. The catalog table,
+        # the dependency graph, and audit-library's own spec all name validators-core
+        # ONLY; core reaches audit-library transitively (core -> validators-core -> audit-library),
         # since validators-core declares depends {core}. Dropping the edge is behaviour-neutral: the install
         # order is unchanged because core stays present and still orders before validators-core.
         manifests = module_coherence.discover_manifests()
@@ -563,7 +561,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertIn("orphan", orphaned[0]["message"])
 
     def test_memory_substrate_owns_tools_and_the_erasure_proposal(self):
-        # memory-substrate-sqlite-fts5 owns its tools (the memory/*.py glob) AND, since slice 4e-iii, the committed
+        # memory-substrate-sqlite-fts5 owns its tools (the memory/*.py glob) AND the committed
         # single-purpose erasure proposal the emitter writes + the observer reads — a content-free machine artifact
         # (a uuid-hex target + a plain-language cost), owned the way audit-library owns its concern-list, under an
         # "erasures" provides group with .engine/erasures/ carved into catalog-coverage's infra_dirs (it is engine
@@ -578,15 +576,14 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         }, "memory owns its tools, the committed erasure proposal, and the committed backup-vault pointer")
 
     def test_product_design_owns_its_front_door(self):
-        # product-design (optional, Slice 2) grows from one read-only check (Slice 1) to the operator-facing
+        # product-design (optional) grows from one read-only check to the operator-facing
         # front door: the engine-design skill (the typed command), the product-intake operation (the ceremony
         # runbook), the operator orientation doc, and the spec-authoring scaffold the operation writes a
-        # docs/spec/ tree from. The scaffold is committed product-authoring template files (the maintainer's
-        # Slice-2 decision), homed beside the manifest under .engine/modules/ — NOT a catalogued surface
+        # docs/spec/ tree from. The scaffold is committed product-authoring template files (the maintainer's decision), homed beside the manifest under .engine/modules/ — NOT a catalogued surface
         # location, so it is owned (via this `scaffold` group) without being entitized into the knowledge
-        # graph. Pinning the exact provides locks the expanded footprint against drift. Slice 3 added the
-        # lock-integrity check; Slice 4a added the acceptance-criteria-coverage check + the build-order scaffold
-        # template (still under the same `scaffold` *.md glob, so only the check list grew); Slice 4b extends the
+        # graph. Pinning the exact provides locks the expanded footprint against drift. Later work added the
+        # lock-integrity check, then the acceptance-criteria-coverage check + the build-order scaffold
+        # template (still under the same `scaffold` *.md glob, so only the check list grew); a further step extends the
         # operation/build-orchestration copy, not this provides list.
         manifests = module_coherence.discover_manifests()
         pd = next((m for _p, m in manifests if m.get("id") == "product-design"), None)
@@ -693,7 +690,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
 
     def test_inventory_prunes_the_fixtures_namespace_but_keeps_a_same_named_dir_elsewhere(self):
-        # #286/D-256: the committed negative-fixture namespace `.engine/_fixtures/` holds deliberately-broken
+        # #286: the committed negative-fixture namespace `.engine/_fixtures/` holds deliberately-broken
         # test data that no module `provides`, so the ownership inventory must skip it — else every committed
         # fixture reports as an unowned orphan. This is the deterministic guard for the FIXTURE_PATHS prune,
         # the sibling of the PRUNE_PATHS test above.
@@ -718,7 +715,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                 validate.ROOT, validate.ENGINE_DIR = d, engine
                 inv = module_coherence.engine_file_inventory()
             self.assertNotIn(".engine/_fixtures/kind-schema/bad.json", inv,
-                             "the committed-test-data .engine/_fixtures/ namespace must be pruned (D-256)")
+                             "the committed-test-data .engine/_fixtures/ namespace must be pruned")
             self.assertIn(".engine/tools/_fixtures/real.py", inv,
                           "a same-named directory elsewhere must stay owned (the path-anchor gotcha — a "
                           "bare-name '_fixtures' prune would drop it)")
@@ -728,10 +725,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
 
     def test_inventory_prunes_the_deployment_eADR_stream_but_keeps_the_engine_canon(self):
-        # #410 U28 / topology law 5 / D-169: the deployment's per-instance eADR stream `.engine/contracts/instance/`
+        # #410: the deployment's per-instance eADR stream `.engine/contracts/instance/`
         # holds COMMITTED decision records a deployment authors — in no module's `provides`, preserved across an
         # engine overlay. The ownership inventory must skip that subtree, or every real deployment eADR reports as
-        # an unowned orphan in a deployed repo (the exact false-orphan class #410 U26 fixes for `.engine/boot/`).
+        # an unowned orphan in a deployed repo (the exact false-orphan class #410 fixes for `.engine/boot/`).
         # test_real_repository_is_coherent only proves the SEED README does not orphan; this is the DETERMINISTIC
         # guard that a real, non-README deployment eADR under instance/ is pruned, while the engine's own eADR
         # CANON directly in `.engine/contracts/` stays inventoried (it rides core's non-recursive glob).
@@ -755,7 +752,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                 validate.ROOT, validate.ENGINE_DIR = d, engine
                 inv = module_coherence.engine_file_inventory()
             self.assertNotIn(".engine/contracts/instance/eADR-9001-picked-postgres.md", inv,
-                             "the deployment's committed per-instance eADR stream must be pruned (D-169)")
+                             "the deployment's committed per-instance eADR stream must be pruned")
             self.assertIn(".engine/contracts/eADR-0001-versioned-template.md", inv,
                           "the engine's own eADR canon directly in .engine/contracts/ must stay owned")
             self.assertIn(".engine/tools/instance/real.py", inv,
@@ -765,7 +762,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
 
     def test_a_deployment_eADR_home_draws_no_engine_codeowners_but_the_canon_does(self):
-        # #410 U28: the point of the deployment home is that a deployment's OWN decision records route to the
+        # #410: the point of the deployment home is that a deployment's OWN decision records route to the
         # deployment, not engine review — so nothing under .engine/contracts/instance/ may acquire an engine
         # CODEOWNERS line (it is off core's non-recursive .engine/contracts/*.md glob), while the engine's own
         # eADR canon directly in .engine/contracts/ IS engine-owned. Real-tree correlate of the operator demo:
@@ -781,8 +778,8 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # The committed tree's declared wires are ALL applied -> the forward wiring leg is silent.
         # The mcp leg is APPROVAL-BLIND: it reports the engine-knowledge-graph server applied from the
         # committed .mcp.json DEFINITION, never from the operator's runtime client-approval (which the
-        # repo does not record) -> the MCP-pending-setup carve-out, shown positively. (Slice 20 BORNed
-        # .claude/settings.json for the SessionStart hook wiring; that is the engine's own hook config,
+        # repo does not record) -> the MCP-pending-setup carve-out, shown positively. (.claude/settings.json
+        # was added for the SessionStart hook wiring; that is the engine's own hook config,
         # not an operator MCP approval, so it is irrelevant to approval-blindness — the point is that the
         # mcp wire is green on the committed definition alone.)
         status = module_coherence.wiring_status(module_coherence.discover_manifests())
@@ -833,9 +830,9 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                         "a drifted mcp definition must flag a hard wiring finding")
 
     def test_real_repository_has_no_orphan_wires(self):
-        # The slice-25b REVERSE leg adds zero findings over the committed tree: every applied
+        # The REVERSE leg adds zero findings over the committed tree: every applied
         # engine-identified hook / mcp / gitignore entry is declared by a present manifest, and the
-        # foundation .venv ignore is a plain line (not a fence) so it is never enumerated (D-156).
+        # foundation .venv ignore is a plain line (not a fence) so it is never enumerated.
         manifests = module_coherence.discover_manifests()
         orphans = validate.orphan_wire_findings(
             wiring.applied_engine_wires(), module_coherence.declared_wire_identities(manifests),
@@ -924,7 +921,7 @@ class TestSeededRootFileOwnership(unittest.TestCase):
 
 class TestTopologicalOrder(unittest.TestCase):
     """The pure validate.topological_order — dependency-first, deterministic, input-order-independent,
-    cycle-safe. The self-map (slice 8) renders in this order; the module manager (slice 25) installs
+    cycle-safe. The self-map renders in this order; the module manager installs
     in it."""
 
     @staticmethod

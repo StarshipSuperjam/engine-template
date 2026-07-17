@@ -23,14 +23,14 @@ is present.
 
 Honest floor: detection is presence/convention-based over a PRUNED walk of the product tree — it never
 descends into `.engine/` (the engine's own walled tooling), `.git`, `.venv`, `node_modules`, or build/cache
-dirs (the §13 engine/product wall and the R5 read-only firewall), and it does not follow directory symlinks
+dirs (the engine/product wall and the read-only firewall), and it does not follow directory symlinks
 (the safe default), so a migrations directory reached only through a symlink is not inspected. It reads only
 file and directory NAMES and presence — it never reads SQL/DDL, never judges whether a migration is safe or
 destructive, and never checks whether a schema change has a migration at all (the standing posture bar plus
 the pull-request review cover those). It is a soft hygiene nudge, not a guarantee.
 
 Tiers / blocking: every finding is `soft`, so this check never blocks a merge even in CI's blocking-gate
-context. Read-only: it inspects names/presence only and never writes (the R5 mutation firewall).
+context. Read-only: it inspects names/presence only and never writes (the read-only mutation firewall).
 
 Contract: invoked by the validator with NO arguments, it prints a finding.v1 JSON array to stdout and exits
 0. A separate `demo` subcommand runs a falsifiable self-check.
@@ -49,7 +49,7 @@ if _PARENT not in sys.path:
 
 import validate  # noqa: E402 — ROOT (test-redirectable) + the finding.v1 helper
 
-# Directories never walked: the engine's own walled tooling (§13), VCS, virtualenvs, dependency trees, and
+# Directories never walked: the engine's own walled tooling (the engine/product wall), VCS, virtualenvs, dependency trees, and
 # build/cache output. Pruning these is the firewall that keeps a recursive migration walk from mistaking a
 # vendored or engine-owned migration artifact for one of the product's own (the firewall pinning.py gets free
 # by being root-level only). Mirrors module_coherence.PRUNE_DIRS and extends it for product-repo noise.
@@ -270,7 +270,7 @@ def demo() -> int:
     """Prove the inspector nudges a migration missing its rollback (both the up/down and the Flyway
     per-version conventions), passes a fully-paired set, says plainly (never silently) what it found on each
     not-applicable state with the right framework named, and never counts a migration under a pruned/walled
-    directory (`.engine/`, `node_modules/`) as the product's own (the §13 wall) — RETURNS NON-ZERO if any
+    directory (`.engine/`, `node_modules/`) as the product's own (the engine/product wall) — RETURNS NON-ZERO if any
     invariant is broken (the falsification can fail). Mutation-free: every case runs against a throwaway temp
     root, so the real working tree is never touched."""
     import shutil
@@ -335,7 +335,7 @@ def demo() -> int:
     cases.append(("an empty project says the no-op plainly (never a silent pass)",
                   {},
                   lambda fs: len(fs) == 1 and "isn't active here yet" in fs[0]["message"]))
-    cases.append(("a migration under .engine/ is walled out (the §13 wall) -> no-op, not a nudge",
+    cases.append(("a migration under .engine/ is walled out (the engine/product wall) -> no-op, not a nudge",
                   {".engine/x/migrations/0001.up.sql": "create table t();"},
                   lambda fs: len(fs) == 1 and "isn't active here yet" in fs[0]["message"]))
     cases.append(("a migration under node_modules/ is pruned -> no-op, not a nudge",

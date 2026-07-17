@@ -121,7 +121,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # Audit-over-audit (D-234): the self-review reads its OWN recent committed digests as over-time
+          # Audit-over-audit: the self-review reads its OWN recent committed digests as over-time
           # corroboration — a finding that keeps recurring is likely genuine, not a fluke — never as a
           # decision. The read-only persona never reaches GitHub itself, so the workflow fetches the recent
           # digests here and the next step feeds them in. This is a same-repo read on the own-repo token:
@@ -140,7 +140,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -uo pipefail
-          # The saved-memory privacy gate (#224/D-242) withholds belief specifics from a digest committed to a
+          # The saved-memory privacy gate (#224) withholds belief specifics from a digest committed to a
           # PUBLIC repo. Visibility is read HERE with the OWN-repo token — the vault read token on the next step is
           # scoped to the vault and cannot read this repo, and the `schedule` trigger's event payload omits
           # visibility — and handed to the memory step via the environment. Best-effort and never fails the run:
@@ -150,7 +150,7 @@ jobs:
           printf 'MEMORY_AUDIT_REPO_VISIBILITY=%s\n' "${vis}" >> "${GITHUB_ENV}"
       - name: Fetch the project's saved memory (from its backup) for the self-review
         env:
-          # The VAULT read token (#224/D-242), NOT the own-repo token: the saved-memory backup lives in a SEPARATE
+          # The VAULT read token (#224), NOT the own-repo token: the saved-memory backup lives in a SEPARATE
           # private repo, which the own-repo GITHUB_TOKEN provably cannot reach. MEMORY_VAULT_TOKEN is a least-
           # privilege, read-only (contents:read) token scoped to just the vault repo, set as a secret during the
           # turn-on; boot.gh_token() prefers env GITHUB_TOKEN, so passing it here routes the read through it with
@@ -192,7 +192,7 @@ jobs:
       - name: Fetch the engine's own checks that currently match no files
         run: |
           set -euo pipefail
-          # F0200 (the never-firing signal): the engine's own FILE-SCOPED checks that select NO files in this
+          # The never-firing signal: the engine's own FILE-SCOPED checks that select NO files in this
           # repo right now. A check matching nothing is a QUESTION, not a verdict — possibly dead template
           # weight to raise upstream, or simply a kind of file this project does not use yet. It reads only the
           # committed check corpus + the working tree — NO GitHub, NO token — so it carries none and always
@@ -209,7 +209,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # The standing product-spec-conformance sweep (#449 / D-296/D-297): when this project has settled a
+          # The standing product-spec-conformance sweep (#449): when this project has settled a
           # `docs/spec/` and its criterion record is present, prepare the persona's hunt-set — what changed since
           # the last review (read over the commits/contents API on this shallow checkout, deliberately NOT
           # `git log`, which the depth-1 clone cannot answer) plus a spot-check sample — and the honest coverage
@@ -283,7 +283,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # The standing product-spec-conformance sweep's promote half (#449 / D-296/D-297): parse the persona's
+          # The standing product-spec-conformance sweep's promote half (#449): parse the persona's
           # machine-readable verdicts out of the digest body, STRIP that block (so the committed digest stays
           # clean prose and the JSON never feeds back into a later review as stale judgement), and open-or-update
           # one deduped engine issue per DIVERGENCE — plus the distinct spec-settled-but-record-missing gap.
@@ -303,9 +303,9 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # Issue #273 half 2 (slice 2): give a STANDING soft length-budget finding a durable home — a
+          # Issue #273 half 2: give a STANDING soft length-budget finding a durable home — a
           # deduped, lane-aware engine-labelled issue — so it reaches boot and the tracker, not just this
-          # week's digest. The tool runs a LIVE-DERIVED telemetry pass (#403 / F0204): it opens/updates an
+          # week's digest. The tool runs a LIVE-DERIVED telemetry pass (#403): it opens/updates an
           # issue for each over-budget surface AND auto-resolves the issue of a surface seen back under its
           # budget — telemetry's standard source-scoped resolution, confined to soft-budget sids so it can
           # never close another source's issue (auto-resolve only clears the flag; it never edits the file). It

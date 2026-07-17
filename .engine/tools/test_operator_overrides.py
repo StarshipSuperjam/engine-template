@@ -1,4 +1,4 @@
-"""Tests for the operator-override file reader + its ownership carve-out (core slice 26c).
+"""Tests for the operator-override file reader + its ownership carve-out.
 
 Verifies: the reader degrades a missing, malformed, or non-object file to `{}` (never raises), drops a
 non-object policy slice, and returns a single policy's slice; and the ownership carve-out — a committed

@@ -68,7 +68,7 @@ class TestProjection(_Base):
         self.assertEqual(proj[ps.FIELD_SYNCED], "14:32")
 
     def test_field_names_are_the_plain_language_set(self):
-        # The board-face field names are exactly the five plain-language labels — the §12 guarantee at the
+        # The board-face field names are exactly the five plain-language labels — the leak-guard guarantee at the
         # name level (the values come from boot's already-clean signals).
         self.assertEqual(set(ps.compute_projection(_signals(), "00:00")),
                          set(ps.ENGINE_FIELD_NAMES))

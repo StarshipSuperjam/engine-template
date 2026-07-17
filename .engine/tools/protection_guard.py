@@ -6,9 +6,9 @@ until the protected-branch ruleset AND its required-check bindings are actually
 in force. The evaluated-rules endpoint omits rules left in 'evaluate' or
 'disabled' mode, so a ruleset that protects the branch but does not actually
 bite reads as absent here — "is protection on?" is answered by what bites, not
-by configuration (control-plane bootstrap contract; stage-0-harness §5).
+by configuration.
 
-Runs as a `custom/script` check rule in the CI suite (re-homed in core slice 5a),
+Runs as a `custom/script` check rule in the CI suite,
 so an unprotected branch turns engine-ci red. It emits finding.v1 JSON on stdout
 (the custom/script machine channel): a hard finding when the gate is not in force,
 and a soft "not checked here" note when no token is available (locally — fail open;

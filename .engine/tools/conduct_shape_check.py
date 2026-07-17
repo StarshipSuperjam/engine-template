@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Conduct shape check (core slice CD) — the body-to-frontmatter correspondence for a codes-of-conduct
+"""Conduct shape check — the body-to-frontmatter correspondence for a codes-of-conduct
 layer file. Each code declared in the frontmatter `codes` list must have exactly one matching
 `## <title>` section in the body, and every `## ` section must map to a declared code; a `disables` list
 must not appear on the engine defaults layer (it is operator-layer-only).

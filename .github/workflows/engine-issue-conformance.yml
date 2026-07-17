@@ -2,8 +2,8 @@
 # The after-the-fact catch for a malformed engine-labelled Issue the in-session reroute gate
 # (issue_gate.py) could not inspect: on a non-conforming engine Issue it applies the
 # `needs-reauthoring` label + posts one advisory comment; on a conform-after-edit it removes the
-# label. It NEVER gates Issue creation (GitHub cannot) — an honest backstop, not a second wall
-# (engine-planning D-235/D-236). ADVISORY: not a required check, so a finding can never block a merge.
+# label. It NEVER gates Issue creation (GitHub cannot) — an honest backstop, not a second wall.
+# ADVISORY: not a required check, so a finding can never block a merge.
 #
 # DEMO-VERIFIED, NOT END-TO-END HERE. GitHub runs `on: issues` only on a live deployed repo, so in
 # this construction repo the behaviour is proven by `issue_conformance_ci.py demo` (a recorded fake

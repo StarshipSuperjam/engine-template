@@ -6,7 +6,7 @@ the single-active / conformance coherence leg (validate.interface_resolution_fin
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 These lock: interface.v1 is a well-formed schema with teeth (a malformed declaration is rejected);
-the committed knowledge-retrieval declaration conforms and pins the D-116 op-set EXACTLY (a dropped or
+the committed knowledge-retrieval declaration conforms and pins the op-set EXACTLY (a dropped or
 renamed operation fails this suite, not only review); each operation's inline input/output schema is
 itself a well-formed JSON Schema; the catalog-resolved schema-kind rule joins CI and passes on the real
 declaration; and the coherence leg fires single-active (>1 non-default → hard) + conformance (missing

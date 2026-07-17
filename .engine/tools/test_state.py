@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 9 — the state cursor: the state.v1 schema, the committed genesis
+"""Self-tests for the state cursor: the state.v1 schema, the committed genesis
 cursor, and the schema-kind rule that refuses a malformed or shape-invalid cursor.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -9,7 +9,7 @@ an out-of-grammar field, a wrong version stamp, a negative count, a non-UTC time
 pointer); the committed genesis cursor itself conforms; the committed rule names its schema
 DIRECTLY via params.schema (state is a foundation, not a catalogued surface) and passes the real cursor;
 and a malformed or shape-invalid cursor is REFUSED AS A PLAIN FINDING — never an uncaught crash —
-which is the halt-on-malformed posture the design requires (state/README.md). The deliverable-gate
+which is the halt-on-malformed posture the design requires. The deliverable-gate
 cold review attests each test's assertion matches its name; CI runs them as a step in engine-ci.
 """
 from __future__ import annotations

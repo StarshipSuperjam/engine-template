@@ -51,7 +51,7 @@ class PinningTests(unittest.TestCase):
         # Marked as a disclosed no-op so the validator can collapse it away from actionable notes (#322).
         self.assertIs(fs[0].get("not_applicable"), True)
 
-    # --- §13 wall: the engine's own .engine/ tooling is never a product dependency ----------------
+    # --- engine/product wall: the engine's own .engine/ tooling is never a product dependency ----------------
     def test_engine_walled_tooling_is_not_a_product_dependency(self):
         root = self._root([".engine/pyproject.toml", ".engine/uv.lock"])
         fs = pinning.findings("soft", root=root)

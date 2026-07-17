@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Emit a project's build phases as native GitHub Milestones, from a product-design build order.
 
-build-orchestration (core) owns Milestone production (engine-planning
-`systems/lifecycle/build-orchestration/README.md:32-37`, decision-log D-247(1)): "**build-orchestration
-produces the Milestones** (native GitHub Milestones, via `gh api`) ... consumes [product-design]'s committed
-*build-plan* ... as the grouping input ... **absent a build-plan it plans the Milestone itself**." This tool is
-that producer's mechanical core: it reads the committed build order (`docs/spec/build-plan.md` — the
+build-orchestration (core) owns Milestone production: it produces the Milestones (native GitHub Milestones,
+via `gh api`), consumes product-design's committed *build-plan* as the grouping input, and absent a build-plan
+it plans the Milestone itself. This tool is that producer's mechanical core: it reads the committed build order (`docs/spec/build-plan.md` — the
 product-design module's artifact), derives the ordered list of phase names, and creates one GitHub Milestone per
 phase, **idempotently** (a re-run never duplicates a phase).
 

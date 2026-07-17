@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Skill-set self-election guard (core slice 26a) — the custom/script entry for engine/check/skill-coherence.
+"""Skill-set self-election guard — the custom/script entry for engine/check/skill-coherence.
 
 Runs as a `custom/script` check in the CI suite: it discovers the present ENGINE skills
 (`.claude/skills/engine-*/SKILL.md` and the legacy `.claude/commands/engine-*.md`), parses each SKILL.md
@@ -7,11 +7,11 @@ frontmatter, and runs the pure skill coherence leg (`validate.skill_coherence_fi
 self-election leak-guard that keeps an operator-typed verb (a command only the operator types) from being
 one the model could still invoke itself. It is scoped to the engine's OWN, engine-prefixed skills: the
 operator authors their own un-prefixed product skills in the same `.claude/skills/` directory, and the
-engine never governs those (skills/README §location-and-collision).
+engine never governs those.
 
 This is the live consumer the skill grammar's coherence leg was built for (validate.py
-skill_coherence_findings): ZERO skills shipped with the grammar (Slice SG), so the leg had nothing to fire
-on; slice 26 ships the first operator-typed verbs, so the guard now has real subjects and runs every CI.
+skill_coherence_findings): ZERO skills shipped with the grammar when it first landed, so the leg had nothing to fire
+on; the engine now ships the first operator-typed verbs, so the guard now has real subjects and runs every CI.
 It strengthens the self-election safety property from an authoring-time fixture test into a standing
 mechanical guard — a future edit that drops the operator-only flag on the Build verb turns engine-ci red
 instead of silently regressing it.

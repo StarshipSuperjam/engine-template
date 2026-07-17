@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""disposition-issue-resolution check (#292, engine-planning D-262/D-263) — a `custom/script` CI-suite rule
+"""disposition-issue-resolution check (#292) — a `custom/script` CI-suite rule
 owned by validators-core.
 
 It confirms a mechanical correlate the merge gate could not check before: that every Issue number a pull
 request's `## Review` section cites as a finding disposition ("real but out of scope → logged as #N") resolves
-to a real **engine-labeled** GitHub issue (open or closed). The locked finding-disposition routing (D-019) sends
+to a real **engine-labeled** GitHub issue (open or closed). The locked finding-disposition routing sends
 an out-of-scope finding to a tracked issue; this check *witnesses* that the cited issue is real rather than taking
 the pull request's word — binding `hard` on a non-AI correlate (the Issue object the engine cannot fabricate
 without filing it).
 
-Two distinct findings, by design (D-263), so the two reds carry distinct operator actions:
+Two distinct findings, by design, so the two reds carry distinct operator actions:
   - the AIMED bite: a cited #N resolves to nothing (404) or to a non-engine issue → the engine cited a follow-up
     that isn't a real engine-tracked item. ACT (file the issue, or correct the number).
   - the fail-closed verdict (never a false green): the issue API could not be read (403 / >=400 / network /

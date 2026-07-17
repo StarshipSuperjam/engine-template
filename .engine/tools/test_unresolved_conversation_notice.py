@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the passive unresolved-conversation pre-arm (#408 U10)."""
+"""Tests for the passive unresolved-conversation pre-arm (#408)."""
 import contextlib
 import io
 import os

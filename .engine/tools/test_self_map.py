@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 8 — the self-map (surface-level + wiring-graph) + its drift gate.
+"""Self-tests for the self-map (surface-level + wiring-graph) + its drift gate.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
-These lock the slice-8 defenses: the map is DERIVED (sorted, deterministic, no volatile content);
+These lock the self-map's defenses: the map is DERIVED (sorted, deterministic, no volatile content);
 it is human-readable Markdown with NO `](` byte-sequence (so link-integrity passes); the fingerprint
 gate is regenerate-and-compare (a hand-edit or a stale map is a HARD finding, in sync is a note, an
 absent map is HARD); generate/check round-trip and are idempotent; the custom/script entry emits []
@@ -340,7 +340,7 @@ class TestCLI(unittest.TestCase):
 
 
 class TestSourceDeterminismRoundTrip(unittest.TestCase):
-    """§19.1 enforcing correlate (principles.md): regenerating the self-map from the same committed source
+    """Source-determinism enforcing correlate: regenerating the self-map from the same committed source
     tree yields byte-identical output — including across a PROCESS BOUNDARY under a different
     PYTHONHASHSEED. This guards the source-determinism *property against a future regression*; it does NOT
     by itself prove the generator nondeterminism-free — it passes trivially today because every collection

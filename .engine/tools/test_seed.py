@@ -98,7 +98,7 @@ class TestCompletenessTeeth(unittest.TestCase):
 class TestCiAuthorExempt(unittest.TestCase):
     """The engine honors a rule's `ci_author_exempt` in the merge gate as a DISCLOSED
     not-applicable pass — never a silent green; the closed kinds stay author-agnostic; the
-    by-id guard path is never exempt; exact-match only. (D-207/D-208, issue #116.)"""
+    by-id guard path is never exempt; exact-match only. (issue #116.)"""
     DISCLOSURE = "NOT APPLICABLE"
 
     def setUp(self):
@@ -139,7 +139,7 @@ class TestCiAuthorExempt(unittest.TestCase):
         # otherwise-red engine-ci). Proves the engine honors the EXACT bot login, brackets and all. (The
         # memory-erasure proposal is NOT bot-authored — a local SessionStart hook opens it under the operator's
         # own gh token — so it is cleared by the engine-erasure LABEL exemption instead; see TestCiLabelExempt.)
-        # This bot entry's spoof-safety re-confirmation (D-208) is recorded in the PR that closes issue #423.
+        # This bot entry's spoof-safety re-confirmation is recorded in the PR that closes issue #423.
         self._install(exempt=("dependabot[bot]", "github-actions[bot]"))
         rc, text = self._run("CI", {"pr_body": "", "pr_author": "github-actions[bot]"})
         self.assertEqual(rc, 0)
@@ -176,7 +176,7 @@ class TestCiAuthorExempt(unittest.TestCase):
 
     def test_by_id_guard_path_never_exempt(self):
         # run_check() (the by-id path engine-guard uses) carries no suite, so it never honors
-        # ci_author_exempt — the §15 guard judges Dependabot too (build-owe #7).
+        # ci_author_exempt — the weakening guard judges Dependabot too.
         self._install()
         with contextlib.redirect_stdout(io.StringIO()) as out:
             rc = validate.run_check("engine/check/synthetic-exempt",
@@ -284,7 +284,7 @@ class TestCiLabelExempt(unittest.TestCase):
 
     def test_by_id_guard_path_never_exempt(self):
         # run_check() (the by-id path engine-guard uses) carries no suite, so it never honors
-        # ci_label_exempt — the §15 guard judges an engine-erasure-labelled PR too.
+        # ci_label_exempt — the weakening guard judges an engine-erasure-labelled PR too.
         self._install()
         with contextlib.redirect_stdout(io.StringIO()) as out:
             rc = validate.run_check("engine/check/synthetic-label-exempt",
@@ -317,7 +317,7 @@ class TestCheckSchemaCiAuthorExempt(unittest.TestCase):
         # memory-erasure proposal is opened by a local hook under the operator's own identity (NOT a bot), so the
         # author exemption cannot reach it — its deliberate plain consent body is cleared by the label instead.
         # A drop of any of these silently re-breaks those PRs' engine-ci, so pin the exact lists.
-        # The github-actions[bot] entry's spoof-safety re-confirmation (D-208) is recorded in the PR closing #423.
+        # The github-actions[bot] entry's spoof-safety re-confirmation is recorded in the PR closing #423.
         rule = validate.load_json(os.path.join(validate.CHECK_DIR, "pr-body-completeness.json"))
         self.assertEqual(rule.get("ci_author_exempt"), ["dependabot[bot]", "github-actions[bot]"])
         self.assertEqual(rule.get("ci_label_exempt"), ["engine-erasure"])
@@ -519,7 +519,7 @@ class TestWeakeningClassifier(unittest.TestCase):
     def test_suite_declarations_are_a_guarded_killswitch(self):
         # .engine/suites.json decides which suite blocks the merge; a schema-valid
         # edit (CI -> local-nudge) would silently un-gate CI, so modifying it must
-        # be flagged for the guardrail-ack (core slice 4). A pure addition does not.
+        # be flagged for the guardrail-ack. A pure addition does not.
         self.assertTrue(weakening_guard.is_guardrail(".engine/suites.json"))
         flagged = weakening_guard.flagged_changes(
             [{"filename": ".engine/suites.json", "status": "modified"}])
@@ -550,14 +550,14 @@ class TestWeakeningClassifier(unittest.TestCase):
         self.assertEqual(weakening_guard.flagged_changes(files), [])
 
     def test_validator_and_guard_are_permanent_floor_members(self):
-        # D-268 build-owe 5 — the self-protection property that must NOT silently lapse: the validator and this
+        # The self-protection property that must NOT silently lapse: the validator and this
         # guard are guarded regardless of the derived set (validate.py is the sole home of the 5 built-in HARD
         # check kinds, which carry no params.script and so are unreachable by the derived clause).
         for p in (".engine/tools/validate.py", ".engine/tools/weakening_guard.py"):
             self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
 
     def test_settings_json_and_ruleset_proxy_are_floored(self):
-        # The live hole D-268 closed (settings.json wires the enforcement hooks) + the ruleset-applying proxy.
+        # The live hole closed here (settings.json wires the enforcement hooks) + the ruleset-applying proxy.
         for p in (".claude/settings.json", ".engine/tools/bootstrap.py"):
             self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
 
@@ -570,7 +570,7 @@ class TestWeakeningClassifier(unittest.TestCase):
             self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
 
     def test_non_gate_tooling_is_not_guarded(self):
-        # The over-firing D-268 fixes: benign tools (boot, memory, telemetry, status, the self-review renderer,
+        # The over-firing the narrowing fixes: benign tools (boot, memory, telemetry, status, the self-review renderer,
         # attention) are NOT guarded when the derived set does not name them — the whole point of the narrowing.
         derived = frozenset({".engine/tools/protection_guard.py"})
         for p in (".engine/tools/boot.py", ".engine/tools/engine_status.py",
@@ -586,7 +586,7 @@ class TestWeakeningClassifier(unittest.TestCase):
         self.assertFalse(weakening_guard.is_guardrail(p, derived_scripts=frozenset()))
 
     def test_module_kind_callable_is_guarded_by_path_property(self):
-        # A module-provided check-kind callable (.engine/tools/<module>/kind_<name>.py, D-044/D-119) runs a
+        # A module-provided check-kind callable (.engine/tools/<module>/kind_<name>.py) runs a
         # validation kind's enforcement in CI but carries NO params.script, so the check-script derivation cannot
         # reach it. It is guarded by the one-level filename↔kind PATH PROPERTY — covered even with an EMPTY derived
         # set (it is not a check-script) and even as a brand-new file.
@@ -608,7 +608,7 @@ def _write_check_json(path, obj):
 
 
 class TestWeakeningDerivedSet(unittest.TestCase):
-    """The derived-by-presence clause (D-268/§14) + its ALL-OR-NOTHING fail-safe. The derivation reads the base
+    """The derived-by-presence clause + its ALL-OR-NOTHING fail-safe. The derivation reads the base
     check dir on disk; these tests inject a temp dir the way TestWeakeningReHome monkeypatches _read_base_home."""
 
     def test_derives_params_script_from_check_jsons(self):
@@ -623,7 +623,7 @@ class TestWeakeningDerivedSet(unittest.TestCase):
 
     def test_one_malformed_json_collapses_whole_derivation_to_none(self):
         # ALL-OR-NOTHING: a single corrupt rule returns None (the fail-safe sentinel), NEVER a partial set that
-        # would silently drop the broken rule's own script from the guarded set (the fail-open D-268 rejects).
+        # would silently drop the broken rule's own script from the guarded set (the fail-open the weakening guard rejects).
         with tempfile.TemporaryDirectory() as d:
             _write_check_json(os.path.join(d, "good.json"), {"params": {"script": ".engine/tools/good.py"}})
             with open(os.path.join(d, "bad.json"), "w", encoding="utf-8") as fh:
@@ -651,7 +651,7 @@ class TestWeakeningDerivedSet(unittest.TestCase):
 
 
 class TestEnforcementHookGuardCoverage(unittest.TestCase):
-    """Drift detector (D-268 / issue #250): every hook wired on a block-eligible event (PreToolUse / Stop) in
+    """Drift detector (issue #250): every hook wired on a block-eligible event (PreToolUse / Stop) in
     .claude/settings.json whose handler CAN emit a merge-relevant block MUST be guarded (in the weakening_guard
     floor). A NEW block-capable hook wired without being floored fails this test, converting the silent fail-open
     (an un-guarded new gate) into a loud CI failure at hook-add time.
@@ -726,7 +726,7 @@ class TestSchemaGateGuardCoverage(unittest.TestCase):
     hard CI schema-kind check whose schema is not floored fails LOUD here rather than merging un-guarded (the
     silent fail-open #467 closes). Bidirectional: the computed set must EQUAL the floor, so a stale floor entry
     is caught too. This is the precise-floor alternative to a blanket `.engine/schemas/` prefix, which would
-    re-introduce the D-268 over-firing (the output-contract schemas back only fixture tests, gate no merge)."""
+    re-introduce the over-firing (the output-contract schemas back only fixture tests, gate no merge)."""
 
     def _gate_schema_paths(self) -> set:
         out = set()
@@ -815,7 +815,7 @@ class TestProtectionFloor(unittest.TestCase):
         missing = protection_guard.missing_floor(rules, self.CHECKS)
         self.assertTrue(any("conversations" in m for m in missing))
 
-    # ---- team tier (U11): the stronger floor, its fidelity, and the deadlock-proof resolution ----
+    # ---- team tier: the stronger floor, its fidelity, and the deadlock-proof resolution ----
     def test_team_floor_from_the_builder_self_satisfies_its_verifier(self):
         # floor_ruleset(TEAM) must be EXACTLY what missing_floor(TEAM) accepts — the applier↔verifier
         # cross-consistency the solo floor already has, so a team repo's applied floor and the standing CI check
@@ -1082,7 +1082,7 @@ class TestImpactFillEnforcement(unittest.TestCase):
         self.assertEqual(len(found), 8)
 
 
-# ---- slice 4: the generic closed kinds + suite-context gating --------------
+# ---- the generic closed kinds + suite-context gating --------------
 
 META = validate.META_SCHEMA_URI
 
@@ -1345,7 +1345,7 @@ class TestSuiteContextGating(unittest.TestCase):
         self.assertEqual(_run_quiet("CI", {}), 2)
 
 
-# ---- slice 5a: coverage / coherence / custom-script + protection re-home ----
+# ---- coverage / coherence / custom-script + protection re-home ----
 
 class TestCoverageKind(unittest.TestCase):
     def test_unrecognized_mode_fails_closed(self):
@@ -1387,7 +1387,7 @@ class TestCoverageKind(unittest.TestCase):
             {"alpha": {"location": ".engine/alpha/"}}, {".engine/alpha/"}, "hard", "m"), [])
         self.assertEqual(validate.catalog_coverage_findings(  # infra allowlist suppresses an orphan
             {}, {".engine/boot/"}, "hard", "m", infra=[".engine/boot/"]), [])
-        # #410 U26: the exemption is load-bearing — WITHOUT .engine/boot/ in infra it IS flagged. Boot is boot's
+        # #410: the exemption is load-bearing — WITHOUT .engine/boot/ in infra it IS flagged. Boot is boot's
         # topology-sanctioned artifact home (its ledger writes .cache/ there), so once boot has run the dir
         # materializes and, absent the carve-out, fires a false HARD orphan in the operator's tree (green in CI's
         # fresh checkout, red locally). This asserts the mechanism; the next test asserts the shipped rule uses it.
@@ -1395,7 +1395,7 @@ class TestCoverageKind(unittest.TestCase):
                         "boot/ must orphan when NOT exempted — proving the allowlist entry is what suppresses it")
 
     def test_boot_is_exempted_in_the_real_catalog_coverage_rule(self):
-        # #410 U26, the data side: the shipped rule must actually list .engine/boot/, or a working tree where boot
+        # #410, the data side: the shipped rule must actually list .engine/boot/, or a working tree where boot
         # has run reds on the false orphan even though CI's fresh checkout (no .engine/boot/ yet) stays green.
         rule = validate.load_json(os.path.join(validate.ROOT, ".engine", "check", "catalog-coverage.json"))
         self.assertIn(".engine/boot/", rule["params"]["infra_dirs"],
@@ -1533,7 +1533,7 @@ class TestCustomScriptKind(unittest.TestCase):
 
 
 class TestRunUnitSeam(unittest.TestCase):
-    """run_unit (#286, D-256…D-260): drive ONE real check-logic unit against a
+    """run_unit (#286): drive ONE real check-logic unit against a
     caller-substituted target so the negative-fixture meta-check can witness that each
     hard check actually bites. Assertions are by SET-MEMBERSHIP (a finding with the
     expected severity/text is present) — never order or count. The production
@@ -1679,7 +1679,7 @@ class TestProtectionReHome(unittest.TestCase):
         self.assertIn("not fully in force", out[0]["message"])
 
 
-# ---- slice 5b: re-home the weakening guard as a custom/script rule (D-051) ----
+# ---- re-home the weakening guard as a custom/script rule ----
 
 class TestWeakeningReHome(unittest.TestCase):
     """The re-homed weakening guard emits finding.v1 JSON via the custom/script contract:
@@ -1687,7 +1687,7 @@ class TestWeakeningReHome(unittest.TestCase):
     plain-language ack guidance) on an unacknowledged guardrail change, and a hard
     fail-closed finding when the pull-request context cannot be read OR the guard could not
     read every changed file (a partial view — a too-large PR past GitHub's file-listing
-    cap). The latter is the principles §15 non-falsifiability property: a weakening edit
+    cap). The latter is the non-falsifiability property: a weakening edit
     must not hide past file 100 of a big PR, so the guard paginates the diff to completion
     and cross-checks what it read against the pull request's authoritative changed_files."""
 
@@ -1746,7 +1746,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["severity"], "hard")
-        self.assertIn("guardrail-ack", out[0]["message"])  # the informed-consent surface (D-134)
+        self.assertIn("guardrail-ack", out[0]["message"])  # the informed-consent surface
 
     def test_ack_label_clears_to_empty(self):
         rc, out = self._main_json(
@@ -1755,7 +1755,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(out, [])
 
-    # ---- the engine's update-home repoint is a §15 weakening (content-aware; #367, D-281/D-282) ----
+    # ---- the engine's update-home repoint is a guardrail weakening (content-aware; #367) ----
     _REPOINT_PATCH = ('@@ -1,4 +1,4 @@\n'
                       '   "identity": "solo",\n'
                       '-  "home_repository": "acme/engine-home"\n'
@@ -1845,7 +1845,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIsNone(weakening_guard.home_repoint(
             [{"filename": "docs/x.md", "status": "modified", "patch": self._REPOINT_PATCH}], "acme/engine-home"))
 
-    # ---- the team->solo identity downgrade is a §15 weakening (U11; mirrors home_repoint) ----
+    # ---- the team->solo identity downgrade is a guardrail weakening (mirrors home_repoint) ----
     _DOWNGRADE_PATCH = ('@@ -15,3 +15,3 @@\n'
                         '-  "identity": "team",\n'
                         '+  "identity": "solo",\n'
@@ -1940,7 +1940,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(got[-1]["filename"], ".engine/check/pr-body-completeness.json")
 
     def test_an_off_host_pagination_link_fails_the_fetch_closed(self):
-        """End-to-end §15: a crafted off-host Link header reaching the REAL get_page must raise (the
+        """End-to-end: a crafted off-host Link header reaching the REAL get_page must raise (the
         off-host guard now homed in github_client.request), so fetch_all_changed_files fails closed
         rather than following the link off-host. Only the network boundary (github_client._urlopen) is
         faked, so the guard is driven through weakening_guard's highest-stakes caller, not in isolation."""
@@ -2000,7 +2000,7 @@ class TestWeakeningReHome(unittest.TestCase):
     def test_duplicate_listing_entry_cannot_mask_a_missing_file(self):
         """The completeness gate counts DISTINCT filenames, so a duplicate listing entry
         cannot inflate the tally to match changed_files while a real file goes unseen
-        (§15: the guard must not be falsifiable by the change it judges). This would pass
+        (the guard must not be falsifiable by the change it judges). This would pass
         clean under a raw len() comparator — it must fail closed."""
         files = [{"filename": f"docs/f{i}.md", "status": "modified"} for i in range(99)]
         files.append({"filename": "docs/f0.md", "status": "modified"})  # dup -> len 100, distinct 99
@@ -2028,7 +2028,7 @@ class TestWeakeningReHome(unittest.TestCase):
 class TestRunCheckById(unittest.TestCase):
     """validate.py --check <id> runs ONE rule by id, outside any suite: it gates on a
     hard finding (exit 1 / 0 clean / 2 on unknown id), fails closed on a dangling or
-    erroring kind, and does NOT load suites.json (the D-051 isolation from the suite grammar)."""
+    erroring kind, and does NOT load suites.json (the isolation from the suite grammar)."""
     def setUp(self):
         self._rules, self._reg, self._suites = (
             validate.load_rules, dict(validate.REGISTRY), validate.SUITES_PATH)
@@ -2083,7 +2083,7 @@ class TestRunCheckById(unittest.TestCase):
 class TestGuardRuleIsolation(unittest.TestCase):
     """The re-homed weakening guard joins NO suite (suites: []), so the head-checkout CI
     suite can never run it — it is invoked only by id from engine-guard.yml, which runs
-    from the trusted base (D-051). The rule is also well-formed under check.v1.json."""
+    from the trusted base. The rule is also well-formed under check.v1.json."""
     def _guard_rule(self):
         return validate.load_json(os.path.join(validate.CHECK_DIR, "guardrail-weakening.json"))
 

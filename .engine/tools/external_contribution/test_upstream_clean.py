@@ -64,7 +64,7 @@ class TestUpstreamClean(unittest.TestCase):
         self.assertTrue(fs and all(f["severity"] != "hard" for f in fs))
 
     def test_no_arg_default_reads_the_uncapped_diff(self):
-        # #416 U21-F4: the no-argument path must read the diff UNCAPPED (cap=None), so an engine path that
+        # #416: the no-argument path must read the diff UNCAPPED (cap=None), so an engine path that
         # sorts past work_record's 50-path orientation cap is still seen and still fires — a safety predicate
         # must never drop a leak. Patch the reader to prove the call is uncapped and that the hit fires.
         seen = {}

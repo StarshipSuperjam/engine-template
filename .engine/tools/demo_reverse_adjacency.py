@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Operator-runnable demo of the BIDIRECTIONAL orientation walk (engine-template #37 / D-224).
+"""Operator-runnable demo of the BIDIRECTIONAL orientation walk (engine-template #37).
 
 It answers, in plain words, a question a non-engineer can't read code to verify: *when the engine reads the
 knowledge neighborhood of the work in hand, does it now see the connective tissue around an edited file —
 the rules that govern it, the checks that target it — not just the module it lives in?*
 
 Before this change (PR 2) the walk was forward-only, so an edited file usually collapsed to ONLY its module.
-D-224 makes the walk bidirectional: it also follows edges that point AT the focus. This demo runs the REAL
+This change makes the walk bidirectional: it also follows edges that point AT the focus. This demo runs the REAL
 logic end-to-end over the REAL committed knowledge graph — `attention.derive_focus` (changed files -> owning
 entities), the REAL bidirectional ranking walk, and boot's REAL capped neighborhood render. ONLY the local
 git "what files changed" read is faked, so it is deterministic and needs no network, no token, no edits.
 
 It shows four honest cases, each rendered through boot's REAL per-source block:
   * a POLICY file  -> the bidirectional read GAINS the checks that target (validate) it (the real win);
-  * a bare TOOL    -> stays module-only either way (the honest residual D-224 names: a leaf with no inbound
+  * a bare TOOL    -> stays module-only either way (the honest residual this walk names: a leaf with no inbound
                       structural edge has no reverse tissue to surface);
   * a MODULE manifest -> a highly-connected hub; the render DISCLOSES the true count ("provides N, showing 4
                       examples"), so an arbitrary sample never masquerades as the whole or the salient set;
@@ -62,7 +62,7 @@ def _slug(eid: str) -> str:
 
 def _forward_only(focus_ids: list) -> list:
     """The PR-2 (forward-only) neighbourhood: walk each focus member with direction='out', dedupe, exclude
-    focus members, slugify. The 'before' baseline — what a leaf collapsed to before D-224."""
+    focus members, slugify. The 'before' baseline — what a leaf collapsed to before this change."""
     focus_set, seen, adj = set(focus_ids), set(), []
     for fid in focus_ids:
         for n in knowledge_query.neighbors(fid, direction="out"):    # the OLD default
@@ -117,7 +117,7 @@ def _has_disclosed_focus_truncation(summary, rendered: str) -> bool:
 
 def main(argv: list | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
-    print("Bidirectional orientation walk — the reverse connective tissue of the work in hand (#37 / D-224).\n")
+    print("Bidirectional orientation walk — the reverse connective tissue of the work in hand (#37).\n")
 
     if argv:
         focus, _summary, rendered = _show("Your scenario:", argv)
@@ -148,7 +148,7 @@ def main(argv: list | None = None) -> int:
         all_rendered = [r1, r2, r3, r4]
 
     blob = "\n".join(all_rendered)
-    # §12: the AI block names plain components + relationship VERBS, never raw ids or internal type/predicate
+    # The AI block names plain components + relationship VERBS, never raw ids or internal type/predicate
     # vocabulary. The tokens below are exactly what a leak would look like.
     jargon_free = not any(t in blob for t in ("tool:", "module:", "policy:", "check:", "schema:",
                                               "provided_by", "governed_by", "depends_on", "targets"))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the skill surface (slice SG): the skill.v1 SKILL.md-frontmatter grammar, the committed
+"""Self-tests for the skill surface: the skill.v1 SKILL.md-frontmatter grammar, the committed
 skill template, the live shape + frontmatter validation rules, the catalog flip that wires both in, and the
 pure skill-set coherence leg (validate.skill_coherence_findings).
 
@@ -10,7 +10,7 @@ non-string field is rejected; representative model-auto / operator-typed / model
 design's load-bearing inverse — skill.v1 ACCEPTS any well-formed `invocation` STRING and any unknown extra key,
 because invocation membership is the coherence leg's job (NOT the schema's) and the schema is OPEN
 (additionalProperties: true) so operators' own un-prefixed product skills and the platform's evolving passthrough
-keys are not rejected (skills/README §invocation axis + §location-and-collision). The committed template carries
+keys are not rejected. The committed template carries
 the required Steps section plus an optional Notes section, its shape-spec frontmatter is a well-formed
 template.v1, and it is byte-identical to the skill-shape rule's params (no drift between scaffold and rule). The
 shape rule is well-formed, joins CI, dispatches the shape kind over .claude/skills/*/SKILL.md, is green on the
@@ -128,7 +128,7 @@ class TestSchema(unittest.TestCase):
 
     def test_unknown_extra_keys_pass_the_open_schema(self):
         """additionalProperties: true — operators' un-prefixed product skills and the platform's evolving
-        passthrough keys must not be rejected by the engine grammar (skills/README §location-and-collision)."""
+        passthrough keys must not be rejected by the engine grammar."""
         rich = {**VALID_OPERATOR_TYPED, "allowed-tools": "Read Grep",
                 "when_to_use": "When the operator asks to start a build.", "argument-hint": "[scope]"}
         self.assertEqual(_errors(SKILL_SCHEMA, rich), [])
@@ -265,7 +265,7 @@ class TestFrontmatterRule(unittest.TestCase):
 class TestSkillCoherenceLeg(unittest.TestCase):
     """validate.skill_coherence_findings — closed invocation membership + the invocation↔platform-flag
     self-election leak-guard. Built + fixture-tested, no live rule (the interface_resolution_findings /
-    agent_coherence_findings precedent); live consumption is the slice-26 operator verbs'. The mechanical
+    agent_coherence_findings precedent); live consumption is the operator verbs'. The mechanical
     correlate of the slice's operator demo."""
 
     def test_clean_skill_set_no_findings(self):
