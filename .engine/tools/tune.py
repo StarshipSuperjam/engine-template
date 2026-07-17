@@ -25,6 +25,7 @@ Design fidelity (for a maintainer reading the source, not the operator):
 """
 from __future__ import annotations
 import json
+import math
 import os
 import re
 import sys
@@ -106,6 +107,13 @@ def validate_value(policy_id: str, key: str, value) -> tuple[bool, str]:
         return False, f"I don't have a setting called “{key}” to change."
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False, f"That needs to be a number — “{value}” isn't one."
+    if not math.isfinite(value):
+        # "infinity" and "not a number" survive float() and json.dumps (as the non-standard `Infinity`/`NaN`
+        # literals), so without this they would save cleanly and then quietly break the setting they tune —
+        # an endless bar defers even the things that must never be deferred, and "not a number" compares
+        # false against everything, so it blocks what it should let past. Refused at the gate, for every
+        # setting: a dial the engine cannot act on is not a value it should store.
+        return False, f"That needs to be an ordinary number — “{value}” isn't one I can measure against."
     return True, ""
 
 
