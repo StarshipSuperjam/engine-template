@@ -2068,6 +2068,21 @@ class TestAntiHabituationCollapse(unittest.TestCase):
         self.assertNotIn("newer check", boot.render_dashboard(s).lower())
 
 
+class TestContractRateRender(unittest.TestCase):
+    """The contract-rate nudge renders from its own signal, only when telemetry decided the operator's
+    engine decisions crossed the limit — suppressed (no line) when the signal is None, exactly like the
+    triage-pressure meter it sits beside. Telemetry owns the decision; boot only relays the line."""
+
+    def test_line_renders_when_present(self):
+        line = "I've been writing down more of our engine decisions as permanent decision records than usual"
+        self.assertIn(line, boot.render_dashboard(_signals(contract_rate_line=line + " ... /engine-tune")))
+
+    def test_no_line_when_suppressed(self):
+        dash = boot.render_dashboard(_signals(contract_rate_line=None))
+        self.assertNotIn("over-recorded", dash)
+        self.assertNotIn("permanent decision records", dash)
+
+
 if __name__ == "__main__":
     unittest.main()
 

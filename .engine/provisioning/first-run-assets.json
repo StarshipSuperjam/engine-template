@@ -29,6 +29,7 @@
     ".engine/tools/demo_memory_degradation_backup.py",
     ".engine/tools/demo_attention_live_dials.py",
     ".engine/tools/demo_boot_set_aside_readout.py",
+    ".engine/tools/demo_contract_rate.py",
     ".engine/audits/audit-digest.md",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",

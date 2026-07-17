@@ -356,6 +356,71 @@ class TestTriagePressure(unittest.TestCase):
         self.assertEqual(r.closed, 0)
 
 
+class TestContractRate(unittest.TestCase):
+    """The contract-rate soft-warn (the contract-threshold policy's third tier): counts the operator's OWN
+    engine decisions accepted in the trailing 7 days, reads the tunable limit through the override merge so
+    /engine-tune governs it, and renders a plain nudge only over the limit — render-only, degrade-safe."""
+
+    def _seed(self, directory, name, status, date):
+        with open(os.path.join(directory, name), "w", encoding="utf-8") as fh:
+            fh.write(f"---\nid: acme-eADR-0001\ntitle: t\nstatus: {status}\ndate: {date}\n---\n## Decision\nx\n")
+
+    def test_counts_only_accepted_records_in_the_trailing_window(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "acme-eADR-0001-a.md", "accepted", "2026-07-15")   # in window
+            self._seed(d, "acme-eADR-0002-b.md", "accepted", "2026-07-17")   # in window (edge: == now)
+            self._seed(d, "acme-eADR-0003-c.md", "accepted", "2026-07-10")   # 7 days before -> out (cutoff exclusive)
+            self._seed(d, "acme-eADR-0004-d.md", "accepted", "2026-06-01")   # far out of window
+            self._seed(d, "acme-eADR-0005-e.md", "proposed", "2026-07-16")   # not accepted
+            self.assertEqual(telemetry.derive_contract_rate("2026-07-17", contracts_dir=d), 2)
+
+    def test_recurses_into_subfolders(self):
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "nested")
+            os.makedirs(sub)
+            self._seed(sub, "acme-eADR-0009-n.md", "accepted", "2026-07-16")
+            self.assertEqual(telemetry.derive_contract_rate("2026-07-17", contracts_dir=d), 1)
+
+    def test_a_single_malformed_record_is_skipped_not_fatal(self):
+        # A burst is exactly when a half-written record is most likely; one bad file must not blind the meter.
+        with tempfile.TemporaryDirectory() as d:
+            self._seed(d, "acme-eADR-0001-a.md", "accepted", "2026-07-16")
+            with open(os.path.join(d, "acme-eADR-0002-bad.md"), "w", encoding="utf-8") as fh:
+                fh.write("not even frontmatter")
+            self.assertEqual(telemetry.derive_contract_rate("2026-07-17", contracts_dir=d), 1)
+
+    def test_an_empty_or_missing_folder_reads_zero(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(telemetry.derive_contract_rate("2026-07-17", contracts_dir=d), 0)
+        self.assertEqual(telemetry.derive_contract_rate("2026-07-17", contracts_dir="/no/such/dir/xyz"), 0)
+
+    def test_a_bad_clock_suppresses_with_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(telemetry.derive_contract_rate("not-a-date", contracts_dir=d))
+
+    def test_line_renders_only_over_the_limit(self):
+        self.assertIsNone(telemetry.contract_rate_line(3, 3))       # at the limit -> nothing
+        self.assertIsNone(telemetry.contract_rate_line(2, 3))       # under -> nothing
+        line = telemetry.contract_rate_line(4, 3)                   # over -> a line
+        self.assertIsNotNone(line)
+        self.assertIn("/engine-tune", line)
+        # operator-facing: engine-domain anchor, no backstage vocab
+        for banned in ("eADR", "stream", "severity", "persistence", "contract-threshold"):
+            self.assertNotIn(banned, line)
+
+    def test_threshold_reads_the_default_and_an_override_governs(self):
+        self.assertEqual(telemetry.contract_rate_threshold(), 3)                             # shipped default
+        self.assertEqual(telemetry.contract_rate_threshold(override={"contract_rate_max": 5}), 5)  # /engine-tune governs
+        self.assertEqual(telemetry.contract_rate_threshold(override={"contract_rate_max": "lots"}), 3)  # garbage refused
+
+    def test_instance_dir_agrees_with_the_knowledge_graph_stream_path(self):
+        # The meter and the knowledge graph must draw the canon/instance line at the same folder, or they
+        # would disagree about which decisions are the operator's own; pin them together so they can't drift.
+        import knowledge_gen
+        self.assertTrue(telemetry.INSTANCE_CONTRACTS_DIR.replace(os.sep, "/")
+                        .endswith(knowledge_gen.DEPLOYMENT_CONTRACTS_PREFIX.rstrip("/")))
+
+
 class TestStateRefresh(unittest.TestCase):
     def test_refresh_writes_schema_valid_cursor_preserving_rest(self):
         schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "state.v1.json"))

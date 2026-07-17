@@ -170,13 +170,13 @@ class TestResolutionLeg(unittest.TestCase):
         f = validate.interface_resolution_findings(
             [KR], impls, {"engine-knowledge-graph", "engine-a", "engine-b"}, "hard", "m")
         self.assertTrue(any(x["severity"] == "hard" for x in f))
-        self.assertTrue(any("more than one implementation" in x["message"] for x in f))
+        self.assertTrue(any("only one can be active" in x["message"] for x in f))
 
     def test_non_conforming_implementation_is_hard(self):
         impls = {"knowledge-retrieval": [{"handle": "engine-a", "operations": ["get-entity"]}]}
         f = validate.interface_resolution_findings(
             [KR], impls, {"engine-knowledge-graph", "engine-a"}, "hard", "m")
-        self.assertTrue(any(x["severity"] == "hard" and "does not provide" in x["message"] for x in f))
+        self.assertTrue(any(x["severity"] == "hard" and "can't reliably stand in" in x["message"] for x in f))
 
     def test_absent_named_fallback_is_a_note_not_hard(self):
         # a synthetic protocol-only interface whose named fallback is not present -> expected-pending note
@@ -185,16 +185,19 @@ class TestResolutionLeg(unittest.TestCase):
                      "fallback": {"kind": "mcp", "handle": "engine-not-yet-present"}}
         f = validate.interface_resolution_findings([synthetic], {}, set(), "hard", "m")
         self.assertEqual([x["severity"] for x in f], ["note"])
-        self.assertTrue(any("pending-setup" in x["message"] for x in f))
+        self.assertTrue(any("not currently wired" in x["message"] for x in f))
 
     def test_live_search_is_expected_pending_note(self):
-        """11b: the REAL committed search.json — its named fallback engine-memory is absent in core (it
-        ships with memory-substrate, a later module), so resolution is a single expected-pending NOTE,
-        never a hard finding. This is the slice's observable: nothing in CI chokes on the absent fallback."""
+        """The REAL committed search.json — with its named fallback absent from the present handles, the
+        built-in that answers memory recall is not wired, so resolution is a single expected-setup NOTE,
+        never a hard finding. The operator-facing message names the capability in plain language ('Memory
+        recall'), never the interface's internal id or the backstage server handle."""
         f = validate.interface_resolution_findings([SEARCH], {}, set(), "hard", "m")
         self.assertEqual([x["severity"] for x in f], ["note"])
-        self.assertIn("engine-memory", f[0]["message"])
-        self.assertIn("pending-setup", f[0]["message"])
+        self.assertIn("not currently wired", f[0]["message"])
+        self.assertIn("Memory recall", f[0]["message"])
+        self.assertNotIn("'search'", f[0]["message"])
+        self.assertNotIn("engine-memory", f[0]["message"])
 
 
 if __name__ == "__main__":

@@ -14,8 +14,10 @@ each gate exists.
 
 ## Steps
 
-The review passes that run at each gate are **derived** from the installed review packs — none installed
-means a **disclosed no-op pass**, never a silent green. The one mechanical hook is the pull-request
+The review passes that run at each gate are **derived** by querying each installed review persona's own
+`role`/`lens` frontmatter (`.claude/agents/*.md`) — so a standalone operator- or module-authored review
+persona is admitted and checked the same as one that arrives in a pack, and none installed means a
+**disclosed no-op pass**, never a silent green. The one mechanical hook is the pull-request
 **Review** section's presence-gate (the completeness check over `.github/pull_request_template.md`);
 everything else is a deliberate-effort nudge whose only wall is the protected-branch merge.
 
