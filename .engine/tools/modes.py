@@ -515,7 +515,7 @@ def _demo(_argv: list) -> int:
             ("a NON-plan write to ~/.claude/settings.json",   "default", {"file_path": "~/.claude/settings.json"})]:
         print(f"  {label:49} Write -> {_decision_line(gate('Write', pm=pm, tool_input=ti))}")
 
-    print("\nAccepting a plan enters Build AND pushes you a stance directive (#67 / D-270) — real trigger:")
+    print("\nAccepting a plan enters Build AND pushes you a stance directive (#67) — real trigger:")
     print(f"  before:                                  stance={current_stance(sid)}")
     d_other = accept_handler({"session_id": sid, "tool_name": "SomeOtherTool"})
     print(f"  some other action finishes ->            stance={current_stance(sid)} "
@@ -542,7 +542,7 @@ def _demo(_argv: list) -> int:
           "merge wall is the guarantee. Accepting a plan enters Build (human-gated, not a stronger gate) and "
           "pushes you a do-not-relay stance directive; the OPERATOR announcement stays the build-orchestration "
           "kickoff, exactly once. (The platform delivering that directive on PostToolUse is the inductive "
-          "ceiling a fixture can't discharge — verified against current Claude Code, D-270/D-271.)")
+          "ceiling a fixture can't discharge — verified against current Claude Code.)")
     # Self-check: accept SETS Build AND injects a directive that names Build and is do-not-relay; a non-accept
     # completion proceeds with no inject; clearing the signal returns to Explore (the replayed line is inert —
     # the live signal, not the line, governs).

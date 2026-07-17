@@ -1604,7 +1604,7 @@ def snapshot_demo() -> bool:
         with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
             json.dump({"engine_release": "1.0.0"}, fh)
         try:
-            print("Part S — the pre-migration snapshot is a retained tag a routine backup can't overwrite (D-264).")
+            print("Part S — the pre-migration snapshot is a retained tag a routine backup can't overwrite.")
             fake = _FakeVault()
             setup(scope="shared", transport=fake.transport, consent="y")
             ptr = read_pointer()

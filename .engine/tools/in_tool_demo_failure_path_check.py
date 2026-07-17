@@ -122,7 +122,7 @@ def _message(rel: str, token: str) -> str:
         f"The `{token}` demo subcommand in `{rel}` cannot fail: it drives the real surface but its only exit "
         f"is a literal success (0/None), so it prints the outcome and reports success even when the behaviour "
         f"is broken. A behavioral demonstration must be able to fail — a recipe that can only succeed is not "
-        f"evidence (engine-planning D-228/D-231). Give it a self-check that acts on the result it already "
+        f"evidence. Give it a self-check that acts on the result it already "
         f"computes and returns non-zero on a mismatch (the `module_coherence.py` demo is the pattern), or "
         f"demote it out of the `demo` subcommand convention.")
 
