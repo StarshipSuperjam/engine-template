@@ -1161,15 +1161,21 @@ def interface_resolution_findings(interfaces: list, present_impls: dict, present
         # The operator reads these lines: name the capability in plain language (the declaration's title),
         # never its internal id, and never the backstage server handles.
         name = decl.get("title") or iface_id
-        declared_ops = {op.get("name") for op in (decl.get("operations") or [])}
-        fallback_handle = (decl.get("fallback") or {}).get("handle")
+        # Guard the declaration's own shape: a file that is valid JSON but structurally wrong (operations not a
+        # list of objects, fallback not an object) must not crash the coherence read — its shape is caught by
+        # the declaration's own schema check; here it simply contributes no operation/handle rather than raising.
+        declared_ops = {op.get("name") for op in (decl.get("operations") or []) if isinstance(op, dict)}
+        fallback = decl.get("fallback")
+        fallback_handle = fallback.get("handle") if isinstance(fallback, dict) else None
         impls = [im for im in (present_impls.get(iface_id) or [])
-                 if im.get("handle") != fallback_handle]
+                 if isinstance(im, dict) and im.get("handle") != fallback_handle]
         if len(impls) > 1:
-            # "only one can be active" is the stable, plain phrase the negative fixture matches on.
+            # "only one can be active" is the stable, plain phrase the negative fixture matches on. The removal
+            # is the engine's to do (it edits the wiring, not the operator) — only the choice of which to keep
+            # is the operator's, so the offer keeps that decision with them and hands off the mechanical part.
             findings.append(finding(tier, f"Two or more tools are installed to answer '{name}', but only "
                             f"one can be active at a time — a silent pick between them is exactly what the "
-                            f"engine must never do. Keep the one you want and remove the others. {message}"))
+                            f"engine must never do. Tell me which one to keep and I'll remove the others. {message}"))
         for im in impls:
             missing = sorted(declared_ops - set(im.get("operations") or []))
             if missing:

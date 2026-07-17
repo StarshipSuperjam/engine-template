@@ -32,4 +32,4 @@ A layered control, held three ways:
 
 - **Posture** — the bar itself (significant, constraining, hard to reverse, with a real rejected alternative) is a judgment the author and the reviewer apply. No machine decides whether a decision clears it.
 - **Hard-fail** — a check blocks the merge if a contract's Significance or Anti-choice section is left blank or left as the template's placeholder. Its limit, stated honestly: it confirms only that those two sections are filled in with some real text — never whether the content is genuinely significant or a genuine alternative. That judgment stays yours at the pull request.
-- **Soft-warn** — the contract-rate note above is a nudge at the next start-up, never a block. It begins working once the engine's background monitoring ships in a later slice.
+- **Soft-warn** — the contract-rate note above is a nudge at the next start-up, never a block. It fires when more of your own engine decisions reach the accepted state within a 7-day stretch than the limit in this file's settings block, and it counts only your own decision records — never the engine's own founding ones, which travel with the engine.

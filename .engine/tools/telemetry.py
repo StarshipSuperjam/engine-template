@@ -263,8 +263,9 @@ def derive_contract_rate(now: str, contracts_dir: str | None = None) -> int | No
     travel with the engine and carry historical dates, so counting them would false-fire right after
     an upgrade). A record counts when its saved state is `accepted` and its date falls in the last
     7 days of `now`. A single unreadable/malformed record is skipped — so one bad file can't blind
-    the meter during exactly the busy stretch it exists to notice; only a folder that can't be listed
-    at all yields None, and the line is then suppressed rather than showing a false number."""
+    the meter during exactly the busy stretch it exists to notice. A missing or empty folder simply
+    reads as zero (no decisions yet); None is reserved for the rare case where the folder can't be
+    listed or the clock can't be read, and the line is then suppressed rather than showing a number."""
     directory = contracts_dir or validate.env_override_path("ENGINE_INSTANCE_CONTRACTS_DIR", INSTANCE_CONTRACTS_DIR)
     try:
         paths = glob.glob(os.path.join(directory, "**", "*eADR-*.md"), recursive=True)

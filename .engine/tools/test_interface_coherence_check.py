@@ -83,6 +83,13 @@ class TestResolutionLegs(unittest.TestCase):
                                                    "hard", icc._MESSAGE)
         self.assertTrue(any(x["severity"] == "hard" and "can't reliably stand in" in x["message"] for x in f))
 
+    def test_a_structurally_malformed_declaration_does_not_crash(self):
+        # A file that is valid JSON but wrong-shaped (operations not objects, fallback not an object) must not
+        # raise out of the leg — its shape is caught by the declaration's own schema check, not here.
+        bad = {"id": "x", "title": "X", "operations": ["not-an-object"], "fallback": "not-an-object"}
+        f = validate.interface_resolution_findings([bad], {}, set(), "hard", icc._MESSAGE)
+        self.assertIsInstance(f, list)  # no AttributeError
+
 
 class TestScriptModes(unittest.TestCase):
     def test_check_mode_clean_on_real_repo(self):

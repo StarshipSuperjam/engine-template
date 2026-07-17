@@ -80,7 +80,7 @@ def main() -> int:
         print(f"  line: {line!r}\n")
         if line is not None:
             failures.append("at the limit, the nudge must NOT fire")
-        if "over-recorded" in _dashboard_with(line).lower() if line else False:
+        elif "over-recorded" in _dashboard_with(None).lower():
             failures.append("the dashboard must not show the nudge at the limit")
 
         print("=== Nudge on a burst — a fourth decision crosses the limit ===")

@@ -37,10 +37,8 @@ import validate  # noqa: E402
 
 _INTERFACE_GLOB = ".engine/interfaces/*.json"
 _MCP_PATH = ".mcp.json"
-_MESSAGE = ("Each engine capability that can be swapped (its declaration lives under .engine/interfaces/) "
-            "must have exactly one tool answering it. To fix: if more than one is installed, keep the one "
-            "you want and remove the others; if the built-in one is not wired, ask the engine to set it "
-            "back up. The engine never silently picks between two, which is why this is caught at merge.")
+_MESSAGE = ("Each engine capability that can be swapped must have exactly one tool answering it — the engine "
+            "never silently picks between two, which is why this is caught at merge.")
 
 
 def engine_interfaces(root: str | None = None) -> list:
