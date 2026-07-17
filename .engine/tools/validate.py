@@ -1142,38 +1142,49 @@ def interface_resolution_findings(interfaces: list, present_impls: dict, present
         answer (single-active; a silent arbitrary pick is the trust breach the design forbids).
       - HARD: a present implementation that does not provide every operation the interface declares
         (structural conformance; full behavioural equivalence is a test concern, not a check).
-      - NOTE: an interface with no non-default implementation whose named fallback is not yet present
-        — an expected pending-setup state (e.g. a fallback that ships with a later module), surfaced
-        as setup, never as coherence drift.
+      - NOTE: an interface with no non-default implementation whose named fallback is not present —
+        the built-in that answers this capability is not currently wired, so it can't answer until it
+        is set up again, surfaced as setup rather than coherence drift.
 
-    No live rule wires this in core: only the shipped fallback is present and the module manager that
-    installs richer implementations is a later slice, so the single-active finding has nothing live to
-    fire on (the slice-6 coherence_findings/ownership_findings precedent — built + fixture-tested, no
-    live rule). The module manager discovers the present set and runs this post-install."""
+    A live consumer (interface_coherence_check.py, the engine/check/interface-coherence CI check) runs
+    this over the real disk state: it reads the present answerable handles from .mcp.json (so the
+    fallback-not-present NOTE fires for real), and the present non-default implementations from the
+    deployment's installed set. Implementations are discovered by the presence of a conforming file, so
+    today — with no install mechanism that drops a second conforming implementation — nothing non-default
+    is present to detect, and the single-active / conformance findings are exercised only by the check's
+    negative fixture. They begin firing on real inputs the day an install mechanism can add one.
+    Operator-facing wording stays plain capability-language and never names the interface's internal id."""
     present_handles = set(present_handles or [])
     findings = []
     for decl in interfaces:
         iface_id = decl.get("id")
-        declared_ops = {op.get("name") for op in (decl.get("operations") or [])}
-        fallback_handle = (decl.get("fallback") or {}).get("handle")
+        # The operator reads these lines: name the capability in plain language (the declaration's title),
+        # never its internal id, and never the backstage server handles.
+        name = decl.get("title") or iface_id
+        # Guard the declaration's own shape: a file that is valid JSON but structurally wrong (operations not a
+        # list of objects, fallback not an object) must not crash the coherence read — its shape is caught by
+        # the declaration's own schema check; here it simply contributes no operation/handle rather than raising.
+        declared_ops = {op.get("name") for op in (decl.get("operations") or []) if isinstance(op, dict)}
+        fallback = decl.get("fallback")
+        fallback_handle = fallback.get("handle") if isinstance(fallback, dict) else None
         impls = [im for im in (present_impls.get(iface_id) or [])
-                 if im.get("handle") != fallback_handle]
+                 if isinstance(im, dict) and im.get("handle") != fallback_handle]
         if len(impls) > 1:
-            handles = ", ".join(sorted(str(im.get("handle")) for im in impls))
-            findings.append(finding(tier, f"Interface '{iface_id}' has more than one implementation "
-                            f"present ({handles}); exactly one may answer (single-active). Remove all "
-                            f"but one. {message}"))
+            # "only one can be active" is the stable, plain phrase the negative fixture matches on. The removal
+            # is the engine's to do (it edits the wiring, not the operator) — only the choice of which to keep
+            # is the operator's, so the offer keeps that decision with them and hands off the mechanical part.
+            findings.append(finding(tier, f"Two or more tools are installed to answer '{name}', but only "
+                            f"one can be active at a time — a silent pick between them is exactly what the "
+                            f"engine must never do. Tell me which one to keep and I'll remove the others. {message}"))
         for im in impls:
             missing = sorted(declared_ops - set(im.get("operations") or []))
             if missing:
-                findings.append(finding(tier, f"Implementation '{im.get('handle')}' for interface "
-                                f"'{iface_id}' does not provide the operation(s) {missing} the "
-                                f"interface declares. {message}"))
+                findings.append(finding(tier, f"A tool installed to answer '{name}' is missing something it "
+                                f"must be able to do, so it can't reliably stand in. Fix it or remove it. "
+                                f"{message}"))
         if not impls and fallback_handle not in present_handles:
-            findings.append(finding("note", f"Interface '{iface_id}' is answered by its named "
-                            f"fallback '{fallback_handle}', which is not yet present — an expected "
-                            f"pending-setup state (its implementation ships with a later module). "
-                            f"{message}"))
+            findings.append(finding("note", f"The engine's built-in way to answer '{name}' is not currently "
+                            f"wired, so the engine can't answer that until it is set up again. {message}"))
     return findings
 
 

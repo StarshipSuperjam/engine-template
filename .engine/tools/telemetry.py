@@ -35,6 +35,7 @@ Operator demo (faked GitHub, real logic — no real Issues, no token):
 from __future__ import annotations
 
 import datetime
+import glob
 import json
 import math
 import os
@@ -142,6 +143,16 @@ _SEVERITY_RE = re.compile(r"<!--\s*engine-severity:\s*(.+?)\s*-->")
 _FIRST_NOTICED_RE = re.compile(r"\*First noticed\s+(.+?);\s+last reconfirmed")
 
 DEFAULT_POLICY_PATH = os.path.join(validate.ROOT, ".engine", "policies", "triage-threshold.md")
+CONTRACT_THRESHOLD_POLICY_PATH = os.path.join(validate.ROOT, ".engine", "policies", "contract-threshold.md")
+# The operator's OWN engine decisions — the per-project decision records the engine writes when the operator
+# makes a real choice about how their engine is set up. They live in the deployment-owned folder the engine
+# never overwrites on an upgrade, one level below the engine's own founding records. The founding records
+# travel with the engine and would false-count toward the operator's rate right after an upgrade, so the
+# contract-rate meter reads ONLY this folder. (This path is the same one the knowledge graph treats as the
+# deployment-owned decision stream; a test pins the two together so they can't drift apart.)
+INSTANCE_CONTRACTS_DIR = os.path.join(validate.ROOT, ".engine", "contracts", "instance")
+_CONTRACT_RATE_WINDOW_DAYS = 7
+_DEFAULT_CONTRACT_RATE_MAX = 3  # the fallback limit if the policy's own value can't be read
 DEFAULT_STATE_PATH = os.path.join(validate.ROOT, ".engine", "state", "state.json")
 DEFAULT_CACHE_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "streams.json")
 # The engine-only sink for a fail-open hook crash's backstage diagnostic (exception message + code
@@ -229,6 +240,67 @@ def triage_pressure_line(open_low_severity_count: int, threshold: int) -> str | 
         return ("The engine's self-monitoring backlog is growing — there are several low-priority "
                 "engine items open. Nothing here is urgent; you can review them when convenient. "
                 "You can also change when this reminder appears — type /engine-tune.")
+    return None
+
+
+def contract_rate_threshold(policy_path: str | None = None, override: dict | None = None) -> int:
+    """The effective limit on how many permanent decision records may be accepted in a 7-day window
+    before the nudge fires = the policy's shipped default merged per-key with any operator override
+    (the same read-time merge the triage thresholds use), so a reviewed /engine-tune governs it live
+    instead of the shipped default silently winning."""
+    fm = validate.frontmatter(policy_path or CONTRACT_THRESHOLD_POLICY_PATH)
+    default = fm.get("values") or {}
+    effective, _findings = validate.effective_policy_values(
+        default, override or {}, structural_keys=set(), tier="soft",
+        message="The contract-rate limit is a tuning value; an override retunes it, never a law.")
+    return int(effective.get("contract_rate_max", _DEFAULT_CONTRACT_RATE_MAX))
+
+
+def derive_contract_rate(now: str, contracts_dir: str | None = None) -> int | None:
+    """Count the operator's OWN engine decisions that reached the accepted state in the trailing
+    7 days — the input to the "are decisions being over-recorded?" nudge. Reads only the
+    deployment-owned per-instance decision folder, never the engine's own founding records (those
+    travel with the engine and carry historical dates, so counting them would false-fire right after
+    an upgrade). A record counts when its saved state is `accepted` and its date falls in the last
+    7 days of `now`. A single unreadable/malformed record is skipped — so one bad file can't blind
+    the meter during exactly the busy stretch it exists to notice. A missing or empty folder simply
+    reads as zero (no decisions yet); None is reserved for the rare case where the folder can't be
+    listed or the clock can't be read, and the line is then suppressed rather than showing a number."""
+    directory = contracts_dir or validate.env_override_path("ENGINE_INSTANCE_CONTRACTS_DIR", INSTANCE_CONTRACTS_DIR)
+    try:
+        paths = glob.glob(os.path.join(directory, "**", "*eADR-*.md"), recursive=True)
+        now_date = datetime.date.fromisoformat(now[:10])
+    except Exception:  # noqa: BLE001 — an unlistable folder or an unparseable clock suppresses the meter, no false number
+        return None
+    cutoff = now_date - datetime.timedelta(days=_CONTRACT_RATE_WINDOW_DAYS)
+    count = 0
+    for path in paths:
+        try:
+            fm = validate.frontmatter(path)
+            if str(fm.get("status")) != "accepted":
+                continue
+            accepted = datetime.date.fromisoformat(str(fm.get("date"))[:10])
+        except Exception:  # noqa: BLE001 — skip one malformed record, never blind the whole meter
+            continue
+        if cutoff < accepted <= now_date:
+            count += 1
+    return count
+
+
+def contract_rate_line(count: int, threshold: int) -> str | None:
+    """Render-only: one plain-language nudge once the operator's engine decisions written down as
+    permanent records in the last 7 days cross the threshold, else nothing. Like the backlog meter,
+    crossing it promotes NOTHING — it never becomes an item itself, so it can't feed what it measures."""
+    if count > threshold:
+        # The trailing sentence is the reactive retune offer: the threshold that decides when this note fires
+        # is itself tunable, so the command is offered at the moment it surfaces. The line names the engine's
+        # own decision records (engine-domain, so the operator knows it is not about their product) and a real
+        # next move (ask to see what got recorded), not only a way to silence it.
+        return ("I've been writing down more of our engine decisions as permanent decision records than "
+                "usual this past week — it's worth a quick look at whether they're being over-recorded. "
+                "Nothing here is urgent. Ask me to show you what got recorded and why, and I'll help you tell "
+                "the keepers from the ones that could just ride a pull request instead. To change when this "
+                "note appears, type /engine-tune.")
     return None
 
 

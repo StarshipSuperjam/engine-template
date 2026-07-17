@@ -1025,6 +1025,31 @@
       "type": "check"
     },
     {
+      "id": "check:interface-coherence",
+      "kind": "custom/script",
+      "name": ".engine/check/interface-coherence.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "interface-coherence",
+      "source": {
+        "fingerprint": "sha256:989b418b3c54249810722eabcc1e7e35174293fdddc45b29288e390a576f7624",
+        "path": ".engine/check/interface-coherence.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:interface-declaration",
       "kind": "schema",
       "name": ".engine/check/interface-declaration.json",
@@ -2893,7 +2918,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:e093471873501b45caa41f96102b3516e4f461e2c861df3130b8ae5516480f75",
+        "fingerprint": "sha256:8d501984a3ecb35330fcab09283a49e72ef77f841b4acb895f4ed69cf0b9f7e8",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -2934,7 +2959,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:871697c8d8458f2811f4ee79c7d4c883e535868cbfb649d7e900af73cb6c6bf0",
+        "fingerprint": "sha256:3df3bd36d603cce304d3c3e95ddb36f6053857a1831deccde50cf3d1cc082c25",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -3335,7 +3360,7 @@
       },
       "slug": "contract-threshold",
       "source": {
-        "fingerprint": "sha256:fa32a8d2481e06ab4a9083798254511718396f500c42033f9e32b9601d8dfbf0",
+        "fingerprint": "sha256:275ea7d96038c0a04e3f54793752fe1f65e114e300f8ca756e3ebdb42cfa86d5",
         "path": ".engine/policies/contract-threshold.md"
       },
       "status": "active",
@@ -4396,7 +4421,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:95f0c49e440b3d545bdc3bf0c77af619e55fb52d0d1caa993ad8304155173506",
+        "fingerprint": "sha256:b1ead85a10502b98c8674eb74a6fc7ba33e8a2106d2feb54630a5d12609e7404",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4857,6 +4882,23 @@
       "source": {
         "fingerprint": "sha256:e6e862c432cd49c4826c7c0647461a0e124901cb36681c3e86c10fbaef02f01f",
         "path": ".engine/tools/demo_ci_author_exempt.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_contract_rate",
+      "name": ".engine/tools/demo_contract_rate.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_contract_rate",
+      "source": {
+        "fingerprint": "sha256:1ae097bc91bf91433718d6b04e3c5679ad92683cad74f6411986c4b276213c9b",
+        "path": ".engine/tools/demo_contract_rate.py"
       },
       "status": "active",
       "type": "tool"
@@ -5433,8 +5475,25 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:dc03002814b0cb9198305028840d5353d020f8dd1a2878230968ce14c3342c25",
+        "fingerprint": "sha256:274277f3cc10c128ddea118cfa26962e283bf435413da8fb7ec7a51901992cd8",
         "path": ".engine/tools/instantiator.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:interface_coherence_check",
+      "name": ".engine/tools/interface_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "interface_coherence_check",
+      "source": {
+        "fingerprint": "sha256:82c5308a59ba40ddc485cfc86a82cf0c584a8086e93e62565e0206748f69eaf3",
+        "path": ".engine/tools/interface_coherence_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -6300,7 +6359,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:57aac778cc2611cb27c8db6d0b52aa47ac7fb4ed6cbe27cb154fbbf43348f19f",
+        "fingerprint": "sha256:3c327c7a1d2d0373a55ea8792752a26665d4f56f15f44b4748974810ac76891f",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -6521,7 +6580,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:14579f63d18a63b459838ec315e18ec7e1c91ee2bd00f3cb69f3ca0f59012f30",
+        "fingerprint": "sha256:6f72a985fd88f63081cb1e04705c651334c2b1a0bc19b3dadc159af39980ae8a",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -7099,8 +7158,25 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:b4077525f6dd308e2bf8e785d2dfb511473300ba5049e14705cf87042d947d5b",
+        "fingerprint": "sha256:af09e5d0b97e8a96e61915e6ffb6b46d9c4c5cd7d61c48596165278b736aa0b6",
         "path": ".engine/tools/test_interface.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_interface_coherence_check",
+      "name": ".engine/tools/test_interface_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_interface_coherence_check",
+      "source": {
+        "fingerprint": "sha256:4a3f5f3d5241825417f3e9925700b3e3fe587c6cd3eb934565133178048580ea",
+        "path": ".engine/tools/test_interface_coherence_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -7388,7 +7464,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:a562d859467a5b6b27f40680483916f3a59d5210801ef96357dc595c1ec03920",
+        "fingerprint": "sha256:93ce081b1fe38ac6d9fbdc74f7c333a81e303382ea1e91aadfe16b194fa56ddf",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -8051,7 +8127,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:15e7fc70e68cbf4f7a612507be040d064a8354241b1ba029a784da8bd5d3ea41",
+        "fingerprint": "sha256:9e54f731b3d3962968273a3878429013247bce112f7ae6bd9ec603edd68e961d",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
@@ -8272,7 +8348,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:558b8248f921c109fdbcb957fea377d58ad17106c9630bcdb63eb0a8cb8d4a53",
+        "fingerprint": "sha256:5aa10a3cbb5bc7a1e36cc430251f2f199d332732e41acf983b576ee24710a8f6",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
