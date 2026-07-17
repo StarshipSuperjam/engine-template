@@ -29,9 +29,10 @@ tree ONLY, never the engine's own `.engine/` files; it reads file contents to ch
 Operator-communication law: the engine-side framework vocabulary for these records never surfaces to the
 operator — every finding says "decision record" and "what was ruled out" in plain words, never a raw token.
 
-Shared grammar: this reuses the product_design package's one home for reading a doc's frontmatter and headings
-(`spec_form._read` / `_frontmatter_value` / `_h2_headings` / `_section_body`) rather than a second copy, so the
-parsers can never drift apart across the module's checks.
+Shared grammar: this reuses the product_design package's shared readers (`spec_form._read` / `_h2_headings` /
+`_section_body`) rather than a second copy. Its one addition is a small local reader for the `engine_record:`
+authorship marker, which mirrors `spec_form._frontmatter_status`'s frontmatter handling; it is kept here so the
+check stays contained to its own file (a new file, not a change to the shared, guarded grammar home).
 
 Contract: invoked by the validator with NO arguments, it prints a finding.v1 JSON array to stdout and exits 0.
 A separate `demo` subcommand runs a falsifiable self-check.
@@ -56,10 +57,9 @@ _ADR_DIR = os.path.join("docs", "adr")
 # A record is one file per decision, numbered in the project's own sequence: NNNN-<slug>.md (0001, 0002, …).
 # A stray non-record file under docs/adr/ (a README or index) is not forced to carry the section.
 _RECORD_NAME_RE = re.compile(r"^\d{4}-.+\.md$")
-# The frontmatter key the scaffold writes to tag a record as the engine's own — the one signal that tells the
-# engine's records apart from a project's own (including formats that also carry frontmatter `status:`), read
-# with the same frontmatter reader every other check uses. These are the truthy values that mark it set.
-_ENGINE_MARKER_KEY = "engine_record"
+# The frontmatter marker the scaffold writes to tag a record as the engine's own — the one signal that tells
+# the engine's records apart from a project's own (including formats that also carry frontmatter `status:`).
+_ENGINE_MARKER_RE = re.compile(r"^\s*engine_record\s*:\s*(.+?)\s*$")
 _TRUTHY = ("true", "yes", "on")
 # The one checked section. Plain wording — the operator never sees framework vocabulary for these records.
 _RULED_OUT_HEADING = "What we ruled out"
@@ -101,8 +101,19 @@ def _authored_by_engine(text: str) -> bool:
     (`engine_record:` set truthy) — the mark the scaffold writes. This is what tells the engine's own records
     apart from a record kept in another style, INCLUDING a format that also carries a frontmatter `status:` key
     (e.g. MADR), so the check never imposes its shape on a record it did not author (the engine/product wall).
-    Reads the marker with the package's shared frontmatter reader (never a second parser); never raises."""
-    return spec_form._frontmatter_value(text, _ENGINE_MARKER_KEY) in _TRUTHY
+    The one-key frontmatter scan below intentionally mirrors `spec_form._frontmatter_status`'s block/comment/
+    quote handling — kept here so this check stays contained to its own file. Never raises."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return False
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = _ENGINE_MARKER_RE.match(line)
+        if m:
+            value = re.sub(r"\s+#.*$", "", m.group(1).strip())  # drop a trailing inline YAML comment
+            return value.strip().strip("'\"").lower() in _TRUTHY
+    return False
 
 
 def _section_is_nonempty(body: "str | None") -> bool:
