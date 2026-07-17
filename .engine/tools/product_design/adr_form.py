@@ -8,12 +8,13 @@ carries its `## What we ruled out` section, present and with something in it. Th
 value of a record: it names the alternatives that were weighed and turned down, so a later session does not
 re-open ground already settled.
 
-Only the engine's OWN records are checked. A decision record the engine authored carries a `status:` line in a
-leading `---` frontmatter block (the starting shape under `.engine/modules/product-design/scaffold/adr.md`
-writes one); a record kept in some other style — the common public convention keeps its status as a `## Status`
-section, not frontmatter — carries no such block and is left untouched. This is the engine/product wall: the
-engine validates the FORM of the records it wrote as a contributor, and never annexes a project's own doc tree
-by imposing its shape on files it did not author.
+Only the engine's OWN records are checked. A decision record the engine authored carries an explicit
+authorship marker — an `engine_record: true` line in a leading `---` frontmatter block — that the starting
+shape under `.engine/modules/product-design/scaffold/adr.md` writes. A record kept in some other style carries
+no such marker and is left untouched, even when it also uses frontmatter (a common public convention keeps a
+`status:` key in frontmatter but never this marker), so the check never mistakes a project's own records for
+the engine's. This is the engine/product wall: the engine validates the FORM of the records it wrote as a
+contributor, and never annexes a project's own doc tree by imposing its shape on files it did not author.
 
 Presence, not judgement: the check confirms the section is there with content — never whether the reasons given
 are sound. That stays the operator's call and the review lenses'; genuineness is posture, presence is the gate.
@@ -55,6 +56,10 @@ _ADR_DIR = os.path.join("docs", "adr")
 # A record is one file per decision, numbered in the project's own sequence: NNNN-<slug>.md (0001, 0002, …).
 # A stray non-record file under docs/adr/ (a README or index) is not forced to carry the section.
 _RECORD_NAME_RE = re.compile(r"^\d{4}-.+\.md$")
+# The frontmatter marker the scaffold writes to tag a record as the engine's own — the one signal that tells
+# the engine's records apart from a project's own (including formats that also carry frontmatter `status:`).
+_ENGINE_MARKER_RE = re.compile(r"^\s*engine_record\s*:\s*(.+?)\s*$")
+_TRUTHY = ("true", "yes", "on")
 # The one checked section. Plain wording — the operator never sees framework vocabulary for these records.
 _RULED_OUT_HEADING = "What we ruled out"
 
@@ -90,10 +95,30 @@ def _record_rels(root: str) -> list:
     return sorted(out)
 
 
+def _authored_by_engine(text: str) -> bool:
+    """True iff the record's leading `---` frontmatter block carries the engine's authorship marker
+    (`engine_record:` set truthy) — the mark the scaffold writes. This is what tells the engine's own records
+    apart from a record kept in another style, INCLUDING a format that also carries a frontmatter `status:` key
+    (e.g. MADR), so the check never imposes its shape on a record it did not author (the engine/product wall).
+    Tolerant of malformed content — it never raises."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return False
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = _ENGINE_MARKER_RE.match(line)
+        if m:
+            value = re.sub(r"\s+#.*$", "", m.group(1).strip())  # drop a trailing inline YAML comment
+            return value.strip().strip("'\"").lower() in _TRUTHY
+    return False
+
+
 def _section_is_nonempty(body: "str | None") -> bool:
     """True when a section body carries real content — anything left after HTML guidance comments and blank
-    lines are dropped. Mirrors the core presence-kind's non-empty rule: a heading followed by nothing (or only
-    stripped guidance) does not count as recording what was ruled out."""
+    lines are dropped. This strips `<!-- -->` comments only (not bracketed `<placeholder>` prompt tokens), so a
+    heading followed by nothing (or only a stripped guidance comment) does not count as recording what was ruled
+    out — the present-AND-non-empty gate, never a judgement of whether the content is genuine."""
     if body is None:
         return False
     without_comments = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
@@ -118,6 +143,14 @@ def _empty_section_message(rel: str) -> str:
     )
 
 
+def _unreadable_message(rel: str) -> str:
+    return (
+        f"The decision record `{rel}` couldn't be read, so it wasn't checked — if it's meant to be one of the "
+        f"engine's records, make sure the file is present and readable. This check only reads your files; it "
+        f"never changes them."
+    )
+
+
 def findings(tier: str, root: "str | None" = None) -> list:
     """The decision-record findings for `root` (defaults to `validate.ROOT`), as a list of finding.v1 dicts.
 
@@ -132,19 +165,29 @@ def findings(tier: str, root: "str | None" = None) -> list:
     adr_root = _adr_root(root)
     record_rels = _record_rels(root) if os.path.isdir(adr_root) else []
 
-    # Only the engine's own records (a frontmatter `status:` block marks them) are this check's business.
-    engine_rels = [rel for rel in record_rels
-                   if spec_form._frontmatter_status(spec_form._read(root, rel)) is not None]
+    # Read each record once (fixing a double read), guarded: only the engine's own records — those carrying the
+    # authorship marker — are this check's business; a record kept in another style is left untouched. An
+    # unreadable record is disclosed as a soft note rather than crashing the scan into an opaque fail-closed.
+    engine_texts = {}  # rel -> text, in sorted order, engine-authored records that read cleanly
+    unreadable = []
+    for rel in record_rels:
+        try:
+            text = spec_form._read(root, rel)
+        except OSError:
+            unreadable.append(rel)
+            continue
+        if _authored_by_engine(text):
+            engine_texts[rel] = text
 
-    # Disclosed no-op: no engine-authored records yet — whether the tree is absent, empty, or holds only
-    # records kept in another style. Always soft, never silent.
-    if not engine_rels:
+    # Disclosed no-op: no engine-authored records and nothing unreadable to report — whether the tree is absent,
+    # empty, or holds only records kept in another style. Always soft, never silent.
+    if not engine_texts and not unreadable:
         return [validate.disclosed_noop(_NO_OP_MESSAGE, None)]
 
-    out = []
+    out = [validate.finding("soft", _unreadable_message(rel), {"file": rel, "line": None})
+           for rel in unreadable]
     want = _RULED_OUT_HEADING.lower()
-    for rel in engine_rels:
-        text = spec_form._read(root, rel)
+    for rel, text in engine_texts.items():
         if want not in spec_form._h2_headings(text):
             out.append(validate.finding(tier, _missing_section_message(rel), {"file": rel, "line": None}))
         elif not _section_is_nonempty(spec_form._section_body(text, _RULED_OUT_HEADING)):
@@ -185,14 +228,19 @@ def demo() -> int:
                 fh.write(body)
         return d
 
-    good = ("---\nstatus: accepted\n---\n\n# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
+    marker = "---\nstatus: accepted\nengine_record: true\n---\n\n"
+    good = (marker + "# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
             "## Why\n\nRelational fit.\n\n## What we ruled out\n\n- **A document store.** Weak joins.\n")
-    no_section = ("---\nstatus: accepted\n---\n\n# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
-                  "## Why\n\nRelational fit.\n")
-    empty_section = ("---\nstatus: accepted\n---\n\n# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
+    no_section = (marker + "# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n## Why\n\nRelational fit.\n")
+    empty_section = (marker + "# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
                      "## What we ruled out\n\n<!-- nothing yet -->\n")
-    foreign = ("# 1. Record architecture decisions\n\n## Status\n\nAccepted\n\n## Context\n\nWe need ADRs.\n\n"
-               "## Decision\n\nUse ADRs.\n")
+    # A record kept in the classic public style (status as a section, no frontmatter) — not the engine's.
+    nygard = ("# 1. Record architecture decisions\n\n## Status\n\nAccepted\n\n## Context\n\nWe need records.\n\n"
+              "## Decision\n\nKeep them.\n")
+    # A record in the MADR style — frontmatter WITH a `status:` key, but no engine marker: still not the
+    # engine's, so the marker (not merely 'has frontmatter') is what must gate. Missing the ruled-out section.
+    madr = ("---\nstatus: accepted\n---\n\n# Pick a datastore\n\n## Context and Problem Statement\n\nNeed a store.\n\n"
+            "## Considered Options\n\n- Postgres\n- A document store\n\n## Decision Outcome\n\nPostgres.\n")
 
     cases = []
 
@@ -203,20 +251,21 @@ def demo() -> int:
         ok = False
         print(f"DEMO FAIL: a well-formed engine record should pass cleanly, got {fs}", file=sys.stderr)
 
-    d2 = _mkroot({os.path.join("docs", "readme.md"): "no adr here\n"})
+    d2 = _mkroot({os.path.join("docs", "readme.md"): "no records here\n"})
     cases.append(d2)
     fs = findings("hard", root=d2)
     if not (len(fs) == 1 and fs[0].get("not_applicable")):
         ok = False
         print(f"DEMO FAIL: no records should be a disclosed no-op, got {fs}", file=sys.stderr)
 
-    d3 = _mkroot({os.path.join(_ADR_DIR, "0001-decision.md"): foreign})
+    d3 = _mkroot({os.path.join(_ADR_DIR, "0001-nygard.md"): nygard,
+                  os.path.join(_ADR_DIR, "0002-madr.md"): madr})
     cases.append(d3)
     fs = findings("hard", root=d3)
     if not (len(fs) == 1 and fs[0].get("not_applicable")):
         ok = False
-        print(f"DEMO FAIL: a foreign-style record (no frontmatter) must be left untouched — a disclosed "
-              f"no-op, not a finding, got {fs}", file=sys.stderr)
+        print(f"DEMO FAIL: foreign-style records (Nygard no-frontmatter AND MADR frontmatter-status-but-"
+              f"no-marker) must be left untouched — a disclosed no-op, not a finding, got {fs}", file=sys.stderr)
 
     d4 = _mkroot({os.path.join(_ADR_DIR, "0001-datastore.md"): no_section})
     cases.append(d4)

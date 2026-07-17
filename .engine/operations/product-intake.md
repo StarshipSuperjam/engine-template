@@ -74,10 +74,10 @@ short markers the files carry in their frontmatter stay in the files, never on s
    changed or reopened later, but not quietly: when a pull request changes a settled document, the engine asks
    the operator to confirm the change on that pull request (by applying the `guardrail-ack` label) before it can
    merge, so the record always shows the change was deliberate, never a silent edit.
-9. **Record the significant choices — what was decided, and what was ruled out.** Two moments call for a short
-   record: **reopening something already settled** (the reopen in step 8), and **adding or dropping a whole
-   capability** after the pieces were first laid out in step 2 — never the first layout itself, when nothing has
-   been rejected yet. Author it under `docs/adr/` from the starting shape in
+9. **Record the significant choices — what was decided, and what was ruled out.** A few moments call for a short
+   record: **settling a choice where you weighed real alternatives**, **reopening something already settled**
+   (the reopen in step 8), and **adding or dropping a whole capability** — but never the routine first layout in
+   step 2, when nothing has been rejected yet. Author it under `docs/adr/` from the starting shape in
    `.engine/modules/product-design/scaffold/adr.md`, numbered in the project's own sequence (0001, 0002, …,
    unrelated to any numbering the engine uses for its own machinery), and fill in what was decided, why, and —
    the part that matters most for a later session — the alternatives weighed and turned down, and why each lost:

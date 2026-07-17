@@ -26,15 +26,19 @@ import validate  # noqa: E402
 
 _ADR = os.path.join("docs", "adr")
 
-_GOOD = ("---\nstatus: accepted\n---\n\n# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
+_MARK = "---\nstatus: accepted\nengine_record: true\n---\n\n"
+_GOOD = (_MARK + "# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
          "## Why\n\nRelational fit.\n\n## What we ruled out\n\n- **A document store.** Weak joins.\n")
-_NO_SECTION = ("---\nstatus: accepted\n---\n\n# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
-               "## Why\n\nRelational fit.\n")
-_EMPTY_SECTION = ("---\nstatus: accepted\n---\n\n# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
+_NO_SECTION = (_MARK + "# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n## Why\n\nRelational fit.\n")
+_EMPTY_SECTION = (_MARK + "# Pick a datastore\n\n## The decision\n\nUse Postgres.\n\n"
                   "## What we ruled out\n\n<!-- nothing yet -->\n")
-# A record kept in the common public style: status is a `## Status` section, not frontmatter — no engine marker.
+# A record kept in the classic public style: status is a `## Status` section, no frontmatter — not the engine's.
 _FOREIGN = ("# 1. Record architecture decisions\n\n## Status\n\nAccepted\n\n## Context\n\nWe need records.\n\n"
             "## Decision\n\nKeep them.\n")
+# A record in the MADR style: frontmatter WITH a `status:` key but no engine marker — a dominant public
+# convention that must NOT be mistaken for the engine's own (the wall). Missing the ruled-out section.
+_MADR = ("---\nstatus: accepted\n---\n\n# Pick a datastore\n\n## Context and Problem Statement\n\nNeed a store.\n\n"
+         "## Considered Options\n\n- Postgres\n- A document store\n\n## Decision Outcome\n\nPostgres.\n")
 
 
 class AdrFormTests(unittest.TestCase):
@@ -62,14 +66,29 @@ class AdrFormTests(unittest.TestCase):
         self.assertEqual(fs[0]["severity"], "soft")
 
     def test_only_foreign_records_is_a_disclosed_noop(self):
-        # A record with no frontmatter marker is not the engine's to check; a tree of only those reads as "no
-        # engine records yet" — the disclosed no-op, never a hard finding (the engine/product wall).
-        fs = adr_form.findings("hard", root=self._root({os.path.join(_ADR, "0001-decision.md"): _FOREIGN}))
+        # Records with no engine marker are not the engine's to check — a Nygard record (no frontmatter) AND a
+        # MADR record (frontmatter status: but no marker). A tree of only those reads as "no engine records
+        # yet" — the disclosed no-op, never a hard finding (the engine/product wall).
+        fs = adr_form.findings("hard", root=self._root({
+            os.path.join(_ADR, "0001-nygard.md"): _FOREIGN,
+            os.path.join(_ADR, "0002-madr.md"): _MADR,
+        }))
         self.assertEqual(len(fs), 1)
         self.assertTrue(fs[0].get("not_applicable"))
 
+    def test_madr_record_with_frontmatter_status_is_never_gated(self):
+        # The wall's load-bearing case: MADR uses frontmatter with a `status:` key and is a dominant public
+        # convention. It carries no engine marker, so it must be left untouched even though it has frontmatter
+        # and is missing the ruled-out section. (Provenance is the marker, never merely 'has frontmatter'.)
+        root = self._root({
+            os.path.join(_ADR, "0001-datastore.md"): _GOOD,   # a real engine record, checked
+            os.path.join(_ADR, "0002-madr.md"): _MADR,        # foreign despite its frontmatter status
+        })
+        self.assertEqual(adr_form.findings("hard", root=root), [],
+                         "a MADR record (frontmatter status, no engine marker) must be left untouched")
+
     def test_foreign_record_missing_section_is_never_gated(self):
-        # Even alongside a good engine record, a foreign record missing the section draws no finding.
+        # Even alongside a good engine record, a Nygard record missing the section draws no finding.
         root = self._root({
             os.path.join(_ADR, "0001-datastore.md"): _GOOD,
             os.path.join(_ADR, "0002-foreign.md"): _FOREIGN,
@@ -116,6 +135,22 @@ class AdrFormTests(unittest.TestCase):
         fs = adr_form.findings("hard", root=root)
         self.assertEqual(len(fs), 1)
         self.assertTrue(fs[0].get("not_applicable"), "a record under .engine/ must be walled out")
+
+    def test_unreadable_record_is_a_soft_note_not_a_crash(self):
+        # An odd-but-legitimate tree (a record-named broken symlink) must not crash the scan into an opaque
+        # fail-closed; it yields a soft "couldn't read" note, honoring the print-array/exit-0 contract.
+        d = tempfile.mkdtemp(prefix="engine-adr-test-")
+        self.addCleanup(shutil.rmtree, d, True)
+        adr = os.path.join(d, _ADR)
+        os.makedirs(adr)
+        try:
+            os.symlink(os.path.join(d, "does-not-exist"), os.path.join(adr, "0001-broken.md"))
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks not supported here")
+        fs = adr_form.findings("hard", root=d)
+        self.assertEqual(len(fs), 1)
+        self.assertEqual(fs[0]["severity"], "soft", "an unreadable record must be a soft note, never a crash")
+        self.assertIn("0001-broken.md", fs[0]["message"])
 
     def test_read_only_never_writes(self):
         root = self._root({os.path.join(_ADR, "0001-datastore.md"): _NO_SECTION})

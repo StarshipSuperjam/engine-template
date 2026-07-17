@@ -1,5 +1,6 @@
 ---
 status: proposed
+engine_record: true
 ---
 
 # Short title of the decision
@@ -9,11 +10,13 @@ NNNN is the next number in that folder in sequence (0001, 0002, 0003, …) — y
 nothing to do with any numbering the engine uses for its own machinery. Give it a clear title above and replace
 the guidance in each section with the real thing.
 
-Write one of these when you make a significant choice about the product — especially when you settle something,
-reopen something already settled, or add or drop a whole piece — so a later session can see what was decided and
-what was set aside, and does not re-open ground already walked. The `status:` line in the block above marks how
-far along the decision is: `proposed` (written down, not acted on yet), `accepted` (the decision in force), or
-`superseded` (replaced by a later record). That line stays in the file; you only ever hear the plain words.
+Write one of these when you make a significant choice about the product — especially when you settle a choice
+you weighed real alternatives for, reopen something already settled, or add or drop a whole piece — so a later
+session can see what was decided and what was set aside, and does not re-open ground already walked. The two
+lines in the block above stay in the file: `status:` marks how far along the decision is — `proposed` (written
+down, not acted on yet), `accepted` (the decision in force), or `superseded` (replaced by a later record) — and
+`engine_record: true` marks this as a record the engine keeps and checks, so records you already keep in some
+other style are left alone. You only ever hear the plain words, never these markers.
 
 One section below — what you ruled out — is checked: the engine confirms it is present and has something in it,
 so the record never silently drops the alternatives it turned down. It checks only that the section is there
