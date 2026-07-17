@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""Slice 12 — the attention tool: substrate adapters + CLI over the pure ranking core (attention_rank.py).
+"""The attention tool: substrate adapters + CLI over the pure ranking core (attention_rank.py).
 
 The core ranks a candidate-set it is handed. THIS module assembles that set from the substrates that exist
 today and degrades over the ones that do not, then exposes the operator's no-Claude-Desktop CLI. The reads:
   - state  (.engine/state/state.json via validate.load_json): the standing-situation pointers become an
     `orientation` candidate; the committed integration-debt count is the OFFLINE STAND-IN for the live
-    telemetry register (attention/README.md:73-76), surfaced as a single `blocking_debt` candidate only when
+    telemetry register, surfaced as a single `blocking_debt` candidate only when
     the live register could not be read this session (state's count is a derived convenience, never authoritative).
   - knowledge (knowledge_query.neighbors): each neighbour of the focus becomes a `structural_neighbors`
     candidate. The focus is the "work in hand" — given explicitly (the CLI `--focus`) or DERIVED from the
     in-flight work record (`derive_focus`, the orientation default boot uses). A focus may be a single entity
-    id or a SET; each member is walked at depth 1 — structural adjacency is neighbour-membership
-    (attention/README.md:69), so every neighbour enters with a flat proximity signal; the pinned ranking form
-    (D-117) defines no hop-distance score, so this is faithful to the spec, not a stand-in for one.
+    id or a SET; each member is walked at depth 1 — structural adjacency is neighbour-membership,
+    so every neighbour enters with a flat proximity signal; the pinned ranking form
+    defines no hop-distance score, so this is faithful to the spec, not a stand-in for one.
   - git/GitHub (the in-flight work-record reader, work_record): open PRs + the working branch become
     `in_flight` candidates, and the files that work touches drive the knowledge focus above (#37).
   - telemetry (the live debt register — open engine-labelled Issues): the canonical debt source attention
-    ranks (attention/README.md:24-27,:70). Boot performs the single live read (open_findings) and threads its
+    ranks. Boot performs the single live read (open_findings) and threads its
     PER-ISSUE rows in as `live_findings`, so EACH open finding is graded on its own severity into its own
     `blocking_debt` candidate — the sub-threshold ones falling out as debt that does not gate the start of
-    work (README:53) — while the card header reads that same read's count (they cannot
+    work — while the card header reads that same read's count (they cannot
     disagree: it is `len()` of these rows) and the SessionStart path makes no second GitHub call; the committed
     state count above is the stand-in when that read fails. telemetry is in `degraded_inputs` ONLY when the live
     read failed (an outage/expired auth) or the offline CLI ran with no reader — never as standing scaffolding.
@@ -54,14 +54,14 @@ except Exception:            # pragma: no cover - a stdlib-only leaf should impo
 POLICY_PATH = os.path.join(validate.ENGINE_DIR, "policies", "attention.md")
 STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
 
-# How many distinct entities the work-in-hand focus may span — the build-spec-leaf cap (D-052/D-113), decided
+# How many distinct entities the work-in-hand focus may span — the build-spec-leaf cap decided
 # with the maintainer (a SET of all touched components, capped). It bounds the FOCUS, not the neighbour count.
 FOCUS_CAP = 5
 
 # How many neighbours of each (focus member, relationship) the orientation SUMMARY samples for display. The
 # rest are NOT dropped silently — `neighborhood_of` keeps the FULL count per relationship so the render can
 # disclose the truncation honestly ("core provides 147, showing 4"), never an arbitrary capped few passed off
-# as the whole (D-224 honest-truncation; relevance-ordering WHICH few is deferred to Q38/Q39).
+# as the whole (honest-truncation; relevance-ordering WHICH few is deferred).
 NEIGHBORHOOD_SAMPLE_CAP = 4
 
 
@@ -72,11 +72,11 @@ def load_policy_values(policy_path: str = POLICY_PATH, override: dict | None = N
     from its YAML frontmatter by the validation foundation's reader — never parsed out of the prose body.
 
     When an operator policy-override is supplied, this returns the EFFECTIVE values: the shipped default with
-    the override merged per-key at read time (D-167), via the core merge `validate.effective_policy_values`.
+    the override merged per-key at read time, via the core merge `validate.effective_policy_values`.
     ATTENTION owns which of its keys are structural — the partition precedence + trim order, never
     override-eligible, so "blocking-debt-first holds by construction" — and CORE owns the merge. The override
-    is operator config supplied as DATA; this slice never reads an override FILE: its path/format is the
-    policy-tuning authoring slice's leaf (slice 26), which loads the file and passes it here, and wires the
+    is operator config supplied as DATA; this module never reads an override FILE: its path/format is
+    owned by the policy-tuning authoring layer, which loads the file and passes it here, and wires the
     live stale-key rule that consumes the merge's findings. With no override (the live path today), the
     shipped default is returned unchanged — the new `override` is a trailing keyword arg, so the existing
     positional callers are bit-for-bit unaffected."""
@@ -91,7 +91,7 @@ def load_policy_values(policy_path: str = POLICY_PATH, override: dict | None = N
 
 def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP, with_total: bool = False, source=None):
     """The knowledge focus for the orientation-time focused read: the distinct graph entities that OWN the
-    files the in-flight work touches (#37 — "which entities neighbor the work in hand", attention/README:69).
+    files the in-flight work touches (#37 — which entities neighbor the work in hand).
 
     Maps each changed path (`work_record.changed_paths`) to its entity via an EXACT source-path lookup over a
     one-shot `knowledge_query.find()` index — never a SQLite GLOB match, so a path with shell metacharacters
@@ -193,7 +193,7 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
             # is absent, so inventing one is inventing. HERE the engine could not look at all — this
             # candidate is not a finding, it is "there was debt when we last saw, and I cannot check". The
             # bar-valued severity is not a claim about how bad anything is; it is how this file says ALWAYS
-            # SURFACE, and it must stay true however the bar is tuned (D-059 law 2 — degrade loud). So the
+            # SURFACE, and it must stay true however the bar is tuned (degrade loud). So the
             # blind session is louder than the sighted one on purpose: that is the right way round.
             candidates.append({"id": "state:integration-debt", "category": "blocking_debt",
                                "severity": policy_values.get("debt_blocking_threshold", 0),
@@ -202,7 +202,7 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
         pass  # state absent or malformed -> degrade over it (it stays out of available_inputs)
 
     # The telemetry debt register (the live view over open engine-labelled Issues) is the canonical debt source
-    # attention ranks (attention/README:70 "It reads; it never owns"); state's committed count above is only its
+    # attention ranks (it reads; it never owns); state's committed count above is only its
     # offline stand-in. `live_findings` is that register's PER-ISSUE rows, read ONCE by boot (open_findings) and
     # threaded in — so the ranking and the card header agree by construction (the header's count is len() of
     # these very rows) and the hot path makes no second GitHub call. A list (empty included) means the read
@@ -213,12 +213,12 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
     # aggregate):
     #   - `debt_blocking_threshold` can now DISCRIMINATE. The aggregate's severity was pinned EQUAL to the
     #     threshold, so the bar was forever comparing itself to itself. Now a benign finding grades below the bar
-    #     -> assign_partition returns None -> it is debt that can WAIT rather than gate the start of work
-    #     (attention/README:53), still counted in the card's open-problems line, just not surfaced among the five.
+    #     -> assign_partition returns None -> it is debt that can WAIT rather than gate the start of work,
+    #     still counted in the card's open-problems line, just not surfaced among the five.
     #   - `flex_high_debt_count` can now COUNT. One aggregate capped the blocking count at 1 forever, so a
     #     busy-session flex could never fire whatever the dial said.
-    # Telemetry GRADES the class (`severity_rank` — it owns the class, D-118); whether a grade BLOCKS stays
-    # attention's own debt-blocking rule (D-117 rejects attributing blocking-membership to telemetry), applied
+    # Telemetry GRADES the class (`severity_rank` — it owns the class); whether a grade BLOCKS stays
+    # attention's own debt-blocking rule (attention does not attribute blocking-membership to telemetry), applied
     # downstream in assign_partition against this policy's threshold. `as_of` stays the committed cursor's marker
     # (the only deterministic time source; the live read carries no timestamp). None -> not read -> telemetry
     # stays degraded and the committed stand-in above carried the count.
@@ -240,11 +240,11 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
                                "severity": _telemetry.severity_rank(row.get("severity"), threshold),
                                "recency": cursor_as_of, "source": "telemetry"})
 
-    # The MEMORY half of the recent-decisions partition. Its source is BOTH "recently merged pull requests …
-    # and the memory recall boot assembles into the pack" (attention/README:49); boot pulls that recall at cold
-    # start (boot/README:67 "pull knowledge structure and memory recall when their servers are up") and RELAYS
-    # it here. Attention never queries memory itself — D-154's anti-choice rejects adding memory to attention's
-    # direct-reads list ("attention ranks the boot-assembled pack, it does not directly query memory"), so this
+    # The MEMORY half of the recent-decisions partition. Its source is BOTH recently merged pull requests
+    # and the memory recall boot assembles into the pack; boot pulls that recall at cold
+    # start (it pulls knowledge structure and memory recall when their servers are up) and RELAYS
+    # it here. Attention never queries memory itself — the design rejects adding memory to attention's
+    # direct-reads list (attention ranks the boot-assembled pack, it does not directly query memory), so this
     # arrives as DATA, exactly like the debt register's rows.
     #
     # Memory is NOT one of attention's four substrates, so it never enters `degraded_inputs`: an unreadable
@@ -265,21 +265,21 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
         try:
             if focus:
                 # The cold-start adjacency walk is PINNED to the four structural edges (the attention policy's
-                # `## Scope` budget-neutrality invariant, D-203): a new edge kind (e.g. supersedes) is pull-only
+                # `## Scope` budget-neutrality invariant): a new edge kind (e.g. supersedes) is pull-only
                 # and never bulks up orientation. Pass the walk set explicitly rather than leaning on the
                 # neighbors() default, so the pin lives at attention's own call site. Read it from `src` (the
                 # boot slice carries the same WALK_EDGE_KINDS) so the branch never depends on the knowledge_query
                 # module when boot passes its own rung-1 source.
                 walk_edges = edge_filter if edge_filter is not None else list(src.WALK_EDGE_KINDS)
                 # The walk is BIDIRECTIONAL (forward + reverse, `direction="both"`) over that same pinned edge
-                # set (D-224). Forward-only starves a leaf: a non-check, ungoverned surface has no outgoing
+                # set. Forward-only starves a leaf: a non-check, ungoverned surface has no outgoing
                 # structural edge but `provided_by` -> its module, so it collapses to just its module. Reverse
                 # (`direction:in`) surfaces the connective tissue that already exists in the graph — a policy's
                 # governed surfaces, a module's dependents/surfaces, any surface's targeting checks. Reverse is a
-                # query-time direction over the SAME forward edges (D-203 gate 3), NOT a new edge type, so it is
+                # query-time direction over the SAME forward edges, NOT a new edge type, so it is
                 # budget-neutral: reverse candidates compete for the same fixed structural_neighbors slice, never
                 # grow it. A genuinely bare leaf (ungoverned AND untargeted, e.g. a tool) still resolves to only
-                # its module; relevance-ordering a dense neighbourhood is deferred (engine-planning Q38/Q39, D-224).
+                # its module; relevance-ordering a dense neighbourhood is deferred.
                 # The focus is the work in hand — a single entity id or a SET (the changed work usually spans
                 # several entities, #37). Walk each member, then DEDUPE neighbours and EXCLUDE any neighbour that
                 # is itself a focus member (co-changed entities are not each other's "structural neighbours").
@@ -311,7 +311,7 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
 
     if work_record is not None:
         try:
-            # The native git/GitHub work record, in the halves this module owns (attention/README:50).
+            # The native git/GitHub work record, in the halves this module owns.
             # Every reader emits an already trailing-Z-normalised recency (or None), so the ranking math never
             # sees a bad ts. `git` is marked available only once BOTH reads succeed.
             #
@@ -321,7 +321,7 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
                 candidates.append({"id": r["id"], "category": "in_flight",
                                    "recency": r.get("recency"), "source": "git"})
             # Recent decisions: recently merged pull requests — the structured PR body is the decision record,
-            # there is no changelog (principle §11). The LOCAL-GIT floor, so a cold session always reads what
+            # there is no changelog. The LOCAL-GIT floor, so a cold session always reads what
             # shipped. This retires boot's separate RECENTLY_SHIPPED_COUNT digest into the ranked partition:
             # how many surface is now the policy's budget_recent_decisions slice, not a buried constant.
             # `shipped` lets the CALLER hand over rows it has already read (boot needs the same rows again to
@@ -331,8 +331,8 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
             for r in (work_record.read_recent_decisions() if shipped is None else shipped):
                 candidates.append({"id": r["id"], "category": "recent_decisions",
                                    "recency": r.get("recency"), "source": "git"})
-            # The project's plan — open Issues and Milestones — is NOT candidate work (attention/README:52,
-            # D-314). These categories budget a cold session's context, and the roadmap is not context; it
+            # The project's plan — open Issues and Milestones — is NOT candidate work. These categories
+            # budget a cold session's context, and the roadmap is not context; it
             # belongs to product-design's build-plan, and attention neither reads nor re-ranks it. Ranking it
             # would also spend the budget it is not entitled to: orientation flexes down to one slot on a
             # busy session, and a milestone there would evict `state:standing-situation` — the where-we-are
@@ -346,7 +346,7 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
 
 def neighborhood_of(focus: "str | list[str] | None", *, depth: int = 1, source=None):
     """The work-in-hand's structural neighbourhood as a per-(member, relationship) SUMMARY — the render
-    channel for the orientation block (#37 / D-224). For each focus member it runs the SAME bidirectional,
+    channel for the orientation block (#37). For each focus member it runs the SAME bidirectional,
     edge-pinned walk assemble_candidates runs (`direction="both"`, WALK_EDGE_KINDS, depth 1), then GROUPS the
     neighbours by the relationship that reaches each one — its (predicate, direction) — carrying the FULL
     count plus a bounded sample (NEIGHBORHOOD_SAMPLE_CAP) per group.
@@ -443,12 +443,12 @@ def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None,
     """The live ranking path over the substrates present today, returning the attention-result.v1 dict
     (whose own `degraded_inputs` records the absent substrates). This is the ONE assembler the CLI (`rank`)
     and boot's SessionStart pack both call, so boot CONSUMES the partition it is handed — in the locked
-    precedence order — and never re-ranks (boot/README relay-not-detect; the result contract is attention's,
+    precedence order — and never re-ranks (relay-not-detect; the result contract is attention's,
     not boot's to re-derive). `as_of` defaults to the newest moment the pack recorded (`_reference_moment`:
     the cursor's integration-debt as-of, or a later candidate's own moment — a lagging cursor cannot order
     work that landed after it), falling back to the wall clock only when nothing recorded a moment at all
     (the run then marked `as_of_is_wallclock`) — the only clock read; the pure core stays clock-free. `budget_total` (boot owns it) sizes the per-category split when supplied. `override` is the
-    attention slice of the operator policy-override (D-167) the LOADING layer (boot) reads and passes as DATA;
+    attention slice of the operator policy-override that the LOADING layer (boot) reads and passes as DATA;
     it is merged per-key into the effective values via the core merge (`load_policy_values`), keeping the
     static-input determinism — attention never reads the override FILE itself. `gh` is the GitHub reader for
     the in-flight work-record read (boot builds + passes it; the CLI leaves it None -> the local-git floor).

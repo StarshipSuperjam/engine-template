@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Slice 11a — the knowledge-retrieval op-set, the conforming fallback floor.
+"""The knowledge-retrieval op-set, the conforming fallback floor.
 
 Realizes the knowledge-retrieval interface (.engine/interfaces/knowledge-retrieval.json) over the
 gitignored SQLite index (knowledge_index.py): the four operations every conforming implementation
@@ -12,7 +12,7 @@ must answer —
   relate(id_a, id_b)                      the shortest edge path between two entities, or null
 
 Traversal is pushed into the indexed store (recursive CTEs over the dst-indexed edge table), so it
-scales to a real adopter's repo. Degrade-to-git-native (knowledge/README.md:51): every op ensures the
+scales to a real adopter's repo. Degrade-to-git-native: every op ensures the
 index first, rebuilding it from the committed graph if it is missing or stale; if the committed graph
 is ABSENT it rebuilds from a LIVE WALK of the surfaces (loudly degraded), and only if that live walk
 also fails is knowledge reported unavailable in plain language, never a crash. The graph-query MCP server
@@ -36,7 +36,7 @@ WALK_EDGE_KINDS = knowledge_index.WALK_EDGE_KINDS  # the cold-start default: the
 
 
 def _decode_attributes(row) -> dict:
-    """The entity's declared attributes (status/tier/title/discriminators, D-203) from the JSON column,
+    """The entity's declared attributes (status/tier/title/discriminators) from the JSON column,
     or {} when absent. Tolerant of an OLD-shape index row that predates the column (defence-in-depth — the
     INDEX_SCHEMA_VERSION freshness leg already forces such an index to rebuild before it is read)."""
     if "attributes" not in row.keys():
@@ -73,7 +73,7 @@ def _get_entity(conn, entity_id: str):
 
 def _find(conn, type=None, path_glob=None, owner=None) -> list:
     # SELECTORS stay core-scalar (type / path_glob / owner) — there is NO attribute selector, so no
-    # find(attribute) canon back-door (D-203). The declared attributes are RETURNED (merged from the JSON
+    # find(attribute) canon back-door. The declared attributes are RETURNED (merged from the JSON
     # column) for parity with get-entity, but are never a WHERE dimension.
     where, params = [], []
     if type is not None:
@@ -134,11 +134,11 @@ def _neighbors(conn, entity_id: str, edge_filter=None, direction="out", depth=1)
 def _relate(conn, id_a: str, id_b: str):
     """The shortest undirected edge path id_a..id_b as a list of ids (inclusive), or None.
 
-    A genuine breadth-first search with a per-NODE visited set (D-116's committed-JSON BFS floor): each
+    A genuine breadth-first search with a per-NODE visited set (the committed-JSON BFS floor): each
     node is expanded at most once, so the walk is O(V+E) and returns promptly even through a high-degree
     hub (module:core, in-degree ~250) — where the previous path-materializing recursive CTE enumerated
     every simple path as its own row and hung combinatorially. relate is the deliberate PULL that
-    traverses ALL edge kinds including `supersedes` (D-203): the adjacency is built from every edge row,
+    traverses ALL edge kinds including `supersedes`: the adjacency is built from every edge row,
     unfiltered — only the cold-start `neighbors` walk is pinned to WALK_EDGE_KINDS. Deterministic:
     neighbours are visited in sorted id order, so among equal-length shortest paths the chosen one is
     stable. Returns None when either endpoint is unknown or the two are unconnected; [id] for
@@ -147,7 +147,7 @@ def _relate(conn, id_a: str, id_b: str):
         return [id_a] if _get_entity(conn, id_a) else None
     if _get_entity(conn, id_a) is None or _get_entity(conn, id_b) is None:
         return None                                    # an unknown endpoint cannot be connected
-    # Undirected adjacency, loaded once from EVERY edge row (all kinds — relate PULLs supersedes, D-203).
+    # Undirected adjacency, loaded once from EVERY edge row (all kinds — relate PULLs supersedes).
     adjacency: dict = {}
     for src, dst in conn.execute("SELECT src_id, dst_id FROM edges"):
         adjacency.setdefault(src, set()).add(dst)
