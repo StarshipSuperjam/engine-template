@@ -602,7 +602,10 @@
           "contract:eADR-0030-operator-stance-floor",
           "contract:eADR-0031-state-cursor-pointers-and-counts",
           "contract:eADR-0032-attention-policy-plus-function",
-          "contract:eADR-0033-boot-refresh-family"
+          "contract:eADR-0033-boot-refresh-family",
+          "contract:eADR-0034-dual-provider-adapter-core",
+          "contract:eADR-0035-provider-parity-committed-exceptions",
+          "contract:eADR-0036-codex-degradation-disclosure"
         ]
       },
       "slug": "contract-frontmatter",
@@ -662,7 +665,10 @@
           "contract:eADR-0030-operator-stance-floor",
           "contract:eADR-0031-state-cursor-pointers-and-counts",
           "contract:eADR-0032-attention-policy-plus-function",
-          "contract:eADR-0033-boot-refresh-family"
+          "contract:eADR-0033-boot-refresh-family",
+          "contract:eADR-0034-dual-provider-adapter-core",
+          "contract:eADR-0035-provider-parity-committed-exceptions",
+          "contract:eADR-0036-codex-degradation-disclosure"
         ]
       },
       "slug": "contract-shape",
@@ -723,7 +729,10 @@
           "contract:eADR-0030-operator-stance-floor",
           "contract:eADR-0031-state-cursor-pointers-and-counts",
           "contract:eADR-0032-attention-policy-plus-function",
-          "contract:eADR-0033-boot-refresh-family"
+          "contract:eADR-0033-boot-refresh-family",
+          "contract:eADR-0034-dual-provider-adapter-core",
+          "contract:eADR-0035-provider-parity-committed-exceptions",
+          "contract:eADR-0036-codex-degradation-disclosure"
         ]
       },
       "slug": "contract-threshold",
@@ -2643,6 +2652,66 @@
       "source": {
         "fingerprint": "sha256:95c19d8e9bab72d94d2f423c9f0ff7afaf0665d9ba98424e7c2cc29d2e1c6841",
         "path": ".engine/contracts/eADR-0033-boot-refresh-family.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0034-dual-provider-adapter-core",
+      "name": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0034-dual-provider-adapter-core",
+      "source": {
+        "fingerprint": "sha256:833f54e2e9ab04b25c87494c76db50d99ff9c2332160a6cd83cc4513fac88104",
+        "path": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0035-provider-parity-committed-exceptions",
+      "name": ".engine/contracts/eADR-0035-provider-parity-committed-exceptions.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0035-provider-parity-committed-exceptions",
+      "source": {
+        "fingerprint": "sha256:79d30adea6208d676a215dd214ddd970decac6dbd03ccc20d120c02a927b0c5e",
+        "path": ".engine/contracts/eADR-0035-provider-parity-committed-exceptions.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0036-codex-degradation-disclosure",
+      "name": ".engine/contracts/eADR-0036-codex-degradation-disclosure.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0036-codex-degradation-disclosure",
+      "source": {
+        "fingerprint": "sha256:d4bd1a8451c670ea6d011c0a4a5f81cd1f9fd941c1aff672e025c36b7d9bd18a",
+        "path": ".engine/contracts/eADR-0036-codex-degradation-disclosure.md"
       },
       "status": "accepted",
       "type": "contract"
