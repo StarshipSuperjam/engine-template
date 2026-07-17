@@ -161,6 +161,20 @@ class TestStaleness(unittest.TestCase):
             self.assertEqual(audit_digest.staleness(p, now=now)["severity"], "note",
                              "exactly STALENESS_DAYS old is still current")
 
+    def test_current_digest_reads_as_a_positive_recency_line(self):
+        # The current-digest note is the operator-facing recency line boot surfaces — a positive "last reviewed
+        # ... N days ago (on <run-date>)", with plain grammar at the day-count edges. Boot relays it verbatim,
+        # so pin the wording here where the drift would show first.
+        with tempfile.TemporaryDirectory() as d:
+            base = datetime.date(2026, 6, 20)
+            self.assertIn("last reviewed its own health today",
+                          audit_digest.staleness(self._dated(d, 0, base), now=base)["message"])
+            self.assertIn("1 day ago",
+                          audit_digest.staleness(self._dated(d, 1, base), now=base)["message"])
+            m = audit_digest.staleness(self._dated(d, 5, base), now=base)["message"]
+            self.assertIn("5 days ago", m)
+            self.assertIn("2026-06-15", m)   # it names the run-date it is reporting
+
     def test_one_day_past_the_bound_is_flagged(self):
         with tempfile.TemporaryDirectory() as d:
             now = datetime.date(2026, 6, 20)

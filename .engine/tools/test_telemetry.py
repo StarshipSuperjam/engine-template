@@ -572,10 +572,10 @@ class TestRefreshCLI(unittest.TestCase):
 
 class TestEngineIssuesFeed(unittest.TestCase):
     """The read-only `engine-issues` verb + its render core: the audit-prep workflow fetches the open
-    engine-labelled backlog and feeds it to the read-only self-review persona for concern #2 (the persona
-    never reaches GitHub itself). A successful read lists every open issue for the persona to judge; an EMPTY
-    backlog says so DISTINCTLY; and ANY read failure surfaces a plain 'could not be read' line — never a silent
-    empty that would let concern #2 read as worked."""
+    engine-labelled backlog and feeds it to the read-only self-review persona (the persona never reaches GitHub
+    itself). A successful read lists every open issue for the persona to judge; an EMPTY backlog says so
+    DISTINCTLY; and ANY read failure surfaces a plain 'could not be read' line — never a silent empty that would
+    let the backlog read as worked."""
 
     def test_lists_each_open_issue_for_the_persona(self):
         fake = FakeGH()
@@ -588,7 +588,8 @@ class TestEngineIssuesFeed(unittest.TestCase):
         self.assertIn("Audit has no GitHub access", out)
         self.assertIn("#180", out)
         self.assertIn("2 open", out)            # the count header so the persona knows the backlog size
-        self.assertIn("concern #2", out)        # tells the persona what the backlog is for
+        self.assertNotIn("concern #", out)      # the backstage ordinal frame must never reach the persona prompt
+        self.assertIn("debt register", out)     # the backlog is named plainly instead
 
     def test_nonempty_backlog_attests_it_is_complete_so_the_persona_stops_hedging(self):
         # #198: given pasted issue data with no provenance, the persona hedged ("couldn't confirm this is the
@@ -610,8 +611,8 @@ class TestEngineIssuesFeed(unittest.TestCase):
         self.assertNotIn("COMPLETE set", out)   # the completeness attestation must NOT ride an empty backlog
 
     def test_read_failure_surfaces_an_honest_gap_never_silent_empty(self):
-        # The decisive invariant: a degraded read must NOT read as 'no issues' (which would silently pass
-        # concern #2). It returns a 'could not be read' line that tells the persona to disclose the gap.
+        # The decisive invariant: a degraded read must NOT read as 'no issues' (which would silently pass the
+        # backlog off as reviewed). It returns a 'could not be read' line that tells the persona to disclose the gap.
         out = telemetry.render_engine_issue_backlog("you/proj", "tok", transport=FakeGH(fail_read=403).transport)
         self.assertIn("could not be read", out)
         self.assertIn("unreviewed", out)
