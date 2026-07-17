@@ -74,7 +74,19 @@ short markers the files carry in their frontmatter stay in the files, never on s
    changed or reopened later, but not quietly: when a pull request changes a settled document, the engine asks
    the operator to confirm the change on that pull request (by applying the `guardrail-ack` label) before it can
    merge, so the record always shows the change was deliberate, never a silent edit.
-9. **Turn the settled description into tracked build work.** When a description — or a newly-settled part of
+9. **Record the significant choices — what was decided, and what was ruled out.** A few moments call for a short
+   record: **settling a choice where you weighed real alternatives**, **reopening something already settled**
+   (the reopen in step 8), and **adding or dropping a whole capability** — but never the routine first layout in
+   step 2, when nothing has been rejected yet. Author it under `docs/adr/` from the starting shape in
+   `.engine/modules/product-design/scaffold/adr.md`, numbered in the project's own sequence (0001, 0002, …,
+   unrelated to any numbering the engine uses for its own machinery), and fill in what was decided, why, and —
+   the part that matters most for a later session — the alternatives weighed and turned down, and why each lost:
+   that ruled-out part is what stops a future session from re-opening ground already walked. Strip the guidance
+   as you write, as with the other documents. The engine checks that each record it wrote still names what was
+   ruled out (present, with something in it), never whether the reasons are good — the operator's call; a record
+   kept in some other style is left untouched. This is distinct from the architecture overview's short "key
+   decisions" note — that is an at-a-glance summary inside one document; these are the per-decision records.
+10. **Turn the settled description into tracked build work.** When a description — or a newly-settled part of
    it — is settled, offer to turn it into work a build can pick up. Keep two moments distinct. *Now:* the engine
    writes a **build order** at `docs/spec/build-plan.md` — the settled capabilities grouped into ordered,
    plainly-named phases (e.g. "Foundation", "Core flows") — and opens a **list of things to build**, one tracked

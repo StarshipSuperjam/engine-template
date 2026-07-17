@@ -4,6 +4,7 @@
   "status": "optional",
   "provides": {
     "check": [
+      ".engine/check/product-adr-form.json",
       ".engine/check/product-lock-integrity.json",
       ".engine/check/product-spec-coverage.json",
       ".engine/check/product-spec-form.json",

@@ -1511,6 +1511,33 @@
       "type": "check"
     },
     {
+      "id": "check:product-adr-form",
+      "kind": "custom/script",
+      "name": ".engine/check/product-adr-form.json",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "product-adr-form",
+      "source": {
+        "fingerprint": "sha256:6af50fc9d737a2b2987cac591645307136e78da8b8572d2c8c229f0463d77607",
+        "path": ".engine/check/product-adr-form.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "pre-close",
+        "pre-commit"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:product-lock-integrity",
       "kind": "custom/script",
       "name": ".engine/check/product-lock-integrity.json",
@@ -2654,7 +2681,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:e1e600b1624616fe0ac658dc3ab0be3380d26fdb1c6d429fe734bba14fcf9911",
+        "fingerprint": "sha256:6d5cb37f8047d05675f96cc157985bc3acc8eb20a63159b15893e7f00d54210f",
         "path": ".engine/docs/product-design.md"
       },
       "status": "active",
@@ -2864,7 +2891,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:7c448120de8e08762f1ced0270509cc8a58586e3dc69bb5f10c2ec5362c9c266",
+        "fingerprint": "sha256:7ffec2ac27544551004150e8a0489edf1d8adb75402f866516b35498dff78a3f",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
@@ -3259,7 +3286,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:f6cfd48ea0cccf4a63f2cb81e6838fdd180d8fd8f2f4b27ded4ef4f3c36f661f",
+        "fingerprint": "sha256:c1584b9f141d5f3f6499ee10a0f6cb2f851e02ecaf25c5669b49f60b35a40f8e",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -4222,6 +4249,23 @@
       "status": "active",
       "title": "engine-tune",
       "type": "skill"
+    },
+    {
+      "id": "tool:adr_form",
+      "name": ".engine/tools/product_design/adr_form.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "adr_form",
+      "source": {
+        "fingerprint": "sha256:083c884f420aabcc4500868e26a3aa3ca5d82d2d6090a9ddb5a1e7f83ec20bb9",
+        "path": ".engine/tools/product_design/adr_form.py"
+      },
+      "status": "active",
+      "type": "tool"
     },
     {
       "id": "tool:agent_coherence_check",
@@ -6434,6 +6478,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_adr_form",
+      "name": ".engine/tools/product_design/test_adr_form.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "test_adr_form",
+      "source": {
+        "fingerprint": "sha256:be9c953414de74054cf97ecf4a63ac2765efbc0e0d20887155b54475879b3906",
+        "path": ".engine/tools/product_design/test_adr_form.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_agent",
       "name": ".engine/tools/test_agent.py",
       "owner": "core",
@@ -7515,7 +7576,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:93ce081b1fe38ac6d9fbdc74f7c333a81e303382ea1e91aadfe16b194fa56ddf",
+        "fingerprint": "sha256:676873f021368f32299ca110e30a9e5b471af4935a56c34cade4cd9816b7a3ae",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -7855,7 +7916,7 @@
       },
       "slug": "test_scaffold",
       "source": {
-        "fingerprint": "sha256:753040908ec3cfa7d6d66087c13de8848e5c47f8726fb2f22ad30ba2c0a29254",
+        "fingerprint": "sha256:69da455e1a695ca45d0b06d50e7f829bbb94fc10b3418443db0ab8c6bc916b26",
         "path": ".engine/tools/product_design/test_scaffold.py"
       },
       "status": "active",

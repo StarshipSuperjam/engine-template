@@ -126,7 +126,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
-  - check: `.engine/check/product-lock-integrity.json`, `.engine/check/product-spec-coverage.json`, `.engine/check/product-spec-form.json`, `.engine/check/product-spec-matrix.json`
+  - check: `.engine/check/product-adr-form.json`, `.engine/check/product-lock-integrity.json`, `.engine/check/product-spec-coverage.json`, `.engine/check/product-spec-form.json`, `.engine/check/product-spec-matrix.json`
   - doc: `.engine/docs/product-design.md`
   - foundation: `.engine/product-spec-matrix.json`
   - operation: `.engine/operations/product-intake.md`

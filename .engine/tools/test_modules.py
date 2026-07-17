@@ -480,11 +480,13 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # acceptance-criteria-coverage check lands.)
         pd_checks = sorted(r for r, o in check_owner.items() if o == ["product-design"])
         self.assertEqual(pd_checks, [
+            ".engine/check/product-adr-form.json",
             ".engine/check/product-lock-integrity.json",
             ".engine/check/product-spec-coverage.json",
             ".engine/check/product-spec-form.json",
             ".engine/check/product-spec-matrix.json",
-        ], "product-design owns the spec-form, coverage, lock-integrity, and obligation-matrix drift checks")
+        ], "product-design owns the ADR-form, spec-form, coverage, lock-integrity, and obligation-matrix "
+           "drift checks")
         # the split partitions ALL committed check files — nothing left unclaimed
         all_checks = sorted(r for r in module_coherence.engine_file_inventory()
                             if r.startswith(".engine/check/") and r.endswith(".json"))
@@ -601,17 +603,18 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         }], "product-design wires its obligation-matrix commit-boundary regen hook")
         self.assertEqual(pd.get("depends"), {"core": ""})
         self.assertEqual(pd.get("provides"), {
-            "check": [".engine/check/product-lock-integrity.json", ".engine/check/product-spec-coverage.json",
-                      ".engine/check/product-spec-form.json", ".engine/check/product-spec-matrix.json"],
+            "check": [".engine/check/product-adr-form.json", ".engine/check/product-lock-integrity.json",
+                      ".engine/check/product-spec-coverage.json", ".engine/check/product-spec-form.json",
+                      ".engine/check/product-spec-matrix.json"],
             "tool": [".engine/tools/product_design/*.py"],
             "foundation": [".engine/product-spec-matrix.json"],
             "operation": [".engine/operations/product-intake.md"],
             "skill": [".claude/skills/engine-design/SKILL.md"],
             "doc": [".engine/docs/product-design.md"],
             "scaffold": [".engine/modules/product-design/scaffold/*.md"],
-        }, "product-design owns its front door: the spec-form + coverage + lock-integrity + obligation-matrix "
-           "checks and their tools, the committed obligation matrix (its foundation file), the intake "
-           "operation, the engine-design skill, the orientation doc, and the scaffold")
+        }, "product-design owns its front door: the ADR-form + spec-form + coverage + lock-integrity + "
+           "obligation-matrix checks and their tools, the committed obligation matrix (its foundation file), "
+           "the intake operation, the engine-design skill, the orientation doc, and the scaffold")
 
     def test_doc_ownership_is_partitioned_core_and_product_design(self):
         # The orientation doc lives under .engine/docs/, which core used to claim by a whole-surface glob

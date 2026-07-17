@@ -32,6 +32,14 @@ later, but not quietly. When a change touches a settled part of your description
 it on the pull request — by applying the `guardrail-ack` label — before it can merge, so the record always shows
 the change was deliberate, never a silent edit.
 
+When you make a significant choice — settling something you weighed real alternatives for, reopening something
+already settled, or adding or dropping a whole piece — the engine can also write a short **decision record**:
+what you decided, why, and what you ruled out and why. These are kept as plain files under `docs/adr/`, numbered
+in your project's own sequence, and they are what a later session reads before re-opening a choice, so it does
+not re-argue ground you already settled. This is the one such write-up the engine does check — but only lightly:
+it makes sure each record it wrote still names what you ruled out, never whether your reasons were the right ones
+(that stays your call). A record you keep in some other style is left untouched.
+
 Once a piece is settled, you can hand it to a build. Two things follow, at two different moments. Right away,
 the engine writes a **build order** — your settled pieces grouped into ordered, plainly-named phases — and opens
 a **list of things to build**, one tracked item per piece, each pointing back at its description. Later, when a
