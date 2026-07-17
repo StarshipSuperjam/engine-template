@@ -4,13 +4,13 @@ allowed_sections: ["Supersedes"]
 length_budget: 120
 ---
 
-<!-- Two eADR homes, told apart by folder (repository-topology law 5 / D-169): the engine's own founding
+<!-- Two eADR homes, told apart by folder (repository-topology law 5): the engine's own founding
 canon lives here in .engine/contracts/ and is replaced wholesale on an engine update; a DEPLOYMENT's own
 engine-decision eADRs live in .engine/contracts/instance/ and are preserved across every update. If you are
 recording a decision this project made about ITS OWN engine, author it under instance/ (see
 .engine/contracts/instance/README.md).
 
-Naming (eADR-0017 / D-298): the engine's own canon records here in .engine/contracts/ are named `eADR-####`
+Naming (eADR-0017): the engine's own canon records here in .engine/contracts/ are named `eADR-####`
 (bare — e.g. eADR-0017). A deployment's OWN record under instance/ is named `<project-slug>-eADR-####` (e.g.
 acme-eADR-0007): the project-slug prefix keeps a deployment's own record from ever clashing with the engine's
 canon as that canon grows. The slug is the project's identity resolved at first-run, lowercased with any

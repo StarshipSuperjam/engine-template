@@ -39,7 +39,7 @@ only, never the whole pack, and the session never halts.
    alarms to the operator in plain words, and surface a brief needs-attention headline; the operator-toned
    status dashboard follows for grounding. The present-marker line and the must-push set are a fixed relay
    over the signals the substrates already detected — boot computes nothing new.
-   - **Anti-habituation collapse (D-269).** A standing governance alarm renders on **every** session it is
+   - **Anti-habituation collapse.** A standing governance alarm renders on **every** session it is
      live, but one whose underlying condition is **unchanged since last relayed in full** collapses to a
      **terse one-line reminder that still names the consequence and still offers the fix**; a **new, changed,
      or worsened** condition relays in **full**. New-versus-old is carried in words ("still ... (unchanged)"
@@ -70,7 +70,7 @@ that must never be depended on, so the reliable post-compaction floor stays the 
 plus the next per-prompt scent. The memory reversible-forgetting readout and the modes stance line
 render only once those substrates exist, so on a fresh engine they are simply absent.
 
-**The standing-alarm presentation ledger is boot's one local write (D-269).** It is a small, local,
+**The standing-alarm presentation ledger is boot's one local write.** It is a small, local,
 gitignored, non-canonical marker at `.engine/boot/.cache/standing-alarms.json` (`boot_alarm_ledger`),
 recording each surfaced standing alarm's structured condition and that it was shown in full, so the next
 session can collapse an unchanged one. It is read and written by boot's own `SessionStart` hook, lives at
@@ -98,7 +98,7 @@ and never forces. What differs is *what* each protects and *how* it declines:
   missing merged work, brought current only along a safe fast-forward, keeping unsaved changes — the result is
   brought current, already up to date, or (if unsaved work is in the way) `blocked`, changing nothing. This signal
   never alarms on bare distance — only *missing merged work* past the velocity bar.
-- **A folder parked off its main line — return (`checkout_health.return_to_default`, #342/D-275).** The behind
+- **A folder parked off its main line — return (`checkout_health.return_to_default`, #342).** The behind
   signal is two-stage: **Stage 1 (off-main)** surfaces gently — caught offline, every session, on day one — that
   the folder points at a side line rather than the main project; **Stage 2 (behind)** escalates to a firm offer
   once it is also missing merged work. One consent handle — "bring it up to date" — runs whichever fits: `catch_up`

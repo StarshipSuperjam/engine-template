@@ -1,5 +1,5 @@
 {
-  "description": "The first-run-only assets the instantiator removes at the Retire step once setup is sound. This committed manifest mirrors instantiator.py's _FIRST_RUN_ASSET_FILES / _FIRST_RUN_ASSET_DIRS (a parity test binds them) so the first-run reference-closure check (engine/check/first-run-reference-closure) can read the retired set WITHOUT importing the instantiator it is about to verify nothing references. Permanent provisioning data: it stays after retirement (the check no-ops once the machinery is gone). Authored, not derived — keep it in sync with the literal (the parity test fails if it drifts). engine-planning D-219/D-220.",
+  "description": "The first-run-only assets the instantiator removes at the Retire step once setup is sound. This committed manifest mirrors instantiator.py's _FIRST_RUN_ASSET_FILES / _FIRST_RUN_ASSET_DIRS (a parity test binds them) so the first-run reference-closure check (engine/check/first-run-reference-closure) can read the retired set WITHOUT importing the instantiator it is about to verify nothing references. Permanent provisioning data: it stays after retirement (the check no-ops once the machinery is gone). Authored, not derived — keep it in sync with the literal (the parity test fails if it drifts).",
   "files": [
     ".engine/tools/instantiator.py",
     ".engine/tools/test_instantiator.py",

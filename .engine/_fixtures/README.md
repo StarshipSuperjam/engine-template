@@ -4,8 +4,8 @@ This directory holds **negative fixtures**: deliberately-broken inputs the engin
 against to prove each one actually *bites* (it catches a known-bad example, rather than passing green while doing
 nothing). It is the standing, CI-enforced "checker-of-checkers" the negative-fixture meta-check uses.
 
-Design of record: engine-planning decision log **D-256…D-260** (the meta-check law, the by-presence fixture
-grammar, and this reserved namespace as a Tier-2 leaf under `.engine/`).
+The design: the meta-check law, the by-presence fixture grammar, and this reserved namespace as a Tier-2 leaf
+under `.engine/`.
 
 ## What lives here
 
@@ -30,7 +30,7 @@ meta-check asserts by **set-membership** that a finding of that severity carryin
 unrelated bite: a fixture that fail-closes for the wrong reason fires a hard finding but not the expected one, so it
 does not satisfy the assertion. A unit with no statically-decidable CI failure path instead carries a
 `not-applicable.json` whose `property` is exactly `"no statically-decidable failure path in the CI environment"`
-(verbatim — a compressed slug would reopen the self-classification escape D-257/D-258 closed); the meta-check lists
+(verbatim — a compressed slug would reopen the self-classification escape this exact-string rule closes); the meta-check lists
 every such carve-out loudly and it is re-derived at the review gate.
 
 **Every fixture must live under `.engine/_fixtures/` and nowhere else.** The exclusions that shield these files
