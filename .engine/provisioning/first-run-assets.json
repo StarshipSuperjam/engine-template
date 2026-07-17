@@ -27,6 +27,7 @@
     ".engine/tools/demo_release_terminal.py",
     ".engine/tools/demo_weakening_guard_narrowed_set.py",
     ".engine/tools/demo_memory_degradation_backup.py",
+    ".engine/tools/demo_attention_live_dials.py",
     ".engine/audits/audit-digest.md",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",
