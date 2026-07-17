@@ -1,4 +1,4 @@
-"""test_restore_vault.py — memory's backup vault, the RESTORE path (slice 6b).
+"""test_restore_vault.py — memory's backup vault, the RESTORE path.
 
 The REAL restore logic runs fully offline behind the in-module `_FakeVault` (the backup_vault precedent) — only
 GitHub is faked. Each test redirects a throwaway ledger cabinet (ENGINE_MEMORY_DIR) AND a throwaway repo root
@@ -211,7 +211,7 @@ class Floor4Tests(_Base):
 
 
 class MigrationRevertTests(_Base):
-    """Slice 2 — restore the local ledger from a retained PRE-migration snapshot TAG (D-264 migration-revert)."""
+    """Restore the local ledger from a retained PRE-migration snapshot TAG (the migration-revert path)."""
 
     def _snapshot_tag(self, fake, migration_id="mod@1.0.0"):
         """Mint a retained pre-migration snapshot tag over the CURRENT ledger; return its name."""
@@ -257,7 +257,7 @@ class MigrationRevertTests(_Base):
         self.assertNotIn(res["message"], (rv._MSG_NO_BACKUP_DATA, rv._MSG_UNREACHABLE))   # distinct from both
         self.assertEqual(_rb(ledger.ledger_path()), before)        # nothing on this computer changed
         for banned in ("tag", "ref", "generation", "http", "git", "ledger", "index"):
-            self.assertNotIn(banned, res["message"].lower())       # plain handle, no engineer-jargon (D-265 S1/S2)
+            self.assertNotIn(banned, res["message"].lower())       # plain handle, no engineer-jargon
 
     def test_empty_tag_argument_is_refused_as_snapshot_missing(self):
         fake = self._seed_and_backup(["x"])
@@ -267,7 +267,7 @@ class MigrationRevertTests(_Base):
 
     def test_legitimate_revert_with_unchanged_generation_proceeds(self):
         # No erasure-compaction in the revert window: the pre-migration generation == local generation, so the
-        # resurrection guard does NOT fire on a routine revert (D-264 law 4).
+        # resurrection guard does NOT fire on a routine revert.
         fake = self._seed_and_backup(["pre-update note"])
         ledger.set_generation(5)
         tag = self._snapshot_tag(fake)
@@ -307,7 +307,7 @@ class MigrationRevertTests(_Base):
 
 
 class MigrationRevertDetectorTests(_Base):
-    """Slice 3 — the OFFLINE code-older-than-data detector + the whole-update-undo lifecycle (D-264 floor a, #303)."""
+    """The OFFLINE code-older-than-data detector + the whole-update-undo lifecycle (#303)."""
 
     def _set_running(self, version):
         with open(os.path.join(validate.ENGINE_DIR, "engine.json"), "w", encoding="utf-8") as fh:
@@ -501,7 +501,7 @@ class NamespaceMissingTests(_Base):
 
 class CoexistenceTests(_Base):
     def test_project_A_memory_survives_project_B_adopting_the_same_vault(self):
-        """The headline D-237 guarantee: a 2nd project adopting the shared vault never clobbers the first's folder."""
+        """The headline shared-vault guarantee: a 2nd project adopting the shared vault never clobbers the first's folder."""
         fake = bv._FakeVault()
         bv._demo_plant("project A note ALPHAWORD")
         a_ledger = _rb(ledger.ledger_path())

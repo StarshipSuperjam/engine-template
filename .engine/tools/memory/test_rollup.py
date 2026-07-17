@@ -1,4 +1,4 @@
-"""Unit tests for rollup.py — gist roll-up, the AI-judged second-order consolidation (memory slice 4d-ii).
+"""Unit tests for rollup.py — gist roll-up, the AI-judged second-order consolidation.
 
 Roll-up is Layer-1: reversible, mechanical, autonomous. It consolidates old episodes into a compact GIST and
 LOGICALLY RETIRES the raws (excluded from recall, still resident + fully recoverable). These tests exercise the

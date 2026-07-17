@@ -1,4 +1,4 @@
-"""Unit tests for compact.py — ledger compaction, the crash-safe rebuild-and-swap (memory slice 4d).
+"""Unit tests for compact.py — ledger compaction, the crash-safe rebuild-and-swap.
 
 Compaction is Layer-1: reversible, mechanical, autonomous. It folds a record's reinforcement markers into a
 carried frecency snapshot (so demotion survives the fold — the recurrence property), prunes those markers, and
@@ -267,7 +267,7 @@ class WatermarkSurvivesCompactionTests(_Base):
 
 
 class Layer2ErasureTests(_Base):
-    """Slice 4e — the gated Layer-2 physical erasure (the single irreversible act). Compaction removes a recall
+    """The gated Layer-2 physical erasure (the single irreversible act). Compaction removes a recall
     record IFF a VALID operator-adjudicated-erasure marker targets it; an UNMARKED record is never removed; the
     marker is RETAINED (the idempotency tombstone); a re-compaction is a clean no-op; the generation bumps; and a
     crash just after the swap still leaves the target erased.
@@ -342,7 +342,7 @@ class Layer2ErasureTests(_Base):
         self.assertNotIn(keep[records.RECORD_ID_KEY], self._content_ids())   # the real target still erased
 
     def test_6_a_crash_after_the_swap_leaves_the_target_erased(self):
-        # The first slice where the swap's durability backs an IRREVERSIBLE (not merely recoverable) guarantee:
+        # The first point where the swap's durability backs an IRREVERSIBLE (not merely recoverable) guarantee:
         # a power-cut just AFTER the erasing swap must leave the target GONE (the new ledger is already in place).
         gone = self._episodic("erase this note")
         keep = self._episodic("keep this note")
@@ -457,7 +457,7 @@ class ProductionSafetyTests(_Base):
 
 
 class LedgerIntegrityCompactionTests(_Base):
-    """#396 U07a: compaction is bound by the ledger read law — it preserves a torn trailing fragment and
+    """#396: compaction is bound by the ledger read law — it preserves a torn trailing fragment and
     reports a skipped malformed line, never silently erasing recoverable recall with erased:0."""
 
     def test_a_torn_trailing_fragment_survives_compaction_and_still_heals(self):
@@ -498,7 +498,7 @@ class LedgerIntegrityCompactionTests(_Base):
 
 
 class MigrationWindowRefusalTests(_Base):
-    """U26 (#396): compaction refuses within a migration window, and self-heals an orphaned marker."""
+    """#396: compaction refuses within a migration window, and self-heals an orphaned marker."""
 
     def _marker_path(self):
         return os.path.join(self._tmp.name, capture.MIGRATION_MARKER_FILENAME)

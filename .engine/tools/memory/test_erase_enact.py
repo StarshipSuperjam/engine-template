@@ -1,5 +1,5 @@
 """Unit tests for the Layer-2 erasure WRITER — compact.enact_erasure, the sole minter of the merge-gated
-`operator-adjudicated-erasure` marker (slice 4e PR i).
+`operator-adjudicated-erasure` marker.
 
 The REMOVAL (compact's gated Layer-2 filter) is pinned in test_compact.py::Layer2ErasureTests, and the LIVE
 auto-trigger path in test_compact_trigger.py. THIS file pins the MINTER: it appends a well-formed marker under the
@@ -68,7 +68,7 @@ class EnactErasureTests(_Base):
     def test_the_writer_is_append_only_dedup_is_the_observers_job(self):
         compact.enact_erasure("t", "sha-1")
         compact.enact_erasure("t", "sha-2")
-        self.assertEqual(len(self._markers()), 2)            # append-only; idempotent dedup is the slice-ii observer's
+        self.assertEqual(len(self._markers()), 2)            # append-only; idempotent dedup is the observer's
 
 
 class DemoTests(_Base):

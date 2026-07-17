@@ -1,12 +1,11 @@
-"""backup_vault.py — memory's backup vault, the EXPORT path (memory-substrate, slice 6a).
+"""backup_vault.py — memory's backup vault, the EXPORT path.
 
 The engine's experiential memory is the gitignored, append-only ledger (`.engine/memory/ledger.ndjson`). It is
 canonical and deliberately out of git — but a disk failure or a new machine loses it, and a non-engineer has no
-backup discipline (Risk R2). The locked design (engine-planning memory README §"Backup and portability", D-061 +
-D-237): the Engine **backs memory up itself** — copy the ledger + a snapshot manifest to a PRIVATE GitHub repo via
+backup discipline. The locked design: the Engine **backs memory up itself** — copy the ledger + a snapshot manifest to a PRIVATE GitHub repo via
 the operator's own GitHub credentials. The default destination is a single SHARED cross-project vault
-(`engine-memory-vault`), each project in its own minted-id folder; a per-project repo is offered at every setup
-(D-237). This module is the EXPORT half + create/adopt; RESTORE lives in restore_vault.py.
+(`engine-memory-vault`), each project in its own minted-id folder; a per-project repo is offered at every setup.
+This module is the EXPORT half + create/adopt; RESTORE lives in restore_vault.py.
 
 Operator-facing FLOORS that live here (Floor 3's restore-offer lives in restore_vault.py):
   (1) consent-before-create — no backup repo is created without plain-language consent naming the repo + its
@@ -65,7 +64,7 @@ _HOUR = 3600
 # throwaway cabinet under tests/demo and the real store in production. Already fenced by the `.engine/memory/` gitignore.
 _STATE_FILENAME = "backup-vault-state.json"
 
-# The migration stamp (D-264 #303): a second gitignored sidecar (same dir/convention as the state sidecar above)
+# The migration stamp (#303): a second gitignored sidecar (same dir/convention as the state sidecar above)
 # recording the reversibility floor of the most-recent upgrade — what version reshaped the local store and which
 # retained snapshot tag is the copy from BEFORE that whole update. It is the local, offline record the code-older-
 # than-data detector reads (the migrated version is recorded nowhere else locally: engine.json reverts WITH the code),
@@ -73,14 +72,14 @@ _STATE_FILENAME = "backup-vault-state.json"
 # written for the FIRST data migration of an upgrade, not overwritten by later migrations of the same upgrade.
 _MIGRATION_STAMP_FILENAME = "migration-stamp.json"
 
-# The committed destination pointer — the ONE backup artifact that lives in git (topology law-5's pre-authorized
+# The committed destination pointer — the ONE backup artifact that lives in git (the repository-topology rule's pre-authorized
 # carve-out: a fresh instance reads it to find the namespace). It CANNOT live under the gitignored `.engine/memory/`,
 # so it is a committed file owned by the manifest's `backup` provides group, with its dir carved into catalog-coverage
 # infra_dirs. Content-free (a slug/namespace/timestamp — never ledger content). Ships as an unconfigured placeholder;
 # `setup` fills it.
 POINTER_REL = ".engine/memory-backup/pointer.json"
 
-# Backup destination scope (D-237 / engine-planning memory README §Backup 256-269). Build-spec leaf (recorded; the
+# Backup destination scope. Build-spec leaf (recorded; the
 # operator chose SHARED this session — the design's settled default): "shared" = one fixed vault per GitHub account
 # holding every engine project in its own namespace folder; "per-project" = one repo per project. The per-project
 # mode stays reachable (a code change, not an operator toggle, this slice; surfacing the choice as a real operator
@@ -108,21 +107,21 @@ def _mint_namespace() -> str:
     project's memory. The representation (uuid4 hex) is a recorded build-spec leaf."""
     return uuid.uuid4().hex
 
-# A fixed, content-free commit message for every backup push (NEVER derived from ledger content — D-007 leak guard).
+# A fixed, content-free commit message for every backup push (NEVER derived from ledger content — the leak guard).
 _COMMIT_MESSAGE = "Update memory backup (engine)"
 _REPO_DESCRIPTION = "Private AI-memory backup created and maintained by the engine. Keep it private; don't hand-edit."
 # The commit that records WHERE the backup lives, into the PROJECT repo, so a CI checkout can locate the vault
 # (the scheduled self-audit's saved-memory read). Coordinates only — the pointer never carries ledger content.
 _POINTER_COMMIT_MESSAGE = "Record memory-backup location (engine)"
 
-# The retained pre-migration snapshot (D-264): a distinct refs/tags ref the routine rolling backup never overwrites.
-# Its own content-free commit message (the D-007 leak guard, like the rolling one) distinguishes it in vault history.
+# The retained pre-migration snapshot: a distinct refs/tags ref the routine rolling backup never overwrites.
+# Its own content-free commit message (the leak guard, like the rolling one) distinguishes it in vault history.
 _SNAPSHOT_COMMIT_MESSAGE = "Pre-migration memory snapshot (engine)"
 # refs/tags/engine-snapshot/<namespace>/<migration-id> — namespace-scoped (so a shared vault's projects never collide)
 # and named collision-free by the migration id (the primary discriminator: one upgrade runs several migrations at one
 # engine-version). DETERMINISTIC per migration, so a replay collides and is refused rather than silently duplicating.
 _SNAPSHOT_TAG_PREFIX = "engine-snapshot"
-# Retention (D-264 law 5 + #303 — reversibility unit = the upgrade): `_prune_snapshots` keeps exactly the most-recent
+# Retention (#303 — reversibility unit = the upgrade): `_prune_snapshots` keeps exactly the most-recent
 # snapshot AND the stamp-cited batch floor (the copy "undo the update" restores), pruning every intermediate. So a
 # namespace settles to <=2 snapshot tags; no numeric cap is needed — the cited floor + the locked most-recent define
 # the keep-set directly. (The earlier `_SNAPSHOT_RETENTION_CAP` recency window was retired here.)
@@ -241,7 +240,7 @@ def _is_version_shaped(v) -> bool:
 
 def build_manifest(*, ledger_path: "str | None" = None, now: "int | None" = None,
                    engine_version: "str | None" = None) -> dict:
-    """The snapshot manifest committed beside the ledger copy — EXACTLY the four locked keys (README §Backup):
+    """The snapshot manifest committed beside the ledger copy — EXACTLY the four locked keys:
     ledger-version, ledger-generation, timestamp, engine-version. The generation is read LIVE from the ledger's
     sidecar (`ledger.generation`), so the field is genuinely populated now — restore reads it to surface a
     resurrecting restore, and inherits no manifest format change. `ledger_path` lets a throwaway store read ITS own
@@ -291,7 +290,7 @@ def write_pointer(owner: str, repo: str, branch: str, namespace: str, *, now: "i
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"                                   # atomic write (mirrors ledger.replace_ledger): the minted
     with open(tmp, "w", encoding="utf-8") as fh:         # namespace id must be durably IN the pointer BEFORE the
-        json.dump(p, fh, indent=2)                       # first export, surviving a kill-window (D-237, 265).
+        json.dump(p, fh, indent=2)                       # first export, surviving a kill-window.
         fh.write("\n")
         fh.flush()
         os.fsync(fh.fileno())
@@ -349,7 +348,7 @@ def _record_state(*, now: int, success: bool, privacy_ok: bool) -> None:
 
 
 # ============================================================================================================
-# The migration stamp (D-264 #303): the local, offline record of the upgrade's reversibility floor.
+# The migration stamp (#303): the local, offline record of the upgrade's reversibility floor.
 # ============================================================================================================
 
 def _migration_stamp_path() -> str:
@@ -407,7 +406,7 @@ def clear_migration_stamp() -> None:
 # ============================================================================================================
 
 def _git_blob_sha1(raw: bytes) -> str:
-    """The git object id of a blob with `raw` content: sha1(b'blob <len>\\0' + raw). RESTORE (slice 6b) recomputes
+    """The git object id of a blob with `raw` content: sha1(b'blob <len>\\0' + raw). RESTORE recomputes
     this over a fetched blob and requires it equals the tree entry's sha — git's own content-addressing — so a
     truncated or corrupted download can never be swapped over good local memory. The _FakeVault stores blobs under
     this same id, so the offline demo/tests exercise the real integrity check."""
@@ -471,7 +470,7 @@ def _push_files(gh, owner: str, repo: str, branch: str, files: dict, *, retry: b
 
 
 # ============================================================================================================
-# Retained pre-migration snapshot tags (D-264): a distinct refs/tags ref the routine rolling backup never
+# Retained pre-migration snapshot tags: a distinct refs/tags ref the routine rolling backup never
 # overwrites. Distinctness — a different ref — is the tier-independent guarantee; platform tag-immutability is
 # paid-tier-only optional hardening (probed, degrade-and-disclosed). The tag points at its OWN commit and never
 # advances the rolling branch head, so the two consumers share one push mechanism but never the same ref.
@@ -485,7 +484,7 @@ def _sanitize_ref_component(s: str) -> str:
 
 
 def _snapshot_tag_name(namespace: str, migration_id: str) -> str:
-    """The collision-free-by-construction snapshot tag short-name (D-264 law 3): the namespace + the migration id as
+    """The collision-free-by-construction snapshot tag short-name: the namespace + the migration id as
     the primary discriminator. DETERMINISTIC per migration, so a replay of the SAME migration collides with its own
     prior tag and is refused, never silently overwritten or duplicated. (Sanitization is many-to-one in principle, so
     two genuinely-distinct ids could in theory collapse to one name — but the real id grammar is `slug@dotted.version`
@@ -528,15 +527,15 @@ def _delete_tag(gh, owner: str, repo: str, tag_name: str) -> bool:
 def _tag_protection_present(gh, owner: str, repo: str) -> bool:
     """OPTIONAL hardening probe: is a tag-targeting ruleset present (so the platform makes the tag harder to delete)?
     Paid-tier-only on a free private repo, so this returns False there — and the snapshot's guarantee stays
-    distinctness (a different ref), never claiming immutability (D-264). Read-only; False on any doubt."""
+    distinctness (a different ref), never claiming immutability. Read-only; False on any doubt."""
     data = _get(gh, f"/repos/{owner}/{repo}/rulesets?targets=tag")
     return isinstance(data, list) and len(data) > 0
 
 
 def _prune_snapshots(gh, owner: str, repo: str, namespace: str, keep_name: str) -> list:
-    """Citation-bound retention (D-264 law 5 + #303 — the reversibility unit is the upgrade). Keep exactly TWO tags:
-    the MOST-RECENT snapshot (`keep_name`, the just-created one — law 5 'never prune the most-recent') AND the
-    stamp-cited batch FLOOR (the copy 'undo the update' restores — the stamp IS the citation law 5 binds retention to).
+    """Citation-bound retention (#303 — the reversibility unit is the upgrade). Keep exactly TWO tags:
+    the MOST-RECENT snapshot (`keep_name`, the just-created one — 'never prune the most-recent') AND the
+    stamp-cited batch FLOOR (the copy 'undo the update' restores — the stamp IS the citation retention binds to).
     Delete every other (intermediate) snapshot, so steady state is <=2 tags/namespace (they coincide -> 1 for a
     single-migration upgrade). FAIL-SAFE on citation doubt: if the stamp cannot be read (absent/lost), prune NOTHING —
     the engine never deletes the undo target it disclosed it saved, even if the floor's stamp write was lost. Returns
@@ -611,7 +610,7 @@ def snapshot_for_migration(store, engine_version, *, migration_id=None, reversib
     (module_manager._resolve_backup_seam). A `data` migration calls this BEFORE mutating its store; the engine
     refuses the migration unless it returns a truthy handle, so un-backed-up data is never silently reshaped.
 
-    The snapshot lands as a DISTINCT, retained `refs/tags` ref the routine rolling backup never overwrites (D-264):
+    The snapshot lands as a DISTINCT, retained `refs/tags` ref the routine rolling backup never overwrites:
     its OWN pre-migration-ledger commit, tagged collision-free by the namespace + migration id, with the rolling
     branch head left untouched. A name COLLISION (a replay of the same migration) is REFUSED, never an overwrite. The
     tag survives the routine backup because it is a different ref — distinctness is the tier-independent guarantee;
@@ -696,7 +695,7 @@ def migration_backup_available() -> bool:
 # ============================================================================================================
 
 def _choice_prompt() -> str:
-    """Floor 1: the shared-vs-per-repo choice, PRESENTED at every setup (engine-planning memory README 290-295). The
+    """Floor 1: the shared-vs-per-repo choice, PRESENTED at every setup. The
     shared vault is the default; the disclosure names the trade-off AND why one would pick per-repo. The plain
     CONTENT is law; this exact wording is memory's provisional realization (provisioning's UX leaf may re-skin it)."""
     return (
@@ -757,7 +756,7 @@ def _consent_prompt(vault_name: str, scope: str) -> str:
 
 def _disclosure_text(scope: "str | None" = None, *, question: bool = True) -> str:
     """Floor-1 disclosure as PLAIN TEXT — no prompt, no stdin, no side effect — for the agent-mediated first-run
-    to relay verbatim (#397 U10). With no scope it returns the shared-vs-per-repo CHOICE (`_choice_prompt`); with a
+    to relay verbatim (#397). With no scope it returns the shared-vs-per-repo CHOICE (`_choice_prompt`); with a
     scope it returns the consent NAMING that destination + its must-stay-private requirement (`_consent_prompt`).
     Single-homed on the same copy the interactive prompts use, so the runbook never re-types consent-critical text
     and the operator always sees the destination name before anything is created. `question=False` drops the
@@ -785,9 +784,9 @@ def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
     """Floor 2: the plain-language README committed into the backup repo on creation. Leads with the engine's
     self-describing marker (adopt verifies it). The shared variant is multi-project-framed, says accurately what the
     per-project folder ids are (randomly generated, not derived from the project), and names the consequence of
-    deleting a folder so the reader can make an informed choice (engine-planning memory README 295-303). It also
-    redirects the operator's delete-instinct away from the retained restore points (the pre-migration snapshots,
-    D-264 floor (2)) — in folder/items terms, never naming a git tag (D-265 S2). Peer voice — it informs and states
+    deleting a folder so the reader can make an informed choice. It also
+    redirects the operator's delete-instinct away from the retained restore points (the pre-migration snapshots)
+    — in folder/items terms, never naming a git tag. Peer voice — it informs and states
     consequences, then points to the engine; it does not forbid blindly or talk down."""
     if scope == "shared":
         return (
@@ -909,7 +908,7 @@ def _seed_readme(gh, owner: str, repo: str, branch: str, project_name: str, scop
 
 def commit_pointer_to_project(gh, project_owner: str, project_repo: str, pointer: dict) -> dict:
     """Record the configured pointer IN the project repo so a CI checkout can locate the vault — the scheduled
-    self-audit's saved-memory read sees only committed files (topology-law-5 config-not-data carve-out). A pure
+    self-audit's saved-memory read sees only committed files (the config-not-data carve-out). A pure
     GitHub Contents-API write over the SAME boundary `setup()` already holds — NEVER local git (no branch switch,
     no push hang; the erasure-proposer/`_seed_readme` posture). The committed placeholder ships with the template,
     so this is an UPDATE needing the existing blob sha. Coordinates only (owner/repo/branch/namespace) — never
@@ -1145,7 +1144,7 @@ def status(*, now: "int | None" = None) -> int:
 
 def _parse_setup_flags(argv: list) -> dict:
     """Parse `--scope shared|per-project` and `--consent y|n` for the non-interactive (agent-mediated) first-run
-    path (#397 U10). An absent flag stays None so `setup` falls back to its interactive prompts on a real TTY."""
+    path (#397). An absent flag stays None so `setup` falls back to its interactive prompts on a real TTY."""
     opts: dict = {}
     i = 0
     while i < len(argv):
@@ -1169,7 +1168,7 @@ def main(argv: list) -> int:
         return hooks.run_hook("SessionStart", _session_start_handler)
     if cmd == "disclosure":
         # Read-only: PRINT the floor-1 choice (no --scope) or the consent naming the destination (--scope X), for
-        # the agent-mediated first-run to relay verbatim before it ever passes `setup --consent y` (#397 U10).
+        # the agent-mediated first-run to relay verbatim before it ever passes `setup --consent y` (#397).
         print(_disclosure_text(_parse_setup_flags(argv[1:]).get("scope")))
         return 0
     if cmd == "setup":
@@ -1305,7 +1304,7 @@ class _FakeVault:
             self.blobs[sha] = body["content"]
             return 201, {"sha": sha}
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/blobs/([^?]+)", path)
-        if m and method == "GET":                        # the RESTORE read side (slice 6b): return the blob base64
+        if m and method == "GET":                        # the RESTORE read side: return the blob base64
             content = self.blobs.get(m.group(3))
             if content is None:
                 return 404, None
@@ -1358,7 +1357,7 @@ class _FakeVault:
                    for n in [k.split("@", 1)[1]] if n.startswith(prefix)]
             return 200, out
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/ref/tags/(.+)$", path)
-        if m and method == "GET":                        # read one tag ref (the restore read side, slice 2)
+        if m and method == "GET":                        # read one tag ref (the restore read side)
             sha = self.tags.get(f"{m.group(1)}/{m.group(2)}@{m.group(3)}")
             return (200, {"object": {"sha": sha}}) if sha else (404, None)
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/refs/tags/(.+)$", path)
@@ -1394,7 +1393,7 @@ class _FakeVault:
 
 def _demo_plant(text: str) -> None:
     """Append one real note to the throwaway ledger so the backup has content to copy. A curated `episodic`
-    record (recall-eligible): ambient turn-deltas are not recall content (D-273/D-274, #332), so planting an
+    record (recall-eligible): ambient turn-deltas are not recall content (#332), so planting an
     episodic keeps a demo/test that shows the restored note is searchable truthful."""
     ledger.append({"kind": records.EPISODIC_KIND, "role": "observation", "text": text, "ts": int(time.time())})
 
@@ -1588,12 +1587,12 @@ def _demo_live() -> int:
 
 
 def snapshot_demo() -> bool:
-    """Construction evidence (fail-then-pass) for the retained pre-migration snapshot (D-264), returning True iff
+    """Construction evidence (fail-then-pass) for the retained pre-migration snapshot, returning True iff
     every check holds. It drives the REAL `snapshot_for_migration` against the offline `_FakeVault` and proves the
     one claim the #287 fix exists to make: the pre-migration snapshot lands as a DISTINCT tag that a later ROUTINE
     rolling backup CANNOT overwrite — and a replay of the same migration is refused, never silently duplicated. The
     real GitHub tag push never runs here (no vault) — the named inductive gap, the same bound #233 carried. This is
-    internal evidence, NOT operator narration; the operator-facing surfacing is Slice 3's boot render."""
+    internal evidence, NOT operator narration; the operator-facing surfacing is the boot render."""
     import tempfile
     with tempfile.TemporaryDirectory() as cabinet, tempfile.TemporaryDirectory() as root:
         import validate

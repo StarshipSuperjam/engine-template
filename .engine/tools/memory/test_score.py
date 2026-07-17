@@ -1,6 +1,6 @@
-"""Unit tests for score.py + forget.py's scored demotion (slice 4c).
+"""Unit tests for score.py + forget.py's scored demotion.
 
-Two groups: (1) the pure scoring law (score.py) — determinism, the recurrence/fold property slice-4d relies on,
+Two groups: (1) the pure scoring law (score.py) — determinism, the recurrence/fold property compaction relies on,
 the birth seed, the role-weight prior, the ageing curve, and `ts` robustness; (2) the ledger-backed demotion
 through `forget` — the `record_access` appender, the raw-ledger access index, archived-exclusion-from-recall
 with recoverability, the reinforcement-restores path (which doubles as the raw-read leak guard), and the
@@ -32,7 +32,7 @@ class ScorerMathTests(unittest.TestCase):
         self.assertEqual(a, b)
 
     def test_frecency_is_a_recurrence_on_the_carried_snapshot(self):
-        # Case 2: the fold property slice-4d depends on — frecency(now) splits at any t into
+        # Case 2: the fold property frecency scoring depends on — frecency(now) splits at any t into
         # decay(now-t)*frecency_snapshot(t) + sum(decay(now-a) for a after t). Exponential decay is separable,
         # so a windowed/population score (which would fail this) is structurally excluded.
         birth, now, t_split = 1_000_000, 2_000_000, 1_500_000
@@ -214,7 +214,7 @@ class LedgerDemotionTests(_Base):
     def test_back_compat_a_recent_record_with_no_id_or_no_role_still_recalls(self):
         # Case 10: a pre-4b record (no `id`) and a role-less curated record still score (born hot) and recall; the
         # access-index lookup for a missing id is empty, never a crash. Ambient turn-deltas are no longer recall
-        # content (D-273/D-274, #332), so the role-less vehicle is a role-less episodic, not a turn-delta.
+        # content (issue #332), so the role-less vehicle is a role-less episodic, not a turn-delta.
         ledger.append({"v": 1, "kind": records.EPISODIC_KIND, "session_id": "s", "ts": int(time.time()),
                        "text": "the cartographer mislabeled the map", "tags": ["episodic"]})   # no id, no role
         legacy = {"v": 1, "kind": records.EPISODIC_KIND, "session_id": "s",
@@ -226,7 +226,7 @@ class LedgerDemotionTests(_Base):
 
 
 class SnapshotAwareScoringTests(unittest.TestCase):
-    """The slice-4d snapshot branch: a record carrying a frecency snapshot (minted by compaction) scores the
+    """The frecency-snapshot branch: a record carrying a frecency snapshot (minted by compaction) scores the
     SAME as the un-compacted record (the recurrence), folds post-snapshot accesses onto it, and fails safe on a
     malformed carried field (back to the deterministic birth path, never inflated to 'now'). Pure — no ledger."""
 
