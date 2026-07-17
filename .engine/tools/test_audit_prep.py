@@ -108,7 +108,7 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("BEGIN OPEN ENGINE-LABELLED ISSUES", text)    # …and feeds it into the persona's prompt
 
     def test_fetches_the_never_firing_checks_and_feeds_the_read_only_persona(self):
-        # F0200: the never-firing signal reaches the persona as a feed (the persona has Bash disallowed and
+        # The never-firing signal reaches the persona as a feed (the persona has Bash disallowed and
         # cannot compute it itself). The workflow fetches it above the persona step and splices it into the
         # prompt between fresh markers — a token-less local read, so this concern has its data without the
         # read-only persona ever holding a GitHub token.
@@ -119,7 +119,7 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertLess(text.index("telemetry.py never-fired"), text.index("Run the read-only self-review"))
 
     def test_issues_scope_is_write_for_the_promote_step(self):
-        # #273 half 2 (slice 2): the workflow now WRITES the engine-labelled issues (the promote step opens/
+        # #273 half 2: the workflow now WRITES the engine-labelled issues (the promote step opens/
         # updates a tracked length-budget issue), so the scope rises from read to write. Pin `issues: write`
         # so a future edit can't silently drop the promoter's ability to track a finding — and so the
         # privilege increase stays a visible, deliberate line.
@@ -165,7 +165,7 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("attests to the self-review", text)             # …and the merge-attests framing
 
     def test_fetches_prior_digests_and_feeds_them_to_the_persona(self):
-        # #200 / D-234 audit-over-audit: the workflow fetches the engine's OWN recent committed digests (the
+        # #200 audit-over-audit: the workflow fetches the engine's OWN recent committed digests (the
         # `prior` verb) and feeds them into the read-only persona's prompt between fresh markers — so the
         # persona reads its history as corroboration without ever reaching GitHub itself.
         text = self._text()
@@ -174,7 +174,7 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("END PRIOR SELF-REVIEWS", text)
 
     def test_prior_digests_feed_frames_corroboration_never_decision(self):
-        # The feed wording must hold the D-234 contract the persona obeys: read the history ONLY as
+        # The feed wording must hold the contract the persona obeys: read the history ONLY as
         # corroboration, never as a decision; the call rests on a fresh check THIS cycle; and if there is
         # nothing to compare against, degrade plainly rather than invent a trend.
         text = self._text()
@@ -212,7 +212,7 @@ class TestAuditPrepShape(unittest.TestCase):
 
     def test_saved_memory_feed_frames_the_saved_memory_review_and_forbids_claiming_empty(self):
         # The feed wording must point the persona at its saved-memory review — in plain words, never the
-        # backstage "concern #N" frame (F0194) — and hold the honesty contract: when the backup can't be read,
+        # backstage "concern #N" frame — and hold the honesty contract: when the backup can't be read,
         # disclose the gap and NEVER claim the project has no saved memory, phrased about what this review could
         # reach, never an absolute.
         text = self._text()
@@ -227,7 +227,7 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("YOUR SAVED MEMORY: I couldn't read your saved memory this run (the fetch step failed)", text)
 
     def test_memory_step_reads_the_vault_with_a_least_privilege_vault_token(self):
-        # Item 2 (#224/D-242): the own-repo GITHUB_TOKEN can't reach the SEPARATE private vault, so the memory
+        # Item 2 (#224): the own-repo GITHUB_TOKEN can't reach the SEPARATE private vault, so the memory
         # step reads it with MEMORY_VAULT_TOKEN (a contents:read token scoped to the vault). The swap is on the
         # memory step ONLY — the issue / prior / refresh / PR steps keep the own-repo token.
         text = self._text()
@@ -238,7 +238,7 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}", text)   # …but the same-repo steps still use it
 
     def test_visibility_is_detected_with_the_own_repo_token_before_the_memory_read(self):
-        # Item 5 (#224/D-242): the saved-memory privacy gate keys on repo visibility, detected with the OWN-repo
+        # Item 5 (#224): the saved-memory privacy gate keys on repo visibility, detected with the OWN-repo
         # token (the vault token can't read this repo; the `schedule` event payload omits visibility) and handed
         # to the memory step via the environment — so it MUST run before the memory read.
         text = self._text()
@@ -281,7 +281,7 @@ class TestAuditPrepShape(unittest.TestCase):
         self.assertIn("CURRENTLY-FIRING SOFT FINDINGS: could not be read this run (the fetch step failed)", text)
 
     def test_promote_step_tracks_standing_budget_findings_as_issues(self):
-        # #273 half 2 (slice 2): after the persona reads the firing soft findings, the workflow durably tracks
+        # #273 half 2: after the persona reads the firing soft findings, the workflow durably tracks
         # a STANDING length-budget one as a deduped, lane-aware engine issue, so it reaches boot + the tracker
         # and not just this week's digest.
         text = self._text()

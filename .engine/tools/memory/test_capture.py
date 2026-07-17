@@ -1,4 +1,4 @@
-"""Unit tests for memory.capture — ambient turn-delta capture (slice 3a).
+"""Unit tests for memory.capture — ambient turn-delta capture.
 
 Run via the engine test suite: `uv run --directory .engine --frozen -- python -m unittest discover -s
 tools -p 'test_*.py'`. These exercise the REAL capture path against throwaway temp ledgers/transcripts;
@@ -77,7 +77,7 @@ class RoundTripTests(CaptureTestCase):
 
     def test_captured_notes_land_in_the_ledger_with_their_content(self):
         # Captured turn-deltas are durability fuel + the consolidation sweep's input, NOT recall content
-        # (D-273/D-274, #332): they live in the ledger verbatim (recoverable), while recall surfaces only the
+        # (#332): they live in the ledger verbatim (recoverable), while recall surfaces only the
         # curated summaries built from them. So this asserts ledger presence, never index.query.
         t = self.transcript("s.jsonl", [_msg("user", "the login page logs people out after thirty minutes")])
         capture.capture_turn_delta(self.payload(t))
@@ -336,7 +336,7 @@ class ProjectionTests(CaptureTestCase):
 
 class CloseSeamTests(CaptureTestCase):
     def test_close_relay_now_lands_a_record_the_fail_then_pass(self):
-        import close   # the real turn-close tool; its ambient-capture relay was inert until this slice
+        import close   # the real turn-close tool; its ambient-capture relay was previously inert
         t = self.transcript("h.jsonl", [_msg("user", "the spare key is under the blue pot")])
         self.assertEqual(self.records(), [])                      # inert: nothing yet
         close._trigger_ambient_capture({"session_id": "S", "transcript_path": t})
@@ -443,7 +443,7 @@ class NoiseFilterTests(CaptureTestCase):
 
 
 class ConsolidationLeaseTests(unittest.TestCase):
-    """The session-lease heartbeat (#396 U08): a sessions-since liveness signal the consolidation sweep reads."""
+    """The session-lease heartbeat (#396): a sessions-since liveness signal the consolidation sweep reads."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="engine-lease-test-")
@@ -523,7 +523,7 @@ class ConsolidationLeaseTests(unittest.TestCase):
 
 
 class MigrationWindowTests(unittest.TestCase):
-    """The in-flight-migration marker (#396 U26): compaction refuses within a migration window."""
+    """The in-flight-migration marker (#396): compaction refuses within a migration window."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="engine-migwin-test-")

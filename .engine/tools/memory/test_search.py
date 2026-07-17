@@ -1,14 +1,14 @@
-"""test_search.py — unit tests for ranked, filtered recall: index.search (memory-substrate-sqlite-fts5, slice 5).
+"""test_search.py — unit tests for ranked, filtered recall: index.search (memory substrate).
 
 Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
-Covers the slice-5 `search` laws (the search.json contract): results come back BEST-FIRST by lexical relevance
+Covers the `search` laws (the search.json contract): results come back BEST-FIRST by lexical relevance
 (bm25 on the fast path) with usage (frecency) breaking near-ties but NEVER overriding a clearly-stronger match
 ("BM25 leads"); a never-accessed match is deprioritized, never dropped (ranking, not retention); the role/tag
 filters narrow; the fast and slow paths return the same SET (the availability law; the slow path ranks the FULL
 matched set before slicing, not an early ledger-order truncation); and `search` is side-effect-free (it never
-reinforces — that is the MCP server's job — and never writes the ledger). `query` (slice 2) stays UNRANKED.
+reinforces — that is the MCP server's job — and never writes the ledger). `query` stays UNRANKED.
 """
 
 import inspect
@@ -234,7 +234,7 @@ class NoSideEffectTests(SearchTestCase):
 
 class QueryUnchangedTests(SearchTestCase):
     def test_query_stays_ledger_order_and_carries_no_score(self):
-        # `query` (slice 2) must not gain ranking or the score field — guards against accidental coupling.
+        # `query` must not gain ranking or the score field — guards against accidental coupling.
         first = self.add("export alpha")
         second = self.add("export export export beta")
         self.rebuild()

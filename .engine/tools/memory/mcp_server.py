@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Slice 5 — the engine-memory MCP server: the conforming fallback for memory recall (search.json).
+"""The engine-memory MCP server: the conforming fallback for memory recall (search.json).
 
 A thin MCP transport over the ranked recall library (`memory.index.search`): the single declared operation
 `search`, delegating to the library that ranks (lexical relevance, reinforced by usage) and filters (role/tag).
 On every hit it fires the live reinforcement that records the access (`forget.record_access`), so recall is
-self-reinforcing — the move slices 4c/4d reserved for "the search server" (records.py / forget.py). Registered
+self-reinforcing — the move reserved for "the search server" (records.py / forget.py). Registered
 definition-only in the root .mcp.json AND the memory manifest's `wires` (handle 'engine-memory', the search.json
 fallback); the operator's one-time approval of the tool is the operator's own (never engine-written), so until they
 approve it the tool is simply switched off — recall never half-runs.
@@ -46,7 +46,7 @@ def _reinforce_on_recall(results) -> None:
     usage. Fires only for what the caller actually saw, never the wider candidate set. Fail-soft: a reinforcement
     fault NEVER converts a successful recall into an error (the contract is *recall always answers*);
     `forget.record_access` is already a clean no-op on lock contention (it reinforces again on the next hit) and
-    on a blank id, and compaction (slice 4d-i) folds these markers into the carried frecency snapshot, so the
+    on a blank id, and compaction folds these markers into the carried frecency snapshot, so the
     marker population stays bounded."""
     for record in results:
         try:
@@ -66,7 +66,7 @@ def _recall(query: str, *, roles=None, tags=None, limit=None):
     return result
 
 
-# Operator-facing recall-completeness note (§7 floor; D-273/D-274, issue #332). Recall surfaces only the curated
+# Operator-facing recall-completeness note (the disclosure floor; issue #332). Recall surfaces only the curated
 # layer — episodic summaries and gists; the raw, word-for-word turn-notes behind them are kept and fully
 # recoverable, never deleted by this exclusion. Carried in the recall answer itself (alongside the results) so the
 # assistant relays it to the operator (the operator-communication law) and can offer the verbatim. The wording is

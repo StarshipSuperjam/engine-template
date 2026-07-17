@@ -1,6 +1,6 @@
-"""compact.py — ledger compaction: the self-directed crash-safe rebuild-and-swap (memory-substrate, slice 4d).
+"""compact.py — ledger compaction: the self-directed crash-safe rebuild-and-swap.
 
-Active forgetting (memory/README) bounds the ledger's growth WITHOUT a second store and without seek-and-edit,
+Active forgetting bounds the ledger's growth WITHOUT a second store and without seek-and-edit,
 by a **whole-ledger rebuild-and-swap** — memory invoking its own restore primitive (*backup = copy; restore =
 replace the ledger and rebuild the index*, ledger.replace_ledger). This module is **Layer 1**: *reversible,
 mechanical, memory-autonomous* tidying that needs no human gate because **nothing recall-bearing is lost**.
@@ -10,14 +10,14 @@ What one pass does, under the single-writer `.capture.lock`, as ONE critical sec
   1. Read the RAW ledger (every record — including archived/retired ones; compaction must not drop recall).
   2. **Fold** each record's reinforcement markers into carried current-state fields (records.py:
      frecency_snapshot / snapshot_ts / last_access_ts / tier) via `score.mint_snapshot`, AND fold each
-     CLOSED-batch gist supersession (slice 4d-ii) into the raw's carried `superseded_by` field, then **drop
-     those folded markers**. The 4b `id` is carried verbatim. A record with no markers is rewritten byte-identical.
+     CLOSED-batch gist supersession into the raw's carried `superseded_by` field, then **drop
+     those folded markers**. The content-free `id` is carried verbatim. A record with no markers is rewritten byte-identical.
   3. Write the folded, marker-pruned ledger to a temp IN THE LEDGER'S OWN DIRECTORY, fsynced.
   4. **Bump the generation BEFORE the swap**, then `ledger.replace_ledger` (fsync temp → atomic rename → fsync
      dir), then rebuild the index stamped with the new generation.
 
 **The Layer-1 fold never erases recall content** — only the (non-recall) `reinforcement` markers and the
-(non-recall) CLOSED-batch `superseded` markers are pruned; every turn-delta, episodic (including a 4a crash-duplicate
+(non-recall) CLOSED-batch `superseded` markers are pruned; every turn-delta, episodic (including a crash-duplicate
 orphan, which stays logically retired, AND a gist-superseded raw, which stays superseded via its carried
 `superseded_by`), gist, and `consolidated` marker survives the fold (a build-conformance invariant: no Layer-1
 routine reaches erasure). Physical erasure of recall content is the SEPARATE, gated Layer-2 path below, never the
@@ -25,35 +25,35 @@ fold. A supersession is folded ONLY when its roll-up batch is closed: an un-clos
 inert, so it is passed through verbatim, NEVER folded — else a crashed roll-up's hiding would be baked permanently
 into the rewrite. Because frecency is
 a **recurrence on the carried snapshot** (score.frecency), a compacted record scores IDENTICALLY to before — so
-demotion survives the fold. The crash-safe-swap law (README): a crash at any point leaves exactly one intact
+demotion survives the fold. The crash-safe-swap law: a crash at any point leaves exactly one intact
 ledger (old or new); a stale index is always fully rebuilt — and the generation gate (index.py) routes a
-crash-staled index to the always-correct scan until it is rebuilt, so an erased record (slice 4e) can never
+crash-staled index to the always-correct scan until it is rebuilt, so an erased record can never
 resurface from a stale index. Recovery binds to the fixed canonical ledger name: a temp left by a crash is a
 complete same-schema file but is NEVER the canonical name, so it is ignored-and-reaped, never promoted.
 
-**Layer-2 — gated physical erasure (slice 4e PR i).** This same pass ALSO physically removes a record iff a VALID
+**Layer-2 — gated physical erasure.** This same pass ALSO physically removes a record iff a VALID
 `operator-adjudicated-erasure` marker targets its stable id (`_is_erased` / `_erasure_targets`) — the single
 irreversible act in the memory system, reachable ONLY through that marker, which the operator authorises by merging
 a single-purpose erasure pull request. The marker is RETAINED (the idempotency tombstone, so a re-compaction whose
 target is already gone is a clean no-op), and a marker missing its merge SHA is inert — a READ-side fail-safe floor,
-NOT consent verification (the merged-not-closed / immutable-merge-tree binding is the cross-session observer's job,
-slice ii). The AUTONOMOUS fold can never reach erasure: no routine mints a marker, and the SOLE minter
-(`enact_erasure`) is reached only from the cross-session observer (slice ii) plus the test + demo, never from an
+NOT consent verification (the merged-not-closed / immutable-merge-tree binding is the cross-session observer's job).
+The AUTONOMOUS fold can never reach erasure: no routine mints a marker, and the SOLE minter
+(`enact_erasure`) is reached only from the cross-session observer plus the test + demo, never from an
 autonomous routine — so the removal set is non-empty only after that observer has minted a marker from a merged
 erasure PR, and absent such a marker this pass is the Layer-1 no-op-shaped tidy. (Resurrection of an erased record via a restore /
 migration-revert is SURFACED through boot's open-findings via the generation stamp this pass bumps — the consumer is
 the restore round-trip's resurrection guard (`restore_vault.surface_resurrection`), which declines an
 older-generation restore and surfaces it rather than silently resurrecting erased records.)
 
-**The live AUTO-trigger (slice 5, PR 3).** `maybe_compact` gates `compact` on `reclaimable_waste` — the count of
+**The live AUTO-trigger.** `maybe_compact` gates `compact` on `reclaimable_waste` — the count of
 foldable markers (reinforcement + CLOSED-batch supersessions) — reaching `_COMPACT_WASTE_THRESHOLD`, and rides
-memory's `PreCompact` hook: the "tolerable moment, never the hot path" the design names for the expensive step
-(memory/README). Until the young ledger accumulates that much waste the gate SKIPS, so nothing is rewritten; when
+memory's `PreCompact` hook: the "tolerable moment, never the hot path" the design names for the expensive step.
+Until the young ledger accumulates that much waste the gate SKIPS, so nothing is rewritten; when
 it fires it is still the Layer-1 no-op-shaped tidy (recall content byte-preserved, only non-recall markers folded).
-The reinforcement markers it folds come from recall (slice 5, PR 1); the closed-batch supersessions from the live
-roll-up sweep (PR 3). `should_compact` / `reclaimable_waste` are pure lock-free reads (the gate never writes).
+The reinforcement markers it folds come from recall; the closed-batch supersessions from the live
+roll-up sweep. `should_compact` / `reclaimable_waste` are pure lock-free reads (the gate never writes).
 
-Leaf discipline (principle §16): RETURNS a small report and renders no operator-facing prose (the demo is the
+Leaf discipline: RETURNS a small report and renders no operator-facing prose (the demo is the
 one operator surface). stdlib + the cycle-free `memory` set (ledger / records / score / forget); `capture` (the
 lock) and `index` (the rebuild) are lazy-imported inside `compact` to keep them off the module-load path.
 """
@@ -101,7 +101,7 @@ def _is_foldable(record, closed_rollup) -> bool:
     return kind == records.SUPERSEDED_KIND and record.get(records.BATCH_KEY) in closed_rollup
 
 
-# --- Layer-2: gated physical erasure (slice 4e PR i) ------------------------------------------------------
+# --- Layer-2: gated physical erasure ------------------------------------------------------
 # The single irreversible act. A record is physically removed by `compact` iff a VALID
 # `operator-adjudicated-erasure` marker targets its stable id. The validity floor is enforced on the READ side
 # here (not only at the writer), so a marker that reaches the ledger by any path other than `enact_erasure` —
@@ -111,7 +111,7 @@ def _is_erasure_marker(record) -> bool:
     """True iff `record` is a VALID operator-adjudicated-erasure marker: the right kind, a non-empty target id,
     AND a non-empty merge SHA. The SHA-presence is a READ-side STRUCTURAL fail-safe floor — a marker minted
     without its consent provenance is inert and erases nothing. It is NOT consent verification (the
-    merged-not-closed / immutable-merge-tree binding is the cross-session observer's job, slice ii)."""
+    merged-not-closed / immutable-merge-tree binding is the cross-session observer's job)."""
     if not isinstance(record, dict) or record.get("kind") != records.ERASURE_KIND:
         return False
     target = record.get(records.TARGET_KEY)
@@ -141,7 +141,7 @@ def _is_erased(record, erasure_targets) -> bool:
 def _reap_temps(data_dir: str) -> int:
     """Remove any leftover compaction temp (`.compact-*.ndjson`) — a crash between write and rename leaves a
     complete same-schema file that is NEVER the canonical ledger name, so it is ignored-and-reaped, never
-    promoted (recovery binds to the fixed canonical name, README). Returns how many were reaped."""
+    promoted (recovery binds to the fixed canonical name). Returns how many were reaped."""
     reaped = 0
     try:
         names = os.listdir(data_dir)
@@ -158,10 +158,10 @@ def _reap_temps(data_dir: str) -> int:
 
 
 def _fold_record(record, access_index: dict, t0: int):
-    """`record` with its reinforcement history folded into carried current-state fields (slice 4d), or unchanged
+    """`record` with its reinforcement history folded into carried current-state fields, or unchanged
     when it has nothing to fold. Only a record whose id is an access-index key — necessarily a recall-content
     record, since only recall results are reinforced — gets a snapshot; everything else (markers, un-reinforced
-    records) is returned verbatim, its 4b id preserved either way."""
+    records) is returned verbatim, its content-free id preserved either way."""
     if not isinstance(record, dict):
         return record
     rid = record.get(records.RECORD_ID_KEY)
@@ -178,11 +178,11 @@ def _fold_record(record, access_index: dict, t0: int):
 
 
 def _fold_supersession(record, superseded_by_map: dict):
-    """`record` with a CLOSED-batch gist supersession folded into its carried `superseded_by` field (slice
-    4d-ii), or unchanged when nothing supersedes it. `superseded_by_map` (forget._superseded_by_map) maps a raw
+    """`record` with a CLOSED-batch gist supersession folded into its carried `superseded_by` field,
+    or unchanged when nothing supersedes it. `superseded_by_map` (forget._superseded_by_map) maps a raw
     episode's id -> its gist id, built ONLY from closed-batch markers — so a raw enters it (and gets the carried
     field) only when its gist's roll-up completed. After the marker is pruned, `forget.live_records` still
-    retires the raw via this field. The 4b id and every other field are preserved; layers cleanly with
+    retires the raw via this field. The content-free id and every other field are preserved; layers cleanly with
     `_fold_record` (a superseded-AND-archived raw carries both the snapshot and the supersession)."""
     if not isinstance(record, dict):
         return record
@@ -203,7 +203,7 @@ def _write_compacted_temp(data_dir: str, raw_records, access_index: dict, t0: in
     record (turn-delta, episodic, gist) + every `consolidated` marker + every UN-closed (crashed-pass)
     `superseded` marker survives (the Layer-1 fold never erases recall content, and an inert supersession is never
     folded — passed through verbatim so a crashed roll-up's hiding is never baked in). The ONE exception is
-    Layer-2 (slice 4e): a recall record whose stable id is in `erasure_targets` (a VALID merge-gated marker names
+    Layer-2: a recall record whose stable id is in `erasure_targets` (a VALID merge-gated marker names
     it) is physically dropped — the single irreversible act; the marker itself is retained.
 
     A torn trailing fragment (`torn_raw`, from `ledger.read`) is PRESERVED: re-emitted verbatim as the final,
@@ -259,7 +259,7 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
                 "reason": "another memory write held the single-writer lock; compaction retries later",
                 "folded": 0, "pruned": 0}
     try:
-        # Ordering law (README §269-283): compaction must NOT run within a migration window. Checked HERE, under
+        # Ordering law: compaction must NOT run within a migration window. Checked HERE, under
         # the lock, so it sees a marker a migration raised (a file that outlives the migration's own brief lock
         # holds). A LIVE marker => refuse (retry later). An ORPHANED marker (the migrating process died, or it is
         # far past any real migration's span) is self-healed under this lock and compaction proceeds — compaction
@@ -277,9 +277,9 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
         health = ledger.read(path=target)
         raw = health.records
         access_index = forget._access_index(target)
-        closed_rollup = forget._closed_rollup_batches(target)          # slice 4d-ii: roll-up batches a marker closed
+        closed_rollup = forget._closed_rollup_batches(target)          # roll-up batches a marker closed
         superseded_by_map = forget._superseded_by_map(target, closed_rollup)   # raw id -> gist id (closed batches only)
-        erasure_targets = _erasure_targets(raw)        # slice 4e: ids a VALID merge-gated marker authorises removing
+        erasure_targets = _erasure_targets(raw)        # ids a VALID merge-gated marker authorises removing
         pruned = sum(1 for r in raw if _is_foldable(r, closed_rollup))
         erased = sum(1 for r in raw if _is_erased(r, erasure_targets))   # recall content physically removed (Layer-2)
         folded = sum(1 for r in raw if isinstance(r, dict)
@@ -313,7 +313,7 @@ def _index_filename() -> str:
     return index.INDEX_FILENAME
 
 
-# --- The live auto-trigger gate (slice 5, PR 3) -----------------------------------------------------------
+# --- The live auto-trigger gate -----------------------------------------------------------
 
 def reclaimable_waste(path: "str | None" = None) -> int:
     """How many foldable markers (reinforcement + CLOSED-batch supersessions) a compaction pass would prune RIGHT
@@ -356,9 +356,9 @@ def maybe_compact(path: "str | None" = None) -> dict:
         return {"status": "skipped", "reason": f"compaction faulted, skipped: {exc}", "waste": -1}
 
 
-# --- Layer-2 enactment: minting the merge-gated erasure marker (slice 4e PR i) ----------------------------
+# --- Layer-2 enactment: minting the merge-gated erasure marker ----------------------------
 # `enact_erasure` is the SOLE minter of an `operator-adjudicated-erasure` marker. Its only live caller is the
-# cross-session observer (slice ii, `erasure_observer.enact_from_merged_prs`); there is DELIBERATELY no `erase`
+# cross-session observer (`erasure_observer.enact_from_merged_prs`); there is DELIBERATELY no `erase`
 # CLI verb on the real ledger, because that observer is the only design-sanctioned producer, and it mints a
 # marker ONLY after reading a MERGED single-purpose erasure PR. So a marker appears only when the operator has
 # merged such a PR; until then the removal set stays empty and `compact` stays the Layer-1 no-op-shaped tidy.
@@ -478,7 +478,7 @@ def _cabinet_whole() -> "tuple[bool, int]":
 
 def _make_episodic(text: str, age_days: int, role: str = "decision", batchless: bool = True) -> dict:
     """A real episodic through the live factory, back-dated by `age_days`. `batchless` makes it always-live (not
-    a crashed-pass orphan); pass batchless=False to leave its batch unclosed (a 4a retired duplicate)."""
+    a crashed-pass orphan); pass batchless=False to leave its batch unclosed (a retired duplicate)."""
     from memory import consolidate
     rec = consolidate._make_episodic(_DEMO_SESSION, {"role": role, "text": text}, "demo-batch")
     if batchless:
@@ -750,7 +750,7 @@ def _slip_count() -> int:
 
 def _slip_mentions_word(word: str) -> bool:
     """True iff any erase-slip's stored form contains the note's distinctive word — it must NOT (a slip names the
-    note only by a private content-free tag, never its words; the D-007 promise, made to flip)."""
+    note only by a private content-free tag, never its words; the memory-privacy promise)."""
     w = (word or "").lower()
     return any(w in json.dumps(r, ensure_ascii=False).lower()
                for r in _all_records() if r.get("kind") == records.ERASURE_KIND)
@@ -839,7 +839,7 @@ def _demo_erase_body() -> bool:
     report2 = compact()
     other_still_here = _recall_count(other_word)
     target_still_gone = _in_cabinet(target_id) == 0
-    print(f"  the other note is still here: found {other_still_here}")          # gate S1: the KEPT note's count must hold
+    print(f"  the other note is still here: found {other_still_here}")          # gate: the KEPT note's count must hold
     print(f'  the erased note is still gone: {"yes" if target_still_gone else "NO"}')
     print(f"  this tidy erased (again): {report2.get('erased')}   (0 — the erase already happened once)")
     part4 = other_still_here == 1 and target_still_gone and report2.get("erased") == 0

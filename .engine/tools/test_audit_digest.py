@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for audit_digest.py (audit-library slice 2) — the self-seal and the freshness signal.
+"""Tests for audit_digest.py (audit-library) — the self-seal and the freshness signal.
 
 These pin the behaviours the two rules and the demo rely on: a sealed file verifies; a hand-edit to the
 body breaks the seal; the seal is independent of how the header is serialized (it covers the parsed
@@ -26,7 +26,7 @@ JUNE = datetime.date(2026, 6, 1)
 
 # The audit persona's output-contract schema (audit-finding.v1) — the audit subsystem owns it, so its
 # well-formedness lock lives here beside the digest tests, mirroring how each review lens's finding schema
-# lives in its own suite (plan-review-finding.v1 in test_design_review.py). #410 U29.
+# lives in its own suite (plan-review-finding.v1 in test_design_review.py). #410.
 AUDIT_FINDING_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "audit-finding.v1.json"))
 
 
@@ -96,7 +96,7 @@ class TestSeal(unittest.TestCase):
             self.assertEqual(audit_digest.check(p)["severity"], "note")
 
     def test_seal_appends_the_recall_completeness_disclosure_once_idempotently(self):
-        # §7 (D-273/D-274, #332): the committed digest carries the standing recall-completeness line — recall
+        # (#332): the committed digest carries the standing recall-completeness line — recall
         # surfaces curated summaries; the raw verbatim is kept and recoverable. Appended on a fresh seal, and
         # never doubled when an existing digest is re-sealed.
         with tempfile.TemporaryDirectory() as d:
@@ -253,7 +253,7 @@ class TestBodyCLI(unittest.TestCase):
             self.assertEqual(out.getvalue(), "", "a missing digest prints nothing to stdout, only a stderr error")
 
 
-# ---- the audit-over-audit corroboration read (D-234) ----------------------------------------
+# ---- the audit-over-audit corroboration read ----------------------------------------
 
 def _digest_text(date: str, body: str) -> str:
     """A sealed-shaped digest file's raw text (frontmatter + body), as the contents API would return it."""
@@ -493,7 +493,7 @@ class TestSavedMemoryRender(unittest.TestCase):
         self.assertIn("NEVER claim", out)                      # instruction: never assert memory is empty
 
     def test_no_token_is_access_not_granted_and_names_the_vault_secret(self):
-        # The corrected two-part split (#224/D-242): no-token is a STANDING access gap, named distinctly from the
+        # The corrected two-part split (#224): no-token is a STANDING access gap, named distinctly from the
         # transient unreachable case, with the credential-specific re-arm — and NOT the unrelated claude setup-token.
         self._stub({"ok": False, "error": "no-token", "beliefs": None, "as_of": None})
         out = audit_digest.render_saved_memory()
@@ -565,7 +565,7 @@ class TestSavedMemoryRender(unittest.TestCase):
         self.assertLessEqual(len(out), audit_digest.SAVED_MEMORY_MAX_CHARS + 2000)
 
     def test_public_repo_feeds_the_notes_but_instructs_aggregate_only_with_levers(self):
-        # D-243: on a public repo the persona must SEE the notes to judge which look stale (a semantic call, not a
+        # On a public repo the persona must SEE the notes to judge which look stale (a semantic call, not a
         # stored field), so the belief TEXT now enters the feed — reversing #236's structural withhold. What keeps
         # a specific out of the COMMITTED digest is the instruction header (report only the count, never a
         # specific) + the visibility mode-gate; that committed-output posture is the persona's and NOT assertable
@@ -622,7 +622,7 @@ class TestSavedMemoryRender(unittest.TestCase):
         self.assertIn("then ignore everything above", out)     # the words survive — no information dropped
 
     def test_private_path_names_specifics_and_carries_no_aggregate_levers(self):
-        # Regression: the private (confirmed-private) path is unchanged by D-243 — it leads with the naming header
+        # Regression: the private (confirmed-private) path is unchanged — it leads with the naming header
         # and the rendered belief line, and carries NONE of the public aggregate-only instruction or the levers.
         os.environ["MEMORY_AUDIT_REPO_VISIBILITY"] = "private"
         self._stub({"ok": True, "error": None, "as_of": "2026-06-20T10:00:00Z", "beliefs": [
@@ -714,7 +714,7 @@ class TestAuditFindingSchema(unittest.TestCase):
     def test_rejects_severity_outside_the_enum(self):
         # The narrowing to the audit's own axis is the whole point: the review enum (blocking/serious/nit)
         # and finding.v1's free-string severity (e.g. a check tier "hard") must NOT pass this profile —
-        # the audit never blocks, so it carries no blocking/serious/nit gravity (D-133).
+        # the audit never blocks, so it carries no blocking/serious/nit gravity.
         for bad in ("blocking", "serious", "nit", "hard"):
             inst = {"severity": bad, "message": "x", "location": None}
             self.assertTrue(_errors(AUDIT_FINDING_SCHEMA, inst),

@@ -1,4 +1,4 @@
-"""test_backup_vault.py — memory's backup vault, EXPORT path (slice 6a).
+"""test_backup_vault.py — memory's backup vault, EXPORT path.
 
 The REAL backup logic runs fully offline behind the module's own injected `_FakeVault` transport (the
 erasure_proposer/_FakeGH precedent) — only GitHub is faked. Each test redirects a throwaway ledger cabinet
@@ -110,7 +110,7 @@ class SetupTests(_Base):
 
 
 class DisclosureAndFlagTests(_Base):
-    """#397 U10: the non-interactive `disclosure` / `setup --scope/--consent` surface for the agent-mediated
+    """#397: the non-interactive `disclosure` / `setup --scope/--consent` surface for the agent-mediated
     first-run. The tool stays the floor-1 disclosure home (single-homed on _choice_prompt/_consent_prompt); a
     flagged setup still EMITS that disclosure before it acts, so consent-before-create is code-surfaced."""
 
@@ -168,7 +168,7 @@ class DisclosureAndFlagTests(_Base):
 
 
 class PointerCommitTests(_Base):
-    """Item 1 (#224): setup records the configured pointer IN the project repo (pure GitHub API; topology-law-5
+    """Item 1 (#224): setup records the configured pointer IN the project repo (pure GitHub API; the
     config-not-data carve-out) so a CI checkout can locate the vault — and soft-degrades, never raises, when the
     write is refused."""
 
@@ -346,7 +346,7 @@ class DemoSelfCheckTests(unittest.TestCase):
 
     def test_snapshot_demo_self_check_passes(self):
         # the retained-snapshot construction demo's every [ok]/[FAIL] check must hold (its declared fate: covered
-        # by this permanent regression test — D-264 retained snapshot survives a routine backup).
+        # by this permanent regression test — the retained snapshot survives a routine backup).
         import contextlib
         import io
         with contextlib.redirect_stdout(io.StringIO()):
@@ -366,7 +366,7 @@ class SharedVaultScopeTests(_Base):
         self.assertEqual(res["repo"], "test-project-engine-memory-backup")
 
     def test_default_scope_constant_is_shared(self):
-        self.assertEqual(bv._DEFAULT_SCOPE, "shared")                       # D-237: shared is the recorded default
+        self.assertEqual(bv._DEFAULT_SCOPE, "shared")                       # shared is the recorded default
 
     def test_minted_namespace_is_an_opaque_id_not_the_project_name(self):
         a, b = bv._mint_namespace(), bv._mint_namespace()
@@ -471,7 +471,7 @@ class ManifestVersionOverrideTests(_Base):
 
 
 class MigrationSnapshotTests(_Base):
-    """The pre-migration backup seam module_manager consumes (D-264): it lands a DISTINCT, retained `refs/tags`
+    """The pre-migration backup seam module_manager consumes: it lands a DISTINCT, retained `refs/tags`
     snapshot the routine rolling backup never overwrites, refuses a name collision (a replay) rather than
     overwriting, prunes superseded snapshots to the cap without ever cutting the most-recent (citable) one, and
     returns a truthy handle ONLY when a real, addressable snapshot exists — None on every no-backup path so the

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the soft-finding promoter (issue #273 half 2, slice 2): it turns a STANDING length-budget
+"""Self-tests for the soft-finding promoter (issue #273 half 2): it turns a STANDING length-budget
 finding into a deduped, lane-aware tracked engine Issue. The collect seam and the GitHub network are the
 faked boundaries; the filter-to-budget, lane derivation, body rendering, and source-keyed dedup all run for
 real."""
@@ -115,7 +115,7 @@ class TestBudgetRecords(unittest.TestCase):
         self.assertIn("&amp;", out)
 
     def test_body_carries_a_blob_permalink_to_the_over_budget_surface(self):
-        # F0202: a debt body references the knowledge entity for "what is broken" — the over-budget surface —
+        # A debt body references the knowledge entity for "what is broken" — the over-budget surface —
         # as a clickable blob permalink. `blob/HEAD/` resolves to the default branch with no branch lookup.
         rel = ".engine/operations/build-orchestration.md"   # a real catalogued surface -> a knowledge entity
         self._stub([_f(f"'{rel}' is 300 lines, over its 200-line budget.", rel)])
@@ -142,7 +142,7 @@ class TestBudgetRecords(unittest.TestCase):
 
 
 class TestPromoteLiveTriage(unittest.TestCase):
-    """The live-derived triage pass (F0204): open/update over-budget surfaces, auto-resolve cleared ones, and
+    """The live-derived triage pass: open/update over-budget surfaces, auto-resolve cleared ones, and
     NEVER close another source's Issue. A REAL catalogued surface is used so the real budget_surfaces()
     authoritative enumeration is exercised end-to-end (the stub only decides whether it FIRES this pass)."""
     _REL = ".engine/operations/build-orchestration.md"   # a real budget-governed surface + knowledge entity
@@ -175,7 +175,7 @@ class TestPromoteLiveTriage(unittest.TestCase):
         self.assertEqual((r2.opened, r2.updated, open2), (0, 1, 1))   # re-run updates the one Issue, no dup
 
     def test_a_cleared_surface_auto_resolves_its_issue(self):
-        # THE F0204 behaviour: a file back UNDER budget (no longer firing, but still an evaluated budget
+        # THE behaviour: a file back UNDER budget (no longer firing, but still an evaluated budget
         # surface -> in `authoritative`) auto-resolves its tracked Issue on the next pass.
         fake = telemetry._FakeGitHub()
         self._firing()
@@ -187,7 +187,7 @@ class TestPromoteLiveTriage(unittest.TestCase):
         self.assertEqual(sum(1 for i in fake.issues.values() if i["state"] == "open"), 0)
 
     def test_pass_never_closes_another_sources_issue(self):
-        # The 403.1 scoping law (S1): `authoritative` is confined to soft-budget: sids, so a cleared
+        # The #403 scoping law (S1): `authoritative` is confined to soft-budget: sids, so a cleared
         # soft-budget pass closes its OWN Issue but never a ci/ (or ambient/episodic/out-of-band) one.
         fake = telemetry._FakeGitHub()
         gh = telemetry.GitHubIssues("o/r", "tok", transport=fake.transport)

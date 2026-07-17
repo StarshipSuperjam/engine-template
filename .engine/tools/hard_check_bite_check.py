@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The negative-fixture meta-check (issue #286; engine-planning D-256…D-260) — the custom/script entry for
+"""The negative-fixture meta-check (issue #286) — the custom/script entry for
 engine/check/hard-check-bite. The "checker-of-checkers".
 
 A hard check can be present, registered, runnable, and green-on-everything while its logic is a no-op or
@@ -9,7 +9,7 @@ hole: it runs each in-scope hard check against a committed, deliberately-broken 
 the check actually CATCHES it (the check "bites"). A check that fails to bite its own fixture — or has no fixture
 and no recorded reason it can't — is itself a hard finding.
 
-How a unit is proven to bite (D-257 re-lock / glossary): the meta-check runs the unit against its fixture via
+How a unit is proven to bite: the meta-check runs the unit against its fixture via
 `validate.run_unit` and asserts **by set-membership** that a finding of the expected severity, carrying a
 distinctive token of the unit's INTENDED finding, is present — never by order or count (the finding stream is not
 source-deterministic). The token (`expect.json`'s `message_contains`) is what stops a *wrong-reason* bite from
@@ -26,9 +26,9 @@ The roster (the set proven):
   - the `custom/script` INSTANCES — every `*.json` in the check directory whose kind is `custom/script` — each
     with a fixture under `<fixtures>/<check-id-stem>/` (the rule id minus `engine/check/`).
 
-The only admissible carve-out (D-257/D-258) is a unit with **no statically-decidable failure path in the CI
+The only admissible carve-out is a unit with **no statically-decidable failure path in the CI
 environment** — disclosed by a `not-applicable.json` carrying that exact bounded reason, listed loudly here as a
-soft note, never an author's silent self-classification. The meta-check is **self-covering** (§15): it is itself a
+soft note, never an author's silent self-classification. The meta-check is **self-covering**: it is itself a
 `custom/script` instance, and a unit test drives it against a seeded mini-scenario where a unit is missing or
 non-biting, proving the checker-of-checkers is itself falsifiable — terminating the regress with no meta-meta-check.
 
@@ -51,7 +51,7 @@ _FIXTURES_REL = os.path.join(".engine", "_fixtures")
 # The closed kinds drive against a single fixture by a path/data target; custom/script is covered by its three
 # fail-closed modes instead (see _cover_custom_script_kind), so it is handled separately, never here.
 _PATH_KINDS = {"presence", "schema", "shape"}
-# The exact bounded carve-out property (D-258 re-synced it VERBATIM precisely so a compressed slug cannot reopen
+# The exact bounded carve-out property (fixed VERBATIM precisely so a compressed slug cannot reopen
 # the self-classification escape). A not-applicable.json must carry this exact string.
 _NA_PROPERTY = "no statically-decidable failure path in the CI environment"
 
@@ -182,8 +182,7 @@ def _cover_module_kind(kind: str, fixture_root: str, root: str, tier: str) -> li
     driver (_build_closed_unit); a module kind is generic, so its fixture dir `kind-<name>/` declares its own
     run: a transient `rule.json` (the rule to run, of this kind), an optional `target.json` (the run_unit
     target — a seeded `ctx`/`path`/`env` overlay), and an `expect.json`. Mirrors _cover_script_instance but
-    keyed on the kind name; a present kind with no fixture fails closed via _missing_msg (validation README
-    "a module-added kind ... the meta-check fails closed on a present in-scope kind with no fixture")."""
+    keyed on the kind name; a present kind with no fixture fails closed via _missing_msg."""
     label = f"`{kind}` check kind"
     fdir = os.path.join(fixture_root, f"kind-{kind}")
     na = os.path.join(fdir, "not-applicable.json")
@@ -273,7 +272,7 @@ def evaluate(*, root: str | None = None, check_dir: str | None = None, fixture_r
                 rule = _load(rule_path)
             except Exception:
                 continue  # a malformed check rule is another check's job, not this one's
-            # Scope is the in-scope HARD check (validation README "Proven to bite"): a soft
+            # Scope is the in-scope HARD check: a soft
             # custom/script is not a merge gate, so it is not required to carry a negative fixture
             # — and emitting a hard "no fixture" finding for one would escalate a soft concern to a
             # hard meta-finding. Only hard instances are in the roster.
