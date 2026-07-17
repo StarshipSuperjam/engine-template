@@ -812,7 +812,7 @@ def _coverage_catalog(rule, ctx):
                        f"{exc}. {rule['message']}", loc(catalog_path))]
     infra = set((rule.get("params") or {}).get("infra_dirs", []))
     present = set()
-    for root in (".engine", ".claude"):
+    for root in (".engine", ".claude", ".codex", ".agents"):
         abs_root = os.path.join(base, root)
         if os.path.isdir(abs_root):
             for name in sorted(os.listdir(abs_root)):
