@@ -1566,10 +1566,11 @@ class TestMigrationRevertOffer(unittest.TestCase):
 
 
 class TestAuditStaleness(unittest.TestCase):
-    """audit-library 3c: boot RELAYS audit_digest's self-review freshness on the operator's return. A SOFT
-    finding (hasn't-run-yet / has-gone-stale) surfaces gently in the needs-attention body — NEVER pinned, in
-    the present-marker, or in must_push, so a never-armed repo still reads "all clear" and it never becomes a
-    forced every-session alarm; a `note` (current) digest adds nothing; the read fails open to None."""
+    """Boot RELAYS audit_digest's self-review freshness on the operator's return. A SOFT finding
+    (hasn't-run-yet / has-gone-stale) surfaces gently in the needs-attention body — NEVER pinned, in the
+    present-marker, or in must_push, so a never-armed repo still reads "all clear" and it never becomes a
+    forced every-session alarm; a `note` (current) digest surfaces a quiet positive recency line among the
+    informational readouts, never in the needs-attention body; the read fails open to None."""
 
     def _never_run(self):
         # The REAL never-run finding from audit_digest (an absent digest path) — pins the actual relayed text,
@@ -1598,11 +1599,18 @@ class TestAuditStaleness(unittest.TestCase):
         stale = validate.finding("soft", "STALE-SELF-REVIEW-MARKER: re-arm it", None)
         self.assertIn("STALE-SELF-REVIEW-MARKER", boot.render_dashboard(_signals(audit_stale=stale)))
 
-    def test_a_current_digest_adds_no_line(self):
-        fresh = validate.finding("note", "FRESH-MARKER: the self-review is current", None)
+    def test_a_current_digest_shows_a_positive_recency_line(self):
+        # A current digest surfaces its recency as a quiet informational readout — the positive counterpart to
+        # the stale nudge — placed after "Recently shipped", never under "Needs your attention" (a healthy
+        # signal is not an attention item).
+        fresh = validate.finding("note", "FRESH-MARKER: last reviewed today", None)
         body = boot.render_dashboard(_signals(audit_stale=fresh))
-        self.assertNotIn("FRESH-MARKER", body)            # a `note` digest is silent — its silence is healthy
-        self.assertIn("Nothing is blocking right now", body)
+        self.assertIn("FRESH-MARKER", body)
+        lines = body.splitlines()
+        shipped = next(i for i, ln in enumerate(lines) if ln.startswith("### Recently shipped"))
+        marker = next(i for i, ln in enumerate(lines) if "FRESH-MARKER" in ln)
+        self.assertGreater(marker, shipped, "the recency line belongs among the informational readouts after "
+                           "Recently shipped, not in the needs-attention body above it")
 
     def test_absent_signal_renders_clean_and_never_raises(self):
         # None (the degraded / not-read state) renders no advisory and never raises a KeyError on the subscript.

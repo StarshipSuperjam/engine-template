@@ -1408,12 +1408,12 @@ def render_dashboard(s: dict) -> str:
     out.append("")
     out.append("### Needs your attention")
     attention = list(s["att_lines"])
-    # The self-review freshness advisory (audit-library 3c), relayed read-only from audit_digest's own
-    # detection. A SOFT, never-blocking nudge naming the one re-arming action — it sits here in the attention
-    # body (surfaced by the pack's step-3 instruction so the assistant raises it when it matters), and is
-    # DELIBERATELY never pinned / present-marker / must_push: a never-armed repo still reads "all clear" and
-    # this never becomes a forced every-session alarm. A `note` (current) digest adds nothing — its silence is
-    # the healthy signal. The fresh-digest recency line is a deferred build-spec leaf (lands with a real digest).
+    # The self-review freshness advisory, relayed read-only from audit_digest's own detection. A SOFT,
+    # never-blocking nudge naming the one re-arming action — it sits here in the attention body (surfaced by
+    # the pack's step-3 instruction so the assistant raises it when it matters), and is DELIBERATELY never
+    # pinned / present-marker / must_push: a never-armed repo still reads "all clear" and this never becomes a
+    # forced every-session alarm. The healthy `note` (a current digest) is not an attention item — it renders
+    # as a quiet positive recency line among the informational readouts below (after "Recently shipped").
     stale = s["audit_stale"]
     if stale and stale["severity"] == "soft":
         attention.append(stale["message"])
@@ -1425,6 +1425,15 @@ def render_dashboard(s: dict) -> str:
     # The digest owns its own absence copy (_shipped_lines): only that read knows whether there are no recent
     # merges or whether it simply is not showing them, and this render must not guess between the two.
     out.extend(f"- {line}" for line in s["shipped"])
+
+    # The self-review recency line on the healthy path: when the digest is current, surface it here as a quiet
+    # informational readout — the positive counterpart to the stale nudge above, so a returning operator can
+    # see the engine IS watching its own health, not only be told when it stopped. Relayed verbatim from
+    # audit_digest (boot re-detects nothing); only the current-digest `note` renders here — a `soft` finding
+    # rides the attention nudge above, and the unread `None` renders nothing.
+    if stale and stale["severity"] == "note":
+        out.append("")
+        out.append(f"_{stale['message']}_")
 
     # The reversible-forgetting readout (#413): what memory has set aside from recall, with a handle per note.
     # render_set_aside returns [] when there is nothing set aside or the store was not read — no block then.
