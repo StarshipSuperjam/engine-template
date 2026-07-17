@@ -20,6 +20,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools on sys.path
 from product_design import spec_form  # noqa: E402
 from product_design import coverage  # noqa: E402
+from product_design import adr_form  # noqa: E402
 import validate  # noqa: E402
 
 # The committed scaffold lives beside the module manifest, NOT under a catalogued surface location, so it is
@@ -28,6 +29,7 @@ _SCAFFOLD_DIR = os.path.join(validate.ROOT, ".engine", "modules", "product-desig
 _INDEX_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "spec-index.md")
 _CAPABILITY_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "spec-capability.md")
 _BUILD_PLAN_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "spec-build-plan.md")
+_ADR_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "adr.md")
 
 
 def _read(path: str) -> str:
@@ -100,6 +102,42 @@ class ScaffoldConformanceTests(unittest.TestCase):
         self.assertTrue(hard, "a broken build-order link must produce a hard finding")
         self.assertTrue(any("doesn't exist" in f["message"] for f in hard),
                         f"the finding must name the missing document: {[f['message'] for f in hard]}")
+
+
+class AdrScaffoldConformanceTests(unittest.TestCase):
+    """The write-from = check-against tie for the decision-record scaffold: a record authored straight from the
+    committed `adr.md` template must pass the ADR presence check, and dropping its ruled-out section must make
+    the check bite — so the template can never silently fall out of conformance with the rule that validates the
+    operator's real records. Reads the template from disk, so it exercises exactly the bytes that ship."""
+
+    def _tree_from_scaffold(self, *, record_body=None) -> str:
+        d = tempfile.mkdtemp(prefix="engine-adr-scaffold-test-")
+        self.addCleanup(shutil.rmtree, d, True)
+        adr = os.path.join(d, "docs", "adr")
+        os.makedirs(adr)
+        with open(os.path.join(adr, "0001-a-decision.md"), "w", encoding="utf-8") as fh:
+            fh.write(record_body if record_body is not None else _read(_ADR_TEMPLATE))
+        return d
+
+    def test_the_adr_template_is_committed(self):
+        self.assertTrue(os.path.isfile(_ADR_TEMPLATE), "the decision-record scaffold template must be committed")
+
+    def test_a_record_authored_from_the_scaffold_passes_the_adr_check(self):
+        # The committed scaffold, used verbatim, yields a record the ADR presence check accepts cleanly (it
+        # carries the frontmatter marker and a filled `## What we ruled out` section). A clean pass is an empty
+        # findings list — no hard problem, and no disclosed no-op, because an engine-marked record is present.
+        fs = adr_form.findings("hard", root=self._tree_from_scaffold())
+        self.assertEqual(fs, [], f"a scaffold-authored record must pass the ADR check: {fs}")
+
+    def test_the_adr_check_bites_when_the_ruled_out_section_is_removed(self):
+        # Falsification: drop the ruled-out section the scaffold ships; the check must fire its named finding, so
+        # the passing test above is not vacuous.
+        broken = _read(_ADR_TEMPLATE).replace("## What we ruled out", "## Notes")
+        fs = adr_form.findings("hard", root=self._tree_from_scaffold(record_body=broken))
+        hard = [f for f in fs if f["severity"] == "hard"]
+        self.assertTrue(hard, "removing the ruled-out section must produce a hard finding")
+        self.assertTrue(any("What we ruled out" in f["message"] for f in hard),
+                        f"the finding must name the missing section: {[f['message'] for f in hard]}")
 
 
 if __name__ == "__main__":

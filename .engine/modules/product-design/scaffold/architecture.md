@@ -39,6 +39,8 @@ enough that someone could follow the path, not every path.>
 ## Key decisions
 
 <The handful of architectural choices worth recording, each as: what you chose, and why — and, where it matters,
-what you chose against. This is the running record a later session reads before re-opening a settled choice.>
+what you chose against. This is an at-a-glance summary inside this document; a significant choice you want kept
+as its own record — especially one you are reopening — the engine writes as a separate decision record under
+docs/adr/, which is where a later session looks before re-opening a settled choice.>
 
 - **<Decision>.** <What was chosen and why; what it was chosen against.>
