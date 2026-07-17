@@ -1,4 +1,4 @@
-"""Unit tests for forget.py — Layer-1 logical retirement of crash-duplicate consolidations (slice 4a).
+"""Unit tests for forget.py — Layer-1 logical retirement of crash-duplicate consolidations.
 
 The retirement is REVERSIBLE and recall-only: an orphaned crash-pass episodic is excluded from recall but
 stays resident in the ledger, fully recoverable. These tests exercise the real filter (`live_records`), the
@@ -72,7 +72,7 @@ class LiveRecordsTests(_Base):
         return [r for r in ledger.iter_records() if r.get("kind") == kind]
 
     def test_a_batchless_episodic_is_always_live(self):
-        # a pre-4a episodic with no batch field — nothing to resolve, so never retired (back-compat)
+        # a pre-batch episodic with no batch field — nothing to resolve, so never retired (back-compat)
         ledger.append({"v": 1, "kind": records.EPISODIC_KIND, "session_id": "S", "text": "old note", "tags": []})
         self.assertEqual(len(self._live_episodics()), 1)
 
@@ -84,7 +84,7 @@ class LiveRecordsTests(_Base):
         self.assertEqual(len(self._live_episodics()), 1)
 
     def test_ambient_turn_deltas_are_excluded_but_markers_pass_through(self):
-        # Recall surfaces the curated layer, not ambient capture (D-273/D-274, #332): a raw turn-delta is fuel,
+        # Recall surfaces the curated layer, not ambient capture (#332): a raw turn-delta is fuel,
         # never recall content, so live_records drops it; the structural `consolidated` marker still passes
         # through (it carries no recall text, so it never surfaces as a hit, but it is not the ambient kind).
         ledger.append(capture._make_record("S", 0, "user", "a turn note"))   # turn-delta, no batch
@@ -178,7 +178,7 @@ class DuplicatesInspectorTests(_Base):
 
 class BuildConformanceTests(unittest.TestCase):
     def test_forget_reaches_no_physical_erasure_path(self):
-        # Layer-1 logical retirement NEVER erases (memory/README two-layer law): physical removal is reachable
+        # Layer-1 logical retirement NEVER erases (the two-layer law): physical removal is reachable
         # only through Layer 2's merge-gated path. forget.py must carry no ledger-delete / erase call — a
         # build-conformance invariant pinned by source scan.
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "forget.py")
@@ -188,10 +188,10 @@ class BuildConformanceTests(unittest.TestCase):
             self.assertNotIn(token, src, f"forget.py must not reach physical erasure: found {token!r}")
 
     def test_no_layer1_file_mints_an_erasure_marker(self):
-        # Layer-2 physical erasure (slice 4e) is reachable ONLY through compact's gated removal, which fires only on
+        # Layer-2 physical erasure is reachable ONLY through compact's gated removal, which fires only on
         # an `operator-adjudicated-erasure` marker. Exactly TWO Layer-2 files may touch the minter call:
-        # `compact.py` (the chokepoint OWNER — it DEFINES `enact_erasure` and performs the removal) and, since slice
-        # 4e-ii, `erasure_observer.py` (the SANCTIONED cross-session ENACTOR — it calls the minter, but ONLY with a
+        # `compact.py` (the chokepoint OWNER — it DEFINES `enact_erasure` and performs the removal) and
+        # `erasure_observer.py` (the SANCTIONED cross-session ENACTOR — it calls the minter, but ONLY with a
         # merge SHA read from a genuinely-merged single-purpose erasure PR, never from evidence or argv). Every OTHER
         # (Layer-1) memory file must NOT call the minter — a Layer-1 routine that minted a marker could route the
         # autonomous fold into erasure. The ban targets the minter CALL (`enact_erasure(`), NOT the kind constant
@@ -212,7 +212,7 @@ class BuildConformanceTests(unittest.TestCase):
 
 
 class EarnedConsolidatedRawTests(_Base):
-    """forget.earned_consolidated_raw — the consolidated-session raw-capture erasure class (#274 Slice C). A session's
+    """forget.earned_consolidated_raw — the consolidated-session raw-capture erasure class (#274). A session's
     turn-deltas earn erasure once its consolidation is SETTLED (its `consolidated` marker is older than age_days) AND
     no curated stand-in (an episodic OR the roll-up gist that superseded them) is recalled; injected pseudo-turns and
     deltas captured after the marker are never yielded, and a marker with no curated stand-in never erases raw."""
@@ -298,7 +298,7 @@ class EarnedConsolidatedRawTests(_Base):
         self.assertNotIn("R", self._earned())
 
     def test_a_recalled_rollup_gist_keeps_the_whole_sessions_raw(self):
-        # risk-S1: once episodics are rolled up they drop from recall, so recall lands on the GIST — an episodic-only
+        # Once episodics are rolled up they drop from recall, so recall lands on the GIST — an episodic-only
         # veto would be blind and erase raw whose live stand-in is in use. The veto must see the gist.
         self._episodic_at("G", "b1", self._settled())
         self._marker_at("G", "b1", self._settled())

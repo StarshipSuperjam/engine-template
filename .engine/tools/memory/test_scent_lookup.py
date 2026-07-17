@@ -1,4 +1,4 @@
-"""test_scent_lookup.py — the per-prompt scent's fast lexical lookup: index.scent_lookup (slice 5, PR 2).
+"""test_scent_lookup.py — the per-prompt scent's fast lexical lookup: index.scent_lookup.
 
 Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b

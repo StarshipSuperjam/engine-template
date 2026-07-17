@@ -1,8 +1,6 @@
 """index.py — the engine's derived memory lookup: the throwaway SQLite/FTS5 accelerator + the plain-scan floor.
 
-(memory-substrate-sqlite-fts5, build slice 2.)
-
-The ledger (slice 1, `ledger.py`) is the ONE source of truth. This module builds a FAST lookup over it — a
+The ledger (`ledger.py`) is the ONE source of truth. This module builds a FAST lookup over it — a
 SQLite FTS5 full-text index — and, beneath that, a SLOW backup lookup: a plain scan straight through the
 ledger, for when a machine's SQLite was built without the FTS5 module. The promise is the locked law: recall
 always answers — *availability holds, latency does not*. When FTS5 is absent the answer still comes back,
@@ -12,14 +10,13 @@ This index is DERIVED and THROWAWAY. It is rebuilt from the ledger and is never 
 loses nothing (`rebuild()` reconstructs it), and backup is still "copy the ledger", never this file.
 
 Leaf discipline: this module DETECTS the FTS5-absent / slow-path condition and RETURNS it to the caller; it
-never renders operator-facing prose (boot does that, principle §16). It writes no telemetry and logs no findings.
+never renders operator-facing prose (boot does that). It writes no telemetry and logs no findings.
 
-Slice-2 built the index machinery + the two retrieval paths, record-shape-agnostic and UNRANKED (`query`). Slice 5
-adds ranked, filtered recall — `search` (BM25 best-first reinforced by usage; role/tag filters) implementing the
-`search.json` contract, exposed by the engine-memory MCP server (`mcp_server.py`). `query` stays UNRANKED for the
-rebuild/scan callers. The boot/attention per-prompt scent over this index is `scent_lookup` (slice 5, PR 2): a fast,
+This module builds the index machinery + the two retrieval paths, record-shape-agnostic and UNRANKED (`query`). Ranked, filtered recall is `search` (BM25 best-first reinforced by usage; role/tag filters), implementing the
+`search.json` contract and exposed by the engine-memory MCP server (`mcp_server.py`). `query` stays UNRANKED for the
+rebuild/scan callers. The boot/attention per-prompt scent over this index is `scent_lookup`: a fast,
 OR-match, relevance-ONLY top-k lookup (no usage pass, fast-path only) the boot-owned `scent.py` UserPromptSubmit hook
-calls to surface attributed pointers. The closed record shape + role vocabulary are slice 3.
+calls to surface attributed pointers. The closed record shape + role vocabulary come from the reflection step.
 
 Both retrieval paths split text into words with ONE tokenizer (`_tokenize`, modeled on SQLite's FTS5
 `unicode61`): the fast lookup stores the tokens it produces, and the slow scan matches the same way. That one
@@ -57,18 +54,18 @@ _FTS_PROBE_TABLE = "engine_fts5_probe"
 # real words: dead/beef/cafe/face…), `kind` ("turn-delta"), and `speaker` ("user"/"assistant") are provenance,
 # not content, and indexing them makes `query("user")`/`query("delta")` match every record. Only the human
 # `text` (and any other non-metadata string leaf) is searchable. The closed role vocabulary the reflection
-# slice (3b) adds is a structured filter, so `role` joins this set: searching a label like "decision" must
+# step adds is a structured filter, so `role` joins this set: searching a label like "decision" must
 # never drag in every record that carries it (the same pollution the capture-record provenance fields would
 # cause). Episodic provenance (`consolidated_ts`, `source_seqs`) is non-string and stays out by type. The
-# per-pass `batch` id the forgetting slice (4a) adds is a uuid — its hex fragments are real words, exactly the
-# `session_id` problem — so it joins this set too. The per-record `id` (slice 4b) is also a uuid hex (its only
+# per-pass `batch` id the forgetting step adds is a uuid — its hex fragments are real words, exactly the
+# `session_id` problem — so it joins this set too. The per-record `id` is also a uuid hex (its only
 # purpose is to NAME a record, never to be searched), so it joins for the same reason. The reinforcement
-# marker's `target` (slice 4c) is a uuid hex too — it points at the reinforced record's `id` — so it joins as
+# marker's `target` is a uuid hex too — it points at the reinforced record's `id` — so it joins as
 # well (the marker is dropped from recall by `forget.live_records` before indexing, but this keeps it out of
-# the body even if it were reached). The carried `tier` (slice 4d compaction) is a STRING
+# the body even if it were reached). The carried `tier` (a compaction carry) is a STRING
 # ("hot"/"cold"/"archived"), so it MUST join too, else those words would match every compacted record; its
 # sibling carried fields (frecency_snapshot/snapshot_ts/last_access_ts) are numeric and stay out of the body by
-# type already (the projection indexes only string leaves). The gist roll-up (slice 4d-ii) adds two more uuid-hex
+# type already (the projection indexes only string leaves). The gist roll-up adds two more uuid-hex
 # fields: a raw episode's `superseded_by` (the gist id a compaction folded onto it) and a gist's `source_ids`
 # (the list of raw ids it consolidates) — both are uuid hex, exactly the `id`/`batch` problem, so both join too.
 _TAGS_KEY = "tags"
@@ -94,7 +91,7 @@ class RebuildReport:
 
 @dataclass
 class QueryResult:
-    """The records matching a query. `query` returns them in ledger order (UNRANKED); `search` (slice 5) returns
+    """The records matching a query. `query` returns them in ledger order (UNRANKED); `search` returns
     them ranked best-first, each a shallow copy carrying `records.SCORE_KEY` (the lexical relevance). `degraded` is
     True when the answer came from the slow backup scan (FTS5 absent, the fast lookup not yet built, or scan forced)."""
 
@@ -141,7 +138,7 @@ def _record_text(record) -> str:
 
     Gathers the record's string leaf values and joins them, EXCLUDING the top-level envelope-metadata keys
     in `_NON_BODY_KEYS` (the locked tags-not-in-the-FTS-body law, plus the capture-record provenance fields
-    that are not content). Otherwise shape-agnostic; the reflection slice finalizes the projection against
+    that are not content). Otherwise shape-agnostic; the reflection step finalizes the projection against
     the full record shape.
     """
     parts: list = []
@@ -196,17 +193,17 @@ def index_path(cwd: "str | None" = None) -> str:
 
 def _build_schema(conn: sqlite3.Connection) -> None:
     # `entries` holds the full record per ledger ordinal (so a hit hydrates the exact record — the provenance
-    # `search` ranks over, slice 5). `entries_fts` is a standalone FTS5 index keyed by the same ordinal, fed the
+    # `search` ranks over). `entries_fts` is a standalone FTS5 index keyed by the same ordinal, fed the
     # PRE-FOLDED token stream from `_tokenize`. `remove_diacritics 0` tells FTS5 to do no diacritic folding of
     # its own — `_tokenize` already did it — so the indexed tokens are exactly what the scan path matches
-    # against and the two paths agree across scripts. No porter stemming — slice-5 `search` ranks the un-stemmed
+    # against and the two paths agree across scripts. No porter stemming — `search` ranks the un-stemmed
     # tokens (bm25 over this body); stemming stays a future ranking concern.
     conn.execute("CREATE TABLE entries (ord INTEGER PRIMARY KEY, record_json TEXT NOT NULL)")
     conn.execute("CREATE VIRTUAL TABLE entries_fts USING fts5(body, tokenize='unicode61 remove_diacritics 0')")
-    # `meta` carries the ledger GENERATION this index was built against (slice 4d). `query` trusts the fast
+    # `meta` carries the ledger GENERATION this index was built against. `query` trusts the fast
     # lookup only when this matches the ledger's current generation — so a compaction that swapped the ledger
     # out from under a stale index is detected and the query falls back to the always-correct scan, never a
-    # stale fast answer (the "full index rebuild gated on a monotonic ledger-generation stamp" law, README).
+    # stale fast answer (a full index rebuild gated on a monotonic ledger-generation stamp).
     conn.execute("CREATE TABLE meta (rowid INTEGER PRIMARY KEY, generation INTEGER NOT NULL)")
 
 
@@ -233,7 +230,7 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
     duplicates excluded from recall; malformed/torn lines dropped), so one bad line never costs the rest and a
     crash-duplicated summary is indexed once. If this machine has no FTS5, there is no fast lookup to build and
     this returns a no-op report (recall uses the slow scan). Stamps the ledger generation it built against
-    (slice 4d) so `query` can detect a compaction-staled index and fall back to the scan.
+    so `query` can detect a compaction-staled index and fall back to the scan.
     """
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
@@ -266,7 +263,7 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
                 if tokens:
                     report.with_text += 1
                 ordinal += 1
-            # Stamp the ledger generation this index was built against (slice 4d) — `query`'s fast path is
+            # Stamp the ledger generation this index was built against — `query`'s fast path is
             # trusted only while it matches `ledger.generation`. Resolved from the SAME ledger file being read
             # (its sidecar sibling), never the default dir, so an explicit `ledger_file=` build stamps its own
             # store's generation.
@@ -313,8 +310,8 @@ def query(
 ) -> QueryResult:
     """Recall the records matching `text` — every query word must appear (implicit AND). Uses the fast lookup
     when this machine has FTS5 and the index exists; otherwise the slow backup scan over the ledger. Both paths
-    apply the SAME tokenizer, so they return the same set of records. UNRANKED in slice 2 (ledger order);
-    ranking is slice 5.
+    apply the SAME tokenizer, so they return the same set of records. UNRANKED (ledger order);
+    ranking is a later concern.
     """
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
@@ -338,7 +335,7 @@ def query(
             conn = sqlite3.connect(dst)
             try:
                 # Trust the fast lookup only while its stamped generation matches the ledger's current one
-                # (slice 4d). A mismatch means a compaction swapped the ledger out from under this index — treat
+                # A mismatch means a compaction swapped the ledger out from under this index — treat
                 # it like a missing index and fall through to the always-correct scan over the CURRENT ledger,
                 # never a stale fast answer. The stamp is read from the same `conn`; the ledger generation from
                 # the queried ledger file's own sidecar.
@@ -357,7 +354,7 @@ def query(
     return QueryResult(records=_scan(tokens, src, limit), degraded=True)
 
 
-# --- Ranked recall: the `search` interface (slice 5) ------------------------------------------------------
+# --- Ranked recall: the `search` interface ------------------------------------------------------
 # `query` (above) answers UNRANKED — it is the rebuild/scan workhorse and must stay order-stable for its callers
 # and tests. `search` is the ranked, filtered recall the `search.json` contract names: best-first by lexical
 # relevance, reinforced by usage, with optional role/tag filters. It is SIDE-EFFECT-FREE — it never reinforces and
@@ -477,9 +474,9 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
     return QueryResult(records=_rank_slice_score(candidates, limit), degraded=True)
 
 
-# --- The cold-start recent-decisions pull (#394 U01) -------------------------------------------------------
+# --- The cold-start recent-decisions pull (#394) -------------------------------------------------------
 # The roles that ARE the decision record — what "recent decisions" means when boot pulls recall into the cold
-# -start pack. A recorded build-spec leaf (D-052/D-113): the decision itself plus the reasoning/pushback behind
+# -start pack. A recorded build-spec leaf: the decision itself plus the reasoning/pushback behind
 # it. A lesson, dead-end, preference, intent or observation is recall, but it is not a DECISION, so it does not
 # compete for this partition's slice. Members of the closed role vocabulary (score.ROLE_WEIGHTS).
 _DECISION_ROLES = ("decision", "rationale/pushback")
@@ -490,16 +487,15 @@ _RECENT_DECISIONS_LIMIT = 20
 def recent_decisions(*, limit: int = _RECENT_DECISIONS_LIMIT, roles=_DECISION_ROLES,
                      ledger_file: "str | None" = None) -> list[dict]:
     """The most recently RECORDED decisions, newest first — the memory half of attention's recent-decisions
-    partition (attention/README:49 names that partition's source as "recently merged pull requests … **and**
-    the memory recall boot assembles into the pack"; boot/README:67 has cold start "pull … memory recall when
-    their servers are up").
+    partition (that partition draws from recently merged pull requests plus what the memory-recall boot assembles
+    into the pack; at cold start boot pulls memory recall when their servers are up).
 
     NON-QUERY by construction, and that is the point: a cold start has no prompt yet to match against, so this
     is RECENCY-ordered, not lexical. Lexical recall against the operator's words is the per-prompt scent's job
     (`scent_lookup`); this answers the different question boot asks at orientation — "what was decided lately?".
 
     Reads the CURATED layer through `forget.live_records`, the one shared read path (so the ambient `turn-delta`
-    verbatim is excluded here exactly as it is from search — D-273/D-274), and filters to the decision-bearing
+    verbatim is excluded here exactly as it is from search), and filters to the decision-bearing
     roles. SIDE-EFFECT-FREE: never reinforces, never writes the ledger — boot is read-only, and merely
     orienting must not silently re-rank what recall surfaces later.
 
@@ -556,9 +552,9 @@ def search(
     return _ranked(tokens, src, dst, roles=roles_set, tags=tags_set, limit=limit, force_scan=force_scan, now=now)
 
 
-# --- The per-prompt scent lookup: `scent_lookup` (slice 5, PR 2) -------------------------------------------
+# --- The per-prompt scent lookup: `scent_lookup` -------------------------------------------
 # The scent is a HOT PATH (the boot-owned `scent.py` UserPromptSubmit hook fires it every prompt) under a
-# single-digit-ms budget (boot/README "single-digit ms; no embeddings, no LLM, no graph walk"). So `search` is
+# single-digit-ms budget (single-digit ms; no embeddings, no LLM, no graph walk). So `search` is
 # the WRONG primitive for it on two counts, both measured: (1) `search`/`_ranked` does an unconditional
 # O(ledger) `forget._access_index` + `live_records` usage pass (~46 ms on a ~1800-record ledger) — the
 # "reinforced by usage" tiebreak the scent's threshold gate does not even read; (2) `search` is implicit-AND, so
@@ -568,7 +564,7 @@ def search(
 # only live records), bounded top-k, and FAST-PATH ONLY — it never runs the slow scan (that both blows the
 # latency budget and uses a different score scale, log1p(tf) vs bm25, so the threshold gate would diverge).
 # `available=False` is reserved for the design's ONE degraded-latency condition — FTS5 absent on this machine
-# (memory detects, boot renders the scent's slower-mode disclosure, memory/README); a merely missing/stale/broken
+# (memory detects, boot renders the scent's slower-mode disclosure); a merely missing/stale/broken
 # index is "no fast recall right now" -> silent (records=[], available=True), never a misleading slower-mode notice.
 
 # How many distinct prompt tokens feed the OR-match, and the default bm25 top-k. Bounded so a long prompt cannot

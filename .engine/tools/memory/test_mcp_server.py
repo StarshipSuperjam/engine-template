@@ -1,10 +1,10 @@
-"""test_mcp_server.py — the engine-memory MCP server, headless (memory-substrate-sqlite-fts5, slice 5).
+"""test_mcp_server.py — the engine-memory MCP server, headless (memory substrate).
 
 Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Exercises the server in-process (no Claude Desktop, no subprocess): the single `search` tool delegates to the
-ranked library and returns `{"results": [...]}`, and — the move slice 5 adds — fires the live reinforcement
+ranked library and returns `{"results": [...]}`, and — the move this server adds — fires the live reinforcement
 (forget.record_access) once per RETURNED record, so recall is self-reinforcing. The reinforcement is fail-soft
 (a fault never converts a successful recall into an error), lock-safe (it never writes lock-free), and skips a
 record with no id. An unknown role surfaces as a tool error, not a crash. Isolation is a throwaway
@@ -90,7 +90,7 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
 
     async def test_search_answer_carries_the_recall_completeness_note(self):
-        # §7 (D-273/D-274, #332): the recall answer itself discloses that the raw verbatim behind the curated
+        # (issue #332): the recall answer itself discloses that the raw verbatim behind the curated
         # summaries is kept and recoverable. Present when there are results; omitted on an empty answer.
         self.add("we decided to ship the export format", role="decision")
         data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))

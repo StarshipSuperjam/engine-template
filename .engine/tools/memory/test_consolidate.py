@@ -1,4 +1,4 @@
-"""Unit tests for consolidate.py — the reflection half (slice 3b).
+"""Unit tests for consolidate.py — the reflection half.
 
 The consolidation NARRATIVE needs a live AI; everything around it is deterministic. So these tests SIMULATE
 the AI by passing a hand-written summary `{role, text}` to `store_episodic`, then exercise the real read /
@@ -344,7 +344,7 @@ class IncrementalConsolidationTests(_Base):
         self.assertEqual([d["text"] for d in consolidate.read_deltas("S")], ["the note"])
 
     def test_an_unsummarizable_tail_terminates_via_an_empty_store(self):
-        # The termination guarantee (README §86-89): a genuine-but-unsummarizable tail advances the watermark
+        # The termination guarantee: a genuine-but-unsummarizable tail advances the watermark
         # even though it yields no record, so it does not re-fire every session.
         self._delta("S", 0, "user", "worth summarizing")
         consolidate.store_episodic("S", [{"role": "decision", "text": "the summary"}])
@@ -451,7 +451,7 @@ class DirectiveTests(_Base):
         self.assertNotIn("fallen behind", below)                           # n == threshold - 1 -> still silent
 
     def test_operator_remember_directive_is_typed_preference(self):
-        # #258 (D-251): the sweep MUST type an explicit operator "remember X" as its own `preference`
+        # #258: the sweep MUST type an explicit operator "remember X" as its own `preference`
         # summary — never folded into a thread summary, never dropped. This is the falsifiable artifact
         # for #258's durable-capture guarantee (the directive is unenforceable AI prose otherwise).
         text = consolidate._consolidation_directive(["s0"]).lower()
@@ -544,7 +544,7 @@ class CrashResidualTests(_Base):
         self.assertEqual(len(self._records(consolidate.MARKER_KIND)), 1)
         self.assertNotIn("S", consolidate.detect_unconsolidated())
 
-        # But RECALL surfaces the completed pass ONLY — the orphaned duplicate is logically retired (4a).
+        # But RECALL surfaces the completed pass ONLY — the orphaned duplicate is logically retired.
         recalled = [r for r in index.query("summary").records if r.get("kind") == consolidate.EPISODIC_KIND]
         self.assertEqual(len(recalled), 1)
         self.assertEqual(recalled[0]["text"], "retry summary")
@@ -584,7 +584,7 @@ class HookHandlerTests(_Base):
         self.assertEqual(out.strip(), "")              # the common case adds nothing to the operator's session
 
     def test_pre_compact_skips_and_proceeds_when_no_waste(self):
-        # PreCompact now runs the gated ledger-compaction trigger (slice 5 PR 3). On a ledger with no reclaimable
+        # PreCompact now runs the gated ledger-compaction trigger. On a ledger with no reclaimable
         # waste the gate SKIPS (no rewrite) and the handler proceeds with no output — it must never block the
         # squash. (The fires-and-still-proceeds path is pinned in test_compact_trigger.py.)
         code, out, _err = self._run_hook("PreCompact", consolidate._pre_compact_handler,
@@ -601,7 +601,7 @@ class HookHandlerTests(_Base):
 
 
 class LeaseHeartbeatTests(_Base):
-    """U08 (#396): the session lease keeps a concurrent live session from being wrongly consolidated, and the
+    """(#396): the session lease keeps a concurrent live session from being wrongly consolidated, and the
     store-time re-check — not N — is the guarantee."""
 
     def _mem(self):

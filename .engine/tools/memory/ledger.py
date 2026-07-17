@@ -1,7 +1,7 @@
 """ledger.py — the engine's memory ledger: the canonical, append-only, plain-text store.
 
-This is the foundation of the memory substrate (memory-substrate-sqlite-fts5, build slice 1).
-The locked design (engine-planning systems/cognitive/memory) makes this NDJSON ledger the ONE
+This is the foundation of the memory substrate (SQLite + FTS5).
+The locked design makes this NDJSON ledger the ONE
 source of truth; the SQLite/FTS5 index built later is a throwaway accelerator rebuilt from here,
 and backup is "copy this file". So this file's integrity is a law, not a leaf:
 
@@ -19,9 +19,9 @@ and backup is "copy this file". So this file's integrity is a law, not a leaf:
   - Each record is one JSON object per line, terminated by a single "\n" (the record terminator).
     `json.dumps` escapes any newline inside the data, so the trailing "\n" is unambiguous.
 
-Slice-1 scope: the read/write primitives only. They are RECORD-AGNOSTIC — they store and return any
+This module's scope: the read/write primitives only. They are RECORD-AGNOSTIC — they store and return any
 JSON-serializable dict; the closed memory *record shape* (the role vocabulary) and the per-record
-ledger-version envelope are a later slice's job (a hard forward-owe: slice 3 fixes the record shape,
+ledger-version envelope are a later step's job (a hard forward-owe: that step fixes the record shape,
 and because the ledger ships EMPTY there are no real records to retrofit before then).
 
 This module is a leaf: it never logs findings or writes telemetry of its own. It RETURNS its
@@ -47,13 +47,13 @@ except ImportError:  # pragma: no cover - the engine targets POSIX; degrade rath
 
 # The on-disk framing version (newline-terminated NDJSON). This is the *format* version; the
 # record-SHAPE version (what a future migration routes on) is established with the record schema
-# in a later slice. Exposed so the backup snapshot-manifest has a legible version source.
+# in a later step. Exposed so the backup snapshot-manifest has a legible version source.
 LEDGER_FORMAT_VERSION = 1
 
 ENV_DIR = "ENGINE_MEMORY_DIR"
 DATA_SUBDIR = os.path.join(".engine", "memory")
 LEDGER_FILENAME = "ledger.ndjson"
-META_FILENAME = "ledger-meta.json"   # the monotonic ledger-generation sidecar (slice 4d); gitignored sibling
+META_FILENAME = "ledger-meta.json"   # the monotonic ledger-generation sidecar; gitignored sibling
 
 # The platform durability barrier. On Darwin a bare os.fsync does NOT guarantee bytes reached the platter;
 # fcntl.F_FULLFSYNC does (the locked crash-safe-swap law names it). Absent elsewhere — then os.fsync is the floor.
@@ -135,7 +135,7 @@ def append(record: dict, *, path: str | None = None) -> None:
     that was complete JSON but lost only its terminating newline is thereby recovered; a truly
     half-written fragment stays invalid JSON and is still read back as malformed, never resurrected.)
 
-    `record` may be any JSON-serializable dict (record shape is a later slice's concern).
+    `record` may be any JSON-serializable dict (record shape is a later step's concern).
     """
     target = path or ledger_path()
     parent = os.path.dirname(target)
@@ -226,11 +226,11 @@ def iter_records(*, path: str | None = None):
             yield record
 
 
-# --- Generation stamp + the crash-safe swap primitive (slice 4d compaction) -------------------
+# --- Generation stamp + the crash-safe swap primitive (compaction) -------------------
 # The ledger-generation is a monotonic integer bumped once per compaction. It lets a derived index that was
 # built against an OLDER ledger generation be DETECTED as stale (index.py gates its fast path on a match) and
 # fully rebuilt — never incrementally patched — so a compaction-erased record can never resurface from a stale
-# index (the locked law, README). It is carried in a tiny sidecar (NOT in the append-only ledger, so every
+# index (the locked law). It is carried in a tiny sidecar (NOT in the append-only ledger, so every
 # existing reader is untouched), resolved to the SAME directory as the ledger it describes.
 
 def meta_path(cwd: str | None = None, *, for_path: str | None = None) -> str:
@@ -282,7 +282,7 @@ def bump_generation(cwd: str | None = None, *, for_path: str | None = None) -> i
 
 def set_generation(value: int, cwd: str | None = None, *, for_path: str | None = None) -> int:
     """Durably SET the generation to an explicit `value` (temp + fsync + atomic os.replace) — the sibling of
-    bump_generation that RESTORE (slice 6b) uses: a restored ledger must carry the BACKUP's true generation, not a
+    bump_generation that RESTORE uses: a restored ledger must carry the BACKUP's true generation, not a
     blind +1, so the lineage and the *next* restore's resurrection compare stay faithful. A non-int/negative value
     clamps to 0 (the same fail-safe floor `generation` reads). The CALLER must hold the single-writer lock (restore
     does); this is not itself serialized. Returns the value written."""
@@ -337,8 +337,8 @@ def replace_ledger(temp: str, *, path: str | None = None) -> None:
     """Memory's own restore primitive: durably replace the canonical ledger with a COMPLETE `temp` written in
     the SAME directory — fsync the temp, atomic os.replace over the canonical name, fsync the directory. A
     cross-filesystem rename is not atomic, so `temp` MUST be a sibling of the ledger. The CALLER holds the
-    single-writer lock across this. (Backup/restore — slice 6 — reuses this exact mechanism; compaction is the
-    same restore primitive applied internally, README.) Recovery binds to the fixed canonical name: a temp left
+    single-writer lock across this. (Backup/restore reuses this exact mechanism; compaction is the
+    same restore primitive applied internally.) Recovery binds to the fixed canonical name: a temp left
     by a crash before this rename is a complete same-schema file but is NEVER the canonical name, so it is
     ignored-and-reaped, never promoted."""
     target = path or ledger_path()
@@ -474,7 +474,7 @@ def _demo() -> int:
 
     print("\n" + "=" * 78)
     print("TEST 4 — a crash tears one entry; does the NEXT entry filed after it survive?")
-    print("         (the loss this fix closes — slice 1 let the entry filed after a tear vanish)")
+    print("         (the loss this fix closes — an earlier build let the entry filed after a tear vanish)")
     print("=" * 78)
     with tempfile.TemporaryDirectory() as tmp:
         # BEFORE — the old behavior (a bare append with NO heal), on a real file, for contrast:

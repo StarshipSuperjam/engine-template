@@ -1,6 +1,6 @@
-"""Unit tests for erasure_observer.py — the cross-session Layer-2 erasure OBSERVER (slice 4e PR ii).
+"""Unit tests for erasure_observer.py — the cross-session Layer-2 erasure OBSERVER.
 
-The observer turns a MERGED single-purpose erasure PR into the slice-i `operator-adjudicated-erasure` marker. These
+The observer turns a MERGED single-purpose erasure PR into the enactment `operator-adjudicated-erasure` marker. These
 tests pin the load-bearing behavior with the GitHub network stubbed at the injectable `_transport` seam (no live
 GitHub): it enacts ONLY a genuine merge (never a mere close), binds the target to the IMMUTABLE merge tree (never the
 editable PR body), fails SAFE on every read doubt, dedups on the target id alone (so a re-merge never re-fires), and
@@ -171,7 +171,7 @@ class EnactTests(_Base):
         self.assertEqual(self._targets(), [])
 
     def test_binds_to_the_committed_tree_not_the_editable_body(self):
-        # THE core slice-ii property: the PR's BODY names a DIFFERENT valid id, but the committed proposal names the
+        # THE core property: the PR's BODY names a DIFFERENT valid id, but the committed proposal names the
         # real target. The observer enacts the PROPOSAL's target and never the body's — the body is reachable-but-
         # ignored (it is never read).
         target, body_id = _rid(), _rid()
@@ -200,7 +200,7 @@ class DedupTests(_Base):
 
     def test_dedup_holds_after_the_proposal_is_removed(self):
         # The never-nag guarantee rests on the RETAINED LEDGER MARKER, not the committed proposal file: once enacted,
-        # a later run whose proposal is GONE (404) still dedups (no re-mint, no re-fire) — so a slice-iii cleanup of
+        # a later run whose proposal is GONE (404) still dedups (no re-mint, no re-fire) — so a later cleanup of
         # the proposal can never re-nag.
         target = _rid()
         gh1 = _gh(prs={7: _merged_pr(7)}, contents={_GOOD_SHA: _contents_for(target)})
@@ -310,7 +310,7 @@ class UnitTests(unittest.TestCase):
 
 
 class ReadTargetsTests(_Base):
-    """Slice B: `_read_targets` reads the batch grammar, keeps back-compat with the legacy single, and WHOLE-BATCH
+    """`_read_targets` reads the batch grammar, keeps back-compat with the legacy single, and WHOLE-BATCH
     REJECTS on any doubt — the faithful generalisation of the single-target fail-SAFE."""
 
     def test_reads_a_batch_of_ids(self):
@@ -352,7 +352,7 @@ class ReadTargetsTests(_Base):
 
 
 class BatchEnactTests(_Base):
-    """Slice B: one merged batch PR mints ONE singular marker per target under the SHARED merge SHA, is resumable
+    """One merged batch PR mints ONE singular marker per target under the SHARED merge SHA, is resumable
     per target under partial failure, and erases the whole batch in one compaction."""
 
     def test_a_merged_batch_mints_one_marker_per_target_under_one_sha(self):
