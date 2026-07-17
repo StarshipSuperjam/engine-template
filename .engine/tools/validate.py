@@ -543,13 +543,27 @@ def _template_shape_spec(rel_path: str):
     return frontmatter(os.path.normpath(os.path.join(SCHEMAS_DIR, ref)))
 
 
+def _load_structured(path: str):
+    """Load a structured (non-prose) schema target by extension: a `.toml` target is read
+    with the stdlib's read-only TOML parser (its parsed form maps onto the same JSON data
+    model every schema check validates); everything else is read by `load_json`, exactly as
+    before. TOML targets exist because the Codex runtime's own files are TOML — the engine
+    validates them where they live rather than mirroring them into JSON."""
+    if path.endswith(".toml"):
+        import tomllib
+        with open(path, "rb") as fh:
+            return tomllib.load(fh)
+    return load_json(path)
+
+
 def kind_schema(rule, ctx):
     """A structured file — or a prose file's YAML frontmatter — conforms to its governing
     JSON Schema (2020-12). Validates the PARSED data, not raw text. The loader is chosen by
     the target's surface CLASS (catalog-resolved, the same routing _governing_schema uses):
     a `prose` surface's frontmatter is read (and normalized to the JSON data model) by
     `frontmatter`; every other target — structured surfaces, and the override-schema targets
-    that carry no surface record at all — is read by `load_json`, exactly as before. A
+    that carry no surface record at all — is read by `_load_structured` (JSON, or TOML for a
+    `.toml` target). A
     malformed file, an unresolvable or offline schema reference, or a malformed governing
     schema is a loud finding (the halt-on-malformed posture), never an uncaught error and
     never a network fetch."""
@@ -562,10 +576,11 @@ def kind_schema(rule, ctx):
         rec = _surface_record_for(rel)                 # None for override-schema targets (engine.json, state.json, manifests)
         is_prose = bool(rec) and rec.get("class") == "prose"
         try:
-            data = frontmatter(path) if is_prose else load_json(path)
+            data = frontmatter(path) if is_prose else _load_structured(path)
         except Exception as exc:
             malformed = ("has a malformed settings block (its YAML frontmatter could not be read)"
-                         if is_prose else "is not valid JSON")
+                         if is_prose else
+                         ("is not valid TOML" if path.endswith(".toml") else "is not valid JSON"))
             findings.append(finding(tier, f"'{rel}' {malformed} and cannot be "
                             f"schema-checked: {exc}. {rule['message']}", loc(path)))
             continue

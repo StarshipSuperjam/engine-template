@@ -3675,6 +3675,57 @@
       "type": "schema"
     },
     {
+      "id": "schema:codex-agent.v1",
+      "name": ".engine/schemas/codex-agent.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-agent.v1",
+      "source": {
+        "fingerprint": "sha256:c83ce942df3b2cdf9cc7ea7eea4736be5462534ef25b6c564a2bc2d6d84334f5",
+        "path": ".engine/schemas/codex-agent.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:codex-hooks.v1",
+      "name": ".engine/schemas/codex-hooks.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-hooks.v1",
+      "source": {
+        "fingerprint": "sha256:eb3d53e55b40b68a77c91257e95fb6876cfcdfb3325624e78d14db88603b8421",
+        "path": ".engine/schemas/codex-hooks.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:codex-skill.v1",
+      "name": ".engine/schemas/codex-skill.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-skill.v1",
+      "source": {
+        "fingerprint": "sha256:b28f686a59a58f2cb88913ae206523e3f16f833a17fafafb36d91b996902034c",
+        "path": ".engine/schemas/codex-skill.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:concern-list.v1",
       "name": ".engine/schemas/concern-list.v1.json",
       "owner": "core",
@@ -3981,6 +4032,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:provider-exceptions.v1",
+      "name": ".engine/schemas/provider-exceptions.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "provider-exceptions.v1",
+      "source": {
+        "fingerprint": "sha256:2df54f60ea1115108f40c21e8af0c3445da7bc5164f64205da33048282c96350",
+        "path": ".engine/schemas/provider-exceptions.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:provisioning-catalog.v1",
       "name": ".engine/schemas/provisioning-catalog.v1.json",
       "owner": "core",
@@ -4076,7 +4144,7 @@
       },
       "slug": "surface-catalog.schema",
       "source": {
-        "fingerprint": "sha256:15dfb73e0601a90eff15da27bfcd0214ec2429a434e38b81c6904dd1fef57f5d",
+        "fingerprint": "sha256:9f6d66227a59d415bf9abd1eb0afd27f3f53cb2eebf2424e99069e2466d9ac97",
         "path": ".engine/schemas/surface-catalog.schema.json"
       },
       "status": "active",
@@ -8597,7 +8665,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:cff5062cd440f57857fe40cb58cb92b5fa19ca1c4be699f2cba7dd3c17f1bf56",
+        "fingerprint": "sha256:922ae45c0c3ef21c02e5ed1c19b2c9cbc59a18b6882d1eb1e678b4905b280faf",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

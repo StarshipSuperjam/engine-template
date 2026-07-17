@@ -35,9 +35,9 @@
           "enum": ["prose", "structured", "code"]
         },
         "location": {
-          "description": "Where this surface's files live (one home per surface). Engine surfaces live under .engine/<surface>/; the Claude-native surfaces (skill, agent) live under .claude/, where the tool requires them.",
+          "description": "Where this surface's files live (one home per surface). Engine surfaces live under .engine/<surface>/; each AI runtime's native surfaces live where that runtime requires them — the Claude-native surfaces (skill, agent) under .claude/, and the Codex-native surfaces (codex-skill, codex-agent) under .agents/ and .codex/.",
           "type": "string",
-          "pattern": "^\\.(engine|claude)/[A-Za-z0-9._-]+/$"
+          "pattern": "^\\.(engine|claude|codex|agents)/[A-Za-z0-9._-]+/$"
         },
         "purpose": {
           "description": "One line: what the surface is for.",
