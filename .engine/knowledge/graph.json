@@ -4285,7 +4285,7 @@
       },
       "slug": "audit_digest",
       "source": {
-        "fingerprint": "sha256:8e80b46d7f6aeed2a280a4e6d9deb60b4aa08a7f4e2ffe53b477ee91432dd8d2",
+        "fingerprint": "sha256:02a06cef98b4b3e0e330b9e7d8592f2e03486ff103bc50476c2792516d6be745",
         "path": ".engine/tools/audit_digest.py"
       },
       "status": "active",
@@ -6478,7 +6478,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:24ac6bedb7cc4257fcddcf98287f2c6ebd50d5981fead8dcbc7adf3caee91c82",
+        "fingerprint": "sha256:a48ff72d31bf33df7b5e2ebe77768af77dee2cf3a6166695bb7a3eb65b6060b5",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",

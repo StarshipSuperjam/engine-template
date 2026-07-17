@@ -174,6 +174,9 @@ class TestStaleness(unittest.TestCase):
             m = audit_digest.staleness(self._dated(d, 5, base), now=base)["message"]
             self.assertIn("5 days ago", m)
             self.assertIn("2026-06-15", m)   # it names the run-date it is reporting
+            # A future-dated digest (seal date ahead of the local boot date across the UTC-midnight boundary)
+            # reads as "today", never a nonsensical negative day-count.
+            self.assertIn("today", audit_digest.staleness(self._dated(d, -1, base), now=base)["message"])
 
     def test_one_day_past_the_bound_is_flagged(self):
         with tempfile.TemporaryDirectory() as d:

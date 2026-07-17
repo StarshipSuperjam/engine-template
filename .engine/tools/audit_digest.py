@@ -180,7 +180,10 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
             f"The engine hasn't reviewed its own health in {age} days. Re-arm the scheduled self-review — "
             f"{REARM_HINT} — and it will refresh on the next run.",
             where)
-    when = "today" if age == 0 else ("1 day ago" if age == 1 else f"{age} days ago")
+    # `age` can go slightly negative — the digest is dated in CI (UTC) while boot reads the local date, so an
+    # operator west of UTC can boot on a calendar day behind the seal date. Read any non-positive age as "today"
+    # so the line never renders a nonsensical "-1 days ago".
+    when = "today" if age <= 0 else ("1 day ago" if age == 1 else f"{age} days ago")
     return validate.finding(
         "note",
         f"The engine last reviewed its own health {when} (on {run_date.isoformat()}).",
