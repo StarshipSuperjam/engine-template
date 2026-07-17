@@ -15,11 +15,12 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 import unicodedata
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memory import index, ledger  # noqa: E402
+from memory import index, ledger, records  # noqa: E402
 
 
 def _bodies(result):
@@ -44,6 +45,71 @@ class IndexTestCase(unittest.TestCase):
 
     def rebuild(self):
         return index.rebuild(ledger_file=self.ledger, index_file=self.index)
+
+
+class RecentDecisionsTests(IndexTestCase):
+    """`recent_decisions` — the memory half of attention's recent-decisions partition (#394 U01), pulled by
+    boot at cold start. NON-lexical by construction: a cold start has no prompt to match against, so it asks
+    "what was decided lately?" (recency-ordered); "what relates to THIS?" is the per-prompt scent's job."""
+
+    # Fresh moments: `live_records` surfaces the layer recall should show, so a 1970-epoch fixture would be
+    # correctly dropped as long-retired and prove nothing about the role filter.
+    _NOW = int(time.time())
+
+    def _rec(self, rid, role, ago=0, text="x", **kw):
+        return {records.RECORD_ID_KEY: rid, "role": role, "ts": self._NOW - ago, "text": text, **kw}
+
+    def _recent(self, **kw):
+        return index.recent_decisions(ledger_file=self.ledger, **kw)
+
+    def test_returns_only_the_decision_bearing_roles_newest_first(self):
+        self.file(self._rec("a", "decision", ago=300),
+                  self._rec("b", "observation", ago=200),   # recall, but not a DECISION -> not this partition
+                  self._rec("c", "rationale/pushback", ago=100),
+                  self._rec("d", "lesson", ago=50))
+        self.assertEqual([r[records.RECORD_ID_KEY] for r in self._recent()], ["c", "a"])
+
+    def test_the_ambient_verbatim_is_never_recall_content(self):
+        # A role-less `turn-delta` is the Stop-appended verbatim: fuel for consolidation, NEVER recall
+        # (D-273/D-274). Reading through forget.live_records excludes it here exactly as it is from search.
+        self.file(self._rec("keep", "decision", ago=300),
+                  {records.RECORD_ID_KEY: "raw", "kind": "turn-delta", "ts": self._NOW, "text": "verbatim"})
+        self.assertEqual([r[records.RECORD_ID_KEY] for r in self._recent()], ["keep"])
+
+    def test_the_limit_bounds_the_read(self):
+        self.file(*[self._rec(f"d{i}", "decision", ago=i) for i in range(10)])
+        self.assertEqual(len(self._recent(limit=3)), 3)
+
+    def test_a_damaged_timestamp_costs_its_own_place_and_never_the_whole_recall(self):
+        # The contract is that a record with no usable `ts` sorts LAST rather than crashing the sort. A key
+        # that fell back to the raw value would compare a str against an int the moment one record's ts was a
+        # string and another's was absent — losing every recalled decision to a TypeError, from a function
+        # whose whole point is that a damaged record costs only its own place.
+        self.file(self._rec("good", "decision", ago=100),
+                  self._rec("stringy", "decision", **{"ts": "2026-07-01T00:00:00Z"}),
+                  self._rec("missing", "decision", **{"ts": None}),
+                  self._rec("nonsense", "decision", **{"ts": float("nan")}))
+        got = [r[records.RECORD_ID_KEY] for r in self._recent()]
+        self.assertEqual(got[0], "good", "the one usable moment still leads")
+        self.assertEqual(sorted(got[1:]), ["missing", "nonsense", "stringy"])
+
+    def test_an_absent_store_degrades_to_empty_rather_than_raising(self):
+        # Recall is orientation context: an unreadable store costs the recall, never the pack (boot surfaces an
+        # unreadable store as its own plain-language memory-offline notice).
+        self.assertEqual(index.recent_decisions(ledger_file=os.path.join(self.tmp, "nope.ndjson")), [])
+
+    def test_is_deterministic_and_side_effect_free(self):
+        # Same ledger -> same list (the ranking downstream stays reproducible), and reading never reinforces:
+        # merely orienting must not silently re-rank what recall surfaces later.
+        self.file(self._rec("a", "decision", ago=100), self._rec("b", "decision", ago=100))  # equal ts -> id
+        before = _read_bytes(self.ledger)
+        self.assertEqual(self._recent(), self._recent())
+        self.assertEqual(_read_bytes(self.ledger), before)     # not one byte written
+
+
+def _read_bytes(path):
+    with open(path, "rb") as fh:
+        return fh.read()
 
 
 class Fts5DetectionTests(IndexTestCase):
