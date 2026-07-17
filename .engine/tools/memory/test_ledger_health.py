@@ -56,7 +56,7 @@ class DetectLedgerMalformedTests(unittest.TestCase):
 
 
 class DetectRecallOfflineTests(unittest.TestCase):
-    """detect_recall_offline reports the AVAILABILITY floor: a present-but-unreadable ledger (#397 U09)."""
+    """detect_recall_offline reports the AVAILABILITY floor: a present-but-unreadable ledger (#397)."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -109,7 +109,7 @@ class DetectRecallOfflineTests(unittest.TestCase):
 
 
 class DetectStalledMigrationTests(unittest.TestCase):
-    """detect_stalled_migration reports an ORPHANED in-flight marker (tidying paused) — #396 U26."""
+    """detect_stalled_migration reports an ORPHANED in-flight marker (tidying paused) — #396."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

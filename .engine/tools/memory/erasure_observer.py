@@ -1,23 +1,23 @@
-"""erasure_observer.py — the cross-session Layer-2 erasure OBSERVER (memory-substrate, slice 4e PR ii).
+"""erasure_observer.py — the cross-session Layer-2 erasure OBSERVER (memory substrate).
 
-Slice 4e is the memory substrate's single irreversible act: physically erasing a remembered note. Slice (i) built
+This is the memory substrate's single irreversible act: physically erasing a remembered note. An earlier step built
 the enactment core — a content-free `operator-adjudicated-erasure` marker, a gated removal inside `compact()`, and
 `compact.enact_erasure(target_id, merge_sha)` (the SOLE minter, append-only) — and shipped it INERT (no live caller).
 THIS module is the live caller: at SessionStart it turns a *merged single-purpose erasure pull request* into that
 marker, so the next compaction removes the named note.
 
-The consent gate is the locked law (memory/README): erasure happens ONLY because the operator merged a single-purpose
+The consent gate is the locked law: erasure happens ONLY because the operator merged a single-purpose
 erasure PR — *the merge event only*; a merely-closed (declined / auto-resolved) Issue or PR NEVER erases. So the
 observer:
 
-  - **discovers** candidate erasure PRs by the dedicated `engine-erasure` label (D-210's "by label/search"), among
+  - **discovers** candidate erasure PRs by the dedicated `engine-erasure` label ("by label/search"), among
     CLOSED items only;
   - **confirms a genuine merge** — `merged_at` non-null AND a real `merge_commit_sha` — never acting on a close;
   - **binds the target to the IMMUTABLE merge tree** — it reads the content-free target id from a committed proposal
     file at `?ref=merge_commit_sha` (the merge commit's tree is frozen; the PR *body* is post-merge-mutable and is
     NEVER read). It validates the id is exactly the content-free record-id shape and reads NOTHING but that id (no
-    gitignored ledger content, no operator-facing cost — D-007);
-  - **dedups on the target id alone** — the retained marker (slice-i tombstone) is the cross-session dedup ledger, so
+    gitignored ledger content, no operator-facing cost);
+  - **dedups on the target id alone** — the retained marker (the enactment tombstone) is the cross-session dedup ledger, so
     a re-merged PR never re-mints or re-fires the one-time heads-up;
   - **enacts** via `compact.enact_erasure`, and on a NEW enactment relays ONE plain-language heads-up.
 
@@ -25,7 +25,7 @@ Posture: **fail-SAFE on consent, fail-OPEN on host.** Any doubt — no token, un
 unreadable/malformed proposal, a bad id shape — yields no erasure and a silent proceed (retry next session). The
 SessionStart hook can never block or slow the session past one bounded, swallowed read.
 
-Why this is not an AI-reachable note-shredder (the hazard slice i dropped the `erase` CLI to avoid): the merge SHA
+Why this is not an AI-reachable note-shredder (the hazard the earlier step dropped the `erase` CLI to avoid): the merge SHA
 comes from a GENUINE merge to protected `main`, never from argv. An AI in-session cannot merge to protected `main`,
 cannot fabricate `merged_at`/`merge_commit_sha`, and cannot forge the committed proposal at the merge tree — so there
 is deliberately NO real-ledger arbitrary-mint verb here either. The label only *discovers*; the binding is the
@@ -53,10 +53,10 @@ if _PARENT not in sys.path:
 import hooks  # noqa: E402 — .engine/tools/hooks.py: the SessionStart fail-open harness
 from memory import compact, ledger, records  # noqa: E402
 
-ERASURE_LABEL = "engine-erasure"   # the dedicated label a single-purpose erasure PR carries (the (ii)↔(iii) contract)
+ERASURE_LABEL = "engine-erasure"   # the dedicated label a single-purpose erasure PR carries (the observer↔proposer contract)
 
 # The committed proposal file the observer reads at the PR's merge tree. A COMMITTED path (NOT under the gitignored
-# `.engine/memory/` ledger dir, which could not be committed). Slice (iii) MUST emit `{"targets": [<id>, …], "costs":
+# `.engine/memory/` ledger dir, which could not be committed). The emitter MUST emit `{"targets": [<id>, …], "costs":
 # [<plain paraphrase>, …]}` here (a legacy single `{"target": <id>, …}` is still read as a one-note batch) and OWNS
 # this file's main-tree lifecycle; the observer commits nothing here and reads ONLY the `targets` ids.
 _PROPOSAL_PATH = ".engine/erasures/proposal.json"
@@ -84,7 +84,7 @@ def _get(gh, path: str):
 def discover_erasure_pr_numbers(gh) -> list:
     """Candidate erasure-PR numbers: CLOSED items carrying the `engine-erasure` label that are PRs (the issues
     endpoint lists PRs too — a PR carries a `pull_request` key). Returns a list of ints (possibly empty); never
-    raises. Bounded to the few real erasure PRs by the label filter (D-210's "by label/search")."""
+    raises. Bounded to the few real erasure PRs by the label filter ("by label/search")."""
     data = _get(gh, f"/repos/{gh.repo}/issues?state=closed&labels={ERASURE_LABEL}&per_page=100")
     if not isinstance(data, list):
         return []
@@ -151,7 +151,7 @@ def _read_targets(gh, merge_sha: str) -> list:
 
 def _erased_targets(path: "str | None" = None) -> set:
     """The set of target ids the ledger ALREADY holds an erasure marker for — the cross-session dedup ledger. The
-    marker is retained across compaction (slice-i tombstone), so this set persists even after the note is gone."""
+    marker is retained across compaction (the enactment tombstone), so this set persists even after the note is gone."""
     return {r.get(records.TARGET_KEY) for r in ledger.iter_records(path=path)
             if isinstance(r, dict) and r.get("kind") == records.ERASURE_KIND}
 
@@ -165,7 +165,7 @@ def _already_enacted(target: str, *, path: "str | None" = None) -> bool:
 def enact_from_merged_prs(gh, *, path: "str | None" = None) -> list:
     """Discover merged `engine-erasure` PRs, enact each not-yet-enacted target in each PR's committed batch, and
     return the PR numbers NEWLY enacted THIS run (for the one-time heads-up). Pure orchestration over the fail-open
-    reads + the slice-i minter. A merged batch PR mints ONE singular marker per target under the SHARED merge SHA:
+    reads + the enactment minter. A merged batch PR mints ONE singular marker per target under the SHARED merge SHA:
     the ledger's existing targets are read ONCE into `seen` and each mint adds to it, so a partial run (mint some,
     crash, re-run) re-mints only the missing targets, and two PRs naming one target — or a re-merge — never
     double-mint. A PR is reported enacted iff at least ONE of its targets was newly minted. Never raises."""

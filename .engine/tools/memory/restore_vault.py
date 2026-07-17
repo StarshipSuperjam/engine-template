@@ -1,14 +1,14 @@
-"""restore_vault.py — memory's backup vault, the RESTORE path (memory-substrate, slice 6b).
+"""restore_vault.py — memory's backup vault, the RESTORE path.
 
 The EXPORT half (`backup_vault.py`) copies the gitignored ledger + a 4-key snapshot manifest to a PRIVATE GitHub
-repo — by default the shared `engine-memory-vault`, this project in its own minted-id folder (D-237); restore binds
+repo — by default the shared `engine-memory-vault`, this project in its own minted-id folder; restore binds
 on that same folder id. That made memory durable off-machine — but nothing brought it BACK. This module is
-the RESTORE half, which fully closes Risk R2 (memory loss / portability for a non-engineer). Locked design:
-engine-planning memory README §"Backup and portability" — "restore = replace the ledger and rebuild the derived
-index (routed through `migrations` if the record shape changed)", guarded by the ledger-generation stamp so an older
+the RESTORE half, which fully closes the memory-loss / portability risk for a non-engineer. The restore contract: replace the
+ledger and rebuild the derived index (routed through `migrations` if the record shape changed), guarded by the
+ledger-generation stamp so an older
 backup landing over newer state is SURFACED, never silently resurrected. The module serves TWO restore modes through
 ONE mechanism: `restore_now` reads the rolling backup head (fresh-machine + operator recovery), and
-`restore_pre_migration` reads a retained pre-migration snapshot TAG (the D-264 migration-revert undo, after a reverted
+`restore_pre_migration` reads a retained pre-migration snapshot TAG (the migration-revert undo, after a reverted
 upgrade leaves the store ahead of the code) — both share the fetch -> format/resurrection guard -> consent -> crash-safe
 swap pipeline, differing only in which ref the fetch resolves. Two operator floors live here:
   Floor 3 — the auto-restore-offer: a fresh instance whose local memory is empty but whose committed pointer is
@@ -80,8 +80,7 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
     namespace-missing, corrupt}.
 
     `ref` selects which git ref to read: the default `None` reads the ROLLING backup head (`("heads", branch)`),
-    and `("tags", <tag_name>)` reads a retained pre-migration SNAPSHOT tag (the migration-revert restore path,
-    D-264). The commit -> tree -> blob -> manifest read is IDENTICAL for both — only the resolved ref differs —
+    and `("tags", <tag_name>)` reads a retained pre-migration SNAPSHOT tag (the migration-revert restore path). The commit -> tree -> blob -> manifest read is IDENTICAL for both — only the resolved ref differs —
     so the one fetch mechanism serves both restore modes (no forked copy)."""
     pointer = bv.read_pointer()
     if pointer is None:
@@ -99,7 +98,7 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
         if not (isinstance(base_sha, str) and base_sha):
             # A HEADS miss is "nothing backed up yet" (no-backup-data). A TAGS miss is a CITED snapshot that is
             # gone — a hand-deletion in the operator's own vault — a DISTINCT plain-language finding the operator
-            # must see (D-264 law 5 / floor d), never collapsed into the rolling "run a backup first" message.
+            # must see, never collapsed into the rolling "run a backup first" message.
             return {"ok": False, "error": "snapshot-missing" if ref_kind == "tags" else "no-backup-data"}
         commit = bv._get(gh, f"/repos/{owner}/{repo}/git/commits/{base_sha}")
         tree_sha = (commit or {}).get("tree", {}).get("sha")
@@ -137,7 +136,7 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
 
 
 # ============================================================================================================
-# The engine-run test read — the positive correlate that ends provisioning's saved-memory turn-on (#224, D-242).
+# The engine-run test read — the positive correlate that ends provisioning's saved-memory turn-on (#224).
 # ============================================================================================================
 # A plain-language fault->fix map (Floor 4): one message per fetch_snapshot code, each naming the exact fault AND
 # the one fix, NEVER a git/HTTP error. POINTER_REL is named so a missing-pointer fault points at the exact file.
@@ -163,7 +162,7 @@ def test_read(*, transport=None) -> dict:
     """The engine-run test read that ENDS provisioning's saved-memory turn-on — a one-shot read of the vault with
     the credential just set, exercising BOTH the committed pointer (read by `fetch_snapshot` via `bv.read_pointer`)
     AND the access token (via `bv._gh` -> `boot.gh_token`), so a missing-pointer fault is caught HERE, not on the
-    next scheduled run. A pure §16 consumer read that changes nothing and NEVER raises. Returns {ok, error,
+    next scheduled run. A pure consumer read that changes nothing and NEVER raises. Returns {ok, error,
     message}: `message` is plain operator language naming the exact fault and the one fix (Floor 4), never a
     git/HTTP error. It proves the token's SCOPE / REPO / PERMISSION (the dominant failure modes); the one residual
     it cannot prove — that the secret is set under the right NAME in CI — only the first scheduled run exercises,
@@ -337,7 +336,7 @@ _MSG_NAMESPACE_MISSING = ("Your project's saved-memory folder is no longer in th
                           "here, ask me to set up the backup again and I'll rebuild it from this computer. If this "
                           "computer is empty too and the memory isn't saved on another machine, that backed-up copy "
                           "is gone for good.")
-# The migration-revert distinct miss (D-264 law 5 / floor d): the CITED pre-update snapshot is gone. The floor names
+# The migration-revert distinct miss: the CITED pre-update snapshot is gone. The message names
 # the CONSEQUENCE + one honest recovery action, not the cause — so this does NOT assert "removed by hand" (it could
 # also be the engine's own retention prune, the open reversibility-unit question, #303). The recovery action is
 # DELIBERATELY NOT _MSG_NAMESPACE_MISSING's "set up the backup again" — that would re-push the RESHAPED store and
@@ -366,7 +365,7 @@ _MSG_DECLINED = "No restore was done. Your memory on this computer is unchanged.
 
 def _floor4_fetch(error: "str | None") -> str:
     # `snapshot-missing` arises only on the tags (migration-revert) fetch path; mapping it here means the shared
-    # restore core surfaces the distinct floor-d message rather than the generic unreachable default.
+    # restore core surfaces the distinct snapshot-missing message rather than the generic unreachable default.
     return {"not-configured": _MSG_NOT_CONFIGURED, "no-token": _MSG_UNREACHABLE, "unreachable": _MSG_UNREACHABLE,
             "no-backup-data": _MSG_NO_BACKUP_DATA, "snapshot-missing": _MSG_SNAPSHOT_MISSING,
             "namespace-missing": _MSG_NAMESPACE_MISSING, "corrupt": _MSG_CORRUPT}.get(error or "", _MSG_UNREACHABLE)
@@ -407,17 +406,17 @@ def restore_now(*, transport=None, consent: "str | None" = None, override: bool 
 
 def restore_pre_migration(*, tag: str, transport=None, consent: "str | None" = None, override: bool = False,
                           now: "int | None" = None, github=_UNSET) -> dict:
-    """Restore the local ledger from a retained PRE-MIGRATION snapshot TAG — the migration-revert recovery (D-264):
+    """Restore the local ledger from a retained PRE-MIGRATION snapshot TAG — the migration-revert recovery:
     after an engine upgrade pull request is reverted, engine code goes back but a `data` migration that already
     reshaped the gitignored store is not, so the store is ahead of the code; this restores the true pre-migration
     memory the named snapshot tag holds. SAME fail-safe, consent-gated, crash-safe pipeline as `restore_now` — only
     the ref read differs (`("tags", tag)`), so the one restore mechanism serves both modes. The snapshot manifest
     carries the PRE-migration ledger-generation, so the resurrection guard still fires (only) if an erasure-compaction
-    ran in the revert window (D-264 law 4) — no special generation handling. A cited tag that is GONE (operator
-    hand-deletion) degrades to the distinct `_MSG_SNAPSHOT_MISSING` (floor d), never a silent no-restore.
+    ran in the revert window — no special generation handling. A cited tag that is GONE (operator
+    hand-deletion) degrades to the distinct `_MSG_SNAPSHOT_MISSING`, never a silent no-restore.
 
-    Memory owns this mechanism + restore contract (D-265); the caller (Slice 3's detector / boot offer) supplies the
-    tag — the operator never reads or types a `refs/…` string (plain-handle floor a). Result: {ok, error, restored,
+    Memory owns this mechanism + restore contract; the caller (the detector / boot offer) supplies the
+    tag — the operator never reads or types a `refs/…` string. Result: {ok, error, restored,
     message}."""
     if not (isinstance(tag, str) and tag.strip()):
         return {"ok": False, "error": "snapshot-missing", "restored": False, "message": _MSG_SNAPSHOT_MISSING}
@@ -426,7 +425,7 @@ def restore_pre_migration(*, tag: str, transport=None, consent: "str | None" = N
     if result.get("ok"):
         # The store now holds the pre-update copy, so it is no longer ahead of the code — clear the reversibility
         # stamp so the code-older-than-data offer self-clears. Scoped to the migration-revert mode ONLY: a rolling
-        # `restore_now` must not clear a migration stamp (it restores the live head, not a pre-update floor).
+        # `restore_now` must not clear a migration stamp (it restores the live head, not a pre-update state).
         bv.clear_migration_stamp()
     return result
 
@@ -550,7 +549,7 @@ def detect_restore_offer() -> "dict | None":
 
 
 # ============================================================================================================
-# Floor (a) — the code-older-than-data detector (D-264 #303): is the local store AHEAD of the engine code?
+# The code-older-than-data detector (#303): is the local store AHEAD of the engine code?
 # OFFLINE detection (the migration stamp records what no other local file does — the migrated version);
 # boot relays the one-action restore offer, and when online the durable tracked Issue is promoted too.
 # ============================================================================================================
@@ -559,7 +558,7 @@ _MIGRATION_REVERT_HANDLE = "ask me to restore the copy saved before the last upd
 
 
 def detect_migration_revert(*, github=_UNSET, now: "int | None" = None) -> "dict | None":
-    """OFFLINE, READ-ONLY (D-264 floor a): after a reverted/half-applied engine update, is the gitignored memory store
+    """OFFLINE, READ-ONLY: after a reverted/half-applied engine update, is the gitignored memory store
     AHEAD of the running engine code? The version that migrated the store is recorded nowhere else locally
     (engine.json reverts WITH the code), so this reads memory's own migration stamp (`bv.read_migration_stamp`,
     written at the upgrade's batch floor) and compares its `migrated_by_version` against the running engine version
@@ -755,7 +754,7 @@ def _demo_body() -> bool:
     part6 = failed.get("ok") is False and unchanged and "http" not in failed["message"].lower()
     print(f"  => {'a failure names a consequence and one action, and changes nothing.' if part6 else '!!! a failed fetch was mishandled'}")
 
-    # --- PART 7 — migration-revert: restore the PRE-update memory from its retained snapshot tag (D-264) -------
+    # --- PART 7 — migration-revert: restore the PRE-update memory from its retained snapshot tag -------
     print("\nPART 7 — undo a bad engine update: restore the copy saved before the last update (migration-revert)")
     print("-" * 96)
     # A clean pre-update state, snapshotted as a RETAINED TAG before a data migration reshapes the live store.
@@ -779,7 +778,7 @@ def _demo_body() -> bool:
     part7a = (bool(tag) and reverted.get("ok") is True and reverted.get("restored") is True and back == pre_update
               and reshaped_hit == 1 and query_hits("grumbo") == 0 and query_hits("plumbus") == 1)
 
-    # A cited snapshot that is GONE (hand-deleted in the operator's own vault) -> the DISTINCT floor-d message, never
+    # A cited snapshot that is GONE (hand-deleted in the operator's own vault) -> the DISTINCT snapshot-missing message, never
     # a silent no-restore, and distinct from the rolling "nothing backed up yet" / "couldn't reach it" messages.
     guard_bytes = _read_bytes(ledger.ledger_path())
     missing = restore_pre_migration(tag="engine-snapshot/recall/does-not-exist", transport=fake.transport,
@@ -790,7 +789,7 @@ def _demo_body() -> bool:
     print(f"  a hand-deleted snapshot is disclosed plainly (not silently skipped): {part7b}")
 
     # An erasure-compaction since the snapshot -> restoring the older-generation snapshot is SURFACED, not silently
-    # applied (D-264 law 4: the retained tag participates in the generation-resurrection check).
+    # applied (the retained tag participates in the generation-resurrection check).
     ledger.set_generation(12)                                      # an erasure bumped the local generation since
     resurrect = restore_pre_migration(tag=tag, transport=fake.transport, consent="y", github=None)
     part7c = resurrect.get("error") == "resurrection" and _read_bytes(ledger.ledger_path()) == guard_bytes
@@ -798,7 +797,7 @@ def _demo_body() -> bool:
     part7 = part7a and part7b and part7c
     print(f"  => {'a reverted update can be undone to the true pre-update memory.' if part7 else '!!! the migration-revert restore failed'}")
 
-    # --- PART 8 — the engine DETECTS the store is ahead of the code and OFFERS the whole-update undo (floor a, #303) -
+    # --- PART 8 — the engine DETECTS the store is ahead of the code and OFFERS the whole-update undo (#303) -
     print("\nPART 8 — the engine notices your memory is ahead of your code after a reverted update, and offers the undo")
     print("-" * 96)
     import boot       # noqa: E402 — lazy: only the demo renders the boot offer (boot -> restore_vault is a lazy back-edge)

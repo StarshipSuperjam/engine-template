@@ -1,13 +1,13 @@
-"""rollup.py — gist roll-up: AI-judged second-order consolidation of old episodes (memory-substrate, slice 4d-ii).
+"""rollup.py — gist roll-up: AI-judged second-order consolidation of old episodes (memory substrate).
 
-Active forgetting's first move (memory/README): a perpetual project cannot only accumulate. A deferred,
+Active forgetting's first move: a perpetual project cannot only accumulate. A deferred,
 AI-judged maintenance pass **consolidates old, related, low-frecency EPISODIC summaries into a compact GIST and
 logically retires the raw episodes** — the SECOND-order consolidation (episode→gist), exactly parallel to
-slice-3b's first-order (delta→episode). "Related" is pre-grouped for the AI by a cross-session shared-topic-tag
+the first-order (delta→episode). "Related" is pre-grouped for the AI by a cross-session shared-topic-tag
 cluster or, failing that, the coarse same-session group (#235); a cross-session gist carries a `tag:`/`sim:`
 cluster key as its `session_id` (its real-session provenance lives in `source_ids`). This module is **Layer 1**: *reversible, mechanical,
 memory-autonomous* tidying that needs no human gate because **nothing is lost** — a retired raw is excluded from
-recall but stays resident + fully recoverable in the one ledger (physical erasure is Layer-2/4e, audit-gated).
+recall but stays resident + fully recoverable in the one ledger (physical erasure is Layer-2, audit-gated).
 
 What one roll-up pass does, under the single-writer `.capture.lock`, **append-only, in STRICT ORDER**:
 
@@ -21,12 +21,12 @@ What one roll-up pass does, under the single-writer `.capture.lock`, **append-on
 **The crash-safety spine.** A raw is retired from recall ONLY once its roll-up batch is closed (`forget`'s
 supersession gate keys on `_closed_rollup_batches`), so a crash before the closing marker leaves every
 `superseded` marker INERT — the raws stay live, the orphaned gist is itself retired (`forget._is_gist_orphan`),
-and nothing is hidden without its gist. The closing kind is DISTINCT from 3b's `consolidated` marker so a
+and nothing is hidden without its gist. The closing kind is DISTINCT from the first-order `consolidated` marker so a
 roll-up never spuriously marks a session consolidated. APPENDS ONLY — never deletes or rewrites (the Layer-1
-erasure-free invariant; the swap that prunes the folded markers lives in `compact.py`, slice 4d-i, which folds a
+erasure-free invariant; the swap that prunes the folded markers lives in `compact.py`, which folds a
 closed-batch supersession into the raw's carried `superseded_by` field).
 
-**The live caller (slice 5, PR 3).** A 3b-shaped `SessionStart` background sweep hands the in-context AI the cold
+**The live caller.** A consolidation-shaped `SessionStart` background sweep hands the in-context AI the cold
 session-groups to judge — a hook cannot think, so it cannot ride a non-AI hook. It is FOLDED INTO memory's one
 `SessionStart` behavior (`consolidate._session_start_handler`, the single keyed memory hook the design's wired-hook
 list names — `Stop`, `PreCompact`, `SessionStart`): that handler injects ONE combined background directive — the
@@ -36,7 +36,7 @@ candidates and the directive stays silent. The selection floors (COLD tier; grou
 shared-topic-tag cluster, then the coarse per-session group; ≥3 per group; episodics only) are build-spec leaves
 recorded with the maintainer.
 
-Leaf discipline (principle §16): the detect/store functions RETURN a report and render no operator-facing prose
+Leaf discipline: the detect/store functions RETURN a report and render no operator-facing prose
 (the demo is the one operator surface). stdlib + the cycle-free `memory` set (forget / ledger / records / score);
 `capture` (the lock + record version), `index` (the rebuild), and `consolidate` (the closed role vocabulary +
 the demo's episodic factory) are lazy-imported to keep them off the module-load path.
@@ -60,14 +60,14 @@ from memory import forget, ledger, records, score  # noqa: E402
 # --- Build-spec leaves (the roll-up selection floors) -----------------------------------------------------
 # A candidate is a raw EPISODIC (not a gist — v1 keeps the link single-hop raw→gist; recursive meta-gist is a
 # deferred concern), not already superseded, that scores into the COLD tier (≈16–30 days untouched — "old +
-# low-frecency", not yet ARCHIVED, which 4c already index-excludes). The eligible pool is then pre-grouped by a
+# low-frecency", not yet ARCHIVED, which the scorer already index-excludes). The eligible pool is then pre-grouped by a
 # "related" signal for the AI to judge WITHIN each group, in a fixed PRECEDENCE so each candidate lands in exactly
 # ONE group (disjoint source_ids per pass): (1) a cross-session SHARED-TOPIC-TAG cluster (`tag:<tag>`, #235 — the
 # richer relatedness signal), then (2) the coarse per-session group (the original floor, the fallback for untagged
 # notes). A group needs >= _MIN_GROUP raws (a "gist" of one raw is a rename); a cross-session cluster must
 # additionally span >= _TAG_MIN_SESSIONS distinct real sessions (else it is just a per-session group in disguise).
 # All recorded with the maintainer. (A lexical-similarity cluster — `sim:<id8>` — slots between (1) and (2) in
-# slice C.)
+# a later pass.)
 _MIN_GROUP = 3
 _TAG_MIN_SESSIONS = 2     # a cross-session tag cluster must span >= this many real sessions to count as cross-session
 _MAX_DIRECTIVE_IDS = 8    # cap the directive's id enumeration (mirrors consolidate._MAX_DIRECTIVE_IDS)
@@ -104,7 +104,7 @@ def _eligible_cold_episodics(*, cwd=None, now: "int | None" = None) -> list:
         rid = record.get(records.RECORD_ID_KEY)
         if not isinstance(rid, str) or not rid or rid in superseded:
             continue
-        if forget._is_retired(record, closed):          # a crashed-pass orphan (4a) — already out of recall
+        if forget._is_retired(record, closed):          # a crashed-pass orphan — already out of recall
             continue
         accesses = access_index.get(rid, ())
         if score.tier(record, accesses, now) != score.COLD:
@@ -180,7 +180,7 @@ def _validate(gists) -> "str | None":
     """None if every gist is a well-formed {role in the closed vocabulary, non-empty text, non-empty list of
     source ids}; else a plain rejection reason. REJECT-not-coerce and WHOLE-BATCH-atomic: one bad gist stores
     nothing (the engine never silently guesses a label or a source it was not given)."""
-    from memory import consolidate  # lazy: reuse the closed role vocabulary (3b) without an import cycle
+    from memory import consolidate  # lazy: reuse the closed role vocabulary without an import cycle
     if not isinstance(gists, (list, tuple)) or not gists:
         return "no gists to store"
     for i, g in enumerate(gists):
@@ -215,7 +215,7 @@ def _make_gist(session_id: str, rec: dict, batch: str) -> dict:
     return {
         "v": capture.RECORD_VERSION,
         "kind": records.GIST_KIND,
-        records.RECORD_ID_KEY: records.new_record_id(),     # the stable, content-free record id (slice 4b)
+        records.RECORD_ID_KEY: records.new_record_id(),     # the stable, content-free record id
         "session_id": session_id,
         "ts": now,
         "role": rec["role"],
@@ -246,7 +246,7 @@ def _make_superseded_marker(raw_id: str, gist_id: str, batch: str) -> dict:
 def _make_rollup_marker(session_id: str, batch: str) -> dict:
     """The closing marker of a roll-up pass — the ONLY kind that CLOSES its `batch`. Written LAST: a crash
     before it leaves the pass's gist orphaned and its supersessions inert (favor a no-op over a wrong hiding —
-    `forget` then surfaces the raws and retires the orphan gist, all recoverable). DISTINCT from 3b's
+    `forget` then surfaces the raws and retires the orphan gist, all recoverable). DISTINCT from consolidation's
     `consolidated` marker so a roll-up never marks a session consolidated."""
     from memory import capture  # lazy
     return {
@@ -322,7 +322,7 @@ def store_gist(session_id: str, gists, *, cwd=None, _crash_after: "str | None" =
 def rollup_directive(groups: dict) -> str:
     """The BACKGROUND directive the SessionStart sweep injects when sessions have a cluster of old, unused
     episodes ready to roll up. Like the consolidation directive it stays SUBORDINATE to the operator's request
-    (memory's operation, not orientation — boot/README): never a first-turn hijack, and its mechanics run OFF the
+    (memory's operation, not orientation): never a first-turn hijack, and its mechanics run OFF the
     operator's main transcript — the main loop SPAWNS A SUBAGENT to do the read/store and relays nothing about it
     when the subagent returns (#280; roll-up has no stalled-backlog alarm — it is the lower-priority "can wait"
     path). The detect leaf renders nothing; this composes the prose. DISTINCT from
@@ -330,7 +330,7 @@ def rollup_directive(groups: dict) -> str:
     summaries, not raw turn-notes; (2) each gist must name its `source_ids` — the exact note ids it rolls up —
     which `rollup.py read` returns so the subagent can. Reuses the closed role vocabulary so the prose can never
     drift from `_validate`'s accepted set."""
-    from memory import consolidate  # lazy: reuse the closed role vocabulary (3b) without an import cycle
+    from memory import consolidate  # lazy: reuse the closed role vocabulary without an import cycle
     ids = sorted(groups)
     n = len(ids)
     shown = ids[:_MAX_DIRECTIVE_IDS]

@@ -1,9 +1,9 @@
-"""Unit tests for the live roll-up SWEEP — memory's SessionStart caller for gist roll-up (slice 5, PR 3).
+"""Unit tests for the live roll-up SWEEP — memory's SessionStart caller for gist roll-up.
 
 The roll-up MECHANISM (detect / store / fold) is pinned in test_rollup.py. THIS file pins the live CALLER: the
 SessionStart sweep that hands the in-context AI the cold session-groups to roll up. It is FOLDED INTO memory's one
 SessionStart behavior (`consolidate._session_start_handler`), which injects ONE combined background directive
-carrying both the consolidation backlog (3b) and the roll-up backlog (this slice). These tests drive the REAL
+carrying both the consolidation backlog and the roll-up backlog. These tests drive the REAL
 handlers through the REAL fail-open `run_hook` harness over a throwaway `ENGINE_MEMORY_DIR` cabinet.
 """
 

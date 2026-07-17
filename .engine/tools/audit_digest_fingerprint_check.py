@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit-digest seal gate (audit-library slice 2) — the thin custom/script entry for
+"""Audit-digest seal gate (audit-library) — the thin custom/script entry for
 engine/check/audit-digest-fingerprint.
 
 Runs as a `custom/script` rule in the CI suite: it confirms the committed self-review file

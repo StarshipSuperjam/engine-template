@@ -1,4 +1,4 @@
-"""Unit tests for rollup.py — gist roll-up, the AI-judged second-order consolidation (memory slice 4d-ii).
+"""Unit tests for rollup.py — gist roll-up, the AI-judged second-order consolidation.
 
 Roll-up is Layer-1: reversible, mechanical, autonomous. It consolidates old episodes into a compact GIST and
 LOGICALLY RETIRES the raws (excluded from recall, still resident + fully recoverable). These tests exercise the
@@ -214,8 +214,7 @@ class FoldSupersedeTests(_Base):
         self.assertEqual(sorted(recovered), sorted(raws))
 
     def test_a_reinforced_and_superseded_raw_keeps_both_carried_fields(self):
-        """A raw that is BOTH reinforced (gets a frecency snapshot, 4d-i) AND superseded (gets superseded_by,
-        4d-ii) must carry BOTH after one compaction — the two folds layer cleanly on independent dict copies."""
+        """A raw that is BOTH reinforced (gets a frecency snapshot) AND superseded (gets superseded_by) must carry BOTH after one compaction — the two folds layer cleanly on independent dict copies."""
         raw = self._episodic("a note used then rolled up word0", age_days=10)[records.RECORD_ID_KEY]
         forget.record_access(raw)
         forget.record_access(raw)
@@ -321,9 +320,9 @@ class GistLifecycleTests(_Base):
         self.assertNotIn(self._gist_id(), self._live_ids())
 
     def test_a_rollup_and_a_consolidation_never_cross_close(self):
-        """The two closure namespaces are disjoint: a crashed 3b consolidation's episodic stays retired AND a
+        """The two closure namespaces are disjoint: a crashed consolidation's episodic stays retired AND a
         crashed roll-up's gist stays retired — neither marker closes the other's batch."""
-        # a crashed 3b consolidation: an episodic carrying a batch with no `consolidated` marker
+        # a crashed consolidation: an episodic carrying a batch with no `consolidated` marker
         orphan_ep = consolidate._make_episodic("C", {"role": "decision", "text": "a crashed consolidation note"}, "cb")
         ledger.append(orphan_ep)
         # a crashed roll-up: a gist + supersessions, no `rolled-up` marker

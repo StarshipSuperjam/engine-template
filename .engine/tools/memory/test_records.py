@@ -1,11 +1,11 @@
-"""Unit tests for the stable, content-free record id minted at capture (memory slice 4b).
+"""Unit tests for the stable, content-free record id minted at capture.
 
 The id (`records.RECORD_ID_KEY`, a `uuid4().hex`) is stamped in every record factory — turn-deltas
 (`capture._make_record`), episodics and markers (`consolidate._make_episodic` / `_make_marker`). It is a
 durable, content-free NAME for a record: unique per record, never derived from content, kept OUT of the search
 body (`index._NON_BODY_KEYS`), and stable across an index rebuild and a ledger re-append (the compaction
 precursor). These tests exercise the real minter, the real factories, and the real recall paths through them,
-plus the back-compat tolerance of pre-4b records that carry no id, and the folded-in `SESSION_ENV` fix.
+plus the back-compat tolerance of legacy records that carry no id, and the folded-in `SESSION_ENV` fix.
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ class FactoryTests(unittest.TestCase):
 class StabilityTests(_Base):
     def test_the_id_survives_an_index_rebuild_byte_for_byte(self):
         # The recall vehicle is a CURATED episodic (closed batch → live): ambient turn-deltas are not recall
-        # content (D-273/D-274, #332). The id-stability property is record-kind-agnostic.
+        # content (#332). The id-stability property is record-kind-agnostic.
         rec = consolidate._make_episodic("S", {"role": "decision", "text": "the quokka decision"}, "batch-x")
         ledger.append(rec)
         ledger.append(consolidate._make_marker("S", "batch-x"))   # close the batch so the episodic is live
@@ -143,9 +143,9 @@ class NonSearchableTests(_Base):
 
 class BackCompatTests(_Base):
     def test_a_record_with_no_id_still_appends_indexes_and_queries(self):
-        # a pre-4b CURATED record — NO "id" field — must read/index/query fine (no reader requires an id). A
-        # batchless episodic is always live; ambient turn-deltas are no longer recall content (D-273/D-274, #332),
-        # so the recall vehicle is an episodic. `ts` is current (not a sentinel): scored demotion (slice 4c) sets
+        # a legacy CURATED record — NO "id" field — must read/index/query fine (no reader requires an id). A
+        # batchless episodic is always live; ambient turn-deltas are no longer recall content (#332),
+        # so the recall vehicle is an episodic. `ts` is current (not a sentinel): scored demotion sets
         # an ancient record aside from recall, which would mask the id tolerance this test is about.
         ledger.append({"v": 1, "kind": records.EPISODIC_KIND, "session_id": "S", "ts": int(time.time()),
                        "role": "observation", "text": "an old note about pelicans", "tags": ["episodic"]})
@@ -155,7 +155,7 @@ class BackCompatTests(_Base):
         self.assertIsNone(hits[0].get(records.RECORD_ID_KEY))         # absent id tolerated, no crash
 
     def test_no_id_episodics_recall_and_retire_correctly(self):
-        # both episodics are id-free (pre-4b): the no-batch one is live; the orphan-batch one still retires
+        # both episodics are id-free (legacy): the no-batch one is live; the orphan-batch one still retires
         ledger.append({"v": 1, "kind": records.EPISODIC_KIND, "session_id": "S",
                        "text": "kept summary", "tags": ["episodic"]})
         ledger.append({"v": 1, "kind": records.EPISODIC_KIND, "session_id": "S",
@@ -168,7 +168,7 @@ class BackCompatTests(_Base):
 
 class SessionEnvFixTests(unittest.TestCase):
     def test_capture_session_env_is_the_live_platform_var(self):
-        # the slice-4b folded-in fix: capture's env fallback must name the live var (matches consolidate's)
+        # the folded-in fix: capture's env fallback must name the live var (matches consolidate's)
         self.assertEqual(capture.SESSION_ENV, "CLAUDE_CODE_SESSION_ID")
         self.assertEqual(capture.SESSION_ENV, consolidate.SESSION_ENV)
 

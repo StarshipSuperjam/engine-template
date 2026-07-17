@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Promote a standing length-budget soft finding to a tracked engine Issue (issue #273 half 2, slice 2).
+"""Promote a standing length-budget soft finding to a tracked engine Issue (issue #273 half 2).
 
-Slice 1 lets the weekly self-review SEE the firing soft validator findings; this closes the loop by giving
+The soft-findings feed lets the weekly self-review SEE the firing soft validator findings; this closes the loop by giving
 a standing one a durable home — a deduped, lane-aware engine-labelled Issue — so it reaches boot and the
-issue tracker even when no one reads the digest closely. It runs a LIVE-DERIVED telemetry pass (F0204):
+issue tracker even when no one reads the digest closely. It runs a LIVE-DERIVED telemetry pass:
 open/update an Issue for each over-budget surface AND auto-resolve the Issue of a surface seen back under
 its budget — telemetry's standard source-scoped resolution, confined to `soft-budget:` sids so it can never
 close another source's Issue. This SUPERSEDES the original open/update-only stance: once telemetry gained a
-safe source-scoped auto-resolve (403.1), a trimmed file self-closing its own stale Issue is the honest
+safe source-scoped auto-resolve, a trimmed file self-closing its own stale Issue is the honest
 behaviour and the same as every other engine health signal (CI, ambient, episodic). Auto-resolve clears the
 FLAG — it never repairs the file; trimming or raising the budget is still work someone does.
 
@@ -31,11 +31,11 @@ SAFETY / HONESTY:
   path of a catalogued surface is a plain repo-relative path (it cannot contain the HTML-comment delimiters
   the tracking marker uses), so it is a stable, collision-free signal id — one Issue per over-budget surface.
 - The finding message and file path are author-influenced text that lands in the Issue body, so both are
-  defanged with the same neutraliser the slice-1 feed uses before they are embedded.
+  defanged with the same neutraliser the soft-findings feed uses before they are embedded.
 - A finding with no file location is skipped (it cannot be source-keyed); a length-budget finding always
   carries one.
 - Fail-open: any error prints a visible status line and exits 0 — a transient GitHub blip must never fail
-  the self-review, and the finding simply re-fires next run (and slice 1's digest still surfaces it).
+  the self-review, and the finding simply re-fires next run (and the soft-findings feed still surfaces it).
 
 CLI (the audit-prep workflow's promote step; needs GITHUB_REPOSITORY + GITHUB_TOKEN with issues:write —
 the GitHub token, never the Claude token):
@@ -51,9 +51,9 @@ import validate          # noqa: E402  (the collect seam + the prompt-fence defa
 import telemetry         # noqa: E402  (the GitHub boundary + the live triage pass + the benign severity class)
 import issue_author      # noqa: E402  (the shared engine-Issue body contract)
 import module_coherence  # noqa: E402  (provides_claims — the authoritative machinery test)
-import knowledge_query   # noqa: E402  (resolve the over-budget surface to its knowledge entity — F0202)
+import knowledge_query   # noqa: E402  (resolve the over-budget surface to its knowledge entity)
 
-# The report-only suite the length-budget nudges join (slice 1). Read here, never the CI gate.
+# The report-only suite the length-budget nudges join. Read here, never the CI gate.
 FEED_SUITE = "audit-prep"
 # The dedup namespace for these tracked Issues. Disjoint from telemetry's own health sources
 # (`rule:` / `check/`) and the other producers (`close/disposition/`, `migration/version-stamp/`), so this
@@ -63,7 +63,7 @@ SOURCE_PREFIX = "soft-budget:"
 # This producer's OWN reconcile-accrual cache, separate from the CI / ambient / episodic stream caches so no
 # other local `run` can clobber it. Under the live-derived pass (below) the cache is not RELIED upon — the
 # durable Issue set is the truth — but `run` still takes and writes one; on the ephemeral audit runner that
-# write is harmless waste (the same reason the CI signal is live-derived, telemetry.py §CI-outcome signal).
+# write is harmless waste (the same reason the CI signal is live-derived, telemetry.py's CI-outcome signal).
 DEFAULT_SOFT_BUDGET_STREAMS_PATH = os.path.join(
     validate.ROOT, ".engine", "telemetry", ".cache", "soft-budget-streams.json")
 
@@ -71,7 +71,7 @@ DEFAULT_SOFT_BUDGET_STREAMS_PATH = os.path.join(
 def _neutralize(text: str) -> str:
     """Render author-influenced text inertly in a GitHub issue body. The finding message and the file
     path embed an author-chosen filename, and a budget issue's body is rendered markdown — so neutralise
-    both the prompt-fence rails (the slice-1 feed's defang, for when this body is later re-read into a
+    both the prompt-fence rails (the soft-findings feed's defang, for when this body is later re-read into a
     persona prompt) AND the markdown/HTML a crafted filename could smuggle: HTML-escape the angle
     brackets and ampersand (no tag, no comment, no forged `<!-- engine-signal -->` tracking marker) and
     backslash-escape the markdown image/link/code characters (no beacon image, link, or code-span
@@ -85,7 +85,7 @@ def _neutralize(text: str) -> str:
 
 
 def _entity_reference(rel: str, repo: str | None) -> list | None:
-    """A single labelled link to the knowledge entity for "what is broken" (F0202 / D-031: a debt Issue
+    """A single labelled link to the knowledge entity for "what is broken" (a debt Issue
     references knowledge entity-ids so telemetry owns the debt while knowledge stays surface-derived). The
     entity IS the over-budget surface; the link is a GitHub blob permalink to it. `blob/HEAD/` resolves to
     the default branch with NO branch lookup, so it needs no workflow env / extra ack. Returns None (no
@@ -110,7 +110,7 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None)
     title is plain text, not rendered markdown) and `message` is the raw finding message; both the path
     and the message are neutralised before they enter the rendered body. body_core is prose only —
     telemetry appends its tracking trailers + signal marker. When the surface resolves to a knowledge
-    entity, a blob-permalink reference to it is folded in (F0202)."""
+    entity, a blob-permalink reference to it is folded in."""
     where = _neutralize(rel)
     message = _neutralize(message)
     title = f"Engine length budget: {rel} is over its limit"
@@ -163,7 +163,7 @@ def budget_records(now: str, *, claims: dict | None = None, repo: str | None = N
     authoritative machinery test: a file a present module manifest claims is overlaid on every upgrade.
     `claims` (the {relpath: [owner,...]} ownership map) is injectable so the demo/tests can exercise both
     lanes on a real over-budget finding without mutating shipped files; by default it is computed live.
-    `repo` (owner/name) is threaded to the body render for the F0202 entity permalink; None omits it."""
+    `repo` (owner/name) is threaded to the body render for the entity permalink; None omits it."""
     findings = validate.collect(FEED_SUITE, {}, with_source=True)
     if claims is None:
         claims = module_coherence.provides_claims(module_coherence.discover_manifests())
@@ -201,7 +201,7 @@ def budget_surfaces() -> set:
     Issue can auto-resolve — applied here, so a file that DROPPED back under its budget (still evaluated, no
     longer firing → absent from the records) auto-resolves its tracked Issue. Confined to `soft-budget:` sids
     BY CONSTRUCTION, so a soft-budget pass can never close a `ci/`/`ambient/`/`episodic/`/out-of-band Issue
-    (the 403.1 scoping law — never AUTHORITATIVE_ALL). An anomalous path that could break the tracking marker
+    (the source-scoping rule — never AUTHORITATIVE_ALL). An anomalous path that could break the tracking marker
     is dropped (marker-safety, mirroring budget_records)."""
     surfaces = set()
     for rule in validate.load_rules():
@@ -227,11 +227,11 @@ def promote(repo: str, token: str, now: str, *, transport=None, claims: dict | N
 
     LIVE-DERIVED (live=True), like the CI signal: a length-budget overrun is a re-derivable STANDING condition
     (not a flicker), so it promotes on first observation and its Issue auto-resolves the first pass it is seen
-    back under budget — telemetry's standard resolution (README "Resolution closes the issue"; auto-resolve
+    back under budget — telemetry's standard resolution (auto-resolve
     clears the flag, it does NOT repair the file). `authoritative` is the FULL budget-checked surface set
     (`budget_surfaces()`), confined to `soft-budget:` sids, so the pass closes a cleared budget Issue but never
     another source's. This supersedes the earlier open-or-update-only stance: telemetry's source-scoped
-    auto-resolve (403.1) now makes a safe close possible, so a trimmed file no longer leaves a stale Issue open
+    auto-resolve now makes a safe close possible, so a trimmed file no longer leaves a stale Issue open
     forever."""
     records = budget_records(now, claims=claims, repo=repo)
     github = telemetry.GitHubIssues(repo, token, transport=transport)

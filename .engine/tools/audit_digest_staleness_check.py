@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit-digest freshness signal (audit-library slice 2) — the thin custom/script entry for
+"""Audit-digest freshness signal (audit-library) — the thin custom/script entry for
 engine/check/audit-digest-staleness.
 
 Runs as a `custom/script` rule in the `audit-prep` suite (report-only): it reads the run-date on the

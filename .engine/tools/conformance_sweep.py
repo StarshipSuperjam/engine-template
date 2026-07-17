@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Standing product-spec-conformance sweep — the mechanical half of the audit's conditional conformance leg
-(design of record: engine-planning D-296/D-297 / issue #449; the criterion record it reads is D-287's
+(design of record: issue #449; the criterion record it reads is the
 product-design spec-obligation matrix, built in PR-1).
 
 WHAT IT IS. The audit persona runs a *judgment* each cron: given a product that has SETTLED a `docs/spec/`,
@@ -11,7 +11,7 @@ workflow invokes:
   feed     — before the persona runs: read the committed spec-obligation matrix (BY PRESENCE, never importing
              the optional product-design module) and the `docs/spec/` lock status, decide the conditional
              state, and print the persona's hunt-set + the honest coverage disclosure. SILENT when nothing is
-             settled (an MVP is a first-class choice, never nagged — §20); DEGRADE-AND-DISCLOSE the distinct
+             settled (an MVP is a first-class choice, never nagged); DEGRADE-AND-DISCLOSE the distinct
              case where a spec IS locked but its matrix is missing.
   promote  — after the persona runs: parse the persona's machine-readable `conformance-verdicts.v1` block out of its
              digest body, STRIP it (so the committed digest stays clean prose and the JSON never feeds back
@@ -25,13 +25,13 @@ side surfaces as a contract failure a test catches, never a silent break. It rea
 `spec_referent._frontmatter_status`, and enumerates `docs/spec/*.md` itself (core has no walk helper). In the
 engine's own construction repo (no `docs/spec/`) every path is the silent no-op, exercised only by fixtures.
 
-HONESTY (R16/§17). A standing conformance finding is the engine's AI JUDGEMENT of the built code against the
+HONESTY. A standing conformance finding is the engine's AI JUDGEMENT of the built code against the
 frozen criterion, carrying NO behavioural correlate at cron cadence (the demonstration harness is the
 operator-run correlate at the reconcile merge, not re-run here). The promoted issue SAYS exactly that — it is
 a prompt to look, never a confirmed defect. The digest prose is the record; the machine block is a best-effort
 accelerator, so an absent/malformed/duplicated block is a clean no-op, never a failure.
 
-Prioritisation is law-3: the hunt-set is the rows the matrix STALE-FLAGS (a `(doc, digest)` pair absent from
+Prioritised, not exhaustive: the hunt-set is the rows the matrix STALE-FLAGS (a `(doc, digest)` pair absent from
 the previous committed matrix version — a re-worded criterion OR a freshly-locked one, both read over the
 commits+contents API on the shallow cron checkout, never `git log`) plus a small ROTATING sample of stable
 rows (persisting no count). The disclosure names what was re-hunted and what was not, so the digest never
@@ -56,7 +56,7 @@ import telemetry         # noqa: E402  the GitHub boundary + promote_finding + m
 import issue_author      # noqa: E402  the shared engine-Issue body contract
 import spec_referent     # noqa: E402  CORE lock-status reader (never the product-design parser)
 import github_client     # noqa: E402  the commits/contents API for the matrix's own recent history
-from audit_soft_promote import _neutralize  # noqa: E402  the shared author-text neutraliser (R3)
+from audit_soft_promote import _neutralize  # noqa: E402  the shared author-text neutraliser
 
 # ---- constants ------------------------------------------------------------------------------
 
@@ -75,11 +75,11 @@ _SPEC_SUBDIR = ("docs", "spec")
 
 # The dedup namespaces. Disjoint from telemetry's own sources and the other producers, so these issues never
 # collide with theirs. The finding key is the LOCKED matrix-row identity `(doc, digest)` — position-free, so a
-# mid-table insert/delete never re-keys and re-nags the rows below it (D-296).
+# mid-table insert/delete never re-keys and re-nags the rows below it.
 SOURCE_PREFIX = "product-conformance:"
 DEGRADED_SOURCE_ID = "product-conformance-degraded:matrix-missing"
 
-# law-3 stable-row sample: a small rotating window (>=1 a cycle), persisting no count — the rotation offset is
+# stable-row sample: a small rotating window (>=1 a cycle), persisting no count — the rotation offset is
 # the workflow RUN NUMBER (GITHUB_RUN_NUMBER), which grows every cron run, so the window advances each cycle
 # without stored state (the matrix's own commit count does NOT grow per-cron — it only moves when the spec is
 # edited — so it cannot drive the rotation).
@@ -185,7 +185,7 @@ def load_matrix(path: str | None = None):
 
 
 def conditional_state(root: str | None = None, matrix=None, *, _matrix_loaded=False) -> str:
-    """'silent' | 'degraded' | 'active'. Silent when nothing is settled (never nag toward a spec — §20);
+    """'silent' | 'degraded' | 'active'. Silent when nothing is settled (never nag toward a spec);
     degraded when a spec IS locked but its matrix is missing/empty/unreadable (the one actionable gap);
     active when a locked spec and a rows-bearing matrix are both present."""
     root = _root() if root is None else root
@@ -347,8 +347,8 @@ def build_feed(root: str | None = None, *, matrix=None, baseline_pairs=None, rot
     """The persona feed text for the current conditional state. Pure given its inputs (the workflow supplies
     history via _read_history); returns the silent notice, the degradation notice, or the active hunt-set +
     the honest coverage disclosure. The feed tells the persona WHICH criteria to check (the priorities, which
-    need history it cannot reach); the persona re-derives each obligation from the `docs/spec/` span itself
-    (R16), which it reads with its own read access — the feed line is orientation, never the basis of judgment."""
+    need history it cannot reach); the persona re-derives each obligation from the `docs/spec/` span itself,
+    which it reads with its own read access — the feed line is orientation, never the basis of judgment."""
     root = _root() if root is None else root
     state = conditional_state(root, matrix, _matrix_loaded=True)
     if state == "silent":
@@ -465,7 +465,7 @@ def extract_block(body: str):
 def _render_divergence(item: dict) -> tuple:
     """(title, body_core) for one 'diverges' verdict. The criterion + the persona's note are author-influenced
     (they include `docs/spec/` content), so both are neutralised before they enter the rendered issue body. The
-    body carries the R16/§17 artifact-warrant honesty: this is judgement with no behavioural check, a prompt to
+    body carries the artifact-warrant honesty: this is judgement with no behavioural check, a prompt to
     look, adjudicated at the reconcile merge."""
     doc = item.get("doc", "")
     where = _neutralize(doc)
@@ -517,7 +517,7 @@ def _render_degraded(root: str) -> tuple:
 
 def conformance_records(items: list, root: str) -> list:
     """A finding-record per 'diverges' verdict, deduped on the LOCKED matrix-row identity (doc, digest) — no
-    position (D-296; position cascades and would re-nag). An id that is not marker-safe is SKIPPED, never
+    position (position cascades and would re-nag). An id that is not marker-safe is SKIPPED, never
     promoted with a corrupt key (the derive_ci_records discipline)."""
     records = []
     for item in items:
@@ -575,7 +575,7 @@ def promote(body_file: str, *, repo: str | None = None, token: str | None = None
 
     # 2) Build the records: divergences from the block + the mechanical degradation gap. Gate BOTH on the
     #    conditional state — a divergence issue is promoted ONLY when a spec is settled AND its matrix is
-    #    present (active). This re-asserts the §20 silence guarantee mechanically: even if the persona
+    #    present (active). This re-asserts the silence guarantee mechanically: even if the persona
     #    disobeyed the feed and emitted verdicts with no settled spec (silent) or no matrix (degraded), no
     #    divergence issue opens; the degraded state gets its own one gap notice instead.
     state = conditional_state(root)

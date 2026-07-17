@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guardrail-weakening classifier (stage-0 seed; re-homed onto custom/script in core slice 5b).
+"""Guardrail-weakening classifier (stage-0 seed; re-homed onto custom/script).
 
 Runs on pull_request_target so its logic is read from the protected base branch
 — a pull request cannot tamper with the guard that judges it. It READS THE DIFF
@@ -15,22 +15,22 @@ the config that wires it, the validator, the ruleset-applying operation, or
 CODEOWNERS) OR ships a traveling security-floor provision (the committed
 `dependabot.yml` the control plane sends to every generated repo — it gates no
 merge, but silently dropping it downgrades a safety pillar the operator relied
-on), defined by that PROPERTY rather than a path-prefix list (D-268), so
+on), defined by that PROPERTY rather than a path-prefix list, so
 benign edits to non-gate tooling no longer demand the ack — AND a REPOINT of the
 engine's update home in the manifest (`home_repository` in .engine/engine.json) —
 which changes where executable engine code is fetched from at the next update, a
-§15 supply-chain weakening (D-281/D-282, #367). A flagged change blocks the merge
+supply-chain weakening (#367). A flagged change blocks the merge
 until the operator applies the distinct, deliberate acknowledgment — the
 `guardrail-ack` label — after reading, in plain language, what protection could
-weaken (control-plane §weakening hard-gate; D-051 / D-134; principles §15).
+weaken (the guardrail-weakening hard-gate).
 
 It now runs as a frozen-named `custom/script` check rule (engine/check/guardrail-weakening),
 invoked BY ID from engine-guard.yml (`validate.py --check`), NOT as part of the CI
 suite — so its execution stays on the trusted-base pull_request_target workflow and
-never moves into the head-checkout engine-ci context (the D-051 isolation). It emits
+never moves into the head-checkout engine-ci context (the trusted-base isolation). It emits
 finding.v1 JSON on stdout (the custom/script machine channel) and returns 0 on a
 successful evaluation: an empty array when nothing weakens or the `guardrail-ack`
-label is present (the ack is an INPUT to this one guard, D-134); one finding at the
+label is present (the ack is an INPUT to this one guard); one finding at the
 rule's tier (ENGINE_RULE_TIER, passed by the kind) — carrying the plain-language
 ack guidance — on an unacknowledged guardrail change; and a fail-closed finding when
 the pull-request context cannot be read, or when the full changed-file list cannot be
@@ -55,10 +55,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the sibling to
 from github_client import get_json, get_page, next_link  # noqa: E402 — sibling import after the path insert
 
 ACK_LABEL = "guardrail-ack"
-# The guarded set is defined by a PROPERTY, not a path-prefix list (D-268): a committed file that constitutes
+# The guarded set is defined by a PROPERTY, not a path-prefix list: a committed file that constitutes
 # or configures an enforcement gate — one whose change could remove, disable, rename, or loosen a check, a
 # permission/enforcement hook, or a branch protection. Non-gate tooling (session boot, memory, telemetry, the
-# self-review renderer) is NOT guarded — flagging benign edits there trained the rubber-stamping §15/D-051 exist
+# self-review renderer) is NOT guarded — flagging benign edits there trained the rubber-stamping that the guardrail-weakening guard and its trusted-base isolation exist
 # to prevent. The concrete roster is realized as: these two prefixes + the permanent floor below + every check
 # rule's script DISCOVERED BY PRESENCE (see _derive_check_scripts). Fail-safe: an uncertain file resolves as
 # covered. The blanket `.engine/tools/` prefix was REMOVED here — its enforcement scripts are now guarded by
@@ -72,23 +72,23 @@ _FLOOR_ENFORCEMENT_CONFIG = (
     ".engine/pyproject.toml",     # the tool-runtime the validator + every guard execute in
     ".engine/uv.lock",            # (foundation artifacts — a change here changes what code runs)
     ".engine/suites.json",        # decides WHICH suite blocks the merge — loosening it (CI -> local-nudge) is a killswitch
-    ".claude/settings.json",      # wires the PreToolUse write-gate + the other enforcement hooks (D-268: was ABSENT —
+    ".claude/settings.json",      # wires the PreToolUse write-gate + the other enforcement hooks (was ABSENT —
 )                                 # a live hole; a PR gutting those hooks passed the guard with NO ack)
 # The validator + this guard. validate.py is ALSO the sole home of the 5 built-in HARD check kinds
 # (presence/schema/shape/coverage/coherence): those carry no `params.script`, so the derived clause below
 # structurally cannot reach them — they are guarded ONLY by validate.py being floored here. weakening_guard.py is
-# additionally a check-script (doubly guarded), keeping the guard's own set-defining code in-set (the D-268
+# additionally a check-script (doubly guarded), keeping the guard's own set-defining code in-set (the
 # self-protection property: the guard is not falsifiable by the change it judges).
 _FLOOR_VALIDATOR = (".engine/tools/validate.py", ".engine/tools/weakening_guard.py")
-# The provisioning ruleset-applying operation — the §15 "ruleset-affecting file". The branch ruleset does not
-# travel as a file, so its APPLYING CODE is the guarded proxy (D-268): gutting it could apply a weakened ruleset
+# The provisioning ruleset-applying operation — the guardrail-weakening "ruleset-affecting file". The branch ruleset does not
+# travel as a file, so its APPLYING CODE is the guarded proxy: gutting it could apply a weakened ruleset
 # with no on-disk correlate to surface it.
 _FLOOR_RULESET_PROXY = (".engine/tools/bootstrap.py", ".engine/tools/team_switch.py")
 # Enforcement-HOOK logic: files whose weakening loosens a live RUNTIME gate with NO on-disk floored correlate to
 # surface it (unlike CODEOWNERS/settings.json CONTENT, whose weakenings appear as flagged diffs to those floored
 # files). Hand-listed because they are not check-scripts and CANNOT be derived from settings.json: it wires gate
 # hooks (modes.py, close.py) and non-gate hooks (boot/memory/telemetry) IDENTICALLY, so deriving all of them would
-# re-guard the non-gate hooks and reintroduce the over-firing D-268 fixes. Both block-budget members are here:
+# re-guard the non-gate hooks and reintroduce the over-firing already fixed. Both block-budget members are here:
 # modes.py (PreToolUse write-gate) and close.py (Stop finding-disposition gate) — the only two hooks that can emit
 # a merge-relevant deny. A drift-detector test (test_seed.py) fails CI if a NEW PreToolUse/Stop hook whose code
 # can emit a block (via hooks.block or hooks.decide) is wired in settings.json but not floored here — the
@@ -99,13 +99,13 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     ".engine/tools/hook-runner.sh",    # the launcher EVERY hook runs through
     ".engine/tools/hooks.py",          # the hook-law substrate: block budget + fail-open harness
     ".engine/tools/issue_gate.py",     # the engine-Issue reroute matcher the write-gate consults
-    ".engine/tools/github_client.py",  # the off-host/auth substrate BOTH §15 guards depend on
+    ".engine/tools/github_client.py",  # the off-host/auth substrate BOTH guardrail-weakening guards depend on
     ".engine/tools/wiring.py",         # the sole mutator of settings.json / CODEOWNERS / hook registrations
     ".engine/tools/security_floor.py", # configures secret-scanning / push-protection
 )
 # Traveling security-floor provisions — NOT enforcement gates (they check nothing and gate no merge), so they
 # do not belong with _FLOOR_ENFORCEMENT_CONFIG above. They are the git-native security floor the control plane
-# ships to EVERY generated repo (control-plane §"The security floor"): deleting or weakening one silently drops a
+# ships to EVERY generated repo: deleting or weakening one silently drops a
 # safety pillar the operator was relying on, which the "disclose, never downgrade silently" law forbids — so a
 # removal/weakening must route through the ack. `dependabot.yml` sits at the repo root, so (unlike its twin
 # `secret-scan.yml`, a workflow already covered by the `.github/workflows/` prefix) it has no prefix basis and is
@@ -116,7 +116,7 @@ _FLOOR_SECURITY_PROVISION = (".github/dependabot.yml",)
 # no schema (it is resolved through the surface catalog's `governing_schema`, or a `params.schema` override), so
 # loosening the schema loosens that HARD gate with NO other on-disk correlate — the `.engine/check/` rule itself
 # may be untouched. Guarded here by EXACT PATH, deliberately NOT by a blanket `.engine/schemas/` prefix: that
-# would re-introduce the over-firing D-268 removed, because ~half the files in `.engine/schemas/` are agent/tool
+# would re-introduce the over-firing already removed, because ~half the files in `.engine/schemas/` are agent/tool
 # OUTPUT contracts (plan-review-finding, audit-finding, conformance-verdicts, attention-result, knowledge, …)
 # that back only a fixture unit test, gate no merge, and are correctly NOT guarded. The set is exactly the
 # schemas a `kind: schema`, `tier: hard`, CI-suite check resolves to. A drift detector
@@ -157,9 +157,9 @@ WEAKENING_STATUS = {"removed", "renamed", "modified", "changed", "copied"}
 # (github_client + stdlib only; it deliberately does NOT import the validate.py dispatcher).
 _BASE_CHECK_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".engine", "check")
-_BLANKET_TOOLS_PREFIX = ".engine/tools/"  # the fail-safe fallback coverage (the pre-D-268 blanket)
+_BLANKET_TOOLS_PREFIX = ".engine/tools/"  # the fail-safe fallback coverage (the prior blanket)
 _DERIVE = object()  # sentinel: is_guardrail/flagged_changes derive the check-script set from disk (the default)
-# A module-provided check-kind callable (D-044/D-119/D-268): `.engine/tools/<module>/kind_<name>.py` runs a
+# A module-provided check-kind callable: `.engine/tools/<module>/kind_<name>.py` runs a
 # validation kind's enforcement in CI but carries NO `params.script`, so the check-script derivation above
 # structurally cannot reach it — yet neutering it (a `check` that always passes) silently disables every rule of
 # that kind. It is guarded here by a PATH PROPERTY (the one-level filename↔kind convention the validator
@@ -171,12 +171,12 @@ _KIND_CALLABLE_RE = re.compile(r"^\.engine/tools/[^/]+/kind_[^/]+\.py$")
 
 
 def _derive_check_scripts(check_dir: str | None = None) -> set | None:
-    """The enforcement scripts guarded BY PRESENCE (D-268/§14): every `.engine/check/*.json` rule's
+    """The enforcement scripts guarded BY PRESENCE: every `.engine/check/*.json` rule's
     `params.script` path, read from the base checkout. Returns the set of repo-relative script paths, or None on
     ANY read/parse failure — the fail-safe sentinel telling the caller to fall back to guarding ALL of
     `.engine/tools/`. The failure is ALL-OR-NOTHING: a single unreadable/corrupt rule collapses the WHOLE
     derivation to the blanket fallback, never a partial set, so a broken rule can never silently drop its own
-    script from the guarded set (the fail-open D-268 rejects)."""
+    script from the guarded set (the fail-open the design rejects)."""
     check_dir = check_dir if check_dir is not None else _BASE_CHECK_DIR
     scripts: set = set()
     try:
@@ -227,8 +227,8 @@ def flagged_changes(files: list, derived_scripts=_DERIVE) -> list:
 
 
 # The engine's update HOME lives in the manifest as a single key. A change to its VALUE (a repoint)
-# redirects where executable engine code is fetched from at the next update — a §15 supply-chain weakening
-# that needs the deliberate ack (D-281/D-282, #367). The manifest is deliberately NOT whole-file guarded:
+# redirects where executable engine code is fetched from at the next update — a supply-chain weakening
+# that needs the deliberate ack (#367). The manifest is deliberately NOT whole-file guarded:
 # it legitimately churns on every upgrade/add (version bumps) and on first-run setup, so blanket-guarding
 # it would demand an ack on routine updates. Instead the detector compares the diff against the home
 # recorded in the TRUSTED BASE manifest and FAILS CLOSED — so it cannot be falsified by the change it judges.
@@ -267,7 +267,7 @@ def _touches_home_key(patch: str) -> bool:
 
 
 def home_repoint(files: list, base_home: str | None) -> tuple | None:
-    """A change to the engine's update home when one is ALREADY recorded (`base_home`) is a §15 repoint —
+    """A change to the engine's update home when one is ALREADY recorded (`base_home`) is a supply-chain repoint —
     returns (base_home, new_value_or_None) to flag, else None. FAILS CLOSED so the guard cannot be falsified
     by the change it judges: once a home exists, ANY touch of the `home_repository` key in the manifest diff,
     and a `patch` too large to be returned at all, both require the ack. This defeats a duplicate-key
@@ -298,7 +298,7 @@ def home_repoint(files: list, base_home: str | None) -> tuple | None:
 
 
 # The identity tier the manifest records; `team` carries the stronger floor (1 approval + code-owner review),
-# so a change back to `solo` is a §15 weakening — the exact shape home_repoint guards for `home_repository`.
+# so a change back to `solo` is a guardrail-weakening — the exact shape home_repoint guards for `home_repository`.
 _TEAM = "team"
 _IDENTITY_VALUE_RE = re.compile(r'"identity"\s*:\s*"([^"]*)"')
 
@@ -327,7 +327,7 @@ def _touches_identity_key(patch: str) -> bool:
 
 
 def identity_downgrade(files: list, base_tier: str | None) -> bool:
-    """Lowering the identity tier from `team` back to `solo` is a §15 weakening — it drops the required-approval
+    """Lowering the identity tier from `team` back to `solo` is a guardrail-weakening — it drops the required-approval
     + code-owner floor the team tier enforces, a protection a non-engineer cannot see removed by reading a diff —
     so it needs the ack. Returns True to flag, else False. Only a repo whose BASE is already `team` can be
     downgraded (solo->team and a first `team` recording are STRENGTHENINGS, never gated). FAILS CLOSED like
@@ -363,7 +363,7 @@ def identity_downgrade(files: list, base_tier: str | None) -> bool:
 MAX_PAGES = 100
 
 # This guard's GitHub API User-Agent (was inline in its own request builder, now homed in
-# github_client). The authenticated request shape + the off-host guard the §15 protection
+# github_client). The authenticated request shape + the off-host guard the guardrail-weakening protection
 # relies on now live in github_client; this guard reads the diff through the GET-only
 # helpers below and never issues a write.
 _UA = "engine-seed-weakening-guard"
@@ -435,7 +435,7 @@ def main() -> int:
                       "message": f"GUARDRAIL CHECK: could not read the changed files "
                       f"({e}); failing closed."}])
 
-    # Completeness gate (the principles §15 non-falsifiability property): a guardrail-
+    # Completeness gate (the guardrail-weakening non-falsifiability property): a guardrail-
     # weakening edit must not hide past GitHub's file-listing cap. If the guard could not
     # read EVERY changed file — fewer files seen than the pull request's authoritative
     # changed_files count, or no count at all — it fails closed and asks for the deliberate
@@ -445,7 +445,7 @@ def main() -> int:
     # weakened when none was confirmed.
     # Count DISTINCT filenames — the same way GitHub's changed_files counts — so a
     # duplicate listing entry (or a pagination overlap) can never inflate the tally to
-    # match the authoritative count while a real file goes unseen (§15: the guard must not
+    # match the authoritative count while a real file goes unseen (the guard must not
     # be falsifiable by the change it judges).
     seen = len({f.get("filename", "") for f in files})
     if not isinstance(expected, int) or seen < expected:
@@ -471,7 +471,7 @@ def main() -> int:
     if not flagged and not repoint and not downgrade:
         return emit([])  # nothing weakens
     if ACK_LABEL in labels:
-        return emit([])  # acknowledged via the label -> cleared (the ack is an INPUT here, D-134)
+        return emit([])  # acknowledged via the label -> cleared (the ack is an INPUT here)
 
     parts = ["GUARDRAIL CHANGE DETECTED — this pull request changes protection you rely on:\n"]
     if flagged:

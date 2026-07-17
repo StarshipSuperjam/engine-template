@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The audit digest (audit-library slice 2) — the engine's committed, plain-language self-attestation
+"""The audit digest (audit-library) — the engine's committed, plain-language self-attestation
 of its own operational health, and the two rules that protect it.
 
 The engine's periodic self-review (the audit) produces a short, human-readable file —
@@ -187,7 +187,7 @@ def staleness(path: str | None = None, now: datetime.date | None = None) -> dict
         where)
 
 
-# ---- the §7 recall-completeness disclosure (D-273/D-274, issue #332) -------------------------
+# ---- the recall-completeness disclosure (issue #332) -------------------------
 # Recall surfaces only the curated layer (episodic summaries + gists); the raw, word-for-word turn-notes behind
 # them are kept and fully recoverable — never deleted by that recall-exclusion. The verdict requires this
 # disclosure to reach the operator at the point of consumption (the recall answer carries it — scent + the memory
@@ -205,7 +205,7 @@ _RECALL_COMPLETENESS_DIGEST = (
 
 
 def _ensure_recall_completeness(body: str) -> str:
-    """Append the standing §7 recall-completeness line if absent — idempotent, so a fresh seal adds it once and a
+    """Append the standing recall-completeness line if absent — idempotent, so a fresh seal adds it once and a
     re-seal (whose body already carries it) never doubles it. The fingerprint is computed AFTER this, so check()
     round-trips the committed body verbatim."""
     return body if _RECALL_COMPLETENESS_HEADING in body else body + _RECALL_COMPLETENESS_DIGEST
@@ -239,7 +239,7 @@ def seal(path: str, generated=None, body: str | None = None) -> dict:
         "note", f"Sealed the self-review file ({_display(path)}), dated {generated}.", _loc_opt(path))
 
 
-# ---- the audit-over-audit corroboration read: the digest's own recent history (D-234) --------
+# ---- the audit-over-audit corroboration read: the digest's own recent history --------
 #
 # The scheduled self-review reads its own most recent committed digests as over-time CORROBORATION —
 # never as a decision (a keep/retire call still rests on a fresh check run THIS cycle; the persona's
@@ -466,7 +466,7 @@ _SAVED_MEMORY_HEADER = (
     "heavily-used note actually obsolete? You are reading these from the backup (you can't reach them yourself); "
     "treat them as what the engine had saved as of that backup. {n} note(s) follow, most-recently-used first.")
 
-# fetch error code -> the disclosure marker (the corrected two-part split, #224/D-242). not-configured = no backup
+# fetch error code -> the disclosure marker (the corrected two-part split, #224). not-configured = no backup
 # for this run; no-token = set up but THIS RUN wasn't granted access (a standing credential gap → re-arm the vault
 # token); unreachable = set up + access exists but the connection failed (transient); the rest = reachable but no
 # usable copy could be read. no-token is named DISTINCTLY from unreachable because `fetch_snapshot` returns no-token
@@ -500,14 +500,14 @@ def _belief_plain_role(kind, role) -> str:
 
 
 def _project_repo_is_private() -> bool:
-    """Selects the committed-digest OUTPUT MODE for the saved-memory review (#224/D-242; D-243). Read from the
+    """Selects the committed-digest OUTPUT MODE for the saved-memory review (#224). Read from the
     workflow env `MEMORY_AUDIT_REPO_VISIBILITY`, set by audit-prep's own-repo-token detection step (the vault
     token is scoped to the vault and cannot read the project repo; the `schedule` trigger's event payload omits
     visibility — so the value is detected on a dedicated step, never inferred here).
 
     On a confirmed-private repo the digest may NAME specific saved notes; on a public-or-unconfirmed repo it runs
     in aggregate-only mode — the persona reviews the same notes in-run, but its committed summary may report ONLY
-    the stale COUNT plus the two safe levers, never a specific (D-243: the belief text reaches the persona's
+    the stale COUNT plus the two safe levers, never a specific (the belief text reaches the persona's
     ephemeral prompt in BOTH modes via `render_saved_memory`; this gate governs only what may be COMMITTED, by
     selecting which instruction header leads that feed). DEFAULT-SAFE and load-bearing: ONLY an explicit `private`
     opens the naming mode; anything else — `public`, `internal`, empty, unset, or a non-Actions/local run where it
@@ -569,7 +569,7 @@ def render_saved_memory(transport=None) -> str:
     as_of = _saved_memory_as_of(snap.get("as_of"))
     if not beliefs:
         return _SAVED_MEMORY_NONE_YET.format(as_of=as_of)
-    # Visibility gate (#224/D-242; D-243): the SAME belief lines feed the persona in both modes — it needs to SEE
+    # Visibility gate (#224): the SAME belief lines feed the persona in both modes — it needs to SEE
     # the notes to judge which look stale (a semantic call, not a stored field). The gate selects only the
     # instruction header, i.e. what the persona may COMMIT: on a confirmed-private repo it may name specifics; on a
     # public/unconfirmed repo it reports only the stale count + the two safe levers (never a specific). Default-safe.

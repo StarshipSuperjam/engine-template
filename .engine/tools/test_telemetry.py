@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 18 — telemetry detect->surface machinery.
+"""Self-tests for telemetry detect->surface machinery.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
@@ -121,9 +121,9 @@ def run(gh_obj, records, cache, thresholds, now, state_path=None, *,
 
 class TestSeverityRank(unittest.TestCase):
     """severity_rank grades a tracked finding's severity CLASS into the numeric severity attention's
-    debt-blocking rule ranks on (#394 U01). Telemetry owns the class, so it GRADES; whether a grade blocks is
-    attention's own rule (D-117), so nothing here asserts blocking — only the ordering against the caller's
-    bar. The numbers are an uncalibrated build-spec leaf (D-052/D-113)."""
+    debt-blocking rule ranks on (#394). Telemetry owns the class, so it GRADES; whether a grade blocks is
+    attention's own rule, so nothing here asserts blocking — only the ordering against the caller's
+    bar. The numbers are an uncalibrated build-spec leaf."""
 
     _BAR = 2   # the shipped debt_blocking_threshold these grades are calibrated against
 
@@ -131,7 +131,7 @@ class TestSeverityRank(unittest.TestCase):
         self.assertGreaterEqual(telemetry.severity_rank(telemetry.TRUST_CRITICAL, self._BAR), self._BAR)
 
     def test_persistent_benign_grades_below_the_bar(self):
-        # Below the bar -> assign_partition returns None -> a deferral/backlog (attention/README:50).
+        # Below the bar -> assign_partition returns None -> a deferral/backlog.
         self.assertLess(telemetry.severity_rank(telemetry.PERSISTENT_BENIGN, self._BAR), self._BAR)
 
     def test_an_unmarked_finding_has_no_severity_to_report(self):
@@ -157,7 +157,7 @@ class TestSeverityRank(unittest.TestCase):
             self.assertTrue(math.isfinite(rank), f"a bar of {bar} produced a droppable severity {rank}")
 
     def test_trust_critical_clears_ANY_bar_however_it_is_tuned(self):
-        # THE safety property. debt_blocking_threshold is operator-tunable (D-167), and this class means "a
+        # THE safety property. debt_blocking_threshold is operator-tunable, and this class means "a
         # safety gate could not run; promotes immediately" — so a tuned-up bar must never defer it. Without the
         # clamp a bar above the fixed rank would silently drop the most urgent class with no feedback.
         for bar in (0, 2, 3, 4, 10, 10_000):
@@ -219,8 +219,8 @@ class TestPureHelpers(unittest.TestCase):
     def test_issue_body_leaks_no_raw_identifier(self):
         # The raw source-id identifier lives only in the invisible HTML-comment marker (parsed back by
         # parse_source_id); it must never surface in the operator-visible prose. This guards a SYMBOL (a raw
-        # identifier leak is a bug), not vocabulary, so it is not a banned-word list (engine-planning
-        # D-225 / R30) — whether the prose leans on jargon is a judgment, not a filter.
+        # identifier leak is a bug), not vocabulary, so it is not a banned-word list — whether the
+        # prose leans on jargon is a judgment, not a filter.
         body = telemetry.issue_body(rec("rule:y"), T[0], T[0]).lower()
         prose = body.split("<!--")[0]  # the operator-visible prose, minus the invisible marker
         for sym in ("source-id", "source_id"):
@@ -659,7 +659,7 @@ class TestEngineIssuesFeed(unittest.TestCase):
 
 
 class TestStandingCacheRefresh(unittest.TestCase):
-    """The standing-situation offline cache (D-198): telemetry is its sole writer, it is DISJOINT from the
+    """The standing-situation offline cache: telemetry is its sole writer, it is DISJOINT from the
     debt count, it carries an `as_of` provenance, and it rides the same GitHub pass — but a derive failure
     never clobbers a good cache nor breaks the debt write."""
 
@@ -873,7 +873,7 @@ class TestConsolidation(unittest.TestCase):
 
 
 class TestPromoteFinding(unittest.TestCase):
-    """The single-finding 'log it' relay (close's out-of-band promotion, slice 22): open-or-update ONE
+    """The single-finding 'log it' relay (close's out-of-band promotion): open-or-update ONE
     Issue deduped by source_id, with NO auto-resolve of other open Issues, degrading on a GitHub
     failure. The harness under test is the REAL GitHubIssues + promote_finding; only the network is fake."""
 
@@ -1492,7 +1492,7 @@ def _tmpcache():
 
 
 class TestNeverFiredFeed(unittest.TestCase):
-    """The never-firing-check signal (F0200) + its feed render + verb: telemetry emits the engine's own
+    """The never-firing-check signal + its feed render + verb: telemetry emits the engine's own
     file-scoped checks that select ZERO files, for the read-only self-review persona to judge. It is a
     MECHANICAL 'matches no files' fact (never a 'dead'/'retire' claim), scoped to file-scoped kinds carrying a
     target.path, computed fresh (no cache/ledger), skip-and-note on a corrupt rule, defanged, exit-0."""
@@ -1649,7 +1649,7 @@ class _EpisodicBase(unittest.TestCase):
 
 
 class TestEpisodicReader(_EpisodicBase):
-    """The memory-ledger episodic reader (F0210): a deep consolidation backlog emits ONE record; the
+    """The memory-ledger episodic reader: a deep consolidation backlog emits ONE record; the
     positive-observation gate makes an absent/empty ledger or a corrupt lease claim NO authority (so a
     per-machine read can never auto-resolve a global issue), while a genuinely-clear present ledger does."""
 
@@ -1832,7 +1832,7 @@ def tearDownModule():
 
 
 class TestFindingsInbox(unittest.TestCase):
-    """The emit-and-done seam (F0203 / D-031 / §16): a producer emits and is done; telemetry owns the act.
+    """The emit-and-done seam: a producer emits and is done; telemetry owns the act.
     A TRUST_CRITICAL signal promotes immediately (via the injected boundary in tests, or refused under the
     test-harness backstop); a benign one spools, and a later drain promotes it under the cache-accrued
     persistence latency, authoritative-scoped and marker-safe at the spool boundary. Faking ONLY the network."""
@@ -1927,7 +1927,7 @@ class TestFindingsInbox(unittest.TestCase):
     # ---- #412: the broken-runtime marker → TRUST_CRITICAL immediate promote ----
 
     def test_runtime_marker_promotes_trust_critical_immediately_and_clears_on_success(self):
-        # A missing tool-runtime "surfaces as a crash would, promoted immediately" (hooks/README) — NOT spooled,
+        # A missing tool-runtime "surfaces as a crash would, promoted immediately" — NOT spooled,
         # NOT persistence-gated: ONE promote clears it. The marker's bytes never enter the finding.
         fake, gh = self._gh()
         marker = os.path.join(self._td, "runtime-health.marker")
