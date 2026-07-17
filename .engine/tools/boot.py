@@ -81,6 +81,7 @@ import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the
 import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
+import license_health    # noqa: E402  (provisioning's leftover-template-LICENSE detector; boot relays its detection)
 import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
 import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
 import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
@@ -943,6 +944,19 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         absent_home = None
     try:
+        # The leftover-template-LICENSE signal (#471), RELAYED from license_health's OFFLINE, READ-ONLY detection
+        # (boot computes no new state): the operator's main checkout still carries the engine's OWN template
+        # LICENSE at its committed root (a repo generated before the first-run clear shipped, or drifted back to
+        # the seed). No-op in the engine's own template repo; degrades QUIETLY to None otherwise. boot OFFERS a
+        # reviewed removal; the assistant lands it as a reviewed pull request on the operator's consent — never a
+        # boot-time delete (D-303). The open-removal-PR DEDUPE is a SEPARATE best-effort ONLINE step, kept OFF the
+        # offline detector's critical path; a network miss (pr_open None) just re-offers normally.
+        foreign_license = license_health.detect_foreign_license()
+        if foreign_license and foreign_license.get("present"):
+            foreign_license = {**foreign_license, "pr_open": bool(license_health.removal_pr_open(repo, token))}
+    except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
+        foreign_license = None
+    try:
         # The self-review freshness signal, RELAYED from audit_digest's own detection (boot computes no new
         # state). Called arg-less so it reads the committed digest + today and owns STALENESS_DAYS/the re-arm
         # copy itself — boot never re-detects or re-literals the bound. Low-stakes (a missing digest is the
@@ -1057,6 +1071,10 @@ def gather_signals(session_id: str | None = None) -> dict:
         "off_main": off_main,
         # the absent-update-home signal (#367): the engine's manifest records no home to fetch updates from, or None
         "absent_home": absent_home,
+        # the leftover-template-LICENSE signal (#471): the main checkout's committed root LICENSE is still the
+        # engine's own template seed (with a best-effort `pr_open` dedupe flag), or None (healthy / the engine's
+        # own template repo / unresolvable). Rendered below the governance alarms; retire/collapse decided hook-side.
+        "foreign_license": foreign_license,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
         # the memory auto-restore offer: local memory is empty + a backup is configured, or None
@@ -1240,6 +1258,39 @@ def render_dashboard(s: dict) -> str:
             "memory and the engine don't match. I can put your memory back to **the copy saved before that update**, so "
             "they line up again. Say **restore my memory from before the update** and I'll bring it back — nothing on "
             "this computer changes until you say so.")
+
+    # The leftover-template-LICENSE OFFER (#471), surfaced read-only at the strand/offer tier — the LOWEST-urgency
+    # offer, BELOW the governance alarms (a foreign copyright is a bounded, operator-correctable residual, never
+    # guardrail-critical). Provenance-framed (a file copied in from the template, not a defect in their project);
+    # LEADS with the private-by-default reassurance, kept accurate for a PUBLIC repo ("until you choose to share
+    # it", never "nothing is exposed" / "all rights reserved" as a conclusion); factual, NEVER legal advice (never
+    # which license to choose); routes the judgment out (choosealicense.com, help adding one, a human for terms
+    # that matter); and surfaces the intent-exit invitation. A RETIRED finding (the operator said "I meant to keep
+    # this") renders NOTHING — the retire/collapse decision is HOOK-SIDE (_relay_lines), so the pure status-verb
+    # path (no ledger) shows the full offer (fail-toward-showing). boot OFFERS only; on consent the removal lands
+    # as a reviewed pull request the operator merges (build-orchestration's trivial fast path), never a delete here.
+    fl = s.get("foreign_license")
+    if fl and fl.get("present") and not fl.get("retired"):
+        if fl.get("pr_open"):
+            pinned.append(
+                "📄 **A cleanup for a leftover license file is prepared — it's waiting for your merge.** A license "
+                "file copied in from the template you started from is still in your project under its author's "
+                "name, not yours. I've prepared the small change to clear it; it just needs your review and merge. "
+                "If it's one you meant to keep, say so and I'll stop bringing it up.")
+        elif fl.get("collapsed"):
+            pinned.append(
+                "📄 A leftover license file from the template you started from is still in your project under its "
+                "author's name (unchanged since last session) — say the word and I'll prepare a small change you "
+                "approve to clear it; or, if you meant to keep it, tell me and I'll stop bringing it up.")
+        else:
+            pinned.append(
+                "📄 **Your project is private and yours by default — your code is yours until you choose to share "
+                "it.** One tidy-up: a license file copied in from the template you started from is still sitting in "
+                "your project under its author's name, not yours — leftover from how your project was created, not "
+                "anything you did. With your OK I'll clear it as a small change you approve (a quick review and "
+                "merge), so you start from a clean slate and can add the license you choose — I can point you to "
+                "choosealicense.com, help add the one you pick, or a human for terms that matter. If it's one you "
+                "meant to keep, just say so and I'll stop bringing it up.")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
@@ -1625,6 +1676,21 @@ def _relay_lines(s: dict) -> list:
     set_aside_value = _set_aside_value(s)
     if set_aside_value is not None:
         eligible.append({"key": "set_aside", "value": set_aside_value})
+    # The leftover-license offer rides this SAME single decide() call (#471), like off_main/set_aside — it is not a
+    # pushed governance alarm (it renders only in the dashboard, below governance). But FIRST the hook-side RETIRE
+    # honor (§15, D-306): if this finding-class is retire-eligible AND a retired marker for its fingerprint is
+    # recorded, the offer is SUPPRESSED entirely (stamped `retired` -> the renderer shows nothing) and does NOT
+    # join the ledger pass. Retire-eligibility is enforced in the ledger by a code constant keyed on the LIVE
+    # finding class ("foreign_license") passed here — derived from the producing detector, NEVER a label read from
+    # the ledger — so a retired marker planted on a governance alarm's fingerprint can never silence it (a
+    # governance alarm never reaches this branch, and is_retired refuses a non-eligible class regardless).
+    fl = s.get("foreign_license")
+    fl_fp = fl.get("fingerprint") if (fl and fl.get("present")) else None
+    if fl_fp is not None:
+        if boot_alarm_ledger.is_retired(fl_fp, "foreign_license"):
+            s["foreign_license"] = {**fl, "retired": True}
+        else:
+            eligible.append({"key": "foreign_license", "value": fl_fp})
     # Always call decide — even with an empty eligible set — so a now-resolved standing alarm is DROPPED
     # from the ledger (verified-fixed), never left to wrongly collapse a later recurrence.
     decision = boot_alarm_ledger.decide(eligible)
@@ -1653,6 +1719,12 @@ def _relay_lines(s: dict) -> list:
         s["set_aside"] = {**s["set_aside"],
                           "collapsed": r.get("outcome") == "collapse",
                           "newly": newly}
+    # Stamp the leftover-license collapse outcome onto `s` for the (pure) dashboard renderer — HOOK-SIDE ONLY, so
+    # the status verb (no ledger) leaves it absent and renders the offer FULL (fail-toward-showing). Skipped when
+    # the finding was retired above (the renderer already shows nothing for a retired finding).
+    if fl_fp is not None and not s.get("foreign_license", {}).get("retired"):
+        r = results.get("foreign_license", {"outcome": "full", "prior": None})
+        s["foreign_license"] = {**s["foreign_license"], "collapsed": r.get("outcome") == "collapse"}
     lines: list = []
     for a in alarms:
         if not a["collapsible"]:

@@ -21,6 +21,7 @@ from unittest import mock
 
 import audit_digest
 import boot
+import boot_alarm_ledger
 import hooks
 import modes
 import module_coherence
@@ -86,7 +87,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
             "ledger_malformed": None, "migration_stalled": False, "recall_offline": False,
-            "set_aside": None}
+            "set_aside": None, "foreign_license": None}
 
 
 def _signals(**over):
@@ -2140,3 +2141,80 @@ class RelayMarkerVariantTests(unittest.TestCase):
                                  "budget_size": 5}]}
         lines = boot._shipped_lines(result, read=lambda: [{"id": "shipped:9", "title": forged}])
         self.assertNotIn(boot.RELAY_MARKER, "\n".join(lines))
+
+
+class TestForeignLicenseOffer(unittest.TestCase):
+    """The leftover-template-LICENSE offer (#471): rendered below governance, private-by-default and accurate
+    for a public repo, retire-honored hook-side, and NEVER a governance-critical must-relay."""
+
+    _FIRE = {"present": True, "fingerprint": "22e2c095376d", "pr_open": False}
+
+    def test_full_offer_leads_with_private_by_default(self):
+        dash = boot.render_dashboard(_signals(foreign_license=self._FIRE))
+        self.assertIn("private and yours by default", dash)
+        self.assertIn("license file copied in from the template", dash)
+
+    def test_offer_stays_accurate_for_a_public_repo(self):
+        # S8: never overclaim exposure. The lead must not assert "nothing is exposed" or draw the "all rights
+        # reserved" legal conclusion the landed-text audit rejected as false for a public repo.
+        dash = boot.render_dashboard(_signals(foreign_license=self._FIRE)).lower()
+        self.assertNotIn("nothing is exposed", dash)
+        self.assertNotIn("all rights reserved", dash)
+        self.assertIn("until you choose to share it", dash)
+
+    def test_offer_routes_the_judgment_out_and_never_advises_a_license(self):
+        dash = boot.render_dashboard(_signals(foreign_license=self._FIRE))
+        self.assertIn("choosealicense.com", dash)
+        self.assertIn("a human for terms that matter", dash)
+
+    def test_offer_surfaces_the_intent_exit_invitation(self):
+        dash = boot.render_dashboard(_signals(foreign_license=self._FIRE))
+        self.assertIn("meant to keep", dash)
+
+    def test_offer_ranks_below_the_governance_alarms(self):
+        # gate-off is governance; the license offer is a lower-tier offer. The governance line must appear FIRST.
+        dash = boot.render_dashboard(_signals(gate="off", reason="ruleset absent", foreign_license=self._FIRE))
+        self.assertIn("safety gate is off", dash)
+        self.assertIn("license file", dash)
+        self.assertLess(dash.index("safety gate is off"), dash.index("license file"),
+                        "the leftover-license offer must rank BELOW the governance alarm")
+
+    def test_pr_open_reword_awaits_your_merge(self):
+        dash = boot.render_dashboard(_signals(foreign_license={**self._FIRE, "pr_open": True}))
+        self.assertIn("waiting for your merge", dash)
+        self.assertNotIn("private and yours by default", dash)   # the prepared-cleanup variant, not the first offer
+
+    def test_a_retired_finding_renders_nothing(self):
+        dash = boot.render_dashboard(_signals(foreign_license={**self._FIRE, "retired": True}))
+        self.assertNotIn("license file", dash)
+
+    def test_absent_signal_renders_nothing(self):
+        self.assertNotIn("license file", boot.render_dashboard(_signals(foreign_license=None)))
+
+    def test_offer_is_not_a_governance_critical_must_relay(self):
+        # It renders only in the dashboard, never in must_push (the "governance-critical, do not skip" set).
+        pushed = "\n".join(boot.must_push(_signals(foreign_license=self._FIRE)))
+        self.assertNotIn("license file", pushed)
+
+    def test_relay_lines_honors_a_retired_marker_hook_side(self):
+        # End-to-end: a live foreign-license signal + a retired marker for its fingerprint -> _relay_lines stamps
+        # `retired` and the dashboard shows nothing (the hook-side honor, §15/D-306).
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {boot_alarm_ledger.ENV_DIR: tmp}):
+                boot_alarm_ledger.retire("22e2c095376d", "foreign_license")
+                s = _signals(foreign_license=self._FIRE)
+                boot._relay_lines(s)                       # hook-side: reads the ledger, stamps `retired`
+                self.assertTrue(s["foreign_license"].get("retired"))
+                self.assertNotIn("license file", boot.render_dashboard(s))
+
+    def test_relay_lines_offers_when_not_retired(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {boot_alarm_ledger.ENV_DIR: tmp}):
+                s = _signals(foreign_license=self._FIRE)
+                boot._relay_lines(s)                       # no marker -> not retired
+                self.assertFalse(s["foreign_license"].get("retired"))
+                self.assertIn("license file", boot.render_dashboard(s))
+
+
+if __name__ == "__main__":
+    unittest.main()
