@@ -1,4 +1,4 @@
-"""test_scent.py — the per-prompt attention scent handler: scent.py (memory-substrate-sqlite-fts5, slice 5, PR 2).
+"""test_scent.py — the per-prompt attention scent handler: scent.py (memory-substrate-sqlite-fts5).
 
 Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -85,7 +85,7 @@ class _ScentBase(unittest.TestCase):
 
 
 class ThresholdReadsTheTunedValueTests(unittest.TestCase):
-    """#394 U02 — the salience bar the scent clears is an operator-tunable dial (D-167), and the scent read
+    """#394 — the salience bar the scent clears is an operator-tunable dial, and the scent read
     it straight from the shipped default, so a reviewed-and-merged `/engine-tune` of it changed nothing.
 
     These drive the REAL `_threshold()` against a REAL override slice. Nothing here patches `_threshold`
@@ -190,7 +190,7 @@ class RenderLawTests(_ScentBase):
         self.assertIn("calendar-sync", text)       # a tag is a pointer (entity ref), surfaced; the body is not
 
     def test_recall_completeness_is_disclosed_once_per_session(self):
-        # §7 (D-273/D-274, #332): alongside the FIRST pointers, the scent discloses that these point to curated
+        # (#332): alongside the FIRST pointers, the scent discloses that these point to curated
         # summaries whose raw verbatim is kept and recoverable; shown once per session (like the degraded notice),
         # never repeated on every prompt.
         self.seed_calendar()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for checkout_health — the stranded-checkout detector (issue #80, slice B).
+"""Tests for checkout_health — the stranded-checkout detector (issue #80).
 
 Lock the behaviours a non-engineer cannot read code to verify: a healthy folder reads CLEAR, a folder
 stuck off its branch or missing the engine's files reads STRANDED (with the right reason), and a folder the
@@ -158,7 +158,7 @@ def _origin_and_work(tmp: str, *, merge_dates: list, touch_shared_on_last: bool 
 
 
 class TestBehindOrigin(unittest.TestCase):
-    """The ONLINE behind-the-main-line tail (#335; widened branch-agnostic for #342/D-275): fires whenever the
+    """The ONLINE behind-the-main-line tail (#335; widened branch-agnostic for #342): fires whenever the
     checkout — on its default branch OR parked on a side branch — is missing MORE merged work than the
     project's own pace makes normal. The ancestry/clean-ff question lives in the CORRECTION, not here; this
     signal never mutates."""
@@ -476,7 +476,7 @@ def _branch(root: str) -> str:
 
 def _healthy_repo(tmp: str, name: str = "r", *, branch: str = "main", default_branch=None) -> str:
     """A healthy local checkout (engine files present, one commit) initialised ON `branch`, NO remote. With
-    `default_branch`, persists that name in an engine.json manifest (the Slice-1 derived config) — so the
+    `default_branch`, persists that name in an engine.json manifest (the derived config) — so the
     CONFIDENT default resolves with no origin/HEAD."""
     root = os.path.join(tmp, name)
     os.makedirs(os.path.join(root, ".claude"))
@@ -524,7 +524,7 @@ class TestOffMain(unittest.TestCase):
 
     def test_persisted_default_enables_off_main_without_a_remote(self):
         # no clone, no origin/HEAD: the persisted manifest name (validated as a real local branch) is the
-        # confident default, so off-main still fires (exercises Slice 1's persisted read).
+        # confident default, so off-main still fires (exercises the persisted read).
         with tempfile.TemporaryDirectory() as tmp:
             root = _healthy_repo(tmp, branch="main", default_branch="main")
             _git(root, "checkout", "-q", "-b", "my-feature")
@@ -547,7 +547,7 @@ class TestOffMain(unittest.TestCase):
 
 
 class TestAbsentHome(unittest.TestCase):
-    """#367/D-281: an installed engine whose manifest records no update home reads ABSENT-HOME (boot offers to
+    """#367: an installed engine whose manifest records no update home reads ABSENT-HOME (boot offers to
     record it); a home recorded, no manifest, or a broken strand all read clean (None)."""
 
     @staticmethod
@@ -637,7 +637,7 @@ class TestReturnToDefault(unittest.TestCase):
 
 
 class TestOpInProgress(unittest.TestCase):
-    """The lossless gate's load-bearing probe (#342 constraint 3): a paused git operation must block the fix
+    """The lossless gate's load-bearing probe (#342): a paused git operation must block the fix
     even though `git status --porcelain` is CLEAN. Proven with a REAL paused `rebase -i` (a leading 'break'
     stops it with an empty porcelain), not a planted sentinel file."""
 
@@ -673,7 +673,7 @@ class TestOpInProgress(unittest.TestCase):
 
 
 class TestPersistedDefaultBranch(unittest.TestCase):
-    """#342 Slice 1: `_default_branch` reads the persisted manifest name FIRST, but only when it is a real
+    """#342: `_default_branch` reads the persisted manifest name FIRST, but only when it is a real
     local branch (a stale/wrong name must never redirect the detached-HEAD re-attach mutation); else it falls
     back to the live origin/HEAD → main/master → sole-branch resolution."""
 

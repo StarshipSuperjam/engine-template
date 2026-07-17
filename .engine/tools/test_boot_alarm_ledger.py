@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for boot_alarm_ledger — the D-269 standing-alarm presentation ledger.
+"""Tests for boot_alarm_ledger — the standing-alarm presentation ledger.
 
 These lock the behaviours a non-engineer cannot read code to verify: an UNCHANGED standing alarm collapses
 (decide -> "collapse") only after a true full relay; a NEW/CHANGED one renders full with the prior value
 exposed for worsening labels; a VANISHED alarm is dropped so a recurrence relays full again; the ledger is
 FAIL-TOWARD-FULL on a missing/corrupt/unwritable store; shown-in-full is stamped only on a true full relay
 (no suppression-by-drift); the path resolves to a stable per-instance root (not an ephemeral worktree); and
-the module imports nothing from boot (a one-way boot -> ledger dependency, D-269 sweep-isolation)."""
+the module imports nothing from boot (a one-way boot -> ledger dependency, sweep-isolation)."""
 from __future__ import annotations
 
 import ast
@@ -152,7 +152,7 @@ class TestPathResolution(unittest.TestCase):
 
 class TestSweepIsolation(unittest.TestCase):
     def test_module_does_not_import_boot_or_memory(self):
-        # D-269: the ledger shares NO code path with memory's sweep; the dependency is one-way boot -> ledger.
+        # The ledger shares NO code path with memory's sweep; the dependency is one-way boot -> ledger.
         with open(bal.__file__, encoding="utf-8") as fh:
             src = fh.read()
         tree = ast.parse(src)
