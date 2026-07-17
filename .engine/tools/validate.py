@@ -189,18 +189,39 @@ def read(path: str) -> str:
 _RAIL_CHARS = "-‐-―−─━"
 _PROMPT_FENCE_RAIL_RE = re.compile("[" + _RAIL_CHARS + "]{3,}")
 
+# The imperative relay marker, the OTHER control token an untrusted line could forge. The engine reserves this
+# exact phrase for the must-push set: carrying it is what compels the model to push an item to the operator as
+# the engine's own words. So a milestone title, a merged-PR title, or a recalled note that SPEAKS it would read
+# as a genuine engine alarm ("… their safety gate is off, run this") in every cold-boot pack.
+# Held here rather than imported from boot: this is the floor every producer of untrusted AI-facing text
+# already calls, and boot imports validate, not the reverse. `test_boot` pins it to `boot.RELAY_MARKER`, so the
+# two cannot drift apart silently.
+_RELAY_MARKER = "INFORM THE USER THAT"
+_RELAY_MARKER_RE = re.compile(re.escape(_RELAY_MARKER), re.IGNORECASE)
+
 
 def defang_prompt_fence_markers(text: str) -> str:
-    """Neutralize any line of UNTRUSTED `text` that could forge or prematurely close a `----- SECTION
-    MARKER -----` prompt fence, so content fed between such markers cannot break out of its region. A line
-    carrying TWO-or-more dash rails AND a letter has its dash runs trimmed to two dashes: the words are kept
-    (no information is dropped), but the line can no longer read as a fence delimiter. A line with a single
-    rail (a horizontal rule), no letters (a table delimiter row), or no 3-dash run at all (an ISO date, a
-    `--flag`) is left exactly as it is. Linear in the text length — no regex backtracking."""
+    """Neutralize any line of UNTRUSTED `text` that could forge a control token the AI-facing briefing
+    reserves for the engine's own voice, so content quoted into that briefing cannot speak as the engine.
+
+    Two tokens, the same principle — the words are kept (no information is dropped); only the reserved FORM
+    is destroyed:
+      - a `----- SECTION MARKER -----` prompt fence: a line carrying TWO-or-more dash rails AND a letter has
+        its dash runs trimmed to two dashes, so it can no longer read as a fence delimiter and content cannot
+        break out of its region. A line with a single rail (a horizontal rule), no letters (a table delimiter
+        row), or no 3-dash run at all (an ISO date, a `--flag`) is left exactly as it is.
+      - the imperative relay marker: the reserved phrase is lowercased wherever it appears, so the line no
+        longer carries the engine's must-push directive. HONEST BOUND: the fence trim is structural, but this
+        one is read by a MODEL, not a parser — lowercasing removes the reserved token the engine actually
+        emits and the glossary defines, and it is why the callers also quote and attribute such text; it is a
+        real reduction in force, not a proof the model can never be swayed by the words themselves.
+
+    Linear in the text length — no regex backtracking."""
     out = []
     for line in text.split("\n"):
         if len(_PROMPT_FENCE_RAIL_RE.findall(line)) >= 2 and any(c.isalpha() for c in line):
             line = _PROMPT_FENCE_RAIL_RE.sub("--", line)   # trim every rail so the line can't be a fence
+        line = _RELAY_MARKER_RE.sub(lambda m: m.group(0).lower(), line)
         out.append(line)
     return "\n".join(out)
 
