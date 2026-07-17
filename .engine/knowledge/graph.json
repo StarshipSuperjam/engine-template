@@ -8511,7 +8511,7 @@
       },
       "slug": "uv_group_drift_check",
       "source": {
-        "fingerprint": "sha256:9a195a96f8b51c61521a9eecd5dea8fda2544d89a8635643df0c0457dcb00d71",
+        "fingerprint": "sha256:fdecd1f90f375935b909179172bb67d7209571f0227e27f47876757234000db8",
         "path": ".engine/tools/uv_group_drift_check.py"
       },
       "status": "active",

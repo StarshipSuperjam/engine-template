@@ -5,7 +5,7 @@ Runs as a `custom/script` check rule in the CI suite: it confirms the committed 
 in `.engine/pyproject.toml` still equals what the present module set derives
 (`module_manager.derive_uv_groups`), so a hand-edit, a botched merge, or a missed re-derivation turns
 engine-ci red until the selection is synced. This is the standing, first-class drift gate that closes the
-hand-maintained CI uv-group seam that the pyproject comment cedes to the module manager: the module manager
+hand-maintained CI uv-group seam that the pyproject comment cedes to the module manager, which
 shipped the derivation + a unit test over `remove`'s write path; this rule guards the committed value against
 drift from ANY source, including `add`'s write path and a direct edit.
 
