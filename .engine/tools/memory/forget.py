@@ -51,6 +51,7 @@ markers into carried fields — is the designed retirement of that cost.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import time
@@ -396,6 +397,146 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
         if earned:
             out[sid] = earned
     return out
+
+
+# --- the set-aside report: what recall no longer surfaces but the operator has a handle on --------------------
+
+# The two classes recall drops that the operator can act on, kept as data so the readout's wording can never
+# promise more than the mechanism delivers:
+SET_ASIDE_DEMOTED = "demoted"        # nothing has come back to it in a while; recording an access brings it back
+SET_ASIDE_SUMMARISED = "summarised"  # a completed roll-up folded it into a summary; there is NO way to un-fold it,
+#                                      only to read its original wording back (recall's stand-in is the summary)
+_SET_ASIDE_LIMIT = 20                 # matches index's recent-decisions cap: a bounded newest-first sample, never the
+#                                      whole population (the report also carries the full count + id set)
+
+
+def set_aside(path: "str | None" = None, *, now: "int | None" = None, limit: int = _SET_ASIDE_LIMIT) -> dict:
+    """What `live_records` drops from recall for a reason the operator has a handle on — a READ-ONLY report the
+    boot readout relays. Mutates NOTHING: every record named here is still resident and fully recoverable in the
+    one ledger; recall just doesn't surface it. Returns
+        {"rows": [...bounded newest-first...], "totals": {"demoted": int, "summarised": int},
+         "identity": [every set-aside id, sorted — the FULL population, independent of `limit`]}
+    so a render can tell "there is none of this" apart from "there is, and it did not all fit", and a caller
+    watching for change compares the full id set, not the bounded sample.
+
+    Two classes only, and NOT the union of every `live_records` exclusion:
+      * DEMOTED — a content record scored into the archived tier (unused for long enough). Its reversal is real
+        and mechanical: `restore_to_recall` records an access and it is searchable again.
+      * SUMMARISED — a raw episode a COMPLETED roll-up folded into a gist. There is no un-fold: the supersession
+        is orthogonal to the usage score, so recording an access can never bring it back; the honest handle is
+        `recorded_text`, which reads its original wording. Carried with `reversible=False` so the readout never
+        offers to bring one back.
+    A crash-orphaned record (a consolidation or roll-up that did not finish) is DELIBERATELY excluded: it is a
+    duplicate the good copy already replaces, not something the operator lost, so an "undo" would only re-admit a
+    duplicate into search. `duplicates()` reports that class for the maintainer digest instead.
+
+    Row: {id, reason, text, role, ts, since, reversible, stands_in}. `since` is when a summary folded a raw in
+    (the supersession marker's ts), or None for a demoted record — there is no event that marks a demotion, and
+    this reader never invents one. Excludes ambient turn-deltas and every bookkeeping marker (nothing without
+    role+text), and any record with no stable id or no usable text. Ordering mirrors index.recent_decisions: a
+    TOTAL sort key, so a record with a damaged ts sorts last instead of raising. Degrades to an empty report on
+    ANY read fault — an unreadable store costs the readout, never the pack, and boot surfaces an unreadable store
+    through its own memory-offline notice, never from here."""
+    src = ledger.ledger_path() if path is None else path
+    now = int(time.time()) if now is None else now
+    try:
+        closed = _closed_batches(src)
+        closed_rollup = _closed_rollup_batches(src)
+        # Classify from the SAME view `live_records` excludes by, so the readout can never diverge from what recall
+        # actually hides. Supersession is recognised BOTH ways `_is_superseded` recognises it: a live `superseded`
+        # marker (pre-compaction) OR the folded `superseded_by` field compaction carries onto the raw and then
+        # prunes the marker. `superseded_at` records the marker's gist id + fold moment where a marker still
+        # exists (for `since`); post-compaction the raw's own carried field supplies the stand-in and `since` is
+        # simply unknown (no event survives the fold).
+        superseded_ids = set(_superseded_by_map(src, closed_rollup))
+        superseded_at: dict = {}
+        for record in ledger.iter_records(path=src):
+            if not isinstance(record, dict) or record.get("kind") != records.SUPERSEDED_KIND:
+                continue
+            batch = record.get(records.BATCH_KEY)
+            if not isinstance(batch, str) or batch not in closed_rollup:
+                continue
+            raw_id = record.get(records.TARGET_KEY)
+            gist_id = record.get(records.SUPERSEDED_BY_KEY)
+            ts = record.get("ts")
+            if isinstance(raw_id, str) and raw_id and isinstance(gist_id, str) and gist_id:
+                superseded_at[raw_id] = (gist_id, ts if isinstance(ts, int) and not isinstance(ts, bool) else None)
+        access_index = _access_index(src)
+
+        rows: list = []
+        demoted = summarised = 0
+        for record in ledger.iter_records(path=src):
+            if not isinstance(record, dict):
+                continue
+            if record.get("kind") not in (records.EPISODIC_KIND, records.GIST_KIND):
+                continue                                   # only recall content — never a marker or a turn-delta
+            rid = record.get(records.RECORD_ID_KEY)
+            text = record.get("text")
+            if not (isinstance(rid, str) and rid) or not (isinstance(text, str) and text.strip()):
+                continue
+            if _is_retired(record, closed) or _is_gist_orphan(record, closed_rollup):
+                continue                                   # a crash-orphan duplicate is not a loss — never shown
+            if _is_superseded(record, superseded_ids):     # marker OR the carried field: survives compaction
+                folded = superseded_at.get(rid)
+                gist_id = folded[0] if folded else record.get(records.SUPERSEDED_BY_KEY)
+                since = folded[1] if folded else None      # no fold event survives compaction -> unknown
+                reason, reversible, stands_in = SET_ASIDE_SUMMARISED, False, gist_id
+                summarised += 1
+            elif _is_demoted(record, access_index, now):   # a content record scored into the archived tier
+                reason, reversible, stands_in, since = SET_ASIDE_DEMOTED, True, None, None
+                demoted += 1
+            else:
+                continue                                   # still surfaced by recall — not set aside
+            rows.append({"id": rid, "reason": reason, "text": text, "role": record.get("role"),
+                         "ts": record.get("ts"), "since": since, "reversible": reversible, "stands_in": stands_in})
+
+        def _order(row):
+            # A TOTAL key (index.recent_decisions' guard): a non-numeric moment sorts into the unusable bucket
+            # carrying a fixed 0, so mixed rows only ever compare like with like instead of raising mid-sort.
+            m = row["since"] if row["since"] is not None else row["ts"]
+            usable = isinstance(m, (int, float)) and not isinstance(m, bool) and math.isfinite(m)
+            return usable, (m if usable else 0), row["id"]
+
+        rows.sort(key=_order, reverse=True)
+        identity = sorted(r["id"] for r in rows)
+        return {"rows": rows[:limit], "totals": {"demoted": demoted, "summarised": summarised}, "identity": identity}
+    except Exception:  # noqa: BLE001 — an unreadable/degraded store costs the readout, never the session
+        return {"rows": [], "totals": {"demoted": 0, "summarised": 0}, "identity": []}
+
+
+def restore_to_recall(record_id: str, *, path: "str | None" = None, now: "int | None" = None) -> bool:
+    """Bring a DEMOTED record back into recall by recording an access — the operator's "bring that back". Returns
+    the RE-DERIVED truth, never an assertion: True iff the record is in recall AFTER the append (so a record recall
+    already surfaces returns True — it is searchable, which is what was asked). False (never a lie) on an unknown
+    id and — importantly — on a SUMMARISED raw: a completed roll-up's supersession is orthogonal to the usage
+    score, so an access can never un-fold it, and this returns False rather than pretend it worked. APPENDS ONLY —
+    no delete, no rewrite (the Layer-1 no-erasure invariant a source-scan test pins). Never raises: a fault leaves
+    recall exactly as it was."""
+    if not isinstance(record_id, str) or not record_id:
+        return False
+    try:
+        record_access(record_id, path=path, now=now)
+        return any(r.get(records.RECORD_ID_KEY) == record_id for r in live_records(path, now=now))
+    except Exception:  # noqa: BLE001 — a fault must never convert a best-effort restore into a raised error
+        return False
+
+
+def recorded_text(record_id: str, *, path: "str | None" = None) -> "dict | None":
+    """The full recorded wording of ONE record by its stable id, read straight from the ledger — the "show me
+    the exact wording" handle for a record recall no longer surfaces (a summarised raw, a demoted note). Reads
+    the RAW ledger on purpose, bypassing the recall filter: keeping every set-aside record recoverable word-for-
+    word is the guarantee that makes this forgetting reversible in the first place. SIDE-EFFECT-FREE — records
+    no access, so merely looking at a set-aside note never silently re-ranks what recall surfaces. Returns the
+    record dict, or None on an unknown id or any read fault. Never raises."""
+    if not isinstance(record_id, str) or not record_id:
+        return None
+    try:
+        for record in ledger.iter_records(path=ledger.ledger_path() if path is None else path):
+            if isinstance(record, dict) and record.get(records.RECORD_ID_KEY) == record_id:
+                return record
+    except Exception:  # noqa: BLE001 — an unreadable store yields no text, never a raised error
+        return None
+    return None
 
 
 def _snippet(text, width: int = 70) -> str:
@@ -780,6 +921,47 @@ def _demo_demote_body() -> bool:
     return part1 and part2 and part3 and part4
 
 
+def _print_set_aside(path: "str | None" = None) -> int:
+    """The `set-aside` CLI verb: an operator-legible list of what recall has set aside and how to act on each —
+    the words the AI matches against when the operator says "bring back the one about X". Never a record id."""
+    report = set_aside(path)
+    rows, totals = report["rows"], report["totals"]
+    if not rows:
+        print("Nothing set aside — recall is surfacing every saved note.")
+        return 0
+    shown, total = len(rows), totals["demoted"] + totals["summarised"]
+    noun = "note" if total == 1 else "notes"
+    print(f"{total} {noun} set aside from recall (nothing deleted — all still saved)"
+          + (f"; the {shown} most recent:" if shown < total else ":"))
+    for row in rows:
+        if row["reason"] == SET_ASIDE_DEMOTED:
+            print(f"  - set aside (nothing's come back to it in a while): {_snippet(row['text'])}")
+            print(f"      -> ask to bring this back and it's searchable again  [{row['id']}]")
+        else:
+            print(f"  - folded into a shorter summary: {_snippet(row['text'])}")
+            print(f"      -> the summary stands in now; ask to see this one's exact wording  [{row['id']}]")
+    return 0
+
+
+def _run_restore(argv: list) -> int:
+    """The `restore <id>` CLI verb: bring a demoted note back into recall by its stable id (the id the
+    `set-aside` list prints in brackets). Reports the re-derived truth — a summarised note reports plainly that
+    there is no un-fold, only its original wording to read."""
+    if not argv:
+        print("usage: forget.py restore <record-id>", file=sys.stderr)
+        return 2
+    record_id = argv[0]
+    if restore_to_recall(record_id):
+        print("Brought back into recall — it's searchable again.")
+        return 0
+    if recorded_text(record_id) is not None:
+        print("This one was folded into a summary, so there's nothing to bring back — the summary stands in for "
+              "it. Its original wording is still saved; ask to see it.")
+        return 0
+    print("No set-aside note with that id — nothing changed.", file=sys.stderr)
+    return 1
+
+
 def _demo_rebuild() -> None:
     from memory import index  # lazy
     index.rebuild()
@@ -789,13 +971,18 @@ def main(argv: list) -> int:
     cmd = argv[0] if argv else "demo"
     if cmd == "duplicates":
         return _print_duplicates()
+    if cmd == "set-aside":
+        return _print_set_aside()
+    if cmd == "restore":
+        return _run_restore(argv[1:])
     if cmd == "demo":
         return _demo()
     if cmd == "identity":
         return _demo_identity()
     if cmd == "demote":
         return _demo_demote()
-    print(f"usage: forget.py [duplicates|demo|identity|demote]\nunknown command {cmd!r}", file=sys.stderr)
+    print(f"usage: forget.py [duplicates|set-aside|restore <id>|demo|identity|demote]\nunknown command {cmd!r}",
+          file=sys.stderr)
     return 2
 
 

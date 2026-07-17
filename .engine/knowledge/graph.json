@@ -4396,7 +4396,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:5306d4ea0553e0b5dbfd4b6a088333b4a105435e8101f92b95ae4f50f66c70a6",
+        "fingerprint": "sha256:ad916cde2890f9d0efcb5c4ca26549b8c799ad1948f66d951ce2120aab6a69f3",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4789,6 +4789,23 @@
       "source": {
         "fingerprint": "sha256:9c4fb03f9160e42e631e026c34d813afa2212f87256884ae0fa317ede8d93e57",
         "path": ".engine/tools/demo_boot_alarm_collapse.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_boot_set_aside_readout",
+      "name": ".engine/tools/demo_boot_set_aside_readout.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_boot_set_aside_readout",
+      "source": {
+        "fingerprint": "sha256:b846e723f2a663c7124d014034c42c66d51b995cac8dd3ed04bc7b8695117ce6",
+        "path": ".engine/tools/demo_boot_set_aside_readout.py"
       },
       "status": "active",
       "type": "tool"
@@ -5297,7 +5314,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:44d76fdf28cf1a56abf5784a2a8f8010e37b2a0ba70e386754810eb52399917e",
+        "fingerprint": "sha256:35f2aee6b30bb26844d454005904320b81f8777bfbd3d096ed6f3f0df9874b30",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -5416,7 +5433,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:88939360eeb75adbd43e395fd73afa296b25535ec38c560e15b1af2e6f92a0cd",
+        "fingerprint": "sha256:dc03002814b0cb9198305028840d5353d020f8dd1a2878230968ce14c3342c25",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -6504,7 +6521,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:3f79d4a69c9e7db81ebc1382dd3c819ed362bc737ce2b501ea3119f61145cae5",
+        "fingerprint": "sha256:8c12a376f6c9ab44f43e62b837de84cdb0845d7f19709bebe7320bbdf6a5311e",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -6963,7 +6980,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:3004e42f44c53668c111b2fa04abca566a831aeab454d291d1dc9e75a4f111fc",
+        "fingerprint": "sha256:47bc554728b5f16598c6c809efcc37c08ef3014fea81871293814ed3a9da4c31",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
