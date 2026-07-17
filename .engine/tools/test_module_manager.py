@@ -490,6 +490,24 @@ class TestRunMigrations(unittest.TestCase):
             with open(marker) as fh:
                 self.assertEqual(fh.read(), "v2")              # the migration stamped the engine version
 
+    def test_run_migrations_flags_an_unlockable_snapshot_for_the_operator(self):
+        # The snapshot handle carries whether the retained pre-update copy could be locked; run_migrations reduces
+        # it to a single flag so the upgrade can tell the operator to keep an unlockable copy. Only a handle that
+        # plainly reports it could NOT be locked (hardened is False) sets the flag.
+        with tempfile.TemporaryDirectory() as d:
+            mdir = self._module_dir(d, "dd.py",
+                                    "def migrate(context):\n"
+                                    "    assert context['backup']('store', context['engine_version'])\n")
+            sel = [{"module_id": "m", "version": "0.2.0", "run": "migrations/dd.py", "kind": "data"}]
+            unprot = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir,
+                                                   backup=lambda *a, **k: {"backed-up": True, "hardened": False})
+            self.assertTrue(unprot["backup_unprotected"])
+            prot = module_manager.run_migrations(sel, {"m": "0.0.0"}, "v2", module_dir=mdir,
+                                                 backup=lambda *a, **k: {"backed-up": True, "hardened": True})
+            self.assertFalse(prot["backup_unprotected"])
+            empty = module_manager.run_migrations([], {}, "v2", module_dir=mdir)
+            self.assertFalse(empty["backup_unprotected"])       # no data migration -> never flagged
+
     def test_only_the_first_data_migration_of_the_upgrade_is_the_reversibility_floor(self):
         # #303: one run_migrations call == one upgrade. reversibility_floor is True for the FIRST data migration only;
         # config migrations take no backup, and later data migrations of the same upgrade are NOT the floor.
@@ -874,6 +892,44 @@ class TestUpgradeSafety(unittest.TestCase):
         disclosures = [n for n in res.get("notes", []) if "saved a copy of it from right before this update" in n]
         self.assertEqual(len(disclosures), 1)                  # exactly one disclosure per upgrade
         self.assertIn("nothing for you to do now", disclosures[0])
+        # the seam here reports nothing about locking, so no keep-it heads-up is added
+        self.assertNotIn("couldn't confirm", disclosures[0])
+
+    def test_an_unlockable_saved_copy_adds_a_keep_it_heads_up(self):
+        # When the retained copy could not be locked against hand-deletion (hardened is False), the reversibility
+        # disclosure carries a plain heads-up to keep it — so the operator does not delete their own undo.
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                res = module_manager.upgrade(
+                    ref="v0.2.0", release_tree=release,
+                    opener=lambda **k: opened.append(k) or {"number": 1},
+                    backup=lambda *a, **k: {"backed-up": True, "hardened": False})   # can't be locked on this plan
+        disclosures = [n for n in res.get("notes", []) if "saved a copy of it from right before this update" in n]
+        self.assertEqual(len(disclosures), 1)
+        self.assertIn("couldn't confirm", disclosures[0])       # states what the engine knows, not a guess about why
+        self.assertIn("deleted by hand", disclosures[0])
+        self.assertIn("keep it in place", disclosures[0])
+
+    def test_a_lockable_saved_copy_has_no_keep_it_heads_up(self):
+        opened = []
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                res = module_manager.upgrade(
+                    ref="v0.2.0", release_tree=release,
+                    opener=lambda **k: opened.append(k) or {"number": 1},
+                    backup=lambda *a, **k: {"backed-up": True, "hardened": True})    # locked -> nothing to warn
+        disclosures = [n for n in res.get("notes", []) if "saved a copy of it from right before this update" in n]
+        self.assertEqual(len(disclosures), 1)
+        self.assertNotIn("couldn't confirm", disclosures[0])
 
     def test_escaping_provides_in_a_release_is_refused_before_any_write(self):
         with tempfile.TemporaryDirectory() as d:

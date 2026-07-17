@@ -1,20 +1,20 @@
-"""erasure_proposer.py — the Layer-2 erasure EMITTER (memory substrate).
+"""erasure_proposer.py — the Layer-2 erasure EMITTER (memory-substrate, slice 4e PR iii).
 
-This is the memory substrate's single irreversible act: physically erasing a remembered note. An earlier step built
-the enactment core (`compact.enact_erasure`, the sole append-only minter, shipped inert); a later step built the
+Slice 4e is the memory substrate's single irreversible act: physically erasing a remembered note. Slice (i) built
+the enactment core (`compact.enact_erasure`, the sole append-only minter, shipped inert); slice (ii) built the
 cross-session OBSERVER (`erasure_observer`), which turns a *merged single-purpose erasure pull request* into the
 gated marker. THIS module is the PRODUCER that closes the loop: a deterministic probe over the engine's
 already-logically-retired notes selects one that has **earned erasure**, writes the content-free proposal at the
 observer's fixed path, and AUTO-OPENS a single-purpose pull request labelled `engine-erasure` for the operator to
-merge. After this: a local self-review -> an auto-opened erasure PR -> the operator merges -> a later session's
+merge. After this slice: a local self-review -> an auto-opened erasure PR -> the operator merges -> a later session's
 observer enacts -> the next compaction erases. The merge is the one irreversible-consent point; nothing auto-merges.
 
 The producer NEVER mints the marker itself — it writes a file and opens a PR; the merge (the operator) + the observer
 (a later session) do the rest. So this module deliberately reaches NO ledger-write / minter path (a build-conformance
-invariant `test_forget.py` pins by source scan: the only sanctioned callers of the enactment minter are `compact` and
+invariant `test_forget.py` pins by source scan: the only sanctioned callers of the slice-i minter are `compact` and
 `erasure_observer`, never this file).
 
-Content-free binding: the committed proposal carries `{"targets": [<stable content-free record id>, …],
+D-007 (content-free binding): the committed proposal carries `{"targets": [<stable content-free record id>, …],
 "costs": [<plain-language paraphrase>, …]}` — parallel arrays, `costs[i]` describing `targets[i]`, so one merged
 pull request can clear a whole batch of earned notes in a single consent act (the operator directive: one merge
 clears the backlog). Each `target` is a note's uuid-hex id (reveals nothing about the gitignored content); each
@@ -133,7 +133,7 @@ def earned_targets(path: "str | None" = None, *, now: "int | None" = None) -> li
     return earned
 
 
-# --- the proposal (content-free) --------------------------------------------------------------------
+# --- the proposal (content-free; D-007) --------------------------------------------------------------------
 
 def _role_phrase(role) -> str:
     return _ROLE_PHRASE.get(role, "a note")
@@ -157,7 +157,7 @@ def _age_phrase(seconds: int) -> str:
 
 def _cost_for(record: dict, now: int) -> str:
     """The content-free plain-language cost line for ONE earned note — built ONLY from the note's kind + a coarse age
-    bucket (+ role, for a duplicate), never the note's `text`/`session_id`/`tags`. Dispatches by kind: a
+    bucket (+ role, for a duplicate), never the note's `text`/`session_id`/`tags` (D-007). Dispatches by kind: a
     consolidated session's raw turn-by-turn note reads differently from a crash-duplicate, and — the one consent
     fact this class turns on — names that erasing gives up the verbatim original wording while the curated summary
     stays (the disclosure floor held until this merge). Shared by `build_proposal` (the committed grammar) and
@@ -177,7 +177,7 @@ def build_proposal(records_in: list, *, now: "int | None" = None) -> dict:
     """The committed batch proposal `{"targets": [id, …], "costs": [line, …]}` for one or more earned notes —
     EXACTLY those two keys, both content-free, and `costs[i]` describes `targets[i]` (parallel, one-to-one). Each
     `target` is validated to the observer's record-id shape; each `cost` is plain language from the note's role + a
-    coarse age bucket (never the note's text/session/tags). Raises on an empty list or any record without a
+    coarse age bucket (D-007 — never the note's text/session/tags). Raises on an empty list or any record without a
     valid content-free id (so an invalid target can never enter the grammar)."""
     if not records_in:
         raise ValueError("refusing to build a proposal with no targets")
@@ -253,7 +253,7 @@ def _proposed_targets(gh):
             return None                               # could not read the list -> cannot dedup -> decline upstream
         if not isinstance(raw, list):
             if page == 1:
-                return set()                          # matches the earlier contract for a malformed 1st response
+                return set()                          # matches the pre-Slice-C contract for a malformed 1st response
             break                                     # a malformed later page -> stop; use the pages already read
         items.extend(raw)
         if len(raw) < 100:
@@ -579,7 +579,7 @@ def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
 def _print_candidates(path: "str | None" = None) -> int:
     """The `candidates` verb: an operator-legible, LOCAL list of what has earned erasure — each note's plain-language
     cost (exactly what a pull request would carry) plus a snippet of its own text shown ONLY here on the operator's
-    machine (never committed — the content-free binding governs the committed tree, not local display). Opens nothing."""
+    machine (never committed — D-007 governs the committed tree, not local display). Opens nothing."""
     earned = earned_targets(path=path)
     if not earned:
         print("No notes have earned erasure — there is nothing to propose removing.")

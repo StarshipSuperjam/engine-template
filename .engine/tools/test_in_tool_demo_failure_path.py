@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the in-tool demo failure-path floor (engine-template #171). The floor must FLAG a
+"""Tests for the in-tool demo failure-path floor (engine-template #171; D-231/D-232). The floor must FLAG a
 print-only showcase demo (whose only exit is a literal 0/None), PASS a demo that self-checks (an explicit
 non-zero return, an inline `0 if ok else 1`, or delegation to a can-fail handler), NOT be fooled by a non-zero
 return that lives only inside a nested helper scope, exclude the standalone `demo_*.py` and `test_*.py`

@@ -44,6 +44,10 @@
             "description": "The matching memory records, ordered best-first by relevance (the ranking is the implementation's — BM25 for the lexical floor, reinforced by usage). Each result is a record object whose exact shape is the memory substrate's own (role, narrative, tags, provenance, score), not frozen by this contract.",
             "type": "array",
             "items": { "type": "object" }
+          },
+          "recall_completeness": {
+            "description": "An optional plain-language note, present only when results are returned, telling the reader the results are curated summaries whose original word-for-word notes are still kept and recoverable — so the reader can offer the operator the exact wording. Omitted when there are no results. Whether the note is present is not frozen by this contract; the completeness disclosure floor itself is enforced elsewhere, not by this key.",
+            "type": "string"
           }
         }
       }

@@ -1,4 +1,4 @@
-"""Self-tests for the memory ledger — the canonical store's integrity machinery.
+"""Self-tests for the memory ledger (build slice 1) — the canonical store's integrity machinery.
 
 Run by the checker-of-checkers self-test suite:
   uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -126,7 +126,7 @@ class LedgerResilienceTests(unittest.TestCase):
     def test_append_heals_a_torn_fragment_so_the_next_record_survives(self):
         """The write-side heal: a crash mid-write leaves a torn fragment (no newline); a LATER append
         first repairs the missing terminator, isolating the fragment as its own malformed line so the
-        next record lands clean and SURVIVES. (An earlier build documented the OLD behavior — fusing the fragment
+        next record lands clean and SURVIVES. (Slice 1 documented the OLD behavior — fusing the fragment
         onto the next record and silently losing it — as a tolerated residual; this upholds the read law
         'one bad line never costs the records after it' on the write side.)"""
         ledger.append({"role": "decision", "body": "A survives"}, path=self.path)
@@ -390,7 +390,7 @@ class LedgerPathResolutionTests(unittest.TestCase):
 
 
 class GenerationStampTests(unittest.TestCase):
-    """The generation stamp + its explicit setter (the restore path). `set_generation` writes the BACKUP's true
+    """The generation stamp + its explicit setter (slice 6b restore). `set_generation` writes the BACKUP's true
     generation onto a restored ledger — including a BACKWARD move (an older backup) — durably and fail-safe."""
 
     def setUp(self):
@@ -414,6 +414,15 @@ class GenerationStampTests(unittest.TestCase):
         for bad in (-3, True, "x", None):
             self.assertEqual(ledger.set_generation(bad, for_path=self._led), 0)
             self.assertEqual(ledger.generation(for_path=self._led), 0)
+
+
+class DemoFailureBranchTests(unittest.TestCase):
+    """`_demo`'s failure branch writes to `sys.stderr`. `sys` must be imported at module scope so that branch
+    reports instead of raising NameError when `_demo` is reached off the `__main__` path (e.g. via a dispatcher
+    or test). This pins the module-scope import that keeps that branch working."""
+
+    def test_sys_is_module_scope(self):
+        self.assertIs(ledger.sys, sys)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,11 @@
-"""capture.py — ambient turn-delta capture: the content half of the memory substrate.
+"""capture.py — ambient turn-delta capture: the content half of the memory substrate (slice 3a).
 
-The locked design splits memory capture
+The locked design (engine-planning systems/cognitive/memory + lifecycle/close) splits memory capture
 along a "content survives / reflection defers" seam. This module is the CONTENT half:
 
   - **Every completed turn (`Stop`) appends the turn's session-id-tagged delta to the ledger** — an
     *append, not a summarization*, so it never taxes mid-session use. The expensive AI-judged
-    consolidation into clean, role-typed episodic records is the REFLECTION half, deferred
+    consolidation into clean, role-typed episodic records is the REFLECTION half (slice 3b), deferred
     because it needs the in-context AI's judgment, which a fire-and-forget hook does not have.
 
   - **Capture is cheap, generous, and LOSSLESS over conversation.** A long *turn* is *chunked*
@@ -15,7 +15,7 @@ along a "content survives / reflection defers" seam. This module is the CONTENT 
     control sentinels (`_is_noise`) — because that plumbing is *not conversation*. Excluding it before the
     ledger is an "is this conversation at all" filter, NEVER the importance keep/discard gate the design
     forbids: the design bars gatekeeping on *worth* because worth is future-unknowable
-    ("importance is a function of the future the capturing
+    (engine-planning systems/cognitive/memory: "importance is a function of the future the capturing
     session cannot see"), whereas a harness wrapper's non-conversation status is knowable now and stable.
     "Raw deltas are already in the ledger" is the durability promise this keeps: once a turn finishes, its
     conversational notes cannot be lost, even on an ungraceful exit.
@@ -34,7 +34,7 @@ along a "content survives / reflection defers" seam. This module is the CONTENT 
     (on contention it gives up after ~1s and the delta is caught at the next Stop). Write-safety across
     the per-session appends is the ledger-integrity law (serialized writes), not hook ordering.
 
-The record SHAPE established here (and the per-record `v` version envelope the ledger left as a
+The record SHAPE established here (and the per-record `v` version envelope the slice-1 ledger left as a
 forward-owe) is record-kind `"turn-delta"`; the closed memory *role* vocabulary attaches to the
 `"episodic"` records the reflection step adds, not to raw turn-deltas. stdlib-only; runs on the venv
 python alongside close.
@@ -61,7 +61,7 @@ if _PARENT not in sys.path:
 
 from memory import ledger, records  # noqa: E402
 
-RECORD_VERSION = 1                       # the per-record ledger-version envelope (a forward-owe)
+RECORD_VERSION = 1                       # the per-record ledger-version envelope (slice-1 forward-owe)
 RECORD_KIND = records.AMBIENT_CAPTURE_KIND   # the ambient-capture kind, now homed in `records` (the cycle-free
                                              # leaf `forget` also reads); aliased here so the string never drifts
 CURSOR_FILENAME = "capture-state.json"   # {session_id: captured-message-count}; gitignored sibling
@@ -320,7 +320,7 @@ def _release_lock(fd) -> None:
 # a small threshold N (consolidate.py owns N) — so the sweep recovers a truly-gone session promptly while a
 # live concurrent session (which re-stamps its lease every turn) is spared. The lease lives beside the cursor
 # and is guarded by the SAME `.capture.lock`, so a per-turn refresh and the sweep's store-time re-check
-# serialize against each other. It is the "no lease heartbeat" signal the durability law names.
+# serialize against each other. It is the "no lease heartbeat" signal the durability law names (README §76-79).
 
 LEASE_FILENAME = "consolidation-lease.json"   # {"epoch": int, "leases": {session_id: epoch}}; gitignored sibling
 LEASE_PRUNE_HORIZON = 64      # drop a lease aged this far past the epoch (long-gone; re-stamps if it revives)
@@ -447,7 +447,7 @@ def drop_lease_locked(data_dir: str, session_id: str) -> None:
 
 
 # --- The in-flight-migration marker (compaction refuses within a migration window) -------------
-# The compaction↔provisioning ordering law: the single-writer lock serializes individual
+# The compaction↔provisioning ordering law (README §269-283): the single-writer lock serializes individual
 # writes but does NOT order a whole compaction against a separate migration's snapshot+mutation (each a distinct
 # critical section). So a migration raises an in-flight marker for its duration and compaction refuses within it.
 # The marker is a FILE (written then the lock released), NOT a held lock: the migration's own snapshot reads the
@@ -494,7 +494,7 @@ def _pid_alive(pid) -> bool:
 def _marker_orphaned(marker: dict, now=None) -> bool:
     """A marker is CONFIDENTLY orphaned only when its process is definitively gone OR its wall-clock age far
     exceeds any real migration. Anything uncertain reads as live, so compaction defers rather than risk
-    interleaving a running migration."""
+    interleaving a running migration (§269-283)."""
     now = time.time() if now is None else now
     pid_dead = not _pid_alive(marker.get("pid"))
     started = marker.get("started_at")
@@ -598,7 +598,7 @@ def detect_orphaned_migration(data_dir: str):
 def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected: bool = False) -> dict:
     """The turn-delta record envelope. `ts`/`seq` are INTEGERS on purpose: the derived index's
     record-text projection indexes only string leaves, so integers stay out of the search body. `id` is the
-    stable, content-free record id minted at capture — kept out of the search body too
+    stable, content-free record id minted at capture (slice 4b) — kept out of the search body too
     (index._NON_BODY_KEYS). `injected` adds `records.INJECTED_TAG` so the consolidation sweep skips a
     harness-injected pseudo-turn as fuel (issue #274) — the record still lands and stays fully recoverable;
     the tag (like every tag) is kept out of the search body, and turn-deltas are recall-excluded by kind anyway."""

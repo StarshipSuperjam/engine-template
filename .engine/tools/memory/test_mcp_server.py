@@ -1,10 +1,10 @@
-"""test_mcp_server.py — the engine-memory MCP server, headless (memory substrate).
+"""test_mcp_server.py — the engine-memory MCP server, headless (memory-substrate-sqlite-fts5, slice 5).
 
 Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
 Exercises the server in-process (no Claude Desktop, no subprocess): the single `search` tool delegates to the
-ranked library and returns `{"results": [...]}`, and — the move this server adds — fires the live reinforcement
+ranked library and returns `{"results": [...]}`, and — the move slice 5 adds — fires the live reinforcement
 (forget.record_access) once per RETURNED record, so recall is self-reinforcing. The reinforcement is fail-soft
 (a fault never converts a successful recall into an error), lock-safe (it never writes lock-free), and skips a
 record with no id. An unknown role surfaces as a tool error, not a crash. Isolation is a throwaway
@@ -90,7 +90,7 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual([r.get(_ID) for r in tagged["results"]], [d])
 
     async def test_search_answer_carries_the_recall_completeness_note(self):
-        # (issue #332): the recall answer itself discloses that the raw verbatim behind the curated
+        # §7 (D-273/D-274, #332): the recall answer itself discloses that the raw verbatim behind the curated
         # summaries is kept and recoverable. Present when there are results; omitted on an empty answer.
         self.add("we decided to ship the export format", role="decision")
         data = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
@@ -100,6 +100,25 @@ class ToolWiringTests(_ServerBase):
         empty = self._result_json(await srv.server.call_tool("search", {"query": "nonexistentzqxword"}))
         self.assertEqual(empty["results"], [])
         self.assertNotIn("recall_completeness", empty)   # nothing returned -> nothing to disclose
+
+    async def test_the_search_answer_validates_against_the_interface_output_schema(self):
+        # The interface contract must admit exactly what the reference implementation returns — results, plus the
+        # optional recall_completeness note it carries when there are results. Without the widening the note would
+        # fail a strict conformance build, and the completeness disclosure would have to be dropped.
+        import json
+        import validate
+        schema_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "interfaces", "search.json")
+        with open(schema_path, encoding="utf-8") as fh:
+            out_schema = json.load(fh)["operations"][0]["output_schema"]
+        checker = validate.Draft202012Validator(out_schema)
+        self.add("we decided to ship the export format", role="decision")
+        answer = self._result_json(await srv.server.call_tool("search", {"query": "export"}))
+        self.assertIn("recall_completeness", answer)
+        self.assertEqual(list(checker.iter_errors(answer)), [])        # a note-bearing answer conforms
+        empty = self._result_json(await srv.server.call_tool("search", {"query": "nonexistentzqxword"}))
+        self.assertEqual(list(checker.iter_errors(empty)), [])         # an empty answer conforms
+        self.assertTrue(list(checker.iter_errors({"results": [], "surprise": 1})))  # unknown keys still rejected
 
     async def test_unknown_role_surfaces_as_a_tool_error(self):
         self.add("a decision about export", role="decision")

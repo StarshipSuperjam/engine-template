@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""In-tool demo failure-path floor (engine-template #171) — the custom/script
+"""In-tool demo failure-path floor (engine-template #171; engine-planning D-231/D-232) — the custom/script
 entry for engine/check/in-tool-demo-failure-path.
 
-The engine's in-tool `demo`/`demo-*`/`hook-demo` subcommand is a promoted standing falsification capability — a falsification carried INSIDE a shipped tool, AI-run on demand, which travels into every generated
+The engine's in-tool `demo`/`demo-*`/`hook-demo` subcommand is a promoted standing falsification capability
+(D-231): a falsification carried INSIDE a shipped tool, AI-run on demand, which travels into every generated
 repo because the tool does. Every member inherits the behavioral-attestation shape law — it MUST be able to
-fail (a recipe that can only succeed is not evidence). This is the optional durable floor:
+fail (a recipe that can only succeed is not evidence). This is the optional durable floor D-231/D-232 name:
 it asserts each such subcommand has a REACHABLE NON-ZERO EXIT — an explicit conditional or non-zero `return`,
 a `sys.exit` with a non-zero code, or an unguarded `raise` — i.e. the demo ACTS on the outcome it drives
 rather than printing it and returning 0 regardless. A subcommand whose every exit is a literal `0`/`None` (a
 print-only showcase) cannot fail and is flagged.
 
 Scope: the in-tool subcommands that TRAVEL. It scans `.engine/tools/**/*.py`, excluding the standalone
-`demo_*.py` files and `test_*.py` (a separate population — the standalone construction demos, governed by engine-template #191), and the first-run-retired assets (the `instantiator.py` construction
-subcommands, removed at first run — read from the committed manifest, never imported). Honest static reach: it follows one level of `return _handler(...)` delegation and reads the dispatch branch's own returns;
+`demo_*.py` files and `test_*.py` (a separate population — the standalone construction demos, governed by
+D-228 / engine-template #191), and the first-run-retired assets (the `instantiator.py` construction
+subcommands, removed at first run — read from the committed manifest, never imported). Honest static reach
+(§7): it follows one level of `return _handler(...)` delegation and reads the dispatch branch's own returns;
 a failure path produced only by deep indirection is a residual it does not claim to catch. It runs as a hard
 CI custom/script check: finding.v1 JSON on stdout, return 0 on a successful evaluation (empty array = every
 in-tool demo can fail). A crash returns non-zero, which the kind turns into a hard fail-closed finding.

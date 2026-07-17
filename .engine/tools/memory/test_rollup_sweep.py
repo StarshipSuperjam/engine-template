@@ -1,4 +1,4 @@
-"""Unit tests for the live roll-up SWEEP — memory's SessionStart caller for gist roll-up.
+"""Unit tests for the live roll-up SWEEP — memory's SessionStart caller for gist roll-up (slice 5, PR 3).
 
 The roll-up MECHANISM (detect / store / fold) is pinned in test_rollup.py. THIS file pins the live CALLER: the
 SessionStart sweep that hands the in-context AI the cold session-groups to roll up. It is FOLDED INTO memory's one

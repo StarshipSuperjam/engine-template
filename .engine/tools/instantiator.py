@@ -1685,8 +1685,8 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_memory_degradation_backup.py",
     ".engine/tools/demo_attention_live_dials.py",
     ".engine/tools/demo_boot_set_aside_readout.py",
-    ".engine/tools/demo_boot_self_review_recency.py",
     ".engine/tools/demo_contract_rate.py",
+    ".engine/tools/demo_restore_migration_routing.py",
     # #424 U13b — a KEEP disposition recorded on the census for memory_pointer_public_safety_check.py: it is
     # construction-scoped (self-no-ops outside this repo) yet is deliberately NOT retired here. Its check.json
     # (.engine/check/memory-pointer-public-safety.json) travels in validators-core `provides.check`, so retiring

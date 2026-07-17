@@ -1,50 +1,51 @@
 """forget.py — the engine's active forgetting: Layer-1 logical retirement + scored demotion over the memory
-ledger.
+ledger (slices 4a + 4c).
 
-Active forgetting is **two-layered**. This module is **Layer 1** — *reversible, mechanical,
+Active forgetting (memory/README) is **two-layered**. This module is **Layer 1** — *reversible, mechanical,
 memory-autonomous* tidying that needs no human gate because **nothing is lost**: a forgotten record is
 excluded from recall but stays **resident and fully recoverable in the one canonical ledger**. (Layer 2 —
 irreversible physical erasure, gated on the operator's merge of a single-purpose erasure PR — is a later
 slice; this module deliberately has **no** erasure / ledger-delete code path, a build-conformance invariant a
 test pins.)
 
-The **logical retirement of crash-duplicate consolidations**. When a consolidation pass
+Slice-4a scope: the **logical retirement of crash-duplicate consolidations**. When a consolidation pass
 crashes after its episodic summaries are appended but before its `consolidated` marker lands (consolidate.py),
 the next sweep re-files the session — leaving two passes in the ledger for one session ("a duplicate, never a
 loss"). `live_records` retires the orphaned pass from recall: an episodic whose `batch` carries no closing
 marker is dropped, while the marked (completed) pass is kept. The retirement is **derived from the ledger**
 (the batch↔marker linkage), never stored only in the throwaway index, so it survives a rebuild.
 
-Leaf discipline: this module RETURNS records / a report and renders no operator-facing prose
+Leaf discipline (principle §16): this module RETURNS records / a report and renders no operator-facing prose
 (boot/audits own that). Both recall paths — the FTS5 `rebuild` and the plain `_scan` — consume `live_records`,
 so the fast and slow lookups retire identically (the parity law, index.py). stdlib-only.
 
-**Scored demotion tiers**. A record is reinforced each time it is recalled — an append-only
-`reinforcement` marker (records.py) naming it by its stable id. `score` (score.py) folds a record's
+Slice-4c scope: **scored demotion tiers**. A record is reinforced each time it is recalled — an append-only
+`reinforcement` marker (records.py) naming it by its stable id (slice 4b). `score` (score.py) folds a record's
 reinforcements into a **frecency x role-weight x recency** score and a tier (hot -> warm -> cold -> archived);
 `live_records` additionally drops the **archived** ones from recall (still resident + recoverable in the
 ledger — demotion never deletes), and drops the reinforcement markers themselves (pure derivation fuel, never
-recall results). Tier is **derived on read**, never persisted — like the crash-duplicate retirement, the state is re-derived
+recall results). Tier is **derived on read**, never persisted — like 4a's retirement, the state is re-derived
 from the ledger each rebuild, so it survives a throwaway-index rebuild. The live caller that appends a marker
-on recall is **the search server**; this module ships the marker kind, the `record_access` appender, and the
+on recall is **slice 5** (the search server); 4c ships the marker kind, the `record_access` appender, and the
 operator demo (the `demote` verb) — with no live caller, the engine's own young ledger demotes nothing yet.
 
-The **logical retirement of gist-rolled-up episodes**. A deferred AI-judged pass (`rollup.py`)
+Slice-4d-ii scope: the **logical retirement of gist-rolled-up episodes**. A deferred AI-judged pass (`rollup.py`)
 consolidates old, low-frecency EPISODIC summaries of one session into a compact GIST and supersedes the raws — a
 per-raw `superseded` marker (records.py) names the raw by its stable id and the gist by `superseded_by`, under a
 roll-up `batch` closed by a `rolled-up` marker. `live_records` retires a raw whose supersession's batch is CLOSED
 (its gist is intact) — keyed on the ROLL-UP closed set (`_closed_rollup_batches`), NOT the consolidation set — so a
 crash before the closing marker leaves every supersession inert and no raw is hidden without its gist. An orphaned
-GIST of a crashed roll-up is itself retired (`_is_gist_orphan`), mirror of the crash-duplicate episodic orphan. The retired raw
-stays resident + fully recoverable; physical erasure is Layer-2.
+GIST of a crashed roll-up is itself retired (`_is_gist_orphan`), mirror of 4a's episodic orphan. The retired raw
+stays resident + fully recoverable; physical erasure is Layer-2/4e.
 
-The stable, content-free record id is minted in the record factories (records/capture/consolidate),
+The stable, content-free record id (slice 4b) is minted in the record factories (records/capture/consolidate),
 not here; this module hosts its operator demo (the `identity` verb). Ledger compaction — the rebuild-and-swap
 that folds the reinforcement markers into a carried frecency snapshot AND a closed-batch supersession into a carried
-`superseded_by` field — lives in `compact.py` (it needs the atomic file-replace primitive the
-Layer-1 erasure-free source-scan bans HERE); Layer-2 audit-gated erasure is a later sub-slice. `record_access` (the reinforcement appender) is held under the shared single-writer lock so a
-compaction swap can never race it. Perf forward-owe: the access-index and supersession passes add O(ledger) passes to `live_records` (the access
-index over the reinforcement markers; the supersession passes over the markers); the compaction — folding those
+`superseded_by` field — is slice 4d-i and lives in `compact.py` (it needs the atomic file-replace primitive the
+Layer-1 erasure-free source-scan bans HERE); Layer-2 audit-gated erasure is a later sub-slice (4e) of the memory
+build plan's step 4. `record_access` (the reinforcement appender) is held under the shared single-writer lock so a
+compaction swap can never race it. Perf forward-owe: 4c+4d-ii add O(ledger) passes to `live_records` (the access
+index over the reinforcement markers; the supersession passes over the markers); 4d-i's compaction — folding those
 markers into carried fields — is the designed retirement of that cost.
 """
 
@@ -79,8 +80,9 @@ def _closed_batches(src: str) -> set:
 
 
 def _closed_rollup_batches(src: str) -> set:
-    """The set of roll-up `batch` ids a *completed* roll-up closed — carried by a `rolled-up` marker. DISTINCT from `_closed_batches` (which reads `consolidated` markers): the two closure namespaces
-    never mix — a consolidation and a gist roll-up can never cross-close — and uuid batch ids are globally
+    """The set of roll-up `batch` ids a *completed* roll-up closed — carried by a `rolled-up` marker (slice
+    4d-ii). DISTINCT from `_closed_batches` (which reads `consolidated` markers): the two closure namespaces
+    never mix — a 3b consolidation and a gist roll-up can never cross-close — and uuid batch ids are globally
     unique anyway, so the disjointness is belt-and-suspenders. One pass over the RAW ledger (like
     `_closed_batches`): a roll-up's supersessions take effect ONLY once their batch is in this set."""
     closed = set()
@@ -94,7 +96,7 @@ def _closed_rollup_batches(src: str) -> set:
 
 def _superseded_by_map(src: str, closed_rollup: set) -> dict:
     """Map each raw episode's id -> the gist id that superseded it, from `superseded` markers whose roll-up
-    `batch` is CLOSED. One pass over the **RAW** ledger — `ledger.iter_records`, NOT
+    `batch` is CLOSED (slice 4d-ii). One pass over the **RAW** ledger — `ledger.iter_records`, NOT
     `live_records` — exactly as `_closed_batches`/`_access_index` read markers raw: a `superseded` marker is
     itself dropped from recall (`_is_demoted`), and an aged-out one would score archived and drop too, so
     deriving the supersession off the filtered stream would let an old marker silently un-hide its raw. A marker
@@ -116,7 +118,8 @@ def _superseded_by_map(src: str, closed_rollup: set) -> dict:
 
 
 def _access_index(src: str) -> dict:
-    """Map each reinforced record's id -> the wall-clock `ts` of every `reinforcement` marker that names it. One pass over the **RAW** ledger — `ledger.iter_records`, NOT `live_records` — exactly as
+    """Map each reinforced record's id -> the wall-clock `ts` of every `reinforcement` marker that names it
+    (slice 4c). One pass over the **RAW** ledger — `ledger.iter_records`, NOT `live_records` — exactly as
     `_closed_batches` reads markers raw. This is load-bearing: a `reinforcement` marker is itself dropped by
     `live_records` (it is never a recall result), and a marker for an already-*archived* record would be
     dropped with it — so scoring off the filtered stream would hide the very accesses that should keep or
@@ -135,7 +138,7 @@ def _access_index(src: str) -> dict:
 
 def _is_retired(record, closed: set) -> bool:
     """True iff `record` is an episodic summary orphaned by a crashed pass — its `batch` is set but no marker
-    closed it. Everything else stays live: turn-deltas, markers, batch-less records (any record from before batched passes), and
+    closed it. Everything else stays live: turn-deltas, markers, batch-less records (any pre-4a record), and
     the episodics of a completed (marked) pass. A batch-less episodic is ALWAYS live — there is no crash
     duplicate to resolve there, and nothing folds what it cannot key. The batch↔marker match is intentionally
     GLOBAL (not per-session): a `batch` is a uuid, so a cross-session collision is a 2**-128 non-event, and the
@@ -150,7 +153,7 @@ def _is_retired(record, closed: set) -> bool:
 
 def _is_gist_orphan(record, closed_rollup: set) -> bool:
     """True iff `record` is a GIST orphaned by a crashed roll-up pass — its `batch` is set but no closing
-    `rolled-up` marker landed. The mirror of `_is_retired` for a gist, but keyed on the ROLL-UP
+    `rolled-up` marker landed (slice 4d-ii). The mirror of `_is_retired` for a gist, but keyed on the ROLL-UP
     closed set (`closed_rollup`), NEVER the consolidation `closed` set: a gist's batch is closed by a `rolled-up`
     marker, which `_closed_batches` never sees, so keying it on the consolidation set would wrongly retire EVERY
     completed gist. A batchless or closed gist stays live (and recall-scored like an episodic). So a crashed
@@ -164,11 +167,12 @@ def _is_gist_orphan(record, closed_rollup: set) -> bool:
 
 
 def _is_superseded(record, superseded_ids: set) -> bool:
-    """True iff recall should drop `record` because a COMPLETED roll-up consolidated it into a gist — either a closed-batch `superseded` marker names it (`superseded_ids`, derived from the RAW ledger
+    """True iff recall should drop `record` because a COMPLETED roll-up consolidated it into a gist (slice
+    4d-ii) — either a closed-batch `superseded` marker names it (`superseded_ids`, derived from the RAW ledger
     by `_superseded_by_map`) OR it carries the folded `superseded_by` field a compaction stamped (minted only
     across a closed gate, so its mere presence proves the gist pass completed — trusted unconditionally). The raw
     stays resident + fully recoverable in the ledger (logical retirement, reversible — physical erasure is
-    Layer-2); recall just doesn't surface it, so its gist is the one copy recall returns. ORTHOGONAL to the
+    Layer-2/4e); recall just doesn't surface it, so its gist is the one copy recall returns. ORTHOGONAL to the
     frecency score — a superseded raw is dropped even if it would score hot (the two exclusions OR together)."""
     if not isinstance(record, dict):
         return False
@@ -179,16 +183,16 @@ def _is_superseded(record, superseded_ids: set) -> bool:
 
 
 def _is_demoted(record, access_index: dict, now: int) -> bool:
-    """True iff recall should NOT surface `record` for a demotion reason:
+    """True iff recall should NOT surface `record` for a demotion reason (slice 4c):
       * a `reinforcement` marker — pure derivation fuel for the scorer, never itself a recall result; or
       * a record scored into the **archived** tier (frecency x role-weight x recency, score.py) — excluded
         from the hot index, but it stays resident + fully recoverable in the ledger (demotion never deletes).
     `consolidated` markers are NEVER demoted here — they are structural (carry no recall text) and stay
-    always-live, unchanged from the crash-duplicate retirement. The gist roll-up markers (`superseded` + `rolled-up`) ARE
+    always-live, unchanged from 4a. The gist roll-up markers (`superseded` + `rolled-up`, slice 4d-ii) ARE
     dropped from recall here like `reinforcement`: pure bookkeeping (no recall text), never a recall result.
     Everything else (turn-deltas, episodics, gists) is scored by its own reinforcements (`access_index[id]`,
     empty for an un-reinforced record — born hot from its `ts`); a gist is recall content and demotes like an
-    episodic. The `operator-adjudicated-erasure` marker is likewise dropped from recall (pure
+    episodic. The slice-4e `operator-adjudicated-erasure` marker is likewise dropped from recall (pure
     content-free bookkeeping — it authorises erasing its target, it is never itself a recall result)."""
     if not isinstance(record, dict):
         return False
@@ -202,15 +206,15 @@ def _is_demoted(record, access_index: dict, now: int) -> bool:
 
 
 def record_access(target_id: str, *, path: "str | None" = None, now: "int | None" = None) -> None:
-    """Append a `reinforcement` (access) marker naming `target_id` — the move recall makes on every
-    hit, recorded so demotion can score usage by the stable record id. A no-op on a blank/non-str
+    """Append a `reinforcement` (access) marker naming `target_id` — the move slice-5 recall makes on every
+    hit, recorded so demotion can score usage by the stable record id (slice 4b). A no-op on a blank/non-str
     target. APPENDS ONLY; it never deletes or rewrites (the Layer-1 erasure-free invariant — a test source-
     scans this module). Reuses the crash-safe `ledger.append` primitive; the marker is an ordinary record.
 
-    Held under the shared single-writer `.capture.lock`: it is the one live writer that would
+    Held under the shared single-writer `.capture.lock` (slice 4d): it is the one live writer that would
     otherwise append lock-free, so a compaction swap (which holds that lock across its whole fold-and-swap) could
     race it and lose the marker as the ledger is renamed away. On contention the call is a clean no-op — a
-    missed access marker is harmless bookkeeping (recall reinforces again on the next hit); it NEVER
+    missed access marker is harmless bookkeeping (slice-5 recall reinforces again on the next hit); it NEVER
     writes lock-free. The lock lives in the SAME directory the write resolves to (so the lock and the file never
     diverge under a `path` override)."""
     if not isinstance(target_id, str) or not target_id:
@@ -238,7 +242,7 @@ def record_access(target_id: str, *, path: "str | None" = None, now: "int | None
 
 def _is_ambient_capture(record) -> bool:
     """True iff `record` is an ambient `turn-delta` capture — the role-less, `Stop`-appended verbatim that is fuel
-    for consolidation and the abandoned-session sweep, never recall content (issue #332). The single
+    for consolidation and the abandoned-session sweep, never recall content (D-273/D-274, issue #332). The single
     recall-membership discriminator; recall drops it on every path via `live_records`."""
     return isinstance(record, dict) and record.get("kind") == records.AMBIENT_CAPTURE_KIND
 
@@ -246,7 +250,7 @@ def _is_ambient_capture(record) -> bool:
 def live_records(path: "str | None" = None, *, now: "int | None" = None):
     """Yield the ledger records recall should surface.
 
-    Recall surfaces the curated layer, NOT ambient capture (issue #332): a `turn-delta` is the
+    Recall surfaces the curated layer, NOT ambient capture (D-273/D-274, issue #332): a `turn-delta` is the
     role-less, `Stop`-appended verbatim — fuel for consolidation and the abandoned-session sweep, NEVER recall
     content. `_is_ambient_capture` drops it here, on the ONE shared read path the fast (FTS5) and slow (scan)
     lookups both consume, so the exclusion holds identically on every path — including the degraded plain scan the
@@ -257,9 +261,9 @@ def live_records(path: "str | None" = None, *, now: "int | None" = None):
     kind is fuel. A future *ambient* kind must be added to `_is_ambient_capture` to stay out of recall.)
 
     The four pre-existing exclusions still trim a record that is retired or demoted: (a) an episodic a crashed
-    consolidation pass orphaned (logical retirement); (b) a reinforcement marker / a record scored into the
-    archived tier (scored demotion); (c) a raw episode a COMPLETED gist roll-up superseded, a crashed roll-up's
-    orphaned gist, and the roll-up markers (gist roll-up). A dropped record stays in the ledger, fully
+    consolidation pass orphaned (logical retirement, 4a); (b) a reinforcement marker / a record scored into the
+    archived tier (scored demotion, 4c); (c) a raw episode a COMPLETED gist roll-up superseded, a crashed roll-up's
+    orphaned gist, and the roll-up markers (gist roll-up, 4d-ii). A dropped record stays in the ledger, fully
     recoverable; this generator just doesn't surface it.
 
     Cheap sequential passes over the RAW ledger (never the filtered stream): the consolidation + roll-up closed
@@ -297,14 +301,14 @@ def duplicates(path: "str | None" = None) -> dict:
 
 def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = None, age_days: int) -> dict:
     """The consolidated sessions' raw `turn-delta` capture that has EARNED physical erasure — the evidence class the
-    design names "a consolidated record's raw once its gist is stable". Grouped
+    design names "a consolidated record's raw once its gist is stable" (memory/README, Active forgetting §3). Grouped
     by session id, mirroring `duplicates` so the erasure proposer can union the two classes into one batch. A
     READ-ONLY report; mutates nothing, and the yielded raw stays resident + fully recoverable until an
     operator-merged erasure carries it out (Layer 2).
 
     A session earns its raw erased iff — (the FLAG) it carries a `consolidated` marker AND that consolidation is
     SETTLED: the latest marker is older than `age_days` (its episodic gist has stood in for the raw long enough).
-    "Stable" is judged by age, NEVER by low frecency: the raw's own usage never enters the decision —
+    "Stable" is judged by age, NEVER by low frecency (README §3): the raw's own usage never enters the decision —
     turn-deltas are recall-excluded by kind, so they are never reinforced — and recall acts ONLY as the veto below.
     AND — (the protective VETO) NONE of the session's curated stand-ins is recalled: neither its episodics NOR the
     gist that later rolled them up. Both carry `session_id`; crucially, after a roll-up recall lands on the GIST (a
@@ -314,7 +318,7 @@ def earned_consolidated_raw(path: "str | None" = None, *, now: "int | None" = No
     credited to EACH real session named by its `source_ids` — the veto stays whole for every session that fed it.
 
     Yields only the turn-deltas that are (a) NOT harness-injected pseudo-turns — those are withheld from
-    consolidation, so no gist stands in for them (Capture; the injected-skip path) — and (b) captured no later than
+    consolidation, so no gist stands in for them (Capture; the injected-skip slice) — and (b) captured no later than
     that marker (`ts <= marker_ts`): only fuel actually consolidated by the pass, never a delta appended afterward
     that has no stand-in. Disjoint from `duplicates` by construction: that class yields marker-ABSENT episodics,
     this yields marker-PRESENT turn-deltas — different kinds, so no record can appear in both (even in a session that
@@ -669,7 +673,7 @@ def _demo_body() -> bool:
     return deduped and recoverable and stable
 
 
-# --- Operator demonstration: the stable, content-free record id --------------------------------
+# --- Operator demonstration: the stable, content-free record id (slice 4b) --------------------------------
 # A second THROWAWAY-cabinet walkthrough, for the per-record name-tag the id adds. It runs the REAL factories +
 # store + rebuild + recall and reads the cabinet back, so every claim is recognizable words on screen. Vary the
 # notes near the top and re-run:
@@ -788,7 +792,7 @@ def _demo_identity_body() -> bool:
     return every_tagged and different and tag_private and stable
 
 
-# --- Operator demonstration: scored demotion tiers ---------------------------------------------
+# --- Operator demonstration: scored demotion tiers (slice 4c) ---------------------------------------------
 # A THROWAWAY-cabinet walkthrough for "active forgetting": a note left unused for weeks is set aside from
 # search but stays in the cabinet (recoverable), and using it again brings it straight back. It runs the REAL
 # factories + record_access + rebuild + recall and reads the cabinet back, so every claim is recognizable words
@@ -816,7 +820,7 @@ def _days(n: int) -> str:
 
 def _make_demo_episodic(role: str, text: str, age_days: int) -> dict:
     """A real episodic through the live factory, made BATCHLESS (so it is always-live — never mistaken for a
-    crashed-pass orphan) and back-dated by `age_days` so the demo can age it without sleeping."""
+    crashed-pass orphan, 4a) and back-dated by `age_days` so the demo can age it without sleeping."""
     from memory import consolidate  # lazy (consolidate -> index -> forget would cycle at module load)
     rec = consolidate._make_episodic(_DEMO_DEMOTE_SESSION, {"role": role, "text": text}, "demo-batch")
     rec.pop(records.BATCH_KEY, None)
@@ -899,7 +903,7 @@ def _demo_demote_body() -> bool:
         record_access(old_id)
     _demo_rebuild()
     back_hits = _demo_recall_count(_DEMO_OLD_WORD)
-    print(f"  used the old note {_DEMO_REINFORCE_TIMES} times (what search will do for you in a later step)")
+    print(f"  used the old note {_DEMO_REINFORCE_TIMES} times (this is what searching your memory now does for you automatically)")
     print(f'  search "{_DEMO_OLD_WORD}" -> found {back_hits}    freshness: {_demo_freshness(old)}')
     part3 = back_hits == 1
     print(f"  => {'using it restored it to search — nothing was ever deleted.' if part3 else '!!! using it did not restore the note'}")

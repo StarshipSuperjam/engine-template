@@ -20,9 +20,28 @@ import re
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import standing_situation as ss  # noqa: E402
+
+
+class DemoFailureBranchReportsTests(unittest.TestCase):
+    """`_demo`'s unexpected-result branch writes to `sys.stderr`. `sys` must be imported at module scope so that
+    branch reports (returns 1) instead of raising NameError when `_demo` runs off the `__main__` path."""
+
+    def test_sys_is_module_scope(self):
+        self.assertIs(ss.sys, sys)
+
+    def test_the_failure_branch_reports_instead_of_raising(self):
+        import contextlib
+        import io
+        with mock.patch.object(ss, "_where_lines", return_value=[]), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            rc = ss._demo()                               # forced unexpected result -> the stderr branch runs
+        self.assertEqual(rc, 1)                           # it completed (no NameError)
+        self.assertIn("DEMO UNEXPECTED", err.getvalue())
 
 
 def _gh(transport, *, label="engine", repo="owner/repo"):

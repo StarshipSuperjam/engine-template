@@ -1,9 +1,9 @@
-"""test_index.py — unit tests for the derived memory lookup (SQLite + FTS5).
+"""test_index.py — unit tests for the derived memory lookup (memory-substrate-sqlite-fts5, slice 2).
 
 Run via the engine's CI command:
     uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
-These tests cover the derived-index laws: the fast lookup and the slow backup return the SAME set of records (the
+These tests cover the slice-2 laws: the fast lookup and the slow backup return the SAME set of records (the
 unicode61-mirror), the FTS5-absent condition is detected and degrades to the scan, the rebuild is atomic
 (a crash leaves the prior index intact), and reads stay line-resilient. FTS5 is present in CI's SQLite, so the
 scan path is exercised both by `force_scan=True` and by monkeypatching `fts5_available` to False.
@@ -48,7 +48,7 @@ class IndexTestCase(unittest.TestCase):
 
 
 class RecentDecisionsTests(IndexTestCase):
-    """`recent_decisions` — the memory half of attention's recent-decisions partition (#394), pulled by
+    """`recent_decisions` — the memory half of attention's recent-decisions partition (#394 U01), pulled by
     boot at cold start. NON-lexical by construction: a cold start has no prompt to match against, so it asks
     "what was decided lately?" (recency-ordered); "what relates to THIS?" is the per-prompt scent's job."""
 
@@ -71,7 +71,7 @@ class RecentDecisionsTests(IndexTestCase):
 
     def test_the_ambient_verbatim_is_never_recall_content(self):
         # A role-less `turn-delta` is the Stop-appended verbatim: fuel for consolidation, NEVER recall
-        # Reading through forget.live_records excludes it here exactly as it is from search.
+        # (D-273/D-274). Reading through forget.live_records excludes it here exactly as it is from search.
         self.file(self._rec("keep", "decision", ago=300),
                   {records.RECORD_ID_KEY: "raw", "kind": "turn-delta", "ts": self._NOW, "text": "verbatim"})
         self.assertEqual([r[records.RECORD_ID_KEY] for r in self._recent()], ["keep"])
@@ -158,7 +158,7 @@ class RoundTripTests(IndexTestCase):
 
 
 class MirrorParityTests(IndexTestCase):
-    """The load-bearing property: the fast lookup and the slow backup return the same records, including
+    """The load-bearing slice-2 property: the fast lookup and the slow backup return the same records, including
     the inputs a naive backup (a [A-Za-z0-9_] split) would get wrong — underscores and diacritics."""
 
     CORPUS = [
@@ -211,7 +211,7 @@ class MirrorParityTests(IndexTestCase):
             self.assertEqual(index._tokenize(text), expected, f"_tokenize({text!r})")
 
     def test_every_indexed_token_is_retrievable_via_the_fast_path(self):
-        # Proves FTS5 indexed exactly the tokens _tokenize produced (the derived-index architecture): each token of a
+        # Proves FTS5 indexed exactly the tokens _tokenize produced (the slice-2 architecture): each token of a
         # record's text, queried through the FAST lookup, returns that record.
         records = [{"body": "the snake_case_config café decision"}, {"body": "ёжик решение"}]
         self.file(*records)
