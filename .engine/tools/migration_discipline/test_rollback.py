@@ -161,7 +161,7 @@ class RollbackTests(unittest.TestCase):
         self.assertIsNone(fs[0]["location"])
         self.assertIn("isn't active here yet", fs[0]["message"])
 
-    # --- §13 wall / prune: a migration under a walled or vendored dir is never the product's own ---
+    # --- engine/product wall / prune: a migration under a walled or vendored dir is never the product's own ---
     def test_engine_walled_migration_is_not_a_product_migration(self):
         fs = rollback.findings("soft", root=self._root({".engine/x/migrations/0001.up.sql": "x"}))
         self.assertEqual(len(fs), 1, "a migration under .engine/ must not count as a product migration")

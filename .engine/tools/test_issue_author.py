@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the shared issue-authoring helper (core slice IH).
+"""Self-tests for the shared issue-authoring helper.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 

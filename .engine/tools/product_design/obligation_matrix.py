@@ -1,41 +1,41 @@
 #!/usr/bin/env python3
 """Spec-obligation matrix (product-design) — the engine's generated, committed criterion-by-criterion record
-of a product's SETTLED acceptance criteria, and the drift gate that keeps it honest (design of record:
-engine-planning D-287/D-288; the standing sweep that reads it is D-296/D-297 / issue #449).
+of a product's SETTLED acceptance criteria, and the drift gate that keeps it honest. A standing audit sweep
+reads it (issue #449).
 
 WHAT IT IS. When a project settles a capability in its product spec (a `locked` document under `docs/spec/`
 carrying an acceptance-criteria table), this tool derives ONE committed JSON file,
 `.engine/product-spec-matrix.json`, with ONE ROW PER SETTLED ACCEPTANCE CRITERION: the document it came from,
 its position in that document's criteria table, a content digest of the criterion text, and the criterion +
 how-it-is-verified + who-checks-it as written. It is DERIVED from the committed spec, so it cannot diverge from
-it (the graph.json / self-map.md derive-don't-hand-author pattern, §3/§19/D-011). It is the coverage DENOMINATOR
+it (the graph.json / self-map.md derive-don't-hand-author pattern). It is the coverage DENOMINATOR
 the per-merge conformance floor and the standing audit sweep both read — a DERIVED INDEX, never a trusted second
-referent: any conformance judgment re-derives from the `docs/spec/` span itself, never from these rows (R16).
+referent: any conformance judgment re-derives from the `docs/spec/` span itself, never from these rows.
 
-CRITERION-GRANULAR, keyed by content-digest AT the criterion's validated table position (D-287): a re-worded
+CRITERION-GRANULAR, keyed by content-digest AT the criterion's validated table position: a re-worded
 criterion re-opens exactly its own row (its digest moves); an inserted/deleted criterion shifts the position of
 the rows after it. Each row's identity is `(doc, position)`; the criterion-cell digest is its content-key — the
-thing that moves on a re-wording, and the key the standing sweep attaches a finding to (D-296's
+thing that moves on a re-wording, and the key the standing sweep attaches a finding to (its
 `(doc, digest)`). Where one document carries two identical criterion cells they share a digest, so POSITION is
 what keeps them two distinct rows HERE, in the matrix. The standing sweep, though, dedups a finding on
-`(doc, digest)` ALONE (D-296) — two identical criteria in one document collapse to one tracked finding, the
+`(doc, digest)` ALONE — two identical criteria in one document collapse to one tracked finding, the
 accepted trade for a POSITION-FREE key: position cascades when an edit inserts or removes a criterion, so
 folding it in would re-key and re-nag every finding below the edit (the plan-gate finding on this build).
 
-ONE TIER HERE, on purpose. D-287 names two rigor tiers — criterion-granular over a `docs/spec/` criteria table,
+ONE TIER HERE, on purpose. The design names two rigor tiers — criterion-granular over a `docs/spec/` criteria table,
 and a weaker heading-span tier over prose design docs with no criteria table. This shipped, TRAVELLING generator
-implements the criterion-granular tier ONLY, over the product's OWN in-repo `docs/spec/` (the §13 wall: it never
+implements the criterion-granular tier ONLY, over the product's OWN in-repo `docs/spec/` (the engine/product wall: it never
 reads the engine's design workspace). The span tier's only corpus is the engine's self-build prose — a MAINTAINER
 construction instrument that reads the (out-of-repo) planning workspace and retires at v1, never this product
 module — and a `locked` `docs/spec/` document always carries a well-formed criteria table (product-spec-form
 makes a `locked`-without-criteria document a hard finding), so a span-tier row is unreachable in a conformant
 product repo. Building it here would be dead code the divergence-hunter would rightly flag.
 
-DRIFT GATE, §20-SAFE. The committed matrix IS its own fingerprint (no side digest file): the checker re-derives
+DRIFT GATE, MVP-SAFE. The committed matrix IS its own fingerprint (no side digest file): the checker re-derives
 in memory and byte-compares. A present, non-empty matrix that drifted → a HARD finding naming the one fix
 (regenerate + commit). But NOTHING is ever hard merely for the absence of a settled spec: when nothing is locked
 the derived matrix is empty, and an in-sync empty matrix is a SOFT disclosed no-op — a staged/MVP product is a
-first-class operator choice and is never pressured toward a spec (§20). The matrix travels with the optional
+first-class operator choice and is never pressured toward a spec. The matrix travels with the optional
 product-design module and is self-removing with it; in the engine's own construction repo (no `docs/spec/`) it is
 the empty disclosed no-op, exercised only by fixtures.
 
@@ -88,7 +88,7 @@ MATRIX_PATH = os.path.join(validate.ENGINE_DIR, "product-spec-matrix.json")
 _SCHEMA_VERSION = 1
 REGEN_CMD = "uv run --directory .engine -- python tools/product_design/obligation_matrix.py generate"
 
-# Plain-language display name for operator-facing findings (never the backstage slug; §12 leak-guard).
+# Plain-language display name for operator-facing findings (never the backstage slug; the leak-guard).
 _DISPLAY_NAME = "the record of your settled acceptance criteria (`.engine/product-spec-matrix.json`)"
 
 
@@ -167,10 +167,10 @@ def is_empty(matrix: dict) -> bool:
 # ---- pure drift logic (no IO; fixture-testable) ----------------------------------------------
 
 def drift_finding(canonical: dict, committed_text: str | None, path: str) -> dict:
-    """The fingerprint gate as a pure function, §20-safe.
+    """The fingerprint gate as a pure function, MVP-safe.
 
     - Nothing settled (canonical is empty) AND the committed side is the empty matrix (or absent): a SOFT
-      disclosed no-op — never a hard finding merely because no spec is settled (§20; an MVP is a first-class
+      disclosed no-op — never a hard finding merely because no spec is settled (an MVP is a first-class
       choice, never pressured toward a spec).
     - Present, non-empty, in sync: a `note` (silent pass).
     - Any other case (a non-empty matrix that drifted, a committed side that no longer matches the derivation,
@@ -180,10 +180,10 @@ def drift_finding(canonical: dict, committed_text: str | None, path: str) -> dic
 
     # Nothing settled (the derived matrix is empty): a SOFT disclosed no-op ONLY when the committed side is also
     # empty or absent — the genuine never-settled / MVP repo, a first-class operator choice that is NEVER blocked
-    # or pressured toward a spec (§20). But a committed matrix that STILL LISTS ROWS while nothing is settled (a
+    # or pressured toward a spec. But a committed matrix that STILL LISTS ROWS while nothing is settled (a
     # capability was un-settled, or the last settled document removed) is real drift the gate must catch — it
     # must not pass green while falsely reporting the record is "empty" (a committed != derived hole). The two
-    # cases are distinguished by the committed side, so §20 is preserved for the true MVP without hiding a stale
+    # cases are distinguished by the committed side, so the no-block guarantee is preserved for the true MVP without hiding a stale
     # rows-bearing file.
     if is_empty(canonical):
         if committed_text is None or committed_text == canonical_text:
@@ -342,7 +342,7 @@ def _hook_demo(_argv: list) -> int:
 def _demo(_argv: list) -> int:
     """A safe, scripted fail->pass on THROWAWAY COPIES — never touches the committed matrix. It shows: a
     settled criterion derives a row; a drifted committed matrix is caught (HARD) and regeneration heals it; and
-    a repo with no settled spec is the SOFT disclosed no-op, never a hard block (the §20 guarantee)."""
+    a repo with no settled spec is the SOFT disclosed no-op, never a hard block (the MVP guarantee)."""
     import shutil
 
     def _seed(files: dict) -> str:
@@ -389,7 +389,7 @@ def _demo(_argv: list) -> int:
             print("    " + validate.fmt(c3))
             ok = ok and c1["severity"] == "note" and c2["severity"] == "hard" and c3["severity"] == "note"
 
-        # (E) No settled spec -> the committed empty matrix is a SOFT disclosed no-op, never hard (§20).
+        # (E) No settled spec -> the committed empty matrix is a SOFT disclosed no-op, never hard.
         with tempfile.TemporaryDirectory() as d:
             scratch = os.path.join(d, "product-spec-matrix.json")
             generate(scratch, empty_root)

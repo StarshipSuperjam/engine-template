@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-map drift gate (core slice 8) — the thin custom/script entry for engine/check/self-map-drift.
+"""Self-map drift gate — the thin custom/script entry for engine/check/self-map-drift.
 
 Runs as a `custom/script` check rule in the CI suite: it confirms the committed self-map
 (`.engine/self-map.md`) still matches its canonical derivation from the surface catalog + module
@@ -13,7 +13,7 @@ the map is in sync, one `hard` finding (carrying the plain-language regenerate g
 or an absent map. An internal crash returns non-zero, which the custom/script kind turns into a
 hard fail-closed finding.
 
-Superseded if slice 10's generalized coverage-fingerprint mode later re-homes this gate.
+Superseded if a generalized coverage-fingerprint mode later re-homes this gate.
 """
 from __future__ import annotations
 import json

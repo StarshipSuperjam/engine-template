@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Self-tests for the policy surface (slice 14): the policy.v1 frontmatter grammar, the committed policy
+"""Self-tests for the policy surface: the policy.v1 frontmatter grammar, the committed policy
 template, the live policy-shape rule, the committed policy instances (the four v1-core policies plus the
-attention policy the slice-12 cognitive floor contributes), the contract-threshold filled-presence rule (the
-slice-13 forward-obligation), and the catalog flip that wires schema + template in.
+attention policy the cognitive floor contributes), the contract-threshold filled-presence rule (the
+forward-obligation), and the catalog flip that wires schema + template in.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
@@ -20,7 +20,7 @@ when Significance or Anti-choice is blank or only the template placeholder (pres
 when both are filled; and the catalog now routes the policy surface to its in-repo schema and template.
 Policy frontmatter is now LIVE-validated against policy.v1 by the policy-frontmatter schema rule — the
 validation foundation's YAML reader parses it, so a malformed value (a tuning number written as text, say)
-blocks the merge — and the same conformance is also proven here over fixtures (the frontmatter reader D-090
+blocks the merge — and the same conformance is also proven here over fixtures (the frontmatter reader
 deferred has now landed in the validation foundation; the live rule + reader are exercised here over the real
 committed policies, including their real unquoted YAML dates).
 """
@@ -49,16 +49,14 @@ STATUS_ENUM = POLICY_SCHEMA["properties"]["status"]["enum"]
 # them on the load_json path (the byte-identical-behavior regression lock).
 EXISTING_SCHEMA_RULES = ("engine-manifest", "interface-declaration", "module-manifest", "state-cursor")
 
-# The four v1-core policies that ship from layer one (modules/core/README.md), non-removable: three
-# trust-model policies plus triage-threshold. The attention cognitive floor (slice 12) contributes a FIFTH
+# The four v1-core policies that ship from layer one, non-removable: three
+# trust-model policies plus triage-threshold. The attention cognitive floor contributes a FIFTH
 # policy on the same surface — the tuning values its ranking tool reads — which is NOT one of the foundational
-# four but the attention system's own governed policy (systems/cognitive/attention/README.md). An OPTIONAL
+# four but the attention system's own governed policy. An OPTIONAL
 # module may also ship its own policy on this surface: the dependency-discipline module contributes a posture
-# policy stating its pinning/review-gate/cadence expectations (modules/dependency-discipline/README.md), the
-# migration-discipline module a posture policy for the product's own schema migrations
-# (modules/migration-discipline/README.md), and the external-contribution module a posture policy for how the
-# engine narrates contributing to an upstream the operator does not own
-# (modules/external-contribution/README.md) — each present in this construction repo and removed in a generated
+# policy stating its pinning/review-gate/cadence expectations, the
+# migration-discipline module a posture policy for the product's own schema migrations, and the external-contribution module a posture policy for how the
+# engine narrates contributing to an upstream the operator does not own — each present in this construction repo and removed in a generated
 # repo that opts the module out. The committed set is their union; growing it here is how a missing/renamed/
 # unexpected policy fails this suite.
 FOUNDATIONAL_POLICIES = {"contract-threshold", "finding-disposition", "escalation", "triage-threshold"}
@@ -325,7 +323,7 @@ class TestCatalog(unittest.TestCase):
 
 class TestPolicyFrontmatterRule(unittest.TestCase):
     """The live policy-frontmatter schema rule: it validates each policy's parsed YAML frontmatter against
-    policy.v1 at the merge (the frontmatter reader D-090 deferred, now landed)."""
+    policy.v1 at the merge (the frontmatter reader deferred, now landed)."""
 
     def test_rule_is_well_formed_and_joins_ci(self):
         check_schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))
@@ -350,7 +348,7 @@ class TestPolicyFrontmatterRule(unittest.TestCase):
         self.assertEqual(triage["values"], {"persistence": 3, "auto_resolve": 2, "triage_pressure": 10})
         contract = validate.frontmatter(os.path.join(POLICIES_DIR, "contract-threshold.md"))
         self.assertEqual(contract["values"], {"contract_rate_max": 3})
-        attention = validate.frontmatter(os.path.join(POLICIES_DIR, "attention.md"))   # slice 12 ranking dials
+        attention = validate.frontmatter(os.path.join(POLICIES_DIR, "attention.md"))   # ranking dials
         self.assertTrue(attention.get("values"), "the attention policy carries the ranking tool's tuning values")
         self.assertTrue(all(isinstance(v, (int, float)) and not isinstance(v, bool)
                             for v in attention["values"].values()),

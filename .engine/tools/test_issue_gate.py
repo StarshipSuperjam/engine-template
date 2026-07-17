@@ -163,7 +163,7 @@ class TestBodyFileOnDisk(unittest.TestCase):
 
 
 class TestFailOpen(unittest.TestCase):
-    """Anything the matcher cannot parse resolves to None (allow) — the §6 nudge, never a wall."""
+    """Anything the matcher cannot parse resolves to None (allow) — the nudge, never a wall."""
 
     def test_unparseable_shell_fails_open(self):
         self.assertIsNone(_reason('gh issue create --label engine -b "unterminated'))

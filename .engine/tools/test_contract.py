@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the contract surface (slice 13): the contract.v1 frontmatter grammar, the committed
+"""Self-tests for the contract surface: the contract.v1 frontmatter grammar, the committed
 contract template, the live shape-kind validation rule, and the catalog flip that wires both in.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -17,7 +17,7 @@ body is only a soft nudge); and the catalog now routes the contract surface to i
 template. Contract frontmatter is now LIVE-validated against contract.v1 by the contract-frontmatter schema
 rule (the validation foundation's YAML reader parses it) — green over the empty contract stream today, with
 teeth on a malformed record — and the same conformance is also proven here over fixtures (the frontmatter
-reader D-090 deferred has now landed in the validation foundation).
+reader deferred has now landed in the validation foundation).
 """
 from __future__ import annotations
 import json
@@ -113,7 +113,7 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(_errors(CONTRACT_SCHEMA, ns), [], "a namespaced supersedes link should conform")
 
     def test_status_outside_the_decision_lifecycle_is_rejected(self):
-        # there is deliberately NO 'rejected' state (D-019): a rejected alternative is an anti-choice.
+        # there is deliberately NO 'rejected' state: a rejected alternative is an anti-choice.
         for bad_status in ("rejected", "draft", "active", "Accepted"):
             bad = {**VALID_FM, "status": bad_status}
             self.assertNotEqual(_errors(CONTRACT_SCHEMA, bad), [], f"{bad_status} is not a lifecycle state")
@@ -271,7 +271,7 @@ class TestInstanceEADRCoverage(unittest.TestCase):
     frontmatter, so a malformed one would silently break a deployment's own decision history. The target glob
     widened in two steps: #422 took it from `.engine/contracts/*.md` to `.engine/contracts/**/eADR-*.md`, and
     #467 to `.engine/contracts/**/*eADR-*.md` so it also matches a project-namespaced `<project-slug>-eADR-####`
-    record (the deployment naming scheme, eADR-0017 / D-298) — while still excluding `instance/README.md` (no
+    record (the deployment naming scheme, eADR-0017) — while still excluding `instance/README.md` (no
     `eADR` in its name). The surface catalog resolves an instance eADR to the `contract` surface by
     directory-prefix, so all three kinds validate it with only the glob change (no inlined params, no
     validate.py change). The checks are exercised end-to-end by patching `validate.ROOT` to a temp tree (the

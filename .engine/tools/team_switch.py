@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""The permanent operator-privileged solo->team migration (engine-template #408 U11; control-plane
-README "Identity and the merge gate" (Team); provisioning README:177-205).
+"""The permanent operator-privileged solo->team migration (engine-template #408).
 
 Team mode is the "cannot weaken at all" structural close: a distinct, NON-ADMIN GitHub identity (a machine-user
 account the operator creates) authors the engine's commits and pull requests, so the operator becomes the
@@ -19,7 +18,7 @@ TWO credentials, by design: applying the ruleset needs repo ADMIN, so `apply`/`r
 OWN credential; ongoing build sessions then authenticate as the machine-user PAT to author commits/PRs. The tool
 never stores the PAT — it lives in the operator's `gh` credential store.
 
-Reversible: `reverse` (team->solo) drops the identity record and re-applies the solo floor. That is a §15
+Reversible: `reverse` (team->solo) drops the identity record and re-applies the solo floor. That is a
 WEAKENING (it removes the required approval), so the manifest change it writes routes through the `guardrail-ack`
 when committed — the weakening guard's identity-downgrade detector catches it.
 
@@ -87,7 +86,7 @@ class TeamSwitch:
             json.dump(data, fh, indent=2)
             fh.write("\n")
 
-    # -- verification (§7 verify-the-tier-genuinely-bites) ----------------------------------------
+    # -- verification (verify-the-tier-genuinely-bites) ----------------------------------------
 
     def collaborator_permission(self, login: str) -> str | None:
         """The machine-user's permission on the repo: 'admin' | 'write' | 'read' | 'none', or None if it is not

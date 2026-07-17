@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""uv-group drift gate (core slice 25c) — the thin custom/script entry for engine/check/uv-group-drift.
+"""uv-group drift gate — the thin custom/script entry for engine/check/uv-group-drift.
 
 Runs as a `custom/script` check rule in the CI suite: it confirms the committed `[tool.uv] default-groups`
 in `.engine/pyproject.toml` still equals what the present module set derives
 (`module_manager.derive_uv_groups`), so a hand-edit, a botched merge, or a missed re-derivation turns
 engine-ci red until the selection is synced. This is the standing, first-class drift gate that closes the
-hand-maintained CI uv-group seam (the pyproject comment cedes it to "slice 25's module manager"): slice 25b
+hand-maintained CI uv-group seam that the pyproject comment cedes to the module manager: the module manager
 shipped the derivation + a unit test over `remove`'s write path; this rule guards the committed value against
-drift from ANY source, including `add`'s write path (slice 25c) and a direct edit.
+drift from ANY source, including `add`'s write path and a direct edit.
 
 It reads local committed files only — no network, no token (least-privilege: it does NOT opt into
 `params.pass_token`, modelled on `self_map_check.py`) — so it runs unchanged in the head-checkout engine-ci

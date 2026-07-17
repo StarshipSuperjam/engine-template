@@ -20,12 +20,12 @@ Disclosed-no-op: when a project has no `docs/spec/` tree yet, it says so plainly
 silent pass) — that is the normal state for a project that hasn't written its spec, and the check starts
 working on its own once `docs/spec/` is added.
 
-Honest floor — the engine/product wall (§13) and the read-only firewall (R5): it inspects the product's own
+Honest floor — the engine/product wall and the read-only firewall: it inspects the product's own
 `docs/spec/` tree ONLY, never the engine's `.engine/` tooling; it reads file contents to check structure but
 never writes; and it checks FORM, not correctness — semantic quality and freshness stay unmonitored by
-design (R9). The lock decision on a settled spec is the operator's, gated separately.
+design. The lock decision on a settled spec is the operator's, gated separately.
 
-Operator-communication law (D-120): the engine-internal lifecycle ladder (the stub/draft/locked markers a
+Operator-communication law: the engine-internal lifecycle ladder (the stub/draft/locked markers a
 document carries) NEVER surfaces to the operator as a raw token — every finding renders the stage in plain
 language ("not yet described / in progress / settled"). The raw marker lives only in the document frontmatter
 the engine attaches and in this script's own logic.
@@ -68,7 +68,7 @@ _BUILD_PLAN_NAME = "build-plan.md"
 _BUILD_PLAN_REL = os.path.join(_SPEC_DIR, _BUILD_PLAN_NAME)
 
 # The lifecycle ladder is engine-internal; operator-facing prose renders it plainly, NEVER the raw token
-# (D-120 / the operator-communication law). These plain renders are the only stage words a finding shows.
+# (the operator-communication law). These plain renders are the only stage words a finding shows.
 _VALID_STATUS = ("stub", "draft", "locked")
 _PLAIN_STATUS = {"stub": "not yet described", "draft": "in progress", "locked": "settled"}
 _PLAIN_STAGES = "not yet described, in progress, or settled"
@@ -454,8 +454,7 @@ def demo() -> int:
     plainly (never silently) when there is no spec; flags — at hard severity — a missing index, a missing
     section in an in-progress doc, a malformed/absent acceptance-criteria table, a bad who-can-check value,
     an orphan document, a dangling index link, and an index/document stage disagreement; never shows a raw
-    lifecycle token in a finding; and never treats a spec under `.engine/` as the product's own (the §13
-    wall). RETURNS NON-ZERO if any invariant is broken (the falsification can fail). Mutation-free: every
+    lifecycle token in a finding; and never treats a spec under `.engine/` as the product's own (the engine/product wall). RETURNS NON-ZERO if any invariant is broken (the falsification can fail). Mutation-free: every
     case runs against a throwaway temp root, so the real working tree is never touched."""
     import shutil
     import tempfile
@@ -559,7 +558,7 @@ def demo() -> int:
                    "docs/spec/checkout.md": _doc("draft")},
                   lambda fs: any(f["severity"] == "hard" and "must agree on the stage" in f["message"]
                                  for f in fs)))
-    cases.append(("a spec under .engine/ is walled out (the §13 wall) -> no-op, not a finding",
+    cases.append(("a spec under .engine/ is walled out -> no-op, not a finding",
                   {".engine/docs/spec/index.md": _index("| X | draft | [X](x.md) |\n"),
                    ".engine/docs/spec/x.md": _doc("draft")},
                   lambda fs: len(fs) == 1 and fs[0]["severity"] == "soft"
@@ -572,7 +571,7 @@ def demo() -> int:
             result = findings("hard", root=root)
         finally:
             shutil.rmtree(root, ignore_errors=True)
-        # The raw lifecycle ladder must never surface in a finding (D-120 / operator-communication law).
+        # The raw lifecycle ladder must never surface in a finding (the operator-communication law).
         for f in result:
             for token in _VALID_STATUS:
                 if re.search(rf"\b{token}\b", f["message"]):

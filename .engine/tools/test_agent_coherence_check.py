@@ -1,4 +1,4 @@
-"""Tests for the persona-set coherence guard (D-272) — the live consumer that runs
+"""Tests for the persona-set coherence guard — the live consumer that runs
 validate.agent_coherence_findings over the present personas and is wired as the engine/check/
 agent-coherence custom/script CI rule. Verifies discovery + name injection, the read-only write-lock
 guard firing on a planted lockless read-only persona while staying silent on a clean set, and that the

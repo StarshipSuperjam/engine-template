@@ -2,6 +2,6 @@
 committed product specification (its `docs/spec/` tree), never its content. This package marker keeps the
 module's tools importable as `product_design.<name>` and discoverable by `unittest discover -s tools`.
 
-Slice 1 ships `spec_form` (the spec-form check). Later slices add the lock-integrity re-acceptance check and
-the acceptance-criteria coverage check alongside it.
+It ships `spec_form` (the spec-form check), the lock-integrity re-acceptance check, and
+the acceptance-criteria coverage check.
 """

@@ -1,4 +1,4 @@
-"""Tests for the `/engine-tune` tool (core slice 26c).
+"""Tests for the `/engine-tune` tool.
 
 Verifies: the effective value is the shipped default with the operator override merged per-key (and the
 default alone when there is no override); eligibility excludes attention's structural keys and includes the

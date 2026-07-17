@@ -3,7 +3,7 @@
 engine/check/memory-pointer-public-safety.
 
 The committed memory-backup pointer (.engine/memory-backup/pointer.json) carries the vault's COORDINATES
-(owner/repo/namespace). In a DEPLOYED project committing them is the operator's own choice — topology-law-5's
+(owner/repo/namespace). In a DEPLOYED project committing them is the operator's own choice — the
 config-not-data carve-out, and the saved-memory read is legitimate on a public repo (only the digest CONTENT is
 gated, never the pointer). But the PUBLIC engine-template CONSTRUCTION repo must always ship the unconfigured
 PLACEHOLDER, so a maintainer's real vault coordinates can never travel to everyone who uses the template. This

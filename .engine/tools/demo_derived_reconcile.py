@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Demo — why a collision on the engine's internal index files is never your problem (#136 / principle 19).
+"""Demo — why a collision on the engine's internal index files is never your problem (#136).
 
 What this checks, in plain words: when two pieces of work are in flight at once, they can both rewrite the
 engine's internal index files — the knowledge graph and the self-map — and "collide" on them. This shows, on
@@ -51,7 +51,7 @@ def _rm_tool(tree_root: str, name: str) -> None:
 
 def main(_argv=None) -> int:
     print("What this checks: a collision on the engine's internal index files loses no work — they are")
-    print("rebuilt from your real source files, so rebuilding recovers everything. (#136 / principle 19)\n")
+    print("rebuilt from your real source files, so rebuilding recovers everything. (#136)\n")
 
     # Part 1 — rebuilding is reproducible: the same sources always rebuild the same index, so "rebuild to
     # resolve" has one well-defined answer and the file carries nothing extra a rebuild could drop.

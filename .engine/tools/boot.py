@@ -949,7 +949,7 @@ def gather_signals(session_id: str | None = None) -> dict:
         # LICENSE at its committed root (a repo generated before the first-run clear shipped, or drifted back to
         # the seed). No-op in the engine's own template repo; degrades QUIETLY to None otherwise. boot OFFERS a
         # reviewed removal; the assistant lands it as a reviewed pull request on the operator's consent — never a
-        # boot-time delete (D-303). The open-removal-PR DEDUPE is a SEPARATE best-effort ONLINE step, kept OFF the
+        # boot-time delete. The open-removal-PR DEDUPE is a SEPARATE best-effort ONLINE step, kept OFF the
         # offline detector's critical path; a network miss (pr_open None) just re-offers normally.
         foreign_license = license_health.detect_foreign_license()
         if foreign_license and foreign_license.get("present"):
@@ -1464,7 +1464,7 @@ def render_dashboard(s: dict) -> str:
     out.append("")
     out.append("### Needs your attention")
     attention = list(s["att_lines"])
-    # The self-review freshness advisory (audit-library 3c), relayed read-only from audit_digest's own
+    # The self-review freshness advisory, relayed read-only from audit_digest's own
     # detection. A SOFT, never-blocking nudge naming the one re-arming action — it sits here in the attention
     # body (surfaced by the pack's step-3 instruction so the assistant raises it when it matters), and is
     # DELIBERATELY never pinned / present-marker / must_push: a never-armed repo still reads "all clear" and
@@ -1679,7 +1679,7 @@ def _relay_lines(s: dict) -> list:
         eligible.append({"key": "set_aside", "value": set_aside_value})
     # The leftover-license offer rides this SAME single decide() call (#471), like off_main/set_aside — it is not a
     # pushed governance alarm (it renders only in the dashboard, below governance). But FIRST the hook-side RETIRE
-    # honor (§15, D-306): if this finding-class is retire-eligible AND a retired marker for its fingerprint is
+    # honor: if this finding-class is retire-eligible AND a retired marker for its fingerprint is
     # recorded, the offer is SUPPRESSED entirely (stamped `retired` -> the renderer shows nothing) and does NOT
     # join the ledger pass. Retire-eligibility is enforced in the ledger by a code constant keyed on the LIVE
     # finding class ("foreign_license") passed here — derived from the producing detector, NEVER a label read from

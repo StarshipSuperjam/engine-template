@@ -4,8 +4,7 @@
 build-orchestration (core) confirms, before a phase's work starts, that the phase is ready: every capability
 the build order schedules under that phase has a **settled** description (the ground a build works from). This is
 the product analogue of this workspace's own pre-build dry-run — a read-only, advisory check that a builder
-could construct the phase from what is written, not a gate (engine-planning product-design README §247-248 /
-decision-log D-244; `wbs/dry-run.md` is itself read-only and advisory). The orchestrator runs it at Plan, when
+could construct the phase from what is written, not a gate (the dry-run precedent it mirrors is itself read-only and advisory). The orchestrator runs it at Plan, when
 it groups product work into phases (`build-orchestration.md`, "Grouping product work into phases"), and surfaces
 the result plainly; a not-ready phase informs the operator's decision, it never blocks a merge.
 
@@ -28,7 +27,7 @@ Absent inputs are a disclosed no-op, never a crash and never a silent "all ready
 (engine/product wall) runs before any capability document is opened: a build-order link that escapes `docs/spec/`
 is reported, never read.
 
-Operator-communication law (D-120): the engine-internal lifecycle markers (`stub`/`draft`/`locked`) NEVER surface
+Operator-communication law: the engine-internal lifecycle markers (`stub`/`draft`/`locked`) NEVER surface
 as raw tokens — every rendered line uses the plain stages ("not yet described" / "in progress" / "settled").
 
 Operator demo (real readiness logic over throwaway spec trees; no real files touched):
@@ -53,7 +52,7 @@ _BUILD_PLAN_REL = os.path.join("docs", "spec", "build-plan.md")
 _BUILD_PLAN_COLUMNS = ("phase", "capability", "doc")
 _LOCKED = "locked"
 
-# The engine-internal lifecycle ladder -> its plain operator render (D-120; the raw token never surfaces).
+# The engine-internal lifecycle ladder -> its plain operator render (the raw token never surfaces).
 _PLAIN_STATUS = {"stub": "not yet described", "draft": "in progress", "locked": "settled"}
 _PLAIN_MISSING = "no description written yet"     # a scheduled capability whose document does not exist
 _PLAIN_UNSETTLED = "not settled yet"              # a document that exists but carries no recognized stage
@@ -345,7 +344,7 @@ def _demo() -> int:
             (not r_unknown["ok"]) and r_unknown["no_op_reason"] == "no-such-phase",
         "the render carries the bound": _BOUND_TAIL in rendered,
     }
-    # D-120: no rendered line may leak a raw lifecycle token.
+    # Operator-communication law: no rendered line may leak a raw lifecycle token.
     leaks = [t for t in ("stub", "draft", "locked") if re.search(rf"\b{t}\b", rendered)]
 
     for d in (ready_tree, walled, bare, no_plan):

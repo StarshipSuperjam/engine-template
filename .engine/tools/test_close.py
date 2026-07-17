@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 22 — close: the turn-close Stop disposition gate + ambient-capture trigger.
+"""Self-tests for close: the turn-close Stop disposition gate + ambient-capture trigger.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
-Each test locks one load-bearing law (systems/lifecycle/close/README.md), faking only the network (the
+Each test locks one load-bearing law, faking only the network (the
 demo-fidelity rule): the ephemeral session-keyed record round-trips and degrades SAFE; the gate HOLDS a
 turn while a recorded finding is undispositioned and ENDS it once dispositioned; a forced continuation
 (stop_hook_active, under BOTH platform readings) logs the leftover down telemetry's promotion path and
@@ -138,7 +138,7 @@ class TestGateBranches(CloseBase):
     def test_pushback_leaks_no_raw_code_identifier(self):
         # The operator's pushback line must never carry a raw hook name / code identifier — a symbol
         # surfacing verbatim means an internal leaked (a bug), not a word choice. This guards SYMBOLS, not
-        # vocabulary, so it is not a banned-word list (engine-planning D-225 / R30): whether the prose leans
+        # vocabulary, so it is not a banned-word list: whether the prose leans
         # on jargon is a judgment (the audit probe + the per-PR review), never a filter.
         close.record_finding(self.sid, "x")
         _code, _out, err = _stop({"session_id": self.sid, "stop_hook_active": False})
@@ -162,8 +162,8 @@ class TestForcedContinuation(CloseBase):
 
     def test_forced_continuation_keeps_untracked_finding_never_lost(self):
         # Offline at the cap: promotion fails, so the leftover is KEPT (it re-surfaces next turn) rather
-        # than silently dropped — close/README "the finding survives regardless". The turn still ENDS.
-        # U08c (#412): the notice is HONEST about what failed — the disposition check RAN (it found the
+        # than silently dropped — the finding survives regardless. The turn still ENDS.
+        # #412: the notice is HONEST about what failed — the disposition check RAN (it found the
         # leftover); only the durable SAVE was offline. So it says "couldn't save them as tracked", NOT the
         # gate-CRASH line "couldn't run the check" (which now belongs to a genuine gate crash).
         close.record_finding(self.sid, "an unsettled concern")
@@ -177,8 +177,8 @@ class TestForcedContinuation(CloseBase):
         self.assertEqual(len(close.pending(self.sid)), 1)        # KEPT — never lost (re-surfaces next turn)
 
     def test_close_hook_wires_its_own_gate_crash_notice_into_run_hook(self):
-        # U08c: the Stop hook hands run_hook close's OWN crash line, so a disposition-gate CRASH surfaces
-        # "couldn't run the check that confirms nothing was dropped" (close/README "fails open, and says so"),
+        # The Stop hook hands run_hook close's OWN crash line, so a disposition-gate CRASH surfaces
+        # "couldn't run the check that confirms nothing was dropped" (fails open, and says so),
         # not run_hook's generic wording — while the single central emit path is preserved.
         captured = {}
         def fake_run_hook(event, handler, **kw):
@@ -289,7 +289,7 @@ class TestAmbientTrigger(CloseBase):
 
     def test_ambient_capture_fault_is_a_noop_and_never_gates(self):
         # Any capture fault — including a repo with NO memory module — is a silent no-op that never raises
-        # into the handler and never gates the turn (close/README "capture never gates close").
+        # into the handler and never gates the turn (capture never gates close).
         import builtins
         real_import = builtins.__import__
 
@@ -305,8 +305,8 @@ class TestAmbientTrigger(CloseBase):
 
 
 class TestDispositionLoopLegibility(CloseBase):
-    """A repeated disposition loop stays legible on the RELIABLE block channel (close/README "a disposition
-    loop is legible"): the loop-line on the 2nd+ block, a pre-announcement on the approach to the cap."""
+    """A repeated disposition loop stays legible on the RELIABLE block channel (a disposition
+    loop is legible): the loop-line on the 2nd+ block, a pre-announcement on the approach to the cap."""
 
     def _block_reason(self):
         # One consecutive normal block (stop_hook_active false); returns the block reason (stderr).

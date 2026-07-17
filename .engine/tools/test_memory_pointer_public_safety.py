@@ -1,4 +1,4 @@
-"""test_memory_pointer_public_safety.py — the construction-only pointer leak guard (#224, D-242).
+"""test_memory_pointer_public_safety.py — the construction-only pointer leak guard (#224).
 
 The guard catches a CONFIGURED memory-backup pointer accidentally committed to the PUBLIC engine-template
 construction repo. It reads the COMMITTED pointer (git show HEAD), construction-gated on the root CLAUDE.md, so

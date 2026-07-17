@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Conduct weakening guard (core slice CD) — the reflexive principle-15 guard applied to the conduct
+"""Conduct weakening guard — the reflexive non-falsifiability guard applied to the conduct
 surface. A code of conduct is pure posture and CANNOT weaken a guardrail: the load-bearing protections are
 the mechanical gates (PreToolUse denials, required checks, branch protection) and the human merge review,
 which hold regardless of any prose the model reads. This check is DEFENSE-IN-DEPTH: it scans each

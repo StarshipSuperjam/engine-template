@@ -239,7 +239,7 @@ class Apply(unittest.TestCase):
             self.assertEqual(t.engine()["packages"]["core"], "0.1.0")
             self.assertEqual(t.module_version("core"), "0.1.0")
             self.assertEqual(t.module_version("qa-review"), "0.1.0")
-            # home_repository line is byte-identical (would otherwise trip weakening_guard, D-281/D-282)
+            # home_repository line is byte-identical (would otherwise trip weakening_guard)
             after_home_line = [ln for ln in t.engine_text().splitlines() if "home_repository" in ln][0]
             self.assertEqual(before_home_line, after_home_line)
             self.assertEqual(t.engine()["identity"], "solo")           # unrelated keys preserved
@@ -344,9 +344,9 @@ class RenderPRBody(unittest.TestCase):
         self.assertIn("First release", body)                        # the change inventory carried through
         self.assertIn("Every capability (2)", body)                 # uniform targets collapse to one line
         self.assertIn("no automated check", body.lower())           # the gate-path line (no benchmark built)
-        self.assertIn("## Review", body)                            # the §3 confirm/raise/reject guidance
+        self.assertIn("## Review", body)                            # the confirm/raise/reject guidance
         self.assertIn("close this and run the release again", body)  # the raise + missing-signal backstop
-        # maintainer-facing register (§8): no internal machinery vocabulary leaks
+        # maintainer-facing register: no internal machinery vocabulary leaks
         for banned in ("release-cut", "bump rule", "version production", "first-cut", "engine_floor"):
             self.assertNotIn(banned, body)
 
@@ -461,7 +461,7 @@ class RenderPRBody(unittest.TestCase):
     def test_gate_path_three_states_are_visibly_distinct(self):
         passed, subbar, errored = (rc._gate_path_line("passed"), rc._gate_path_line("sub-bar"),
                                    rc._gate_path_line("errored"))
-        self.assertEqual(len({passed, subbar, errored}), 3)         # §6: never look alike
+        self.assertEqual(len({passed, subbar, errored}), 3)         # never look alike
         self.assertIn("passed", passed.lower())
         self.assertIn("errored", errored.lower())
         self.assertIn("no automated check", subbar.lower())

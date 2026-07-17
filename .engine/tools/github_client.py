@@ -5,12 +5,12 @@ The single, core-owned home for the authenticated-Request shape every engine too
 GitHub API shares: the Bearer-token + Accept + API-version header block, the host-relative-or-absolute
 URL handling with the OFF-HOST GUARD, the single-resource and paginated GET, and the base64 content
 decode. Before this, the same logic was hand-copied across weakening_guard, audit_digest, telemetry,
-protection_guard, and lock_integrity (via weakening_guard) — two of those (the §15 weakening guard and
+protection_guard, and lock_integrity (via weakening_guard) — two of those (the weakening guard and
 the protection guard) are stage-0 seeds slated for supersession, so the importers risked being stranded
 when those modules leave. They now all import from here.
 
 GUARDRAIL-CLASS. `request` carries the off-host guard that protects a token-bearing
-`pull_request_target` request from being redirected off-host by a crafted `Link` header (the §15
+`pull_request_target` request from being redirected off-host by a crafted `Link` header (the
 weakening guard's load-bearing security property). Weakening that check is a guardrail-weakening change
 exactly as it was inside weakening_guard — which is why this file lives under the `.engine/tools/`
 guarded prefix.

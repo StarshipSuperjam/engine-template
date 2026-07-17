@@ -9,14 +9,14 @@ changed paths with the file-precise engine-owned path set and warns, in plain la
 path is about to ride along into the upstream pull request: it names the offending files, why it matters,
 and the fix. A clean contribution (no engine-owned path in the diff) passes with no finding.
 
-Honest tier / blocking: every finding is `soft`, so this never blocks a merge — it is a §6 local nudge,
+Honest tier / blocking: every finding is `soft`, so this never blocks a merge — it is an operator-decidable local nudge,
 not a hard gate. The branch is engine-clean by origin (cut from the upstream's engine-free default); this
 nudge catches an accidental engine path before submission; and the upstream's own review backstops it where
-one exists. Read-only: it inspects path lists only and never writes a file (the R5 mutation firewall).
+one exists. Read-only: it inspects path lists only and never writes a file (the read-only mutation firewall).
 
 Where the inputs come from (both injectable, so tests and the demo run fully offline):
   - `changed`: defaults to `work_record.changed_paths(cap=None)` — the branch's outgoing diff paths, read
-    UNCAPPED (#416 U21). The live caller is `submit.py` (`clean_findings`), which supplies the cross-fork
+    UNCAPPED (#416). The live caller is `submit.py` (`clean_findings`), which supplies the cross-fork
     outgoing diff (the product branch against the upstream's default) through `changed`; the no-argument
     default is the local branch diff. The read is uncapped because this is a SAFETY predicate: `changed_paths`
     caps at 50 for orientation, and a cap could let an engine path sort past it and slip the leak intersection
@@ -32,13 +32,12 @@ Suite / trigger: this rule rides the `pre-close` suite only (never CI). In an or
 the Engine's files legitimately live alongside the work, so a CI-firing version would warn on every normal
 engine change; it is meaningful only against an OUTGOING cross-fork contribution. The live caller is the
 submission flow — `submit.py.clean_findings` runs the predicate (`findings()`) against the cross-fork diff
-(#416 U21: no longer dormant — Slice 2 / #415 wired it). The no-argument validator surface (`emit_findings`,
+(#416: no longer dormant — #415 wired it). The no-argument validator surface (`emit_findings`,
 below) is a PURE read-only print and deliberately does NOT emit telemetry: the `pre-close` suite is collected
 on every clean turn-close (close.py's advisory pass, dispatched by suite membership — `target.context` is not
 enforced), and a GitHub write there would break close.py's "a local run reaches no GitHub event" invariant.
-So the "emits a telemetry finding when it fires" duty (external-contribution/README §"Keeping the
-contribution clean") is the submission flow's, at submit time over a real outgoing diff — it lives in
-`submit.py`, never this validator entry (#416 U21-F5, rejected as unsafe).
+So the "emits a telemetry finding when it fires" duty is the submission flow's, at submit time over a real outgoing diff — it lives in
+`submit.py`, never this validator entry (#416, rejected as unsafe).
 
 Contract: invoked by the validator with NO arguments, it prints a finding.v1 JSON array to stdout and exits
 0. A separate `demo` subcommand runs a falsifiable self-check.
@@ -84,7 +83,7 @@ def findings(tier: str, *, changed=None, owned=None) -> list:
     supplies the cross-fork diff through `changed` without touching this predicate.
     """
     if changed is None:
-        changed = work_record.changed_paths(cap=None)  # #416 U21-F4: UNCAPPED — a safety predicate must see
+        changed = work_record.changed_paths(cap=None)  # #416: UNCAPPED — a safety predicate must see
         #                                                 every engine-owned hit, never drop one past a cap
     if owned is None:
         owned = module_coherence.engine_owned_paths(module_coherence.discover_manifests())

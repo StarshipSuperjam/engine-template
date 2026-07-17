@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Behavioral demo for #397 — the memory-degradation notice (U09) + the backup-consent choice (U10). It drives the
+"""Behavioral demo for #397 — the memory-degradation notice + the backup-consent choice. It drives the
 REAL boot / ledger_health / backup_vault surfaces; only GitHub is stubbed (backup_vault's own `_FakeVault`), and the
 ledger cabinet + repo root are throwaway temp dirs, so the real ledger and committed pointer are never touched.
 
-  (U09) OFFLINE NOTICE: `ledger_health.detect_recall_offline` is True for a present-but-unreadable ledger and False
+  OFFLINE NOTICE: `ledger_health.detect_recall_offline` is True for a present-but-unreadable ledger and False
       for a healthy or empty one; `boot.render_dashboard` renders the plain "I couldn't open your saved memory …
       restore it from your backup" line for that signal and stays silent otherwise. An unreadable ledger and the
       "N unreadable lines" rot are mutually exclusive (the render precedence rests on that).
-  (U10) BACKUP CONSENT: the `disclosure` verb names the destination + its must-stay-private requirement with NO
+  BACKUP CONSENT: the `disclosure` verb names the destination + its must-stay-private requirement with NO
       side effect; a flagged `setup` emits that disclosure and creates the chosen PRIVATE repo ONLY on --consent y,
       and creates nothing on --consent n.
 
@@ -81,7 +81,7 @@ def _u09() -> bool:
                  and off_line not in _dash(recall_offline=False, ledger_malformed=2)
                  and "unreadable line" in _dash(recall_offline=False, ledger_malformed=2))
     good = detect_ok and rendered and silent and exclusive
-    print(f"  (U09) offline detect + render -> {'ok' if good else 'REGRESSION'} "
+    print(f"  offline detect + render -> {'ok' if good else 'REGRESSION'} "
           f"(missing={missing}, healthy={healthy}, offline={offline}, rendered={rendered}, silent={silent}, "
           f"exclusive={exclusive})")
     return good
@@ -131,13 +131,13 @@ def _u10() -> bool:
         cab.cleanup()
 
     good = disclosure_ok and declined_ok and created_ok
-    print(f"  (U10) disclosure + consent    -> {'ok' if good else 'REGRESSION'} "
+    print(f"  disclosure + consent    -> {'ok' if good else 'REGRESSION'} "
           f"(disclosure={disclosure_ok}, declined_no_create={declined_ok}, yes_creates={created_ok})")
     return good
 
 
 def demo() -> int:
-    print("memory degradation notice (#397 U09) + backup consent (#397 U10) — driving the REAL surfaces\n")
+    print("memory degradation notice (#397) + backup consent (#397) — driving the REAL surfaces\n")
     ok = _u09()
     ok = _u10() and ok
     print("\nself-check:", "PASS" if ok else "FAIL — the memory-degradation / backup-consent slice regressed")

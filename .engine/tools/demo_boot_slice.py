@@ -112,7 +112,7 @@ def main(argv: list | None = None) -> int:
         print(f"     committed graph absent -> still orients from a live walk? {'YES' if degrade_ok else 'NO'}\n")
 
         blob = "\n".join(cached + degrade_render)
-        # §12: the rendered block names plain components + relationship VERBS, never raw ids or predicate nouns.
+        # The rendered block names plain components + relationship VERBS, never raw ids or predicate nouns.
         jargon_free = not any(t in blob for t in ("module:", "tool:", "policy:", "check:", "schema:",
                                                   "provided_by", "governed_by", "depends_on", "targets"))
         print("Only an isolated temp cache + a temp copy of the graph were written; the build, the read-shim,")

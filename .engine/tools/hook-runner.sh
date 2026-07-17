@@ -13,8 +13,8 @@
 #     the committed settings.json — the launcher falls back to the Windows sibling
 #     (${CLAUDE_PROJECT_DIR}/.engine/.venv/Scripts/python.exe) under the SAME venv root. Both are
 #     ${CLAUDE_PROJECT_DIR}-rooted engine-venv interpreters; it NEVER runs a bare/system Python. This
-#     is what lets one committed repo work on every OS (including a mixed-OS team): it fills the
-#     D-156/D-157 per-OS venv-bin-path build-spec leaf at fire time rather than baking one OS into the
+#     is what lets one committed repo work on every OS (including a mixed-OS team): it resolves the
+#     per-OS venv-bin-path at fire time rather than baking one OS into the
 #     committed command.
 #   - a BOUNDED wait for that interpreter to appear — the fresh-worktree race (issue #83): the
 #     gitignored .engine/.venv is provisioned a beat after a checkout, so a hook that fires in that
@@ -34,9 +34,9 @@
 # Usage (this exact form is rendered by hooks.hook_command, so it is byte-pinned by a drift test):
 #   sh hook-runner.sh <venv-interpreter> <script> [args...]
 #     $1        the explicit ${CLAUDE_PROJECT_DIR}-rooted venv interpreter in POSIX form
-#               (.engine/.venv/bin/python). It is named in the command string itself, so D-156's "the
-#               hook command names the interpreter explicitly" stays mechanically witnessable in the
-#               diff; the per-OS bin/ ÷ Scripts\ resolution is the D-157 build-spec leaf, resolved here.
+#               (.engine/.venv/bin/python). It is named in the command string itself, so the property that the
+#               hook command names the interpreter explicitly stays mechanically witnessable in the
+#               diff; the per-OS bin/ ÷ Scripts\ resolution is decided here.
 #     $2 .. $#  the hook script (${CLAUDE_PROJECT_DIR}-rooted) and any trailing args (e.g. `hook`).
 #
 # The wait ceiling is 50 polls x 0.1s (~5s); ENGINE_HOOK_WAIT_POLLS / ENGINE_HOOK_WAIT_INTERVAL override
@@ -74,14 +74,13 @@ fi
 # emit a structured finding, so — per the fail-open law's missing-runtime variant — NAME the absent
 # runtime plainly for the operator instead of exiting silently, and exit NON-blocking (never 2, which
 # the platform reads as a hard block: the #390 fail-closed stranding). Boot carries the standing DURABLE
-# surfacing of an unhealthy runtime (hooks/README §Fail-open-and-flag, D-156; the promotion is #391/#412).
+# surfacing of an unhealthy runtime (the promotion is #391/#412).
 # Fail-safe: this readout cannot fail the script closed.
 printf '%s\n' "The engine could not run its own tools: its private Python runtime is not ready (looked for $interp and its Windows equivalent). I have not verified this step — this is not a block. If it keeps happening, the engine's environment needs to be set up (provisioning)." >&2
 # Leave a durable trace: the interpreter never started, so nothing here can promote a telemetry finding (that
 # needs Python + GitHub). Best-effort, drop a PRESENCE marker under the engine's gitignored cache — the
 # `drain-inbox` SessionStart driver converts a present marker into ONE tracked "could-not-run" finding on the
-# next session where the runtime is healthy (telemetry.RUNTIME_HEALTH_MARKER_PATH; hooks/README fail-open-and-
-# flag: a missing tool-runtime surfaces as a crash would). The marker path is derived from the venv root ($1),
+# next session where the runtime is healthy (telemetry.RUNTIME_HEALTH_MARKER_PATH; fail-open-and-flag: a missing tool-runtime surfaces as a crash would). The marker path is derived from the venv root ($1),
 # so it needs no env and a test can point it anywhere; it is EMPTY (presence-only) so no bytes can enter the
 # finding. Every step is best-effort and MUST NOT change the exit code below — a marker-write failure can never
 # turn this fail-open readout into a block. (`${venv%/.venv}` is the .engine dir; venv is derived from $1 above.)

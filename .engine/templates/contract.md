@@ -4,7 +4,7 @@ allowed_sections: ["Supersedes"]
 length_budget: 120
 ---
 
-<!-- Two eADR homes, told apart by folder (repository-topology law 5): the engine's own founding
+<!-- Two eADR homes, told apart by folder: the engine's own founding
 canon lives here in .engine/contracts/ and is replaced wholesale on an engine update; a DEPLOYMENT's own
 engine-decision eADRs live in .engine/contracts/instance/ and are preserved across every update. If you are
 recording a decision this project made about ITS OWN engine, author it under instance/ (see

@@ -1,4 +1,4 @@
-# `hard-check-bite/` — the meta-check's own negative fixture (§15 self-coverage)
+# `hard-check-bite/` — the meta-check's own negative fixture (self-coverage)
 
 The negative-fixture meta-check is itself a `custom/script` check, so it must be provable-to-bite like every
 other check it judges — otherwise the checker-of-checkers is unfalsifiable. This fixture is the seeded
@@ -12,4 +12,4 @@ fixture's top-level `expect.json` asserts exactly that.
 
 The scenario contains no `custom/script` instance and does not contain the meta-check itself, so the run does not
 re-enter the meta-check — the regress terminates with no meta-meta-check. The disjoint *missing-fixture* leg of
-§15 (a unit present with no fixture at all) is exercised directly in `test_hard_check_bite.py`.
+the negative-fixture completeness requirement (a unit present with no fixture at all) is exercised directly in `test_hard_check_bite.py`.

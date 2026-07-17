@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for milestone_emit — the core phase-emission tool (Slice 4b).
+"""Tests for milestone_emit — the core phase-emission tool.
 
 These lock the load-bearing behavior the deliverable gate attests:
   - the pure build-order parse (`derive_phases`): order, dedupe, trim, header/separator/blank skip, BOM;

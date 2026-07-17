@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Demo — why a stuck pull request is never your problem, and how the engine knows when to stop (#136 / §19).
+"""Demo — why a stuck pull request is never your problem, and how the engine knows when to stop (#136).
 
 What this checks, in plain words: when two pieces of work are in flight at once they can both rewrite the
 engine's two internal index files — the knowledge graph and the self-map — and a clash can leave a pull request
@@ -170,7 +170,7 @@ def _scenario_refuse() -> bool:
 
 def main(_argv=None) -> int:
     print("What this checks: a pull request stuck on the engine's two index files recovers losslessly, and a")
-    print("pull request stuck on real authored content is refused safely. (#136 / principle 19)\n")
+    print("pull request stuck on real authored content is refused safely. (#136)\n")
     recovered = _scenario_recover()
     refused = _scenario_refuse()
     ok = recovered and refused

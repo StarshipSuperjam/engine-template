@@ -15,7 +15,7 @@ These lock the module's load-bearing facts, since nothing else does:
   - the real .claude/agents/ roster is coherent (validate.agent_coherence_findings is silent over it) and
     carries all five pre-submission-review lenses — the falsifiable proof the suite installs and derives by
     presence (a bad role/tier, or a lens on a non-review role, would make the coherence leg fire).
-  - spec-conformance and its coupled adversarial partner divergence-hunter (D-291/D-292) are both recorded in
+  - spec-conformance and its coupled adversarial partner divergence-hunter are both recorded in
     build-orchestration's consumed set, so neither dangles and the pair runs together at the pre-submission gate.
   - the module is recorded in the install record three ways — its manifest, the engine.json packages list,
     and a verb-less provisioning-catalog entry — each validating against its schema.
@@ -122,7 +122,7 @@ class TestQaReviewRosterCoherence(unittest.TestCase):
                         f"the pre-submission-review roster must carry all five lenses; saw {sorted(lenses)}")
 
     def test_divergence_hunter_paired_with_spec_conformance_at_pre_submission(self):
-        # D-291/D-292: divergence-hunter is the fifth pre-submission lens, COUPLED to spec-conformance —
+        # Divergence-hunter is the fifth pre-submission lens, COUPLED to spec-conformance —
         # the two run together at the pre-submission gate, never one without the other. Assert both appear
         # on the SAME `pre-submission gate:` line of build-orchestration's consumed-review-lenses block: a
         # flat-union membership check would still pass if the two were split across different gate lines, so

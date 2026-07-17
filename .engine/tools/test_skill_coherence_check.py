@@ -1,4 +1,4 @@
-"""Tests for the skill-set self-election guard (core slice 26a) — the live consumer that runs
+"""Tests for the skill-set self-election guard — the live consumer that runs
 validate.skill_coherence_findings over the present ENGINE skills and is wired as the engine/check/
 skill-coherence custom/script CI rule. Verifies discovery + engine-only scoping, the leak-guard firing
 on a planted operator-typed-without-flag skill while staying silent on a clean set and on un-prefixed

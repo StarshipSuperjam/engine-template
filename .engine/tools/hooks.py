@@ -59,7 +59,7 @@ import validate  # noqa: E402
 #             trigger injects an assistant-internal stance directive (additionalContext) on Build entry
 #             still non-blocking; SessionEnd is hooks-owned
 #             (cleanup/flush, cannot block); UserPromptSubmit is boot/orientation's per-prompt scent.
-#             SessionStart has THREE owners: boot's orientation pack + memory's consolidation sweep (3b)
+#             SessionStart has THREE owners: boot's orientation pack + memory's consolidation sweep
 #             + the optional github-projects-sync board refresh, which coexist on one event by keyed
 #             registration (the PostToolUse multi-owner precedent). The board-sync owner is present only
 #             while that optional module is installed; the entry names every system that may own the event.

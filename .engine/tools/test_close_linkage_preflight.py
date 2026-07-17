@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for close_linkage_preflight — the submit-time close-linkage consistency pre-flight (#361; D-283/D-284).
+"""Tests for close_linkage_preflight — the submit-time close-linkage consistency pre-flight (#361).
 
 These lock the load-bearing behavior the deliverable gate attests:
   - the pure parse (body closes: same-repo vs cross-repo, the comma-trap leftover, occurrence counts; the

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Derive the project's standing-situation ("where we are") LIVE from native GitHub sources (engine-template
-#100; engine-planning D-198 -> D-199, superseding D-196/D-197).
+#100).
 
 The corrected design: "where we are" is a **read-only projection of native sources**, assembled live at
 orientation — never a stored marker any session *advances* (that was the rejected category error). This module
@@ -19,8 +19,7 @@ count); `milestone` is operator-plan-derivable (best-effort — None when no Mil
 
 **All-or-nothing degradation.** A *read failure* (any HTTP >= 400, an unreachable host, an unexpected response
 shape) is NEVER swallowed as "nothing here" — it RAISES `DeriveUnavailable`, so [boot] falls back to the
-committed offline cache (rendered stale-labelled) rather than presenting a confident, wrong live answer (the
-failure mode state/README forbids). A *successful* read that simply finds nothing returns None for that field,
+committed offline cache (rendered stale-labelled) rather than presenting a confident, wrong live answer. A *successful* read that simply finds nothing returns None for that field,
 which boot renders as the honest live "none set" / "—".
 
 This module is a **pure leaf**: it imports only the standard library and takes an injected GitHub reader

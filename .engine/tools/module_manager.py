@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Module manager — the permanent provisioning primitive that adds and removes engine modules
-over a repo's life (systems/infrastructure/provisioning/README.md §"The module manager").
+over a repo's life.
 
-Slice 25b shipped **remove** + the **group-scoped uv-sync derivation**. Slice 25c PR-1 added **add**
+The manager provides **remove** + the **group-scoped uv-sync derivation**; **add**
 (install a module at the current release) + its shared **fetch/overlay** primitive + the **sync-groups**
-fixer. Slice 25c PR-2 (this change) added the **engine updater** — `upgrade` (the whole-engine vX -> vY
-version move) and the **migrations** machinery it runs. CODEOWNERS rendering + de-bootstrap +
-clean whole-engine removal shipped in 25c PR-3.
+fixer; the **engine updater** — `upgrade` (the whole-engine vX -> vY
+version move) and the **migrations** machinery it runs; and CODEOWNERS rendering + de-bootstrap +
+clean whole-engine removal.
 
-`upgrade` is the engine updater (provisioning §"Upgrading the engine"): fetch the tagged release (reusing
+`upgrade` is the engine updater: fetch the tagged release (reusing
 `_fetch_release_tree`), overlay the engine CODE of the present packages (driven off the present set, so a
 deselected module is never resurrected; operator config + gitignored data preserved; `_within_root` fails a
 containment escape closed BEFORE any write), apply/reverse wiring deltas, re-render the CODEOWNERS ownership
@@ -16,12 +16,12 @@ wall for the new release's engine paths (the design's upgrade re-render — `_re
 tool-runtime, run the packages' `migrations` in dependency order, run coherence, and land it as a reviewed PR.
 A `data` migration is **backup-first**: it is refused (pre-flight, before any overlay) unless a backup seam
 is available (memory owns the mechanism, live via `memory.snapshot_for_migration`), so the engine never
-changes un-backed-up data. It DEGRADES to the current version on an unreachable release (§5 / R7).
+changes un-backed-up data. It DEGRADES to the current version on an unreachable release.
 FIXTURE-DEMOED: the real release fetch, the `uv sync` re-sync, the git/PR open, and a real data migration
 are exercised by fixtures, not by a live release in this template repo (which cuts no releases of itself)
 — the named inductive gaps.
 
-`add` is the mirror of `remove` (provisioning §"The module manager: add"): fetch the module's files from
+`add` is the mirror of `remove`: fetch the module's files from
 the tagged release, copy its `provides` into their surface homes, copy in its manifest, apply its `wires`,
 record it in the engine manifest at its version, re-derive the dependency-group selection, and re-run
 coherence. It refuses — in plain language — an already-installed module, a fetch whose manifest id does
@@ -31,7 +31,7 @@ the tag's source archive) so the tests and the demo run the REAL overlay/wire/co
 and never touch the network; the concrete fetch is the named inductive gap (the construction repo has no
 releases to exercise it).
 
-`remove` is **manifest-derived reversal** (module-system §Lifecycle "Uninstall"): reverse the
+`remove` is **manifest-derived reversal**: reverse the
 module's declared `wires` (via the wiring library), delete the engine-identified files it
 `provides`, drop it from the engine manifest, re-derive the tool-runtime dependency groups, and
 re-run coherence. It is **reverse-dependency-aware** — it refuses, in plain language naming the
@@ -39,16 +39,16 @@ dependents, to remove a module another present module still `depends` on — and
 **required** module (the permanent spine; removing the whole engine is a separate clean-removal
 step — remove_engine). It touches **no** control-plane ruleset: an ordinary remove changes only
 what runs INSIDE the stable engine CI check, not the bound check name, so it needs no operator-
-privileged step (provisioning §"The ruleset is the exception"). A `permission` a module added is
+privileged step. A `permission` a module added is
 **left in place** and disclosed — a bare permission is not engine-identifiable, so reversal errs
-toward leaving it (module-system §"The wiring library").
+toward leaving it.
 
-The **uv-sync derivation** (provisioning §"Tool-runtime bootstrap"): each dep-carrying module
+The **uv-sync derivation**: each dep-carrying module
 declares a [dependency-group] in .engine/pyproject.toml NAMED BY ITS `id`; the sync selection is
 those group names that match a PRESENT manifest id, under PEP 735 name normalization. It reuses the
 id the manifest already carries — it adds no manifest field. `remove` re-derives and rewrites
 `[tool.uv] default-groups` so the CI/local `uv sync` selection stays correct without hand-
-maintenance (the seam the pyproject comment cedes to "slice 25's module manager").
+maintenance (the seam the pyproject comment cedes to the module manager).
 
 Read-only discovery is reused from module_coherence (one present-set reader, no drift):
 discover_manifests / load_engine_manifest / provides_claims / check_coherence.
@@ -263,7 +263,7 @@ def remove(module_id: str) -> dict:
     # (2) delete the engine-identified files the module owns — sole-owner, at ANY path (the reversal law
     #     deletes the engine-identified files a module provides regardless of where they live; whole-engine
     #     remove_engine already does this, so a per-module remove that stopped at .engine/ left a removed
-    #     module's .claude/ personas + skills orphaned on disk — #409 U16). A module's `provides` are always
+    #     module's .claude/ personas + skills orphaned on disk — #409). A module's `provides` are always
     #     wholly engine-owned files; anything shared with the operator (a settings.json hook, a permission)
     #     arrives via `wires` and is reversed in step (1), so the sole-owner guard is the only gate needed.
     target_claims = module_coherence.provides_claims([(manifest_path, target)])
@@ -321,10 +321,9 @@ def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
     cannot discharge (it never runs in the construction repo — there are no releases to fetch).
 
     Build-spec leaf (recorded): the artifact is the tag's GitHub SOURCE archive (the `tarball` endpoint),
-    NOT a curated release asset — the engine ships from one tagged release as one tree
-    (module-system §versioning), so the source archive carries every module's files and resolves their
+    NOT a curated release asset — the engine ships from one tagged release as one tree, so the source archive carries every module's files and resolves their
     `provides` globs, and no separate asset-build pipeline exists. `ref` is a TAG, pinned, never a moving
-    branch (provisioning §"Upgrading the engine" step 1; supply-chain Risk R7)."""
+    branch (the supply-chain control)."""
     import tarfile                # local: only the real network path needs these
     import urllib.request
     import boot                   # lazy: only the real fetch needs the repo slug + token
@@ -350,8 +349,7 @@ def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
 def _resolve_release_ref(ref: str | None, repo: str | None = None, token: str | None = None) -> str:
     """Resolve a target release ref to a CONCRETE tag. A pinned tag/sha passes through unchanged; None or
     "latest" is resolved to the repository's latest published release tag via the GitHub releases API — so
-    the engine never fetches, runs, or RECORDS a moving ref (the tag-pin is the supply-chain control, R7;
-    provisioning §"Upgrading the engine" step 1). THE NETWORK BOUNDARY for ref resolution — only the real
+    the engine never fetches, runs, or RECORDS a moving ref (the tag-pin is the supply-chain control). THE NETWORK BOUNDARY for ref resolution — only the real
     upgrade path reaches it (the injected release_tree path passes a concrete ref), so it is part of the
     same named inductive gap as the release fetch (never run in the construction repo)."""
     if ref and ref != "latest":
@@ -375,7 +373,7 @@ def _resolve_release_ref(ref: str | None, repo: str | None = None, token: str | 
 
 def _home_repository() -> str | None:
     """The engine's HOME repository slug (`owner/repo`) recorded in the manifest — the single source of
-    truth for where engine updates are fetched from (D-281/D-282; issue #367). None when the manifest
+    truth for where engine updates are fetched from (issue #367). None when the manifest
     records no home (a repo generated before this coordinate shipped). The release-fetch callers pass this
     as `repo=` so they resolve the HOME, never the deployed repo's own `origin` (which `boot.repo_slug()`
     returns and which has no engine releases). On a None home the caller REFUSES with a plain remedy and
@@ -386,11 +384,10 @@ def _home_repository() -> str | None:
 
 
 def _release_is_missing(exc: BaseException) -> bool:
-    """Split a release-fetch failure into its two operator-distinct outcomes (three-state resolution,
-    D-281/D-282). True → the home is recorded but UNRESOLVABLE: the release/repo does not exist (HTTP 404
+    """Split a release-fetch failure into its two operator-distinct outcomes (three-state resolution). True → the home is recorded but UNRESOLVABLE: the release/repo does not exist (HTTP 404
     — release-less, renamed, or removed home) OR the home is reachable but has no published release at all
     (`_NoPublishedRelease`, a 200 with no tag) — both refused LOUDLY naming the home. False → a transport
-    failure (offline / DNS / timeout / other status), which DEGRADES to the current version (§5 / R7).
+    failure (offline / DNS / timeout / other status), which DEGRADES to the current version.
     urllib raises HTTPError (a URLError subclass) carrying a numeric `.code` for an HTTP status; a bare
     URLError or socket error carries none."""
     import urllib.error
@@ -443,7 +440,7 @@ def plan_add(module_id: str, candidate: dict, manifests: list | None = None) -> 
 
 
 def add(module_id: str, release_tree: str | None = None, ref: str | None = None) -> dict:
-    """Add (install) one module at the current engine release (provisioning §"add"): fetch the module's
+    """Add (install) one module at the current engine release: fetch the module's
     files from the tagged release, copy its `provides` into their surface homes, copy in its manifest, apply
     its `wires`, record it in the engine manifest, re-derive the tool-runtime dependency-group selection,
     and re-run coherence. Re-adding a module deselected at first run is this same path (its files were
@@ -471,7 +468,7 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
                 return {"module_id": module_id, "refused": True, "applied": False,
                         "reason": "could not determine which engine release to fetch the module from."}
             # A module's files come from the engine's HOME release too, never this repo's own origin
-            # (D-281/D-282; #367). Absent home -> refuse with a remedy; never fall back to origin.
+            # (#367). Absent home -> refuse with a remedy; never fall back to origin.
             home = _home_repository()
             if not home:
                 return {"module_id": module_id, "refused": True, "applied": False,
@@ -555,8 +552,7 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
             shutil.rmtree(tmp, ignore_errors=True)
 
 
-# ---- engine upgrade + migrations (the engine updater: provisioning §"Upgrading the engine" +
-#      §"Migration and reversibility"). FIXTURE-DEMOED — four boundaries never run in the construction
+# ---- engine upgrade + migrations (the engine updater). FIXTURE-DEMOED — four boundaries never run in the construction
 #      repo: (1) the real release FETCH (no releases), (2) the `uv sync` RE-SYNC from the overlaid lock,
 #      (3) the git/PR OPEN, (4) a real DATA migration + its backup (the live `memory.snapshot_for_migration`
 #      seam). Each is
@@ -567,16 +563,16 @@ _UNSET = object()   # sentinel: "no GitHub boundary passed (resolve close._githu
 
 # Root CLAUDE.md is keyed-MERGED on upgrade, not wholesale-overlaid: it carries the engine's `floor` as a
 # comment-fenced section so a brownfield adopter's own CLAUDE.md co-exists with the engine's entries rather
-# than being seized (repository-topology law 1; the #234/#272 coexistence obligation). The floor is sourced
+# than being seized (the #234/#272 coexistence obligation). The floor is sourced
 # from the release's CLAUDE.deployed.md by `_merge_claude_floor`.
 _ROOT_CLAUDE_REL = "CLAUDE.md"
 _DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
 _FLOOR_FENCE = "floor"
-_GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives here (#409 U14) — a shared keyed
+_GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives here (#409) — a shared keyed
 #                                         file, so it is block-reversed like CODEOWNERS/CLAUDE.md, never
 #                                         overlay-replaced (FOUNDATION_CODE) or wholesale-deleted (remove_engine)
 
-# Engine CODE owned by no module's `provides` but replaced wholesale on upgrade (provisioning L289/L356).
+# Engine CODE owned by no module's `provides` but replaced wholesale on upgrade.
 # DERIVED from module_coherence.FOUNDATION_INFRA (the single source of the foundation-artifact set) minus
 # the members the overlay must NOT fetch-and-replace: the engine manifest (engine.json — operator config
 # whose package versions upgrade bumps in place, identity preserved); CODEOWNERS (re-rendered locally from
@@ -587,7 +583,7 @@ _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives her
 # (the foundation-ignores fence is re-asserted locally by apply_foundation_ignores on upgrade — step (2f)
 # below — never fetched, since a release's file would clobber the adopter's own ignore lines + module
 # fences). Gitignored data and the deployment's per-instance eADR stream (`.engine/contracts/instance/`, off
-# core's non-recursive `.engine/contracts/*.md` canon glob — topology law 5 / D-169) are in no
+# core's non-recursive `.engine/contracts/*.md` canon glob) are in no
 # `provides`/FOUNDATION_CODE, so the overlay leaves them untouched (config + data preserved). A member may be
 # a glob (the issue templates); the overlay loop below expands it against the release tree, so the issue
 # templates are now refreshed on update (they were silently omitted before — single-homing closed that gap;
@@ -619,7 +615,7 @@ def _resolve_backup_seam(backup):
     Live via `memory.snapshot_for_migration` (+ `memory.migration_backup_available`): memory owns the
     mechanism AND the restore contract and may not be widened here. The handle's concrete shape is memory's
     leaf (the close._trigger_ambient_capture precedent). The snapshot lands as a distinct, retained git tag the
-    routine backup never overwrites — memory's point-in-time pre-migration snapshot (D-264/D-265, resolving #287);
+    routine backup never overwrites — memory's point-in-time pre-migration snapshot (resolving #287);
     the restore command targets that tag. This consumer widens nothing of that mechanism."""
     if backup is not None:
         return backup
@@ -676,7 +672,7 @@ def select_migrations(from_versions: dict, target_versions: dict, manifests: lis
 
 def _bind_migration_id(seam, module_id: str, version: str, reversibility_floor: bool = False, sink=None):
     """Bind the migration's identity into the backup seam so memory names the pre-migration snapshot collision-free
-    by it (the retained-tag mechanism, D-264 law 3). The migration calls `context['backup'](store, engine_version)`
+    by it (the retained-tag mechanism). The migration calls `context['backup'](store, engine_version)`
     exactly as before — the migration id rides along, so migration authors need not know about it and module_manager
     stays a pure consumer that knows nothing of the snapshot's tag mechanism. `reversibility_floor` (True only for the
     first data migration of the upgrade — #303) likewise rides along so memory records THAT snapshot as the undo floor;
@@ -740,7 +736,7 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
                "backup": _bind_migration_id(seam, mid, ver, reversibility_floor=is_floor, sink=handles) if kind == "data" else None}
         if kind == "data":
             # Raise the in-flight-migration marker for the snapshot+mutate window so a concurrent compaction
-            # refuses within it (the compaction↔migration ordering law, memory/README §269-283). Lazy import (the
+            # refuses within it (the compaction↔migration ordering law). Lazy import (the
             # memory←boot back-edge, as the backup seam already is). FAIL CLOSED: if the marker can't be raised
             # (another memory write holds the single-writer lock), REFUSE the migration rather than run it
             # marker-less — an unguarded snapshot+mutate is exactly the interleave the marker prevents.
@@ -825,12 +821,11 @@ def surface_stamp_mismatch(store_label: str, stamped_version: str, running_versi
 def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> tuple:
     """Overlay the engine CODE of the PRESENT packages from `release_tree`: each present module's
     `provides` files + its manifest, plus the FOUNDATION_CODE infra the release ships. Driven off the
-    PRESENT set (never the release tree's modules/*), so a deselected module is NEVER resurrected
-    (provisioning L352-356). Operator config (engine.json identity, the policy-override) and gitignored
+    PRESENT set (never the release tree's modules/*), so a deselected module is NEVER resurrected. Operator config (engine.json identity, the policy-override) and gitignored
     data + the per-instance eADR stream (`.engine/contracts/instance/`) are in no
     `provides`/FOUNDATION_CODE, so they are untouched.
     CONTAINMENT GUARD (the topology wall): every destination must resolve INSIDE ROOT — fail closed BEFORE
-    any write (the PR-1 pattern). `exclude` (a set of repo-relative paths) is NOT overwritten — the brownfield
+    any write (the add path's containment-first pattern). `exclude` (a set of repo-relative paths) is NOT overwritten — the brownfield
     arrival passes the engine-exclusive paths an operator chose to keep ('leave-as-is', a class-1 collision),
     so the engine coexists around them rather than replacing them. Returns (copied_relpaths,
     {module_id: release_manifest})."""
@@ -997,12 +992,12 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
 def _refresh_codeowners(handle) -> str:
     """Re-render the CODEOWNERS ownership wall for the POST-overlay engine path set, so a release that
     adds/removes engine files keeps the wall complete and every engine file still routes to the operator
-    for review — the design's upgrade re-render (provisioning §Identity and tokens; the engine.json
+    for review — the design's upgrade re-render (the engine.json
     `handle` field). Operator-added rules are preserved (fence-scoped). Single-sources the path set +
     render with first-run via module_coherence.codeowners_path_set + wiring.apply_codeowners, so the two
     render sites can't drift. Returns 'written' | 'already' | 'degraded'. DEGRADES (no change) when no
     operator handle is on record (the construction repo / a pre-handle manifest) or the render refuses —
-    never crashes (Q7)."""
+    never crashes."""
     if not handle:
         return "degraded"
     co_path = os.path.join(validate.ROOT, ".github", "CODEOWNERS")
@@ -1015,7 +1010,7 @@ def _refresh_codeowners(handle) -> str:
 def _merge_claude_floor(release_tree: str) -> str:
     """Keyed-merge the engine's root-CLAUDE.md floor from the release's CLAUDE.deployed.md into the local
     CLAUDE.md, replacing ONLY the engine `floor` fence and preserving any operator content outside it
-    (repository-topology law 1 — keyed, reversible entries; the #234/#272 coexistence obligation). The
+    (keyed, reversible entries; the #234/#272 coexistence obligation). The
     floor is sourced from the release's CLAUDE.deployed.md, NEVER its CLAUDE.md (the maintainer
     construction-governance file) — which also closes the latent bug where CLAUDE.md ∈ FOUNDATION_CODE
     would copy the construction file over an adopter's floor on every upgrade.
@@ -1046,7 +1041,7 @@ def _merge_claude_floor(release_tree: str) -> str:
 
 
 def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None, backup=None) -> dict:
-    """Upgrade the whole engine vX -> vY (provisioning §"Upgrading the engine"). Steps: fetch the tagged
+    """Upgrade the whole engine vX -> vY. Steps: fetch the tagged
     release, overlay engine code and re-render the CODEOWNERS ownership wall for the new release's engine
     files (operator config + gitignored data preserved), re-sync the tool-runtime, run migrations in
     dependency order, run coherence, and land the change as a reviewed pull request.
@@ -1057,7 +1052,7 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
     backup seam (None = memory if installed, else none -> data migrations refuse). Returns a structured
     result the CLI renders in plain language. Refuses cleanly (nothing applied) on an unreachable release,
     a containment escape, or a data migration with no backup seam (the pre-flight). Degrades to the
-    current version on an unreachable release (§5 / R7). The change lands ONLY as a reviewed pull request,
+    current version on an unreachable release. The change lands ONLY as a reviewed pull request,
     so an abort at any step leaves it UN-MERGED — no half-state is ever the operating baseline. A mid-step
     abort (a paused coherence finding, a failed re-sync) can leave the working copy changed-but-unmerged,
     which the operator discards or fixes; the engine does not attempt in-place rollback."""
@@ -1072,14 +1067,14 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         present_ids = sorted(from_versions)
         result["from"] = from_versions
         target_ref = ref or "latest"
-        # (1) FETCH the tagged release (reuse the PR-1 boundary + its plain-failure handler; degrade §5).
+        # (1) FETCH the tagged release (reuse the release-fetch boundary + its plain-failure handler; degrade to the current version).
         # On the real path, resolve None/"latest" to a CONCRETE tag FIRST, so the engine fetches, runs, and
         # records a pinned ref — never a moving one (R7). The injected path passes a concrete ref already.
         if release_tree is None:
             if not present_ids:
                 return {**result, "refused": True, "reason": "There are no installed modules to update."}
             # Resolve the engine's HOME from the manifest and fetch the release FROM THE HOME, never from
-            # this repo's own origin (D-281/D-282; #367). Absent home -> refuse with a remedy (three-state).
+            # this repo's own origin (#367). Absent home -> refuse with a remedy (three-state).
             home = _home_repository()
             if not home:
                 return {**result, "refused": True,
@@ -1179,7 +1174,7 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                                 "review and nothing was merged. Ask me to set up or check your backup, then "
                                 "update again.")
             return result
-        # Floor (c) (D-264): when a data migration ran, a copy of the saved memory was taken before it changed —
+        # When a data migration ran, a copy of the saved memory was taken before it changed —
         # disclose it ONCE per upgrade (structured kind check, not a per-step or string-match), plainly, so the later
         # restore offer is reassurance rather than a mystery.
         if any(item.get("kind") == "data" for item in selected):
@@ -1225,7 +1220,7 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
             shutil.rmtree(tmp, ignore_errors=True)
 
 
-# ---- clean whole-engine removal (provisioning §clean removal / Design commitments L446-449) ----
+# ---- clean whole-engine removal ----
 
 def _remove_engine_pr_body(result: dict) -> str:
     """A plain-language body for the whole-engine removal pull request (operator-facing). States what the
@@ -1253,13 +1248,13 @@ def _remove_engine_pr_body(result: dict) -> str:
 
 def remove_engine(opener=None, transport=None, choice: str | None = None, announce=None,
                   repo=None, token=None) -> dict:
-    """Remove the WHOLE engine cleanly (provisioning §clean removal / Design commitments L446-449) — the
+    """Remove the WHOLE engine cleanly — the
     'separate step' that per-module remove() points a required module toward, leaving an operable,
     engine-free product. The order is what safety demands:
       (1) DE-BOOTSTRAP FIRST (operator-privileged): remove the engine's required checks from its own
           safety rule (keep the floor remainder, or drop the rule per the operator's `choice`). This runs
           BEFORE the deletion pull request, because that PR deletes the engine workflows and a required
-          check whose workflow is gone would 'wait forever' and deadlock the PR (provisioning L332-335).
+          check whose workflow is gone would 'wait forever' and deadlock the PR.
       (2) REVERSE ALL WIRES across every installed module (the engine's entries in shared files), leaving
           honest residue for anything it can't key to the engine alone (a permission the operator may
           also hold — the reversal firewall).

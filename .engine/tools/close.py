@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Slice 22 — close: the turn-close `Stop` hook (the finding-disposition gate + ambient-capture trigger).
+"""close: the turn-close `Stop` hook (the finding-disposition gate + ambient-capture trigger).
 
-"Close" has two senses; this tool owns the TURN close (systems/lifecycle/close/README.md). SESSION close —
-the submitted pull request — is build-orchestration's (slice 24) and is not here. The `Stop` hook does
+"Close" has two senses; this tool owns the TURN close. SESSION close —
+the submitted pull request — is build-orchestration's and is not here. The `Stop` hook does
 exactly two things at the end of every turn:
 
   1. AMBIENT CAPTURE — relay the turn's delta to MEMORY's ledger. This is memory's mechanism; close only
-     TRIGGERS it and never gates it. Memory-substrate has shipped (slice 5 / ~M1), so this relay is now LIVE:
+     TRIGGERS it and never gates it. Memory-substrate has shipped, so this relay is now LIVE:
      it appends the completed turn's delta to memory's ledger. Still best-effort and fail-soft — any fault
      (including the import, on a repo without the memory module) is a silent no-op, never raising into the
      handler, so capture never gates close.
@@ -18,8 +18,7 @@ exactly two things at the end of every turn:
      then proceeds. This is the second member of the hooks block budget (the first is modes' explore
      write-gate); Stop is block-eligible, so the block-budget coherence leg stays green over it.
 
-THE HONEST TIER — posture plus a STRONG LOCAL BLOCK over the RECORDED SUBSET, never an absolute wall
-(close/README §"The finding-disposition gate"). It is mechanical only on what was recorded (writing a raised
+THE HONEST TIER — posture plus a STRONG LOCAL BLOCK over the RECORDED SUBSET, never an absolute wall. It is mechanical only on what was recorded (writing a raised
 concern into the record is the AI's discipline — posture); the durable, unbypassable backstop is the
 protected-branch merge. Cap-exhaustion degrades a recorded finding to LOGGED, never lost. The gate fails
 open (a crash lets the turn END — the inverse direction of modes' write-gate, both "fail toward
@@ -64,7 +63,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hooks      # noqa: E402  (run_hook + block/proceed: the fail-open harness the gate rides)
-import telemetry  # noqa: E402  (promote_finding: the out-of-band 'log it' relay; §16 — telemetry owns it)
+import telemetry  # noqa: E402  (promote_finding: the out-of-band 'log it' relay; telemetry owns it)
 import validate   # noqa: E402  (collect + local_ctx: the pre-close local full-suite advisory pass)
 
 
@@ -72,7 +71,7 @@ import validate   # noqa: E402  (collect + local_ctx: the pre-close local full-s
 # hooks.py "names no invariant itself", so the consumer (module_coherence.block_eligible_registrations)
 # assembles the registry from each owner's declaration; the block-registry leg
 # (validate.block_budget_findings) reads `event` (only PreToolUse/Stop may block) AND `modes` (the mode
-# dimension declared as data — hooks/README §Mode-awareness). Stop is block-eligible. The
+# dimension declared as data). Stop is block-eligible. The
 # findings-disposition gate fires on ANY turn-close, so it is active in every stance — and its close
 # must stay satisfiable non-interactively in a routine run (an unattended run cannot answer a prompt).
 # (This exact dict is fixtured by test_hooks.py's block-eligibility test.)
@@ -84,10 +83,9 @@ DISPOSITIONS = frozenset({"fixed", "logged", "escalated"})
 
 
 # ---- the ephemeral findings record: OS-temp, session-keyed checklist ------------------------
-# A session_id-keyed JSON checklist in OS-temp storage (the modes stance-signal pattern; the build-spec
-# leaf close/README names). NON-committed, never read across sessions, no repo footprint, no gitignore
-# wire, no catalog entry — a committed or gitignored ledger would resurrect the dissolved session archive
-# (D-038). It tracks what the session raised and whether each has a disposition; the gate reads the
+# A session_id-keyed JSON checklist in OS-temp storage (the modes stance-signal pattern). NON-committed, never read across sessions, no repo footprint, no gitignore
+# wire, no catalog entry — a committed or gitignored ledger would resurrect the dissolved session archive.
+# It tracks what the session raised and whether each has a disposition; the gate reads the
 # UNDISPOSITIONED subset. Distinct by construction from telemetry's cache and memory's ledger (the three
 # "capture" records stay separate). The prefix differs from modes' `engine-stance-` (no collision).
 _RECORD_PREFIX = "engine-findings-"
@@ -239,7 +237,7 @@ def clear(session_id):
 
 
 def summary(session_id):
-    """The plain-language disposition summary the operator reads instead of the transcript (close/README).
+    """The plain-language disposition summary the operator reads instead of the transcript.
     Computed here, ASSISTANT-NARRATED (a clean Stop has no guaranteed in-transcript channel — see the
     module docstring). Quiet ("" ) when nothing this turn needed action; names what is still open while a
     turn is mid-disposition."""
@@ -264,23 +262,23 @@ def summary(session_id):
     return "everything I flagged this turn is handled — " + ", ".join(counts) + "."
 
 
-# ---- operator-legible notices (close/README §"Bounded, legible, and leak-proof at the edges") ----
+# ---- operator-legible notices ----
 # The RELIABLE surface is the pushback (the block reason, exit-2 stderr, fed to Claude, who relays it). The
 # repeated-pushback LOOP line and the cap PRE-ANNOUNCEMENT ride that same reliable channel — folded into the
 # block reason on the 2nd+ consecutive block and on the approach to the cap, so a non-engineer never meets an
-# unexplained hang (close/README §"A disposition loop is legible"). The POST-HOC cap-stop / fail-open notices
+# unexplained hang. The POST-HOC cap-stop / fail-open notices
 # still ride exit-0 paths whose in-transcript surfacing is NOT guaranteed (a Stop hook does not inject; its
 # exit-0 stdout is debug-log only), so their DURABLE record stays the logged Issue — never dressed as a
-# guaranteed operator line. No backstage vocabulary leaks (§12): no "Stop hook", "block budget", etc.
+# guaranteed operator line. No backstage vocabulary leaks: no "Stop hook", "block budget", etc.
 _LOOP_LINE = "sorting out where the open findings should go — one moment."
 _CAP_APPROACH = "If we can't settle this, I'll save them as tracked follow-ups and finish up."
 _CAP_STOP = "I've saved the open follow-up(s) as tracked items so they're not lost, and finished up."
 # The cap-exhaustion, GitHub-offline case: the disposition check DID run (it found the open findings) — only the
 # durable SAVE could not land, so the honest line is "couldn't save them as tracked yet", NOT "couldn't run the
-# check". The kept findings re-surface next turn (close/README "the finding survives regardless").
+# check". The kept findings re-surface next turn (the finding survives regardless).
 _CAP_UNTRACKED = ("I've noted the open follow-up(s), but couldn't save them as tracked items just now — I'll try "
                   "again next turn, so nothing is lost. Review this turn's work with extra care.")
-# The gate-CRASH notice (close/README "the gate fails open, and says so"): the disposition check itself could not
+# The gate-CRASH notice (the gate fails open, and says so): the disposition check itself could not
 # run. Passed to hooks.run_hook as fail_open_notice, so a crash speaks this plain line instead of the generic
 # "a safety check on the Stop step could not run".
 _FAIL_OPEN_NOTICE = ("I couldn't run the check that confirms nothing was dropped — review this turn's work "
@@ -305,8 +303,7 @@ def _pushback(open_findings, count=1):
     """The plain-language pushback — the reliable surface (the block reason fed back to Claude, who relays it).
     `count` is this turn's consecutive-block number. First block (count<2): the full ask — the way forward
     (fix / save as a follow-up / flag) plus what is still open, so the model knows what to settle. Repeated
-    pushback (count>=2): one calm line instead of re-listing (close/README "repeated pushback surfaces one
-    plain sentence"), and — on the approach to the effective cap — a pre-announcement that the open items will
+    pushback (count>=2): one calm line instead of re-listing, and — on the approach to the effective cap — a pre-announcement that the open items will
     be saved and the turn finished, so the operator is told before the hang rather than meeting it unexplained.
     A clean turn ends without a block, so the disposition summary itself is assistant-narrated (see summary)."""
     if count < 2:
@@ -324,7 +321,7 @@ def _pushback(open_findings, count=1):
 
 def _trigger_ambient_capture(payload):
     """Relay the turn's delta to MEMORY's ambient capture (close only triggers; memory owns the mechanism
-    and gates nothing — close/README §"Ambient capture"). Memory-substrate has shipped (slice 5 / ~M1), so
+    and gates nothing). Memory-substrate has shipped, so
     this seam is now LIVE: `memory.capture_turn_delta` appends the completed turn's delta to the ledger. Still
     best-effort and fail-soft — any failure (including the import, on a repo without the memory module) is a
     silent no-op, so capture never gates close and never raises into the handler. (Operator-runnable proof:
@@ -363,7 +360,7 @@ def _to_finding_record(finding, now):
 def _github():
     """The engine-Issue boundary for the RARE promote path. repo/token are reused from boot's single source
     via a LAZY import reached ONLY here (cap-exhaustion / fail-open) — so the common turn-end path imports
-    neither boot's heavy stack nor the network (the hooks/README hot-path latency law). Returns None when
+    neither boot's heavy stack nor the network. Returns None when
     repo/token are unavailable (offline) -> promotion degrades to surfaced-not-tracked, the merge wall the
     backstop. (The shared GitHub-context home is a later tidy when build-orch/24 becomes a second consumer.)"""
     try:
@@ -393,8 +390,7 @@ def _promote(finding, now, github=_UNSET):
 
 
 # ---- the pre-close local full-suite advisory (validation's authoritative local pass) --------
-# The `pre-close` suite is validation's authoritative LOCAL full-suite pass (validation README
-# §"Execution mapping"): the Stop hook always fires before work leaves the session, where the
+# The `pre-close` suite is validation's authoritative LOCAL full-suite pass: the Stop hook always fires before work leaves the session, where the
 # per-commit intercept can be missed on a manual commit. It is ADVICE — a hard finding surfaces to
 # stderr, never a block. close's ONLY block stays the undispositioned-findings gate; this runs on the
 # clean-proceed path AFTER that decision, in its OWN guard, so a broken rule can never propagate into
@@ -404,8 +400,7 @@ def _promote(finding, now, github=_UNSET):
 
 def _run_preclose_advisory() -> None:
     """Run the pre-close suite and surface any hard finding as an advisory stderr notice — never blocks,
-    never raises into the Stop handler. A clean Stop has no guaranteed in-transcript channel
-    (close/README), so this notice is best-effort; the merge-time CI run is the gate."""
+    never raises into the Stop handler. A clean Stop has no guaranteed in-transcript channel, so this notice is best-effort; the merge-time CI run is the gate."""
     try:
         findings = validate.collect("pre-close", validate.local_ctx(), with_source=True)
         hard = [f for f in findings if f.get("severity") == "hard"]
@@ -446,8 +441,8 @@ def handler(payload):
     now = telemetry.utc_now()
     github = _github()
     # Log each leftover; KEEP any that could NOT be durably tracked (GitHub offline/unreachable) so it
-    # re-surfaces next turn rather than being silently dropped — close/README "no consent is lost, the
-    # finding survives regardless". A tracked leftover is removed; an untracked one stays in the record.
+    # re-surfaces next turn rather than being silently dropped — no consent is lost, the
+    # finding survives regardless. A tracked leftover is removed; an untracked one stays in the record.
     kept = [f for f in open_findings if not _promote(f, now, github)]
     if kept:
         _write_findings(session_id, kept)
@@ -609,7 +604,7 @@ def main(argv):
         # Hook mode: what the wired Stop hook invokes. run_hook reads the event JSON from stdin, runs the
         # gate, translates block() -> exit 2 + stderr, downgrades a forced-continuation block, fail-open.
         # fail_open_notice: if the disposition gate itself CRASHES, the operator hears close's own plain line
-        # (close/README "the gate fails open, and says so"), not run_hook's generic wording.
+        # (the gate fails open, and says so), not run_hook's generic wording.
         return hooks.run_hook("Stop", handler, fail_open_notice=_FAIL_OPEN_NOTICE)
     if cmd == "record":
         fid = record_finding(_arg(argv, "--session"), _arg(argv, "--message"))

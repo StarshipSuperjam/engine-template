@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Stale-saved-setting check (core slice 26c) — surfaces, in plain operator language, a saved tuning value
-that will not apply (the slice-18 `owes → 26`).
+"""Stale-saved-setting check — surfaces, in plain operator language, a saved tuning value
+that will not apply.
 
-The `/engine-tune` command saves per-deployment tuning values that supersede the shipped policy defaults
-(D-167). After an engine update a saved value can stop applying: the policy no longer carries that setting
+The `/engine-tune` command saves per-deployment tuning values that supersede the shipped policy defaults.
+After an engine update a saved value can stop applying: the policy no longer carries that setting
 (renamed or removed), the setting is a fixed one that can't be changed, or — only if the file was hand-edited
 past the command — the value is not a number. In each case the engine uses its own default instead. This
 rule runs at the merge gate and surfaces each such saved setting so it is caught rather than quietly
@@ -19,8 +19,8 @@ the merge is given — the policy's shipped defaults and the consumer's structur
 plain sentence. It is a `custom/script` rule: it prints the finding.v1 array on stdout and returns 0 (the
 `skill_coherence_check` pattern). With no saved-settings file (the normal state until the operator first
 tunes) it surfaces nothing. The per-policy structural-key map is replicated from `tune.py` to keep this
-validator independent of the verb tool — `owes →` a shared tuning-helper floor when a third consumer needs it
-(the 26b `_typed_name` precedent).
+validator independent of the verb tool — a shared tuning-helper floor could absorb it when a third consumer needs it
+(the `_typed_name` precedent).
 """
 from __future__ import annotations
 import json

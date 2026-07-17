@@ -8,7 +8,7 @@ These lock the helper's contract: a build-order phase is ready when every capabi
 named with its plain stage; a build-order link that escapes `docs/spec/` is reported and NEVER opened (the
 engine/product wall); absent inputs (no spec tree, no build order, no phases) are disclosed no-ops, never a crash
 and never a silent "all ready"; a named-phase selection narrows, an unknown phase name no-ops; the rendered block
-carries its bound and leaks no raw lifecycle token (D-120); and the demo runs its real falsifiable self-check.
+carries its bound and leaks no raw lifecycle token; and the demo runs its real falsifiable self-check.
 """
 from __future__ import annotations
 import os

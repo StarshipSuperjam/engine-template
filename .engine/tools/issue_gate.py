@@ -8,24 +8,24 @@ hooks.decide("deny", reason) so the platform blocks the call and feeds the reaso
 re-files through the issue-authoring helper. A conforming body, an unlabelled or non-engine Issue, every read /
 list / view / comment / close, and anything the matcher cannot parse all return None → the call proceeds.
 
-This realizes engine-planning D-235/D-236: routing the engine-labelled channel from posture to a channel-scoped
+This routes the engine-labelled channel from posture to a channel-scoped
 reroute gate. It is the engine-side counterpart of the proven workspace reference
-(engine-planning/.claude/hooks/engine-issue-gate.py) — the matcher logic is mined from it, with three
+— the matcher logic is mined from it, with three
 deliberate engine-side changes:
   • The deny rides modes' hooks.decide channel (exit 0 + hookSpecificOutput), NOT the reference's exit-2 — the
     platform reads exit-2 as a crash and DROPS the reason, and the reason IS the redirect (it names the three
-    required parts, the in-repo helper, and the --body-file fallback), so it must survive (modes/README; hooks).
+    required parts, the in-repo helper, and the --body-file fallback), so it must survive.
   • Label detection is PRECISE — only a real `--label`/`-l`/`--label=`/`labels[]=` field carrying `engine`,
     never the reference's loose "any token containing both 'label' and 'engine'" (which false-denies an
     innocent Issue whose body merely says e.g. "relabel the engine room").
   • A heredoc body is recovered from the raw command string, because a cold session commonly files via
     `gh issue create --body-file - <<'EOF' … EOF` (the body on stdin) — which the token path cannot see.
 
-KEYS ON BODY SHAPE, NEVER PROVENANCE (D-235). The gate checks for the contract's structural MARKERS, so a body
+KEYS ON BODY SHAPE, NEVER PROVENANCE. The gate checks for the contract's structural MARKERS, so a body
 written by hand passes exactly as one rendered by the helper. Body TRUTHFULNESS stays posture (a less-truthful
-body costs legibility, never a guardrail; §15 untouched) — the gate guarantees shape, not truthfulness.
+body costs legibility, never a guardrail; the weakening guard is untouched) — the gate guarantees shape, not truthfulness.
 
-A §6 NUDGE, NOT A WALL — best-effort and fail-open, stated honestly. The shell-string check is incomplete: an
+A NUDGE, NOT A WALL — best-effort and fail-open, stated honestly. The shell-string check is incomplete: an
 alias / eval / substitution / a piped (non-heredoc) stdin / a temp-file written in the SAME chained command
 (not yet on disk when the gate fires) all evade it and resolve to None → ALLOW. The heredoc recovery is one
 more best-effort form recovered, never a closing of the hole. (Conversely a body passed as an unexpanded shell

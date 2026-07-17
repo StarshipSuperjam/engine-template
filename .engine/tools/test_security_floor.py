@@ -1,4 +1,4 @@
-"""Slice 3 of the security floor (issue #124): the native-scanning toggles. These tests attest the
+"""The security floor (issue #124): the native-scanning toggles. These tests attest the
 load-bearing facts: each surface branches on the call's HTTP status (the right code per toggle), verifies
 after the write and NEVER reports a feature on when the enable didn't succeed, never touches the branch
 ruleset / required checks (advisory), and never leaks an HTTP status, a bare product-tier name, or an API

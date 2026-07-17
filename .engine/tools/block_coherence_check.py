@@ -8,9 +8,9 @@ close's findings-disposition gate) and runs the pure block-registry leg
 agent_coherence_findings shape), so a single first-class check validates the WHOLE invariant, never
 half of it:
 
-  1. BLOCK BUDGET — only PreToolUse and Stop may hard-block (hooks/README §"The block-budget law").
+  1. BLOCK BUDGET — only PreToolUse and Stop may hard-block.
   2. MODE DIMENSION — every block declares the stances it is active in, as DATA, not code-only
-     (hooks/README §"Mode-awareness", eADR-0022): a non-empty `modes` list drawn from the valid stance
+     (eADR-0022): a non-empty `modes` list drawn from the valid stance
      vocabulary. This is the property U05b makes first-class — before it, the mode a block was active
      in lived only in modes.handler's control flow; now a missing/malformed declaration reds engine-ci.
 

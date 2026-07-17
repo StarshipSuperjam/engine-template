@@ -194,7 +194,7 @@ class SpecFormTests(unittest.TestCase):
             "docs/spec/checkout.md": _doc("draft")}))
         self.assertEqual(fs, [])
 
-    # --- §13 wall / scope: a spec outside the product's docs/spec/ is never the product's own -----
+    # --- engine/product wall / scope: a spec outside the product's docs/spec/ is never the product's own -----
     def test_engine_walled_spec_is_not_a_product_spec(self):
         fs = spec_form.findings("hard", root=self._root({
             ".engine/docs/spec/index.md": _index("| X | draft | [X](x.md) |\n"),
@@ -210,7 +210,7 @@ class SpecFormTests(unittest.TestCase):
             self.assertEqual(len(fs), 1, f"a spec under {elsewhere}/ must not count as the product's")
             self.assertIn("isn't active here yet", fs[0]["message"])
 
-    # --- the D-120 / operator-communication law: no raw lifecycle token in a finding -------------
+    # --- the operator-communication law: no raw lifecycle token in a finding -------------
     def test_findings_never_leak_a_raw_lifecycle_token(self):
         malformed = [
             {"docs/spec/index.md": _index("| Checkout | locked | [Checkout](checkout.md) |\n"),

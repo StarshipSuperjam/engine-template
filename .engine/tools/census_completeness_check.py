@@ -9,11 +9,11 @@ catches the drift where a demo silently does NEITHER: it is absent from the cens
 finished project uses it, so it would ship into every generated repo as leftover workshop clutter. Nine such
 demos had accreted before this check existed (#424 U13a walled them).
 
-What it is, honestly (engine-planning D-228 vs D-217/D-219): this is a CENSUS-COMPLETENESS / reference-closure-
-consistency guard, NOT a fate-enforcement gate. D-228 gives a construction demo two sanctioned fates — retired
+What it is, honestly (the demo-fate policy vs the reference-closure fact): this is a CENSUS-COMPLETENESS / reference-closure-
+consistency guard, NOT a fate-enforcement gate. The demo-fate policy gives a construction demo two sanctioned fates — retired
 once a regression test covers it, or PROMOTED by an explicit logged decision to a standing capability — and a
 promotion decision lives in the design canon (the sibling planning repo), which is not machine-readable from
-here. So "a surviving file imports it" is NOT read as "it was promoted"; it is the D-217 reference-closure fact
+here. So "a surviving file imports it" is NOT read as "it was promoted"; it is the reference-closure fact
 that walling it would dangle that surviving reference. This check therefore only catches the ORPHAN case (a demo
 that neither retires nor is structurally forced to travel); whether a legitimately-travelling demo should instead
 be a standing operator feature is a judgment for the change's own review, not this check.
@@ -21,12 +21,12 @@ be a standing operator feature is a judgment for the change's own review, not th
 It is CONSTRUCTION-SCOPED: it acts only while the root CLAUDE.md is the construction-governance file (superseded
 at v1), so it no-ops in any generated/deployed repo — where the demos are already retired and there is nothing to
 check. Like memory_pointer_public_safety_check.py it therefore ships-and-no-ops rather than retiring (its
-check.json travels in validators-core; retiring the script would dangle that reference — the #411 U22 trap).
+check.json travels in validators-core; retiring the script would dangle that reference — the #411 trap).
 
 It reads the census from the committed manifest (.engine/provisioning/first-run-assets.json) — NEVER by importing
-the retiring instantiator (the #411 U22 reference-closure lesson). Within the construction repo it FAILS CLOSED:
+the retiring instantiator (the #411 reference-closure lesson). Within the construction repo it FAILS CLOSED:
 if the census can't be read it emits a hard finding rather than silently passing — a completeness guard that
-degrades to a pass would green-light the very drift it exists to catch (principles §7). It runs as a hard CI
+degrades to a pass would green-light the very drift it exists to catch. It runs as a hard CI
 custom/script check: finding.v1 JSON on stdout, return 0 on a successful evaluation (empty array = every demo is
 accounted for); one hard finding per orphan demo, each carrying the full plain-language consequence + fix.
 """
@@ -60,7 +60,7 @@ def _is_construction_repo() -> bool:
 
 def _census(root: str) -> "set | None":
     """The first-run retirement set (repo-relative file paths), read from the committed manifest as PLAIN DATA —
-    never by importing the retiring instantiator (#411 U22). Returns None when the manifest is missing, unreadable,
+    never by importing the retiring instantiator (#411). Returns None when the manifest is missing, unreadable,
     not valid JSON, or structurally malformed (not an object, or `files` not a list) — anything that stops this
     check reading the census; check() turns that into one hard fail-closed finding. The manifest is permanent (it
     never self-retires), so a missing one is always a fault, never a legitimate state. A present-but-empty `files`

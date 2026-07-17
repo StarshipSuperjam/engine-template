@@ -15,21 +15,21 @@ Why "settled at base": the base commit is the prior-state correlate — immutabl
 the body. The acknowledgment is an action on the pull request (the applied label), never an AI-writable
 committed field, so no single session can supply both the change and the re-acceptance in one stroke.
 
-Where it runs (and the §15 isolation it DELEGATES rather than re-implements): this check rides the existing
+Where it runs (and the weakening-guard isolation it DELEGATES rather than re-implements): this check rides the existing
 `engine-ci` required check via CI-suite membership (`suites: ["CI"]`) — it does NOT run from the trusted base
-like the §15 weakening guard, and so it forgoes that guard's "never executes head code" property. That is safe
+like the weakening guard, and so it forgoes that guard's "never executes head code" property. That is safe
 here for two reasons, both load-bearing: (a) the actor model is all-same-repo pull requests under one identity —
 there is no fork contributor whose head code is hostile; and (b) this check's OWN code (this file, under
-`.engine/tools/`, and its rule, under `.engine/check/`) sits under the §15 weakening guard's guarded prefixes,
+`.engine/tools/`, and its rule, under `.engine/check/`) sits under the weakening guard's guarded prefixes,
 so an attempt to edit it to neuter the gate trips `engine-guard` from the trusted base and is held behind a
 deliberate `guardrail-ack`. The weakening-detecting guard stays non-falsifiable; this check inherits that
 protection instead of duplicating it. Riding `engine-ci` also means it self-removes from the derived CI roster
 when the product-design module is uninstalled — never an orphaned required check that deadlocks merges.
 
-Engine/product wall (R9 / D-244): it judges only that a settled description CHANGED without a recorded OK —
+Engine/product wall: it judges only that a settled description CHANGED without a recorded OK —
 never whether the change is a good one. It reads files; it never writes them.
 
-Operator-communication law (D-120): the engine-internal lifecycle ladder (the stub/draft/locked markers a
+Operator-communication law: the engine-internal lifecycle ladder (the stub/draft/locked markers a
 document carries) NEVER surfaces to the operator — findings say "settled", never the raw token. The findings
 frame the event as a change to the operator's PRODUCT description, never as a safety-gate weakening, even though
 the acknowledgment gesture (the `guardrail-ack` label) is shared with the safety guard.
@@ -59,7 +59,7 @@ if _PARENT not in sys.path:
 import validate  # noqa: E402 — ROOT (test-redirectable) + the finding.v1 helper
 # Reuse, never re-declare: the settled-status + path grammar from spec_form; the shared authenticated GitHub
 # API client (get_json + base64 decode) from the core github_client module; and the acknowledgment-label
-# constant from the §15 weakening guard — that is guard POLICY, not client logic, so it stays imported there.
+# constant from the weakening guard — that is guard POLICY, not client logic, so it stays imported there.
 from product_design import spec_form  # noqa: E402
 from github_client import get_json, decode_content  # noqa: E402
 from weakening_guard import ACK_LABEL  # noqa: E402
@@ -75,7 +75,7 @@ _SETTLED = "locked"
 _SPEC_DIR = "docs/spec"
 _INDEX_REL = _SPEC_DIR + "/index.md"
 # A single directory listing is capped by the Contents API at 1000 entries with no pagination; a listing at the
-# cap means we cannot prove we saw every document, so we fail closed (the §15 completeness property).
+# cap means we cannot prove we saw every document, so we fail closed (the weakening-guard completeness property).
 _CONTENTS_DIR_CAP = 1000
 
 _BOUND_TAIL = ("This checks only that a settled description isn't changed without your say-so — never whether "
@@ -289,7 +289,7 @@ def demo() -> int:
     without the label is a hard finding naming the document and the `guardrail-ack` label; the same change WITH
     the label clears; a not-yet-settled document is never gated; a line-ending/BOM-only difference is not a
     change. Every finding is framed as a product-description change (never a safety event) and never leaks a raw
-    lifecycle token (D-120). RETURNS NON-ZERO if any invariant is broken (the falsification can fail)."""
+    lifecycle token. RETURNS NON-ZERO if any invariant is broken (the falsification can fail)."""
     settled = "---\nstatus: locked\n---\n\n# Checkout\n\nThe checkout flow.\n"
     edited = "---\nstatus: locked\n---\n\n# Checkout\n\nThe checkout flow, revised.\n"
     reopened = "---\nstatus: draft\n---\n\n# Checkout\n\nThe checkout flow.\n"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the operator setup page `.engine/audits/self-review-setup.md` (audit-library slice 3b).
+"""Tests for the operator setup page `.engine/audits/self-review-setup.md`.
 
 This page is the returnable, plain-language guide that tells the operator how to arm the engine's scheduled
 self-review (the one-time token), keep it running (expiry / usage limits / re-arm), change how-often / which
@@ -10,7 +10,7 @@ These pin the load-bearing facts a future edit must not silently drop — the EX
 shape, the Cloud-Routine eliminations, the un-run-at-v1 honesty, the monthly cadence line — and the
 plain-language bar (no maintainer/audit backstage vocabulary reaches the operator). All assertions read the
 committed files directly; this surviving test never imports the retired first-run machinery it reasons about
-(the first-run reference-closure invariant, engine-planning D-219/D-220).
+(the first-run reference-closure invariant).
 """
 from __future__ import annotations
 import json
@@ -75,7 +75,7 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertNotIn("turn on access for scheduled runs", self.text.lower())
 
     def test_names_the_cli_prerequisite_for_the_token(self):
-        # Round-2 / engine-planning D-229 S2: `claude setup-token` needs Claude Code's command-line tool, which
+        # `claude setup-token` needs Claude Code's command-line tool, which
         # the engine's Claude-Desktop operator may not have installed — the page must name that (and offer to
         # help set it up), not silently assume it.
         self.assertIn("command-line tool", self.text)
@@ -100,7 +100,7 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertIn("not yet been run end-to-end", self.text)
 
     def test_discloses_the_cloud_path_leaves_no_committed_freshness_record(self):
-        # #406/F0196: the Cloud-Routine path yields a chat summary but never refreshes the committed record the
+        # #406: the Cloud-Routine path yields a chat summary but never refreshes the committed record the
         # freshness reminder reads — so a cloud-only operator is told the review is due even while it runs. The
         # page must disclose this substantive fact (not a cosmetic string): that the cloud path leaves no record
         # the engine reads, AND it must name the actual boot phrasing so the disclosure is honest for the
@@ -128,7 +128,7 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertIn("never pretends your memory is empty", self.text)  # the honest fallback
 
     def test_walks_through_the_saved_memory_read_turn_on(self):
-        # Item 3 (#224/D-242): the heavy-consent turn-on must be a real, followable walkthrough — not the
+        # Item 3 (#224): the heavy-consent turn-on must be a real, followable walkthrough — not the
         # dead-end "ask me" #224 was filed to fix. It names the secret, pre-translates the platform terms, lands
         # the shared-vault blast-radius disclosure at the paste with the per-project escape, steers to a no-expiry
         # key with the org-cap fallback, and ends with the engine-run test read.
@@ -138,7 +138,7 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertIn("Contents → Read", t)                            # the read-only scope, in plain words
         self.assertIn("No expiration", t)                              # the no-expiry steer…
         self.assertIn("organization", t)                               # …with the org-cap fallback
-        self.assertIn("every** project's saved memory", t)             # R31 blast-radius, at the paste moment
+        self.assertIn("every** project's saved memory", t)             # blast-radius, at the paste moment
         self.assertIn("own private vault", t)                          # …with the per-project escape
         self.assertIn("ask me to test the read", t)                    # ends with the engine-run test read
         self.assertIn("hasn't been run end-to-end while building it", t)  # honest un-exercised-at-v1 disclosure

@@ -86,7 +86,7 @@ class ReviewGateTests(unittest.TestCase):
         self.assertIn("the decision to proceed is yours", msg)
         self.assertIn("accepted-exceptions list", msg)  # the now-live accept-path, via the AI-remediation offer
 
-    # --- the §13 wall: the engine's own .engine/ tooling is never a product dependency -------------
+    # --- the engine/product wall: the engine's own .engine/ tooling is never a product dependency -------------
     def test_engine_manifest_vulnerability_is_walled_off(self):
         engine_vuln = dict(_VULN_CHANGE, manifest=".engine/pyproject.toml")
         self.assertEqual(self._find(_Canned([engine_vuln])), [],
@@ -437,7 +437,7 @@ class ReviewGateTests(unittest.TestCase):
     def test_catalog_entry_is_valid_and_verb_less(self):
         # dependency-discipline adds no operator command — it is offered at setup by its plain description
         # alone. The whole catalog must validate, and this module must appear exactly once, verb-less, under
-        # its design-named SCM category, with the merge-block disclosure the design requires (README:120).
+        # its design-named SCM category, with the merge-block disclosure the design requires.
         catalog = validate.load_json(os.path.join(validate.ENGINE_DIR, "provisioning", "module-catalog.json"))
         schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "provisioning-catalog.v1.json"))
         self.assertEqual(list(validate.Draft202012Validator(schema).iter_errors(catalog)), [],

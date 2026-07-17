@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavioral demo for the hook launcher's per-OS interpreter resolution (issue #407 / U03). The committed
+"""Behavioral demo for the hook launcher's per-OS interpreter resolution (issue #407). The committed
 hook commands always name the POSIX interpreter (`.engine/.venv/bin/python`); this shows the REAL committed
 `hook-runner.sh` resolving the interpreter that actually exists on the machine at fire time — so one
 committed repo boots on every OS, including a mixed-OS team, instead of a Windows adopter's hooks (boot

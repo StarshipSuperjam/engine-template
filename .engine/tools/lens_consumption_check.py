@@ -8,7 +8,7 @@ set that build orchestration records (the `consumed-review-lenses` block in
 (`validate.dangling_lens_findings`) over them. It emits a finding for every INSTALLED review lens that
 no build stage consumes — an installed-yet-unconsumed review is one that ships but never runs against
 the operator's changes, exactly the coherence hole the agents surface says must be disclosed and never
-left as a check-only signal (agents/README §Coherence; the D-023 dangling-check-kind).
+left as a check-only signal.
 
 This is the "build-orchestration slice" the agent grammar's dangling-lens posture was deferred to: the
 consumed set (which gate consumes which lens) is build orchestration's to record, and this consumer

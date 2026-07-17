@@ -13,7 +13,7 @@ Design seams kept faithful to the locked module spec:
   - The projection reuses ``boot.gather_signals`` — the same operator-facing, leak-guard-clean signals
     the boot dashboard and /engine-status render — so the board stays CONSISTENT with what the operator
     already reads, and no substrate read is duplicated (attention's raw partition carries only opaque
-    ids, which must never reach the board face — §12). The five board-face field names are plain
+    ids, which must never reach the board face — the leak guard). The five board-face field names are plain
     language; maintainer vocabulary never appears.
   - GitHub Projects v2 is GraphQL-only. ``BoardGraphQL`` carries an INJECTABLE transport
     (``transport(method, path, body) -> (status, json|None)``, the telemetry/audit-digest idiom), so
@@ -60,7 +60,7 @@ GRAPHQL_PATH = "/graphql"
 USER_AGENT = "engine-github-projects-sync"
 
 # The five engine-owned custom fields, BY THE PLAIN-LANGUAGE NAME the operator sees on the board face
-# (§12 leak guard — never maintainer vocabulary). Resolved to opaque ids at runtime. All are text fields
+# (the leak guard — never maintainer vocabulary). Resolved to opaque ids at runtime. All are text fields
 # in v1, so a value write never needs single-select option resolution.
 FIELD_BUILDING = "What's being built"
 FIELD_NEXT = "What's next"

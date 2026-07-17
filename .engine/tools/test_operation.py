@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the operation surface (slice OG): the operation.v1 runbook-frontmatter grammar, the
+"""Self-tests for the operation surface: the operation.v1 runbook-frontmatter grammar, the
 committed operation template, the live shape + frontmatter validation rules, and the catalog flip that wires
 both in.
 
@@ -18,7 +18,7 @@ operation-frontmatter schema rule is well-formed, joins CI, is catalog-routed (n
 empty operation stream, and has teeth on a malformed record. The catalog now routes the operation surface to
 its in-repo schema and template. There is deliberately NO coherence leg: an operation has no closed-vocabulary
 field whose membership a leg must police (the status enum is enforced by the schema directly, the policy /
-agent-permissions precedent), so this slice adds no validate.py code. Slice OG ships ZERO operation instances,
+agent-permissions precedent), so the operation surface adds no validate.py code. It ships ZERO operation instances,
 so the live shape/frontmatter rules pass vacuously today.
 """
 from __future__ import annotations

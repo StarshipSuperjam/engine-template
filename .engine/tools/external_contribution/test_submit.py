@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the cross-fork submission tooling (external-contribution module, Slice 2).
+"""Tests for the cross-fork submission tooling (external-contribution module).
 
 Every boundary is injected — the git diff reader (`run`), the template-detection `root`, the engine-owned set
 (`owned`), the `gh` transport (`gh_run`), and the telemetry GitHub boundary (`github`) — so the whole
@@ -159,7 +159,7 @@ class TestSubmitFlow(unittest.TestCase):
 
     def test_leak_is_operator_decidable_and_fires_telemetry(self):
         # An engine-owned path PAUSES for a decision (not a terminal halt), fires telemetry-on-fire, and never
-        # opens a PR while the leak is unacknowledged — even with confirm=True (a leak is a §6 soft nudge).
+        # opens a PR while the leak is unacknowledged — even with confirm=True (a leak is a soft nudge).
         opened = []
         rec = {}
         r = submit.submit(**self.BASE, run=_run(["src/app.py", ".engine/check/upstream-clean.json"]),
@@ -185,7 +185,7 @@ class TestSubmitFlow(unittest.TestCase):
         self.assertEqual(len(opened), 1)                 # ...but the leak still left a durable trace
 
     def test_foundation_name_over_flags_by_name_safe_direction(self):
-        # The predicate is a NAME set (topology README). It over-flags an upstream product's OWN foundation-named
+        # The predicate is a NAME set. It over-flags an upstream product's OWN foundation-named
         # file (its own CLAUDE.md) — the SAFE direction (never under-flag), now made non-harmful by the
         # operator-decidable nudge above. Content disambiguation is a deferred cross-repo build-spec leaf; see
         # submit.py's "ONE KNOWN OVER-FLAG" docstring. This test pins the safe-over-flag behavior so a future

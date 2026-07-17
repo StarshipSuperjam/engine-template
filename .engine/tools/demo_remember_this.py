@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operator-runnable demo of the "remember this" path in Explore (engine-template #257 + #258, D-251).
+"""Operator-runnable demo of the "remember this" path in Explore (engine-template #257 + #258).
 
 It answers, in plain words, two things a non-engineer can't read code to verify:
   1. (#257) When I ask the engine to remember something and it can't hand-edit its memory directly, does it

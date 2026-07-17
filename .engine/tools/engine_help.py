@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""`/engine-help` listing tool (core slice 26b) — the degradation-proof command index.
+"""`/engine-help` listing tool — the degradation-proof command index.
 
 Backs the `/engine-help` operator command: a plain-language listing of the engine's own typed
 commands so a non-engineer asking "what can I do here?" always gets an answer. It derives the listing
-from committed files only — never an MCP substrate — so an outage cannot blank it (the §14 discovery
+from committed files only — never an MCP substrate — so an outage cannot blank it (the discovery
 axis; degrade-to-git-native). Two parts:
 
 - Installed commands — the engine's OWN, engine-prefixed, operator-invocable verbs present on disk
@@ -14,7 +14,7 @@ axis; degrade-to-git-native). Two parts:
   engine/operator wall, the same scope the self-election guard governs); the operator's own un-prefixed
   product commands, and the full command set, are the platform's bare `/` menu to show, not this one's.
 - Available-if-installed commands — optional commands the operator could add, RELAYED from the committed
-  module catalog the first-run setup maintains (a §16 relay: the catalog's owner is provisioning; this tool
+  module catalog the first-run setup maintains (a relay: the catalog's owner is provisioning; this tool
   only reads it, through the shared `module_catalog` reader so this index and the setup walkthrough cannot
   drift in how they parse it). The catalog ships empty and grows as optional modules are built, so this part
   is an empty relay today — present but with nothing to list yet.

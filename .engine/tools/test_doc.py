@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the doc surface (slice 19): the doc.v1 operator-doc-frontmatter grammar, the committed doc
+"""Self-tests for the doc surface: the doc.v1 operator-doc-frontmatter grammar, the committed doc
 template, the live shape + frontmatter validation rules, and the catalog flip that wires both in.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -17,7 +17,7 @@ section fires hard; an optional allowed section passes; over-length is a soft nu
 rule is well-formed, joins CI, is catalog-routed (no params.schema), green over the live doc stream, and has
 teeth on a malformed record. The catalog now routes the doc surface to its in-repo schema and template. There is
 deliberately NO coherence leg: a doc has no closed-vocabulary field whose membership a leg must police (the
-status enum is enforced by the schema directly), so this slice adds no validate.py code. Slice 19 ships ONE doc
+status enum is enforced by the schema directly), so this slice adds no validate.py code. The doc surface ships ONE doc
 instance (the operator orientation doc), so the live shape/frontmatter rules run over it and must be green.
 """
 from __future__ import annotations

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Release-cut classifier + writer — the produce side of the engine's version line
-(wbs/release-process.md; the complement to the consume side the module manager owns).
+(the complement to the consume side the module manager owns).
 
 The engine and every module carry a version (`.engine/engine.json` `engine_release` + the
 `packages` map; each `.engine/modules/<id>/manifest.json` `version`). The module manager
@@ -14,7 +14,7 @@ Two subcommands, split so consent attaches to a proposal the writer cannot silen
   propose  — read-only. Resolve the last release baseline from the engine's HOME repo (the #369
              `home_repository` coordinate — the same source the updater fetches from, so producer
              and consumer agree on what "a release" is), diff since it, and author:
-               * the mechanical bump FLOOR (release-process §3): a module ADDED => engine >= minor;
+               * the mechanical bump FLOOR: a module ADDED => engine >= minor;
                  a module REMOVED => engine >= major; a new `migrations` entry in a package => that
                  package >= minor; the engine version = the MAX implied bump;
                * a plain-language CHANGE INVENTORY (what changed since the last release), so the
@@ -22,12 +22,12 @@ Two subcommands, split so consent attaches to a proposal the writer cannot silen
                * where a contract/seam/interface/wiring surface changed, an AI-authored plain-language
                  IMPACT statement, with the break/no-break behavioral demonstration marked present
                  (a correlate exists) or "no correlate — release consciously sub-bar, named" (the
-                 §6/§7/D-152 legible gate path; the acceptance-benchmark instrument is not built yet,
+                 legible gate path; the acceptance-benchmark instrument is not built yet,
                  and its absence is stated, never faked).
              It writes nothing.
 
   apply    — the writer. Records the chosen engine + per-package versions into the manifests, with:
-               * RAISE-ONLY enforcement (release-process §3): the engine version and every CHANGED
+               * RAISE-ONLY enforcement: the engine version and every CHANGED
                  capability are compared against the current on-disk version, and a target that is a
                  detectable LOWERING is REFUSED loudly (the dev sentinel `0.0.0-dev` sorts below any
                  real release). An unchanged capability keeps its recorded version — it is a no-op keep,
@@ -38,12 +38,12 @@ Two subcommands, split so consent attaches to a proposal the writer cannot silen
                * an ATOMIC staged write: every touched file is written to a temp sibling and
                  schema-re-validated (plus a packages<->manifest equality check) BEFORE any swap, then
                  all swapped together; a validation failure changes nothing, and a write error mid-swap
-                 rolls back the files already written and reports loudly (no split-brain — the §6
+                 rolls back the files already written and reports loudly (no split-brain — the
                  "atomic-or-loudly-incomplete" invariant; the reviewed-PR merge is the real
                  all-or-nothing unit, this bounds the on-disk window);
                * shape preservation: manifests are loaded, mutated in place, and rewritten with the
                  house 2-space+newline writer, so only version VALUES change — the `home_repository`
-                 line stays byte-identical and the tightened weakening_guard (D-281/D-282) is not
+                 line stays byte-identical and the tightened weakening_guard is not
                  tripped by a version-only cut.
 
 Read-only discovery + the release-ref/fetch/manifest-write helpers are reused from module_coherence
@@ -52,9 +52,9 @@ and module_manager (one present-set reader, one release-ref resolver — no drif
 A third subcommand renders the maintainer's evidence:
 
   pr-body  — read-only. Render the release pull request's body from a `propose` JSON + an `apply` result
-             JSON: the change inventory, the versions actually recorded, a legible §6 gate-path line
+             JSON: the change inventory, the versions actually recorded, a legible gate-path line
              (passed / consciously-sub-bar / errored — the three read as distinct), and the confirm/raise/
-             reject guidance that makes the PR review the §3 consent act. Authored HERE, never in workflow
+             reject guidance that makes the PR review the consent act. Authored HERE, never in workflow
              bash, so the gate-path legibility has one home.
 
 CLI:
@@ -383,7 +383,7 @@ def _max_level(a: str, b: str) -> str:
 def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
     """The proposal: the floor per package + engine, the change inventory, and the impact statements.
     In first-cut mode there is no baseline to diff, so no delta/floor is derived — the initial version
-    is the maintainer's explicit choice (release-process §7)."""
+    is the maintainer's explicit choice."""
     present = _present_modules()
     engine = module_coherence.load_engine_manifest() or {}
     inventory: list[str] = []
@@ -464,7 +464,7 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
     }
 
 
-# --------------------------------------------------------------------------- impact statements (§3 semantic)
+# --------------------------------------------------------------------------- impact statements
 _CONTRACT_GLOBS = (
     os.path.join(".engine", "contracts"),        # eADR contracts
     os.path.join(".engine", "interfaces"),        # interface surfaces
@@ -475,7 +475,7 @@ def _impact_statements(baseline_tree: str) -> list[dict]:
     """For each changed/added/removed contract or interface surface between the baseline tree and the
     live tree, an AI-authored plain-language impact statement (what changed · a note that consumers
     depend on it · why that reads breaking-or-additive), plus the behavioral-correlate marking. The
-    break/no-break demonstration runs "where a behavioral correlate exists" (release-process §3); with
+    break/no-break demonstration runs "where a behavioral correlate exists"; with
     no acceptance-benchmark instrument built, none is available, so the marking is honest, not faked."""
     out: list[dict] = []
     for sub in _CONTRACT_GLOBS:
@@ -542,7 +542,7 @@ def _target_versions(engine_ver: str, all_ver: str | None, packages: dict, prese
 
 def _raise_only_violations(engine_ver: str, targets: dict, engine_cur: str, present: dict) -> list[str]:
     """Every target that is NOT strictly greater than its current on-disk version — the raise-only
-    guard (release-process §3). The guard itself is strict; the caller passes only the capabilities
+    guard. The guard itself is strict; the caller passes only the capabilities
     actually being WRITTEN (a no-op keep at the current version is excluded upstream, so this flags a
     genuine lowering, never an unchanged capability). A returned non-empty list means the write must be
     refused."""
@@ -573,7 +573,7 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
     engine_cur = engine.get("engine_release", SENTINEL)
     targets = _target_versions(engine_ver, all_ver, packages, present)
 
-    # Auto-raise each floored capability to its mechanical floor (release-process §3). When a proposal is
+    # Auto-raise each floored capability to its mechanical floor. When a proposal is
     # supplied, a capability a change REQUIRES to bump (a new migration => its package_floor entry) is
     # written to that floor unless the caller set it explicitly with `--package`. This is the per-capability
     # analogue of the engine version auto-deriving to its floor: the release workflow passes no `--package`,
@@ -603,7 +603,7 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
     # capabilities are not strictly greater than themselves.
     changed = {mid: ver for mid, ver in targets.items() if ver != present[mid].get("version", SENTINEL)}
 
-    # raise-only over the engine + the CHANGED set (release-process §3): a target that is a detectable
+    # raise-only over the engine + the CHANGED set: a target that is a detectable
     # lowering is refused loudly (the guard is strict and unchanged — only the set it sees is narrowed to the
     # capabilities being written); the engine version must strictly increase. Nothing is ever silently lowered.
     violations = _raise_only_violations(engine_ver, changed, engine_cur, present)
@@ -618,7 +618,7 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
     if proposal:
         # the ENGINE floor: a minor/major bump forced by what changed since the last release (a module added
         # or removed, an interface changed) must be MET, not just be higher than the current version. Without
-        # this, a removed-module major floor could be undercut by a patch bump — the §3 "catch a wrong floor"
+        # this, a removed-module major floor could be undercut by a patch bump — the "catch a wrong floor"
         # backstop. None when nothing structural fired (a patch is discretionary; raise-only bounds it).
         engine_floor = proposal.get("engine_floor_version")
         if engine_floor and _strictly_greater(engine_floor, engine_ver):
@@ -785,7 +785,7 @@ def _structural_signals(proposal: dict) -> list:
 
 def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str = "sub-bar") -> str:
     """The published GitHub Release body — a human-readable, self-contained account of the release: the
-    version, the §6 readiness line, a breaking-change callout when the release is breaking, a "What changed"
+    version, the readiness line, a breaking-change callout when the release is breaking, a "What changed"
     section (the pull requests merged since the last release, or the structural signals when that list is
     unavailable), and an "Interface changes to read" section carrying each changed contract/interface WITH
     its plain-language description. It is a derived VIEW of the same signals the
@@ -793,7 +793,7 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
     history store, eADR-0014); it does not restate the version-by-version manifest table (that is the pull
     request's job), it tells a reader of the published release what changed and why it matters. A None/empty
     proposal (the best-effort fallback when the publish-time recompute could not run) degrades to the version
-    + readiness line alone. Maintainer register (§8/§12): 'engine version vX.Y.Z', no internal vocabulary."""
+    + readiness line alone. Maintainer register: 'engine version vX.Y.Z', no internal vocabulary."""
     out = [f"Engine version {tag}.", "", _gate_path_line(gate_state)]
     proposal = proposal or {}
     if proposal.get("engine_floor_level") == "major":
@@ -831,12 +831,12 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
     return "\n".join(out)
 
 
-# --------------------------------------------------------------------------- release-PR body (§6 legibility)
+# --------------------------------------------------------------------------- release-PR body (legibility)
 def _gate_path_line(state: str) -> str:
-    """The §6 legible gate-path line: the three release-readiness states must read as VISIBLY DISTINCT, never
+    """The legible gate-path line: the three release-readiness states must read as VISIBLY DISTINCT, never
     alike. Only `sub-bar` is reachable today — no acceptance-benchmark instrument is built, so nothing measures
     a release — but `passed`/`errored` are rendered here structurally so a future benchmark reads legibly
-    rather than as a retrofit (the standing §6 invariant, not a one-of-three accident)."""
+    rather than as a retrofit (the standing legibility invariant, not a one-of-three accident)."""
     if state == "passed":
         return ("**Release readiness — passed.** The engine was exercised against its readiness check and met "
                 "the bar for this release.")
@@ -877,11 +877,11 @@ def _pr_section(header: str, summary: str, body_lines: list, impact: str) -> lis
 
 def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -> str:
     """The release pull request's body — the maintainer's whole evidence bundle, authored HERE (never
-    composed in workflow bash) so the §6 gate-path legibility has one home. It takes both the `propose` JSON
+    composed in workflow bash) so the gate-path legibility has one home. It takes both the `propose` JSON
     (the change inventory + interface impacts) and the `apply` result JSON (the versions actually recorded),
-    and closes with the confirm/raise/reject guidance that makes the PR review the §3 consent act: the merge
+    and closes with the confirm/raise/reject guidance that makes the PR review the consent act: the merge
     is the go-ahead, and a wrong or missing signal is caught by closing and re-running with the right version.
-    Maintainer-facing register (§8): one engine version moving vX→vY — no 'release-cut'/'bump'/'version
+    Maintainer-facing register: one engine version moving vX→vY — no 'release-cut'/'bump'/'version
     production' vocabulary. Every section follows the repo pull-request template's form (bold summary →
     bullets → `*Impact:*`), not just its headers — a real template-conforming body, whose section names also
     clear the pull-request-completeness gate."""
@@ -955,7 +955,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
          "- It does not touch your own settings or content."],
         "the only thing this pull request changes is the recorded version and the generated maps that mirror it.")
 
-    # Risk — the §6 gate-path line is the (already bold-led) section summary; the breaking-change warning and
+    # Risk — the gate-path line is the (already bold-led) section summary; the breaking-change warning and
     # the interface-impact list are its bullets, so a reviewer scanning "Risk" sees the weight here, not only
     # as a neutral line up in Scope.
     risk = []
@@ -1137,7 +1137,7 @@ def main(argv: list) -> int:
         if args.cmd == "pr-body":
             return _cmd_pr_body(args)
         return _cmd_apply(args)
-    except Exception as exc:  # plain-language failure, never a traceback (release-process §6)
+    except Exception as exc:  # plain-language failure, never a traceback
         print(f"\nRELEASE-CUT ERROR: {exc}", file=sys.stderr)
         return 2
 

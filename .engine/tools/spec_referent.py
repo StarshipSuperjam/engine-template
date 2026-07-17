@@ -2,7 +2,7 @@
 """Resolve the settled-description referent a build is checked against: work item -> spec doc -> acceptance criteria.
 
 build-orchestration (core) owns the spec-referent resolution — a **path read** of the committed `docs/spec/`
-corpus (engine-planning decision-log D-247(3); `systems/lifecycle/build-orchestration/README.md:158-178`): when a
+corpus: when a
 build realizes a product-design **work item** (an ordinary GitHub Issue that points at its settled description),
 the orchestrator resolves **work item -> spec doc -> acceptance criteria** at Plan, gated on a **settled** spec
 (`status: locked`). This tool is that resolution's mechanical core, with ONE resolution feeding TWO consumers:
@@ -11,8 +11,7 @@ the orchestrator resolves **work item -> spec doc -> acceptance criteria** at Pl
                       check a build against — `product-intent` (plan-review) and `spec-conformance`
                       (pre-submission). The pass consumes it as context and renders its OWN disclosed no-op when
                       none resolves; this tool never judges built-vs-spec (a persona judges, a check gates).
-  - `review-steps` -> the PR Review section's operator-runnable acceptance steps (D-252..D-254;
-                      `README.md:214-247`): the steps the operator can run themselves, copied VERBATIM from the
+  - `review-steps` -> the PR Review section's operator-runnable acceptance steps: the steps the operator can run themselves, copied VERBATIM from the
                       settled doc's operator-runnable rows, in two plain groups — "things you can confirm
                       yourself" and "things I checked for you" — or a plain reason-named line when nothing is
                       operator-runnable. The orchestrator renders, never authors: this tool copies rows and
@@ -33,11 +32,11 @@ disclosed no-op", which would let a build sail past both referent passes with a 
 The spec being ABSENT (no link, no `docs/spec/`, not yet settled, no criteria) is a disclosed no-op; a read that
 FAILS is an error. The two are distinct.
 
-Engine/product wall (R5/R9): the tool OPENS the pointed-at file to read its criteria, so a pointer that escapes
+Engine/product wall: the tool OPENS the pointed-at file to read its criteria, so a pointer that escapes
 `docs/spec/` is rejected (a disclosed no-op), NEVER opened — the confined-read guard runs on both entry points
 (`--issue` and `--doc`) before any open.
 
-Operator-communication law (D-120): the engine-internal reason tokens (`doc-not-locked`, `ambiguous-pointer`, ...)
+Operator-communication law: the engine-internal reason tokens (`doc-not-locked`, `ambiguous-pointer`, ...)
 and the criteria typing (`operator`/`engine`) NEVER surface to the operator as raw tokens — `resolve` emits them
 for the orchestrator, but every rendered (operator-facing) line is plain language ("nothing settled yet", "things
 you can confirm yourself").
@@ -96,7 +95,7 @@ class SpecReferentError(Exception):
     disclosed no-op; a read that FAILS is this error."""
 
 
-# ---- the no-op vocabulary (internal reason tokens + their plain, D-120-clean renders) ---------------
+# ---- the no-op vocabulary (internal reason tokens + their plain renders) ---------------
 
 # Every reason a resolution yields nothing to check. The TOKEN is engine-internal (for the orchestrator); the
 # PLAIN render is the only thing the operator ever sees. "all-engine-account" is review-steps-only: the doc DID
@@ -357,7 +356,7 @@ _ENGINE_FRAMING = ("_(these ran on the engine's side — listed so you know what
 def render_review_steps(resolved: dict) -> str:
     """The plain-language Review-section block the orchestrator drops in verbatim. Two labelled groups when there
     are runnable steps; a single plain reason-named line when there are none — never a raw reason token, never a
-    typing token, never "settled"/"locked" framework vocabulary (D-120). Deterministic, so it is testable."""
+    typing token, never "settled"/"locked" framework vocabulary. Deterministic, so it is testable."""
     proj = review_steps(resolved)
 
     def rows(items):
@@ -387,7 +386,7 @@ def render_review_steps(resolved: dict) -> str:
 # moment the operator reads the grouped steps; at the intake/settle moment they read the count, before they lock.
 # Reusing review_steps() (not a second classifier) is the point — a criterion is typed identically at both
 # moments, so the split the operator sees at settle cannot drift from the one the merge readout shows for that
-# same doc. Per §17 the readout NEVER collapses into one "all good": both numbers are always stated.
+# same doc. The readout NEVER collapses into one "all good": both numbers are always stated.
 
 def acceptance_split(resolved: dict) -> dict:
     """Counts of a resolved doc's acceptance criteria by who discharges them, reusing review_steps' classifier:
@@ -404,7 +403,7 @@ def acceptance_split(resolved: dict) -> dict:
 # _PLAIN_NOOP strings are written for the PR/merge-review context ("this change", "linked", "settled
 # description") and read WRONG at intake — where the doc is a DRAFT the operator has not settled, nothing is
 # "linked", and nothing is "settled" yet — so the intake surface gets its own plain, draft-framed,
-# action-guiding phrasings. Still D-120-clean: plain words only, no raw lifecycle/reason token.
+# action-guiding phrasings. Still leak-free: plain words only, no raw lifecycle/reason token.
 _INTAKE_NOOP = {
     "no-criteria": ("This description doesn't list any acceptance criteria yet — add a row for each thing that "
                     "must be true (what it is, how it's checked, and whether you or the engine confirms it), "
@@ -417,10 +416,10 @@ _INTAKE_NOOP = {
 
 
 def render_acceptance_split(resolved: dict) -> str:
-    """The plain-language two-tier count for a SINGLE capability, for the intake/settle surface. §17: the readout
+    """The plain-language two-tier count for a SINGLE capability, for the intake/settle surface. The readout
     never collapses into one "all good" — it always states BOTH numbers, even when one side is zero, so structure
     cannot manufacture confidence the verification does not deliver. A resolved no-op renders an intake-framed,
-    action-guiding plain line (never the merge-review "settled/linked" vocabulary, and never a raw token — D-120).
+    action-guiding plain line (never the merge-review "settled/linked" vocabulary, and never a raw token).
     It reports the shape of acceptance (criteria as written), never a pass/green tally. Deterministic, so it is
     testable. The no-op is read from the resolution, never from the {0, 0} counts."""
     proj = review_steps(resolved)
@@ -611,7 +610,7 @@ def _demo() -> int:
     proj = review_steps(r1)
     runnable_text = " ".join(c["how_verified"] for c in proj["runnable"])
     engine_text = " ".join(c["how_verified"] for c in proj["engine_account"])
-    # D-120: the rendered (operator-facing) blocks must leak no engine/framework vocabulary or raw reason token.
+    # Operator-communication law: the rendered (operator-facing) blocks must leak no engine/framework vocabulary or raw reason token.
     # "engine"/"operator" as plain words are allowed — the design's own operator phrase is "on the engine's
     # account"; what is banned is the lifecycle/framework tokens, the raw reason-class tokens, and the typing
     # values used AS labels (e.g. "[operator]").
@@ -620,7 +619,7 @@ def _demo() -> int:
                    "who checks it")
     leaks = [t for t in leak_tokens if t.lower() in render.lower() or t.lower() in render_eng.lower()
              or t.lower() in split_render.lower()                    # #420: the intake split render...
-             or t.lower() in nocrit_render.lower()]                  # ...and its no-op are D-120-scanned too
+             or t.lower() in nocrit_render.lower()]                  # ...and its no-op are leak-scanned too
 
     checks = {
         "a settled doc resolves to its criteria": r1.get("ok") and len(r1["criteria"]) == 4,

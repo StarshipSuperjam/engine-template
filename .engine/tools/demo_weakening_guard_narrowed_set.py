@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Demo — the safety guard now asks for your deliberate OK only when a real safety gate changes (#250 / D-268).
+"""Demo — the safety guard now asks for your deliberate OK only when a real safety gate changes (#250).
 
 What this checks, in plain words: the engine has a guard that stops a merge and asks for your deliberate approval
 whenever a change could turn OFF one of your safety gates. It used to fire on ANY edit to a file in the engine's
@@ -56,7 +56,7 @@ CASES = [
 
 def main(_argv=None) -> int:
     print("What this checks: after #250, the guard asks for your deliberate approval only when a change could")
-    print("turn off a real safety gate — not for harmless helper edits. (issue #250 / D-268)\n")
+    print("turn off a real safety gate — not for harmless helper edits. (issue #250)\n")
 
     # Sanity: the guarded check-scripts really are being DERIVED from your live check definitions (not hard-coded).
     derived = weakening_guard._derive_check_scripts()

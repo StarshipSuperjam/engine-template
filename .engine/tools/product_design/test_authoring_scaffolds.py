@@ -57,7 +57,7 @@ class FullerScaffoldConventionTests(unittest.TestCase):
 
     def test_every_fuller_template_names_its_authoring_only_bound(self):
         # Each template states plainly that it is the operator's to get right / not checked by the engine, so the
-        # §17 "not validated" bound travels with the scaffold itself, not only the runbook copy. Whitespace is
+        # "not validated" bound travels with the scaffold itself, not only the runbook copy. Whitespace is
         # normalized so the phrase is found regardless of where the guidance prose line-wraps.
         for name in _FULLER_TEMPLATES:
             normalized = " ".join(_read(name).split())

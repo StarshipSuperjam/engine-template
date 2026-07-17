@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """The shared issue-authoring helper — assembles every engine-authored Issue body to the one
-control-plane body contract (control-plane/README §"Engine Issues" -> "Every engine-authored Issue
-carries a body contract").
+control-plane body contract.
 
 WHY THIS EXISTS. The engine creates Issues programmatically (telemetry health findings, build Issues,
 tracked debt). Those bypass the human web issue templates entirely — templates populate only the web
@@ -9,8 +8,8 @@ tracked debt). Those bypass the human web issue templates entirely — templates
 *creation* the way a required check gates a merge, so the body contract is enforced **by
 construction**: every producer assembles its body through this one helper, which builds the contract's
 parts from required arguments — a producer that authors through it cannot omit a part. Authoring *via*
-the helper is posture (principles §6/§7); a producer that bypasses it emits a less-legible body, which
-costs legibility, never a guardrail (so §15 does not bite).
+the helper is posture; a producer that bypasses it emits a less-legible body, which
+costs legibility, never a guardrail (so the weakening guard does not bite).
 
 THE BODY CONTRACT — a loose structural skeleton, in plain language (control-plane):
   (1) what the Issue is and why it is here                  -> `what_this_is`  (required)
@@ -30,11 +29,11 @@ the [PR template](../../.github/pull_request_template.md)'s summary->bullets sha
 stay plain prose (audits' pinned exemplar). The helper renders whatever markdown a part contains
 verbatim, so bulleted detail renders as bullets; `_demo` below models the readable shape.
 
-PASSIVE FORMATTER, NOT A REGISTRY (principles §14/§16). This is shared code each producer *calls*; it
+PASSIVE FORMATTER, NOT A REGISTRY. This is shared code each producer *calls*; it
 makes no network calls, applies no label, and holds no roster of producers. The engine-domain label is
 applied by each producer's own GitHub boundary (an explicit `labels` value at creation, or a label
 call right after — never a web-only issue-template default, which the programmatic path bypasses). The
-product-design spec Issue is the named exception: its body is the D-141 plain-prose specification, a
+product-design spec Issue is the named exception: its body is a plain-prose specification, a
 different realization of the same channel, not authored through this helper.
 
 CLI (operator-runnable demo):

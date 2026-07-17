@@ -88,7 +88,7 @@ class RequestBuilderTests(unittest.TestCase):
 
 
 class OffHostGuardTests(unittest.TestCase):
-    """The §15 security falsification: a token-bearing request must never be redirected off-host by a
+    """The security falsification: a token-bearing request must never be redirected off-host by a
     crafted Link header. An absolute URL off the GitHub API host MUST raise; this is the one behavior the
     extraction may never weaken."""
 
