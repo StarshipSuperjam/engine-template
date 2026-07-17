@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -116,6 +117,62 @@ def run(gh_obj, records, cache, thresholds, now, state_path=None, *,
     loop while the new tests below pin the scoped behaviour."""
     return telemetry.run(gh_obj, records, cache, thresholds, now, state_path=state_path,
                          authoritative=authoritative)
+
+
+class TestSeverityRank(unittest.TestCase):
+    """severity_rank grades a tracked finding's severity CLASS into the numeric severity attention's
+    debt-blocking rule ranks on (#394 U01). Telemetry owns the class, so it GRADES; whether a grade blocks is
+    attention's own rule (D-117), so nothing here asserts blocking — only the ordering against the caller's
+    bar. The numbers are an uncalibrated build-spec leaf (D-052/D-113)."""
+
+    _BAR = 2   # the shipped debt_blocking_threshold these grades are calibrated against
+
+    def test_trust_critical_grades_above_the_bar(self):
+        self.assertGreaterEqual(telemetry.severity_rank(telemetry.TRUST_CRITICAL, self._BAR), self._BAR)
+
+    def test_persistent_benign_grades_below_the_bar(self):
+        # Below the bar -> assign_partition returns None -> a deferral/backlog (attention/README:50).
+        self.assertLess(telemetry.severity_rank(telemetry.PERSISTENT_BENIGN, self._BAR), self._BAR)
+
+    def test_an_unmarked_finding_has_no_severity_to_report(self):
+        # A pre-severity Issue (an audit-authored finding carries no severity marker): telemetry owns the class
+        # and has not graded it, so the honest answer is "unknown" — None — never a stand-in number. Grading it
+        # to the bar (the shape this first carried) recreated the very defect it was meant to fix: an item
+        # pinned AT the bar makes the bar compare to itself, so the dial cannot change the outcome.
+        for unknown in (None, "", "not-a-known-class"):
+            self.assertIsNone(telemetry.severity_rank(unknown, self._BAR))
+
+    def test_an_unmarked_finding_is_never_graded_to_the_bar_at_any_bar(self):
+        # The regression this class exists to prevent: if an ungraded finding ever came back EQUAL to the bar
+        # again, the dial would silently stop discriminating and every test above could still pass.
+        for bar in (0, 1, 2, 3, 10, 10_000):
+            self.assertIsNone(telemetry.severity_rank(None, bar))
+
+    def test_a_non_finite_bar_never_makes_this_return_a_non_finite_severity(self):
+        # The ranking DROPS a non-finite severity as malformed, so a non-finite bar riding through the clamp
+        # would drop the one class that must always block. `tune` refuses such a dial at the gate; the clamp
+        # holds anyway for a value that reached the file some other way.
+        for bar in (float("inf"), float("nan"), float("-inf")):
+            rank = telemetry.severity_rank(telemetry.TRUST_CRITICAL, bar)
+            self.assertTrue(math.isfinite(rank), f"a bar of {bar} produced a droppable severity {rank}")
+
+    def test_trust_critical_clears_ANY_bar_however_it_is_tuned(self):
+        # THE safety property. debt_blocking_threshold is operator-tunable (D-167), and this class means "a
+        # safety gate could not run; promotes immediately" — so a tuned-up bar must never defer it. Without the
+        # clamp a bar above the fixed rank would silently drop the most urgent class with no feedback.
+        for bar in (0, 2, 3, 4, 10, 10_000):
+            self.assertGreaterEqual(telemetry.severity_rank(telemetry.TRUST_CRITICAL, bar), bar,
+                                    f"trust-critical fell below a tuned bar of {bar}")
+
+    def test_benign_stays_below_a_raised_bar_and_blocks_only_at_a_lowered_one(self):
+        # The dial's real boundary: raising the bar keeps ordinary debt deferred; lowering it past the grade
+        # surfaces it. This is what makes debt_blocking_threshold govern instead of compare itself to itself.
+        self.assertLess(telemetry.severity_rank(telemetry.PERSISTENT_BENIGN, 5), 5)
+        self.assertGreaterEqual(telemetry.severity_rank(telemetry.PERSISTENT_BENIGN, 1), 1)
+
+    def test_grading_is_pure_and_deterministic(self):
+        for sev in (telemetry.TRUST_CRITICAL, telemetry.PERSISTENT_BENIGN, None):
+            self.assertEqual(telemetry.severity_rank(sev, self._BAR), telemetry.severity_rank(sev, self._BAR))
 
 
 class TestPureHelpers(unittest.TestCase):

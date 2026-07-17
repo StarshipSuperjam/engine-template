@@ -69,10 +69,10 @@ def _finite(x):
 
 def assign_partition(candidate: dict, policy_values: dict):
     """Which of the five categories a candidate belongs to — or None when it is open debt that does NOT
-    gate work (a deferral/backlog, not surfaced in the budgeted five). Membership comes from the candidate's
+    gate work (it can wait; not surfaced in the budgeted five). Membership comes from the candidate's
     own `category` label (its source — telemetry/state/knowledge — set it); attention does NOT invent it.
     The ONE membership call attention owns (README:36-37): an open-debt candidate (category 'blocking_debt')
-    is BLOCKING iff its severity reaches the policy's debt-blocking threshold; below the bar it is a deferral
+    is BLOCKING iff its severity reaches the policy's debt-blocking threshold; below the bar it can wait
     (returns None — excluded from the surfaced partition, not promoted to any other category). Raises on an
     unknown category label (the source must speak the locked vocabulary)."""
     cat = candidate.get("category")
