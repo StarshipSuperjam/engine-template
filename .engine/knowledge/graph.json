@@ -4226,7 +4226,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:af6ecdc51c0501dd04ae9c7c38aac3d9aef7c3f83776f237f71b7d9bef13bd4f",
+        "fingerprint": "sha256:b302e72f1eaf36b57e09774369019396b70817ed3838ffbe02861d34fa323ddd",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -4243,7 +4243,7 @@
       },
       "slug": "attention_rank",
       "source": {
-        "fingerprint": "sha256:4ccfaa20351bd743ee8f78e8358a952ff7be6326121591e2f904a41ec607507e",
+        "fingerprint": "sha256:0305d5792e2d3b48158de73f3d71113695332e70c04abfef1e21a5d4f04eb4ef",
         "path": ".engine/tools/attention_rank.py"
       },
       "status": "active",
@@ -4396,7 +4396,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:c4692d83e3a693d700d51c9337acbfb10ce678bdd0e468197a0dd8d1bcd8caeb",
+        "fingerprint": "sha256:ce53e1663d26bb114ba1c0ec941fa501ff872dc26e4b21a04e66ebabb89fa7f9",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4687,6 +4687,23 @@
       "source": {
         "fingerprint": "sha256:fd8e79457701e664efc9d4f5bb45a377482c7ceb76fb48655cb9eed759430d12",
         "path": ".engine/tools/demo_actionlint.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_attention_live_dials",
+      "name": ".engine/tools/demo_attention_live_dials.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_attention_live_dials",
+      "source": {
+        "fingerprint": "sha256:dfe50a5597b8d9aff0e4a06b9deba24135d3d31a03fdc63d244b149ce21f80dc",
+        "path": ".engine/tools/demo_attention_live_dials.py"
       },
       "status": "active",
       "type": "tool"
@@ -5110,7 +5127,7 @@
       },
       "slug": "demo_state_cursor_honesty",
       "source": {
-        "fingerprint": "sha256:14fabf6ad90132e04257070fed836829ef13c982c6a34ee2537be17aa9936524",
+        "fingerprint": "sha256:456ddb795bed192cb79488df5c15decde0e6edb32951164d96d42e20b301af45",
         "path": ".engine/tools/demo_state_cursor_honesty.py"
       },
       "status": "active",
@@ -5382,7 +5399,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:12d201b6ecd9a892abebdc7c582d28bbda1c2869a2a7e5a4b3af727b5e2bf31b",
+        "fingerprint": "sha256:9bc050c213548fc5c2b611411f8a8c42279e8d90901539b41841b0fe8bfcdfa7",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -5399,7 +5416,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:422475f5b7774460533d6a5046e399cec37ac8e6efed10312343acadb285c609",
+        "fingerprint": "sha256:88939360eeb75adbd43e395fd73afa296b25535ec38c560e15b1af2e6f92a0cd",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -6079,7 +6096,7 @@
       },
       "slug": "scent",
       "source": {
-        "fingerprint": "sha256:b0a8074102924f491bd7b70165ea3c338c96703c4b16f48be140b3fc22680a85",
+        "fingerprint": "sha256:866c0ab30d61746e5ebc2b341210c6941d8a23074bec26997abdc4e90ecddbe3",
         "path": ".engine/tools/scent.py"
       },
       "status": "active",
@@ -6266,7 +6283,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:6cf8acb0c9947d1943d30c1be38d20c86b7d9f3437177aca998dabe20067bfd2",
+        "fingerprint": "sha256:fe4f02596211e69f8fe81dd3f7f70a51a32d064709b3994bd6554fc7c9ddba20",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -6351,7 +6368,7 @@
       },
       "slug": "test_attention",
       "source": {
-        "fingerprint": "sha256:efa234400a8dbb765ec0a04b7f6af4f54017aa572f39c64396f9f2cd0118d244",
+        "fingerprint": "sha256:4af8f4b4799e85b82e58a4e858c49f056b27beef0828bfd1f55ff2c930bda0cd",
         "path": ".engine/tools/test_attention.py"
       },
       "status": "active",
@@ -6487,7 +6504,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:0f94ebd668daed2aa1e96dff21442871265dab0886d6b499f12e0dd325104a11",
+        "fingerprint": "sha256:207951e9145ca4f2447b2677b41bd56be2bdf43c022745db253d196492eb9416",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -7031,7 +7048,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:5248f9a6eaefc69dc6e3557bad14389006252e7adf0c287f5376412f8577fae6",
+        "fingerprint": "sha256:d85ca794b852657938f4c822dbd9cbdf073e93cbc42f459d454688052feaa243",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -8017,7 +8034,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:cf6d4c339ed3dc4b6a04cc5fb12453a4d98bb01af4c13d5b3d8c890a28bdfc90",
+        "fingerprint": "sha256:15e7fc70e68cbf4f7a612507be040d064a8354241b1ba029a784da8bd5d3ea41",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
@@ -8034,7 +8051,7 @@
       },
       "slug": "test_tune",
       "source": {
-        "fingerprint": "sha256:18489093480ffdab6cafd6708e7e58f8188e1f493b3ea43cb1de7555c09c7a9f",
+        "fingerprint": "sha256:5473e0c48bdb3b6c1772ac11822ebf73a6cccd530b875b96353c5315ba38fbd2",
         "path": ".engine/tools/test_tune.py"
       },
       "status": "active",
@@ -8136,7 +8153,7 @@
       },
       "slug": "test_work_record",
       "source": {
-        "fingerprint": "sha256:724546d6e325b7288771205f568f5fc383acb1f63ab47895cb79f2fa92d371b9",
+        "fingerprint": "sha256:c9a23c68c36d55b91758dcd57a979fb1284ff4d11833babc70fff340611ce31f",
         "path": ".engine/tools/test_work_record.py"
       },
       "status": "active",
@@ -8153,7 +8170,7 @@
       },
       "slug": "tune",
       "source": {
-        "fingerprint": "sha256:39d75159492e7a35b2d612c3fadf82286a3a8351689fff0f3b2947326ea9bc08",
+        "fingerprint": "sha256:9ce8d309b1710fdb25bf13ba21207c32eaf142855db56d12bb6b7a28b86a37a3",
         "path": ".engine/tools/tune.py"
       },
       "status": "active",
@@ -8238,7 +8255,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:c0875f307913505659981a565a871b7e67c69d8565e4efa52fc94d2bc3ad07de",
+        "fingerprint": "sha256:00225cbd85131d9ff16a268123fbde5478a29825ffcd56006ce1dbef3333d553",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -8289,7 +8306,7 @@
       },
       "slug": "work_record",
       "source": {
-        "fingerprint": "sha256:29f40406a16c54cce2ce3785b9f348355ba809d482794e43558e931ac6ddb69d",
+        "fingerprint": "sha256:faf0e54f1f2051742357d1cb1d2e967af813ea9baa541fbe050fc224a197c7fb",
         "path": ".engine/tools/work_record.py"
       },
       "status": "active",
