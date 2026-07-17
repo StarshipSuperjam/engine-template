@@ -2149,15 +2149,17 @@ class TestForeignLicenseOffer(unittest.TestCase):
 
     _FIRE = {"present": True, "fingerprint": "22e2c095376d", "pr_open": False}
 
-    def test_full_offer_leads_with_private_by_default(self):
+    def test_full_offer_leads_with_ownership_reassurance(self):
         dash = boot.render_dashboard(_signals(foreign_license=self._FIRE))
-        self.assertIn("private and yours by default", dash)
+        self.assertIn("yours by default", dash)
         self.assertIn("license file copied in from the template", dash)
 
     def test_offer_stays_accurate_for_a_public_repo(self):
-        # S8: never overclaim exposure. The lead must not assert "nothing is exposed" or draw the "all rights
-        # reserved" legal conclusion the landed-text audit rejected as false for a public repo.
+        # Never overclaim exposure. The lead must not assert current repo VISIBILITY ("your project is private" /
+        # "nothing is exposed") or draw the "all rights reserved" legal conclusion — all false for a public repo,
+        # which is the repo most likely to carry a leftover license. The accurate ownership hedge is what remains.
         dash = boot.render_dashboard(_signals(foreign_license=self._FIRE)).lower()
+        self.assertNotIn("your project is private", dash)
         self.assertNotIn("nothing is exposed", dash)
         self.assertNotIn("all rights reserved", dash)
         self.assertIn("until you choose to share it", dash)
@@ -2165,7 +2167,7 @@ class TestForeignLicenseOffer(unittest.TestCase):
     def test_offer_routes_the_judgment_out_and_never_advises_a_license(self):
         dash = boot.render_dashboard(_signals(foreign_license=self._FIRE))
         self.assertIn("choosealicense.com", dash)
-        self.assertIn("a human for terms that matter", dash)
+        self.assertIn("a person to talk to", dash)   # routes legal judgment OUT, never advises a license
 
     def test_offer_surfaces_the_intent_exit_invitation(self):
         dash = boot.render_dashboard(_signals(foreign_license=self._FIRE))
@@ -2181,8 +2183,8 @@ class TestForeignLicenseOffer(unittest.TestCase):
 
     def test_pr_open_reword_awaits_your_merge(self):
         dash = boot.render_dashboard(_signals(foreign_license={**self._FIRE, "pr_open": True}))
-        self.assertIn("waiting for your merge", dash)
-        self.assertNotIn("private and yours by default", dash)   # the prepared-cleanup variant, not the first offer
+        self.assertIn("waiting for your review and merge", dash)
+        self.assertNotIn("yours by default", dash)   # the prepared-cleanup variant, not the first offer
 
     def test_a_retired_finding_renders_nothing(self):
         dash = boot.render_dashboard(_signals(foreign_license={**self._FIRE, "retired": True}))

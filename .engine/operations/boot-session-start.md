@@ -121,3 +121,14 @@ and never forces. What differs is *what* each protects and *how* it declines:
   repairing or augmenting the ruleset in place, preserving any protection already there, and reporting "already
   protected" with no change when it is already in force. It runs the operator's OWN `gh` behind a one-time GitHub
   administration approval (never a typed command); if the token can't carry that admin it discloses why and changes nothing.
+- **A leftover template license — clear it (a reviewed pull request) or keep it (`boot_alarm_ledger.retire`, #471).**
+  The operator's checkout still carries the engine's own template `LICENSE` at its committed root (a repo generated
+  before the first-run clear shipped, or drifted back to it); provisioning's `license_health` detects it and boot
+  offers. Unlike the repairs above the fix is **not** a write to the checkout: on the operator's "yes, clear it" the
+  assistant hands the one-file `LICENSE` removal to [build-orchestration](build-orchestration.md)'s **trivial fast
+  path** — a reviewed pull request the operator merges (a live protected repo's committed license is removed durably
+  no other way), **titled exactly `Maintenance: remove the leftover template LICENSE`** so the standing detector's
+  open-PR dedupe recognizes its own prepared cleanup and re-offers no duplicate — never a boot-time delete, and it
+  seeds no replacement (the license is the adopter's choice). On the operator's "I meant to keep this" the assistant
+  runs `boot_alarm_ledger.retire` (`python tools/boot_alarm_ledger.py retire`, an Explore-permitted tool call) so the
+  offer stops surfacing from this checkout; a plain decline instead collapses it to a terse reminder, never fully silent.

@@ -30,8 +30,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import license_seeds  # noqa: E402
 import memory_pointer_public_safety_check as _construction  # noqa: E402  (reuse the construction-marker constant)
 
-# The fixed title of the reviewed removal PR — the dedupe predicate matches open PRs by this exact title. Kept
-# in sync with build-orchestration's kind grammar (a `Maintenance:` upkeep change).
+# The fixed title of the reviewed removal PR — the SHARED CONTRACT between the fix author and this dedupe. The
+# boot-session-start repair-offer wiring instructs the assistant to title the cleanup PR EXACTLY this, and
+# `removal_pr_open` matches open PRs by it — one source of truth on both sides, so the "opens no duplicate"
+# guarantee holds (a `Maintenance:` upkeep change, per build-orchestration's kind grammar). If this string
+# changes, the boot-session-start bullet must change with it.
 REMOVAL_PR_TITLE = "Maintenance: remove the leftover template LICENSE"
 
 # The construction-governance marker (the engine's own template repo's root CLAUDE.md header, superseded at v1).
@@ -71,8 +74,13 @@ def _main_checkout(cwd: str | None = None) -> str | None:
     common = _run(["git", "rev-parse", "--git-common-dir"], cwd=cwd)
     if common:
         common = common.strip()
-        if os.path.basename(os.path.normpath(common)) == ".git":
-            return os.path.dirname(os.path.abspath(common))
+        # git may return a path relative to `cwd` (the subprocess dir), NOT this process's cwd — resolve it
+        # against `cwd` so the fallback stays correct when the two differ.
+        base = cwd or os.getcwd()
+        abs_common = common if os.path.isabs(common) else os.path.join(base, common)
+        abs_common = os.path.normpath(os.path.abspath(abs_common))
+        if os.path.basename(abs_common) == ".git":
+            return os.path.dirname(abs_common)
     return None
 
 

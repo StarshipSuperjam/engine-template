@@ -1273,10 +1273,11 @@ def render_dashboard(s: dict) -> str:
     if fl and fl.get("present") and not fl.get("retired"):
         if fl.get("pr_open"):
             pinned.append(
-                "📄 **A cleanup for a leftover license file is prepared — it's waiting for your merge.** A license "
-                "file copied in from the template you started from is still in your project under its author's "
-                "name, not yours. I've prepared the small change to clear it; it just needs your review and merge. "
-                "If it's one you meant to keep, say so and I'll stop bringing it up.")
+                "📄 **A cleanup for a leftover license file is prepared — it's waiting for your review and merge.** "
+                "A license file copied in from the template you started from is still in your project under its "
+                "author's name, not yours. I've prepared the small change to clear it — you'll find it with your "
+                "open pull requests under **Needs your attention** below. If it's one you meant to keep, say so and "
+                "I'll stop bringing it up.")
         elif fl.get("collapsed"):
             pinned.append(
                 "📄 A leftover license file from the template you started from is still in your project under its "
@@ -1284,13 +1285,13 @@ def render_dashboard(s: dict) -> str:
                 "approve to clear it; or, if you meant to keep it, tell me and I'll stop bringing it up.")
         else:
             pinned.append(
-                "📄 **Your project is private and yours by default — your code is yours until you choose to share "
-                "it.** One tidy-up: a license file copied in from the template you started from is still sitting in "
-                "your project under its author's name, not yours — leftover from how your project was created, not "
-                "anything you did. With your OK I'll clear it as a small change you approve (a quick review and "
-                "merge), so you start from a clean slate and can add the license you choose — I can point you to "
-                "choosealicense.com, help add the one you pick, or a human for terms that matter. If it's one you "
-                "meant to keep, just say so and I'll stop bringing it up.")
+                "📄 **Your code is yours by default — yours until you choose to share it.** One tidy-up: a license "
+                "file copied in from the template you started from is still sitting in your project under its "
+                "author's name, not yours — leftover from how your project was created, not anything you did. With "
+                "your OK I'll clear it as a small change you approve (a quick review and merge), so you start from a "
+                "clean slate and can add the license you choose — I can point you to choosealicense.com, help add "
+                "the one you pick, or point you to a person to talk to if the legal terms really matter to you. If "
+                "it's one you meant to keep, just say so and I'll stop bringing it up.")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
