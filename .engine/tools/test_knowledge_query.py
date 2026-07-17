@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 11a — the knowledge-retrieval op-set (knowledge_query.py), the SQLite index
+"""Self-tests for the knowledge-retrieval op-set (knowledge_query.py), the SQLite index
 (knowledge_index.py), and the graph-query MCP server (knowledge_mcp_server.py).
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -8,7 +8,7 @@ These lock the load-bearing teeth over a controlled FIXTURE graph (so assertions
 independent of the evolving real graph): get-entity returns the entity + edges (or None); find selects
 by type/glob/owner; neighbors traverses out / in (the REVERSE edges the committed graph cannot give) /
 both, honours an edge filter and multi-hop depth; relate finds the shortest undirected path (or null).
-Then the four-rung degrade cascade (knowledge/README.md:51): a missing index rebuilds from the committed
+Then the four-rung degrade cascade: a missing index rebuilds from the committed
 graph; a stale index rebuilds; an ABSENT committed graph rebuilds from a live walk of the surfaces and
 still answers; only if that live walk also fails is KnowledgeUnavailable raised (never a crash). Finally
 the MCP server, headless (no Claude Desktop): tools/list is exactly the four declared ops, and tools/call
@@ -108,7 +108,7 @@ class TestQueryOps(unittest.TestCase):
             self.assertEqual(n["predicate"], "governed_by")
 
     def test_neighbors_both_unions_forward_and_reverse(self):
-        # The cold-start orientation walk (D-224): `direction="both"` is the union of out and in, deduped.
+        # The cold-start orientation walk: `direction="both"` is the union of out and in, deduped.
         # schema:s1 is forward-poor (out -> only its module) but reverse-rich (the checks it governs point AT
         # it) — exactly the connective tissue a forward-only walk starves. both() must surface both halves.
         out = {n["id"] for n in kq._neighbors(self.conn, "schema:s1", direction="out")}
@@ -155,7 +155,7 @@ class TestQueryOps(unittest.TestCase):
 
 
 class TestRelateBfs(unittest.TestCase):
-    """U04: relate is a genuine node-visited BFS. The prior path-materializing recursive CTE enumerated
+    """relate is a genuine node-visited BFS. The prior path-materializing recursive CTE enumerated
     every simple path and hung combinatorially through a high-degree hub; a BFS with a per-node visited set
     returns a shortest path in O(V+E). This fixture — a hub cross-linked to many leaves that also link both
     endpoints — has factorially-many simple paths (which would swamp the old query) but a trivial BFS."""
@@ -193,7 +193,7 @@ class TestRelateBfs(unittest.TestCase):
 
 
 class TestDegradeToGitNative(unittest.TestCase):
-    """The four-rung degrade cascade (knowledge/README.md:51): a fresh index answers; a missing/stale
+    """The four-rung degrade cascade: a fresh index answers; a missing/stale
     index rebuilds from the committed graph (rung 2); an ABSENT committed graph rebuilds from a LIVE WALK
     of the surfaces (rung 3); only if that live walk also fails is knowledge unavailable (rung 4)."""
 
@@ -264,7 +264,7 @@ class TestDegradeToGitNative(unittest.TestCase):
         self.assertIn("simulated live-walk failure", str(cm.exception.__cause__))
 
     def test_corrupt_committed_graph_degrades_like_absence(self):
-        # U05a: a PRESENT but unreadable committed graph (merge markers / a truncated regen) must degrade to
+        # a PRESENT but unreadable committed graph (merge markers / a truncated regen) must degrade to
         # the LIVE WALK exactly as absence does — never a raw JSONDecodeError crash — but tagged distinctly
         # ('live-corrupt') so the operator signal names a DAMAGED file, not a missing one.
         with open(self.graph_path, "w", encoding="utf-8") as fh:
@@ -294,7 +294,7 @@ class TestDegradeToGitNative(unittest.TestCase):
 
 
 class TestDegradeSurfacing(unittest.TestCase):
-    """U05c: the degrade `source` is carried through _with_conn so the MCP/library boundary can surface it,
+    """The degrade `source` is carried through _with_conn so the MCP/library boundary can surface it,
     while the four public ops stay DATA-ONLY (attention / the boot slice consume plain results in
     comprehensions — a tuple return would break them)."""
 
@@ -373,7 +373,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(len(data["neighbors"]) >= 1)
 
     async def test_tool_surfaces_a_degraded_key_when_the_read_is_degraded(self):
-        # U05c: when with_degrade yields a note (a live-walk read), the tool response carries it under a
+        # when with_degrade yields a note (a live-walk read), the tool response carries it under a
         # `degraded` key so the in-session caller relays it. Force the note at the boundary; the real _merge
         # wiring in the tool attaches it.
         import knowledge_mcp_server as srv
@@ -394,7 +394,7 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
 
 
 class TestEnrichedEntities(unittest.TestCase):
-    """D-203 pull-path enrichment: the declared attributes ride through get-entity/find via the JSON
+    """Pull-path enrichment: the declared attributes ride through get-entity/find via the JSON
     attributes column; supersedes is a deliberate PULL (neighbors edge_filter) but stays OFF the
     cold-start default walk; build_index allowlists edge kinds."""
 
@@ -433,7 +433,7 @@ class TestEnrichedEntities(unittest.TestCase):
         conn = self._build(self._enriched_graph())
         rows = {r["id"]: r for r in kq._find(conn, type="check")}
         self.assertEqual(rows["check:c1"].get("tier"), "hard")
-        # NO attribute selector -> no find(attribute) canon back-door (D-203)
+        # NO attribute selector -> no find(attribute) canon back-door
         import inspect
         self.assertEqual(set(inspect.signature(kq._find).parameters) - {"conn"},
                          {"type", "path_glob", "owner"})

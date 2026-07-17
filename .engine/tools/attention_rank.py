@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Slice 12 — the attention ranking function (the deterministic core).
+"""The attention ranking function (the deterministic core).
 
-Attention is "a policy plus a function, not a store" (systems/cognitive/attention/README.md): the policy
+Attention is a policy plus a function, not a store: the policy
 (.engine/policies/attention.md) carries the tuning values; THIS module is the function. It realizes the
-locked D-117 form — an **ordered partition with weighted intra-partition ranking** over the five fixed
+locked form — an **ordered partition with weighted intra-partition ranking** over the five fixed
 budget categories — under **hard cross-category precedence**: a lower-importance category can never overtake
 a higher one whatever the per-candidate weights, because precedence is the primary sort key (structural),
 never a weight. The result is an attention-result.v1 object (.engine/schemas/attention-result.v1.json).
 
 This file is the PURE core: no file IO, no clock, no substrate reads — it ranks a candidate-set it is
 HANDED and is fully fixture-testable. The substrate-facing assembly (state/knowledge today; telemetry/git
-later) and the CLI live in attention.py. The split mirrors the spec's own seam (README:33-38): membership
+later) and the CLI live in attention.py. The split mirrors the spec's own seam: membership
 is telemetry's promotion call, *blocking* is attention's debt-blocking rule (the one membership decision
 this core owns), and "the partition orders what those determinations hand it."
 
-Determinism (README:85): the same (candidates, policy_values, as_of, available_inputs) yield a byte-identical
+Determinism: the same (candidates, policy_values, as_of, available_inputs) yield a byte-identical
 result. `as_of` is the ONLY time source — the core never reads the wall clock; recency is a weight over that
 recorded moment. The intra-partition score is ABSOLUTE per candidate (no cross-candidate range normalization),
 so there is no zero-range division and thus no NaN — a single-member or all-equal partition ranks cleanly.
@@ -23,7 +23,7 @@ and records the absent substrates in `degraded_inputs`; it never narrates that (
 
 Quality is NOT proven here. The form is fixed and tested (partition assignment + structural precedence);
 the concrete values in the policy are uncalibrated starting values, so "surfaces the right things first"
-stays unproven until calibrated (D-052/D-113).
+stays unproven until calibrated.
 """
 from __future__ import annotations
 import datetime
@@ -31,7 +31,7 @@ import math
 
 RESULT_SCHEMA_VERSION = 1
 
-# The five budget categories in their LOCKED canonical order (attention/README.md:31, D-117). This tuple is
+# The five budget categories in their LOCKED canonical order. This tuple is
 # the category vocabulary; the policy supplies the precedence RANKS, budget fractions, and trim ranks over it.
 CATEGORIES = ("blocking_debt", "in_flight", "recent_decisions", "structural_neighbors", "orientation")
 
@@ -71,7 +71,7 @@ def assign_partition(candidate: dict, policy_values: dict):
     """Which of the five categories a candidate belongs to — or None when it is open debt that does NOT
     gate work (it can wait; not surfaced in the budgeted five). Membership comes from the candidate's
     own `category` label (its source — telemetry/state/knowledge — set it); attention does NOT invent it.
-    The ONE membership call attention owns (README:36-37): an open-debt candidate (category 'blocking_debt')
+    The ONE membership call attention owns: an open-debt candidate (category 'blocking_debt')
     is BLOCKING iff its severity reaches the policy's debt-blocking threshold; below the bar it can wait
     (returns None — excluded from the surfaced partition, not promoted to any other category). Raises on an
     unknown category label (the source must speak the locked vocabulary)."""
@@ -123,7 +123,7 @@ def session_condition(candidates: dict, policy_values: dict) -> str:
 
 
 def apply_flex(base_fractions: dict, condition: str, policy_values: dict) -> dict:
-    """Flex the base budget split by session condition (README:49, D-062/D-063 — this is ATTENTION's, not
+    """Flex the base budget split by session condition (this is ATTENTION's, not
     boot's): a clean session gives more room to orientation (taken from blocking debt); a high-debt session
     compresses orientation (given to blocking debt). The shift is the policy's `flex_orientation_delta`,
     clamped at zero and renormalized so the five fractions still sum to one."""

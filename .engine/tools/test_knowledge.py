@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for slice 10 — the knowledge graph: the knowledge.v1 schema, the generic
+"""Self-tests for the knowledge graph: the knowledge.v1 schema, the generic
 catalog-driven generator, the committed graph, and the coverage/fingerprint relay gate.
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
@@ -28,7 +28,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import knowledge_gen     # noqa: E402
-import hooks             # noqa: E402  (slice 23: the run_hook harness the commit-boundary regen rides)
+import hooks             # noqa: E402  (the run_hook harness the commit-boundary regen rides)
 
 KNOWLEDGE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "knowledge.v1.json"))
 RULE_PATH = os.path.join(validate.CHECK_DIR, "knowledge-coverage.json")
@@ -157,22 +157,22 @@ class TestLiveDerivation(unittest.TestCase):
 
     def test_catalog_coverage_rule_and_provisioned_surface_homes(self):
         # issue #30: the catalog-coverage gate is a validators-core corpus rule; the provisioned .engine/
-        # surface homes appear as core-owned entities. The `doc` surface gained its grammar at slice 19
+        # surface homes appear as core-owned entities. The `doc` surface gained its grammar
         # (governing_schema null -> doc.v1) and landed its first instance, so its .gitkeep was removed and
-        # the doc home is now the governed orientation instance; the `operation` surface gained its grammar
-        # at slice OG, so operation:.gitkeep is now governed by schema:operation.v1.
+        # the doc home is now the governed orientation instance; the `operation` surface gained its grammar,
+        # so operation:.gitkeep is now governed by schema:operation.v1.
         cov = self.by_id.get("check:catalog-coverage")
         self.assertIsNotNone(cov, "expected a check:catalog-coverage entity")
         self.assertEqual(cov["predicates"].get("provided_by"), ["module:validators-core"])
-        # the doc grammar flip (slice 19): the placeholder doc:.gitkeep is gone (the first operator doc
+        # the doc grammar flip: the placeholder doc:.gitkeep is gone (the first operator doc
         # landed), and the doc home is now the core-provided orientation instance, governed by doc.v1.
         self.assertNotIn("doc:.gitkeep", self.by_id)
         doc_home = self.by_id.get("doc:getting-started")
         self.assertIsNotNone(doc_home, "expected a doc:getting-started entity")
         self.assertEqual(doc_home["predicates"].get("provided_by"), ["module:core"])
         self.assertEqual(doc_home["predicates"].get("governed_by"), ["schema:doc.v1"])
-        # the operation surface (slice 20 landed the first instance, boot's SessionStart pack; slice 21
-        # added the modes operation; slice 22 adds close's turn-close operation): the placeholder
+        # the operation surface (its landed instances: boot's SessionStart pack, the modes operation, and
+        # close's turn-close operation): the placeholder
         # operation:.gitkeep is gone, and every core-provided lifecycle operation is governed by operation.v1.
         self.assertNotIn("operation:.gitkeep", self.by_id)
         for op_id in ("operation:boot-session-start", "operation:operating-modes", "operation:close-turn"):
@@ -182,7 +182,7 @@ class TestLiveDerivation(unittest.TestCase):
             self.assertEqual(op_home["predicates"].get("governed_by"), ["schema:operation.v1"], op_id)
 
     def test_known_edges_for_the_interfaces_and_their_declaration_check(self):
-        # slices 11a/11b: each interface declaration is governed by interface.v1 (the catalog
+        # each interface declaration is governed by interface.v1 (the catalog
         # governing_schema flip) and provided by core; the interface-declaration check targets BOTH.
         # The non-fingerprint correlate for edge correctness — the fingerprint gate proves the graph
         # MATCHES the surfaces, never that the derived edges are right; this asserts the edges.
@@ -195,7 +195,7 @@ class TestLiveDerivation(unittest.TestCase):
         chk = self.by_id.get("check:interface-declaration")
         self.assertIsNotNone(chk, "expected a check:interface-declaration entity")
         # the check globs .engine/interfaces/*.json, so its derived `targets` are BOTH declarations
-        # (sorted) — adding search.json widened this edge, the 11b graph delta the operator eyeballs.
+        # (sorted) — adding search.json widened this edge, the graph delta the operator eyeballs.
         self.assertEqual(chk["predicates"].get("targets"),
                          ["interface:knowledge-retrieval", "interface:search"])
         self.assertEqual(chk["predicates"].get("governed_by"), ["schema:check.v1"])
@@ -224,7 +224,7 @@ class TestLiveDerivation(unittest.TestCase):
 
 
 class TestAttributeHarvesters(unittest.TestCase):
-    """The D-203 declared-attribute harvesters — pure (IO-free), tested directly on parsed dicts so the
+    """The declared-attribute harvesters — pure (IO-free), tested directly on parsed dicts so the
     'declared, not interpreted / structure, not belief' gates are locked independently of any source tree."""
 
     def test_status_is_modules_and_contracts_only_else_active(self):
@@ -232,7 +232,7 @@ class TestAttributeHarvesters(unittest.TestCase):
         self.assertEqual(kg._status_for("module", {}, {"status": "required"}), "required")
         self.assertEqual(kg._status_for("module", {}, {"status": "experimental"}), "experimental")
         self.assertEqual(kg._status_for("contract", {"status": "superseded"}, None), "superseded")
-        # every OTHER surface is 'active' (D-203 'else active'), even one that declares a status of its own
+        # every OTHER surface is 'active' ('else active'), even one that declares a status of its own
         for st in ("policy", "operation", "doc", "conduct", "interface", "check", "schema", "tool"):
             self.assertEqual(kg._status_for(st, {"status": "deprecated"}, None), "active", st)
         # a missing status on the two declaring surfaces degrades to 'active' (never a crash)
@@ -286,7 +286,7 @@ class TestAttributeHarvesters(unittest.TestCase):
 
 
 class TestSupersedesEdges(unittest.TestCase):
-    """The supersedes edge guard (D-203 / the D-169 canon invariant): contract->contract, DEPLOYMENT-STREAM
+    """The supersedes edge guard (the canon invariant): contract->contract, DEPLOYMENT-STREAM
     only — no edge may EVER reach a canon eADR. Canon-ness is provides-membership (modelled as canon_ids)."""
 
     @staticmethod
@@ -324,7 +324,7 @@ class TestSupersedesEdges(unittest.TestCase):
 
 
 class TestDeploymentStreamEntitization(unittest.TestCase):
-    """#422 / D-169: `derive_entities` entitizes the deployment-owned per-instance eADR stream
+    """#422: `derive_entities` entitizes the deployment-owned per-instance eADR stream
     (`.engine/contracts/instance/*eADR-*.md` — bare or project-namespaced `<slug>-eADR-####` after #467, in NO
     module's `provides`) as NON-canon contracts — owner is
     the reserved token `deployment`, they carry NO `provided_by` edge, and that absence (not `owner`) is what
@@ -461,7 +461,7 @@ class TestDeploymentStreamEntitization(unittest.TestCase):
 
 
 class TestLiveDerivationAttributes(unittest.TestCase):
-    """The D-203 attributes on the REAL derived graph — the non-fingerprint correlate that the harvest is
+    """The declared attributes on the REAL derived graph — the non-fingerprint correlate that the harvest is
     RIGHT (the gate proves the committed graph MATCHES the sources, never that the values are correct)."""
 
     def setUp(self):
@@ -554,7 +554,7 @@ class TestGenerateCheckIO(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_write_graph_is_atomic_and_leaves_no_committable_orphan(self):
-        # U05b: write_graph writes a temp then os.replace -> the target is byte-identical (newline=''
+        # write_graph writes a temp then os.replace -> the target is byte-identical (newline=''
         # preserved) and no orphan temp is left beside it; the transient temp lives in the gitignored,
         # ownership-pruned .cache/ dir, never a sibling of graph.json that could be committed.
         text = knowledge_gen.canonical_graph()
@@ -665,7 +665,7 @@ class TestCoverageFingerprintMode(unittest.TestCase):
 
 
 class TestCommitBoundaryRegen(unittest.TestCase):
-    """Slice 23: the PreToolUse commit-boundary regen hook (knowledge/README §Regeneration). On a
+    """The PreToolUse commit-boundary regen hook. On a
     `git commit` it refreshes the graph best-effort and ALWAYS proceeds — it never blocks, never injects,
     fails open, and is reached via the `hook` verb (whose absence/mistyping would BLOCK the commit: the
     no-arg default is `show`, an stdout dump, and an unknown verb returns exit 2)."""
@@ -753,7 +753,7 @@ class TestCommitBoundaryRegen(unittest.TestCase):
 
 
 class TestSourceDeterminismRoundTrip(unittest.TestCase):
-    """§19.1 enforcing correlate (principles.md): regenerating the graph from the same committed source
+    """The enforcing correlate: regenerating the graph from the same committed source
     tree yields byte-identical output — including across a PROCESS BOUNDARY under a different
     PYTHONHASHSEED. This guards the source-determinism *property against a future regression* (e.g. a
     change that lets unsorted set/dict iteration leak into committed bytes); it does NOT by itself prove

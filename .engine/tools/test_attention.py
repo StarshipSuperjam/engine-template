@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Self-tests for the attention ranking function (slice 12): the pure deterministic core (attention_rank),
+"""Self-tests for the attention ranking function: the pure deterministic core (attention_rank),
 its versioned output contract (attention-result.v1.json), and the policy it reads (.engine/policies/attention.md).
 
 Run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
 
-These lock the FORM, not the calibration (D-052/D-113 — the values are uncalibrated starting values, so
+These lock the FORM, not the calibration (the values are uncalibrated starting values, so
 ranking *quality* is deliberately NOT asserted here):
   - partition ASSIGNMENT — a candidate lands in the category its source labels, and the ONE membership call
     attention owns (open debt is blocking iff severity reaches the policy bar) fires correctly; an unknown
@@ -15,7 +15,7 @@ ranking *quality* is deliberately NOT asserted here):
   - DETERMINISM — same inputs yield byte-identical output; input order does not matter; ties break on id; the
     absolute (non-range-normalized) scoring yields no NaN even for a single-member or all-equal partition;
   - the budget FLEX — a clean session widens orientation, a high-debt session compresses it, fractions still
-    sum to one (attention owns the flex, D-062/D-063);
+    sum to one (attention owns the flex);
   - DEGRADE — the result records absent substrates and never narrates; every category is present even empty;
   - the result CONFORMS to attention-result.v1 and the schema has teeth (this is the ONLY well-formedness lock
     on that schema — no live rule targets .engine/schemas/*.json);
@@ -292,7 +292,7 @@ class TestDegrade(unittest.TestCase):
 
 
 def _row(number, severity=None, source_id=None):
-    """One row of the live debt register as boot's open_findings projects it (#394 U01)."""
+    """One row of the live debt register as boot's open_findings projects it (#394)."""
     return {"number": number, "source_id": source_id, "severity": severity}
 
 
@@ -302,10 +302,10 @@ class TestLiveDebtRegister(unittest.TestCase):
     candidate; None (the offline CLI / a failed read) leaves telemetry degraded and the committed state count
     stands in.
 
-    Per-issue grading is what makes the policy's dials real (#394 U01) — against the previous single aggregate,
+    Per-issue grading is what makes the policy's dials real (#394) — against the previous single aggregate,
     whose severity was pinned EQUAL to the bar, `debt_blocking_threshold` compared itself to itself and
     `flex_high_debt_count` could never see more than one blocking item. These pin that the dials now GOVERN;
-    they do NOT assert calibration (D-052/D-113)."""
+    they do NOT assert calibration."""
 
     _STATE = {"standing_situation": {"phase": "x"},
               "integration_debt": {"open_count": 2, "as_of": "2026-01-01T00:00:00Z"}}
@@ -346,7 +346,7 @@ class TestLiveDebtRegister(unittest.TestCase):
         self.assertEqual([c["id"] for c in self._surfaced(cands)], ["finding:2"])  # only the critical blocks
         benign = next(c for c in self._debt(cands) if c["id"] == "finding:1")
         # A benign finding falls BELOW the bar -> assign_partition returns None: it is a deferral/backlog,
-        # considered and ordered but not surfaced in the budgeted five (attention/README:50).
+        # considered and ordered but not surfaced in the budgeted five.
         self.assertIsNone(assign_partition(benign, FIXTURE_POLICY))
 
     def test_handed_shipped_rows_are_used_instead_of_reading_the_floor_again(self):
@@ -643,10 +643,10 @@ class TestTheMergeRefusesAValueTheEngineCannotMeasure(unittest.TestCase):
 
 
 class TestEffectiveValues(unittest.TestCase):
-    """Issue #42 — the operator policy-override read-time merge (D-167). Exercises the REAL core merge
+    """Issue #42 — the operator policy-override read-time merge. Exercises the REAL core merge
     (validate.effective_policy_values) and the REAL consumer (attention.load_policy_values). The merge is
     static-data only, so determinism is preserved and the structural ordering cannot be out-tuned. No live
-    rule exists this slice (slice 26 wires the stale-key rule on the committed override file); these fixtures
+    rule exists yet (the stale-key rule on the committed override file is wired later); these fixtures
     plus the operator demo are the merge's only proof. The eligibility partition: every attention value is
     override-eligible EXCEPT the structural precedence/trim keys (Shane's flex-is-tunable leaf — flex merges)."""
 
@@ -757,7 +757,7 @@ class TestEffectiveValues(unittest.TestCase):
         self.assertEqual(effective2["trim_blocking_debt"], shipped["trim_blocking_debt"])
 
     def test_rank_live_threads_override_to_the_merge(self):
-        # The live seam (slice 26c): boot reads the operator override and hands attention's slice to
+        # The live seam: boot reads the operator override and hands attention's slice to
         # rank_live, which must forward it to the per-key merge — so a tuned value reaches the live ranking.
         captured = {}
         original = attention.load_policy_values
@@ -853,13 +853,13 @@ class TestDeriveFocus(unittest.TestCase):
 
 
 class TestFocusSetWalk(unittest.TestCase):
-    """assemble_candidates walks a focus SET BIDIRECTIONALLY (D-224): it asks knowledge for each focus
+    """assemble_candidates walks a focus SET BIDIRECTIONALLY: it asks knowledge for each focus
     member's neighbours in BOTH directions, dedupes across members and across edges, and excludes focus
     members themselves (co-changed entities are not each other's structural neighbors). Graph + work record
     are mocked here; the real `direction="both"` SQL is covered in test_knowledge_query."""
 
     def test_set_focus_dedupes_neighbors_and_excludes_focus_members(self):
-        # The mock signature MUST accept `direction` — assemble_candidates now passes direction="both" (D-224).
+        # The mock signature MUST accept `direction` — assemble_candidates now passes direction="both".
         def fake_neighbors(fid, edge_filter=None, depth=1, direction="out"):
             return {"tool:a": [{"id": "tool:b"}, {"id": "mod:x"}],   # tool:b is itself a focus member
                     "tool:b": [{"id": "tool:a"}, {"id": "mod:x"}]}.get(fid, [])
@@ -871,7 +871,7 @@ class TestFocusSetWalk(unittest.TestCase):
         sn = [c["id"] for c in cands if c["category"] == "structural_neighbors"]
         self.assertEqual(sn, ["mod:x"])             # mod:x once; tool:a / tool:b excluded (focus members)
         self.assertIn("knowledge", available)
-        for call in walk.call_args_list:            # the D-224 pin lives at attention's call site
+        for call in walk.call_args_list:            # the bidirectional pin lives at attention's call site
             self.assertEqual(call.kwargs.get("direction"), "both")
 
     def test_walk_dedupes_a_neighbour_reached_by_two_edges(self):
@@ -903,7 +903,7 @@ class TestFocusSetWalk(unittest.TestCase):
 class TestNeighborhoodOf(unittest.TestCase):
     """neighborhood_of returns the per-(member, relationship) SUMMARY the orientation render needs: each focus
     member's BIDIRECTIONAL neighbours grouped by (predicate, direction), with the FULL count + a bounded
-    sample — so the render can disclose truncation honestly rather than show an arbitrary capped few (D-224).
+    sample — so the render can disclose truncation honestly rather than show an arbitrary capped few.
     The graph is mocked here; the real `direction="both"` SQL is covered in test_knowledge_query."""
 
     def test_groups_by_relationship_and_walks_both_directions(self):
@@ -920,7 +920,7 @@ class TestNeighborhoodOf(unittest.TestCase):
         self.assertEqual(by_rel[("targets", "in")]["total"], 2)
         self.assertEqual(by_rel[("targets", "in")]["sample"],
                          ["check:policy-frontmatter", "check:policy-shape"])
-        for call in walk.call_args_list:                    # the D-224 bidirectional pin lives at the call site
+        for call in walk.call_args_list:                    # the bidirectional pin lives at the call site
             self.assertEqual(call.kwargs.get("direction"), "both")
 
     def test_excludes_focus_members_from_their_own_neighbourhood(self):

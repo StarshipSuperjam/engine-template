@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The knowledge graph (core slice 10) — the engine's generated, committed structural readout.
+"""The knowledge graph — the engine's generated, committed structural readout.
 
 Knowledge answers "how does this world work?" — the purely STRUCTURAL, purely DERIVED layer:
 what engine surfaces exist and how they relate. This tool generates ONE committed JSON file,
@@ -21,7 +21,7 @@ without a regenerate. The gate runs in CI as the `coverage`-kind rule engine/che
 (mode: fingerprint), which RELAYS to check() here — knowledge owns the detection, the rule relays it.
 
 DERIVED, NOT THE QUERY LAYER: the derived query index and the graph-query MCP server are separate,
-regenerable, gitignored layers (slice 11a); the prioritized boot slice (#37) is a further gitignored
+regenerable, gitignored layers; the prioritized boot slice (#37) is a further gitignored
 layer — a never-committed cache rebuilt on demand, read live by boot. This committed file is
 the source of truth and the offline cold-start readout. Reverse traversal (who governs/enforces/provides
 me) is the derived index's job — entities store OUTGOING edges only.
@@ -34,7 +34,7 @@ Library + CLI (mirrors self_map.py — plain language first; no JSON channel nee
   uv run --directory .engine -- python tools/knowledge_gen.py demo        # safe fail->pass on a temp copy
   uv run --directory .engine -- python tools/knowledge_gen.py hook-demo   # show the commit-boundary regen (no writes)
 
-REGENERATION AT THE COMMIT BOUNDARY (knowledge/README §Regeneration): the `hook` verb is the
+REGENERATION AT THE COMMIT BOUNDARY: the `hook` verb is the
 `PreToolUse` entry the engine wires. On a `git commit` it regenerates the graph best-effort and ALWAYS
 proceeds — because the hook fires BEFORE the commit, the refreshed graph lands UNSTAGED in the working
 tree and is captured by a FOLLOWING commit (it is not guaranteed to ride the commit that triggered it);
@@ -62,7 +62,7 @@ import validate          # noqa: E402
 import module_coherence  # noqa: E402
 import hooks             # noqa: E402  (the run_hook harness for the commit-boundary regen hook)
 
-# The committed graph's home: a directory (slice 11a's gitignored index lives alongside under .cache/;
+# The committed graph's home: a directory (the gitignored query index lives alongside under .cache/;
 # the gitignored boot slice is its rung-1 cache, built on demand into the same .cache/), owned by core's provides.knowledge
 # so the ownership leg does not flag it an orphan. NOT a catalogued
 # surface (the knowledge map is derived-observational, excluded from the catalog by design), so it
@@ -72,7 +72,7 @@ GRAPH_PATH = os.path.join(KNOWLEDGE_DIR, "graph.json")
 SCHEMA_VERSION = 1
 REGEN_CMD = "uv run --directory .engine -- python tools/knowledge_gen.py generate"
 
-# The deployment-owned per-instance eADR stream (D-169 / repository-topology law 5): a deployment authors its
+# The deployment-owned per-instance eADR stream: a deployment authors its
 # OWN engine-decision eADRs under this path, in NO module's `provides`. The two contract populations are told
 # apart by provides-membership, NEVER a path or content marker — a CANON contract entity carries a `provided_by`
 # edge (Pass 1); a deployment eADR carries none (Pass 1b), and that is what canon detection keys off (Pass 3b).
@@ -172,11 +172,11 @@ def surface_instance_inventory(catalog: dict, claims: dict) -> list:
 
 # ---- pure attribute harvesters (operate on already-parsed dicts; NO file IO; fixture-testable) ----
 # Each takes parsed frontmatter / JSON / manifest dicts and returns a declared STATE/IDENTITY token or a
-# discriminator map — never prose meaning (D-203 four-gate rule: declared, structural, not belief). The
+# discriminator map — never prose meaning (the four-gate rule: declared, structural, not belief). The
 # file IO stays in derive_entities' passes; these stay pure so they unit-test on dicts.
 
 def _status_for(surface_type: str, frontmatter: dict, manifest: dict | None) -> str:
-    """The declared lifecycle STATE TOKEN (D-203 'else active'): a module manifest's `status` and a
+    """The declared lifecycle STATE TOKEN (the 'else active' rule): a module manifest's `status` and a
     contract frontmatter's `status` are harvested verbatim; EVERY other surface is `active` (a declared
     status elsewhere is not echoed). A missing value on the two declaring surfaces degrades to `active`
     (a non-conforming instance, never a crash). Never the *why* of a supersession."""
@@ -209,7 +209,7 @@ _IMPERATIVE_VERBS = frozenset({
     "use", "write", "author", "tune",
 })
 
-# The identity-title surfaces and the SINGLE declared key each harvests (D-203 ruling): never operation/
+# The identity-title surfaces and the SINGLE declared key each harvests: never operation/
 # doc/contract (purpose/decision clauses), never a description, never a slug fallback.
 _TITLE_KEYS = {"policy": "title", "interface": "title", "skill": "name"}
 
@@ -287,7 +287,7 @@ def _discriminators_for(surface_type: str, frontmatter: dict, json_doc: dict, ma
 def _supersedes_edges(contract_entities: list, fm_by_id: dict, canon_ids) -> dict:
     """{contract_id: [superseded_contract_id]} — contract->contract, DEPLOYMENT-STREAM (non-canon) ONLY.
     `fm_by_id` maps a contract entity id to its parsed frontmatter; `canon_ids` is the set of canon
-    contract entity ids (those a module's `provides` claims — per D-169, told apart by provides-membership,
+    contract entity ids (those a module's `provides` claims — told apart by provides-membership,
     NEVER a path or content marker). An edge is emitted only when BOTH ends are non-canon and the target
     resolves in-graph by the target's declared frontmatter `id`. A canon end on either side, a dangling
     target, or a self-reference emits NOTHING — so no persisted edge ever targets a canon eADR."""
@@ -346,7 +346,7 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
             "source": {"path": rel, "fingerprint": source_fingerprint(rel)},
             "owner": owners[0], "predicates": preds,
         }
-        # Harvest the surface's DECLARED attributes (D-203). Parse the file ONCE by its catalog class
+        # Harvest the surface's DECLARED attributes. Parse the file ONCE by its catalog class
         # (prose -> frontmatter; structured -> JSON; code/other -> nothing). A malformed file harvests
         # nothing (its own schema check is the gate); the harvesters are pure (operate on parsed dicts).
         fm, jd = {}, {}
@@ -371,8 +371,8 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
         path_to_id[rel] = eid
 
     # Pass 1b — one NON-CANON entity per deployment-authored eADR (the per-instance stream, in no module's
-    # `provides`, so it is absent from `inventory` and Pass 1 never sees it). Spec: contracts README — "the
-    # knowledge graph derives an entity per eADR by the same presence walk." A deployment entity carries NO
+    # `provides`, so it is absent from `inventory` and Pass 1 never sees it). By design, the
+    # knowledge graph derives an entity per eADR by the same presence walk. A deployment entity carries NO
     # `provided_by` edge (that absence is the non-canon signal Pass 3b reads) and the reserved `owner` token,
     # but IS `governed_by` contract.v1 like any contract. It runs before Pass 3 (so the widened contract
     # checks' `targets` resolve to these ids via `path_to_id`) and before Pass 3b (so `canon_ids` excludes it).
@@ -434,7 +434,7 @@ def derive_entities(catalog: dict, manifests: list, inventory: list, claims: dic
             entities[eid]["predicates"]["targets"] = targets
 
     # Pass 3b — `supersedes` edges (contract->contract, DEPLOYMENT-STREAM only). Canon contracts are those
-    # a module's `provides` claims (D-169: told apart by provides-membership, never a path/marker) — in the
+    # a module's `provides` claims (told apart by provides-membership, never a path/marker) — in the
     # graph, a canon contract carries a `provided_by` edge (Pass 1) and a deployment eADR does not (Pass 1b).
     # `_supersedes_edges` emits an edge only when BOTH ends are non-canon, so with the deployment stream now
     # entitized the leg is live for deployment eADRs and stays inert for the canon.
@@ -486,7 +486,7 @@ def deployment_contract_inventory() -> list:
     """The deployment-owned per-instance eADR stream (`.engine/contracts/instance/*eADR-*.md`) — committed,
     in NO module's `provides`, so it never appears in the ownership `inventory`. Read by its own presence
     walk. The `*eADR-*` glob matches both a bare `eADR-####` record and a project-namespaced
-    `<project-slug>-eADR-####` record (the deployment naming scheme, eADR-0017 / D-298), in lockstep with the
+    `<project-slug>-eADR-####` record (the deployment naming scheme, eADR-0017), in lockstep with the
     contract checks' target. FAIL-SAFE by construction: `glob.glob` returns `[]` when `instance/` does not
     exist (a deployed repo may never have created it), so the derivation stays deterministic and never raises
     here. Excludes `instance/README.md` (the folder's guide, not an eADR — it has no `eADR` in its name). One

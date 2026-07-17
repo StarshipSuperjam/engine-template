@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Slice 11a — the gitignored SQLite query index derived from the committed knowledge graph.
+"""The gitignored SQLite query index derived from the committed knowledge graph.
 
-The committed `.engine/knowledge/graph.json` (slice 10) is the source of truth and the offline
+The committed `.engine/knowledge/graph.json` is the source of truth and the offline
 cold-start readout; it stores OUTGOING edges only. This module derives a gitignored SQLite index
 under `.engine/knowledge/.cache/` that the graph-query op-set (knowledge_query.py) reads — adding the
 reverse-edge traversal and the indexed selectors the committed file does not give cheaply at scale.
@@ -12,12 +12,12 @@ committed graph's fingerprint moves. SQLite (stdlib `sqlite3`) is the end-state 
 real adopter's repo and serves neighbors(depth) / relate(path) / find(selector) via indexed SQL and
 recursive CTEs, with no third-party dependency.
 
-Degrade chain (knowledge/README.md:51) — these are the QUERY path's four rungs (rung-1 fast cache = this
+Degrade chain — these are the QUERY path's four rungs (rung-1 fast cache = this
 SQLite index; the boot path's rung-1 is its own boot-slice cache, and rungs 2-4 are shared): a fresh
 index answers; a missing/stale index is rebuilt from the committed graph; if the committed graph is
 ABSENT — or PRESENT BUT UNREADABLE (corrupt: merge markers, a truncated regen) — the index is rebuilt
 from a LIVE WALK of the surfaces (knowledge_gen.canonical_graph() — loudly degraded, so a fresh worktree,
-the D-024 upgrade-overlay window, or a damaged file still answers); and only if that live walk also fails
+the upgrade-overlay window, or a damaged file still answers); and only if that live walk also fails
 is knowledge reported unavailable (the query layer reports it in plain language, never a crash, never
 blocking boot). The absent and corrupt cases carry distinct degrade sources ('live' vs 'live-corrupt') so
 the operator-facing signal names a missing file and a damaged one differently.
@@ -40,12 +40,12 @@ CACHE_DIR = os.path.join(knowledge_gen.KNOWLEDGE_DIR, ".cache")
 INDEX_PATH = os.path.join(CACHE_DIR, "index.sqlite")
 
 # The FULL valid edge vocabulary — every predicate that may appear in the store and be requested via a
-# neighbors edge_filter / pulled by relate. `supersedes` (D-203) is a deliberate PULL edge: it is valid
+# neighbors edge_filter / pulled by relate. `supersedes` is a deliberate PULL edge: it is valid
 # here, but excluded from WALK_EDGE_KINDS below so the cold-start adjacency walk never traverses it.
 EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on", "supersedes")
 
 # The cold-start adjacency walk's traversal set — pinned to the four STRUCTURAL edges as a build-spec
-# INVARIANT (D-203: new edge kinds stay off the walk so orientation/scent budget stays flat). This is the
+# INVARIANT (new edge kinds stay off the walk so orientation/scent budget stays flat). This is the
 # default neighbors() traverses when no edge_filter is given (the cold-start path), and attention's
 # cold-start caller also passes it explicitly. Its conceptual home is the attention policy's `## Scope`
 # (the surface that owns budget allocation/trim); it is a fixed invariant, not an operator-tunable dial,
@@ -109,7 +109,7 @@ def _load_graph(graph_path: str):
     """The graph to index, as (graph_dict, source) — the degrade chain's middle rungs:
       'committed'    — the committed graph is present AND parses → rebuild the index from it (rung 2).
       'live'         — the committed graph is ABSENT → fall back to a LIVE WALK of the surfaces
-                       (knowledge_gen.canonical_graph(), rung 3), so a fresh worktree or the D-024
+                       (knowledge_gen.canonical_graph(), rung 3), so a fresh worktree or the
                        upgrade-overlay window still answers (loudly degraded).
       'live-corrupt' — the committed graph is PRESENT but UNREADABLE (merge markers, a truncated regen) →
                        fall back to the LIVE WALK exactly as absence does, but tagged distinctly so the
@@ -117,7 +117,7 @@ def _load_graph(graph_path: str):
                        operator relies on an honest signal (eADR-0004 'name what is reduced').
     A corrupt committed graph USED to raise a raw JSONDecodeError here (its validity deferred to the CI
     knowledge-coverage gate) — but that gate only fires at merge, while a reader hitting a mid-write
-    truncation between commit and gate must not crash the query/boot path (README:51 'report unavailable,
+    truncation between commit and gate must not crash the query/boot path ('report unavailable,
     without blocking boot'). So corrupt now degrades like absence rather than raising. The producer of that
     corruption is closed in the same change: knowledge_gen.write_graph now writes graph.json atomically.
     Raises KnowledgeUnavailable only when the LIVE WALK itself also fails (rung 4) — reported, never
@@ -164,7 +164,7 @@ def build_index(index_path: str | None = None, graph_path: str | None = None):
         conn.executescript(SCHEMA_SQL)
         for e in graph.get("entities", []):
             src = e.get("source") or {}
-            # The non-core declared attributes (status/tier/title/discriminators, D-203) ride one JSON
+            # The non-core declared attributes (status/tier/title/discriminators) ride one JSON
             # column, so a new attribute needs no migration and `find` stays core-scalar (no attribute
             # SELECTOR — no find(attribute) canon back-door); get-entity/find merge them back on read.
             attrs = {k: v for k, v in e.items() if k not in _CORE_ENTITY_KEYS}
