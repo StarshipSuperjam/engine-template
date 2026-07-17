@@ -1290,24 +1290,39 @@ class TestSetAsideReadout(unittest.TestCase):
         block = "\n".join(boot.render_set_aside(self._sa(self._DEMOTED, self._SUMMARISED)))
         self.assertIn("set aside", block.lower())
         self.assertIn("nothing was deleted", block.lower())
-        self.assertIn("bring that one back", block.lower())                    # the demoted handle
+        self.assertIn("bring it back into search", block.lower())              # the demoted handle
         self.assertIn("exact wording", block.lower())                          # the summarised handle
+        self.assertNotIn("fully recoverable", block.lower())                   # never overclaim for summarised
 
     def test_no_bring_back_offer_on_a_summarised_only_readout(self):
         # the handle must match the class: a summarised note CANNOT be brought back, so the readout must never
         # offer it there — only the show-the-original-wording handle.
         block = "\n".join(boot.render_set_aside(self._sa(self._SUMMARISED))).lower()
-        self.assertNotIn("bring that one back", block)
+        self.assertNotIn("bring it back", block)
+        self.assertNotIn("bring one back", block)
         self.assertNotIn("undo", block)                                        # never the word we can't honour
         self.assertIn("exact wording", block)
 
-    def test_collapsed_render_is_one_message_that_keeps_both_offers(self):
+    def test_collapsed_render_is_one_message_that_keeps_the_offers(self):
         block = boot.render_set_aside(self._sa(self._DEMOTED, self._SUMMARISED, collapsed=True))
         joined = "\n".join(block).lower()
         self.assertIn("unchanged since last session", joined)
-        self.assertIn("bring back", joined)                                    # the offer is kept in the terse form
-        self.assertIn("original wording", joined)
+        self.assertIn("bring one back", joined)                                # the demoted offer is kept, terse
+        self.assertIn("original wording", joined)                              # the summarised offer is kept
         self.assertIn("nothing was deleted", joined)
+
+    def test_collapsed_summarised_only_never_offers_bring_back(self):
+        # the SERIOUS collapsed-form fix: when only summarised notes are set aside, the terse line must not invite
+        # the operator to "bring back" a note that cannot be brought back.
+        joined = "\n".join(boot.render_set_aside(self._sa(self._SUMMARISED, collapsed=True))).lower()
+        self.assertNotIn("bring", joined)                                      # no bring-back offer at all
+        self.assertIn("original wording", joined)                              # only the honest show handle
+        self.assertIn("unchanged since last session", joined)
+
+    def test_collapsed_demoted_only_never_offers_to_show_wording(self):
+        joined = "\n".join(boot.render_set_aside(self._sa(self._DEMOTED, collapsed=True))).lower()
+        self.assertIn("bring one back", joined)
+        self.assertNotIn("original wording", joined)                           # nothing summarised -> no show offer
 
     def test_newly_names_what_changed_since_last_seen(self):
         block = "\n".join(boot.render_set_aside(self._sa(self._DEMOTED, self._SUMMARISED, newly=2)))

@@ -673,6 +673,12 @@ _SET_ASIDE_SHOW = 3    # how many most-recent notes of each class the readout na
 #                        brief orientation cue, never a wall (a long-lived store sets aside many notes).
 
 
+def _n_notes(count: int) -> str:
+    """'1 note' / 'N notes' — a plain singular/plural so the readout never shows the robotic 'note(s)'. The
+    readout renders every session and its whole job is to reassure, so this polish is load-bearing, not cosmetic."""
+    return f"{count} note" if count == 1 else f"{count} notes"
+
+
 def _set_aside_snippet(text) -> str:
     """One defanged, length-bounded line of a set-aside note's own words — the same treatment
     render_recalled_decisions gives recall text, and load-bearing for the same reason: this readout replays
@@ -711,29 +717,40 @@ def render_set_aside(sa: "dict | None") -> list:
     if total == 0:
         return []
 
+    # Each offer names ONLY a class that is actually set aside: the terse form must never invite the operator to
+    # "bring back" a note when the only thing set aside is a summarised one (which cannot be brought back), nor
+    # offer to "show the original wording" when nothing is summarised.
+    offers = []
+    if demoted_total:
+        offers.append("bring one back into search")
+    if summarised_total:
+        offers.append("show you the original wording of one")
+    offer_sentence = "You can ask me to " + " or ".join(offers) + " whenever you like." if offers else ""
+
     if sa.get("collapsed"):
         bits = []
         if demoted_total:
-            bits.append(f"{demoted_total} note(s) set aside from search because nothing's come back to them")
+            bits.append(f"{_n_notes(demoted_total)} set aside because nothing's come back to them")
         if summarised_total:
-            bits.append(f"{summarised_total} folded into shorter summaries")
+            bits.append(f"{_n_notes(summarised_total)} folded into a shorter summary"
+                        if summarised_total == 1 else f"{summarised_total} notes folded into shorter summaries")
         return ["### Notes I've set aside",
-                f"Still {', and '.join(bits)} (unchanged since last session) — nothing was deleted, they're all "
-                "still saved, and you can ask me to bring back a set-aside note or show you the original wording "
-                "of a summarised one whenever you like.", ""]
+                f"Still {', and '.join(bits)} (unchanged since last session). Nothing was deleted — they're all "
+                f"still saved. {offer_sentence}", ""]
 
     newly = sa.get("newly")
-    lead = f"I've set aside {total} older note(s) from what I search"
+    lead = f"I've set aside {_n_notes(total)} from what I search"
     if isinstance(newly, int) and newly > 0:
         lead += f" — {newly} more since you last saw this"
-    out = ["### Notes I've set aside",
-           f"{lead}. Nothing was deleted: every one is still saved and fully recoverable."]
+    # "still saved", NOT "fully recoverable": a demoted note comes all the way back, but a summarised one can
+    # only be shown in its original wording, never returned to search — the per-class bullets carry that.
+    out = ["### Notes I've set aside", f"{lead}. Nothing was deleted — every one is still saved."]
 
     demoted_rows = [r for r in rows if r.get("reason") == "demoted"]
     summarised_rows = [r for r in rows if r.get("reason") == "summarised"]
     if demoted_rows:
         out.append(f"- Set aside because nothing's come back to them in a while ({demoted_total} in total). "
-                   "Say **bring that one back** for any and it's searchable again. Most recent:")
+                   "Name any one and I'll bring it back into search. Most recent:")
         for r in demoted_rows[:_SET_ASIDE_SHOW]:
             out.append(f"  - {_set_aside_snippet(r.get('text'))}")
     if summarised_rows:

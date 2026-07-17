@@ -102,7 +102,7 @@ def main() -> int:
         low = text.lower()
         if "nothing was deleted" not in low:
             failures.append("the readout must say nothing was deleted")
-        if "bring that one back" not in low:
+        if "bring it back into search" not in low:
             failures.append("a demoted note must offer the bring-back handle")
         if demoted in text:
             failures.append("the internal record id must never reach the operator readout")
@@ -115,7 +115,7 @@ def main() -> int:
         print("\n".join(second) + "\n")
         if "unchanged since last session" not in text2:
             failures.append("an unchanged readout must collapse to the terse 'unchanged' line")
-        if "bring back" not in text2:                 # the terse form STILL carries the offer
+        if "bring one back" not in text2:             # the terse form STILL carries the offer
             failures.append("the collapsed readout must still carry the bring-back offer")
 
         print("=== What changed — a second note goes aside ===")

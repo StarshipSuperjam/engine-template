@@ -440,8 +440,15 @@ def set_aside(path: "str | None" = None, *, now: "int | None" = None, limit: int
     src = ledger.ledger_path() if path is None else path
     now = int(time.time()) if now is None else now
     try:
+        closed = _closed_batches(src)
         closed_rollup = _closed_rollup_batches(src)
-        # id -> (gist id, marker ts): the completed-roll-up supersessions, carrying the fold moment for `since`.
+        # Classify from the SAME view `live_records` excludes by, so the readout can never diverge from what recall
+        # actually hides. Supersession is recognised BOTH ways `_is_superseded` recognises it: a live `superseded`
+        # marker (pre-compaction) OR the folded `superseded_by` field compaction carries onto the raw and then
+        # prunes the marker. `superseded_at` records the marker's gist id + fold moment where a marker still
+        # exists (for `since`); post-compaction the raw's own carried field supplies the stand-in and `since` is
+        # simply unknown (no event survives the fold).
+        superseded_ids = set(_superseded_by_map(src, closed_rollup))
         superseded_at: dict = {}
         for record in ledger.iter_records(path=src):
             if not isinstance(record, dict) or record.get("kind") != records.SUPERSEDED_KIND:
@@ -467,12 +474,15 @@ def set_aside(path: "str | None" = None, *, now: "int | None" = None, limit: int
             text = record.get("text")
             if not (isinstance(rid, str) and rid) or not (isinstance(text, str) and text.strip()):
                 continue
-            folded = superseded_at.get(rid)
-            if folded is not None:                         # a completed roll-up stands a summary in for this raw
-                gist_id, since = folded
+            if _is_retired(record, closed) or _is_gist_orphan(record, closed_rollup):
+                continue                                   # a crash-orphan duplicate is not a loss — never shown
+            if _is_superseded(record, superseded_ids):     # marker OR the carried field: survives compaction
+                folded = superseded_at.get(rid)
+                gist_id = folded[0] if folded else record.get(records.SUPERSEDED_BY_KEY)
+                since = folded[1] if folded else None      # no fold event survives compaction -> unknown
                 reason, reversible, stands_in = SET_ASIDE_SUMMARISED, False, gist_id
                 summarised += 1
-            elif score.tier(record, access_index.get(rid, ()), now) == score.ARCHIVED:
+            elif _is_demoted(record, access_index, now):   # a content record scored into the archived tier
                 reason, reversible, stands_in, since = SET_ASIDE_DEMOTED, True, None, None
                 demoted += 1
             else:
@@ -496,11 +506,12 @@ def set_aside(path: "str | None" = None, *, now: "int | None" = None, limit: int
 
 def restore_to_recall(record_id: str, *, path: "str | None" = None, now: "int | None" = None) -> bool:
     """Bring a DEMOTED record back into recall by recording an access — the operator's "bring that back". Returns
-    the RE-DERIVED truth, never an assertion: True iff the record is in recall AFTER the append. False (never a
-    lie) on an unknown id, on a record recall already surfaces, and — importantly — on a SUMMARISED raw: a
-    completed roll-up's supersession is orthogonal to the usage score, so an access can never un-fold it, and
-    this returns False rather than pretend it worked. APPENDS ONLY — no delete, no rewrite (the Layer-1
-    no-erasure invariant a source-scan test pins). Never raises: a fault leaves recall exactly as it was."""
+    the RE-DERIVED truth, never an assertion: True iff the record is in recall AFTER the append (so a record recall
+    already surfaces returns True — it is searchable, which is what was asked). False (never a lie) on an unknown
+    id and — importantly — on a SUMMARISED raw: a completed roll-up's supersession is orthogonal to the usage
+    score, so an access can never un-fold it, and this returns False rather than pretend it worked. APPENDS ONLY —
+    no delete, no rewrite (the Layer-1 no-erasure invariant a source-scan test pins). Never raises: a fault leaves
+    recall exactly as it was."""
     if not isinstance(record_id, str) or not record_id:
         return False
     try:
@@ -919,7 +930,8 @@ def _print_set_aside(path: "str | None" = None) -> int:
         print("Nothing set aside — recall is surfacing every saved note.")
         return 0
     shown, total = len(rows), totals["demoted"] + totals["summarised"]
-    print(f"{total} note(s) set aside from recall (nothing deleted — all still saved and recoverable)"
+    noun = "note" if total == 1 else "notes"
+    print(f"{total} {noun} set aside from recall (nothing deleted — all still saved)"
           + (f"; the {shown} most recent:" if shown < total else ":"))
     for row in rows:
         if row["reason"] == SET_ASIDE_DEMOTED:
