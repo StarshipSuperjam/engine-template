@@ -3,8 +3,8 @@
 
 After any install / uninstall / upgrade the module manager confirms the installed module
 set is consistent by calling the validation foundation's coherence legs directly — a
-library call, not a suite trigger (systems/grammar/module-system/README.md §Coherence).
-The permanent module manager lands later (slice 25); this is the seed consumer it inherits.
+library call, not a suite trigger.
+The permanent module manager lands later; this is the seed consumer it inherits.
 It also runs as a CLI so the coherence behaviour has an operator-runnable demonstration:
 
   uv run --directory .engine -- python tools/module_coherence.py          # plain language
@@ -28,22 +28,21 @@ present", a directory listing, never a hand-authored registry — and the engine
     over wiring.is_applied): every `wires` directive a present manifest declares is applied in its shared
     target file. An mcp wire is APPROVAL-BLIND — it checks the committed .mcp.json definition, never the
     operator's runtime approval (a server not live for a session shows up as an ABSENT tool and is
-    surfaced to the operator by boot's AI-observed live-helper check / the control-plane PR-Validation
-    section, not here — availability subsumes approval). REVERSE applied->declared, the orphan-wire leg (validate.orphan_wire_findings over
+    surfaced to the operator by boot's AI-observed live-helper check / the control plane's PR-Validation
+    surface, not here — availability subsumes approval). REVERSE applied->declared, the orphan-wire leg (validate.orphan_wire_findings over
     wiring.applied_engine_wires + declared_wire_identities): nothing engine-identified applied in the
     PLATFORM-SHARED files matches no present manifest's `wires` (a stale leftover after an incomplete
     uninstall). The reverse leg covers the three shared-file seams (hook / mcp / gitignore) — the only
     place an orphan has no other governance; PERMISSION (not engine-identifiable) and ONTOLOGY-ENTRY (the
     engine-owned catalog, covered by the OWNERSHIP leg + the separate catalog-coverage gate) are excluded.
     A drifted same-identity entry is reported once, by the forward leg (not double-flagged). The foundation
-    `.gitignore` block (D-156/D-189) IS a keyed fence (FOUNDATION_IGNORES_FENCE), but a library-helper one no
-    manifest declares, so the reverse leg carves it out at wiring.applied_engine_wires (never an orphan —
-    provisioning README L296-299).
+    `.gitignore` block IS a keyed fence (FOUNDATION_IGNORES_FENCE), but a library-helper one no
+    manifest declares, so the reverse leg carves it out at wiring.applied_engine_wires (never an orphan).
   - BLOCK-BUDGET (validate.block_budget_findings over the declared block registry): every block an
     owning system declares sits on a block-eligible event — only PreToolUse and Stop may hard-block
-    (hooks/README §the block-budget law). The registry is ASSEMBLED from each owner's declaration
-    (hooks names none): modes' explore write-gate (PreToolUse, slice 21) and close's findings-disposition
-    gate (Stop, slice 22). Both events are eligible, so the leg is green over the two real members (and
+    (the block-budget law). The registry is ASSEMBLED from each owner's declaration
+    (hooks names none): modes' explore write-gate (PreToolUse) and close's findings-disposition
+    gate (Stop). Both events are eligible, so the leg is green over the two real members (and
     would fire the moment any owner declared a block on a non-eligible event).
 
 Deferred (named): the uncatalogued-surface leg belongs to catalog coverage (validators-core); the one
@@ -52,7 +51,7 @@ is empty, so neither catalog-coverage nor the ownership leg fires) is a catalog-
 concern, not module coherence's (owes -> catalog-coverage).
 
 Discovery and loading are exposed as reusable functions (discover_manifests,
-load_engine_manifest) so the self-map (slice 8) and the module manager read the
+load_engine_manifest) so the self-map and the module manager read the
 present set from here rather than re-walking it — one present-set reader, no drift.
 """
 from __future__ import annotations
@@ -76,12 +75,11 @@ ENGINE_MANIFEST_REL = ".engine/engine.json"
 # FOUNDATION_INFRA — the wholly-engine-owned files that belong to no module's `provides`: the engine
 # manifest, the root CLAUDE.md, the tool-runtime lockfiles, and the engine-owned .github/ control-plane
 # artifacts (the two required-check workflows; the advisory secret-scan workflow + dependabot.yml that
-# form the git-native security floor [control-plane "The security floor"]; the advisory actionlint
+# form the git-native security floor; the advisory actionlint
 # workflow that grammar-checks every workflow file; the scheduled audit-prep workflow that runs the
 # engine's self-review; the PR template, the issue templates, and CODEOWNERS
-# itself). This is the foundation infrastructure-artifact set of repository-topology/README.md +
-# module-system/README.md §Coherence — the high-trust files a bare `provides`-union would leave
-# unowned. It is the SINGLE SOURCE for four derived consumers, so they cannot drift apart:
+# itself). This is the foundation infrastructure-artifact set — the high-trust files a bare `provides`-union
+# would leave unowned. It is the SINGLE SOURCE for four derived consumers, so they cannot drift apart:
 #   - NAMED_INFRA (below) — the .engine/-only subset, the ownership-walk carve-out.
 #   - engine_owned_paths()/foundation_infra_paths() — the CODEOWNERS engine-owned path set.
 #   - codeowners_path_set() — engine_owned_paths + the CODEOWNERS self-add, the one path set BOTH the
@@ -96,8 +94,8 @@ FOUNDATION_INFRA = (
     ".engine/uv.lock",
     "CLAUDE.md",
     ".gitignore",          # a platform-shared keyed file like CLAUDE.md/CODEOWNERS — carries the engine's
-    #                        foundation-ignores fence (D-156/D-189); OUT of FOUNDATION_CODE + block-reversed
-    #                        in remove_engine (never overlay-replaced / wholesale-deleted — #409 U14).
+    #                        foundation-ignores fence; OUT of FOUNDATION_CODE + block-reversed
+    #                        in remove_engine (never overlay-replaced / wholesale-deleted — #409).
     ".github/workflows/engine-ci.yml",
     ".github/workflows/engine-guard.yml",
     ".github/workflows/secret-scan.yml",
@@ -120,16 +118,15 @@ NAMED_INFRA = {p for p in FOUNDATION_INFRA if p.startswith(".engine/")}
 
 # OPERATOR_CONFIG — committed operator-authored config the ownership leg must NOT read as orphans: the
 # per-deployment operator policy-override of tunable policy values (.engine/operator-overrides.json, written
-# by /engine-tune, slice 26c). It is operator-owned config preserved across an engine update — in NO module's
+# by /engine-tune). It is operator-owned config preserved across an engine update — in NO module's
 # `provides` and NOT a FOUNDATION_INFRA artifact (that set is overlay-REPLACED on upgrade, which would clobber
-# the operator's tuning). This is the LOCKED carve-out of module-system/README §Coherence: "Operator- and
+# the operator's tuning). This is the LOCKED carve-out of module coherence: "Operator- and
 # deployment-authored committed content is outside this leg ... coherence does not read them as orphans, the
-# same shape of carve-out by which CODEOWNERS and the foundation .gitignore block sit [outside it]" (D-167,
-# D-169). Absent until the first tune, so it never appears in this construction repo; fixture-tested. The
+# same shape of carve-out by which CODEOWNERS and the foundation .gitignore block sit [outside it]". Absent until the first tune, so it never appears in this construction repo; fixture-tested. The
 # conduct operator-override (.engine/conduct/operator.md), the maintainer's conduct seed
 # (.engine/provisioning/conduct-seed.md), the maintainer's SECURITY.md disclosure seed
 # (.engine/provisioning/security-seed.md, security floor), and the maintainer's product-starter README seed
-# (.engine/provisioning/readme-seed.md, the front-door seed — D-213/D-214) are the same kind of carve-out:
+# (.engine/provisioning/readme-seed.md, the front-door seed) are the same kind of carve-out:
 # maintainer/operator-authored content, preserved across overlay, in no `provides`, so the ownership leg must
 # not read them as orphans either. (The SEEDED root files — SECURITY.md, README.md — need no carve-out: they
 # live outside .engine/, so the ownership walk never reaches them; they are product territory preserved by the
@@ -140,8 +137,8 @@ OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/conduct/operator.
 
 # Directories under .engine/ that are regenerable derivatives or caches — never owned files. The
 # inventory's contract is "every COMMITTED engine file"; these hold gitignored regenerable artifacts
-# (the uv venv, Python bytecode, the pytest run-cache, and knowledge's derived `.cache/` query index,
-# slice 11). Pruning them keeps the ownership leg from flagging a derived cache as an unowned orphan.
+# (the uv venv, Python bytecode, the pytest run-cache, and knowledge's derived `.cache/` query index).
+# Pruning them keeps the ownership leg from flagging a derived cache as an unowned orphan.
 # Matched by bare directory NAME, because these caches recur at any depth in the tree.
 PRUNE_DIRS = {".venv", "__pycache__", ".cache", ".pytest_cache"}
 
@@ -160,7 +157,7 @@ PRUNE_DIRS = {".venv", "__pycache__", ".cache", ".pytest_cache"}
 PRUNE_PATHS = {".engine/memory", ".engine/projects-sync"}
 
 # Repo-relative directory PATHS holding COMMITTED test data that is deliberately NOT a governed surface: the
-# reserved negative-fixture namespace (`.engine/_fixtures/`, engine-planning D-256/D-260). These are seeded
+# reserved negative-fixture namespace (`.engine/_fixtures/`). These are seeded
 # bad inputs the negative-fixture meta-check runs each hard check against to prove it bites. Distinct
 # justification from both sets above: unlike PRUNE_DIRS (regenerable caches) and PRUNE_PATHS (gitignored
 # runtime state), fixtures ARE committed — but they are excluded from the ownership leg because no module
@@ -173,7 +170,7 @@ PRUNE_PATHS = {".engine/memory", ".engine/projects-sync"}
 FIXTURE_PATHS = {".engine/_fixtures"}
 
 # Repo-relative directory PATHS holding the deployment's COMMITTED per-instance eADR stream — the
-# deployment-authored decision records on the contracts surface (topology law 5 / D-169). The engine's own
+# deployment-authored decision records on the contracts surface (the contracts-surface topology rule). The engine's own
 # foundational eADR CANON rides core's non-recursive `.engine/contracts/*.md` glob (which never descends into
 # a subdirectory); this deployment stream lives one level down, in NO module's `provides`, preserved across an
 # engine overlay like operator config. Distinct justification from every set above: it is neither a regenerable
@@ -181,7 +178,7 @@ FIXTURE_PATHS = {".engine/_fixtures"}
 # deployment content that must not read as an unowned orphan. Excluded by the SAME shared walk-prune as
 # FIXTURE_PATHS, so it sits outside BOTH the OWNERSHIP leg and the #281 untracked-surface detector. It IS a
 # graph entity, though — knowledge_gen's own presence walk (`deployment_contract_inventory` / Pass 1b) entitizes
-# it as a NON-CANON contract, told apart from the canon by the ABSENCE of a `provided_by` edge (D-169: by
+# it as a NON-CANON contract, told apart from the canon by the ABSENCE of a `provided_by` edge (by
 # provides-membership, never a path/marker), so a deployment's decisions are graph-visible but not engine-OWNED
 # surface. Anchored on the exact subtree path, so the engine canon at `.engine/contracts/*.md` stays fully
 # ownership-checked.
@@ -334,7 +331,7 @@ def provides_claims(manifests: list) -> dict:
         mid = m.get("id")
         for _group, patterns in (m.get("provides") or {}).items():
             for pattern in patterns:
-                # sorted() so the claim order is filesystem-order-independent — a §19 defense-in-depth,
+                # sorted() so the claim order is filesystem-order-independent — a defense-in-depth,
                 # matching discover_manifests/engine_file_inventory/foundation_infra_paths below.
                 for abs_path in sorted(_glob.glob(os.path.join(validate.ROOT, pattern), recursive=True)):
                     if os.path.isfile(abs_path):
@@ -360,8 +357,8 @@ def engine_owned_paths(manifests: list) -> list:
     `provides` claims, UNIONED with the foundation infrastructure artifacts (FOUNDATION_INFRA). The
     `∪` is load-bearing — the highest-trust engine files (the manifest, root CLAUDE.md, the
     tool-runtime lockfiles, the engine-owned .github/ files) are in no module's `provides`, so a bare
-    provides-union would leave exactly those product-merge-able (repository-topology §the wall;
-    principles §3). Returns concrete relpaths (globs expanded), sorted and de-duplicated."""
+    provides-union would leave exactly those product-merge-able (the repository-topology wall).
+    Returns concrete relpaths (globs expanded), sorted and de-duplicated."""
     paths = set(provides_claims(manifests).keys())
     paths.update(foundation_infra_paths())
     return sorted(paths)
@@ -370,7 +367,7 @@ def engine_owned_paths(manifests: list) -> list:
 def codeowners_path_set() -> list:
     """The exact path set the CODEOWNERS ownership block renders against: engine_owned_paths over the
     live present set, plus `.github/CODEOWNERS` itself. SINGLE-SOURCED here so the two render sites — the
-    first-run instantiation and an engine upgrade's re-render (provisioning §Identity and tokens; the
+    first-run instantiation and an engine upgrade's re-render (the
     engine.json `handle` field) — cannot drift; both call this. The self-add lives ONLY here, never in
     engine_owned_paths(): CODEOWNERS must own its own routing rule (or a product line could shadow it),
     but engine_owned_paths' other consumers — module_manager.FOUNDATION_CODE and remove_engine's
@@ -427,17 +424,17 @@ def declared_wire_identities(manifests: list) -> set:
 
 def block_eligible_registrations() -> list:
     """The block declarations the block-registry leg governs, ASSEMBLED from each owning system's own
-    declaration — hooks names no invariant itself (hooks/README §the block-budget law), so the registry
+    declaration — hooks names no invariant itself (the block-budget law), so the registry
     is the hooks-owned set (none) PLUS each owning lifecycle system's block: modes' explore write-gate
     (modes.BLOCK_INVARIANT) and its engine-Issue-conformance reroute (modes.REROUTE_BLOCK_INVARIANT) —
-    both PreToolUse blocks modes' single handler composes, named a member by hooks/README §the
+    both PreToolUse blocks modes' single handler composes, named a member by the
     block-budget law — and close's findings-disposition gate on Stop (close.BLOCK_INVARIANT). Each entry
     is {event, name, owner, modes}; the leg reads `event` and `modes`. These — NOT bare
     .claude/settings.json hook registrations — are the authoritative "this blocks" source: a wired hook
     command is opaque, so registration alone never implies a block (boot's SessionStart hook is wired yet
     declares none). So the leg validates three REAL members on block-eligible events (PreToolUse, Stop) →
     green; it would fire the moment any owner declared a block on a non-eligible event or without its
-    modes. (owes → 25: if the block-owner set grows past 2–3 the module manager may refactor this
+    modes. (owes → the module manager: if the block-owner set grows past 2–3 it may refactor this
     consumer-side assembly to a registry-discovery pattern.)"""
     return ([dict(inv) for inv in hooks.BLOCK_ELIGIBLE_INVARIANTS]
             + [dict(modes.BLOCK_INVARIANT), dict(modes.REROUTE_BLOCK_INVARIANT),
@@ -476,10 +473,9 @@ def check_coherence(tier: str = "hard") -> list:
     return dep + own + wiring_leg + orphan_leg + block + kinds
 
 
-# The artifact warrant (D-261) for a coherence result: what a green check shows, what it does NOT, and
+# The artifact warrant for a coherence result: what a green check shows, what it does NOT, and
 # what still needs a look. Printed on EVERY report — green or with findings — so the bound the operator
-# reads never collapses to the green word alone. Adapted from the locked coherence warrant
-# (../engine-planning systems/grammar/module-system/README.md §Coherence). Coherence is a STRUCTURAL
+# reads never collapses to the green word alone. Adapted from the locked coherence warrant. Coherence is a STRUCTURAL
 # attestation and the gap is wide, so this is the most prominent of the engine's warrants (proportionate).
 COHERENCE_WARRANT = (
     "\nWhat this shows / what it does not:"

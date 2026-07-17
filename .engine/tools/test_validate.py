@@ -1,11 +1,11 @@
-"""Startability + no-regression for validate.py's lazy third-party binding (core slice 27b-pre).
+"""Startability + no-regression for validate.py's lazy third-party binding.
 
 `validate.py` is `core`'s validation engine and the only engine module that imports third-party packages
 (yaml, jsonschema). Those live in the uv-managed tool-runtime (.engine/.venv/), so validate.py binds them
 LAZILY — a module-level PEP 562 `__getattr__` for `validate.<symbol>` consumers (e.g. wiring's ontology-entry
 check and the schema-validation test helpers), plus a local import inside each function that uses them. This
 makes `import validate` succeed on the Python standard library alone, BEFORE that runtime exists — which the
-first-run setup tool requires, since it is the one tool that runs to bootstrap the runtime (D-156).
+first-run setup tool requires, since it is the one tool that runs to bootstrap the runtime.
 
 These tests prove (1) `import validate` and its path constants work with yaml+jsonschema forced absent, and
 (2) when the packages ARE present the lazy symbols and the frontmatter/schema paths behave exactly as before.
@@ -355,7 +355,7 @@ class TestLocalTriggers(unittest.TestCase):
             self.assertEqual(validate._demo([]), 0)
 
 
-# ---- module-provided check-kind discovery by presence (leg 3 of #405; D-044/D-119) ----------
+# ---- module-provided check-kind discovery by presence (leg 3 of #405) ----------
 # A synthetic kind's `check(rule, ctx)`: SOFT-returning so run_check on it exits 0 (a dangling kind would be
 # HARD -> exit 1), which cleanly distinguishes "the discovered kind ran" from "nothing dispatched".
 _SOFT_KIND = (
@@ -371,7 +371,7 @@ _HARD_ON_BAD_KIND = (
 
 
 class TestAmbientWriter(unittest.TestCase):
-    """The ambient writer, validate's side of the §16 seam (#403.2): evaluate_touched_fires runs the
+    """The ambient writer, validate's side of the detection-relay seam (#403): evaluate_touched_fires runs the
     FILE-SCOPED IN-PROCESS rules that select a touched file, against THAT file only, and returns
     (rule_id, passed, target) — real fires over the governed corpus (never the dormant pre-commit subset)."""
 
