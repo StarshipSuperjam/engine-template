@@ -1,4 +1,4 @@
-"""Tests for the negative-fixture meta-check (#286, D-256…D-260) — hard_check_bite_check.
+"""Tests for the negative-fixture meta-check (#286) — hard_check_bite_check.
 
 The meta-check is LIVE in the CI suite (S5): its rule ships suites: ["CI"], so it runs at the merge gate. These
 tests drive the testable `evaluate(...)` core against controlled rosters, drive the whole script through the real
@@ -67,7 +67,7 @@ class TestLiveFixturesBite(unittest.TestCase):
 
 
 class TestMissingAndNonBiting(unittest.TestCase):
-    """§15 — the two failure modes the meta-check must itself catch: a unit with no fixture, and a unit whose
+    """The two failure modes the meta-check must itself catch: a unit with no fixture, and a unit whose
     fixture does not bite."""
 
     def test_missing_fixture_fails_closed(self):
@@ -143,7 +143,7 @@ class TestRosterBInstances(unittest.TestCase):
 
 class TestSelfCoverageThroughSubprocess(unittest.TestCase):
     """The meta-check runs as one more roster entry through the REAL run_unit subprocess path, pointed at its
-    committed self-fixture mini-scenario — proving §15 self-falsifiability the way it runs live (S5), and that the
+    committed self-fixture mini-scenario — proving self-falsifiability the way it runs live (S5), and that the
     run terminates (the mini-scenario contains no custom/script instance and not the meta-check itself). It drives
     the SAME committed target.json the live self-entry uses, so the test and the live configuration cannot drift."""
 
@@ -229,7 +229,7 @@ class TestS5GoLive(unittest.TestCase):
     def test_full_live_roster_is_clean(self):
         # The self-entry is in the live roster and is exercised here through its committed target.json.
         stems = {r["id"].split("engine/check/")[-1] for r in _live_hard_script_rules()}
-        self.assertIn("hard-check-bite", stems, "the meta-check must be in its own live roster (§15)")
+        self.assertIn("hard-check-bite", stems, "the meta-check must be in its own live roster")
         # The full evaluate() now includes the NON-OFFLINE disposition-issue-resolution unit (#292), whose live
         # witness needs a token. Without one its sentinel resolves to unevaluable, not the aimed unresolved bite,
         # so the full-roster green is a with-token property. The CI `validate.py --suite CI` step (which has the
@@ -247,7 +247,7 @@ class TestS5GoLive(unittest.TestCase):
 
 
 class TestS4TierFilter(unittest.TestCase):
-    """Roster(b) is scoped to HARD instances (validation README "every in-scope hard check"): a soft
+    """Roster(b) is scoped to HARD instances: a soft
     custom/script with no fixture is NOT enumerated — so a soft no-op is never escalated to a hard 'missing
     fixture' meta-finding — while a hard one with no fixture still fails closed."""
 
@@ -272,7 +272,7 @@ class TestS4TierFilter(unittest.TestCase):
 
 class TestS4NotApplicableDisclosuresAreArgued(unittest.TestCase):
     """Each shipped N/A disclosure carries the exact locked property AND a reason that argues it (names the
-    live external substrate and the D-263 false-witness point) — not a bare category assertion."""
+    live external substrate and the false-witness point) — not a bare category assertion."""
 
     NA_CHECKS = ("protection", "dependency-review", "guardrail-weakening", "product-lock-integrity")
 
