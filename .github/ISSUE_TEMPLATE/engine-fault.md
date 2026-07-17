@@ -1,6 +1,7 @@
 ---
 name: Engine fault
 about: The engine itself did something wrong (not your project).
+title: 'Engine fault: '
 ---
 
 <!-- Just describe what you saw — you don't need to know what went wrong inside the engine, where it happened, or how to make it happen again; the engine works that out from your description. Write under each heading; these hints won't show in your posted issue, and you can leave anything blank. -->

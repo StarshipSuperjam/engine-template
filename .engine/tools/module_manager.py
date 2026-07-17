@@ -1183,7 +1183,9 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
             return result
         # (6) LAND as a reviewed pull request (injected opener in tests/demo; real opener otherwise). An
         # injected practice run with no opener never reaches the real git/PR boundary (the footgun guard).
-        title = f"Update the engine to {target_ref}"
+        # `Maintenance:` — the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS): an engine
+        # update is upkeep, so it groups away from the project's own features in the deployed repo's notes.
+        title = f"Maintenance: update the engine to {target_ref}"
         body = _upgrade_pr_body(from_versions, target_versions, result)
         branch = "engine-update-" + re.sub(r"[^a-zA-Z0-9._-]+", "-", target_ref)
         open_fn = opener or (None if injected else _open_upgrade_pr)
@@ -1372,7 +1374,7 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
         result["notes"].append("(practice run — the removal pull request was not opened)")
     else:
         try:
-            result["pr"] = open_fn(branch="engine-remove", title="Remove the engine", body=body)
+            result["pr"] = open_fn(branch="engine-remove", title="Removal: remove the engine", body=body)
         except Exception as exc:  # noqa: BLE001 — staged but not opened; surfaced, never a traceback
             result["notes"].append(f"(removal is staged but the pull request could not be opened: {exc})")
 

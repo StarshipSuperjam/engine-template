@@ -393,5 +393,5 @@ jobs:
           gh pr create \
             --base main \
             --head "${branch}" \
-            --title "Engine self-review digest (${stamp})" \
+            --title "Maintenance: engine self-review digest (${stamp})" \
             --body-file "${RUNNER_TEMP}/pr-body.md"

@@ -29,8 +29,10 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    from what the work needs** — run the impact check (`.engine/operations/knowledge-impact-check.md`) for what
    depends on the parts you change and what checks or governs them, and weigh it with what review is installed
    and available and what sits next to the work — its neighbours and any open trouble nearby. The suggested
-   depth is risk-derived, never lowered by a depth the operator has preferred before. Settle the plan before
-   moving on.
+   depth is risk-derived, never lowered by a depth the operator has preferred before. **Title the pull request
+   `Kind: what changed`** — the kinds are listed in `.github/pull_request_template.md`, which `gh pr create`
+   never renders, so the title is authored here; the release notes group the merged list by that prefix. Settle
+   the plan before moving on.
 2. **Relay the risk assessment — the plan-gate consent surface.** Relay it to the operator **in chat**
    (it reaches them only as assistant text — no hook renders to their screen), filled from the
    `risk-assessment` template (`.engine/templates/risk-assessment.md`): the plain-language headline, what

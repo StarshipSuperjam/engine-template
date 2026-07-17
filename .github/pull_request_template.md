@@ -1,3 +1,23 @@
+<!-- TITLE THIS PULL REQUEST  Kind: what changed
+     e.g.  Fix: quote the hook script path so a spaced directory doesn't fail closed
+
+     Pick the kind for what the change does for a reader:
+       Feature      - something new you can do
+       Improvement  - something existing works better
+       Fix          - something broken now works
+       Security     - a security-relevant change
+       Removal      - something taken out
+       Maintenance  - upkeep that doesn't change what you can do (dependency bumps, internal plumbing)
+
+     The release notes group the merged pull requests under these kinds. A title with no kind still lists
+     fine — it just lands under "Other changes", unsorted.
+
+     Two things worth knowing:
+       - Leave the issue number out of the title. The notes append the pull-request number themselves, so a
+         title already carrying "(#123)" renders the number twice.
+       - The issue templates seed a different word, because an issue names a problem and this names a change:
+         an issue titled "Bug:" is closed by a "Fix:" pull request; an "Engine fault:" by a Fix or Maintenance. -->
+
 <!-- BEFORE OPENING THIS PR — does this change COMPLETE a GitHub issue, including the final slice of a multi-PR effort? If yes, add one `Closes #N` line per issue directly below this comment. Only the `Closes #N` keyword auto-closes the issue on merge — describing the resolution in prose (e.g. "resolves / satisfies / finishes #N") does NOT close it, and the issue silently lingers open. One keyword per issue: "Closes #1, #2" closes only #1 — #2 is left open. If this PR is a slice that does not yet complete the issue, add no Closes line and instead write a `Part of #N` line in the Scope or Out-of-scope section below. That `Part of #N` phrase is what lets the engine tell an accidental stray closing keyword from an intended close and offer to fix it before you merge; without it, the engine can't tell the two apart, so it neither flags nor fixes a stray keyword — your backstop is then your own read of the "will close" list on the PR page. Delete this comment if the PR closes no issue. -->
 
 > *A green mechanical check below shows this change conforms to the engine's rules — not that it is correct. What covers correctness is the behavioural steps in **Review** and your own read of the change; a green check is never a substitute for that. **Your merge is the binding gate.***

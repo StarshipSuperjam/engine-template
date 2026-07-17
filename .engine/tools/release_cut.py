@@ -222,6 +222,81 @@ def _parse_pr_lines(body: str) -> list:
     return out
 
 
+# The release-notes change kinds. A title that leads with one as a `Kind:` prefix (`Fix: quote the hook path`)
+# groups the merged-PR list so the notes read as sorted work, not one flat pile. This list is BOTH the
+# recognised set AND the display order; a title with no recognised prefix falls to "Other changes", rendered
+# last. It is the one place a deployed repo edits to change its kind vocabulary — so each kind is regex-escaped
+# before matching, since `render_*` are not best-effort wrapped and an edited kind carrying a metacharacter
+# must not break the render. Grouping is a DISPLAY view: it never touches `_parse_pr_lines`' flat list, which
+# both render sites share.
+_RELEASE_NOTE_KINDS = ["Feature", "Improvement", "Fix", "Security", "Removal", "Maintenance"]
+_OTHER_KIND = "Other changes"
+# The security marker a dependency bot writes into a title AFTER any configured prefix (dependabot-core's
+# pr_name_prefixer.rb: `prefix = commit_prefix.to_s; prefix += security_prefix if security_fix?`, where
+# security_prefix is "[Security] "). So a CVE fix in a repo that prefixes its bumps arrives as
+# "Maintenance: [Security] bump …". A security fix must NEVER read as the upkeep that prefix claims, so the
+# marker WINS over the declared kind — on any title that carries it, whoever wrote it.
+_SECURITY_MARKER_RE = re.compile(r"^\[security\][ \t]*", re.I)
+
+
+def _compile_kind_prefix(kinds: list) -> "re.Pattern":
+    """The case-insensitive `^Kind:` matcher, with each kind regex-escaped so an edited kind vocabulary
+    carrying a metacharacter (a deployer's `C++`, `.NET`) matches literally and cannot make the render throw."""
+    return re.compile(r"^(" + "|".join(re.escape(k) for k in kinds) + r"):[ \t]*", re.I)
+
+
+_KIND_PREFIX_RE = _compile_kind_prefix(_RELEASE_NOTE_KINDS)
+_KIND_BY_LOWER = {k.lower(): k for k in _RELEASE_NOTE_KINDS}
+
+
+def _group_prs_by_kind(lines: list) -> list:
+    """Group the plain 'Title (#N)' merged-PR lines by the change kind their title declares as a leading
+    'Kind:' prefix — stripping that prefix from the displayed line (the group heading now carries it). A line
+    with no recognised prefix collects under 'Other changes'. Returns (kind, [line, …]) pairs in
+    `_RELEASE_NOTE_KINDS` order with 'Other changes' always last, skipping any empty group; `[]` in, `[]` out."""
+    buckets = {k: [] for k in _RELEASE_NOTE_KINDS}
+    other = []
+    for ln in lines:
+        m = _KIND_PREFIX_RE.match(ln)
+        # `re.I` case-folds WIDER than str.lower() (Turkish `İmprovement`, dotless `ımprovement`, long-s
+        # `ſecurity`), so a match can carry a spelling this map has no key for. The lookup is therefore TOTAL:
+        # an unmappable match falls through to "Other changes" rather than raising. render_* is NOT
+        # best-effort wrapped, so a KeyError here would block a release cut over nothing but a title's spelling.
+        kind = _KIND_BY_LOWER.get(m.group(1).lower()) if m else None
+        rest = ln[m.end():] if kind else ln
+        sm = _SECURITY_MARKER_RE.match(rest)
+        if sm:
+            kind, rest = "Security", rest[sm.end():]
+        if kind:
+            buckets[kind].append(rest)
+        else:
+            other.append(rest)
+    grouped = [(k, buckets[k]) for k in _RELEASE_NOTE_KINDS if buckets[k]]
+    if other:
+        grouped.append((_OTHER_KIND, other))
+    return grouped
+
+
+def _render_pr_groups(merged: list, heading) -> list:
+    """The merged-PR list as display lines: one `heading(kind)` block per change kind with its bullets under
+    it. The two render sites share this — only the heading form differs (a `###` subheading in the published
+    Release body; a bold label inside the pull request's one `## Scope` section, whose plain-text peers a
+    heading would out-rank). When NOTHING carries a kind, the lone 'Other changes' heading is OMITTED: a
+    heading that says "other" is only meaningful against something else, and standing alone it would label a
+    reader's whole release as leftovers. So an unadopted convention degrades to EXACTLY the old flat list —
+    never worse — which is the state every generated repo starts in."""
+    groups = _group_prs_by_kind(merged)
+    if len(groups) == 1 and groups[0][0] == _OTHER_KIND:
+        return [f"- {p}" for p in groups[0][1]]
+    out = []
+    for i, (kind, items) in enumerate(groups):
+        if i:
+            out.append("")
+        out += [heading(kind), ""]
+        out += [f"- {p}" for p in items]
+    return out
+
+
 def _generate_notes_body(slug: str, previous_tag: str, target: str, token: str | None) -> str:
     """POST /repos/{slug}/releases/generate-notes -> the generated markdown body. Despite the POST verb this
     creates nothing — it is GitHub's read-only release-notes generator. `tag_name` is a placeholder label; the
@@ -735,7 +810,7 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
     if merged:
         n = len(merged)
         out += ["", f"## What changed since the last release ({n} pull request{'' if n == 1 else 's'})", ""]
-        out += [f"- {p}" for p in merged]
+        out += _render_pr_groups(merged, lambda k: f"### {k}")
         signals = _structural_signals(proposal)
         if signals:
             out += ["", "## Capability and data changes", ""]
@@ -844,7 +919,11 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
     if merged:
         n = len(merged)
         header = f"What changed since the last release ({n} pull request{'' if n == 1 else 's'}):"
-        pr_lines = [f"- {p}" for p in merged]
+        # Same kind-grouping as the published Release notes, but rendered as BOLD LABELS, not `###` headings:
+        # this block sits inside the one `## Scope` section, whose peers ("Capability and data changes:") are
+        # plain-text labels — a heading here would out-rank them and invert the outline — and bold labels render
+        # cleanly inside the <details> block below where headings need careful blank-line handling.
+        pr_lines = _render_pr_groups(merged, lambda k: f"**{k}**")
         # a long list is wrapped in a foldable <details> so the reader CAN collapse it (it otherwise pushes the
         # Review guidance far down the consent surface) — but rendered OPEN by default, so the work is visible on
         # load, not hidden behind a click.
@@ -852,7 +931,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
             scope += ["", header, "", "<details open><summary>Merged pull requests</summary>", "", *pr_lines,
                       "", "</details>"]
         else:
-            scope += ["", header, *pr_lines]
+            scope += ["", header, "", *pr_lines]
         signals = _structural_signals(proposal)
         if signals:
             scope += ["", "Capability and data changes:"]

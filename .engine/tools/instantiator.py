@@ -2911,7 +2911,9 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
                               "setup files were left in place; fix the cause and run the arrival again."}
         # (7) Land the arrival as a reviewed pull request on the TARGET (the merge wall; the operator approves).
         if opener is not None:
-            title = "Add the engine to this project"
+            # `Feature:` — the release-notes change-kind prefix (release_cut._RELEASE_NOTE_KINDS): arriving in a
+            # project is a new capability, and the prefix is what groups it in the deployed repo's release notes.
+            title = "Feature: add the engine to this project"
             body = ("This pull request adds the engine to the project: its files are placed in their own "
                     "namespaced corners, any overlap with the project's own files was surfaced and settled, "
                     "and the engine's working guide was added to CLAUDE.md alongside the project's own content. "
