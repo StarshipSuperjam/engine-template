@@ -1,40 +1,40 @@
 #!/usr/bin/env python3
-"""Slice 21 — modes: the operating stance + the Explore write-gate (the M1 write-gate).
+"""modes: the operating stance + the Explore write-gate.
 
-The session's operating STANCE is what it may do, and whether a human is present to answer for it
-(systems/lifecycle/modes/README.md). Three stances on two axes:
+The session's operating STANCE is what it may do, and whether a human is present to answer for it.
+Three stances on two axes:
   - explore (default, interactive, writes gated OFF) — every session boots here;
-  - build   (interactive, writes on) — entered by a typed verb (slice 26) OR by accepting a plan;
+  - build   (interactive, writes on) — entered by a typed verb OR by accepting a plan;
   - routine (unattended, scope-locked, writes on) — entered by an operator-authored scheduled fire.
 
-This module ships THREE things (the operator-typed Build verb and Routine entry are later — slice 26 /
+This module ships THREE things (the operator-typed Build verb and Routine entry are later —
 post-core):
 
   1. THE STANCE SIGNAL — an ephemeral, session-keyed marker in OS-temp storage, never committed and
      never carried across sessions. It is set only by a deliberate in-session entry, and CLEARED at
      every SessionStart (boot calls clear_stance first, so a resumed Build session never resurrects as
      Build). When the signal is absent, stale, or unreadable, the stance is explore: the safe default is
-     the floor, never the ceiling (modes/README §"Stance is session-scoped and never persists").
+     the floor, never the ceiling (stance is session-scoped and never persists).
 
   2. THE EXPLORE WRITE-GATE — a PreToolUse hook, active only while the stance is explore, that DENIES the
      small enumerated set that BEGINS building — edits to engine or product files, branch creation,
      commits, and the opening of a pull request (via gh or a GitHub MCP tool) — and ALLOWS everything
      else: reads, read-only command/test execution, greps, subagent spawning, `gh issue` calls, AND
-     Claude Code's own plan-mode artifact (the plan file is planning, not building — D-177/D-178; see
+     Claude Code's own plan-mode artifact (the plan file is planning, not building — see
      is_plan_artifact, recognized by the platform's own marker, never a path). There is NO default-deny:
-     an action it cannot classify resolves to ALLOW (modes/README §"Explore").
+     an action it cannot classify resolves to ALLOW.
 
   3. THE PLAN-ACCEPTANCE BUILD-ENTRY TRIGGER — a PostToolUse hook (accept_handler) that flips the stance
      to Build when the operator accepts a plan (the plan-exit `ExitPlanMode` completion). The second
-     interactive entry path alongside the slice-26 verb; it sets the Build signal AND injects a terse
+     interactive entry path alongside the typed verb; it sets the Build signal AND injects a terse
      assistant-internal stance directive that triggers build-orchestration's kickoff (the operator
      announcement stays the kickoff's, exactly once; the signal is the sole durable record); never blocks;
-     fails safe to explore (D-179/D-180/D-270/D-271; modes/README §"Entering Build").
+     fails safe to explore.
 
-THE GATE IS A §6 NUDGE, NOT A WALL — stated honestly, never overstated (modes/README §"the gate is a
-strong default, and its enforcement is fallible"; D-171). The gate emits its deny in the form the platform
+THE GATE IS A NUDGE, NOT A WALL — stated honestly, never overstated (the gate is a
+strong default, and its enforcement is fallible). The gate emits its deny in the form the platform
 acts on — exit 0 + a hookSpecificOutput-wrapped permissionDecision (hooks.decide), the path the engine
-uses (hooks/README), which the current platform honors across built-in AND GitHub-MCP tools; it never uses
+uses, which the current platform honors across built-in AND GitHub-MCP tools; it never uses
 exit-2 block(), which the platform reads as a CRASH and drops. The fallibility rests on two DURABLE limits,
 not a brittle platform claim: the hooks fail-open law means a crashing gate lets the action through, and
 detecting a build-by-`git`/`gh` in a shell string is best-effort (aliases / eval / substitution / chaining
@@ -68,7 +68,7 @@ import hooks  # noqa: E402  (run_hook + decide/proceed: the fail-open harness th
 import issue_gate  # noqa: E402  (the engine-Issue conformance reroute matcher — modes registers it, below)
 
 
-# ---- the three stances (modes/README §"Operating modes") ------------------------------------
+# ---- the three stances ------------------------------------
 EXPLORE = "explore"
 BUILD = "build"
 ROUTINE = "routine"
@@ -77,8 +77,8 @@ STANCES = frozenset({EXPLORE, BUILD, ROUTINE})
 # The blocks this owning system declares for the hook block budget. hooks.py "names no invariant
 # itself", so the consumer (module_coherence.block_eligible_registrations) assembles the registry
 # from each owner's declaration; the block-registry leg (validate.block_budget_findings) reads `event`
-# (only PreToolUse/Stop may block) AND `modes` (the mode dimension declared as data, not code-only —
-# hooks/README §Mode-awareness). Modes carries the *stances the block is active in*: the write-gate
+# (only PreToolUse/Stop may block) AND `modes` (the mode dimension declared as data, not code-only).
+# Modes carries the *stances the block is active in*: the write-gate
 # enforces only in EXPLORE (it lets writes through in Build/Routine); the engine-Issue reroute is
 # STANCE-INDEPENDENT — it fires in every stance (a non-conforming engine-labeled `gh issue create` is
 # rerouted whether exploring, building, or in a routine run) — so it declares all three. modes' single
@@ -127,8 +127,8 @@ def current_stance(session_id: str | None) -> str:
 
 
 def set_stance(session_id: str | None, stance: str) -> bool:
-    """Set the session's stance signal. Callers: the plan-acceptance trigger (accept_handler, this slice),
-    the operator-typed Build verb (slice 26), and the demo/tests. Setting EXPLORE clears the marker
+    """Set the session's stance signal. Callers: the plan-acceptance trigger (accept_handler, this module),
+    the operator-typed Build verb, and the demo/tests. Setting EXPLORE clears the marker
     (explore is the absence of a signal). Returns True on success, False when there is no usable session
     id or the write fails; never raises."""
     if stance == EXPLORE:
@@ -162,7 +162,7 @@ def clear_stance(session_id: str | None) -> bool:
     return True
 
 
-# ---- operator-legible stance copy (modes owns the stance vocabulary; boot/README §Seams) ----
+# ---- operator-legible stance copy (modes owns the stance vocabulary) ----
 _STANCE_LINES = {
     EXPLORE: "Exploring — I won't change files or open a pull request until you tell me to build.",
     BUILD: "Building — I'll make changes and submit them as a pull request for your approval.",
@@ -172,7 +172,7 @@ _STANCE_LINES = {
 
 def describe_stance(stance: str) -> str:
     """The plain-language one-line description of a stance — modes owns this vocabulary; boot places it
-    in the orientation card (boot/README line 218). An unknown stance falls back to the explore line."""
+    in the orientation card. An unknown stance falls back to the explore line."""
     return _STANCE_LINES.get(stance, _STANCE_LINES[EXPLORE])
 
 
@@ -213,7 +213,7 @@ def describe_explore_scope() -> str:
 
 
 # ---- the denied-action match list (a build-spec leaf, settled here) -------------------------
-# The small enumerated set that BEGINS building (modes/README §"Explore"): file edits, branch creation,
+# The small enumerated set that BEGINS building: file edits, branch creation,
 # commits, and opening a pull request. `git push` is deliberately NOT here — the source enumerates these
 # four, and Explore must stay the comfortable place to work (no default-deny, nothing else taxed).
 # The plain-language, assistant-facing rendering of THIS allow/deny split lives in describe_explore_scope();
@@ -221,11 +221,11 @@ def describe_explore_scope() -> str:
 _MUTATING_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 
 # Best-effort shell building-verb patterns over the Bash command string. Best-effort by construction:
-# a verb behind an alias / eval / substitution / chaining evades these (modes/README, stated honestly).
+# a verb behind an alias / eval / substitution / chaining evades these (stated honestly).
 # Each verb must appear at COMMAND POSITION — the start of the command, or just after a shell separator
 # (newline ; & |) — so an occurrence inside a quoted argument or an echoed/grepped string (e.g.
-# `echo 'git commit'`) does NOT trip a false deny. This errs toward ALLOW, as the source requires (§"no
-# default-deny": don't tax Explore), at the cost of missing prefixed forms (`time git commit`, a subshell,
+# `echo 'git commit'`) does NOT trip a false deny. This errs toward ALLOW (no
+# default-deny: don't tax Explore), at the cost of missing prefixed forms (`time git commit`, a subshell,
 # a substitution) — the same best-effort imprecision, in the spec-preferred direction; the wall remains.
 _CMD_START = r"(?:^|[\n;&|])\s*"
 _BASH_BUILD_PATTERNS = (
@@ -256,18 +256,18 @@ def is_building_action(tool_name: str, tool_input) -> bool:
     return False
 
 
-# ---- the plan-mode artifact carve-out (D-177/D-178) -----------------------------------------
+# ---- the plan-mode artifact carve-out -----------------------------------------
 # Claude Code's NATIVE plan file (the file the platform writes when a plan is accepted) is *planning,
 # not building*, so the gate allows it even though it is a Write/Edit — denying it would regress a
 # Claude Code basic the Explore stance exists to support, leaving the non-engineer worse off than plain
-# Claude Code (modes/README §"Explore"). It is recognized by the platform's OWN plan-mode MARKER, NOT a
+# Claude Code. It is recognized by the platform's OWN plan-mode MARKER, NOT a
 # path: the plan file's location is operator-configurable (`plansDirectory`) and can resolve INSIDE the
 # repo, exactly where a path match would wrongly re-trip the gate. The marker is the session's
 # `permission_mode == "plan"` — the signal Claude Code's built-in plan-mode permission itself uses to
 # write the file (and `tool_input.is_plan_file`, honored too if a platform sets it). The carve-out is
 # the plan artifact SPECIFICALLY: it never exempts a commit/branch/PR, and every other `~/.claude/`
 # write (settings, hooks) carries no marker → stays denied (it has no protected-branch merge to back it
-# up). The exact field is a build-spec leaf verified against current Claude Code (D-178).
+# up). The exact field is a build-spec leaf verified against current Claude Code.
 _PLAN_MODE = "plan"
 
 
@@ -284,20 +284,20 @@ def is_plan_artifact(tool_name: str, tool_input, permission_mode) -> bool:
 
 
 # The plain-language denial — names what was blocked AND the concrete way forward, never a silent
-# refusal (modes/README §"The stance is always operator-legible").
+# refusal (the stance is always operator-legible).
 _DENIAL = ("I didn't make that change — we're exploring, so I won't edit files, commit, create a branch, "
            "or open a pull request yet. (I can still read, run tests, search, and log GitHub issues — "
            "authoring any engine Issue through the issue helper — while we explore; those don't need build.) "
            "Tell me to build it and I'll open a pull request — the change I submit for your approval.")
 
-# The MEMORY-specific denial relay (D-251 / #257). A blocked Write/Edit to a memory store is NOT a code
+# The MEMORY-specific denial relay (#257). A blocked Write/Edit to a memory store is NOT a code
 # change the operator must "build" — most often it is the operator asking to be REMEMBERED. The generic
 # _DENIAL ("…open a pull request…") reads as the engine mishearing "remember this" as a code change, which
 # is corrosive to a non-engineer's trust at the exact moment they asked to be remembered. So the message
 # (NEVER the decision — the write stays denied) becomes memory-specific: it (a) confirms a competent
 # "noted", never a pull request; (b) names a correlate the operator can actually exercise ("ask me … and
 # I'll read it back" — the assistant performs the recall on request); (c) does not leak the two-store seam
-# (principles §12) — "this project's memory", never "harness vs engine memory". The durable capture itself
+# — "this project's memory", never "harness vs engine memory". The durable capture itself
 # rides automatic memory upkeep (the Stop-hook + the consolidation sweep), which already passes the gate.
 _MEMORY_DENIAL = ("Noted — I've kept that in mind, and it's saved to this project's memory so it carries "
                   "across our sessions. Ask me anytime what I've remembered and I'll read it back.")
@@ -307,9 +307,9 @@ def is_memory_target(tool_name: str, tool_input) -> bool:
     """True iff this file-mutating call targets a MEMORY store — the engine's own `.engine/memory/` or the
     harness auto-memory notebook (the `~/.claude/.../memory/` default shape). MESSAGE-CHOICE ONLY: it never
     changes the gate's decision (a memory write stays denied either way), it only selects the memory-specific
-    denial relay (#257/D-251). D-251 blessed path recognition *for message choice* — the allow-exemption
-    hazard it rejected does not apply, so a relocated `autoMemoryDirectory` this misses simply falls back to
-    the generic denial (cosmetic). It never hardcodes a platform-owned basename: it matches the engine store
+    denial relay (#257). Recognizing the memory path *for message choice* is safe — the allow-exemption
+    hazard a path match would raise does not apply, so a relocated `autoMemoryDirectory` this misses simply
+    falls back to the generic denial (cosmetic). It never hardcodes a platform-owned basename: it matches the engine store
     deterministically (`.engine/memory/`, NOT the `.engine/tools/memory/` source dir) and the harness store
     by path SHAPE (a `memory` directory nested under a `.claude` directory)."""
     if tool_name not in _MUTATING_TOOLS:
@@ -337,7 +337,7 @@ def is_memory_target(tool_name: str, tool_input) -> bool:
 
 def handler(payload: dict) -> dict:
     """The PreToolUse gate, run on every tool call (broad matcher). It composes TWO decisions in one
-    reviewable place (per hooks/README): the engine-Issue conformance reroute (matcher in issue_gate, called
+    reviewable place: the engine-Issue conformance reroute (matcher in issue_gate, called
     first because it is channel-scoped and STANCE-INDEPENDENT) and the Explore write-gate (stance-dependent —
     Build/Routine permit the write; Explore denies a building action and allows everything else). Either deny
     rides the structured permissionDecision channel (hooks.decide → exit 0 + hookSpecificOutput), which the
@@ -356,23 +356,23 @@ def handler(payload: dict) -> dict:
     permission_mode = payload.get("permission_mode") if isinstance(payload, dict) else None
     if is_building_action(tool_name, tool_input) and not is_plan_artifact(tool_name, tool_input, permission_mode):
         # Same DECISION (deny) regardless; only the relayed reason differs — a memory write earns the
-        # memory-specific "noted" line (#257/D-251), every other write the generic build-set denial.
+        # memory-specific "noted" line (#257), every other write the generic build-set denial.
         reason = _MEMORY_DENIAL if is_memory_target(tool_name, tool_input) else _DENIAL
         return hooks.decide("deny", reason)
     return hooks.proceed()      # reads, tests, greps, an unlabelled/conforming gh issue, subagents, the plan file
 
 
-# ---- the plan-acceptance Build-entry trigger (D-179/D-180) ----------------------------------
-# The SECOND interactive way into Build (the first is the operator-typed verb, slice 26): when the
+# ---- the plan-acceptance Build-entry trigger ----------------------------------
+# The SECOND interactive way into Build (the first is the operator-typed verb): when the
 # operator ACCEPTS a plan, Claude Code's plan-exit completion — the `ExitPlanMode` tool call — fires a
 # PostToolUse hook, and the engine flips the stance signal to Build. "Approving a plan is 'build it'",
-# with no verb to type (modes/README §"Entering Build"). Keyed on the completion EVENT itself
+# with no verb to type. Keyed on the completion EVENT itself
 # (tool_name == "ExitPlanMode"), NOT a permission_mode value — acceptance offers several target modes,
 # so the durable discriminator is that the completion fired. A REJECTED plan fires no PostToolUse, so it
 # never enters Build; the model cannot accept its own plan, so this is not self-electable.
 #
 # It SETS THE SIGNAL AND INJECTS A TERSE ASSISTANT-INTERNAL STANCE DIRECTIVE: current Claude Code delivers a
-# PostToolUse hook's additionalContext to the model (D-270 corrected the earlier, falsified "a PostToolUse
+# PostToolUse hook's additionalContext to the model (correcting the earlier, falsified "a PostToolUse
 # hook cannot inject conversational text" claim), so the entry PUSHES a directive that names the new stance
 # and triggers build-orchestration's kickoff ("opening a draft pull request and planning the work") — rather
 # than relying on the model to override its stale start-of-session Explore briefing from memory. The OPERATOR
@@ -388,7 +388,7 @@ _PLAN_EXIT_TOOL = "ExitPlanMode"
 
 
 def _build_entry_directive() -> str:
-    """The ASSISTANT-FACING stance directive injected on plan-acceptance (D-270/D-271). It NAMES the new Build
+    """The ASSISTANT-FACING stance directive injected on plan-acceptance. It NAMES the new Build
     stance and directs THIS turn into build-orchestration's kickoff — a push, so the session stops acting on
     its stale start-of-session Explore briefing. It is a TURN-LOCAL directive, never a durable stance record:
     the stance SIGNAL is the sole durable record (cleared to Explore at every SessionStart), so a copy of this
@@ -412,7 +412,7 @@ def _build_entry_directive() -> str:
 def accept_handler(payload: dict) -> dict:
     """The plan-acceptance Build-entry trigger, run on PostToolUse. On the plan-exit completion
     (`ExitPlanMode`), set the session's stance to Build AND inject a terse assistant-internal stance directive
-    that triggers build-orchestration's kickoff (D-270/D-271); on anything else, no-op. The inject is GATED on
+    that triggers build-orchestration's kickoff; on anything else, no-op. The inject is GATED on
     the durable flip succeeding — the SIGNAL is the sole durable record, the injected line strictly advisory —
     so a bad/sessionless payload (set_stance returns False) proceeds with no inject and no split-brain. ALWAYS
     proceeds — never blocks. A rejected plan fires no PostToolUse → the stance stays Explore (the safe floor)."""
@@ -538,7 +538,7 @@ def _demo(_argv: list) -> int:
     e_explore = _decision_line(gate('Edit'))
     print(f"  live stance now ->                       {stance_after_clear} (you report THIS, not the line)")
     print(f"  a replayed 'you are in Build' directive is inert: the same Edit is ->  {e_explore}")
-    print("\nThe gate is a §6 nudge, not a wall — a disguised verb slips it, a crash fails it open; the "
+    print("\nThe gate is a nudge, not a wall — a disguised verb slips it, a crash fails it open; the "
           "merge wall is the guarantee. Accepting a plan enters Build (human-gated, not a stronger gate) and "
           "pushes you a do-not-relay stance directive; the OPERATOR announcement stays the build-orchestration "
           "kickoff, exactly once. (The platform delivering that directive on PostToolUse is the inductive "

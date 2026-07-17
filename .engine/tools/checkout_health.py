@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """Operator-checkout health — detect a stranded operator checkout AND offer a lossless un-stranding fix (#80).
 
-The [operator checkout](glossary) — the top-level project folder the operator opens — is meant to sit on
+The operator checkout — the top-level project folder the operator opens — is meant to sit on
 its branch with the engine files present; build runs in per-session worktrees, never in it (the
 never-strand-main floor, realized in CLAUDE.deployed.md). When it is **stranded** anyway — a detached
 `HEAD`, or missing engine files — this module (a) DETECTS it offline+read-only so [boot](boot.py) can surface
-it (slice B), and (b) on the operator's consent, REPAIRS it (slice C). Provisioning owns this mechanism; boot
+it, and (b) on the operator's consent, REPAIRS it. Provisioning owns this mechanism; boot
 invokes the detector in its SessionStart pack and OFFERS the fix; the assistant runs the fix only when the
 operator says yes. The fix is the deployed-floor never-strand-main rule's ONE sanctioned write to the operator
 checkout.
 
-Design (systems/infrastructure/provisioning/README.md §"Operator-checkout strand"; D-189/D-190; D-275/D-276):
+Design — the operator-checkout strand:
   - From the session's worktree, resolve the main checkout (`git worktree list` — main listed FIRST — with
     `--git-common-dir` as a fallback) and read its state LOCALLY (one shared `_resolve_state`).
   - **Two binary BROKEN states, checked every boot, OFFLINE:** a detached `HEAD`; missing engine files
-    (`.claude/settings.json`, `.engine/`) — `detect_strand`. These two stay TWO (D-275).
+    (`.claude/settings.json`, `.engine/`) — `detect_strand`. These two stay TWO.
   - **Off-main is the OFFLINE Stage-1 signal** — `detect_off_main` (#342). A healthy checkout PARKED on a
     non-default branch (the wrong-branch park) is caught on day one, before anything is even missing — the
     cheap-to-fix window. It fires only when the default branch is KNOWN with confidence (the persisted name or
     `origin/HEAD`), never on a heuristic guess, so a pre-persistence checkout raises no false standing nag.
   - **Behind-the-main-line is the ONLINE, consequence-gated Stage-2 tail** — `detect_behind_origin` (#335,
-    widened branch-agnostic for #342/D-275). The harmful essence is *missing your merged main line of work* —
+    widened branch-agnostic for #342). The harmful essence is *missing your merged main line of work* —
     NOT which branch you sit on — so it fires whether the checkout is on the default branch OR parked on a side
     branch, whenever origin/<default> carries merged work the checkout lacks past the bar. It surfaces a felt
     consequence (never a bare count). It is the one path that touches the network: a best-effort, tightly
@@ -76,7 +76,7 @@ import os
 import subprocess
 import sys
 
-# The engine files whose absence marks a checkout stranded (provisioning README: the two binary states).
+# The engine files whose absence marks a checkout stranded (the two binary states).
 _ENGINE_FILES = (os.path.join(".claude", "settings.json"), ".engine")
 
 # The fix's rescue branch (a "safe point" in operator words) + an inline identity so the rescue commit never
@@ -183,11 +183,11 @@ def detect_strand(cwd: str | None = None) -> dict | None:
     return {"states": states, "main": main}
 
 
-# ---- the un-stranding fix: lossless-or-it-does-not-run (issue #80, slice C) ------------------
+# ---- the un-stranding fix: lossless-or-it-does-not-run (issue #80) ------------------
 
 # Git operation-in-progress sentinels: a PAUSED merge / cherry-pick / revert / (interactive) rebase. Probed
 # via `git rev-parse --git-path` so a worktree's own git dir is honored. A paused `rebase -i` leaves
-# `status --porcelain` CLEAN, so this probe — not the porcelain check — is what catches it (D-275, constraint 3).
+# `status --porcelain` CLEAN, so this probe — not the porcelain check — is what catches it.
 _INPROGRESS_PATHS = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")
 
 
@@ -210,8 +210,8 @@ def _op_in_progress(main: str) -> bool:
 def _is_lossless(main: str) -> tuple[bool, list[str]]:
     """OFFLINE: can the checkout be moved (re-attached, or returned to its default branch) without first
     rescuing? Safe iff no commit sits on no branch AND no stash (repo-global — a sibling worktree's stash fails
-    this SAFE) AND a clean working tree AND no git operation paused mid-flight (provisioning L473-474; D-275
-    constraint 3). Returns (safe, reasons). Shared by `unstrand` and `return_to_default`."""
+    this SAFE) AND a clean working tree AND no git operation paused mid-flight.
+    Returns (safe, reasons). Shared by `unstrand` and `return_to_default`."""
     reasons: list[str] = []
     if (_run(["git", "-C", main, "rev-list", "HEAD", "--not", "--branches"]) or "").strip():
         reasons.append("off-branch-commits")   # committed work reachable from no branch (detached work)
@@ -361,7 +361,7 @@ def unstrand(cwd: str | None = None, apply: bool = False) -> dict:
     return {"status": "fixed", "main": main, "rescue": rescue, "did": did, "applied": True}
 
 
-# ---- the off-main signal: offline Stage-1 wrong-branch park (#342, D-275) -------------------
+# ---- the off-main signal: offline Stage-1 wrong-branch park (#342) -------------------
 
 def detect_off_main(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY: is the operator's main checkout PARKED on a non-default branch (the wrong-branch
@@ -383,13 +383,13 @@ def detect_off_main(cwd: str | None = None) -> dict | None:
     return {"state": "off-main", "main": main, "branch": current, "main_branch": default}
 
 
-# ---- the absent update-home signal: the engine can't fetch its own updates (D-281/D-282, #367) ----
+# ---- the absent update-home signal: the engine can't fetch its own updates (#367) ----
 
 def detect_absent_home(cwd: str | None = None) -> dict | None:
     """OFFLINE, READ-ONLY: does this engine's manifest record NO update home (`home_repository`)? A repo
     generated before that coordinate shipped carries an installed engine that cannot fetch its own updates —
     the update path refuses rather than guess a home, and never falls back to this repo's own origin
-    (D-281/D-282, #367). Returns {"state":"absent-home","main"} when the manifest is present and readable but
+    (#367). Returns {"state":"absent-home","main"} when the manifest is present and readable but
     records no home, else None (no manifest / a broken strand / a home already recorded is the normal state).
     Offline by nature — telling that an update cannot be reached needs no network. boot OFFERS recording the
     home; the assistant records it on the operator's consent (the strand model)."""
@@ -435,7 +435,7 @@ def _velocity_threshold(main: str, upstream: str) -> int:
 
 
 def _merged_advisory(main: str, base: str, branch: str) -> str:
-    """ADVISORY ONLY — never a safety gate (D-275 constraint 4): is the work on `branch` already absorbed into
+    """ADVISORY ONLY — never a safety gate: is the work on `branch` already absorbed into
     `base` (the up-to-date main line, e.g. origin/<default>)? Via `git cherry <base> <branch>`: a line starting
     '+' is a commit with NO equivalent in base, '-' one already present. Asymmetric-safe — it OVER-reports
     unfinished work (a MULTI-commit squash reads as '+' lines) and NEVER false-says 'all merged', so we return
@@ -448,13 +448,13 @@ def _merged_advisory(main: str, base: str, branch: str) -> str:
 
 
 def detect_behind_origin(cwd: str | None = None, *, do_fetch: bool = True) -> dict | None:
-    """ONLINE, READ-ONLY behind-the-main-line signal (#335; widened branch-agnostic for #342/D-275). Returns a
+    """ONLINE, READ-ONLY behind-the-main-line signal (#335; widened branch-agnostic for #342). Returns a
     consequence-shaped dict when the operator's main checkout — ON ITS DEFAULT BRANCH or PARKED ON A SIDE
     BRANCH — is missing merged work that has landed on origin/<default>, PAST the velocity bar. Else None.
     Online-only: a fetch failure (offline/timeout) or an unresolvable default degrades SILENTLY to None
     (honest, never a false all-clear).
 
-    Branch-agnostic by design (D-275): the harmful essence is *missing your merged main line of work*, not which
+    Branch-agnostic by design: the harmful essence is *missing your merged main line of work*, not which
     branch you sit on, so it no longer requires HEAD to be the default branch OR a strict ancestor of
     origin/<default> — a side branch carrying its own commits still surfaces. The ANCESTRY / clean-ff question
     moves entirely to the CORRECTIONS (catch_up on the default, return_to_default off it), which block losslessly
@@ -535,7 +535,7 @@ def return_to_default(cwd: str | None = None, apply: bool = False, *, do_fetch: 
         return {**off, "status": "off-main", "applied": False}
     lossless, reasons = _is_lossless(main)
     if not lossless:
-        # dirty tree / stash / paused op: returning would risk work -> block, no mutation (constraint 3)
+        # dirty tree / stash / paused op: returning would risk work -> block, no mutation
         return {"status": "blocked", "main": main, "branch": default, "from": current,
                 "reasons": reasons, "applied": False}
     if not _ok(["git", "-C", main, "checkout", default]):   # defensive; never -f; a refusal blocks, never forces

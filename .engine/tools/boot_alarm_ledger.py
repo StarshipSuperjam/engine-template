@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""boot_alarm_ledger — the standing-alarm presentation ledger (D-269).
+"""boot_alarm_ledger — the standing-alarm presentation ledger.
 
-Boot's ONE local write (boot/README "read-only of *canonical* state — its one local write is the
-gitignored, non-canonical presentation ledger"). It records, per standing governance alarm, the
+Boot's ONE local write: boot stays read-only of *canonical* state, and its one local write is this
+gitignored, non-canonical presentation ledger. It records, per standing governance alarm, the
 structured CONDITION VALUE last relayed IN FULL, so a SessionStart that finds the same condition
 unchanged can collapse it to a terse reminder instead of re-relaying the full paragraph every resume
 (the #313 habituation). The decision is DETERMINISTIC and lives in this hook-side code, never the model —
 boot relays whatever variant the decision hands it.
 
-Laws (D-269 / boot/README §"Anti-habituation: collapsing an unchanged standing alarm"), all load-bearing:
+Laws (all load-bearing):
   - FAIL-TOWARD-FULL. A missing / unreadable / malformed ledger, lock contention, or a write failure
     renders every alarm IN FULL (repetition is the tolerable failure; suppression is not). Nothing here
     raises to the caller, and a failed write never blocks the turn.
@@ -62,7 +62,7 @@ def _run(cmd: list) -> str | None:
 def _git_common_root(cwd: str | None = None) -> str | None:
     """The shared clone root (parent of the common `.git` dir) so every worktree shares ONE ledger; None
     for a bare repo / unusual layout / git unavailable. COPIED (not imported) from the checkout_health /
-    memory-ledger idiom so boot's ledger shares no code path with memory's consolidation sweep (D-269)."""
+    memory-ledger idiom so boot's ledger shares no code path with memory's consolidation sweep."""
     base = cwd or os.getcwd()
     out = _run(["git", "-C", base, "rev-parse", "--git-common-dir"])
     if not out:

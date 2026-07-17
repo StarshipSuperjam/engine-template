@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Slice 20 — boot: the SessionStart orientation pack (the hook-DEPENDENT rich layer).
+"""boot: the SessionStart orientation pack (the hook-DEPENDENT rich layer).
 
-Beneath this sits slice 19's hook-INDEPENDENT floor (the root CLAUDE.md the platform always loads).
+Beneath this sits the hook-INDEPENDENT floor (the root CLAUDE.md the platform always loads).
 This module is the rich layer that rides on top when the SessionStart hook fires: it assembles a
 bounded, prioritized, plain-language orientation pack from committed state and the substrates that
 exist today, and injects it as `additionalContext` before the first prompt. The two-layer story is
 the floor (always) + this pack (when the hook runs).
 
-Boot's laws, all load-bearing here (systems/lifecycle/boot/README.md):
-  - READ-ONLY OF CANONICAL STATE (D-269). Boot regenerates NO derived or committed state; it reads and
+Boot's laws, all load-bearing here:
+  - READ-ONLY OF CANONICAL STATE. Boot regenerates NO derived or committed state; it reads and
     surfaces. Its own local write is the gitignored, non-canonical standing-alarm presentation ledger
     (boot_alarm_ledger) — a record of what was already shown, not a regeneration of any canonical state.
-    The one durable FINDING boot emits — a refused state cursor (D-059 law 1, U15b) — is handed to
+    The one durable FINDING boot emits — a refused state cursor — is handed to
     telemetry's inbox spool via emit_finding: telemetry owns that write, it is a local gitignored append
     (NEVER a GitHub write), and the #412 drain promotes it — so the read-only-AGAINST-GITHUB posture holds.
-  - ANTI-HABITUATION BY COLLAPSE, NOT SUPPRESSION (D-269). A standing governance alarm renders every
+  - ANTI-HABITUATION BY COLLAPSE, NOT SUPPRESSION. A standing governance alarm renders every
     session it is live, but one whose structured condition is UNCHANGED since last shown in full collapses
     to a terse reminder (consequence + fix offer kept); a new/changed/worsened one relays in full. The
     decision is deterministic in the hook path (_relay_lines -> boot_alarm_ledger.decide), fail-toward-full,
@@ -42,8 +42,8 @@ Boot's laws, all load-bearing here (systems/lifecycle/boot/README.md):
     ephemeral OS-temp session signal).
 
 The boot pack is the AI's BRIEFING, not a message to the operator: it reaches the model, never the
-operator's screen (constraints — `additionalContext` is model-only), so the operator meets it only through
-the AI relaying it (the operator-presentation relay, D-187/D-188). `assemble_pack` builds the briefing — an
+operator's screen (`additionalContext` is model-only), so the operator meets it only through
+the AI relaying it (the operator-presentation relay). `assemble_pack` builds the briefing — an
 AI-facing preamble, the present-marker line the AI is told to render FIRST (a short titled `Project status`
 block; PRESENT_MARKER, byte-identical to the floor's verify-presence copy in CLAUDE.deployed.md), the
 INFORM-marked must-push items (governance alarms + a grounding-failure tell) the AI relays in plain words,
@@ -52,7 +52,7 @@ fixed RELAY over signals the substrates already detected — boot computes no ne
 the operator-toned dashboard alone (PURE — no I/O; it renders gathered signals as DATA), reused by the status
 verb (the "two renderings of the same data"). The present-marker's ABSENCE from the AI's opening is how the
 floor tells the operator boot did not ground (the double-fault check). The modes stance line renders now that
-modes exists (slice 21); memory's reversible-forgetting readout renders whenever memory has set anything aside
+modes exists; memory's reversible-forgetting readout renders whenever memory has set anything aside
 from recall, and is simply absent when nothing is set aside — a young store that has forgotten nothing yet
 shows no block, no genesis-only scaffolding.
 
@@ -75,7 +75,7 @@ import attention         # noqa: E402  (rank_live: the shared assembler boot con
 import work_record       # noqa: E402  (#394: the merged-PR titles behind the ranked recent-decisions digest)
 import boot_slice        # noqa: E402  (#37: boot's rung-1 knowledge cache; read() fail-opens to None)
 import knowledge_gen     # noqa: E402  (REGEN_CMD: the one operator-facing regenerate-the-map command, cited not re-typed)
-import boot_alarm_ledger  # noqa: E402  (D-269: the standing-alarm presentation ledger; decide() fail-opens to full)
+import boot_alarm_ledger  # noqa: E402  (the standing-alarm presentation ledger; decide() fail-opens to full)
 import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
 import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-branch evaluation)
@@ -86,7 +86,7 @@ import audit_digest       # noqa: E402  (the self-review freshness signal; boot 
 import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
 
 # The card title a healthy boot always renders — byte-identical to the present-marker the floor names
-# in CLAUDE.deployed.md (slice 19 `owes ←`). The byte-identity is locked by test_boot.py; renaming it
+# in CLAUDE.deployed.md. The byte-identity is locked by test_boot.py; renaming it
 # here without the floor (or vice-versa) breaks the double-fault check, so the two move together.
 PRESENT_MARKER = "Project status"
 
@@ -95,7 +95,7 @@ PRESENT_MARKER = "Project status"
 # state/stance/attention/findings but NOT that it can query the project's wiring map at all, so it
 # re-derives the wiring by hand. This line names the faculty unconditionally and points at the runbook that
 # says WHEN to reach for it. AI-facing only: assemble_pack places it ABOVE the operator-dashboard divider and
-# it carries no RELAY_MARKER (§12 — the engine's own machinery stays out of operator narration). It is
+# it carries no RELAY_MARKER (the engine's own machinery stays out of operator narration). It is
 # distinct from the in-flow "pull deeper" cue render_neighborhood emits only when a change already reaches
 # into the graph (this one advertises the standing faculty; that one points at a specific neighbourhood).
 KNOWLEDGE_FACULTY_NOTE = (
@@ -107,22 +107,22 @@ KNOWLEDGE_FACULTY_NOTE = (
 
 # The SessionStart sources boot grounds on: the genuine session-START moments. `compact` is DELIBERATELY
 # excluded — a full boot-pack re-render on compaction is a deferred enhancement that must never be
-# depended on (boot/README §Post-compaction grounding); the reliable post-compaction floor is the
+# depended on; the reliable post-compaction floor is the
 # re-injected CLAUDE.md + the next per-prompt scent. These are the matcher values the hook registers on.
 SESSION_START_SOURCES = ("startup", "resume", "clear")
 
 # Per-OS hook interpreter: the committed `.claude/settings.json` + core-manifest hook `wires` carry the
 # POSIX form (`.engine/.venv/bin/python`), and `hook-runner.sh` resolves the actual layout at fire time
 # (POSIX bin/python or Windows Scripts/python.exe under the same venv root) — so one committed repo boots
-# on every OS, including a mixed-OS team (#407 / D-157 build-spec leaf). No per-OS re-render at generation.
+# on every OS, including a mixed-OS team (#407 build-spec leaf). No per-OS re-render at generation.
 
 PROTECTED_BRANCH = os.environ.get("PROTECTED_BRANCH", "main")
 STATE_PATH = os.path.join(validate.ENGINE_DIR, "state", "state.json")
-# The schema read_state validates the committed cursor against on read (U15a): a schema_version-1 cursor
-# whose INNER shape is broken is refused, never rendered as a confident cursor (D-059 law 1). Loaded lazily
+# The schema read_state validates the committed cursor against on read: a schema_version-1 cursor
+# whose INNER shape is broken is refused, never rendered as a confident cursor. Loaded lazily
 # inside _cursor_conforms, so a missing/corrupt schema is an engine fault that never blames a good cursor.
 _STATE_SCHEMA_PATH = os.path.join(validate.SCHEMAS_DIR, "state.v1.json")
-# The fixed source-id + severity of the durable refused-cursor finding (D-059 law 1's telemetry half, U15b).
+# The fixed source-id + severity of the durable refused-cursor finding (its telemetry half).
 # A FIXED literal message (see _refused_cursor_message) — no bytes from the malformed cursor flow into the
 # finding, so a hand-crafted cursor can neither inject Issue-body content nor forge the signal sentinel;
 # marker-safe by construction, deduped downstream by source_id.
@@ -130,12 +130,12 @@ REFUSED_CURSOR_SOURCE_ID = "boot/refused-cursor"
 
 # (The "what just happened" digest was sized here by a buried RECENTLY_SHIPPED_COUNT constant — the
 # magic-number pattern attention exists to retire. It is now the attention policy's reviewable, tunable
-# `budget_recent_decisions` slice over the ranked recent_decisions partition: see _shipped_lines. #394 U01.)
+# `budget_recent_decisions` slice over the ranked recent_decisions partition: see _shipped_lines. #394.)
 
 # The cold-start orientation event's budget total. Boot owns the event's cost budget; attention owns how it
-# splits across the kinds and flexes (systems/lifecycle/boot/README "Boot owns the event model; attention
-# owns the budget within it"; systems/cognitive/attention/README "their cost budgets … are boot's to
-# define"). This is a count of ITEM-SLOTS to surface — NOT a token/context-window measurement (the engine
+# splits across the kinds and flexes (boot owns the event model; attention
+# owns the budget within it, and their cost budgets are boot's to
+# define). This is a count of ITEM-SLOTS to surface — NOT a token/context-window measurement (the engine
 # has none) — split across the five kinds by the attention policy's reviewable shares. Set to 5 kinds × the
 # retired flat per-kind cap of 4, so the total surfacing volume matches what boot showed before, now
 # distributed by the policy's shares instead of a buried flat number. At this total the proportional split
@@ -150,7 +150,7 @@ COLD_START_BUDGET = 20
 NEEDS_ATTENTION_CAP = 4
 # How much of a recalled decision's text the orientation block shows. A recorded decision is a narrative
 # summary, not a headline, so a long one is elided rather than allowed to crowd the briefing — HOW MANY are
-# shown is the policy's budget slice; this bounds only how much of each. A build-spec leaf (D-052/D-113).
+# shown is the policy's budget slice; this bounds only how much of each. A build-spec leaf.
 _RECALL_SNIPPET_CHARS = 240
 
 
@@ -193,8 +193,8 @@ def gh_token() -> str | None:
 
 def _cursor_conforms(state: dict) -> bool:
     """True iff `state` validates against the state.v1 schema — the INNER-shape check read_state layers over
-    the cheap version gate (U15a), so a schema_version-1 cursor with a broken/missing inner shape is REFUSED,
-    not rendered as a confident 'all clear' (D-059 law 1: a malformed cursor fails loud, never misleads).
+    the cheap version gate, so a schema_version-1 cursor with a broken/missing inner shape is REFUSED,
+    not rendered as a confident 'all clear' (a malformed cursor fails loud, never misleads).
 
     An INFRASTRUCTURE fault — the schema file itself unreadable, or the validator unavailable — is NOT the
     cursor's fault, so it does NOT refuse: it returns True (falling back to the pre-existing version-only
@@ -213,12 +213,12 @@ def _cursor_conforms(state: dict) -> bool:
 def read_state() -> tuple[dict | None, bool]:
     """Return (state, refused). `refused` is True when the committed cursor is unreadable, is not a
     schema_version-1 cursor, or does not conform to the state.v1 schema (a version-1 cursor with a broken
-    INNER shape is refused, never rendered as a confident cursor — U15a / D-059 law 1) — boot then says
+    INNER shape is refused, never rendered as a confident cursor) — boot then says
     project status is unknown and falls through to the rest of the pack, NEVER halting. A readable,
     conforming cursor returns (state, False), rendered defensively with .get().
 
     This is a PURE read/predicate. Boot surfaces the refusal in-band (the operator-facing half) in the
-    dashboard/marker renders. The DURABLE half — the D-059 telemetry finding on a refused cursor — is emitted
+    dashboard/marker renders. The DURABLE half — the telemetry finding on a refused cursor — is emitted
     on the REAL SessionStart path only (assemble_pack, use_ledger), as a benign inbox-spool append via
     emit_refused_cursor_finding(): a GitHub write here would break boot's read-only posture, so the benign
     spool carries it and the #412 drain promotes it. Keeping the emit out of this read leaves the status
@@ -235,7 +235,7 @@ def read_state() -> tuple[dict | None, bool]:
 
 
 def _refused_cursor_message() -> str:
-    """The plain-language, engine's-own-health copy of the durable refused-cursor finding (U15b). Names what
+    """The plain-language, engine's-own-health copy of the durable refused-cursor finding. Names what
     the operator must do (correct the saved record, or let the engine re-ground) and does NOT imply the
     engine self-repairs or self-closes it; no backstage vocabulary (spool / drain / severity / schema). The
     first sentence is a clean, title-length summary (issue_title derives the title from it)."""
@@ -249,7 +249,7 @@ def _refused_cursor_message() -> str:
 
 
 def emit_refused_cursor_finding(*, spool_path: str | None = None) -> bool:
-    """Emit ONE benign refused-cursor finding to the telemetry inbox spool (D-059 law 1's durable half, U15b).
+    """Emit ONE benign refused-cursor finding to the telemetry inbox spool (its durable half).
     PERSISTENT_BENIGN routes emit_finding to a LOCAL gitignored spool append — boot never writes GitHub
     (read-only posture); the #412 drain promotes it once it persists across sessions, and the immediate
     operator surfacing is the existing in-band notice. Best-effort / fail-open (emit_finding swallows every
@@ -284,7 +284,7 @@ def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, s
             return "unknown", None         # a confirmation that protection is on -> honest "unknown"
         # Read the repo's identity tier so a team repo's orientation card reflects the STRONGER team floor
         # (code-owner review + last-push approval), not just the solo baseline — matching what the standing CI
-        # check enforces (U11).
+        # check enforces.
         missing = protection_guard.missing_floor(
             rules, protection_guard.REQUIRED_CHECKS, tier=protection_guard.resolve_tier())
     except Exception:  # noqa: BLE001 — unreachable / auth / malformed body -> unknown, never a false "on"
@@ -301,7 +301,7 @@ def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str 
     read (degraded), 0 when the register is reachable and empty. `fingerprint` is the STRUCTURED-CONDITION
     identity of the open set — a SORTED list of each finding's stable identity (its source_id, else
     `#<issue-number>`) — the value the anti-habituation ledger compares, so a close+open at EQUAL count reads
-    as CHANGED and is never mis-collapsed to "unchanged" (D-269 / R19). Duplicates are PRESERVED (two open
+    as CHANGED and is never mis-collapsed to "unchanged". Duplicates are PRESERVED (two open
     Issues sharing one source_id keep both tokens, so closing one still moves the fingerprint). `low_severity_
     count` is the COMPLETE count of open low-impact (persistent-but-benign) engine Issues — the render-only
     triage-pressure meter's authoritative input, read from the durable Issue set (each Issue's severity marker)
@@ -425,7 +425,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
         focus, focus_total = [], 0
     try:
         # Load the operator policy-override (operator config, absent until first tuned) and pass attention's
-        # slice as DATA — boot is the LOADING layer; attention merges it per-key (D-167), never reads the file.
+        # slice as DATA — boot is the LOADING layer; attention merges it per-key, never reads the file.
         # The work record, by contrast, is a SUBSTRATE attention reads itself (through the gh reader boot hands it).
         # The memory half of recent decisions, pulled ONCE here: the same rows feed the ranking (which orders
         # and budgets them) and the render below (which needs the text `rank()` strips), so the block can never
@@ -464,7 +464,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
             line = _resolve_member(member.get("id", ""), state, finding_titles)
             if line:                       # skip an id-less member rather than render a blank bullet
                 lines.append(line)
-    # The focused knowledge read's render channel (#37 / D-224): a per-(member, relationship) summary that
+    # The focused knowledge read's render channel (#37): a per-(member, relationship) summary that
     # PRESERVES the full neighbour counts the ranked partition strips, so render_neighborhood discloses
     # truncation honestly ("core provides 147, showing 4") instead of an arbitrary capped few passed off as
     # the whole. Best-effort — a failure degrades to no block, never breaks the rest of the pack.
@@ -479,10 +479,10 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
             _recalled_entries(result, recall_rows))
 
 
-# (predicate, direction) -> the plain-language relationship phrase for the AI orientation render. §12: these
+# (predicate, direction) -> the plain-language relationship phrase for the AI orientation render. These
 # are VERBS only — never the internal type nouns ("surface"/"module"/"check"/"policy"/"schema"); the slugs
 # already name the things. A walk edge is provided_by/governed_by/targets/depends_on; "in" means the edge
-# points AT the focus — the reverse connective tissue D-224 surfaces.
+# points AT the focus — the reverse connective tissue the walk surfaces.
 _RELATION_PHRASE = {
     ("provided_by", "out"): "is part of",
     ("provided_by", "in"): "provides",
@@ -501,12 +501,12 @@ def render_neighborhood(nb: dict | None) -> list:
     orientation CONTEXT for the model (the focused knowledge read, #37), NOT an operator alarm and NOT an
     action item; it carries no RELAY_MARKER.
 
-    The walk is bidirectional (D-224): a connective focus surfaces its reverse tissue — its governing rule, its
+    The walk is bidirectional: a connective focus surfaces its reverse tissue — its governing rule, its
     dependents, the checks that target it — not just the module it lives in. Each relationship is rendered with
     its TRUE count, so a highly-connected focus reads "core provides 147 (showing 4: ...)": the sample is
     DISCLOSED as a sample, never an arbitrary capped few passed off as the whole or the salient set (honest
-    truncation — ranking WHICH few is relevant is deferred, D-224 Q38/Q39). A genuinely bare leaf (its only
-    edge is `is part of` -> its module) honestly reads module-only. Plain words throughout (§12): relationship
+    truncation — ranking WHICH few is relevant is deferred). A genuinely bare leaf (its only
+    edge is `is part of` -> its module) honestly reads module-only. Plain words throughout: relationship
     verbs + slugs, never raw ids or internal type nouns.
 
     When the focus itself was truncated (more files were changed than `FOCUS_CAP` shows), the header discloses
@@ -533,7 +533,7 @@ def render_neighborhood(nb: dict | None) -> list:
         elif total <= len(sample):                 # the whole set fits the sample -> the slugs ARE the full list
             rel_lines.append(f"  {src} {phrase}: {', '.join(sample)}")
         else:                                        # truncated -> disclose the TRUE count AND that the shown few
-            # are arbitrary examples, not a ranked top-N (which few matter most is deferred, D-224 Q38/Q39), so
+            # are arbitrary examples, not a ranked top-N (which few matter most is deferred), so
             # the sample can never read as "the 4 that matter".
             rel_lines.append(f"  {src} {phrase} {total} "
                              f"(showing {len(sample)} examples, not ranked by importance: {', '.join(sample)})")
@@ -549,10 +549,10 @@ def _recent_decisions_recall(read=None) -> list[dict]:
     """The saved memory's most recent DECISIONS, pulled read-only for attention's recent-decisions partition.
 
     Attention's recent decisions are "recently merged pull requests … **and** the memory recall boot assembles
-    into the pack" (attention/README:49); cold start "pull[s] knowledge structure and memory recall when their
-    servers are up" (boot/README:67). BOOT does that pull and RELAYS the rows to the ranking — attention never
-    queries memory itself (D-154's anti-choice keeps memory off attention's direct-reads list, preserving the
-    §16 model: memory detects and owns its store, boot relays, attention ranks what it is handed).
+    into the pack"; cold start "pull[s] knowledge structure and memory recall when their
+    servers are up". BOOT does that pull and RELAYS the rows to the ranking — attention never
+    queries memory itself (a deliberate choice keeps memory off attention's direct-reads list, preserving the
+    model: memory detects and owns its store, boot relays, attention ranks what it is handed).
 
     The pull is non-lexical on purpose: a cold start has no prompt to match against, so it asks "what was
     decided lately?" (recency-ordered) — the per-prompt scent is what asks "what relates to THIS?".
@@ -615,7 +615,7 @@ def _recent_members(result: dict) -> list:
     KNOWN CALIBRATION, recorded rather than corrected: on an active repo merges land far more often than
     decisions are consolidated into memory, so the merged-PR half will normally take the whole slice and the
     recall block will often be empty. That is the shared budget working as specified — one partition, one
-    budget — and the budget VALUES are explicitly uncalibrated build-spec leaves (D-052/D-113), tunable via
+    budget — and the budget VALUES are explicitly uncalibrated build-spec leaves, tunable via
     `/engine-tune`. Splitting the slice per-source to "fix" it would invent a sub-budget the policy does not
     have. Worth revisiting only with real usage to calibrate against."""
     entry = next((e for e in result.get("partition", []) if e.get("category") == "recent_decisions"), None)
@@ -635,11 +635,11 @@ def _recalled_entries(result: dict, rows: list) -> list:
 
 def render_recalled_decisions(entries: list | None) -> list:
     """The AI-facing "decisions recorded recently" orientation block — the MEMORY half of attention's
-    recent-decisions partition (attention/README:49), pulled at cold start (boot/README:67), ordered by the
+    recent-decisions partition, pulled at cold start, ordered by the
     ranking and bounded by the policy's budget slice.
 
     Orientation CONTEXT for the model, like the knowledge neighbourhood: it sits above the dashboard divider,
-    carries no RELAY_MARKER, and is not an operator alarm or an action item (§12 — the engine's own machinery
+    carries no RELAY_MARKER, and is not an operator alarm or an action item (the engine's own machinery
     stays out of operator narration).
 
     ATTRIBUTED, not confirmed. These are the project's own recorded decisions, which is exactly why the block
@@ -770,7 +770,7 @@ def _shipped_lines(result: dict, *, read=None) -> list[str]:
     partition.
 
     Which decisions surface, and how many, is now the policy's reviewable `budget_recent_decisions` slice and
-    the partition's own recency ordering — retiring the buried RECENTLY_SHIPPED_COUNT constant (#394 U01).
+    the partition's own recency ordering — retiring the buried RECENTLY_SHIPPED_COUNT constant (#394).
     This needs its own render channel for the same reason the knowledge neighbourhood does: `rank()` reduces
     every member to {id, rank}, so the PR titles are stripped. The partition supplies WHICH and IN WHAT ORDER;
     this read supplies their titles. Shipped work is not an operator ACTION item, so it is routed here and
@@ -811,12 +811,12 @@ def _shipped_lines(result: dict, *, read=None) -> list[str]:
 
 # ---- assembly: gather signals -> render the operator dashboard -> wrap the AI briefing ------
 
-# The imperative relay marker (glossary): the directive embedded in the AI-facing briefing that compels the
+# The imperative relay marker: the directive embedded in the AI-facing briefing that compels the
 # AI to surface a high-impact item to the operator in plain words. RESERVED for the must-push set so the
 # relay never becomes a firehose — routine status carries no marker and is pulled via the status verb.
 RELAY_MARKER = "INFORM THE USER THAT"
 
-# #400 F1 — the engine's live-helper (MCP substrate) availability notice. CONSENT-CRITICAL: when a server is
+# #400 — the engine's live-helper (MCP substrate) availability notice. CONSENT-CRITICAL: when a server is
 # not live this session the operator runs on the committed-file fallback and, unable to read code, has no other
 # way to know. Boot CANNOT detect MCP tool routing — it reads committed files only, so RELAY-NOT-DETECT is
 # preserved (boot computes nothing here); the check is one the MODEL runs against its own tool list. It is
@@ -847,14 +847,14 @@ def gather_signals(session_id: str | None = None) -> dict:
     """Read + DETECT every signal the dashboard renders — the substrates' own detection, which boot only
     relays (it computes no new state). Each read is best-effort upstream and degrades that signal only.
     Returns a flat dict consumed by render_dashboard / present_marker_line / must_push — the single place
-    boot reaches the substrates, so the status verb (slice 3) re-gathers and renders the same way."""
+    boot reaches the substrates, so the status verb re-gathers and renders the same way."""
     state, refused = read_state()
     repo, token = repo_slug(), gh_token()
     gate, reason = protected_branch_signal(repo, token)
     finding_count, register, finding_fingerprint, low_severity_count, findings = open_findings(repo, token)
-    # The render-only triage-pressure line (telemetry/README §"triage-pressure stream"): one plain-language
+    # The render-only triage-pressure line: one plain-language
     # "backlog is growing" line once the COMPLETE open low-severity count crosses the governed threshold, else
-    # None. Boot DISPLAYS it read-only (it never runs a triage pass — D-269); the count is the durable-Issue
+    # None. Boot DISPLAYS it read-only (it never runs a triage pass); the count is the durable-Issue
     # count open_findings just read (authoritative + complete), so it can never render a false number — it is
     # SUPPRESSED (None) whenever the register read degraded (low_severity_count is None) or sits at/under the
     # threshold. Crossing promotes NOTHING (the meter never becomes an item), so it cannot feed what it measures.
@@ -924,7 +924,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         behind_origin = None
     try:
-        # The off-main Stage-1 signal (#342/D-275), RELAYED from checkout_health's own detection (boot computes
+        # The off-main Stage-1 signal (#342), RELAYED from checkout_health's own detection (boot computes
         # no new state). The OFFLINE companion to the behind tail: the operator's top-level checkout PARKED on a
         # non-default branch, caught every boot on day one (the cheap-to-fix window, before it falls behind). The
         # gentlest folder-health signal — a gentle invitation, collapse-eligible (anti-habituation). Fires only
@@ -935,7 +935,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         off_main = None
     try:
-        # The absent-update-home signal (#367, D-281/D-282), RELAYED from checkout_health's own OFFLINE
+        # The absent-update-home signal (#367), RELAYED from checkout_health's own OFFLINE
         # detection (boot computes no new state). A repo generated before the home coordinate shipped has an
         # installed engine that cannot fetch its own updates; boot OFFERS recording the home. Low-stakes and
         # the normal state for any repo with a home recorded, so it degrades QUIETLY to None — never a nag.
@@ -960,7 +960,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         pr_conflict = None
     try:
-        # The memory auto-restore offer (Floor 3, slice 6b), RELAYED from memory's own LOCAL-ONLY detector (no
+        # The memory auto-restore offer, RELAYED from memory's own LOCAL-ONLY detector (no
         # network; boot computes no new state). restore_vault is imported LAZILY here because restore_vault ->
         # backup_vault -> boot is a back-edge that is only safe lazily (pr_reconcile has no such edge). Degrades
         # QUIETLY to None — a fresh project with no backup, or one whose memory is present, is the normal state.
@@ -969,7 +969,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         restore_offer = None
     try:
-        # The code-older-than-data restore offer (Slice 3, D-264 floor a), RELAYED from memory's own OFFLINE detector
+        # The code-older-than-data restore offer, RELAYED from memory's own OFFLINE detector
         # (boot computes no new state). Same lazy import as the restore-offer above (the restore_vault -> backup_vault
         # -> boot back-edge). `gh` is passed so the detector can ALSO promote the durable tracked Issue when online;
         # offline it still returns the in-session offer. Degrades QUIETLY to None — no stamp (no recent data migration)
@@ -979,7 +979,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         migration_revert = None
     try:
-        # The memory-health signal (#396 U07b), RELAYED from memory's own LOCAL read (no network; boot computes
+        # The memory-health signal (#396), RELAYED from memory's own LOCAL read (no network; boot computes
         # no new state). Reads the live ledger and reports how many lines are unreadable — a rotting store that
         # would otherwise lose recall line by line with no signal. Lazy import (memory off the cold-start path).
         # Degrades QUIETLY to None on any read fault, and to 0 on a clean/torn-only ledger — the normal state.
@@ -988,7 +988,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         ledger_malformed = None
     try:
-        # The stalled-migration signal (#396 U26): a memory migration didn't finish and left an orphaned in-flight
+        # The stalled-migration signal (#396): a memory migration didn't finish and left an orphaned in-flight
         # marker, so automatic tidying (compaction) is paused until it clears. Read-only relay from memory's own
         # detector; the clear itself is compaction's self-heal. Quietly False on a clean/live state or any fault.
         from memory import ledger_health as _lh
@@ -996,7 +996,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         migration_stalled = False
     try:
-        # The memory-availability signal (#397 U09), RELAYED from memory's own LOCAL read: True iff the saved
+        # The memory-availability signal (#397), RELAYED from memory's own LOCAL read: True iff the saved
         # ledger is present-but-unreadable, so recall genuinely can't answer (the availability floor — distinct
         # from the malformed-LINES rot below, which the file still opens, and from the FTS5 slower-mode the scent
         # renders). Read-only; degrades quietly to False on any fault. The dead-MCP-SERVER case is the model's own
@@ -1005,12 +1005,12 @@ def gather_signals(session_id: str | None = None) -> dict:
         recall_offline = _lh_off.detect_recall_offline()
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         recall_offline = False
-    # The reversible-forgetting readout (#413 U09), RELAYED from memory's own read: what recall has set aside
+    # The reversible-forgetting readout (#413), RELAYED from memory's own read: what recall has set aside
     # (notes gone quiet, notes folded into summaries) that the operator has a handle on. None means "not read"
     # (an unreadable store — surfaced by recall_offline above, never as a false "nothing set aside"); a report
     # means "read". Read-only; boot owns the wording, memory owns the mechanism.
     set_aside = _set_aside_recall()
-    # "Where we are" assembled LIVE from native GitHub sources, read-only (D-198): the online card is always
+    # "Where we are" assembled LIVE from native GitHub sources, read-only: the online card is always
     # current and cannot silently rot. ALL-OR-NOTHING — any read failure (or no repo/token) leaves this None,
     # and render falls back to the committed offline cache, rendered stale-labelled. boot DISPLAYS; it never
     # writes the cache (that rides telemetry's GitHub pass). A failure here NEVER reads as a confident "none set".
@@ -1041,10 +1041,10 @@ def gather_signals(session_id: str | None = None) -> dict:
         "map_corrupt": map_corrupt,
         # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
         "neighborhood": neighborhood,
-        # the memory half of recent decisions (#394 U01) -> the AI-facing recalled-decisions block
+        # the memory half of recent decisions (#394) -> the AI-facing recalled-decisions block
         "recalled": recalled,
         # The "recently shipped" digest, now the attention policy's budget_recent_decisions slice over the
-        # ranked partition rather than a buried constant's fixed 5 (#394 U01).
+        # ranked partition rather than a buried constant's fixed 5 (#394).
         "shipped": shipped,
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
@@ -1059,19 +1059,19 @@ def gather_signals(session_id: str | None = None) -> dict:
         "absent_home": absent_home,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
-        # the memory auto-restore offer (#R2, slice 6b): local memory is empty + a backup is configured, or None
+        # the memory auto-restore offer: local memory is empty + a backup is configured, or None
         "restore_offer": restore_offer,
-        # the code-older-than-data offer (D-264 #303): the store is ahead of the engine after a reverted update, or None
+        # the code-older-than-data offer (#303): the store is ahead of the engine after a reverted update, or None
         "migration_revert": migration_revert,
-        # the memory-health count (#396 U07b): unreadable lines in the live ledger (>0 -> a rot heads-up), 0/None otherwise
+        # the memory-health count (#396): unreadable lines in the live ledger (>0 -> a rot heads-up), 0/None otherwise
         "ledger_malformed": ledger_malformed,
-        # the stalled-migration signal (#396 U26): True iff a memory migration didn't finish (orphaned marker) and
+        # the stalled-migration signal (#396): True iff a memory migration didn't finish (orphaned marker) and
         # tidying is paused until it clears; False on a clean/live state (a live migration is normal, not a stall)
         "migration_stalled": migration_stalled,
-        # the memory-availability signal (#397 U09): True iff the saved ledger is present-but-unreadable so recall
+        # the memory-availability signal (#397): True iff the saved ledger is present-but-unreadable so recall
         # can't answer (the "memory offline" floor); False on a healthy, empty, or unreadable-to-detect state
         "recall_offline": recall_offline,
-        # the reversible-forgetting readout (#413 U09): what recall has set aside (demoted / summarised) with the
+        # the reversible-forgetting readout (#413): what recall has set aside (demoted / summarised) with the
         # full count + id set, or None when the store was not read (never a false "nothing set aside")
         "set_aside": set_aside,
         # the self-review freshness finding (soft = hasn't-run-yet / has-gone-stale; note = current), or None
@@ -1081,10 +1081,10 @@ def gather_signals(session_id: str | None = None) -> dict:
     }
 
 
-# #416 U10-F1: the degraded inputs a Claude Desktop restart actually reconnects — the MCP/GitHub background
+# #416: the degraded inputs a Claude Desktop restart actually reconnects — the MCP/GitHub background
 # reads (the knowledge map service, the GitHub-backed open-problems read). NOT git (a subprocess, not a
 # service), state (a committed file), or the ranker (in-process logic): a restart does not fix those, so the
-# self-serve restart line is scoped to this set (boot/README "Degradation is loud and consented" —
+# self-serve restart line is scoped to this set ("Degradation is loud and consented" —
 # "usually a Claude Desktop restart away from full capability").
 _RESTART_FIXABLE = {"telemetry", "knowledge"}
 
@@ -1095,7 +1095,7 @@ def render_dashboard(s: dict) -> str:
     checkout heads-up (open-findings tier — provisioning's detector, relayed read-only, ranked BELOW the
     governance alarms because a stranded local checkout cannot reach the protected branch), then the status
     facts, the stance, the consolidated degraded notice, the ranked work, and the recently-shipped digest.
-    NO AI-facing markers — this is the operator's own view, which the status verb (slice 3) renders directly
+    NO AI-facing markers — this is the operator's own view, which the status verb renders directly
     (the 'two renderings of the same data'). The card title is always the first line."""
     pinned: list[str] = []        # governance-critical alarms, loudest first
     degraded: list[str] = []      # the consolidated "what I couldn't refresh / verify" notice
@@ -1104,7 +1104,7 @@ def render_dashboard(s: dict) -> str:
         # boot OFFERS the fix here and stays READ-ONLY; the assistant runs the already-built, idempotent
         # bootstrap.ControlPlane.apply(branch=PROTECTED_BRANCH) on the operator's consent — the shared
         # repair-offer contract (boot-session-start.md). boot never imports bootstrap (bootstrap imports
-        # boot -> a cycle) and never applies the fix itself: read-only of canonical state (D-269).
+        # boot -> a cycle) and never applies the fix itself: read-only of canonical state.
         pinned.append(
             f"⛔ **Your safety gate is off** — `{PROTECTED_BRANCH}` isn't protected, so unreviewed work "
             f"could reach your main branch ({s['reason']}). Say **turn my safety gate back on** and I'll "
@@ -1135,9 +1135,9 @@ def render_dashboard(s: dict) -> str:
             "and I'll get it healthy again — I'll save anything at risk first (including any work that's "
             "drifted off your branch) to a safe point, so nothing is lost.")
 
-    # The widened "fifth" folder-health surfacing (#342/D-275): off-main Stage-1 + behind-the-main-line Stage-2,
+    # The widened "fifth" folder-health surfacing (#342): off-main Stage-1 + behind-the-main-line Stage-2,
     # pinned read-only at the strand tier (below the governance alarms — an off-main/behind checkout cannot reach
-    # protected `main`). COUNT-FREE per the design's "never a count" leaf law, NO git verbs, ONE consent handle
+    # protected `main`). COUNT-FREE ("never a count"), NO git verbs, ONE consent handle
     # ("bring it up to date") across both stages. boot OFFERS only; the assistant runs the correction on consent
     # (catch_up on the default, return_to_default off it) — both lossless by construction. Precedence: the FIRM
     # Stage-2 (missing merged work) supersedes the GENTLE Stage-1 (merely parked) when both are live.
@@ -1154,7 +1154,7 @@ def render_dashboard(s: dict) -> str:
     elif behind:
         # Stage-2 on a SIDE line of work: the firm escalation. Two tones from the advisory (errs gentle): if the
         # side line may carry unfinished work, promise to keep it; if it's only an older view, say nothing's lost.
-        # When it escalated from a gentle off-main park already shown, name that lineage (product-S3).
+        # When it escalated from a gentle off-main park already shown, name that lineage.
         lead = ("📦 **The side line of work I flagged earlier is now missing finished work from your main "
                 "project**" if (off_main and off_main.get("worsened"))
                 else "📦 **Your project folder is pointed at a side line of work that's missing finished work "
@@ -1184,7 +1184,7 @@ def render_dashboard(s: dict) -> str:
                     "is. Whenever you like, say **bring it up to date** and I'll point your folder back at your "
                     "main project.")
             if off_main.get("first_sighting"):
-                # The disclosure gap (constraint 6): spotting this is a newer check, so a folder reported healthy
+                # The disclosure gap: spotting this is a newer check, so a folder reported healthy
                 # for a while isn't silently re-cast as freshly broken. Phrased to NOT assert how long it's been
                 # parked (offline we cannot tell) — only that the CHECK is new, so it may be a long-standing state.
                 line += (" (Spotting a folder parked off its main line is a newer check — earlier sessions "
@@ -1192,11 +1192,11 @@ def render_dashboard(s: dict) -> str:
                          "that just broke.)")
             pinned.append(line)
 
-    # The absent-update-home OFFER (#367, D-281/D-282), surfaced read-only at the strand/offer tier — the engine's
+    # The absent-update-home OFFER (#367), surfaced read-only at the strand/offer tier — the engine's
     # manifest records no home to fetch updates from (a repo generated before that coordinate shipped), so the
     # update path can't run and refuses rather than guess. NOT a governance alarm (it cannot let anything reach
     # protected `main`), so it pins below them. boot OFFERS recording the home; the assistant records it on the
-    # operator's consent (the strand model). Includes the newer-check disclosure (constraint 6) so a long-standing
+    # operator's consent (the strand model). Includes the newer-check disclosure so a long-standing
     # setup isn't recast as freshly broken.
     if s.get("absent_home"):
         pinned.append(
@@ -1220,7 +1220,7 @@ def render_dashboard(s: dict) -> str:
             "Say **reconcile it** and I'll check: I'll either clear it for you, or — if the clash is in real "
             "content — tell you plainly that it needs your decision.")
 
-    # The memory auto-restore OFFER (Floor 3, slice 6b), surfaced read-only at the strand/pr_conflict tier — a
+    # The memory auto-restore OFFER, surfaced read-only at the strand/pr_conflict tier — a
     # recovery OPPORTUNITY, not a governance alarm, so it pins below them. boot OFFERS; the assistant runs the
     # restore on the operator's consent (the strand model). Memory owns the detector; boot owns this wording.
     if s["restore_offer"]:
@@ -1228,9 +1228,9 @@ def render_dashboard(s: dict) -> str:
             "↩️ **Your saved memory looks empty, and this project has a backup.** Say **restore my memory** and "
             "I'll try to bring it back from the backup. Nothing on this computer changes until you say so.")
 
-    # The code-older-than-data restore OFFER (D-264 floor a, #303), surfaced read-only at the recovery tier. Memory's
+    # The code-older-than-data restore OFFER (#303), surfaced read-only at the recovery tier. Memory's
     # offline detector found the saved memory was reshaped by an engine update that is no longer in place, so the store
-    # is ahead of the code. Floor (a): exactly ONE action, by plain handle ("the copy saved before that update"), never
+    # is ahead of the code. Exactly ONE action, by plain handle ("the copy saved before that update"), never
     # a tag/ref — the snapshot-vs-latest choice is the engine's. Worded to cover BOTH an operator-undone update and a
     # half-applied one that never landed (leads with the state, not "you undid"). boot OFFERS; the assistant runs
     # memory.restore_pre_migration(tag=…) on consent (the tag rides the signal, never the operator's eyes).
@@ -1252,7 +1252,7 @@ def render_dashboard(s: dict) -> str:
             "Don't trust a status summary until the engine re-grounds.")
     else:
         # "Where we are" (the active work) and "Milestone" (the larger plan marker) are two self-explanatory
-        # lines, from ONE source — live-or-cached, never both (boot/README rendering law). When the live GitHub
+        # lines, from ONE source — live-or-cached, never both. When the live GitHub
         # derive succeeded, render it (always current); otherwise fall back to the committed offline cache,
         # named with WHEN it was cached and that it may be stale (the debt-count staleness voice). An absent
         # milestone is an honest normal state on its own line ("No milestone is open"), never an error.
@@ -1305,7 +1305,7 @@ def render_dashboard(s: dict) -> str:
         # read each session, a healthy boot leaves this empty (the old "expected on a new engine" framing is
         # gone — it would be false here). EVERY value att_degraded can carry must map to a plain phrase: the
         # four substrate names AND "attention" (needs_attention reports ["attention"] when the ranker itself
-        # failed), so no internal noun ever reaches operator copy (the §12 leak guard).
+        # failed), so no internal noun ever reaches operator copy (the leak guard).
         _UNREACHABLE = {"telemetry": "your open-problems list from GitHub",
                         # `git` answers for in-flight work AND what shipped recently, and degrades as a
                         # whole, so this names the substrate rather than one of its halves. It does NOT name
@@ -1349,7 +1349,7 @@ def render_dashboard(s: dict) -> str:
             "and commit the result to replace the damaged file.")
 
     if s.get("recall_offline"):
-        # #397 U09: the spec's "running degraded (memory offline)" notice — the saved-memory store is present but
+        # #397: the spec's "running degraded (memory offline)" notice — the saved-memory store is present but
         # couldn't be OPENED at all, so recall can't work this session. Distinct from and mutually exclusive with
         # the "N unreadable lines" rot below (there the file DID open and was read past line-by-line; an unopenable
         # file yields no line count — detect_ledger_malformed returns None). Boot RELAYS memory's own read result
@@ -1365,7 +1365,7 @@ def render_dashboard(s: dict) -> str:
 
     malformed = s.get("ledger_malformed")
     if malformed:
-        # #396 U07b: one or more unreadable lines in the saved-memory ledger — a genuine rot signal. Fires ONLY
+        # #396: one or more unreadable lines in the saved-memory ledger — a genuine rot signal. Fires ONLY
         # on a positive count (a torn trailing line is the normal, self-healing post-crash state and is NOT
         # surfaced). Peer voice with reassurance + a remedy: a non-engineer can't hand-fix a gitignored store, so
         # name that the rest of recall is intact and point at the backup, not a raw alarm. .get() so a
@@ -1377,10 +1377,10 @@ def render_dashboard(s: dict) -> str:
             "memory from your backup.")
 
     if s.get("migration_stalled"):
-        # #396 U26: a data migration didn't finish and left an orphaned marker (its process died). This fires ONLY
+        # #396: a data migration didn't finish and left an orphaned marker (its process died). This fires ONLY
         # for the orphaned case, which does NOT block anything — so it says "didn't finish", not "paused" (the
         # marker no longer holds tidying off; the next tidy clears it). LEAD with the reassurance (the failure
-        # direction here is "nothing lost" — README §279: content is untouched), mirroring the memory-health
+        # direction here is "nothing lost" — content is untouched), mirroring the memory-health
         # sibling above. Plain language — never "migration"/"compaction"/"marker". Recovery is automatic (the next
         # memory tidy reaps the leftover), and a concrete recourse is named. .get() so a fixed-signals test
         # fixture without the key never KeyErrors.
@@ -1389,8 +1389,8 @@ def render_dashboard(s: dict) -> str:
             "readable. I clean up the leftover automatically the next time I tidy your memory; if you keep "
             "seeing this across sessions, tell me and I'll clear it right away.")
 
-    # #416 U10-F1: name the single self-serve fix the spec's loud notice owes ("usually a Claude Desktop
-    # restart away from full capability", boot/README §"Degradation is loud and consented"). SCOPED — fires
+    # #416: name the single self-serve fix the spec's loud notice owes ("usually a Claude Desktop
+    # restart away from full capability"). SCOPED — fires
     # only when a restart-fixable substrate outage is present (a dropped MCP/GitHub connection, or the
     # gate-unknown no-GitHub-access case), never for the regenerate-a-file or self-healing lines above (a
     # restart does not fix those). Hedged ("if any of that … the usual cause") per the spec's "usually", so it
@@ -1433,7 +1433,7 @@ def render_dashboard(s: dict) -> str:
         out.append("")
         out.extend(set_aside_block)
 
-    # The artifact warrant (D-261), proportionately LIGHT: this dashboard — and the project map it
+    # The artifact warrant, proportionately LIGHT: this dashboard — and the project map it
     # draws on — is an automated readout derived from the engine's own checks, so it states its bound
     # right where it is read. The graph behind "your project map" is a byte-fingerprinted generated file
     # whose bound rides this startup view (an authored field in it would break exact-match regeneration),
@@ -1473,7 +1473,7 @@ def present_marker_line(s: dict) -> str:
                 "up to date' and I'll bring it current")
     if s.get("behind_origin") or s.get("off_main"):   # off the main line (parked on a side line, maybe behind too)
         # ONE tone-neutral headline for the off-main stages; the two tones and the felt consequence live in the
-        # dashboard's pinned line, not the marker (product-S1/S2). Accurate here — the checkout is genuinely off it.
+        # dashboard's pinned line, not the marker. Accurate here — the checkout is genuinely off it.
         return (f"⚠ {PRESENT_MARKER}: your project folder isn't on your main line of work — say 'bring it up "
                 "to date' and I'll sort it out safely")
     if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
@@ -1492,10 +1492,10 @@ def present_marker_line(s: dict) -> str:
 
 def _pushed_alarms(s: dict) -> list:
     """The pushed governance set as STRUCTURED alarms — the single source for both must_push (the full
-    lines) and the D-269 collapse decision. Each alarm carries:
+    lines) and the collapse decision. Each alarm carries:
       key         a stable identity (the ledger key);
       value       the STRUCTURED condition the ledger compares (never the prose) — JSON-able;
-      collapsible whether it is in the D-269 collapse allowlist (a standing governance alarm). The
+      collapsible whether it is in the collapse allowlist (a standing governance alarm). The
                   degrade-loud tells — a couldn't-verify gate and a refused cursor — are NOT collapsible:
                   they always render full so a grounding/verification failure never softens to a reminder;
       full        the neutral full INFORM line (first appearance, an improved/changed condition, or any
@@ -1536,7 +1536,7 @@ def _pushed_alarms(s: dict) -> list:
                  f"engine's own health to review — this has grown since last session: {s['register']}")
         # The ledger fingerprint is the STRUCTURED-CONDITION identity SET (finding_fingerprint), not the bare
         # count — so a close+open at equal count is seen as changed and relays full, never a false "unchanged"
-        # (D-269 / R19). The display copy still reads the count. `.get` keeps synthetic test dicts fail-soft;
+        # The display copy still reads the count. `.get` keeps synthetic test dicts fail-soft;
         # gather_signals always populates the key (and tracks count, so a real count>=1 carries a real list).
         alarms.append({"key": "findings", "value": s.get("finding_fingerprint"), "collapsible": True,
                        "full": full, "terse": terse, "worse": worse})
@@ -1545,14 +1545,14 @@ def _pushed_alarms(s: dict) -> list:
 
 def must_push(s: dict) -> list:
     """The INFORM-marked items the AI MUST relay to the operator in plain words — the FULL (uncollapsed)
-    governance-critical alarms and the grounding-failure tell (D-187 must-push set). This is the fresh
+    governance-critical alarms and the grounding-failure tell (the must-push set). This is the fresh
     render (the `pack` debug CLI and a fresh, ledger-less context); the SessionStart hook path applies the
-    D-269 collapse via _relay_lines instead. A fixed relay over detected signals."""
+    collapse via _relay_lines instead. A fixed relay over detected signals."""
     return [a["full"] for a in _pushed_alarms(s)]
 
 
 def _off_main_value(s: dict):
-    """The off-main ledger value — its STABLE structured identity for the D-269 collapse (never the prose):
+    """The off-main ledger value — its STABLE structured identity for the collapse (never the prose):
     [the side line it's parked on, whether it has ALSO fallen behind the main line]. A repeat with the same
     value collapses to a terse reminder; the gentle->behind transition (False->True on the second element) is
     the worsening _worse detects, which drives the firm Stage-2 line's lineage. None when not off-main."""
@@ -1563,7 +1563,7 @@ def _off_main_value(s: dict):
 
 
 def _set_aside_value(s: dict):
-    """The set-aside readout's STABLE structured identity for the D-269 collapse (never the prose): the sorted
+    """The set-aside readout's STABLE structured identity for the collapse (never the prose): the sorted
     id set of the FULL set-aside population (never the bounded sample the render shows — a note leaving below
     the display cut must still relay full). The identity SET, never the bare count: one note coming back while
     another goes aside leaves the count equal but the situation changed, so a count would wrongly collapse it
@@ -1601,7 +1601,7 @@ def _worse(key: str, prior, current) -> bool:
 
 
 def _relay_lines(s: dict) -> list:
-    """The hook-side relay set with the D-269 collapse applied (the deterministic decision lives here, in
+    """The hook-side relay set with the collapse applied (the deterministic decision lives here, in
     the hook path — never the model): a collapse-eligible alarm whose structured condition is unchanged
     since last shown in full renders TERSE; a new/changed one renders full; a worsened one renders the
     'got worse' full line; the degrade-loud tells always render full. Fail-toward-full: if the ledger could
@@ -1628,7 +1628,7 @@ def _relay_lines(s: dict) -> list:
     results = decision.get("results", {})
     # Stamp the off-main collapse outcome onto `s` for the (pure) dashboard renderer — HOOK-SIDE ONLY, so the
     # status verb (which never calls _relay_lines) leaves these absent and renders the off-main line FULL
-    # (fail-toward-full, arch-S1/S4). `worsened` drives the firm Stage-2 lineage; `first_sighting` the disclosure
+    # (fail-toward-full). `worsened` drives the firm Stage-2 lineage; `first_sighting` the disclosure
     # gap (gated on ok, so a ledger-read failure never falsely claims a first sighting).
     if off_main_value is not None:
         r = results.get("off_main", {"outcome": "full", "prior": None})
@@ -1665,21 +1665,21 @@ def _relay_lines(s: dict) -> list:
 
 
 def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) -> str:
-    """The AI-FACING briefing injected at SessionStart (the operator-presentation relay, D-187/D-188). It
+    """The AI-FACING briefing injected at SessionStart (the operator-presentation relay). It
     reaches the MODEL, never the operator's screen — so it tells the AI to (1) render the present-marker
     block first, (2) relay each INFORM line in plain words, (3) surface a brief needs-attention headline;
     the full operator dashboard follows for grounding. The present-marker instruction always names the
     `Project status` token (so the marker is present on every branch), and is emitted BEFORE the dashboard
     so a dashboard failure can't suppress it. Posture — the protected-branch merge is the real guarantee.
 
-    `use_ledger` (the SessionStart HOOK path) applies the D-269 anti-habituation collapse — an unchanged
+    `use_ledger` (the SessionStart HOOK path) applies the anti-habituation collapse — an unchanged
     standing alarm relays terse, a new/worsened one in full — via the deterministic ledger. The `pack`
     debug CLI leaves it False for a fresh, full render. The present-marker line and the dashboard NEVER
-    collapse: only the must-push relay payload behind the marker varies (boot/README §Anti-habituation)."""
+    collapse: only the must-push relay payload behind the marker varies."""
     s = gather_signals(session_id)
     marker = present_marker_line(s)
     push = _relay_lines(s) if use_ledger else must_push(s)
-    # DURABLE half of the refused-cursor posture (D-059 law 1, U15b): on the REAL SessionStart path only
+    # DURABLE half of the refused-cursor posture: on the REAL SessionStart path only
     # (use_ledger — never the `pack` debug view or the read-only status verb, both use_ledger=False), a
     # refused cursor spools ONE benign finding the #412 drain later promotes. A local gitignored append only,
     # so boot's read-only-against-GitHub posture holds; best-effort (emit_finding swallows every fault), so it
@@ -1701,7 +1701,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
         out.append("2. Relay each of these to the operator in plain language (they are governance-critical "
                    "— do not skip any):")
         out.extend(f"   - {line}" for line in push)
-        # AI-facing collapse contract (D-269; don't relay this line itself). An item phrased "still …
+        # AI-facing collapse contract (don't relay this line itself). An item phrased "still …
         # (unchanged since last session)" is a standing one already seen — relay it as the brief reminder
         # it is; a new or worsened item is stated in full. If a standing alarm has dropped off entirely
         # since last session, that means the engine re-checked and it is resolved — not that it stopped
@@ -1741,7 +1741,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     # The focused knowledge read (#37): the structural neighborhood of the work in hand — AI-orientation
     # context, placed in the briefing (not the operator dashboard), and only when there is work in hand.
     out.extend(render_neighborhood(s.get("neighborhood")))
-    # The memory half of attention's recent decisions (#394 U01): what was DECIDED lately, pulled from the
+    # The memory half of attention's recent decisions (#394): what was DECIDED lately, pulled from the
     # project's saved memory at cold start and ordered by the ranking — AI-orientation context beside the
     # structural neighbourhood, not an operator alarm, and only when there is something recalled.
     out.extend(render_recalled_decisions(s.get("recalled")))
@@ -1762,7 +1762,7 @@ def handler(payload: dict) -> dict:
     any unreadable signal, and the merge wall backstops any write that slips that window."""
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     modes.clear_stance(session_id)
-    # use_ledger=True: this is the real SessionStart path, so apply the D-269 collapse (an unchanged
+    # use_ledger=True: this is the real SessionStart path, so apply the collapse (an unchanged
     # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
     pack = assemble_pack(session_id, use_ledger=True)
     return hooks.inject(pack) if pack else hooks.proceed()

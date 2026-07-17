@@ -1,36 +1,36 @@
 #!/usr/bin/env python3
-"""The hooks contract substrate (core slice 17) — the cross-cutting hook LAWS every local gate
+"""The hooks contract substrate — the cross-cutting hook LAWS every local gate
 is built on. Where the control-plane is the GitHub-side substrate, hooks is the in-session
 substrate the boot pack, the close ritual, the local nudges, and the experiential capture all
 fire through. It is foundational: boot, close, telemetry, validation, and memory all presuppose
-it (systems/infrastructure/hooks/README.md).
+it.
 
-THIS MODULE OWNS THE LAWS, NOT THE BEHAVIORS (hooks/README §"Hooks"). It ships:
+THIS MODULE OWNS THE LAWS, NOT THE BEHAVIORS. It ships:
   - the closed EVENT INVENTORY (the engine's chosen subset of the platform's larger event set),
   - the BLOCK BUDGET (which events may hard-block — only PreToolUse and Stop) + the block cap,
   - the FAIL-OPEN-AND-FLAG harness (a crashing gate never strands the operator and never fails
-    silently — principles §5),
+    silently),
   - the HOOK-SCRIPT CONTRACT translation (stdin event JSON; exit code / structured stdout),
-  - the per-OS INTERPRETER-PATH resolver (D-156).
-It ships NO hook behavior and NO registered hook: the boot SessionStart pack (slice 20), the close
-Stop ritual (slice 22), the modes explore write-gate (slice 21), and validation/telemetry's
+  - the per-OS INTERPRETER-PATH resolver.
+It ships NO hook behavior and NO registered hook: the boot SessionStart pack, the close
+Stop ritual, the modes explore write-gate, and validation/telemetry's
 PostToolUse each supply their own handler and ride this harness. The committed `.claude/settings.json`
-that registers a hook is born at the first hook-wiring slice (20); the keyed, reversible registration
+that registers a hook is born at the first hook-wiring step; the keyed, reversible registration
 MECHANISM is the wiring library's (wiring.py), applied by provisioning — hooks fixes only that
-registration must be keyed and reversible, never the mechanism (hooks/README §"Registration ...").
+registration must be keyed and reversible, never the mechanism.
 
 The STATIC half of the block-budget law — the pure `block_budget_findings` block-registry coherence leg,
 which flags a block declared on a non-eligible event AND a block that does not declare the stances it is
-active in (the mode dimension, hooks/README §Mode-awareness) — lives in validate.py beside its sibling
+active in (the mode dimension) — lives in validate.py beside its sibling
 legs (agent/skill/interface/policy), fixture-tested and wrapped by the first-class engine/check/
 block-coherence check (the agent/skill-coherence precedent). This module owns the RUNTIME half: the
 harness enforces the same budget at the moment a handler asks to block.
 
-BOUNDARY (hooks/README §"Boundary"): a hook script is a `tool` instance — deterministic engine code
+BOUNDARY: a hook script is a `tool` instance — deterministic engine code
 homed at `.engine/tools/`, not a dedicated surface. Hook registrations and the settings file are
 wiring, not surfaces.
 
-CLI (the operator-runnable demo on a throwaway fixture — no registered hook exists until slice 20):
+CLI (the operator-runnable demo on a throwaway fixture — no registered hook exists yet):
   uv run --directory .engine -- python tools/hooks.py demo
 """
 from __future__ import annotations
@@ -46,7 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 
 
-# ---- the closed event inventory (hooks/README §"The event inventory") -------------------------
+# ---- the closed event inventory -------------------------
 # The Engine governs a SUBSET of the Claude Code hook events: the platform exposes many more
 # (SubagentStart/Stop, PostCompact, PermissionRequest, StopFailure, Notification, ...) — the set
 # the Engine binds is an end-state decision, not the platform's full list, and it grows additively
@@ -55,9 +55,9 @@ import validate  # noqa: E402
 #   injects — may this event inject `additionalContext`?
 #   owners  — the system(s) that own the behavior on this event. PostToolUse has THREE owners
 #             (validation's local nudge + telemetry's ambient capture + modes' plan-acceptance
-#             Build-entry trigger coexist on one event — D-180); it MAY inject — modes' acceptance
+#             Build-entry trigger coexist on one event); it MAY inject — modes' acceptance
 #             trigger injects an assistant-internal stance directive (additionalContext) on Build entry
-#             (D-270/D-271), still non-blocking; SessionEnd is hooks-owned
+#             still non-blocking; SessionEnd is hooks-owned
 #             (cleanup/flush, cannot block); UserPromptSubmit is boot/orientation's per-prompt scent.
 #             SessionStart has THREE owners: boot's orientation pack + memory's consolidation sweep (3b)
 #             + the optional github-projects-sync board refresh, which coexist on one event by keyed
@@ -75,21 +75,21 @@ EVENT_INVENTORY = {
 EVENTS = frozenset(EVENT_INVENTORY)
 # The block budget: the closed set of events that MAY hard-block. The platform would let PreCompact,
 # UserPromptSubmit, and SubagentStop block too; the Engine declines — a local hard-block buys
-# friction without proportional trust (principles §6). The one unbypassable gate stays the
+# friction without proportional trust. The one unbypassable gate stays the
 # protected-branch review.
 BLOCK_ELIGIBLE_EVENTS = frozenset(e for e, m in EVENT_INVENTORY.items() if m["blocks"])  # {PreToolUse, Stop}
 
-# The block-eligible INVARIANT set starts EMPTY (hooks/README §"The block-budget law"): owning
+# The block-eligible INVARIANT set starts EMPTY: owning
 # systems register their block into it additively when designed — close's findings-disposition Stop
-# block (slice 22) and modes' explore write-gate PreToolUse block (slice 21). Hooks names no
+# block and modes' explore write-gate PreToolUse block. Hooks names no
 # invariant itself, so it presupposes none of the systems that will populate the set. A registration
 # is {event, name, owner, modes}; the block-registry leg (validate.block_budget_findings) reads `event`
-# (only PreToolUse/Stop may block) AND `modes` (the stances the block is active in, declared as data per
-# hooks/README §Mode-awareness — not code-only).
+# (only PreToolUse/Stop may block) AND `modes` (the stances the block is active in, declared as data —
+# not code-only).
 BLOCK_ELIGIBLE_INVARIANTS: tuple = ()
 
 
-# ---- the Stop-hook block cap (hooks/README §"The block-budget law"; verified on the live platform) ---
+# ---- the Stop-hook block cap (verified on the live platform) ---
 # A Stop or PreToolUse block is a STRONG local block, not an absolute wall: Claude Code force-ends the
 # turn after this many consecutive Stop blocks (it sets `stop_hook_active` on the forced continuation),
 # so a local gate makes evasion take deliberate effort while the durable backstop stays the merge gate.
@@ -97,7 +97,7 @@ STOP_HOOK_BLOCK_CAP = 8
 STOP_HOOK_BLOCK_CAP_ENV = "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP"   # the operator override (raise the cap)
 
 
-# ---- exit codes (the platform contract; hooks/README §"Fail-open-and-flag") -------------------
+# ---- exit codes (the platform contract) -------------------
 # Exit 2 is the ONLY blocking exit (and only PreToolUse/Stop may use it); 2 also feeds stderr back to
 # Claude. Any OTHER non-zero exit is a NON-BLOCKING error — the tool runs. A gate must never be wrapped
 # to deny-on-error: that would make a bug fail closed and strand a non-engineer who cannot debug it.
@@ -106,11 +106,11 @@ EXIT_NONBLOCKING = 1   # the fail-open exit: a non-blocking error; the guarded a
 EXIT_BLOCK = 2         # the single blocking exit (PreToolUse/Stop only)
 
 # The PreToolUse structured-stdout permission decision values the Engine uses (the platform also
-# offers `defer`, which the Engine does not need). hooks/README §"The hook-script contract".
+# offers `defer`, which the Engine does not need).
 PERMISSION_DECISIONS = frozenset({"allow", "deny", "ask"})
 
 
-# ---- the per-OS interpreter-path resolver (D-156; hooks/README §"The hook-script contract") ----
+# ---- the per-OS interpreter-path resolver ----
 # A hook command names the engine tool-runtime interpreter EXPLICITLY and ${CLAUDE_PROJECT_DIR}-rooted,
 # so it is portable (resolves on any operator's machine after the template is generated) and independent
 # of any PATH the non-interactive hook shell may lack. A bare `python`/`uv`, or `uv run` with its
@@ -126,7 +126,7 @@ def interpreter_path(os_name: str | None = None) -> str:
     This is the SINGLE definition of the two per-OS layouts. Committed hook commands are always rendered
     in the POSIX form (`hook_command` below); the actual per-OS choice is made at FIRE TIME by the launcher
     (`hook-runner.sh`), which falls back from bin/python to Scripts/python.exe under the same venv root when
-    the POSIX layout is absent — so one committed repo runs on every OS (#407 / D-157 per-OS build-spec
+    the POSIX layout is absent — so one committed repo runs on every OS (#407 per-OS build-spec
     leaf). A drift test pins the launcher's bin/python + Scripts/python.exe literals back to this function so
     the two homes never diverge."""
     name = os.name if os_name is None else os_name
@@ -153,11 +153,11 @@ def hook_command(script_relpath: str, os_name: str | None = None) -> str:
     (`.engine/tools/hook-runner.sh`) passing the explicit ${CLAUDE_PROJECT_DIR}-rooted venv interpreter and
     the ${CLAUDE_PROJECT_DIR}-rooted script. The launcher does the bounded wait that closes the
     fresh-worktree race (issue #83) and then `exec`s the interpreter; if the interpreter never appears it
-    runs NOTHING and NEVER falls back to the operator's system Python (constraints §"cannot manage a
-    language runtime"). The interpreter is still NAMED EXPLICITLY in the command (the launcher's first
-    argument), so D-156's "the hook command names the interpreter explicitly and ${CLAUDE_PROJECT_DIR}-
+    runs NOTHING and NEVER falls back to the operator's system Python.
+    The interpreter is still NAMED EXPLICITLY in the command (the launcher's first
+    argument), so the rule that "the hook command names the interpreter explicitly and ${CLAUDE_PROJECT_DIR}-
     rooted" stays witnessable in the diff; only the wait/exec MECHANICS moved into the launcher — the
-    invocation FORM is hooks' (D-156); the command's internal STRUCTURE (inline vs. launcher) is an
+    invocation FORM is hooks'; the command's internal STRUCTURE (inline vs. launcher) is an
     unspecified build-spec leaf. Shell-form (no `args`), so Claude Code runs it under `sh -c` (macOS/Linux)
     / Git Bash (Windows); `${CLAUDE_PROJECT_DIR}` is substituted before the shell sees it. The script PATH
     is DOUBLE-QUOTED so a project directory whose path contains a space (a common iCloud/OneDrive/"My Drive"
@@ -168,7 +168,7 @@ def hook_command(script_relpath: str, os_name: str | None = None) -> str:
     word-split into the launcher's positional params. `${CLAUDE_PROJECT_DIR}` expanding to a spaced path
     inside the double quotes does NOT re-split (a parameter expansion in double quotes is field-split-exempt),
     which is why the already-quoted interpreter token has always survived a spaced path and only the bare
-    script tail did not. The settings.json registration itself is wiring's (slice 20)."""
+    script tail did not. The settings.json registration itself is wiring's."""
     interp = interpreter_path(os_name)
     # `script_relpath` is the script PATH plus any trailing args, space-joined (e.g. "modes.py accept-hook").
     # Quote ONLY the path token; leave the args as the bare, still-word-splittable tail (see docstring, #390).
@@ -220,7 +220,7 @@ def block(reason: str) -> dict:
 
 def inject(context: str) -> dict:
     """Inject `additionalContext` back to Claude (SessionStart / UserPromptSubmit / PreToolUse /
-    PostToolUse injectors — PostToolUse carries modes' Build-entry stance directive, D-270/D-271).
+    PostToolUse injectors — PostToolUse carries modes' Build-entry stance directive).
     → structured stdout, exit 0."""
     return {"action": "inject", "context": context}
 
@@ -231,7 +231,7 @@ def decide(permission: str, reason: str | None = None) -> dict:
     return {"action": "decide", "permissionDecision": permission, "reason": reason}
 
 
-# ---- the fail-open-and-flag harness (hooks/README §"Fail-open-and-flag") -----------------------
+# ---- the fail-open-and-flag harness -----------------------
 
 # The honest tail appended to a fail-open finding's in-session line — STRICTLY conditional on whether the
 # durable promotion actually landed (#391). The old copy asserted "this was recorded as a problem to fix"
@@ -252,11 +252,11 @@ def _fail_open_source_id(event: str, kind: str) -> str:
 def _promote_fail_open(event: str, kind: str, message: str) -> bool:
     """Best-effort DURABLE promotion of a fail-open finding to a tracked engine-labelled Issue, via
     telemetry's out-of-band `promote_finding` — the same "log it" relay `close.py` uses at cap-exhaustion
-    (§16 detection-vs-relay seam; this is the promotion #391 wires, retiring the old `owes → telemetry`).
+    (detection-vs-relay seam; this is the promotion #391 wires, retiring the old `owes → telemetry`).
 
     Two invariants make this safe to reach from the shared harness:
       - LAZY imports: `telemetry`/`boot` (and the network) load ONLY here, on a fail-open branch — never on
-        the happy hot path every hook rides (the hooks/README hot-path latency law).
+        the happy hot path every hook rides (the hot-path latency law).
       - FAIL-SAFE: ANY error is swallowed and returns False. Recording the crash must NEVER re-break the
         fail-open path into a block or an unhandled crash — that would re-create the exact fail-CLOSED
         stranding of a non-engineer the whole law (and #390) forbids.
@@ -278,9 +278,9 @@ def _promote_fail_open(event: str, kind: str, message: str) -> bool:
 def _do_promote_fail_open(event: str, kind: str, message: str) -> bool:
     """The real promotion wiring, split out so it is directly testable against a mocked telemetry without the
     test-harness backstop above. Emits the fail-open finding through telemetry's EMIT-AND-DONE seam
-    (`telemetry.emit_finding`, F0203 / D-031 / §16): the hook hands telemetry a TRUST_CRITICAL record and is
+    (`telemetry.emit_finding`): the hook hands telemetry a TRUST_CRITICAL record and is
     done — telemetry now OWNS resolving the GitHub boundary (the repo slug + token it used to resolve here) and
-    promoting it. Un-inverts the §16 seam (the producer no longer holds telemetry's acting-mechanism) while
+    promoting it. Un-inverts the seam (the producer no longer holds telemetry's acting-mechanism) while
     preserving the exact fail-open behaviour: a trust-critical finding promotes immediately, returns the Issue
     number (truthy) when it lands and False offline / with no token (surfaced-not-durably-recorded, the honest
     tail #391 depends on)."""
@@ -346,7 +346,7 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
     `fail_open_notice` lets the owning system supply the OPERATOR-facing sentence for a handler CRASH,
     instead of the generic "a safety check on the {event} step could not run" line — so a gate can speak in
     its own plain terms (close's disposition gate passes the spec's "I couldn't run the check that confirms
-    nothing was dropped — review this turn's work with extra care", close/README "fails open, and says so").
+    nothing was dropped — review this turn's work with extra care" — it fails open, and says so).
     It replaces ONLY the operator message on the crash branch; the single promote path, the engine-only
     crash-debug trace (which still records the exception type + file:line), and the honest recorded/not-
     recorded tail are unchanged — the copy is owned by the caller, the acting-mechanism stays here.
@@ -361,7 +361,7 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
          returns is downgraded to proceed (in run_hook, the budget law; `_translate` stays pure).
       3. Run the handler. ANY exception → the guarded action proceeds (non-blocking exit) and the
          failure becomes a plain-language finding: a crashing gate must never strand a non-engineer
-         who cannot debug it, and must never fail silently (principles §5).
+         who cannot debug it, and must never fail silently.
       4. Translate the handler's decision to the platform contract — gating a block to the two
          block-eligible events (the budget); a block requested elsewhere is itself fail-open + flag."""
     out = sys.stdout if stdout is None else stdout
@@ -450,7 +450,7 @@ def _translate(event: str, decision, out, err, promote) -> int:
     return EXIT_PROCEED
 
 
-# ---- the operator-runnable demo (a throwaway fixture; no registered hook exists until slice 20) ----
+# ---- the operator-runnable demo (a throwaway fixture; no registered hook exists yet) ----
 
 def _demo_promoter(event: str, kind: str, message: str):
     """The demo's fail-open promoter: runs the REAL `telemetry.emit_finding` seam against a FAKE GitHub
