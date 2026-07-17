@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -61,6 +62,53 @@ ENGINE_DOMAIN_LABEL = "engine"
 # The two self-monitoring severity classes (distinct from the agent and check enums).
 TRUST_CRITICAL = "trust-critical"          # could-not-run; promotes immediately
 PERSISTENT_BENIGN = "persistent-but-benign"  # recurring low-impact; promotes after persistence
+
+# The numeric grades attention's debt-blocking rule ranks a tracked finding on. Telemetry owns the severity
+# CLASS (promotion — what becomes tracked debt at all); whether a graded finding actually BLOCKS the start of
+# work is ATTENTION's own rule (D-117 explicitly rejects attributing blocking-membership to telemetry), so this
+# only GRADES — it never decides. The two numbers are a recorded build-spec leaf (D-052/D-113), calibrated
+# against the shipped `debt_blocking_threshold` (2) in .engine/policies/attention.md.
+_TRUST_CRITICAL_RANK = 3.0    # above the shipped bar
+_BENIGN_RANK = 1.0            # below the shipped bar -> debt that can wait, mentioned but not gating work
+
+
+def severity_rank(severity: "str | None", blocking_threshold: float) -> "float | None":
+    """Grade one tracked finding's severity CLASS into the numeric severity attention ranks and compares against
+    its own debt-blocking threshold, or None when telemetry has no severity for it. `blocking_threshold` is the
+    CALLER's bar, passed in — telemetry neither owns nor reads it (it is attention's policy value,
+    operator-tunable per D-167).
+
+    Three cases, each a deliberate posture:
+      - TRUST_CRITICAL -> `max(rank, threshold)`: **always** meets the bar. Telemetry's contract for this class
+        is "could-not-run; promotes immediately", so a safety gate that could not run must never be tuned OUT of
+        blocking — without the clamp an operator raising `debt_blocking_threshold` past the fixed rank would
+        silently defer the most urgent class, with no feedback. It rides the bar however high it goes.
+      - PERSISTENT_BENIGN -> a fixed rank BELOW the shipped bar: a recurring low-impact item is debt that can
+        WAIT rather than gate the start of work (attention/README:53) — `assign_partition` returns None for it,
+        so it is mentioned in the card's open-problems count but never surfaced among the budgeted five.
+      - anything else (an unmarked, pre-severity Issue — e.g. an audit-authored conformance finding, which
+        carries no severity marker) -> **None: there is no severity to report.** Telemetry owns this class
+        (D-118) and simply has not graded that Issue, so the honest answer is "unknown", not a number.
+        Grading it to the threshold ITSELF — the shape this first carried — was the bug it was meant to fix,
+        one layer up: an item pinned exactly AT the bar makes the bar compare to itself, so moving the dial
+        cannot change the outcome. And any fixed stand-in would be telemetry inventing a severity it was
+        never given, which `assign_partition` forbids in as many words ("attention does NOT invent it").
+        The caller passes None straight through as an ABSENT severity, and attention's own rule decides —
+        absent severity is a deferral, mentioned in the open-problems count but not gating the start of
+        work, exactly the policy's "rather than just being mentioned"."""
+    if severity == TRUST_CRITICAL:
+        # The clamp rides ONLY a real bar, and cannot rescue an unreal one — be clear about that, because
+        # the tempting comment here is a false one. Against an endless bar every severity is below it, so
+        # this class would be dropped whatever number came back; returning the fixed rank does not save it.
+        # What saves it is that a value the engine cannot measure against never reaches this function: the
+        # read-time merge (`validate.effective_policy_values`) refuses one and the shipped default stands.
+        # This is the belt for a caller that bypassed that merge — it keeps a non-finite value from
+        # propagating INTO the ranking as a severity, which is worth doing and is all it is worth claiming.
+        bar = blocking_threshold if isinstance(blocking_threshold, (int, float)) else _TRUST_CRITICAL_RANK
+        return max(_TRUST_CRITICAL_RANK, float(bar)) if math.isfinite(bar) else _TRUST_CRITICAL_RANK
+    if severity == PERSISTENT_BENIGN:
+        return _BENIGN_RANK
+    return None
 
 # The set of source-ids a triage pass is AUTHORITATIVE for — the ONLY open Issues its auto-resolve may
 # close. A live pass reads a PARTIAL slice of the engine's signals (this build reads CI outcomes only), so

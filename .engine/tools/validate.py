@@ -67,6 +67,7 @@ import datetime
 import glob as _glob
 import json
 import os
+import math
 import re
 import subprocess
 import sys
@@ -189,18 +190,44 @@ def read(path: str) -> str:
 _RAIL_CHARS = "-‐-―−─━"
 _PROMPT_FENCE_RAIL_RE = re.compile("[" + _RAIL_CHARS + "]{3,}")
 
+# The imperative relay marker, the OTHER control token an untrusted line could forge. The engine reserves this
+# exact phrase for the must-push set: carrying it is what compels the model to push an item to the operator as
+# the engine's own words. So a milestone title, a merged-PR title, or a recalled note that SPEAKS it would read
+# as a genuine engine alarm ("… their safety gate is off, run this") in every cold-boot pack.
+# Held here rather than imported from boot: this is the floor every producer of untrusted AI-facing text
+# already calls, and boot imports validate, not the reverse. `test_boot` pins it to `boot.RELAY_MARKER`, so the
+# two cannot drift apart silently.
+_RELAY_MARKER = "INFORM THE USER THAT"
+# Matched across ANY run of whitespace between the words, not the single spaces the engine happens to emit:
+# an exact-literal pattern is beaten by typing two spaces, and the paths this guards (a merged-PR title from
+# an outside contributor, a finding title quoting a check-run name) are exactly where someone would.
+_RELAY_MARKER_RE = re.compile(r"\s+".join(re.escape(w) for w in _RELAY_MARKER.split()), re.IGNORECASE)
+
 
 def defang_prompt_fence_markers(text: str) -> str:
-    """Neutralize any line of UNTRUSTED `text` that could forge or prematurely close a `----- SECTION
-    MARKER -----` prompt fence, so content fed between such markers cannot break out of its region. A line
-    carrying TWO-or-more dash rails AND a letter has its dash runs trimmed to two dashes: the words are kept
-    (no information is dropped), but the line can no longer read as a fence delimiter. A line with a single
-    rail (a horizontal rule), no letters (a table delimiter row), or no 3-dash run at all (an ISO date, a
-    `--flag`) is left exactly as it is. Linear in the text length — no regex backtracking."""
+    """Neutralize any line of UNTRUSTED `text` that could forge a control token the AI-facing briefing
+    reserves for the engine's own voice, so content quoted into that briefing cannot speak as the engine.
+
+    Two tokens, the same principle — the words are kept (no information is dropped); only the reserved FORM
+    is destroyed:
+      - a `----- SECTION MARKER -----` prompt fence: a line carrying TWO-or-more dash rails AND a letter has
+        its dash runs trimmed to two dashes, so it can no longer read as a fence delimiter and content cannot
+        break out of its region. A line with a single rail (a horizontal rule), no letters (a table delimiter
+        row), or no 3-dash run at all (an ISO date, a `--flag`) is left exactly as it is.
+      - the imperative relay marker: the reserved phrase is lowercased wherever it appears, so the line no
+        longer carries the engine's must-push directive. HONEST BOUND: the fence trim is structural, but this
+        one is read by a MODEL, not a parser. Lowercasing removes the reserved token the engine actually
+        emits and the glossary defines, which is a real reduction in force — not a proof the model cannot be
+        swayed by the words themselves. Do not read more into it than that: some callers additionally quote
+        and attribute the text they pass (the recalled-decisions block says "attributed, not confirmed"),
+        but others interpolate it bare into a line, so that is a property of those callers and not of this.
+
+    Linear in the text length — no regex backtracking."""
     out = []
     for line in text.split("\n"):
         if len(_PROMPT_FENCE_RAIL_RE.findall(line)) >= 2 and any(c.isalpha() for c in line):
             line = _PROMPT_FENCE_RAIL_RE.sub("--", line)   # trim every rail so the line can't be a fence
+        line = _RELAY_MARKER_RE.sub(lambda m: m.group(0).lower(), line)
         out.append(line)
     return "\n".join(out)
 
@@ -1439,9 +1466,29 @@ def effective_policy_values(default: dict, override: dict, *, structural_keys, t
         elif key not in default:
             findings.append(finding(tier, f"Override key '{key}' is not carried by the policy's shipped "
                             f"default; it is ignored and falls back to the default. {message}"))
+        elif not _is_tunable_number(override[key]):
+            # A value the engine cannot measure against is refused HERE, at the read, because this is the
+            # only place every reader passes through. The tuning command checks what it writes, but the
+            # override is a committed file an operator can hand-edit, and JSON round-trips the non-standard
+            # `Infinity`/`NaN` literals — so the write-side check alone leaves the door open. What comes
+            # through it is not cosmetic: an endless bar silently drops even a safety check that could not
+            # run (every severity is below it), "not a number" compares false against everything so it
+            # blocks what should pass, and a string raises deep in the ranking and costs the whole session's
+            # priority list rather than one value. The shipped default stands instead, and the refusal is
+            # surfaced rather than swallowed.
+            findings.append(finding(tier, f"Override key '{key}' is set to '{override[key]}', which is not "
+                            f"an ordinary number the engine can measure against; it is refused and the "
+                            f"shipped default stands. {message}"))
         else:
             effective[key] = override[key]
     return effective, findings
+
+
+def _is_tunable_number(value) -> bool:
+    """A real, finite number — the only thing a policy dial can hold. Rejects a bool (it is an int in
+    Python, and `True` is not a threshold anyone means), infinity and not-a-number (they survive `float()`
+    and a JSON round-trip), and anything non-numeric."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def kind_coherence(rule, ctx):

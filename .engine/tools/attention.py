@@ -17,10 +17,12 @@ today and degrades over the ones that do not, then exposes the operator's no-Cla
     `in_flight` candidates, and the files that work touches drive the knowledge focus above (#37).
   - telemetry (the live debt register — open engine-labelled Issues): the canonical debt source attention
     ranks (attention/README.md:24-27,:70). Boot performs the single live read (open_findings) and threads its
-    count in as `live_findings`, so the ranking and the card header read ONE number (they cannot disagree) and
-    the SessionStart path makes no second GitHub call; the committed state count above is the stand-in when
-    that read fails. telemetry is in `degraded_inputs` ONLY when the live read failed (an outage/expired auth)
-    or the offline CLI ran with no reader — never as standing scaffolding.
+    PER-ISSUE rows in as `live_findings`, so EACH open finding is graded on its own severity into its own
+    `blocking_debt` candidate — the sub-threshold ones falling out as debt that does not gate the start of
+    work (README:53) — while the card header reads that same read's count (they cannot
+    disagree: it is `len()` of these rows) and the SessionStart path makes no second GitHub call; the committed
+    state count above is the stand-in when that read fails. telemetry is in `degraded_inputs` ONLY when the live
+    read failed (an outage/expired auth) or the offline CLI ran with no reader — never as standing scaffolding.
 
 The adapter NARRATES nothing in the result (boot surfaces degradation loudly, at its slice); the CLI prints
 a degrade note to stderr only, for the operator's own demo. `as_of` is the recorded reference time: the live
@@ -144,7 +146,8 @@ def derive_focus(*, run=None, gh=None, cap: int = FOCUS_CAP, with_total: bool = 
 def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
                         focus: "str | list[str] | None" = None,
                         edge_filter=None, depth: int = 1, gh=None, source=None,
-                        live_findings: int | None = None):
+                        live_findings: list | None = None, memory_recall: list | None = None,
+                        shipped: list | None = None):
     """Assemble the candidate-set from the substrates present today, reporting which were available and the
     cursor's as-of marker. Returns (candidates, available_inputs:set, cursor_as_of:str|None). Narrates nothing.
 
@@ -152,12 +155,14 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
     passes a real reader, the CLI passes None). Like state/knowledge, the work record is read HERE — the only
     boot-loaded input is the operator override (config, not a substrate).
 
-    `live_findings` is the live telemetry debt-register count (open engine-labelled Issues) — the canonical
-    debt source attention ranks. Boot performs the one live read (open_findings) and threads the count here, so
-    the ranking and the card header read ONE number and the SessionStart path makes no second GitHub call. An
-    int (0 included) means the register WAS read: telemetry is marked available and any open debt is the live
-    blocking-debt candidate. None means it was not read this session (the offline CLI, or a failed read):
-    telemetry stays in degraded_inputs and the committed state count stands in (its derived-convenience role).
+    `live_findings` is the live telemetry debt register's PER-ISSUE rows (open engine-labelled Issues, each
+    `{number, source_id, severity}`) — the canonical debt source attention ranks. Boot performs the one live read
+    (open_findings) and threads the rows here, so the ranking grades each finding on its own severity while the
+    card header reads that same read's count (`len(rows)`) — one read, so they cannot disagree — and the
+    SessionStart path makes no second GitHub call. A list (empty included) means the register WAS read: telemetry
+    is marked available and each open finding is its own graded blocking-debt candidate. None means it was not
+    read this session (the offline CLI, or a failed read): telemetry stays in degraded_inputs and the committed
+    state count stands in (its derived-convenience role).
 
     `source` (opt-in; default off -> the `knowledge_query` module, so the CLI's `rank` is bit-for-bit
     unchanged): boot passes its rung-1 boot-slice read-shim (#37) so the structural-neighbours walk reads the
@@ -178,32 +183,77 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
         cursor_as_of = debt.get("as_of")
         if live_findings is None and (debt.get("open_count") or 0) > 0:
             # OFFLINE/DEGRADED path only (the live register was not read this session): state's committed
-            # count is the stand-in. Severity is unknown offline, so the floor is surfaced AS blocking
-            # (severity = the policy bar) rather than hidden — the safe degraded posture. telemetry stays in
+            # count is the stand-in, surfaced AS blocking by setting severity to the bar. telemetry stays in
             # degraded_inputs (it is NOT added to `available` below), so boot raises the loud "couldn't reach"
             # notice; the live path just below supersedes this whenever the register WAS read.
+            #
+            # This LOOKS like the pinned-at-the-bar shape the live path below exists to remove, and it is
+            # deliberately not the same thing — worth spelling out, because the two are one line apart.
+            # There, the engine HAS read a finding and telemetry has not graded it: severity is a fact that
+            # is absent, so inventing one is inventing. HERE the engine could not look at all — this
+            # candidate is not a finding, it is "there was debt when we last saw, and I cannot check". The
+            # bar-valued severity is not a claim about how bad anything is; it is how this file says ALWAYS
+            # SURFACE, and it must stay true however the bar is tuned (D-059 law 2 — degrade loud). So the
+            # blind session is louder than the sighted one on purpose: that is the right way round.
             candidates.append({"id": "state:integration-debt", "category": "blocking_debt",
                                "severity": policy_values.get("debt_blocking_threshold", 0),
                                "recency": cursor_as_of, "source": "state"})
     except Exception:
         pass  # state absent or malformed -> degrade over it (it stays out of available_inputs)
 
-    # The telemetry debt register (the live view over open engine-labelled Issues) is the canonical debt
-    # source attention ranks (attention/README "It reads; it never owns"); state's committed count above is
-    # only its offline stand-in. `live_findings` is that register's count, read ONCE by boot (open_findings)
-    # and threaded in — so the ranking and the card header agree by construction and the hot path makes no
-    # second GitHub call. A number (0 included) means the read SUCCEEDED: telemetry is available (no degraded
-    # notice), and any open debt becomes the single blocking-debt candidate at the policy floor (the live
-    # register carries no per-issue severity — telemetry owns promotion, not a per-Issue grade — so the same
-    # safe-as-blocking posture as the offline path applies). `as_of` stays the committed cursor's marker (the
-    # only deterministic time source; the live read carries no timestamp). None -> not read -> telemetry stays
-    # degraded and the committed stand-in above carried the count.
+    # The telemetry debt register (the live view over open engine-labelled Issues) is the canonical debt source
+    # attention ranks (attention/README:70 "It reads; it never owns"); state's committed count above is only its
+    # offline stand-in. `live_findings` is that register's PER-ISSUE rows, read ONCE by boot (open_findings) and
+    # threaded in — so the ranking and the card header agree by construction (the header's count is len() of
+    # these very rows) and the hot path makes no second GitHub call. A list (empty included) means the read
+    # SUCCEEDED: telemetry is available (no degraded notice) and EACH open finding becomes its OWN blocking-debt
+    # candidate, graded on its own severity.
+    #
+    # Per-issue grading is what makes the policy's dials real (both were structurally inert against one pinned
+    # aggregate):
+    #   - `debt_blocking_threshold` can now DISCRIMINATE. The aggregate's severity was pinned EQUAL to the
+    #     threshold, so the bar was forever comparing itself to itself. Now a benign finding grades below the bar
+    #     -> assign_partition returns None -> it is debt that can WAIT rather than gate the start of work
+    #     (attention/README:53), still counted in the card's open-problems line, just not surfaced among the five.
+    #   - `flex_high_debt_count` can now COUNT. One aggregate capped the blocking count at 1 forever, so a
+    #     busy-session flex could never fire whatever the dial said.
+    # Telemetry GRADES the class (`severity_rank` — it owns the class, D-118); whether a grade BLOCKS stays
+    # attention's own debt-blocking rule (D-117 rejects attributing blocking-membership to telemetry), applied
+    # downstream in assign_partition against this policy's threshold. `as_of` stays the committed cursor's marker
+    # (the only deterministic time source; the live read carries no timestamp). None -> not read -> telemetry
+    # stays degraded and the committed stand-in above carried the count.
+    #
+    # An UNGRADED finding (severity_rank -> None) carries its severity through as ABSENT, never as a stand-in
+    # number. Telemetry owns the class and simply has not graded that Issue, and assign_partition is explicit
+    # that attention does not invent what its source did not set — absent severity is its rule's own case, and
+    # it makes such a finding a deferral: still mentioned in the card's open-problems count, just not gating
+    # the start of work ("rather than just being mentioned", the policy's own words for the bar).
     if live_findings is not None:
         available.add("telemetry")
-        if live_findings > 0:
-            candidates.append({"id": "state:integration-debt", "category": "blocking_debt",
-                               "severity": policy_values.get("debt_blocking_threshold", 0),
+        import telemetry as _telemetry  # lazy: keeps telemetry + its GitHub client off attention's import path
+        threshold = policy_values.get("debt_blocking_threshold", 0)
+        for row in live_findings:
+            number = row.get("number")
+            if number is None:
+                continue    # a finding with no number cannot be referenced or acted on; never render "#None"
+            candidates.append({"id": f"finding:{number}", "category": "blocking_debt",
+                               "severity": _telemetry.severity_rank(row.get("severity"), threshold),
                                "recency": cursor_as_of, "source": "telemetry"})
+
+    # The MEMORY half of the recent-decisions partition. Its source is BOTH "recently merged pull requests …
+    # and the memory recall boot assembles into the pack" (attention/README:49); boot pulls that recall at cold
+    # start (boot/README:67 "pull knowledge structure and memory recall when their servers are up") and RELAYS
+    # it here. Attention never queries memory itself — D-154's anti-choice rejects adding memory to attention's
+    # direct-reads list ("attention ranks the boot-assembled pack, it does not directly query memory"), so this
+    # arrives as DATA, exactly like the debt register's rows.
+    #
+    # Memory is NOT one of attention's four substrates, so it never enters `degraded_inputs`: an unreadable
+    # store is boot's own memory-offline notice to raise (it owns that relay), and boot simply hands over
+    # nothing here. The recency each row carries is already a trailing-Z moment the relay normalised, so the
+    # ranking math never sees a raw epoch.
+    for r in (memory_recall or []):
+        candidates.append({"id": f"memory:{r.get('id')}", "category": "recent_decisions",
+                           "recency": r.get("recency"), "source": "memory"})
 
     src = source or knowledge_query
     # Knowledge is AVAILABLE iff the map could be READ — NOT iff there was a focus to walk it from. The old
@@ -261,16 +311,35 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
 
     if work_record is not None:
         try:
-            # The native git/GitHub work record's in-flight half (open PRs + the working branch) -> in_flight
-            # candidates. read_in_flight RAISES only when git cannot be consulted at all (then git stays in
-            # degraded_inputs); an empty list means git IS available with no in-flight work. The recency the
-            # reader emits is already trailing-Z-normalised (or None), so the ranking math never sees a bad ts.
+            # The native git/GitHub work record, in the halves this module owns (attention/README:50).
+            # Every reader emits an already trailing-Z-normalised recency (or None), so the ranking math never
+            # sees a bad ts. `git` is marked available only once BOTH reads succeed.
+            #
+            # In-flight (open PRs + the working branch). RAISES only when git cannot be consulted at all; an
+            # empty list means git IS available with no in-flight work.
             for r in work_record.read_in_flight(gh=gh):
                 candidates.append({"id": r["id"], "category": "in_flight",
                                    "recency": r.get("recency"), "source": "git"})
+            # Recent decisions: recently merged pull requests — the structured PR body is the decision record,
+            # there is no changelog (principle §11). The LOCAL-GIT floor, so a cold session always reads what
+            # shipped. This retires boot's separate RECENTLY_SHIPPED_COUNT digest into the ranked partition:
+            # how many surface is now the policy's budget_recent_decisions slice, not a buried constant.
+            # `shipped` lets the CALLER hand over rows it has already read (boot needs the same rows again to
+            # restore the titles rank() strips) — one `git log` per session instead of two, and, like the
+            # memory-recall half, the digest can then never name a merge the ranking did not rank. Left None
+            # (the CLI) this reads the floor itself.
+            for r in (work_record.read_recent_decisions() if shipped is None else shipped):
+                candidates.append({"id": r["id"], "category": "recent_decisions",
+                                   "recency": r.get("recency"), "source": "git"})
+            # The project's plan — open Issues and Milestones — is NOT candidate work (attention/README:52,
+            # D-314). These categories budget a cold session's context, and the roadmap is not context; it
+            # belongs to product-design's build-plan, and attention neither reads nor re-ranks it. Ranking it
+            # would also spend the budget it is not entitled to: orientation flexes down to one slot on a
+            # busy session, and a milestone there would evict `state:standing-situation` — the where-we-are
+            # pointer that IS context.
             available.add("git")
         except Exception:
-            pass  # the in-flight work record could not be consulted -> degrade over git
+            pass  # the work record could not be fully consulted -> degrade over git (boot says so loudly)
 
     return candidates, available, cursor_as_of
 
@@ -335,30 +404,65 @@ def _now_z() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _reference_moment(candidates: list, cursor_as_of: str | None) -> str | None:
+    """The newest moment the assembled pack actually knows about — the cursor's as-of, or any candidate's own
+    recorded moment, whichever is latest. None only when nothing recorded a moment at all.
+
+    WHY the cursor alone will not do: the committed cursor LAGS (it is refreshed on its own cadence, so a
+    session routinely ranks work that landed after it). `intra_weight` measures age as `as_of - recency`
+    FLOORED AT ZERO, so every candidate newer than the reference moment scores an identical 1.0 — they tie,
+    the tie falls through to the id tiebreak, and "recently shipped" silently renders OLDEST-first. A
+    reference moment that precedes the data it ranks cannot order that data: you cannot measure how old a
+    thing is from a moment before it existed.
+
+    Still clock-free and deterministic: every moment here is a RECORDED one (a merge date, a recall
+    timestamp, the cursor), never the wall clock — so a run stays reproducible from its inputs and
+    `as_of_is_wallclock` stays honest. Compared by absolute epoch, not lexically, because the recorded
+    sources normalize differently; an unparseable moment is skipped rather than allowed to poison the
+    reference."""
+    best, best_epoch = None, None
+    for moment in [cursor_as_of] + [c.get("recency") for c in candidates]:
+        if not moment:
+            continue
+        try:
+            seconds = attention_rank._epoch(moment)
+        except (ValueError, TypeError, AttributeError):
+            # AttributeError too: _epoch calls .replace on the value, so a non-string (a number, a list — a
+            # corrupt state cursor can hold either) fails there, not on the parse.
+            continue  # a malformed moment costs its own ordering, never the whole reference
+        if best_epoch is None or seconds > best_epoch:
+            best, best_epoch = moment, seconds
+    return best
+
+
 def rank_live(*, policy_path: str = POLICY_PATH, override: dict | None = None,
               focus: "str | list[str] | None" = None,
               depth: int = 1, budget_total: int | None = None, as_of: str | None = None,
-              apply_precedence: bool = True, gh=None, source=None, live_findings: int | None = None) -> dict:
+              apply_precedence: bool = True, gh=None, source=None, live_findings: list | None = None,
+              memory_recall: list | None = None, shipped: list | None = None) -> dict:
     """The live ranking path over the substrates present today, returning the attention-result.v1 dict
     (whose own `degraded_inputs` records the absent substrates). This is the ONE assembler the CLI (`rank`)
     and boot's SessionStart pack both call, so boot CONSUMES the partition it is handed — in the locked
     precedence order — and never re-ranks (boot/README relay-not-detect; the result contract is attention's,
-    not boot's to re-derive). `as_of` defaults to the cursor's integration-debt as-of, falling back to the
-    wall clock (the run then marked `as_of_is_wallclock`) — the only clock read; the pure core stays
-    clock-free. `budget_total` (boot owns it) sizes the per-category split when supplied. `override` is the
+    not boot's to re-derive). `as_of` defaults to the newest moment the pack recorded (`_reference_moment`:
+    the cursor's integration-debt as-of, or a later candidate's own moment — a lagging cursor cannot order
+    work that landed after it), falling back to the wall clock only when nothing recorded a moment at all
+    (the run then marked `as_of_is_wallclock`) — the only clock read; the pure core stays clock-free. `budget_total` (boot owns it) sizes the per-category split when supplied. `override` is the
     attention slice of the operator policy-override (D-167) the LOADING layer (boot) reads and passes as DATA;
     it is merged per-key into the effective values via the core merge (`load_policy_values`), keeping the
     static-input determinism — attention never reads the override FILE itself. `gh` is the GitHub reader for
     the in-flight work-record read (boot builds + passes it; the CLI leaves it None -> the local-git floor).
     `source` (opt-in, default off -> `knowledge_query`) is boot's rung-1 boot-slice read-shim, threaded to
     assemble_candidates so the structural-neighbours walk reads the cache, not the SQLite index (#37).
-    `live_findings` is the live telemetry-register count boot already read (open_findings): an int (0 included)
-    marks the register read -> telemetry is available and the live count drives the blocking-debt candidate;
-    None (the offline CLI, or a failed live read) -> telemetry degrades and the committed state count stands in."""
+    `live_findings` is the live telemetry register's per-issue rows boot already read (open_findings): a list (0
+    included) marks the register read -> telemetry is available and each open finding becomes its own graded
+    blocking-debt candidate; None (the offline CLI, or a failed live read) -> telemetry degrades and the
+    committed state count stands in."""
     policy_values = load_policy_values(policy_path, override)
     candidates, available, cursor_as_of = assemble_candidates(policy_values, focus=focus, depth=depth, gh=gh,
-                                                              source=source, live_findings=live_findings)
-    resolved_as_of = as_of or cursor_as_of
+                                                              source=source, live_findings=live_findings,
+                                                              memory_recall=memory_recall, shipped=shipped)
+    resolved_as_of = as_of or _reference_moment(candidates, cursor_as_of)
     as_of_is_wallclock = False
     if resolved_as_of is None:
         resolved_as_of, as_of_is_wallclock = _now_z(), True

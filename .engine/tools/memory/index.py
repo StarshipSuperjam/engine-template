@@ -477,6 +477,55 @@ def _ranked(tokens, src, dst, *, roles, tags, limit, force_scan, now):
     return QueryResult(records=_rank_slice_score(candidates, limit), degraded=True)
 
 
+# --- The cold-start recent-decisions pull (#394 U01) -------------------------------------------------------
+# The roles that ARE the decision record — what "recent decisions" means when boot pulls recall into the cold
+# -start pack. A recorded build-spec leaf (D-052/D-113): the decision itself plus the reasoning/pushback behind
+# it. A lesson, dead-end, preference, intent or observation is recall, but it is not a DECISION, so it does not
+# compete for this partition's slice. Members of the closed role vocabulary (score.ROLE_WEIGHTS).
+_DECISION_ROLES = ("decision", "rationale/pushback")
+# How many the reader scans back for; how many SURFACE is the attention policy's budget_recent_decisions slice.
+_RECENT_DECISIONS_LIMIT = 20
+
+
+def recent_decisions(*, limit: int = _RECENT_DECISIONS_LIMIT, roles=_DECISION_ROLES,
+                     ledger_file: "str | None" = None) -> list[dict]:
+    """The most recently RECORDED decisions, newest first — the memory half of attention's recent-decisions
+    partition (attention/README:49 names that partition's source as "recently merged pull requests … **and**
+    the memory recall boot assembles into the pack"; boot/README:67 has cold start "pull … memory recall when
+    their servers are up").
+
+    NON-QUERY by construction, and that is the point: a cold start has no prompt yet to match against, so this
+    is RECENCY-ordered, not lexical. Lexical recall against the operator's words is the per-prompt scent's job
+    (`scent_lookup`); this answers the different question boot asks at orientation — "what was decided lately?".
+
+    Reads the CURATED layer through `forget.live_records`, the one shared read path (so the ambient `turn-delta`
+    verbatim is excluded here exactly as it is from search — D-273/D-274), and filters to the decision-bearing
+    roles. SIDE-EFFECT-FREE: never reinforces, never writes the ledger — boot is read-only, and merely
+    orienting must not silently re-rank what recall surfaces later.
+
+    Deterministic: ordered by the record's own recorded `ts` (newest first), ties broken by record id, so the
+    same ledger always yields the same list — the ranking downstream stays reproducible. Records with no usable
+    `ts` sort last rather than crash the sort. Degrades to [] on any read fault: recall is orientation context,
+    and boot surfaces an unreadable store separately (its own memory-offline notice), never from here."""
+    def _order(record):
+        # A TOTAL key: a `ts` that is not a real number (absent, a string, a bool, NaN) sorts into the
+        # unusable bucket and carries a fixed 0, so tuples of mixed records only ever compare like with like.
+        # Falling back to the raw value instead would compare a str against an int the moment one record's ts
+        # was a string and another's was absent — raising, from a function whose whole contract is that a
+        # damaged record costs its own place in the order and nothing else.
+        ts = record.get("ts")
+        usable = isinstance(ts, (int, float)) and not isinstance(ts, bool) and math.isfinite(ts)
+        return usable, (ts if usable else 0), str(record.get(records.RECORD_ID_KEY) or "")
+
+    wanted = set(roles)
+    try:
+        out = [r for r in forget.live_records(ledger_file) if r.get("role") in wanted]
+        out.sort(key=_order, reverse=True)   # inside the guard: the contract is [] on ANY read fault
+    except Exception:  # noqa: BLE001 — an unreadable/degraded store costs the digest, never the pack
+        return []
+    return out[:limit]
+
+
 def search(
     query_text: str,
     *,

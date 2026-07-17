@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import attention_rank    # noqa: E402
 import attention         # noqa: E402
+import telemetry         # noqa: E402  (the severity CLASSES the live register grades findings by)
 from attention_rank import (rank, assign_partition, intra_weight, session_condition, apply_flex,  # noqa: E402
                             budget_split, CATEGORIES, SUBSTRATES, EXPECTED_VALUE_KEYS,
                             PRECEDENCE_KEYS, TRIM_KEYS)
@@ -290,41 +291,148 @@ class TestDegrade(unittest.TestCase):
             self.assertNotIn(forbidden, result)
 
 
+def _row(number, severity=None, source_id=None):
+    """One row of the live debt register as boot's open_findings projects it (#394 U01)."""
+    return {"number": number, "source_id": source_id, "severity": severity}
+
+
 class TestLiveDebtRegister(unittest.TestCase):
-    """assemble_candidates ranks the LIVE telemetry debt register threaded in by boot (`live_findings`): an int
-    marks telemetry AVAILABLE and the live count drives the single blocking-debt candidate; None (the offline
-    CLI / a failed read) leaves telemetry degraded and the committed state count stands in. This is the fix for
-    the permanent false 'couldn't rank by priority' caveat (telemetry was previously always degraded)."""
+    """assemble_candidates ranks the LIVE telemetry debt register threaded in by boot (`live_findings`): a LIST
+    of per-issue rows marks telemetry AVAILABLE and grades EACH open finding into its own blocking-debt
+    candidate; None (the offline CLI / a failed read) leaves telemetry degraded and the committed state count
+    stands in.
+
+    Per-issue grading is what makes the policy's dials real (#394 U01) — against the previous single aggregate,
+    whose severity was pinned EQUAL to the bar, `debt_blocking_threshold` compared itself to itself and
+    `flex_high_debt_count` could never see more than one blocking item. These pin that the dials now GOVERN;
+    they do NOT assert calibration (D-052/D-113)."""
 
     _STATE = {"standing_situation": {"phase": "x"},
               "integration_debt": {"open_count": 2, "as_of": "2026-01-01T00:00:00Z"}}
 
-    def _assemble(self, *, live_findings):
+    def _assemble(self, *, live_findings=None, policy=None, shipped=None):
         # find() is mocked so the empty-focus reachability probe (assemble_candidates now reads the map even with
         # no focus) stays hermetic — these cases assert on telemetry, not on the real graph. An empty list means
         # the probe succeeds (a reachable, if empty, map), so knowledge is available and never the variable here.
         with mock.patch.object(attention.validate, "load_json", return_value=dict(self._STATE)), \
                 mock.patch.object(attention.work_record, "read_in_flight", return_value=[]), \
                 mock.patch.object(attention.knowledge_query, "find", return_value=[]):
-            return attention.assemble_candidates(FIXTURE_POLICY, live_findings=live_findings)
+            return attention.assemble_candidates(policy or FIXTURE_POLICY, live_findings=live_findings,
+                                                 shipped=shipped)
 
     def _debt(self, cands):
         return [c for c in cands if c["category"] == "blocking_debt"]
 
-    def test_live_read_marks_telemetry_available_and_drives_the_blocking_candidate(self):
-        cands, available, _ = self._assemble(live_findings=5)
+    def _surfaced(self, cands, policy=None):
+        """The blocking-debt candidates that actually CLEAR the bar — assign_partition drops the rest as
+        deferrals (the spec's "open Issues as deferrals/backlog")."""
+        pol = policy or FIXTURE_POLICY
+        return [c for c in self._debt(cands) if assign_partition(c, pol) == "blocking_debt"]
+
+    def test_live_read_marks_telemetry_available_and_grades_each_finding_separately(self):
+        cands, available, _ = self._assemble(live_findings=[_row(7), _row(8), _row(9)])
         self.assertIn("telemetry", available)             # the register WAS read -> no degraded caveat
         debt = self._debt(cands)
-        self.assertEqual(len(debt), 1)                    # exactly one (NOT doubled with the committed branch)
-        self.assertEqual(debt[0]["source"], "telemetry")  # sourced from the live register, not the shadow
-        self.assertEqual(debt[0]["severity"], FIXTURE_POLICY["debt_blocking_threshold"])  # the safe floor
-        self.assertEqual(debt[0]["recency"], "2026-01-01T00:00:00Z")  # as_of stays the committed cursor marker
+        self.assertEqual(len(debt), 3)                    # ONE candidate per open finding (not one aggregate)
+        self.assertEqual({c["id"] for c in debt}, {"finding:7", "finding:8", "finding:9"})
+        self.assertEqual({c["source"] for c in debt}, {"telemetry"})  # the live register, not the shadow
+        # as_of stays the committed cursor's marker — the live read carries no timestamp of its own.
+        self.assertEqual({c["recency"] for c in debt}, {"2026-01-01T00:00:00Z"})
+
+    def test_a_benign_finding_is_a_deferral_and_a_trust_critical_one_blocks(self):
+        # THE dial made real: severity now DISCRIMINATES instead of every finding riding the bar.
+        cands, _, _ = self._assemble(live_findings=[_row(1, telemetry.PERSISTENT_BENIGN),
+                                                    _row(2, telemetry.TRUST_CRITICAL)])
+        self.assertEqual([c["id"] for c in self._surfaced(cands)], ["finding:2"])  # only the critical blocks
+        benign = next(c for c in self._debt(cands) if c["id"] == "finding:1")
+        # A benign finding falls BELOW the bar -> assign_partition returns None: it is a deferral/backlog,
+        # considered and ordered but not surfaced in the budgeted five (attention/README:50).
+        self.assertIsNone(assign_partition(benign, FIXTURE_POLICY))
+
+    def test_handed_shipped_rows_are_used_instead_of_reading_the_floor_again(self):
+        # Boot needs these same rows again to restore the titles rank() strips. Reading the floor a second
+        # time is another `git log` spawn AND a seam: a merge landing between the two reads leaves the digest
+        # naming a number whose title it never saw.
+        rows = [{"id": "shipped:9", "recency": "2026-07-01T00:00:00Z", "title": "a change"}]
+        with mock.patch.object(attention.work_record, "read_recent_decisions") as read:
+            cands, _, _ = self._assemble(shipped=rows)
+        read.assert_not_called()
+        self.assertIn("shipped:9", [c["id"] for c in cands])
+
+    def test_the_floor_is_still_read_when_no_rows_are_handed_over(self):
+        # The CLI has no boot to read them for it.
+        with mock.patch.object(attention.work_record, "read_recent_decisions", return_value=[]) as read:
+            self._assemble()
+        read.assert_called_once()
+
+    def test_a_finding_with_no_number_is_dropped_rather_than_rendered_as_none(self):
+        # It could not be referenced or acted on, and "#None is open and blocking" is worse than silence.
+        cands, _, _ = self._assemble(live_findings=[_row(None, telemetry.TRUST_CRITICAL), _row(2)])
+        self.assertEqual([c["id"] for c in self._debt(cands)], ["finding:2"])
+
+    def test_an_ungraded_finding_carries_its_severity_through_as_absent(self):
+        # Telemetry owns the class and has not graded this Issue. Attention must pass that through as ABSENT
+        # rather than substitute a number: assign_partition says in as many words that attention does not
+        # invent what its source did not set. A stand-in equal to the bar is what made the bar compare to
+        # itself — the defect this whole slice exists to remove.
+        cands, _, _ = self._assemble(live_findings=[_row(4)])
+        self.assertIsNone(next(c for c in cands if c["id"] == "finding:4")["severity"])
+
+    def test_an_ungraded_finding_is_a_deferral_at_every_setting_of_the_bar(self):
+        # Absent severity is assign_partition's own case: a deferral. It stays one however the dial is tuned,
+        # because there is no severity to compare — the operator still sees it in the card's open-problems
+        # count ("rather than just being mentioned", the policy's words), it just does not gate the start of
+        # work. If tuning the bar ever moved an ungraded finding, attention would be ranking a severity it
+        # invented.
+        for bar in (0, 1, 2, 99):
+            policy = {**FIXTURE_POLICY, "debt_blocking_threshold": bar}
+            cands, _, _ = self._assemble(live_findings=[_row(4)], policy=policy)
+            self.assertEqual(self._surfaced(cands, policy), [], f"an ungraded finding blocked at bar {bar}")
+
+    def test_lowering_the_bar_surfaces_an_otherwise_deferred_benign_finding(self):
+        # Proof the dial GOVERNS: the SAME register, a lower bar -> what was a deferral now blocks. Against the
+        # old single aggregate (pinned equal to the bar) no setting of this dial could change any outcome.
+        lax = {**FIXTURE_POLICY, "debt_blocking_threshold": 1}
+        rows = [_row(1, telemetry.PERSISTENT_BENIGN)]
+        self.assertEqual(self._surfaced(self._assemble(live_findings=rows)[0]), [])            # bar 2 -> deferral
+        cands, _, _ = self._assemble(live_findings=rows, policy=lax)
+        self.assertEqual([c["id"] for c in self._surfaced(cands, lax)], ["finding:1"])         # bar 1 -> blocks
+
+    def test_a_trust_critical_finding_can_never_be_tuned_out_of_blocking(self):
+        # The clamp (telemetry.severity_rank): trust-critical means "a safety gate could not run; promotes
+        # immediately", so however high an operator tunes the bar it still blocks — the dial can defer ordinary
+        # debt, never this class. Without the clamp a bar above the fixed rank would silently drop it.
+        strict = {**FIXTURE_POLICY, "debt_blocking_threshold": 10_000}
+        cands, _, _ = self._assemble(live_findings=[_row(2, telemetry.TRUST_CRITICAL)], policy=strict)
+        self.assertEqual([c["id"] for c in self._surfaced(cands, strict)], ["finding:2"])
+
+    def test_flex_high_debt_count_now_counts_real_blocking_findings(self):
+        # The other dead dial: one aggregate capped the blocking count at 1, so a busy session could never be
+        # detected whatever the policy said. Per-issue candidates make the count real. The rows are GRADED —
+        # the count is of findings that actually block, so only a graded severity can move it.
+        few, _, _ = self._assemble(live_findings=[_row(i, telemetry.TRUST_CRITICAL) for i in (1, 2)])
+        many, _, _ = self._assemble(live_findings=[_row(i, telemetry.TRUST_CRITICAL) for i in range(1, 6)])
+        self.assertEqual(session_condition(few, FIXTURE_POLICY), "clean")       # 2 < flex_high_debt_count (3)
+        self.assertEqual(session_condition(many, FIXTURE_POLICY), "high_debt")  # 5 >= 3 -> orientation compresses
+
+    def test_a_register_of_ungraded_findings_never_reads_as_a_busy_session(self):
+        # The honest consequence of the absent-severity rule, pinned deliberately: a pile of findings nobody
+        # has graded is a backlog, not a busy session. Before, every finding rode the bar, so a register of
+        # ungraded findings pinned the session to "busy" forever and orientation was permanently squeezed —
+        # the same defect as the bar comparing itself to itself, wearing the other dial's clothes.
+        cands, _, _ = self._assemble(live_findings=[_row(i) for i in range(1, 16)])
+        self.assertEqual(session_condition(cands, FIXTURE_POLICY), "clean")
+
+    def test_a_benign_backlog_never_trips_the_busy_session_flex(self):
+        # Deferrals are not blocking work: a deep BENIGN backlog must not read as a busy session.
+        cands, _, _ = self._assemble(live_findings=[_row(i, telemetry.PERSISTENT_BENIGN) for i in range(1, 9)])
+        self.assertEqual(session_condition(cands, FIXTURE_POLICY), "clean")
 
     def test_live_read_of_zero_supersedes_the_committed_count_and_emits_no_debt(self):
-        # The register was read and is EMPTY (0), even though the committed shadow says 2 -> no blocking debt.
-        cands, available, _ = self._assemble(live_findings=0)
-        self.assertIn("telemetry", available)             # 0 still means the read succeeded
-        self.assertEqual(self._debt(cands), [])           # the live 0 supersedes the stale committed 2
+        # The register was read and is EMPTY ([]), even though the committed shadow says 2 -> no blocking debt.
+        cands, available, _ = self._assemble(live_findings=[])
+        self.assertIn("telemetry", available)             # [] still means the read succeeded
+        self.assertEqual(self._debt(cands), [])           # the live empty read supersedes the stale committed 2
 
     def test_no_live_read_leaves_telemetry_degraded_and_uses_the_committed_count(self):
         # The offline CLI / a failed read: live_findings is None -> telemetry degraded, committed count stands in.
@@ -335,10 +443,11 @@ class TestLiveDebtRegister(unittest.TestCase):
         self.assertEqual(debt[0]["source"], "state")      # sourced from the committed cursor, not the register
 
     def test_live_assembly_is_deterministic(self):
-        # The same inputs (a fixed committed as_of + a live count) yield byte-identical candidates: the as_of is
-        # the committed cursor's, never the clock, so no derive-twice flake (the live read supplies only count).
-        a, _, _ = self._assemble(live_findings=3)
-        b, _, _ = self._assemble(live_findings=3)
+        # The same inputs (a fixed committed as_of + the same rows) yield byte-identical candidates: the as_of is
+        # the committed cursor's, never the clock, so no derive-twice flake.
+        rows = [_row(3, telemetry.TRUST_CRITICAL), _row(4, telemetry.PERSISTENT_BENIGN), _row(5)]
+        a, _, _ = self._assemble(live_findings=rows)
+        b, _, _ = self._assemble(live_findings=rows)
         self.assertEqual(a, b)
 
 
@@ -418,8 +527,119 @@ class TestReferenceTime(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual(a["as_of"], "2026-06-04T00:00:00Z")
 
+    # ---- the reference moment must LEAD the work it orders (#394) --------------------------------------
+    # The committed cursor lags by design (its own refresh cadence), so a session routinely ranks work that
+    # landed after it. These drive the REAL rank() with a lagging moment — the configuration every render
+    # test missed by hand-assigning ranks, and the live one.
+
+    def _merges(self):
+        return [{"id": f"shipped:{n}", "category": "recent_decisions", "recency": ts} for n, ts in
+                (("489", "2026-07-13T11:59:21Z"), ("491", "2026-07-13T12:25:06Z"),
+                 ("492", "2026-07-13T12:36:05Z"))]
+
+    def _order(self, as_of):
+        result = rank(self._merges(), FIXTURE_POLICY, as_of, {"git"}, budget_total=20)
+        entry = next(e for e in result["partition"] if e["category"] == "recent_decisions")
+        return [m["id"] for m in entry["members"]]
+
+    def test_a_lagging_moment_would_flatten_newer_work_into_a_tie(self):
+        # Why the resolution below exists: age is floored at zero, so everything newer than the reference
+        # scores identically and the order falls to the id tiebreak — which renders the digest OLDEST-first.
+        weights = {c["id"]: attention_rank.intra_weight(c, FIXTURE_POLICY, "2026-07-12T09:21:38Z")
+                   for c in self._merges()}
+        self.assertEqual(len(set(weights.values())), 1, "a lagging moment ties every newer merge")
+        self.assertEqual(self._order("2026-07-12T09:21:38Z"), ["shipped:489", "shipped:491", "shipped:492"])
+
+    def test_the_resolved_moment_leads_the_pack_so_the_newest_merge_ranks_first(self):
+        as_of = attention._reference_moment(self._merges(), "2026-07-12T09:21:38Z")  # the lagging cursor
+        self.assertEqual(as_of, "2026-07-13T12:36:05Z", "the newest recorded moment, not the stale cursor")
+        self.assertEqual(self._order(as_of), ["shipped:492", "shipped:491", "shipped:489"])
+
+    def test_the_resolved_moment_stays_a_recorded_one_never_the_clock(self):
+        # It may only ever be a moment some substrate actually recorded — that is what keeps a run
+        # reproducible from its inputs and `as_of_is_wallclock` honest.
+        cands = self._merges()
+        self.assertIn(attention._reference_moment(cands, "2026-07-12T09:21:38Z"),
+                      {c["recency"] for c in cands} | {"2026-07-12T09:21:38Z"})
+        self.assertEqual(attention._reference_moment([], "2026-07-12T09:21:38Z"), "2026-07-12T09:21:38Z")
+        self.assertIsNone(attention._reference_moment([], None))  # nothing recorded -> the caller's fallback
+
+    def test_the_moment_is_compared_by_absolute_time_not_by_text(self):
+        # The recorded sources normalize differently; a lexical max would pick the wrong one here.
+        self.assertEqual(attention._reference_moment([{"recency": "2026-07-13T12:36:05-07:00"}],
+                                                     "2026-07-13T13:00:00Z"), "2026-07-13T12:36:05-07:00")
+
+    def test_a_malformed_moment_costs_its_own_ordering_never_the_reference(self):
+        self.assertEqual(attention._reference_moment([{"recency": "not-a-date"}], "2026-07-12T09:21:38Z"),
+                         "2026-07-12T09:21:38Z")
+
+    def test_the_live_path_resolves_the_leading_moment_and_ships_newest_first(self):
+        # The wiring, not just the helper: rank_live must RESOLVE the reference moment, or the fix is
+        # orphaned and the live digest stays inverted.
+        with mock.patch.object(attention, "assemble_candidates",
+                               return_value=(self._merges(), {"git"}, "2026-07-12T09:21:38Z")):
+            result = attention.rank_live(budget_total=20)
+        self.assertEqual(result["as_of"], "2026-07-13T12:36:05Z")
+        self.assertFalse(result["as_of_is_wallclock"], "a recorded moment is not a clock read")
+        entry = next(e for e in result["partition"] if e["category"] == "recent_decisions")
+        self.assertEqual([m["id"] for m in entry["members"]],
+                         ["shipped:492", "shipped:491", "shipped:489"])
+
+    def test_the_live_path_still_falls_back_to_the_clock_when_nothing_recorded_a_moment(self):
+        with mock.patch.object(attention, "assemble_candidates", return_value=([], {"git"}, None)):
+            result = attention.rank_live(budget_total=20)
+        self.assertTrue(result["as_of_is_wallclock"])
+
 
 ATTENTION_STRUCTURAL = set(PRECEDENCE_KEYS) | set(TRIM_KEYS)
+
+
+class TestTheMergeRefusesAValueTheEngineCannotMeasure(unittest.TestCase):
+    """The read-time merge is the ONLY gate every reader passes through, so it is where a dial the engine
+    cannot measure against has to be refused (#394, deliverable gate).
+
+    The tuning command checks what it writes, but the override is a committed file an operator can hand-edit
+    and JSON round-trips the non-standard `Infinity`/`NaN` literals — so the write-side check alone leaves
+    the door open, and what comes through it is not cosmetic."""
+
+    def _bar(self, override):
+        return attention.load_policy_values(override=override)["debt_blocking_threshold"]
+
+    def test_an_endless_bar_can_no_longer_drop_a_safety_check_that_could_not_run(self):
+        # THE one that matters. Every severity is below an endless bar, so a trust-critical finding — "a
+        # safety gate could not run" — would silently leave blocking debt while still being counted, and the
+        # operator would see the number but never the item. The clamp cannot save it; refusing the bar does.
+        shipped = self._bar(None)
+        self.assertEqual(self._bar({"debt_blocking_threshold": float("inf")}), shipped)
+        policy = attention.load_policy_values(override={"debt_blocking_threshold": float("inf")})
+        sev = telemetry.severity_rank(telemetry.TRUST_CRITICAL, policy["debt_blocking_threshold"])
+        self.assertEqual(assign_partition({"id": "x", "category": "blocking_debt", "severity": sev}, policy),
+                         "blocking_debt")
+
+    def test_not_a_number_can_no_longer_invert_the_bar(self):
+        # NaN compares false against everything, so it blocks what should pass.
+        self.assertEqual(self._bar({"debt_blocking_threshold": float("nan")}), self._bar(None))
+
+    def test_a_non_numeric_dial_costs_its_own_value_not_the_whole_ranking(self):
+        # It used to reach float() deep in the grading and raise, which boot catches by dropping the ENTIRE
+        # ranked pack for the session — one bad character in operator config, no priorities at all.
+        self.assertEqual(self._bar({"debt_blocking_threshold": "high"}), self._bar(None))
+        result = attention.rank_live(override={"debt_blocking_threshold": "high"}, budget_total=20)
+        self.assertTrue(result["partition"], "a non-numeric dial destroyed the ranked pack")
+
+    def test_a_bool_is_not_a_threshold(self):
+        self.assertEqual(self._bar({"debt_blocking_threshold": True}), self._bar(None))
+
+    def test_the_refusal_is_surfaced_rather_than_swallowed(self):
+        _effective, findings = validate.effective_policy_values(
+            {"debt_blocking_threshold": 2}, {"debt_blocking_threshold": float("inf")},
+            structural_keys=set(), tier="soft", message="m")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("not an ordinary number", findings[0]["message"])
+
+    def test_an_ordinary_number_still_merges(self):
+        self.assertEqual(self._bar({"debt_blocking_threshold": 3}), 3)
+        self.assertEqual(self._bar({"debt_blocking_threshold": 0}), 0)
 
 
 class TestEffectiveValues(unittest.TestCase):

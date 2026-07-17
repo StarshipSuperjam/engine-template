@@ -61,6 +61,7 @@ CLI:  python tools/boot.py pack     # print the assembled briefing (what the hoo
 """
 from __future__ import annotations
 
+import datetime
 import os
 import re
 import subprocess
@@ -70,6 +71,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import hooks             # noqa: E402  (the fail-open harness + inject/proceed + command rendering)
 import attention         # noqa: E402  (rank_live: the shared assembler boot consumes, never re-ranks)
+import work_record       # noqa: E402  (#394: the merged-PR titles behind the ranked recent-decisions digest)
 import boot_slice        # noqa: E402  (#37: boot's rung-1 knowledge cache; read() fail-opens to None)
 import knowledge_gen     # noqa: E402  (REGEN_CMD: the one operator-facing regenerate-the-map command, cited not re-typed)
 import boot_alarm_ledger  # noqa: E402  (D-269: the standing-alarm presentation ledger; decide() fail-opens to full)
@@ -125,7 +127,9 @@ _STATE_SCHEMA_PATH = os.path.join(validate.SCHEMAS_DIR, "state.v1.json")
 # marker-safe by construction, deduped downstream by source_id.
 REFUSED_CURSOR_SOURCE_ID = "boot/refused-cursor"
 
-RECENTLY_SHIPPED_COUNT = 5   # the bounded "what just happened" digest
+# (The "what just happened" digest was sized here by a buried RECENTLY_SHIPPED_COUNT constant — the
+# magic-number pattern attention exists to retire. It is now the attention policy's reviewable, tunable
+# `budget_recent_decisions` slice over the ranked recent_decisions partition: see _shipped_lines. #394 U01.)
 
 # The cold-start orientation event's budget total. Boot owns the event's cost budget; attention owns how it
 # splits across the kinds and flexes (systems/lifecycle/boot/README "Boot owns the event model; attention
@@ -143,6 +147,10 @@ COLD_START_BUDGET = 20
 # budget_size governs surfacing and this floor is not used; it only keeps a budget-less result from
 # rendering an unbounded list. boot renders a prefix of attention's order — it never re-orders.
 NEEDS_ATTENTION_CAP = 4
+# How much of a recalled decision's text the orientation block shows. A recorded decision is a narrative
+# summary, not a headline, so a long one is elided rather than allowed to crowd the briefing — HOW MANY are
+# shown is the policy's budget slice; this bounds only how much of each. A build-spec leaf (D-052/D-113).
+_RECALL_SNIPPET_CHARS = 240
 
 
 # ---- the git / gh boundary (best-effort, degrade-loud — never raises to the caller) ---------
@@ -285,10 +293,10 @@ def protected_branch_signal(repo: str | None, token: str | None) -> tuple[str, s
     return "on", None
 
 
-def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str | None, list | None, int | None]:
+def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str | None, list | None, int | None, list | None]:
     """The engine's open self-monitoring findings, RELAYED read-only from telemetry's debt register
     (the engine-labelled open Issues) via telemetry's own reader — NEVER the write loop. Returns
-    (count, register_url, fingerprint, low_severity_count): count is None when the register could not be
+    (count, register_url, fingerprint, low_severity_count, findings): count is None when the register could not be
     read (degraded), 0 when the register is reachable and empty. `fingerprint` is the STRUCTURED-CONDITION
     identity of the open set — a SORTED list of each finding's stable identity (its source_id, else
     `#<issue-number>`) — the value the anti-habituation ledger compares, so a close+open at EQUAL count reads
@@ -298,25 +306,38 @@ def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str 
     triage-pressure meter's authoritative input, read from the durable Issue set (each Issue's severity marker)
     in this SAME single read, so it counts CI + ambient + every low-severity source, not the per-machine subset
     a scoped triage pass could see. An Issue with no severity marker (a pre-severity Issue) is not counted
-    until telemetry next updates it. All four values are None when degraded, so they track together. Boot only
-    reads; telemetry owns the register."""
+    until telemetry next updates it. `findings` is the PER-ISSUE projection ({number, source_id, severity,
+    title}) the ranking grades into one blocking-debt candidate EACH — carried out of this SAME single read, so
+    attention's per-issue severities and the card header's count can never disagree and the SessionStart path
+    still makes no second GitHub call (`count == len(findings)` by construction). The `title` rides along
+    because a finding that surfaces needs to say WHICH problem it is: without it every finding line reads
+    identically but for its number, which is a wall to scan rather than something to triage. Only the
+    identifying fields travel; the Issue BODY never enters the pack. All five values are None when degraded,
+    so they track together. Boot only reads; telemetry owns the register."""
     if not repo or not token:
-        return None, None, None, None
+        return None, None, None, None, None
     try:
         gh = telemetry.GitHubIssues(repo, token)
         issues = gh.list_open_engine_issues()
         fingerprint = sorted((i.get("source_id") or f"#{i['number']}") for i in issues)
         low = sum(1 for i in issues if i.get("severity") == telemetry.PERSISTENT_BENIGN)
-        return len(issues), gh.issues_query_url(), fingerprint, low
+        findings = [{"number": i.get("number"), "source_id": i.get("source_id"),
+                     "severity": i.get("severity"), "title": i.get("title") or ""}
+                    for i in issues]
+        return len(issues), gh.issues_query_url(), fingerprint, low, findings
     except Exception:  # noqa: BLE001 — DegradedReadError or any transport failure -> unknown (degraded)
-        return None, None, None, None
+        return None, None, None, None, None
 
 
 # ---- attention (consume the ranked partition; resolve member ids to plain language) ---------
 
-def _resolve_member(member_id: str, state: dict | None) -> str:
+def _resolve_member(member_id: str, state: dict | None, titles: dict | None = None) -> str:
     """Resolve one attention member id (a reference, not content) to a plain-language line. Boot
-    resolves; it does not re-rank. Unknown ids fall back to the id itself so nothing is silently lost."""
+    resolves; it does not re-rank. Unknown ids fall back to the id itself so nothing is silently lost.
+
+    `titles` re-joins the ranked member ids with the human names `rank()` strips (it reduces every member to
+    {id, rank}) — the same channel the shipped digest and the knowledge neighbourhood need, for the same
+    reason. Without it a register of open findings renders as lines identical but for a number."""
     if member_id == "state:standing-situation":
         # NOT surfaced as an action line. The card already shows "Where we are" live in the facts block above
         # (fresh each session), and when that live read fails it carries its own stale-warning right there — so
@@ -325,12 +346,25 @@ def _resolve_member(member_id: str, state: dict | None) -> str:
         # model; boot just doesn't nag with it. Returning "" -> needs_attention skips it (no blank bullet).
         return ""
     if member_id == "state:integration-debt":
+        # The OFFLINE stand-in only (the live register could not be read, so state's committed count carried it).
         # No count here: the card header already renders the authoritative open-problem figure (live
         # when reachable, else the offline shadow marked loud-if-stale). Restating a second, possibly-
         # disagreeing number would undercut it — so this line is the actionable nudge only.
         return "Open integration debt is waiting — clear it before new work piles on top."
     if ":" in member_id:
         kind, _, slug = member_id.partition(":")
+        if kind == "finding":    # ONE open engine finding from the live debt register, graded blocking by the
+            # policy's debt-blocking rule. Only findings that actually CLEAR the bar reach here — a sub-threshold
+            # (benign) one, and an ungraded one, are deferrals assign_partition drops, so this line never cries
+            # wolf over backlog. The per-kind budget bounds how many surface, so a deep register cannot flood
+            # the card. The title says WHICH problem it is: several blocking findings at once are a list to
+            # triage, and without their names they are only distinguishable by a number the operator would have
+            # to go look up. Defanged — a finding's title can quote a check-run name from outside the repo.
+            name = validate.defang_prompt_fence_markers((titles or {}).get(member_id) or "")
+            if name:
+                return (f"Engine finding #{slug} — {name} — is open and blocking; clear it before new work "
+                        f"piles on top.")
+            return f"Engine finding #{slug} is open and blocking — clear it before new work piles on top."
         if kind == "pr":         # an open pull request in flight (the work record's GitHub layer)
             return f"Pull request #{slug} is open and in flight — pick it back up, or close it if it's done."
         if kind == "branch":     # the working branch in flight (the work record's local-git floor)
@@ -356,20 +390,25 @@ def _and_list(items: list) -> str:
     return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
-def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = None, source=None) -> tuple[list, list, dict | None]:
+def needs_attention(state: dict | None, *, gh=None, live_findings: list | None = None,
+                    source=None) -> tuple[list, list, dict | None, list, list]:
     """Consume attention.rank_live and SPLIT its ranked partition into (1) operator ACTION lines, rendered in
     the GIVEN precedence order as plain language (a bounded prefix per category — boot renders, never
     re-orders), and (2) the knowledge NEIGHBORHOOD of the work in hand. The neighborhood is AI-orientation
     context, NOT an operator action item, so `structural_neighbors` are routed to the pack's neighborhood
-    block (assemble_pack) and never to the action list. Returns (action_lines, degraded_inputs, neighborhood).
+    block (assemble_pack) and never to the action list; `recent_decisions` are likewise routed out — its two
+    halves to the "recently shipped" digest (merged PRs) and the recalled-decisions block (the memory recall),
+    since what already happened is not something needing attention. Returns
+    (action_lines, degraded_inputs, neighborhood, shipped_lines, recalled_entries).
 
     The focus is DERIVED here from the in-flight work record (#37): the files the work touches -> their owning
     entities -> a focused knowledge read. `gh` is the GitHub reader boot built from the live repo/token;
     attention reads the work record (open PRs + the working branch) through it, and the focus from the local
-    git floor (no token needed). `live_findings` is the live debt-register count boot already read
-    (open_findings), threaded through to the assembler so the ranking and the card header read ONE number and no
-    second GitHub read happens; when it is None (no reader / a failed read) telemetry degrades and the committed
-    count stands in, so degraded_inputs carries `telemetry` and boot raises the loud 'couldn't reach' notice."""
+    git floor (no token needed). `live_findings` is the live debt register's PER-ISSUE rows boot already read
+    (open_findings), threaded to the assembler so it grades each open finding on its own severity while the card
+    header reads the SAME read's count (`len(live_findings)`) — one read, so they cannot disagree, and no second
+    GitHub call. When it is None (no reader / a failed read) telemetry degrades and the committed count stands
+    in, so degraded_inputs carries `telemetry` and boot raises the loud 'couldn't reach' notice."""
     # Boot's RUNG-1 knowledge read (#37): a fresh boot slice is read once and threaded into every knowledge
     # read below, so orientation reads the gitignored cache instead of the SQLite index. `read()` fail-opens to
     # None (a missing/stale/broken slice, or knowledge unavailable) — then the reads run on `knowledge_query`
@@ -387,23 +426,41 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = 
         # Load the operator policy-override (operator config, absent until first tuned) and pass attention's
         # slice as DATA — boot is the LOADING layer; attention merges it per-key (D-167), never reads the file.
         # The work record, by contrast, is a SUBSTRATE attention reads itself (through the gh reader boot hands it).
+        # The memory half of recent decisions, pulled ONCE here: the same rows feed the ranking (which orders
+        # and budgets them) and the render below (which needs the text `rank()` strips), so the block can never
+        # show a decision the ranking did not rank.
+        recall_rows = _recent_decisions_recall()
+        # The merged-PR half, read ONCE for the same reason: the ranking needs the moments and the digest
+        # below needs the titles rank() strips. Read twice, that is two `git log` spawns per session AND a
+        # seam — a merge landing between them would leave the digest naming a number with no title.
+        try:
+            shipped_rows = work_record.read_recent_decisions()
+        except Exception:  # noqa: BLE001 — the floor read is best-effort; attention re-reads and degrades
+            shipped_rows = None
         result = attention.rank_live(override=operator_overrides.slice_for("attention") or None,
                                      focus=focus or None, gh=gh, source=source, live_findings=live_findings,
+                                     memory_recall=recall_rows, shipped=shipped_rows,
                                      budget_total=COLD_START_BUDGET)
     except Exception:  # noqa: BLE001 — attention unavailable -> no ranked lines, the rest of the pack stands
-        return [], ["attention"], None
+        return [], ["attention"], None, [], []
+    # The finding names, from the SAME rows the ranking graded — so a line can never name a finding the
+    # ranking did not rank, and no second read is made for the sake of the wording.
+    finding_titles = {f"finding:{r.get('number')}": r.get("title") for r in (live_findings or [])}
     lines: list = []
     for entry in result.get("partition", []):
         if entry.get("category") == "structural_neighbors":
             continue        # the knowledge neighbourhood is the AI pack block (rendered from the richer
                             # neighborhood_of summary below), never an operator action line
+        if entry.get("category") == "recent_decisions":
+            continue        # what already SHIPPED is not an action item: it is the "recently shipped" digest,
+                            # rendered from _shipped_lines below (which restores the titles rank() strips)
         # The attention policy's reviewable per-kind budget governs how many items this kind surfaces (the
         # buried flat cap is retired). budget_size is 0 for a kind the trim order shed under a tight budget —
         # so it naturally contributes nothing — but at the shipped COLD_START_BUDGET every kind seats, so
         # nothing is shed here. NEEDS_ATTENTION_CAP is only the defensive floor for a budget-less result.
         cap = entry.get("budget_size", NEEDS_ATTENTION_CAP)
         for member in (entry.get("members") or [])[:cap]:
-            line = _resolve_member(member.get("id", ""), state)
+            line = _resolve_member(member.get("id", ""), state, finding_titles)
             if line:                       # skip an id-less member rather than render a blank bullet
                 lines.append(line)
     # The focused knowledge read's render channel (#37 / D-224): a per-(member, relationship) summary that
@@ -416,7 +473,9 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: int | None = 
         neighborhood = None
     if neighborhood is not None:
         neighborhood["focus_total"] = focus_total   # the true count behind FOCUS_CAP, for honest disclosure (#165)
-    return lines, list(result.get("degraded_inputs") or []), neighborhood
+    return (lines, list(result.get("degraded_inputs") or []), neighborhood,
+            _shipped_lines(result, read=(lambda: shipped_rows) if shipped_rows is not None else None),
+            _recalled_entries(result, recall_rows))
 
 
 # (predicate, direction) -> the plain-language relationship phrase for the AI orientation render. §12: these
@@ -485,27 +544,154 @@ def render_neighborhood(nb: dict | None) -> list:
 
 # ---- "what just happened" — merged PRs, never a changelog -----------------------------------
 
-def recently_shipped(count: int = RECENTLY_SHIPPED_COUNT) -> list[str]:
-    """A bounded digest reconstructed from merged pull requests (the structured PR body is the engine's
-    narrative; there is no changelog file). Reads local merge commits — degrades to [] when unavailable."""
-    raw = _run(["git", "log", "--merges", "--first-parent", f"-n{count}",
-                "--format=%s%x1f%b%x1e"])
-    if not raw:
+def _recent_decisions_recall(read=None) -> list[dict]:
+    """The saved memory's most recent DECISIONS, pulled read-only for attention's recent-decisions partition.
+
+    Attention's recent decisions are "recently merged pull requests … **and** the memory recall boot assembles
+    into the pack" (attention/README:49); cold start "pull[s] knowledge structure and memory recall when their
+    servers are up" (boot/README:67). BOOT does that pull and RELAYS the rows to the ranking — attention never
+    queries memory itself (D-154's anti-choice keeps memory off attention's direct-reads list, preserving the
+    §16 model: memory detects and owns its store, boot relays, attention ranks what it is handed).
+
+    The pull is non-lexical on purpose: a cold start has no prompt to match against, so it asks "what was
+    decided lately?" (recency-ordered) — the per-prompt scent is what asks "what relates to THIS?".
+
+    Normalises each record for the pure ranker: the ledger stores an epoch `ts`, the ranking reads a trailing-Z
+    moment, so the conversion happens HERE at the relay boundary rather than letting a raw epoch reach the
+    ranking math. Memory is imported LAZILY (it is off the cold-start import path) and every fault degrades to
+    [] — an unreadable store costs the recall, never the pack, and boot already surfaces an unreadable store as
+    its own plain-language memory-offline notice rather than from here."""
+    try:
+        from memory import index as _mem_index, records as _mem_records
+        out: list[dict] = []
+        for r in (read or _mem_index.recent_decisions)():
+            ts, rid = r.get("ts"), r.get(_mem_records.RECORD_ID_KEY)
+            if not rid or not isinstance(ts, (int, float)) or isinstance(ts, bool):
+                continue          # no stable id / no usable moment -> it cannot be ranked or cited; skip it
+            out.append({"id": str(rid), "text": (r.get("text") or ""),
+                        "recency": datetime.datetime.fromtimestamp(
+                            ts, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+        return out
+    except Exception:  # noqa: BLE001 — recall is orientation context; its loss never breaks the pack
         return []
-    items: list[str] = []
-    for record in raw.split("\x1e"):
-        record = record.strip()
-        if not record:
+
+
+def _recent_entry_members(result: dict) -> list:
+    """Every member the ranking placed in the recent-decisions partition, in its order and UNBOUNDED.
+
+    The budget decides what is shown; this is what was found. A render needs both to tell "there is none of
+    this" apart from "there is, and it did not fit" — two claims a bounded list alone cannot distinguish."""
+    entry = next((e for e in result.get("partition", []) if e.get("category") == "recent_decisions"), None)
+    return list((entry or {}).get("members") or [])
+
+
+def _recent_members(result: dict) -> list:
+    """The recent-decisions partition's members, in the ranking's own order and bounded by its budget slice.
+
+    The partition carries BOTH halves of the spec's recent decisions — merged pull requests (`shipped:`) and
+    the memory recall boot relays (`memory:`) — and they share ONE budget: `budget_recent_decisions` sizes the
+    category, not each source. So the bound is applied HERE, to the ranked whole, and only then split by
+    source; filtering first and bounding each half would quietly hand out twice the budget the policy set.
+
+    KNOWN CALIBRATION, recorded rather than corrected: on an active repo merges land far more often than
+    decisions are consolidated into memory, so the merged-PR half will normally take the whole slice and the
+    recall block will often be empty. That is the shared budget working as specified — one partition, one
+    budget — and the budget VALUES are explicitly uncalibrated build-spec leaves (D-052/D-113), tunable via
+    `/engine-tune`. Splitting the slice per-source to "fix" it would invent a sub-budget the policy does not
+    have. Worth revisiting only with real usage to calibrate against."""
+    entry = next((e for e in result.get("partition", []) if e.get("category") == "recent_decisions"), None)
+    if not entry:
+        return []
+    return (entry.get("members") or [])[:entry.get("budget_size", NEEDS_ATTENTION_CAP)]
+
+
+def _recalled_entries(result: dict, rows: list) -> list:
+    """The MEMORY half of the ranked recent-decisions partition: the budget-bounded members, in the ranking's
+    order, re-joined with the record text `rank()` strips (it reduces every member to {id, rank}) — the same
+    reason the knowledge neighbourhood needs its own channel."""
+    by_id = {f"memory:{r.get('id')}": r for r in (rows or [])}
+    return [by_id[m["id"]] for m in _recent_members(result)
+            if m.get("id") in by_id]
+
+
+def render_recalled_decisions(entries: list | None) -> list:
+    """The AI-facing "decisions recorded recently" orientation block — the MEMORY half of attention's
+    recent-decisions partition (attention/README:49), pulled at cold start (boot/README:67), ordered by the
+    ranking and bounded by the policy's budget slice.
+
+    Orientation CONTEXT for the model, like the knowledge neighbourhood: it sits above the dashboard divider,
+    carries no RELAY_MARKER, and is not an operator alarm or an action item (§12 — the engine's own machinery
+    stays out of operator narration).
+
+    ATTRIBUTED, not confirmed. These are the project's own recorded decisions, which is exactly why the block
+    says so rather than asserting them: a decision can have been superseded since it was written, and the
+    ledger records what WAS decided, never a promise it still holds. Same trust seam the per-prompt scent
+    carries — a pointer the model verifies before asserting, never content it repeats as current fact.
+
+    Each record's text is defanged: it is replayed into the model's context and a session can have pasted
+    anything into the notes it was consolidated from. [] when nothing was recalled (a fresh project, an
+    unreadable store) — no block at all, never an empty heading."""
+    if not entries:
+        return []
+    out = ["--- decisions recorded recently (orientation context, not an alarm) ---",
+           "From the project's saved memory, newest first. Attributed, not confirmed — a decision here may "
+           "have been superseded; check before you rely on it."]
+    for e in entries:
+        text = " ".join((e.get("text") or "").split())
+        if not text:
             continue
-        subject, _, body = record.partition("\x1f")
-        m = re.search(r"#(\d+)", subject)
-        number = f"#{m.group(1)}" if m else ""
-        title = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
-        if not title:  # fall back to a humanized branch name from the merge subject
-            b = re.search(r"from \S+?/(\S+)", subject)
-            title = b.group(1).replace("-", " ").replace("/", " ") if b else subject
-        items.append(f"{number} — {title}".strip(" —"))
-    return items
+        if len(text) > _RECALL_SNIPPET_CHARS:
+            text = text[:_RECALL_SNIPPET_CHARS].rstrip() + "…"
+        out.append(f"  • {validate.defang_prompt_fence_markers(text)}  (recorded {e.get('recency')})")
+    if len(out) == 2:          # every entry was blank -> no block rather than a bare heading
+        return []
+    out.append("")
+    return out
+
+
+def _shipped_lines(result: dict, *, read=None) -> list[str]:
+    """The "recently shipped" digest — reconstructed from merged pull requests (the structured PR body is the
+    engine's narrative; there is no changelog file), rendered from ATTENTION's ranked recent_decisions
+    partition.
+
+    Which decisions surface, and how many, is now the policy's reviewable `budget_recent_decisions` slice and
+    the partition's own recency ordering — retiring the buried RECENTLY_SHIPPED_COUNT constant (#394 U01).
+    This needs its own render channel for the same reason the knowledge neighbourhood does: `rank()` reduces
+    every member to {id, rank}, so the PR titles are stripped. The partition supplies WHICH and IN WHAT ORDER;
+    this read supplies their titles. Shipped work is not an operator ACTION item, so it is routed here and
+    never into the attention lines.
+
+    Every title is defanged before it lands in the pack: a merged pull request's title is authorable by an
+    outside contributor, and this text reaches the cold-boot model's context.
+
+    This returns the WHOLE body of the section, absence copy included, and never an empty list — so the
+    render cannot invent an absence claim this read never verified. "No recent merges" is a factual claim
+    about the project, and there are three different reasons this digest can come up empty: none were
+    ranked (the claim is true), some were ranked but the shared recency budget went to newer decisions
+    (there ARE recent merges — claiming otherwise is simply false), or the title read failed (the honest
+    answer is "couldn't read", not "none"). Only the read that can tell them apart may word the line."""
+    # The MERGED-PR half of the (budget-bounded, shared) recent-decisions slice — the recall half renders as
+    # AI-facing orientation, never as an operator-facing shipped list.
+    ranked = [m for m in _recent_entry_members(result) if str(m.get("id", "")).startswith("shipped:")]
+    members = [m for m in _recent_members(result) if str(m.get("id", "")).startswith("shipped:")]
+    if not members:
+        # Ranked-but-shed vs never-ranked: only the first is a merge the operator has that we are not showing.
+        # The shed case must not point at what beat it: the recall half of this partition renders ABOVE the
+        # dashboard divider, in the AI's briefing, so "it didn't make the list" would name a competition the
+        # reader cannot see — and reads to him as "nothing shipped", the exact claim this read exists to
+        # avoid. So it says the merges are there and that they are not shown, and nothing more.
+        return ["(there are recent merges — none of them made this session's short list)"] if ranked else \
+               ["(no recent merges found)"]
+    try:
+        titles = {r["id"]: (r.get("title") or "") for r in (read or work_record.read_recent_decisions)()}
+    except Exception:  # noqa: BLE001 — the digest is orientation context; its loss never breaks the pack
+        return ["(couldn't read the recent merges this session)"]
+    out: list[str] = []
+    for m in members:
+        mid = m.get("id", "")
+        title = validate.defang_prompt_fence_markers(titles.get(mid, ""))
+        out.append(f"#{mid.partition(':')[2]} — {title}".strip(" —"))
+    return out
 
 
 # ---- assembly: gather signals -> render the operator dashboard -> wrap the AI briefing ------
@@ -550,7 +736,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     state, refused = read_state()
     repo, token = repo_slug(), gh_token()
     gate, reason = protected_branch_signal(repo, token)
-    finding_count, register, finding_fingerprint, low_severity_count = open_findings(repo, token)
+    finding_count, register, finding_fingerprint, low_severity_count, findings = open_findings(repo, token)
     # The render-only triage-pressure line (telemetry/README §"triage-pressure stream"): one plain-language
     # "backlog is growing" line once the COMPLETE open low-severity count crosses the governed threshold, else
     # None. Boot DISPLAYS it read-only (it never runs a triage pass — D-269); the count is the durable-Issue
@@ -568,9 +754,11 @@ def gather_signals(session_id: str | None = None) -> dict:
     # The GitHub reader for attention's in-flight work-record read (open PRs). None without a repo/token ->
     # attention falls back to the local-git floor (the working branch). Construction does no I/O (telemetry.py).
     gh = telemetry.GitHubIssues(repo, token) if repo and token else None
-    # Thread the live debt-register count boot ALREADY read (open_findings, above) into the ranking, so the
-    # ranking and the "Open problems" header read ONE number (they cannot disagree) and the SessionStart path
-    # makes no second GitHub call. None (no repo/token, or a failed read) -> telemetry degrades and the
+    # Thread the live debt register boot ALREADY read (open_findings, above) into the ranking as the PER-ISSUE
+    # rows, so the ranking grades each open finding on its own severity (making the policy's debt-blocking
+    # threshold and busy-session flex actually govern) while the "Open problems" header still reads the SAME
+    # number off the SAME read — `finding_count == len(findings)`, so they cannot disagree — and the SessionStart
+    # path makes no second GitHub call. None (no repo/token, or a failed read) -> telemetry degrades and the
     # committed count stands in -> boot raises the loud 'couldn't reach' notice.
     # Boot's rung-1 knowledge slice (#37), read ONCE here and threaded into needs_attention — the SAME read also
     # carries `from_live`: True when the committed graph.json was absent and orientation ran on a LIVE rebuild
@@ -583,7 +771,8 @@ def gather_signals(session_id: str | None = None) -> dict:
     # (map_corrupt) — both ran orientation on a live rebuild, but the operator's repair reads differently, so
     # each earns its own honestly-named heads-up (eADR-0004 'name what is reduced'). Mutually exclusive.
     map_corrupt = bool(source and getattr(source, "from_corrupt", False))
-    att_lines, att_degraded, neighborhood = needs_attention(state, gh=gh, live_findings=finding_count, source=source)
+    att_lines, att_degraded, neighborhood, shipped, recalled = needs_attention(
+        state, gh=gh, live_findings=findings, source=source)
     try:
         # Provisioning's strand detector, RELAYED (boot computes no new state). A strand-check failure is
         # low-stakes (a stranded local checkout cannot reach the protected branch), so it degrades QUIETLY
@@ -697,6 +886,11 @@ def gather_signals(session_id: str | None = None) -> dict:
         "state": state, "refused": refused,
         "gate": gate, "reason": reason,
         "finding_count": finding_count, "register": register, "finding_fingerprint": finding_fingerprint,
+        # How many open findings carry NO urgency rating — from the SAME read as the count above, so the two
+        # can never disagree. None when the register could not be read (the card then says nothing about it
+        # rather than guessing zero).
+        "unrated_count": (None if findings is None
+                          else sum(1 for f in findings if not f.get("severity"))),
         "low_severity_count": low_severity_count, "triage_pressure_line": triage_pressure_line,
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
@@ -708,7 +902,11 @@ def gather_signals(session_id: str | None = None) -> dict:
         "map_corrupt": map_corrupt,
         # the knowledge neighborhood of the work in hand (focused read, #37) -> the AI pack block, or None
         "neighborhood": neighborhood,
-        "shipped": recently_shipped(),
+        # the memory half of recent decisions (#394 U01) -> the AI-facing recalled-decisions block
+        "recalled": recalled,
+        # The "recently shipped" digest, now the attention policy's budget_recent_decisions slice over the
+        # ranked partition rather than a buried constant's fixed 5 (#394 U01).
+        "shipped": shipped,
         "stance": modes.describe_stance(modes.current_stance(session_id)),
         "strand": strand,   # a stranded operator checkout (detached / missing engine files), or None
         # the behind-origin tail (#335; branch-agnostic for #342): the checkout — on its default branch OR
@@ -930,6 +1128,18 @@ def render_dashboard(s: dict) -> str:
         # loud-if-stale (degrade-loud) so a number can never be mistaken for freshly refreshed.
         if s["finding_count"] is not None:
             out.append(f"**Open problems:** {s['finding_count']}")
+            # Say when open problems carry no urgency rating. Without this the card reads "18 open" beside
+            # "Nothing is blocking right now" and the two together imply the engine weighed them and found
+            # none urgent. It did not weigh them at all: nothing has ever rated them, so the debt-blocking
+            # rule has nothing to compare and they neither block nor count toward the waiting-work meter
+            # (which counts only the rated-as-low). "Not rated" and "rated, not urgent" look identical on
+            # the card and mean opposite things, and only this line tells them apart.
+            unrated = s.get("unrated_count")
+            if unrated:
+                which = ("None of these carries an urgency rating" if unrated == s["finding_count"]
+                         else f"{unrated} of these carry no urgency rating")
+                out.append(f"_{which}, so nothing weighs them against the bar that decides what stops you. "
+                           f"That is not a judgement that they are minor — it means no one has rated them._")
         elif s["debt_count"]:
             out.append(f"**Open problems:** {telemetry.degraded_readout(s['debt_count'], s['debt_as_of'])}")
         else:
@@ -950,7 +1160,15 @@ def render_dashboard(s: dict) -> str:
         # four substrate names AND "attention" (needs_attention reports ["attention"] when the ranker itself
         # failed), so no internal noun ever reaches operator copy (the §12 leak guard).
         _UNREACHABLE = {"telemetry": "your open-problems list from GitHub",
-                        "git": "your in-flight branches and pull requests",
+                        # `git` answers for in-flight work AND what shipped recently, and degrades as a
+                        # whole, so this names the substrate rather than one of its halves. It does NOT name
+                        # GitHub: a GitHub outage falls back to the local floor and leaves git available
+                        # (work_record: "local git stands in"), so the only thing that reaches this line is
+                        # git itself being unreadable HERE — sending the reader to check their network or
+                        # token would send them away from the folder that is actually broken. Comma-free on
+                        # purpose: _and_list joins these into one sentence, so an inner comma would read as
+                        # another missing thing.
+                        "git": "the record of your work in this project folder",
                         "knowledge": "your project map",
                         "state": "your saved project state",
                         "attention": "your work-priority ranking"}
@@ -1057,8 +1275,9 @@ def render_dashboard(s: dict) -> str:
 
     out.append("")
     out.append("### Recently shipped")
-    out.extend(f"- {line}" for line in s["shipped"]) if s["shipped"] else out.append(
-        "- (no recent merges found)")
+    # The digest owns its own absence copy (_shipped_lines): only that read knows whether there are no recent
+    # merges or whether it simply is not showing them, and this render must not guess between the two.
+    out.extend(f"- {line}" for line in s["shipped"])
 
     # The artifact warrant (D-261), proportionately LIGHT: this dashboard — and the project map it
     # draws on — is an automated readout derived from the engine's own checks, so it states its bound
@@ -1334,6 +1553,10 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     # The focused knowledge read (#37): the structural neighborhood of the work in hand — AI-orientation
     # context, placed in the briefing (not the operator dashboard), and only when there is work in hand.
     out.extend(render_neighborhood(s.get("neighborhood")))
+    # The memory half of attention's recent decisions (#394 U01): what was DECIDED lately, pulled from the
+    # project's saved memory at cold start and ordered by the ranking — AI-orientation context beside the
+    # structural neighbourhood, not an operator alarm, and only when there is something recalled.
+    out.extend(render_recalled_decisions(s.get("recalled")))
     out.append("--- the full status (your grounding for this session) ---")
     out.append(dashboard)
     return "\n".join(out)

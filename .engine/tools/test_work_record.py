@@ -162,26 +162,47 @@ class TestRecencyNormalisation(unittest.TestCase):
 
 
 class TestAttentionIntegration(unittest.TestCase):
-    """The seam attention relies on: a successful read marks `git` available and adds in_flight candidates;
-    a raising read leaves `git` degraded (never a crash)."""
+    """The seam attention relies on: both native-record reads (in-flight, recent decisions) land
+    as candidates in their own categories and mark `git` available; a raising read leaves `git` degraded (never
+    a crash)."""
+
+    _IN_FLIGHT = [{"id": "pr:9", "category": "in_flight", "recency": None, "title": "t", "source": "git"}]
+    _SHIPPED = [{"id": "shipped:8", "category": "recent_decisions", "recency": "2026-06-01T00:00:00Z",
+                 "title": "a merged change", "source": "git"}]
 
     def setUp(self):
         import attention
         self.attention = attention
 
-    def test_records_become_in_flight_candidates_and_mark_git_available(self):
+    def _assemble(self, **patches):
+        """Assemble with both native-record legs pinned; a case overrides just the leg it is about."""
         from unittest import mock
-        recs = [{"id": "pr:9", "category": "in_flight", "recency": None, "title": "t", "source": "git"}]
-        with mock.patch.object(self.attention.work_record, "read_in_flight", return_value=recs):
-            cands, available, _ = self.attention.assemble_candidates({}, state_path="/nonexistent", gh=object())
-        self.assertIn("git", available)
-        self.assertIn("pr:9", [c["id"] for c in cands if c.get("source") == "git"])
+        reader = object()
+        legs = {"read_in_flight": mock.DEFAULT, "read_recent_decisions": mock.DEFAULT}
+        defaults = {"read_in_flight": self._IN_FLIGHT, "read_recent_decisions": self._SHIPPED}
+        stack = []
+        try:
+            for name in legs:
+                kw = patches.get(name, {"return_value": defaults[name]})
+                p = mock.patch.object(self.attention.work_record, name, **kw)
+                p.start()
+                stack.append(p)
+            return self.attention.assemble_candidates({}, state_path="/nonexistent", gh=reader)
+        finally:
+            for p in reversed(stack):
+                p.stop()
 
-    def test_unavailable_read_leaves_git_degraded(self):
-        from unittest import mock
-        with mock.patch.object(self.attention.work_record, "read_in_flight",
-                               side_effect=wr.WorkRecordUnavailable("down")):
-            _, available, _ = self.attention.assemble_candidates({}, state_path="/nonexistent", gh=object())
+    def test_both_native_record_reads_become_candidates_and_mark_git_available(self):
+        cands, available, _ = self._assemble()
+        self.assertIn("git", available)
+        by_id = {c["id"]: c for c in cands if c.get("source") == "git"}
+        self.assertEqual(by_id["pr:9"]["category"], "in_flight")
+        # The merged-PR digest is now a RANKED recent_decisions candidate, not boot's separate constant-sized
+        # digest.
+        self.assertEqual(by_id["shipped:8"]["category"], "recent_decisions")
+
+    def test_unavailable_in_flight_read_leaves_git_degraded(self):
+        _, available, _ = self._assemble(read_in_flight={"side_effect": wr.WorkRecordUnavailable("down")})
         self.assertNotIn("git", available)
 
 

@@ -70,6 +70,21 @@ class TestValidateValue(unittest.TestCase):
         ok, _msg = tune.validate_value("triage-threshold", "persistence", True)
         self.assertFalse(ok, "a bool must not pass as a number")
 
+    def test_infinity_and_not_a_number_are_refused(self):
+        # They survive float() and json.dumps (as the non-standard `Infinity`/`NaN` literals), so without this
+        # they save cleanly and then quietly break the setting they tune. Concretely, on the debt-blocking bar:
+        # an endless bar defers even the class that must never be deferred (a safety check that could not run),
+        # and "not a number" compares false against everything, so it blocks what it should let past.
+        for value in (float("inf"), float("-inf"), float("nan")):
+            ok, msg = tune.validate_value("attention", "debt_blocking_threshold", value)
+            self.assertFalse(ok, f"{value} was accepted as a dial the engine can measure against")
+            self.assertIn("number", msg)
+
+    def test_the_refusal_covers_every_setting_not_just_the_one_that_exposed_it(self):
+        for policy, key in (("triage-threshold", "persistence"), ("attention", "weight_recency")):
+            ok, _msg = tune.validate_value(policy, key, float("inf"))
+            self.assertFalse(ok, f"{policy}.{key} accepted an endless value")
+
     def test_valid_value_accepted(self):
         ok, msg = tune.validate_value("triage-threshold", "persistence", 5)
         self.assertTrue(ok)

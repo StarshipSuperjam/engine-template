@@ -72,7 +72,7 @@ def demo() -> int:
                 mock.patch.object(boot, "gh_token", return_value=None), \
                 mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
                 mock.patch.object(boot.boot_slice, "read", return_value=None), \
-                mock.patch.object(boot, "recently_shipped", return_value=[]), \
+                mock.patch.object(boot.work_record, "read_recent_decisions", return_value=[]), \
                 mock.patch.object(boot.telemetry, "INBOX_SPOOL_PATH", spool), \
                 mock.patch.dict(os.environ, {boot.boot_alarm_ledger.ENV_DIR: td}), \
                 mock.patch.object(boot, "read_state", return_value=(None, True)):
