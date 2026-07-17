@@ -676,7 +676,11 @@ def _shipped_lines(result: dict, *, read=None) -> list[str]:
     members = [m for m in _recent_members(result) if str(m.get("id", "")).startswith("shipped:")]
     if not members:
         # Ranked-but-shed vs never-ranked: only the first is a merge the operator has that we are not showing.
-        return ["(nothing merged recently enough to make this list)"] if ranked else \
+        # The shed case must not point at what beat it: the recall half of this partition renders ABOVE the
+        # dashboard divider, in the AI's briefing, so "it didn't make the list" would name a competition the
+        # reader cannot see — and reads to him as "nothing shipped", the exact claim this read exists to
+        # avoid. So it says the merges are there and that they are not shown, and nothing more.
+        return ["(there are recent merges — none of them made this session's short list)"] if ranked else \
                ["(no recent merges found)"]
     try:
         titles = {r["id"]: (r.get("title") or "") for r in (read or work_record.read_recent_decisions)()}
@@ -882,6 +886,11 @@ def gather_signals(session_id: str | None = None) -> dict:
         "state": state, "refused": refused,
         "gate": gate, "reason": reason,
         "finding_count": finding_count, "register": register, "finding_fingerprint": finding_fingerprint,
+        # How many open findings carry NO urgency rating — from the SAME read as the count above, so the two
+        # can never disagree. None when the register could not be read (the card then says nothing about it
+        # rather than guessing zero).
+        "unrated_count": (None if findings is None
+                          else sum(1 for f in findings if not f.get("severity"))),
         "low_severity_count": low_severity_count, "triage_pressure_line": triage_pressure_line,
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
@@ -1119,6 +1128,18 @@ def render_dashboard(s: dict) -> str:
         # loud-if-stale (degrade-loud) so a number can never be mistaken for freshly refreshed.
         if s["finding_count"] is not None:
             out.append(f"**Open problems:** {s['finding_count']}")
+            # Say when open problems carry no urgency rating. Without this the card reads "18 open" beside
+            # "Nothing is blocking right now" and the two together imply the engine weighed them and found
+            # none urgent. It did not weigh them at all: nothing has ever rated them, so the debt-blocking
+            # rule has nothing to compare and they neither block nor count toward the waiting-work meter
+            # (which counts only the rated-as-low). "Not rated" and "rated, not urgent" look identical on
+            # the card and mean opposite things, and only this line tells them apart.
+            unrated = s.get("unrated_count")
+            if unrated:
+                which = ("None of these carries an urgency rating" if unrated == s["finding_count"]
+                         else f"{unrated} of these carry no urgency rating")
+                out.append(f"_{which}, so nothing weighs them against the bar that decides what stops you. "
+                           f"That is not a judgement that they are minor — it means no one has rated them._")
         elif s["debt_count"]:
             out.append(f"**Open problems:** {telemetry.degraded_readout(s['debt_count'], s['debt_as_of'])}")
         else:
@@ -1140,11 +1161,14 @@ def render_dashboard(s: dict) -> str:
         # failed), so no internal noun ever reaches operator copy (the §12 leak guard).
         _UNREACHABLE = {"telemetry": "your open-problems list from GitHub",
                         # `git` answers for in-flight work AND what shipped recently, and degrades as a
-                        # whole, so this names the substrate rather than one of its halves. Comma-free on
+                        # whole, so this names the substrate rather than one of its halves. It does NOT name
+                        # GitHub: a GitHub outage falls back to the local floor and leaves git available
+                        # (work_record: "local git stands in"), so the only thing that reaches this line is
+                        # git itself being unreadable HERE — sending the reader to check their network or
+                        # token would send them away from the folder that is actually broken. Comma-free on
                         # purpose: _and_list joins these into one sentence, so an inner comma would read as
-                        # another missing thing — and two of them degrade together on any session with no
-                        # token.
-                        "git": "the record of your work on GitHub",
+                        # another missing thing.
+                        "git": "the record of your work in this project folder",
                         "knowledge": "your project map",
                         "state": "your saved project state",
                         "attention": "your work-priority ranking"}

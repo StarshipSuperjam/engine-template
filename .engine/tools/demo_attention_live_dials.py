@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import attention          # noqa: E402  (the REAL assembler)
 import attention_rank     # noqa: E402  (the REAL ranking core)
 import boot               # noqa: E402  (the REAL render)
+import scent              # noqa: E402  (the REAL per-prompt hint threshold)
 import telemetry          # noqa: E402  (the REAL severity grading)
 from unittest import mock  # noqa: E402
 
@@ -43,8 +44,14 @@ _POLICY = {
     "debt_blocking_threshold": _BAR, "scent_strong_match_threshold": 0.5,
 }
 _AS_OF = "2026-06-04T00:00:00Z"
+# The saved marker deliberately LAGS the merges below, which is the ordinary situation: it is refreshed on
+# its own schedule, so work lands after it. Age is measured back from a reference moment and floored at
+# zero, so everything newer than a lagging marker used to score the same, tie, and fall through to the
+# pull-request number — which is how "recently shipped" came out back to front. Part 3 uses the marker the
+# live path resolves, not this raw one.
+_CURSOR = "2026-04-01T00:00:00Z"
 _STATE = {"standing_situation": {"phase": "x"},
-          "integration_debt": {"open_count": 0, "as_of": "2026-06-01T00:00:00Z"}}
+          "integration_debt": {"open_count": 0, "as_of": _CURSOR}}
 
 
 def _finding(number, severity=None):
@@ -68,6 +75,18 @@ def _blocking(cands, policy=None):
     return [c["id"] for c in cands if attention_rank.assign_partition(c, pol) == "blocking_debt"]
 
 
+def _named(ids) -> str:
+    """Candidate ids in the operator's words. `finding:11` / `shipped:42` / `memory:r1` are how the engine
+    keys these internally; a demonstration for a non-engineer says what they ARE. Nothing is shown that only
+    makes sense with the code open."""
+    words = {"finding": "engine finding #", "shipped": "pull request #", "memory": "a decision from your notes"}
+    out = []
+    for i in ids:
+        kind, _, slug = str(i).partition(":")
+        out.append(words["memory"] if kind == "memory" else f"{words.get(kind, kind + ' ')}{slug}")
+    return ", ".join(out) if out else "nothing"
+
+
 def _plainly(condition: str) -> str:
     """The session's condition in the operator's words. The engine's own names for these ("clean", "high_debt")
     are backstage vocabulary; a demonstration for a non-engineer says what it MEANS."""
@@ -83,7 +102,7 @@ def _demo() -> int:
     cands, _, _ = _assemble([_finding(11, telemetry.TRUST_CRITICAL), _finding(12, telemetry.PERSISTENT_BENIGN)])
     stops = _blocking(cands)
     print(f"  Two problems are open: #11 (a safety check could not run) and #12 (recurring, low impact).")
-    print(f"  With the bar at {_BAR}, what actually stops you: {stops}")
+    print(f"  With the bar at {_BAR}, what actually stops you: {_named(stops)}")
     print("  => the serious one stops you; the low-impact one waits its turn instead of crying wolf.")
     ok_1 = stops == ["finding:11"]
     ok = ok and ok_1
@@ -105,7 +124,7 @@ def _demo() -> int:
     absurd = {**_POLICY, "debt_blocking_threshold": 10_000}
     hard, _, _ = _assemble([_finding(11, telemetry.TRUST_CRITICAL)], policy=absurd)
     print(f"    bar cranked to 10000 -> does '#11 a safety check could not run' still stop you? "
-          f"{bool(_blocking(hard, absurd))}")
+          f"{'yes' if _blocking(hard, absurd) else 'NO'}")
     print("  => yes. A check that could not run always stops you, however the bar is tuned — you can defer")
     print("     ordinary problems, never the engine telling you it could not check something.")
     ok_3 = _blocking(hard, absurd) == ["finding:11"]
@@ -151,17 +170,22 @@ def _demo() -> int:
     print("PART 3 — 'decisions made recently' is a real kind now, from BOTH of its sources")
     print("=" * 88)
     shipped = [{"id": "shipped:42", "category": "recent_decisions", "recency": "2026-06-03T00:00:00Z",
-                "title": "Add the sign-in page", "source": "git"}]
+                "title": "Add the sign-in page", "source": "git"},
+               {"id": "shipped:17", "category": "recent_decisions", "recency": "2026-05-01T00:00:00Z",
+                "title": "Set up the database", "source": "git"}]
     recall = [{"id": "r1", "text": "we decided to keep the onboarding copy short", "recency": "2026-06-02T00:00:00Z"}]
     cands, _, _ = _assemble([], recall=recall, shipped=shipped)
-    result = attention_rank.rank(cands, _POLICY, _AS_OF, {"state", "knowledge", "telemetry", "git"},
+    moment = attention._reference_moment(cands, _CURSOR)   # what the live path resolves, from a lagging marker
+    result = attention_rank.rank(cands, _POLICY, moment, {"state", "knowledge", "telemetry", "git"},
                                  budget_total=20)
     recent = next(e for e in result["partition"] if e["category"] == "recent_decisions")
     kinds = [m["id"].partition(":")[0] for m in recent["members"]]
-    print(f"  What the engine treats as a recent decision: {[m['id'] for m in recent['members']]}")
+    print(f"  What the engine treats as a recent decision: {_named(m['id'] for m in recent['members'])}")
     print("  => both halves the design names: a merged pull request AND a decision recorded in saved memory.")
-    print(f"  How many it will show is the reviewable share ({_POLICY['budget_recent_decisions']} of the space)"
-          f" -> {recent['budget_size']} slot(s), not a number buried in the code.")
+    share = _POLICY["budget_recent_decisions"]
+    print(f"  How many it shows is the share of the session's opening space you set aside for this — "
+          f"{share:.0%} of it, which works out here as {recent['budget_size']} slot(s). Not a number buried "
+          f"in the code.")
     ok_6 = "shipped" in kinds and "memory" in kinds
     ok = ok and ok_6
 
@@ -171,8 +195,31 @@ def _demo() -> int:
         print(f"    recently shipped: {line}")
     for line in boot.render_recalled_decisions(boot._recalled_entries(result, recall))[:3]:
         print(f"    {line}")
-    ok_8 = bool(boot._shipped_lines(result, read=lambda: shipped))
+    # The defect that started this: the newest merge must lead. It rendered OLDEST-first, because age was
+    # measured back from a marker that lags behind the merges themselves — so everything newer than it tied,
+    # and the tie fell through to the pull-request number. #42 is newer than #17 and must come first.
+    lines = boot._shipped_lines(result, read=lambda: shipped)
+    print("  (newest first — that is the fix: this list used to come out back to front)")
+    ok_8 = [l.split()[0] for l in lines] == ["#42", "#17"]
     ok = ok and ok_8
+
+    print()
+    print("=" * 88)
+    print("PART 4 — the bar for volunteering a hint mid-conversation (the third dial)")
+    print("=" * 88)
+    # The scent reads its bar from the SAME reviewable policy. It used to read only the shipped default, so
+    # tuning it saved a number nothing ever read. Only the override FILE is faked here; the read is real.
+    with mock.patch.object(scent.operator_overrides, "slice_for", return_value={}):
+        shipped_bar = scent._threshold()
+    with mock.patch.object(scent.operator_overrides, "slice_for",
+                           return_value={"scent_strong_match_threshold": 0.93}):
+        tuned_bar = scent._threshold()
+    print(f"  the shipped bar for volunteering a hint: {shipped_bar}")
+    print(f"  after you tune it to 0.93, what the hint actually uses: {tuned_bar}")
+    print("  => it takes effect. Before this change it still used the shipped number, so tuning this one")
+    print("     changed nothing at all and nothing told you so.")
+    ok_9 = shipped_bar != tuned_bar and tuned_bar == 0.93
+    ok = ok and ok_9
 
     print()
     print("-" * 88)
@@ -183,7 +230,7 @@ def _demo() -> int:
     if not ok:
         print("\nDEMO UNEXPECTED: a dial did not govern as claimed "
               f"(bar={ok_1 and ok_2}, ungraded-defers={ok_2b}, never-tuned-out={ok_3}, busy={ok_4 and ok_5}, "
-              f"recent-decisions={ok_6 and ok_8}).", file=sys.stderr)
+              f"recent-decisions={ok_6 and ok_8}, hint-bar={ok_9}).", file=sys.stderr)
         return 1
     return 0
 

@@ -162,7 +162,7 @@ class TestRecencyNormalisation(unittest.TestCase):
 
 
 class TestAttentionIntegration(unittest.TestCase):
-    """The seam attention relies on: the three native-record reads (in-flight, recent decisions, the plan) land
+    """The seam attention relies on: both native-record reads (in-flight, recent decisions) land
     as candidates in their own categories and mark `git` available; a raising read leaves `git` degraded (never
     a crash)."""
 

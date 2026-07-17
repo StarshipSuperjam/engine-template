@@ -594,6 +594,54 @@ class TestReferenceTime(unittest.TestCase):
 ATTENTION_STRUCTURAL = set(PRECEDENCE_KEYS) | set(TRIM_KEYS)
 
 
+class TestTheMergeRefusesAValueTheEngineCannotMeasure(unittest.TestCase):
+    """The read-time merge is the ONLY gate every reader passes through, so it is where a dial the engine
+    cannot measure against has to be refused (#394, deliverable gate).
+
+    The tuning command checks what it writes, but the override is a committed file an operator can hand-edit
+    and JSON round-trips the non-standard `Infinity`/`NaN` literals — so the write-side check alone leaves
+    the door open, and what comes through it is not cosmetic."""
+
+    def _bar(self, override):
+        return attention.load_policy_values(override=override)["debt_blocking_threshold"]
+
+    def test_an_endless_bar_can_no_longer_drop_a_safety_check_that_could_not_run(self):
+        # THE one that matters. Every severity is below an endless bar, so a trust-critical finding — "a
+        # safety gate could not run" — would silently leave blocking debt while still being counted, and the
+        # operator would see the number but never the item. The clamp cannot save it; refusing the bar does.
+        shipped = self._bar(None)
+        self.assertEqual(self._bar({"debt_blocking_threshold": float("inf")}), shipped)
+        policy = attention.load_policy_values(override={"debt_blocking_threshold": float("inf")})
+        sev = telemetry.severity_rank(telemetry.TRUST_CRITICAL, policy["debt_blocking_threshold"])
+        self.assertEqual(assign_partition({"id": "x", "category": "blocking_debt", "severity": sev}, policy),
+                         "blocking_debt")
+
+    def test_not_a_number_can_no_longer_invert_the_bar(self):
+        # NaN compares false against everything, so it blocks what should pass.
+        self.assertEqual(self._bar({"debt_blocking_threshold": float("nan")}), self._bar(None))
+
+    def test_a_non_numeric_dial_costs_its_own_value_not_the_whole_ranking(self):
+        # It used to reach float() deep in the grading and raise, which boot catches by dropping the ENTIRE
+        # ranked pack for the session — one bad character in operator config, no priorities at all.
+        self.assertEqual(self._bar({"debt_blocking_threshold": "high"}), self._bar(None))
+        result = attention.rank_live(override={"debt_blocking_threshold": "high"}, budget_total=20)
+        self.assertTrue(result["partition"], "a non-numeric dial destroyed the ranked pack")
+
+    def test_a_bool_is_not_a_threshold(self):
+        self.assertEqual(self._bar({"debt_blocking_threshold": True}), self._bar(None))
+
+    def test_the_refusal_is_surfaced_rather_than_swallowed(self):
+        _effective, findings = validate.effective_policy_values(
+            {"debt_blocking_threshold": 2}, {"debt_blocking_threshold": float("inf")},
+            structural_keys=set(), tier="soft", message="m")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("not an ordinary number", findings[0]["message"])
+
+    def test_an_ordinary_number_still_merges(self):
+        self.assertEqual(self._bar({"debt_blocking_threshold": 3}), 3)
+        self.assertEqual(self._bar({"debt_blocking_threshold": 0}), 0)
+
+
 class TestEffectiveValues(unittest.TestCase):
     """Issue #42 — the operator policy-override read-time merge (D-167). Exercises the REAL core merge
     (validate.effective_policy_values) and the REAL consumer (attention.load_policy_values). The merge is

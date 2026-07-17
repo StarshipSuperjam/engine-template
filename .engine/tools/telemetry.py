@@ -97,12 +97,15 @@ def severity_rank(severity: "str | None", blocking_threshold: float) -> "float |
         absent severity is a deferral, mentioned in the open-problems count but not gating the start of
         work, exactly the policy's "rather than just being mentioned"."""
     if severity == TRUST_CRITICAL:
-        bar = float(blocking_threshold)
-        # Only a real bar can be ridden. A non-finite one would make this return non-finite too, and the
-        # ranking DROPS a non-finite severity as malformed — so the clamp written to keep this class always
-        # blocking would be the very thing that dropped it. `tune` refuses a non-finite dial at the gate;
-        # this holds the promise anyway, for a bar that reached the file some other way.
-        return max(_TRUST_CRITICAL_RANK, bar) if math.isfinite(bar) else _TRUST_CRITICAL_RANK
+        # The clamp rides ONLY a real bar, and cannot rescue an unreal one — be clear about that, because
+        # the tempting comment here is a false one. Against an endless bar every severity is below it, so
+        # this class would be dropped whatever number came back; returning the fixed rank does not save it.
+        # What saves it is that a value the engine cannot measure against never reaches this function: the
+        # read-time merge (`validate.effective_policy_values`) refuses one and the shipped default stands.
+        # This is the belt for a caller that bypassed that merge — it keeps a non-finite value from
+        # propagating INTO the ranking as a severity, which is worth doing and is all it is worth claiming.
+        bar = blocking_threshold if isinstance(blocking_threshold, (int, float)) else _TRUST_CRITICAL_RANK
+        return max(_TRUST_CRITICAL_RANK, float(bar)) if math.isfinite(bar) else _TRUST_CRITICAL_RANK
     if severity == PERSISTENT_BENIGN:
         return _BENIGN_RANK
     return None

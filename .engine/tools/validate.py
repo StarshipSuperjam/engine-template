@@ -67,6 +67,7 @@ import datetime
 import glob as _glob
 import json
 import os
+import math
 import re
 import subprocess
 import sys
@@ -197,7 +198,10 @@ _PROMPT_FENCE_RAIL_RE = re.compile("[" + _RAIL_CHARS + "]{3,}")
 # already calls, and boot imports validate, not the reverse. `test_boot` pins it to `boot.RELAY_MARKER`, so the
 # two cannot drift apart silently.
 _RELAY_MARKER = "INFORM THE USER THAT"
-_RELAY_MARKER_RE = re.compile(re.escape(_RELAY_MARKER), re.IGNORECASE)
+# Matched across ANY run of whitespace between the words, not the single spaces the engine happens to emit:
+# an exact-literal pattern is beaten by typing two spaces, and the paths this guards (a merged-PR title from
+# an outside contributor, a finding title quoting a check-run name) are exactly where someone would.
+_RELAY_MARKER_RE = re.compile(r"\s+".join(re.escape(w) for w in _RELAY_MARKER.split()), re.IGNORECASE)
 
 
 def defang_prompt_fence_markers(text: str) -> str:
@@ -212,9 +216,11 @@ def defang_prompt_fence_markers(text: str) -> str:
         row), or no 3-dash run at all (an ISO date, a `--flag`) is left exactly as it is.
       - the imperative relay marker: the reserved phrase is lowercased wherever it appears, so the line no
         longer carries the engine's must-push directive. HONEST BOUND: the fence trim is structural, but this
-        one is read by a MODEL, not a parser — lowercasing removes the reserved token the engine actually
-        emits and the glossary defines, and it is why the callers also quote and attribute such text; it is a
-        real reduction in force, not a proof the model can never be swayed by the words themselves.
+        one is read by a MODEL, not a parser. Lowercasing removes the reserved token the engine actually
+        emits and the glossary defines, which is a real reduction in force — not a proof the model cannot be
+        swayed by the words themselves. Do not read more into it than that: some callers additionally quote
+        and attribute the text they pass (the recalled-decisions block says "attributed, not confirmed"),
+        but others interpolate it bare into a line, so that is a property of those callers and not of this.
 
     Linear in the text length — no regex backtracking."""
     out = []
@@ -1460,9 +1466,29 @@ def effective_policy_values(default: dict, override: dict, *, structural_keys, t
         elif key not in default:
             findings.append(finding(tier, f"Override key '{key}' is not carried by the policy's shipped "
                             f"default; it is ignored and falls back to the default. {message}"))
+        elif not _is_tunable_number(override[key]):
+            # A value the engine cannot measure against is refused HERE, at the read, because this is the
+            # only place every reader passes through. The tuning command checks what it writes, but the
+            # override is a committed file an operator can hand-edit, and JSON round-trips the non-standard
+            # `Infinity`/`NaN` literals — so the write-side check alone leaves the door open. What comes
+            # through it is not cosmetic: an endless bar silently drops even a safety check that could not
+            # run (every severity is below it), "not a number" compares false against everything so it
+            # blocks what should pass, and a string raises deep in the ranking and costs the whole session's
+            # priority list rather than one value. The shipped default stands instead, and the refusal is
+            # surfaced rather than swallowed.
+            findings.append(finding(tier, f"Override key '{key}' is set to '{override[key]}', which is not "
+                            f"an ordinary number the engine can measure against; it is refused and the "
+                            f"shipped default stands. {message}"))
         else:
             effective[key] = override[key]
     return effective, findings
+
+
+def _is_tunable_number(value) -> bool:
+    """A real, finite number — the only thing a policy dial can hold. Rejects a bool (it is an int in
+    Python, and `True` is not a threshold anyone means), infinity and not-a-number (they survive `float()`
+    and a JSON round-trip), and anything non-numeric."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def kind_coherence(rule, ctx):

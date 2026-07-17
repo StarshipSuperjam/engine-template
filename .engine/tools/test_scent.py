@@ -23,6 +23,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scent  # noqa: E402
+import validate  # noqa: E402  (the shipped policy default, read the way the scent reads it)
 from memory import index, ledger, records  # noqa: E402
 
 _ID = records.RECORD_ID_KEY
@@ -81,6 +82,48 @@ class _ScentBase(unittest.TestCase):
         self.add("prefer snake_case for config keys", role="preference", tags=["naming"])
         self.rebuild()
         return rid
+
+
+class ThresholdReadsTheTunedValueTests(unittest.TestCase):
+    """#394 U02 — the salience bar the scent clears is an operator-tunable dial (D-167), and the scent read
+    it straight from the shipped default, so a reviewed-and-merged `/engine-tune` of it changed nothing.
+
+    These drive the REAL `_threshold()` against a REAL override slice. Nothing here patches `_threshold`
+    out: every other test in this file does (it is not what they are about), which is exactly how a dial can
+    be inert for months behind a green suite — the one test that would notice never existed."""
+
+    def _threshold_with(self, override):
+        # Patch only the override FILE read — the policy read, the merge and the coercion are the real ones.
+        with mock.patch.object(scent.operator_overrides, "slice_for", return_value=override):
+            return scent._threshold()
+
+    def test_the_shipped_default_stands_when_nothing_is_tuned(self):
+        shipped = validate.frontmatter(
+            os.path.join(validate.ENGINE_DIR, "policies", "attention.md"))["values"]["scent_strong_match_threshold"]
+        self.assertEqual(self._threshold_with({}), float(shipped))
+
+    def test_a_tuned_value_actually_reaches_the_scent(self):
+        # THE regression this slice exists to prevent. Revert `_threshold` to a direct frontmatter read and
+        # this is the test that goes red.
+        self.assertEqual(self._threshold_with({"scent_strong_match_threshold": 0.93}), 0.93)
+        self.assertNotEqual(self._threshold_with({"scent_strong_match_threshold": 0.93}),
+                            self._threshold_with({}))
+
+    def test_another_policys_tuned_key_never_moves_this_bar(self):
+        # The merge is per-key: tuning a different dial must not disturb this one.
+        self.assertEqual(self._threshold_with({"debt_blocking_threshold": 9}), self._threshold_with({}))
+
+    def test_a_value_the_engine_cannot_measure_against_is_refused_not_obeyed(self):
+        # The read-time merge refuses it and the shipped default stands, so a hand-edited override file can
+        # neither silence the scent (an endless bar) nor make it fire on everything.
+        for bad in (float("inf"), float("nan"), "loud", True):
+            self.assertEqual(self._threshold_with({"scent_strong_match_threshold": bad}),
+                             self._threshold_with({}), f"a bar of {bad!r} was obeyed")
+
+    def test_a_faulted_override_read_degrades_to_the_default_rather_than_crashing_the_prompt(self):
+        # This runs on every prompt: it must never crash, and must never silently disable itself either.
+        with mock.patch.object(scent.operator_overrides, "slice_for", side_effect=OSError("unreadable")):
+            self.assertEqual(scent._threshold(), scent._DEFAULT_THRESHOLD)
 
 
 class FiringTests(_ScentBase):

@@ -183,10 +183,18 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
         cursor_as_of = debt.get("as_of")
         if live_findings is None and (debt.get("open_count") or 0) > 0:
             # OFFLINE/DEGRADED path only (the live register was not read this session): state's committed
-            # count is the stand-in. Severity is unknown offline, so the floor is surfaced AS blocking
-            # (severity = the policy bar) rather than hidden — the safe degraded posture. telemetry stays in
+            # count is the stand-in, surfaced AS blocking by setting severity to the bar. telemetry stays in
             # degraded_inputs (it is NOT added to `available` below), so boot raises the loud "couldn't reach"
             # notice; the live path just below supersedes this whenever the register WAS read.
+            #
+            # This LOOKS like the pinned-at-the-bar shape the live path below exists to remove, and it is
+            # deliberately not the same thing — worth spelling out, because the two are one line apart.
+            # There, the engine HAS read a finding and telemetry has not graded it: severity is a fact that
+            # is absent, so inventing one is inventing. HERE the engine could not look at all — this
+            # candidate is not a finding, it is "there was debt when we last saw, and I cannot check". The
+            # bar-valued severity is not a claim about how bad anything is; it is how this file says ALWAYS
+            # SURFACE, and it must stay true however the bar is tuned (D-059 law 2 — degrade loud). So the
+            # blind session is louder than the sighted one on purpose: that is the right way round.
             candidates.append({"id": "state:integration-debt", "category": "blocking_debt",
                                "severity": policy_values.get("debt_blocking_threshold", 0),
                                "recency": cursor_as_of, "source": "state"})
@@ -303,9 +311,9 @@ def assemble_candidates(policy_values: dict, *, state_path: str = STATE_PATH,
 
     if work_record is not None:
         try:
-            # The native git/GitHub work record, in the three halves this module owns (attention/README:50).
+            # The native git/GitHub work record, in the halves this module owns (attention/README:50).
             # Every reader emits an already trailing-Z-normalised recency (or None), so the ranking math never
-            # sees a bad ts. `git` is marked available only once ALL THREE reads succeed — see the plan read.
+            # sees a bad ts. `git` is marked available only once BOTH reads succeed.
             #
             # In-flight (open PRs + the working branch). RAISES only when git cannot be consulted at all; an
             # empty list means git IS available with no in-flight work.
@@ -418,7 +426,9 @@ def _reference_moment(candidates: list, cursor_as_of: str | None) -> str | None:
             continue
         try:
             seconds = attention_rank._epoch(moment)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, AttributeError):
+            # AttributeError too: _epoch calls .replace on the value, so a non-string (a number, a list — a
+            # corrupt state cursor can hold either) fails there, not on the parse.
             continue  # a malformed moment costs its own ordering, never the whole reference
         if best_epoch is None or seconds > best_epoch:
             best, best_epoch = moment, seconds
