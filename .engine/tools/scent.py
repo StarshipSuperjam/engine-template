@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""scent.py — the per-prompt attention scent (boot/orientation; memory-substrate-sqlite-fts5 slice 5, PR 2).
+"""scent.py — the per-prompt attention scent (boot/orientation; memory-substrate-sqlite-fts5).
 
 This is the second of the two inert `core` seams the memory build lights up — the one whose end-to-end
 fail-then-pass demo completes M1 (the close ambient-capture relay is its twin). It is "metacognition as a
-push" (boot/README): on every prompt (`UserPromptSubmit`) a FAST lexical lookup over memory's FTS5 index
+push": on every prompt (`UserPromptSubmit`) a FAST lexical lookup over memory's FTS5 index
 injects **attributed pointers, not content** — "memory may hold earlier notes whose words match this; query
 and verify before asserting" — when the prompt STRONGLY matches stored memory, and is **silent** otherwise
 (often, on sparse memory — that is correct: it is a nudge, not a guarantee).
@@ -15,7 +15,7 @@ seam) lazily relays to `memory.capture_turn_delta`. Memory SUPPLIES the lookup (
 not own the behavior, so the inventory stays `("boot",)`. On a repo without the memory module the lazy import
 fails and the seam is inert (silent), never a fault — the close-relay degrade-clean precedent.
 
-THE LAWS (boot/README:212-232), all load-bearing here and pinned by tests:
+THE LAWS (all load-bearing here and pinned by tests):
   - HOT PATH. Fires every prompt, so it imports only `hooks` (+ `validate`) and lazily `memory.index`, never
     boot's heavy stack. The lookup is `index.scent_lookup` — OR-match, relevance-ONLY, FAST-PATH ONLY (it never
     runs the slow scan): the lexical work is sub-millisecond and does not grow with memory size.
@@ -46,11 +46,11 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hooks     # noqa: E402  (run_hook + inject/proceed: the fail-open harness this rides)
-import validate  # noqa: E402  (frontmatter + ENGINE_DIR + effective_policy_values: the policy read + the D-167 merge)
-import operator_overrides  # noqa: E402  (the D-167 override slice; a thin stdlib+validate JSON reader — hot-path-safe)
+import validate  # noqa: E402  (frontmatter + ENGINE_DIR + effective_policy_values: the policy read + the operator-override merge)
+import operator_overrides  # noqa: E402  (the operator-override slice; a thin stdlib+validate JSON reader — hot-path-safe)
 
 
-# ---- tuning leaves (recorded build-spec leaves; see the slice-5 PR-2 plan) ------------------
+# ---- tuning leaves (recorded build-spec leaves) ------------------
 _THRESHOLD_KEY = "scent_strong_match_threshold"   # attention owns the value; the scent only READS it
 _DEFAULT_THRESHOLD = 0.5                            # fallback if the policy can't be read (degrade-safe)
 _CANDIDATES = 20                                    # how many bm25-ranked matches scent_lookup hands back
@@ -71,7 +71,7 @@ _DEGRADED_DISCLOSURE = (
     "Memory's fast recall is unavailable on this machine, so the automatic per-prompt memory hints are paused "
     "this session. You can still query memory directly (the memory search tool) when you need it."
 )
-# The §7 recall-completeness disclosure (D-273/D-274, issue #332). Recall surfaces only the curated layer — these
+# The recall-completeness disclosure (issue #332). Recall surfaces only the curated layer — these
 # pointers are to curated summaries; the raw, word-for-word notes behind them are kept and fully recoverable
 # (never deleted by that exclusion). Shown ONCE per session alongside the first pointers (mirroring the degraded
 # disclosure's once-per-session sentinel), so the operator can be offered the verbatim. AI-facing and relayed; the
@@ -87,7 +87,7 @@ _COMPLETENESS_DISCLOSURE = (
 
 def _threshold() -> float:
     """The salience bar a lexical match clears to surface, read from attention's policy (attention OWNS the
-    value; the scent reads it) THROUGH the D-167 operator-override merge — so a reviewed and merged
+    value; the scent reads it) THROUGH the operator-override merge — so a reviewed and merged
     `/engine-tune` of `scent_strong_match_threshold` actually reaches the per-prompt scent. Merged inline via
     `operator_overrides.slice_for` + the core `validate.effective_policy_values` (the same merge
     `attention.load_policy_values` performs) rather than by importing `attention` — that would pull
@@ -97,7 +97,7 @@ def _threshold() -> float:
     try:
         policy = os.path.join(validate.ENGINE_DIR, "policies", "attention.md")
         default = validate.frontmatter(policy).get("values") or {}
-        # The D-167 read-time merge: the operator's tuned value wins over the shipped default, so a reviewed and
+        # The read-time operator-override merge: the operator's tuned value wins over the shipped default, so a reviewed and
         # merged `/engine-tune` of the scent threshold actually reaches this hot path (it never did before).
         # `scent_strong_match_threshold` is override-ELIGIBLE (a threshold, not a structural precedence/trim law),
         # so `structural_keys=set()` merges it cleanly; `slice_for` already returns {} on any override-file fault.
@@ -241,7 +241,7 @@ def handler(payload: dict) -> dict:
     if not fresh:
         return hooks.proceed()
     block = _render(fresh)
-    # §7: alongside the FIRST pointers of the session, disclose once that these are curated summaries whose raw
+    # Alongside the FIRST pointers of the session, disclose once that these are curated summaries whose raw
     # verbatim is kept and recoverable (the surfaced-set dedup keeps it to one showing, like the degraded notice).
     if _COMPLETENESS_MARKER not in _surfaced(session_id):
         _mark_surfaced(session_id, [_COMPLETENESS_MARKER])

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Slice 20 — tests for boot, the SessionStart orientation pack.
+"""Tests for boot, the SessionStart orientation pack.
 
 These lock the load-bearing behaviours a non-engineer cannot read code to verify: the present-marker
 byte-identity (boot's card title == the floor's verify-presence token in CLAUDE.deployed.md), that a
@@ -7,7 +7,7 @@ refused state cursor DEGRADES and never halts, that boot CONSUMES attention's or
 that governance-critical alarms pin first and the protected-branch signal is honest in all three states
 (off / unknown-never-green / on), that any reader failure fails open with the card still rendered, that
 the SessionStart hook is wired on the session-start sources and NOT on compact, that boot clears the modes
-stance signal at SessionStart and names the current stance (slice 21), and that the block-budget coherence
+stance signal at SessionStart and names the current stance, and that the block-budget coherence
 leg now validates modes' real explore-write-gate member.
 """
 from __future__ import annotations
@@ -48,7 +48,7 @@ def _offline():
     patchers = [
         mock.patch.object(boot, "repo_slug", return_value=None),
         mock.patch.object(boot, "gh_token", return_value=None),
-        # The recently-shipped digest is now the ranked recent_decisions partition (#394 U01): pin the merged-PR
+        # The recently-shipped digest is now the ranked recent_decisions partition (#394): pin the merged-PR
         # read both attention (for the candidates) and boot (for their titles) run, so the digest is stable and
         # no offline test shells out to real git.
         mock.patch.object(boot.work_record, "read_recent_decisions",
@@ -136,9 +136,9 @@ class TestDegradedNotice(unittest.TestCase):
         self.assertNotIn("I couldn't reach attention", dash)   # the internal noun must not reach the operator
 
     def test_restart_self_serve_line_fires_on_a_reconnectable_substrate_outage(self):
-        # #416 U10-F1: the loud degraded notice must name the single self-serve fix — quit and reopen Claude
-        # Desktop — for a reconnectable MCP/GitHub outage (spec boot/README §"Degradation is loud and
-        # consented": "usually a Claude Desktop restart away from full capability"). Fires for telemetry (the
+        # #416: the loud degraded notice must name the single self-serve fix — quit and reopen Claude
+        # Desktop — for a reconnectable MCP/GitHub outage (degradation is loud and
+        # consented: "usually a Claude Desktop restart away from full capability"). Fires for telemetry (the
         # GitHub read) and knowledge (the map service), and for the gate-unknown no-GitHub-access case.
         for sub in ("telemetry", "knowledge"):
             dash = boot.render_dashboard(_signals(att_degraded=[sub]))
@@ -147,7 +147,7 @@ class TestDegradedNotice(unittest.TestCase):
         self.assertIn("dropped connection", boot.render_dashboard(_signals(gate="unknown")))
 
     def test_restart_self_serve_line_absent_for_non_reconnectable_degrades(self):
-        # SCOPED honesty (#416 U10-F1): a Claude Desktop restart does NOT fix a committed-state read, the
+        # SCOPED honesty (#416): a Claude Desktop restart does NOT fix a committed-state read, the
         # ranker, a missing git binary, a rebuilt/absent map, or a self-healing memory notice — so the restart
         # line must NOT attach to those (it would falsely promise a fix). It also never appears on a healthy boot.
         for sig in (dict(att_degraded=["state"]), dict(att_degraded=["attention"]), dict(att_degraded=["git"]),
@@ -203,7 +203,7 @@ class TestDegradedNotice(unittest.TestCase):
         self.assertNotIn("your committed map file is missing", corrupt)
 
     def test_a_rotting_ledger_shows_a_memory_health_heads_up_with_a_remedy(self):
-        # #396 U07b: a positive unreadable-line count surfaces a peer-voice heads-up that reassures (what could
+        # #396: a positive unreadable-line count surfaces a peer-voice heads-up that reassures (what could
         # be read is intact) and names a CONCRETE remedy (ask to restore) — never a bare alarm, and never the
         # over-claim "nothing is lost" (an unparseable line's content IS gone).
         dash = boot.render_dashboard(_signals(ledger_malformed=3))
@@ -223,8 +223,8 @@ class TestDegradedNotice(unittest.TestCase):
             self.assertNotIn("unreadable line", boot.render_dashboard(clean))
 
     def test_a_stalled_migration_shows_a_reassuring_self_healing_heads_up(self):
-        # #396 U26: an orphaned migration marker => a plain-language heads-up that LEADS with reassurance (the
-        # failure direction here is content-safe, README §279), never leaks internal terms, never claims "paused"
+        # #396: an orphaned migration marker => a plain-language heads-up that LEADS with reassurance (the
+        # failure direction here is content-safe), never leaks internal terms, never claims "paused"
         # (an orphaned marker blocks nothing), and names automatic recovery + a concrete recourse.
         dash = boot.render_dashboard(_signals(migration_stalled=True))
         self.assertIn("A memory update didn't finish", dash)
@@ -240,7 +240,7 @@ class TestDegradedNotice(unittest.TestCase):
             self.assertNotIn("A memory update didn't finish", boot.render_dashboard(clean))
 
     def test_recall_offline_shows_the_memory_offline_notice_with_a_restore_recourse(self):
-        # #397 U09: an unreadable saved-memory store => the spec's "memory offline" notice. Plain peer voice: names
+        # #397: an unreadable saved-memory store => the spec's "memory offline" notice. Plain peer voice: names
         # recall is unavailable, that the saved store isn't lost, and the ONE self-serve action (restore from
         # backup) — never a Claude restart (proven absent above), never internal terms.
         dash = boot.render_dashboard(_signals(recall_offline=True))
@@ -297,7 +297,7 @@ class TestDegradedNotice(unittest.TestCase):
 
 class TestPresentMarker(unittest.TestCase):
     def test_marker_is_project_status_byte_identical_to_the_floor(self):
-        # The locked present marker, and its byte-identical presence in the deployed floor (slice 19). The floor
+        # The locked present marker, and its byte-identical presence in the deployed floor. The floor
         # is read wherever it lives — CLAUDE.deployed.md in this construction repo, the root CLAUDE.md in a
         # generated repo after first-run's swap-in (#272) removes CLAUDE.deployed.md — so the contract holds in
         # both and the test never errors on an adopter's post-swap tree.
@@ -391,7 +391,7 @@ class TestRefusedState(unittest.TestCase):
             self.assertTrue(refused)
             self.assertIsNone(state)
 
-            # U15a: a version-1 cursor whose INNER shape is broken is REFUSED, not rendered as a confident
+            # A version-1 cursor whose INNER shape is broken is REFUSED, not rendered as a confident
             # "all clear" — a missing required pointer set, and a wrong-typed open_count.
             for payload in ({"schema_version": 1},
                             {"schema_version": 1, "standing_situation": {"milestone": None, "phase": None},
@@ -408,7 +408,7 @@ class TestRefusedState(unittest.TestCase):
             self.assertTrue(refused)  # absent cursor also degrades, never raises
 
     def test_infra_fault_does_not_blame_a_good_cursor(self):
-        # U15a fold: a missing/corrupt SCHEMA file is an ENGINE fault, not the cursor's — a good cursor must
+        # A missing/corrupt SCHEMA file is an ENGINE fault, not the cursor's — a good cursor must
         # NOT be refused just because the validator couldn't load, else boot blames the wrong thing.
         with tempfile.TemporaryDirectory() as d:
             good = os.path.join(d, "good.json")
@@ -420,7 +420,7 @@ class TestRefusedState(unittest.TestCase):
             self.assertFalse(refused)
 
     def test_refused_cursor_emits_one_benign_finding_only_on_real_sessionstart(self):
-        # U15b: the durable refused-cursor finding is spooled ONCE on the real SessionStart path
+        # The durable refused-cursor finding is spooled ONCE on the real SessionStart path
         # (use_ledger=True), never from the read-only status verb / `pack` debug view (use_ledger=False), and
         # never for a healthy cursor. A LOCAL spool append only — a benign severity never resolves a GitHub
         # token, so this cannot write GitHub.
@@ -486,7 +486,7 @@ class TestRefusedState(unittest.TestCase):
 
 
 class TestWhereWeAreLiveOrCached(unittest.TestCase):
-    """The 'Where we are' line obeys the boot rendering law (D-198/D-199): show ONE of live-or-cached, never
+    """The 'Where we are' line obeys the boot rendering law: show ONE of live-or-cached, never
     both; the live line when the GitHub derive succeeded; otherwise the committed offline cache, named with
     WHEN it was cached and that it may be stale; `none set` is an honest normal state, never an error."""
 
@@ -610,7 +610,7 @@ class TestConsumesAttentionNeverReRanks(unittest.TestCase):
 
 
 class TestFocusedNeighborhood(unittest.TestCase):
-    """The orientation-time focused knowledge read (#37, D-224): a focus derived from the work in hand drives
+    """The orientation-time focused knowledge read (#37): a focus derived from the work in hand drives
     a BIDIRECTIONAL neighbourhood, rendered as an AI-facing block — PER SOURCE, by relationship, with the TRUE
     count disclosed when truncated — NOT operator action lines, and never an arbitrary capped few as if salient."""
 
@@ -657,13 +657,13 @@ class TestFocusedNeighborhood(unittest.TestCase):
         self.assertIn("attention is checked by: policy-frontmatter, policy-shape", block)  # reverse targets
         self.assertNotIn("tool:", block)                                  # no raw ids
         self.assertNotIn("module:", block)
-        self.assertNotIn("provided_by", block)                            # no raw predicate vocabulary (§12)
+        self.assertNotIn("provided_by", block)                            # no raw predicate vocabulary
         self.assertNotIn("targets", block)
         self.assertIn("knowledge neighborhood of your current work", block)
 
     def test_honest_truncation_discloses_the_true_count(self):
         # the maintainer's binding correction: a hub focus must NOT show an arbitrary capped few as if salient;
-        # the render states the true total and frames the sample AS a sample (#37 / D-224).
+        # the render states the true total and frames the sample AS a sample (#37).
         summary = {"focus": ["module:core"], "groups": [
             {"source": "module:core", "predicate": "provided_by", "direction": "in",
              "total": 147, "sample": ["audit_library", "boot", "close", "conduct"]}]}
@@ -820,7 +820,7 @@ class TestGovernanceAlarms(unittest.TestCase):
 
 
 class TestRecentDecisionsRender(unittest.TestCase):
-    """The recent-decisions partition carries BOTH spec'd halves (#394 U01) — merged pull requests
+    """The recent-decisions partition carries BOTH spec'd halves (#394) — merged pull requests
     (`shipped:`) and the memory recall boot relays (`memory:`) — and they share ONE budget slice. The merged-PR
     half renders as the operator-facing "recently shipped" digest; the recall half as an AI-facing orientation
     block. Neither is an action item."""
@@ -1027,9 +1027,9 @@ class TestRecentDecisionsRender(unittest.TestCase):
 
 
 class TestTriagePressureRender(unittest.TestCase):
-    """The render-only triage-pressure line (#403.2 / F0201): boot renders it read-only from the COMPLETE open
+    """The render-only triage-pressure line (#403.2): boot renders it read-only from the COMPLETE open
     low-severity count open_findings read (CI + ambient + every low-severity source), and SUPPRESSES it on a
-    degraded read or a below-threshold count — never a false number, never a triage write (D-269)."""
+    degraded read or a below-threshold count — never a false number, never a triage write."""
 
     _GROWING = "self-monitoring backlog is growing"
 
@@ -1063,15 +1063,15 @@ class TestTriagePressureRender(unittest.TestCase):
 
 
 class TestStrandSurfacing(unittest.TestCase):
-    """Slice B: a stranded operator checkout is surfaced read-only at the OPEN-FINDINGS tier — pinned BELOW
+    """A stranded operator checkout is surfaced read-only at the OPEN-FINDINGS tier — pinned BELOW
     the governance alarms (a stranded local checkout cannot reach the protected branch) and NOT in the
-    must-push/INFORM set. Detection only — the line names that it cannot yet be repaired (the fix is slice C)."""
+    must-push/INFORM set. Detection only — the line names that it cannot yet be repaired."""
     _STRAND = {"states": ["detached"], "main": "/p"}
 
     def test_render_surfaces_the_strand_line_only_when_stranded(self):
         stranded = boot.render_dashboard(_signals(strand=self._STRAND))
         self.assertIn("drifted into a broken state", stranded)
-        self.assertIn("say the word", stranded.lower())          # slice C: boot now OFFERS the fix
+        self.assertIn("say the word", stranded.lower())          # boot now OFFERS the fix
         self.assertIn("nothing is lost", stranded.lower())       # ...and names it lossless
         self.assertNotIn("drifted into a broken state", boot.render_dashboard(_signals(strand=None)))
 
@@ -1182,7 +1182,7 @@ class TestBehindOriginSurfacing(unittest.TestCase):
 
 
 class TestOffMainSurfacing(unittest.TestCase):
-    """The off-main Stage-1 signal (#342/D-275): the top-level checkout parked on a side line of work is
+    """The off-main Stage-1 signal (#342): the top-level checkout parked on a side line of work is
     surfaced read-only at the strand tier (folder health, below the governance alarms), as a GENTLE INVITATION
     (not a defect report), COUNT-FREE, with no git verbs and the one shared consent phrase. The firm Stage-2
     (behind on a side line) supersedes it, with a two-tone advisory and — on escalation — a named lineage."""
@@ -1266,7 +1266,7 @@ class TestOffMainSurfacing(unittest.TestCase):
 
 
 class TestSetAsideReadout(unittest.TestCase):
-    """#413 U09 — the reversible-forgetting readout. Boot renders what memory has set aside from recall, with an
+    """#413 — the reversible-forgetting readout. Boot renders what memory has set aside from recall, with an
     honest handle per class: a real bring-back for a demoted note, a show-the-wording offer for a summarised
     one. Nothing is ever deleted here, and the readout says so; permanent erasure is not shown (it rides the
     audits digest, not boot)."""
@@ -1362,7 +1362,7 @@ class TestSetAsideReadout(unittest.TestCase):
 
 
 class TestSetAsideCollapseThreading(unittest.TestCase):
-    """The set-aside readout rides the SAME D-269 decide() pass as the pushed alarms (like off_main): its
+    """The set-aside readout rides the SAME decide() pass as the pushed alarms (like off_main): its
     collapse outcome is stamped onto `s` hook-side, it contributes NO relay line, and it is never in must_push."""
     _SA = {"rows": [{"id": "d1", "reason": "demoted", "text": "aged note", "role": "decision",
                      "ts": 1, "since": None, "reversible": True, "stands_in": None}],
@@ -1417,7 +1417,7 @@ class TestPrConflictSurfacing(unittest.TestCase):
     def test_render_surfaces_the_offer_only_when_a_pr_is_stuck(self):
         stuck = boot.render_dashboard(_signals(pr_conflict=self._PR))
         self.assertIn("can't be merged", stuck.lower())
-        self.assertIn("no work is lost", stuck.lower())          # leads with the reassurance (PR-1 framing)
+        self.assertIn("no work is lost", stuck.lower())          # leads with the reassurance
         self.assertIn("reconcile it", stuck.lower())             # names the one-step fix the operator says
         # offers to CHECK, never asserts the diagnosis / promises keep-both before assess has classified it
         self.assertIn("needs your decision", stuck.lower())
@@ -1459,7 +1459,7 @@ class TestPrConflictSurfacing(unittest.TestCase):
 
 
 class TestRestoreOfferSurfacing(unittest.TestCase):
-    """Slice 6b (Floor 3): when local memory is empty AND a backup is configured, boot surfaces a plain-language
+    """When local memory is empty AND a backup is configured, boot surfaces a plain-language
     auto-restore OFFER — a recovery opportunity (NOT a ⚠ governance alarm), pinned BELOW the governance alarms,
     carried on the always-visible present-marker, and DELIBERATELY NOT in the must-push/INFORM set. boot OFFERS;
     the assistant runs restore_vault on the operator's consent. Memory owns the detector; boot owns the wording."""
@@ -1513,7 +1513,7 @@ class TestRestoreOfferSurfacing(unittest.TestCase):
 
 
 class TestMigrationRevertOffer(unittest.TestCase):
-    """Slice 3 (D-264 floor a, #303): boot RELAYS memory's code-older-than-data detector as a one-action recovery
+    """#303: boot RELAYS memory's code-older-than-data detector as a one-action recovery
     OFFER, by plain handle (never the raw tag the signal carries), pinned below the governance alarms, carried on the
     present-marker, and NOT in must_push. boot OFFERS; the assistant runs memory.restore_pre_migration on consent."""
     _OFFER = {"store_label": "recall-ledger", "stamped": "2.0.0", "running": "1.0.0",
@@ -1524,7 +1524,7 @@ class TestMigrationRevertOffer(unittest.TestCase):
         self.assertIn("the copy saved before that update", offered.lower())
         self.assertIn("restore my memory from before the update", offered.lower())
         self.assertIn("until you say so", offered.lower())            # the consent-first reassurance
-        # floor (a) / D-265 S1: the raw tag is opaque executor payload, never rendered to the operator
+        # the raw tag is opaque executor payload, never rendered to the operator
         self.assertNotIn("engine-snapshot/", offered)
         self.assertNotIn(self._OFFER["tag"], offered)
         self.assertNotIn("the copy saved before that update",
@@ -1684,8 +1684,8 @@ class TestFailOpen(unittest.TestCase):
 
 
 class TestBriefingRelay(unittest.TestCase):
-    """The operator-presentation relay (D-187/D-188): the AI-facing briefing, the present-marker line the
-    AI renders first, the INFORM-marked must-push partition, and the clean pure dashboard (the Slice-3 seam)."""
+    """The operator-presentation relay: the AI-facing briefing, the present-marker line the
+    AI renders first, the INFORM-marked must-push partition, and the clean pure dashboard."""
 
     def test_present_marker_line_all_clear_when_healthy(self):
         self.assertEqual(boot.present_marker_line(_signals(gate="on")), f"{boot.PRESENT_MARKER}: all clear")
@@ -1775,7 +1775,7 @@ class TestHookRegistration(unittest.TestCase):
                 self.assertIn("/.venv/", h["command"])        # the runtime interpreter, never bare python
 
     def test_boot_is_wired_exactly_once_on_every_start_source(self):
-        # memory-substrate co-registers its consolidation sweep on the same SessionStart sources (slice 3b),
+        # memory-substrate co-registers its consolidation sweep on the same SessionStart sources,
         # so not every command names boot — but boot must still be present exactly once per source.
         for g in self.settings["hooks"]["SessionStart"]:
             boot_cmds = [h for h in g["hooks"] if "tools/boot.py" in h["command"]]
@@ -1831,7 +1831,7 @@ class TestBlockBudgetLeg(unittest.TestCase):
 
 
 class TestStanceLine(unittest.TestCase):
-    """Slice 21 — boot clears the modes stance signal at SessionStart and names the current stance."""
+    """Boot clears the modes stance signal at SessionStart and names the current stance."""
 
     def test_pack_names_the_explore_stance(self):
         patchers = _offline()
@@ -1874,12 +1874,12 @@ class TestStanceLine(unittest.TestCase):
                 p.stop()
         self.assertIn(boot.KNOWLEDGE_FACULTY_NOTE, pack)            # present even with no work in hand
         self.assertIn("knowledge-impact-check.md", pack)           # and it points at the runbook
-        # AI-facing only: it stays OUT of the operator's own dashboard view (§12).
+        # AI-facing only: it stays OUT of the operator's own dashboard view.
         self.assertNotIn(boot.KNOWLEDGE_FACULTY_NOTE, boot.render_dashboard(_signals()))
 
     def test_pack_carries_the_status_pull_cue(self):
         # The status verb is operator-typed (non-resident), so the AI's standing cue to run engine_status.py
-        # verbatim when the operator asks where things stand must live in the boot pack (D-200/D-201). Pin the
+        # verbatim when the operator asks where things stand must live in the boot pack. Pin the
         # distinctive command string so the cue can't silently degrade to a vague paraphrase instruction.
         patchers = _offline()
         try:
@@ -1904,7 +1904,7 @@ class TestStanceLine(unittest.TestCase):
 
 
 class TestAntiHabituationCollapse(unittest.TestCase):
-    """D-269 — the standing-alarm collapse applied in the hook path (_relay_lines / assemble_pack
+    """The standing-alarm collapse applied in the hook path (_relay_lines / assemble_pack
     use_ledger). An unchanged alarm collapses to a terse reminder that keeps its consequence + fix offer;
     a new/worsened one relays in full; the degrade-loud tells never collapse; and — the #313 grounding
     invariant — the present-marker line and the all-clear render NEVER collapse."""
@@ -1944,7 +1944,7 @@ class TestAntiHabituationCollapse(unittest.TestCase):
         self.assertNotIn("still", line.lower())                         # never collapsed to a stale count
 
     def test_findings_equal_count_different_set_relays_full_not_a_false_still(self):
-        # #392 defect 3 / D-269 R19: a finding closing while a different one opens (SAME count, different
+        # #392 defect 3: a finding closing while a different one opens (SAME count, different
         # identities) is a real change — it must relay full, never mis-collapse to "unchanged". The bare-count
         # fingerprint could not tell these apart; the identity SET can.
         boot._relay_lines(_signals(finding_count=3, register="u",

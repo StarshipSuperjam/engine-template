@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Slice 21 — tests for modes, the operating stance + the Explore write-gate.
+"""Tests for modes, the operating stance + the Explore write-gate.
 
 These lock the load-bearing behaviours a non-engineer cannot read code to verify: that the gate DENIES
 each building action class in Explore with a plain sentence and ALLOWS everything else (reads, tests,
@@ -278,10 +278,10 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
 
 
 class TestPlanArtifactCarveOut(unittest.TestCase):
-    """#64 (D-177/D-178): in Explore the gate EXEMPTS Claude Code's native plan file — recognized by the
+    """#64: in Explore the gate EXEMPTS Claude Code's native plan file — recognized by the
     platform's own marker (`permission_mode == "plan"` / `is_plan_file`), NEVER a path — while every other
     write stays denied. (On the current platform `is_plan_file` appears only in conversation text, so the
-    live marker is `permission_mode == "plan"`; the exact field is a build-spec leaf, D-178.)"""
+    live marker is `permission_mode == "plan"`; the exact field is a build-spec leaf.)"""
 
     def _payload(self, tool_name, permission_mode=None, tool_input=None):
         # session_id=None -> current_stance is Explore (the gated default); no signal file needed.
@@ -332,7 +332,7 @@ class TestPlanArtifactCarveOut(unittest.TestCase):
 
 
 class TestMemoryTargetDenial(unittest.TestCase):
-    """#257 (D-251): a blocked Write/Edit to a MEMORY store keeps the DECISION (deny) but earns a
+    """#257: a blocked Write/Edit to a MEMORY store keeps the DECISION (deny) but earns a
     memory-specific RELAY — a competent "noted" with a correlate the operator can exercise, never the
     build-set "open a pull request" line and never the two-store seam. Message choice only; path
     recognition is safe here precisely because the write is denied either way."""
@@ -365,7 +365,7 @@ class TestMemoryTargetDenial(unittest.TestCase):
 
     def test_memory_relay_does_not_leak_the_two_store_seam(self):
         r = modes._MEMORY_DENIAL.lower()
-        self.assertNotIn("harness", r)            # §12 vocabulary-leak: no "harness vs engine memory" tour
+        self.assertNotIn("harness", r)            # vocabulary-leak: no "harness vs engine memory" tour
         self.assertNotIn("orientation", r)        # the dropped false correlate must not creep back in
 
     def test_non_memory_engine_source_write_keeps_the_generic_denial(self):
@@ -393,7 +393,7 @@ class TestMemoryTargetDenial(unittest.TestCase):
 
 
 class TestPlanAcceptanceBuildEntry(unittest.TestCase):
-    """#67 / D-270/D-271: a PostToolUse on the plan-exit completion (`ExitPlanMode`) flips the stance to
+    """#67: a PostToolUse on the plan-exit completion (`ExitPlanMode`) flips the stance to
     Build AND injects a do-not-relay assistant-internal stance directive (gated on the flip succeeding);
     every other completion leaves it untouched and proceeds with no inject; the handler ALWAYS proceeds,
     never blocks; a rejected plan fires no PostToolUse so the stance stays Explore (fail-safe to the floor)."""
@@ -443,8 +443,8 @@ class TestPlanAcceptanceBuildEntry(unittest.TestCase):
         self.assertEqual(modes.current_stance("s"), modes.BUILD)
 
     def test_build_entry_directive_is_do_not_relay_and_carries_no_operator_announcement(self):
-        # The directive is assistant-facing machine context (D-270/D-271): it NAMES Build, is self-labelled
-        # do-not-relay, points the turn into the kickoff, and carries NO imperative relay marker (the glossary
+        # The directive is assistant-facing machine context: it NAMES Build, is self-labelled
+        # do-not-relay, points the turn into the kickoff, and carries NO imperative relay marker (the
         # `INFORM THE USER THAT…` class) and no raw mechanism jargon — so if it ever leaks it reads plainly.
         # It ALSO names the pre-work consent gate (the risk assessment + the operator's depth choice) as a
         # short label, so a cold session is primed to run it — without reproducing the risk-assessment copy.
@@ -489,7 +489,7 @@ class TestPlanAcceptanceBuildEntry(unittest.TestCase):
 
 
 class TestResolveSession(unittest.TestCase):
-    """The /engine-start (slice 26a) session-id resolution: the skill body passes
+    """The /engine-start session-id resolution: the skill body passes
     `--session "${CLAUDE_CODE_SESSION_ID}"` (the shell expands that env var), with a fallback to reading
     the CLAUDE_CODE_SESSION_ID env var directly so the Build verb still resolves the real session when the
     argument arrives empty or unexpanded."""
@@ -533,7 +533,7 @@ class TestResolveSession(unittest.TestCase):
             self.assertTrue(_deny(other), "a different session stays in explore — the marker is session-keyed")
 
     def test_stance_verb_uses_env_fallback_and_reports_the_true_stance(self):
-        # The footgun fix (D-270): a bare `modes.py stance` resolves the session from $CLAUDE_CODE_SESSION_ID
+        # The footgun fix: a bare `modes.py stance` resolves the session from $CLAUDE_CODE_SESSION_ID
         # and reports the REAL stance (Build here), not the safe-default explore it used to print with no flag.
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
