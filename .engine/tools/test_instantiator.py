@@ -19,6 +19,7 @@ import yaml  # the #416 U28-F7 uv-pin tie parses the CI workflows structurally (
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import instantiator as inst  # noqa: E402
+import license_seeds  # noqa: E402
 import module_coherence  # noqa: E402
 import validate  # noqa: E402
 
@@ -1583,6 +1584,14 @@ class TestRepoLicenseIsTheTemplateSeed(unittest.TestCase):
             "(Apache-2.0 + Commons Clause); if it was re-worded (including a copyright-year bump), update "
             "inst._TEMPLATE_LICENSE_SEED to match, or first-run setup will stop clearing the traveled license and "
             "the template author's copyright would govern a generated repo's product (R29).")
+        # Byte-parity (stricter than recognize()'s cosmetic-tolerant match): CURRENT_SEED must equal the committed
+        # root LICENSE exactly. A future relicense MUST append the new text to license_seeds.HISTORICAL_SEEDS (the
+        # tail becomes CURRENT_SEED) — forget it and BOTH the first-run clear and the standing detector go silently
+        # blind (R29, #471). This makes the append-only law mechanical.
+        self.assertEqual(
+            license_seeds.CURRENT_SEED, license_text,
+            "license_seeds.CURRENT_SEED must be byte-identical to the committed root LICENSE; append a re-licensed "
+            "text to HISTORICAL_SEEDS so CURRENT_SEED follows the tail.")
 
 
 class TestApplyDemoRunsGreen(unittest.TestCase):
