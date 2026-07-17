@@ -1,4 +1,4 @@
-"""Unit tests for the live compaction TRIGGER — memory's gated PreCompact auto-compaction.
+"""Unit tests for the live compaction TRIGGER — memory's gated PreCompact auto-compaction (slice 5, PR 3).
 
 The compaction MECHANISM (crash-safe fold-and-swap) is pinned in test_compact.py. THIS file pins the live
 TRIGGER: the gate that fires `compact()` only once enough reclaimable waste has piled up, rides the PreCompact
@@ -97,7 +97,7 @@ class GateTests(_Base):
         self.assertEqual(compact.reclaimable_waste(), 0)               # and the waste was folded away
 
     def test_unclosed_supersessions_never_trip_the_gate(self):
-        # the gate counts only CLOSED-batch supersessions (exactly what compact prunes), never un-closed
+        # S2: the gate counts only CLOSED-batch supersessions (exactly what compact prunes), never un-closed
         # (crashed-pass) ones — else it would fire and rewrite a byte-identical ledger forever (waste never drops).
         raws = self._raws(_THRESHOLD + 4, session_id="crash-S")
         try:

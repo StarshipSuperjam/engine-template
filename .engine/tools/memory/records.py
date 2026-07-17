@@ -1,11 +1,11 @@
-"""records.py — the shared record vocabulary for the memory ledger.
+"""records.py — the shared record vocabulary for the memory ledger (memory-substrate-sqlite-fts5, slice 5).
 
 The `kind` strings and provenance keys that more than one memory tool must agree on, in ONE place so they
 never drift and no import cycle can form. `consolidate` writes the episodic + marker records; `index` keeps
 provenance keys out of the search body; `forget` derives logical retirement from the marker↔batch linkage and
-appends the `reinforcement` access marker + scores demotion from it; `compact` folds those
-markers into the carried current-state fields below and `score` reads them back; `rollup` writes the
-gist + supersession markers and `forget` derives the raws' retirement from them; `index.search` ranks
+(slice 4c) appends the `reinforcement` access marker + scores demotion from it; `compact` (slice 4d-i) folds those
+markers into the carried current-state fields below and `score` reads them back; `rollup` (slice 4d-ii) writes the
+gist + supersession markers and `forget` derives the raws' retirement from them; `index.search` (slice 5) ranks
 recall best-first and attaches the per-result `SCORE_KEY`. Because all of them need these names and `consolidate`
 already imports `index`, defining them here — a leaf that imports nothing from the `memory` package — lets `index`,
 `forget`, `score`, `compact`, and `rollup` import them without
@@ -25,7 +25,7 @@ AMBIENT_CAPTURE_KIND = "turn-delta"  # the role-less, Stop-appended verbatim cap
 EPISODIC_KIND = "episodic"          # an AI-written episodic summary record
 MARKER_KIND = "consolidated"        # the in-ledger "this session has been tidied" marker (survives backup)
 
-# Recall membership (issue #332). Recall surfaces the curated layer — episodic records + gists — and
+# Recall membership (D-273/D-274, issue #332). Recall surfaces the curated layer — episodic records + gists — and
 # excludes ambient `turn-delta` capture, which is fuel for consolidation and the abandoned-session sweep, never
 # recall content. `forget._is_ambient_capture` keys on AMBIENT_CAPTURE_KIND above; the discriminator is the
 # record's `kind`, re-derived on every recall read / index rebuild (no per-record marker, no carried bit — it
@@ -91,26 +91,26 @@ THROUGH_SEQ_KEY = "through_seq"     # on the `consolidated` marker (#446): the p
                                     # projected into seq-space from its `ts`; always present on a marker written
                                     # now. Effective per-session watermark = the MAX across the session's markers.
 
-# The stable, content-free record id. Minted at capture in each record factory — one per record, on
+# The stable, content-free record id (slice 4b). Minted at capture in each record factory — one per record, on
 # every kind (turn-delta, episodic, marker). It is a durable NAME for a record: a uuid hex, so it reveals nothing
 # about the gitignored content (content-free) and survives the index rebuild and the future compaction rewrite (it
 # rides in the record JSON, not an ephemeral index offset). The derived index keeps it OUT of the search body
 # (index._NON_BODY_KEYS): a uuid's hex fragments are real words, exactly the `session_id`/`batch` problem.
 RECORD_ID_KEY = "id"
 
-# The reinforcement (access) marker (scored demotion). An append-only ledger record minted each time
+# The reinforcement (access) marker (slice 4c — scored demotion). An append-only ledger record minted each time
 # a record is RECALLED: it names, by the reinforced record's stable id, that the record was used. `forget.score`
 # folds these into a frecency × role-weight × recency score, demoting an old, unused record in tiers
 # (hot → warm → cold → archived); `archived` is excluded from recall but stays resident + recoverable in the
 # ledger. A reinforcement marker is pure derivation fuel — non-content provenance — so it carries no `text`/
 # `session_id`; `index` keeps its `target` (a uuid hex, the `id`/`batch` problem) OUT of the search body
 # (index._NON_BODY_KEYS), and `forget.live_records` drops the marker itself from recall. The live caller that
-# appends it on recall is the search server; this change ships the kind + the appender + the demo only.
+# appends it on recall is slice 5 (the search server); 4c ships the kind + the appender + the demo only.
 REINFORCEMENT_KIND = "reinforcement"   # the `kind` field of an access marker
 TARGET_KEY = "target"                  # the reinforced record's RECORD_ID_KEY value (whom the access points at)
 REINFORCEMENT_TAG = "reinforcement"    # the marker's tag (kept out of the search body like every tag)
 
-# The carried current-state fields ledger compaction folds onto a recall record before it prunes that
+# The carried current-state fields ledger compaction (slice 4d) folds onto a recall record before it prunes that
 # record's reinforcement markers. They make a compacted record's demotion score durable WITHOUT keeping the
 # folded-away markers: `score` reproduces the pre-compaction score from `FRECENCY_SNAPSHOT_KEY` (the frecency
 # value at compaction time) decayed forward from `SNAPSHOT_TS_KEY`, with `LAST_ACCESS_TS_KEY` flooring recency.
@@ -124,12 +124,12 @@ SNAPSHOT_TS_KEY = "snapshot_ts"               # int: t0, the compaction time the
 LAST_ACCESS_TS_KEY = "last_access_ts"         # int: max(birth, *accesses) at t0, the recency floor
 TIER_KEY = "tier"                             # str: the snapshot-time tier (legibility; recomputed on read)
 
-# The gist roll-up vocabulary. Active forgetting's first move is a SECOND-order
+# The gist roll-up vocabulary (slice 4d-ii). Active forgetting's first move (memory/README) is a SECOND-order
 # consolidation: an AI-judged maintenance pass rolls up OLD, low-frecency EPISODIC summaries of one session into a
 # compact GIST and LOGICALLY RETIRES the raw episodes (excluded from recall, still resident + fully recoverable —
 # Layer-1 never erases; physical erasure is Layer-2/4e, audit-gated). `rollup` writes, in strict order under the
 # single-writer lock, the gist → a per-raw `superseded` marker → the closing `rolled-up` marker; `forget` derives
-# the raws' retirement from a CLOSED-batch supersession; `compact` (extended) folds a closed-batch
+# the raws' retirement from a CLOSED-batch supersession; `compact` (slice 4d-i, extended) folds a closed-batch
 # supersession into the carried `SUPERSEDED_BY_KEY` field below and prunes the marker. The gist↔raw link is thus
 # carried in the ledger (the marker, then the folded field) and survives the rewrite.
 GIST_KIND = "gist"                  # an AI-written gist consolidating several old episodes of one session
@@ -152,39 +152,39 @@ SOURCE_IDS_KEY = "source_ids"       # on the gist: the RECORD_ID_KEY values of t
 # unconditionally. A uuid hex, so `index` keeps it OUT of the search body (index._NON_BODY_KEYS).
 SUPERSEDED_BY_KEY = "superseded_by"
 
-# The operator-adjudicated-erasure marker (Layer-2 physical erasure). Its OWN evidence class (NOT a
+# The operator-adjudicated-erasure marker (slice 4e — Layer-2 physical erasure). Its OWN evidence class (NOT a
 # stretch of `operator-directed`): the one marker that authorises COMPACTION to physically REMOVE a recall record
 # from the ledger — the single irreversible act in the memory system, reachable ONLY because the operator merged a
-# single-purpose erasure pull request (the consent gate). It names the target by its stable, content-free
+# single-purpose erasure pull request (the §17 consent gate). It names the target by its stable, content-free
 # RECORD_ID_KEY (reusing TARGET_KEY — already non-body) and carries MERGE_SHA_KEY, the merge identity that
 # authorised it. Pure non-content provenance: no `text`/`session_id`; `index` keeps MERGE_SHA_KEY (and TARGET_KEY)
 # OUT of the search body, and `forget.live_records` drops the marker from recall (forget._is_demoted). `compact`
 # removes the TARGET but RETAINS the marker itself (the idempotency tombstone, so a re-compaction is a clean no-op).
-# In this PR the marker is minted ONLY by hand — the test + the throwaway-cabinet demo (compact.enact_erasure,
-# the SOLE minter); no automatic producer exists until the cross-session observer reads a merged erasure PR.
+# In slice 4e PR (i) the marker is minted ONLY by hand — the test + the throwaway-cabinet demo (compact.enact_erasure,
+# the SOLE minter); no automatic producer exists until the cross-session observer (PR ii) reads a merged erasure PR.
 # The MERGE_SHA presence is a STRUCTURAL fail-safe floor, NOT consent verification — the real merged-not-closed /
-# immutable-merge-tree binding is the observer's job; `compact`'s read-side validity check ignores a
+# immutable-merge-tree binding is the observer's job (slice ii); `compact`'s read-side validity check ignores a
 # SHA-less marker so a hand-written or bypassed one can never erase.
 ERASURE_KIND = "operator-adjudicated-erasure"   # the `kind` of the merge-gated physical-removal marker
 MERGE_SHA_KEY = "merge_sha"                      # the merge commit SHA that authorised the erasure (provenance only)
 ERASURE_TAG = "operator-adjudicated-erasure"     # the marker's tag (kept out of the search body like every tag)
 
-# The per-result ranking field (the `search` interface). NOT a stored ledger field: `index.search`
-# attaches it to a SHALLOW COPY of each returned record, carrying the record's lexical relevance so a caller
-# can see the ordering basis. The usage signal (frecency) is the
+# The per-result ranking field (slice 5 — the `search` interface). NOT a stored ledger field: `index.search`
+# attaches it to a SHALLOW COPY of each returned record, carrying the record's lexical relevance ("BM25 for the
+# lexical floor" — search.json) so a caller can see the ordering basis. The usage signal (frecency) is the
 # internal tiebreak, NOT this exposed number. Because `search` could re-project a scored copy, `index` keeps this
 # key OUT of the search body too (index._NON_BODY_KEYS) — belt-and-suspenders, since scored copies are never indexed.
 SCORE_KEY = "score"
 
-# Cross-session roll-up cluster sentinels (#235). Roll-up's coarse "related" pre-filter was group-by-
+# Cross-session roll-up cluster sentinels (slice 5, #235). Roll-up's coarse "related" pre-filter was group-by-
 # session; the richer signal relates COLD episodes ACROSS sessions — a shared-topic-tag cluster (`tag:<tag>`) or a
 # lexical-similarity cluster (`sim:<id8>`). Such a gist has no single originating session, so it carries the
 # CLUSTER KEY as its `session_id` — a non-empty string, so every store/veto invariant that assumes a session_id
 # still holds. The gist's real-session provenance is NOT lost: it lives in SOURCE_IDS_KEY, from which
 # `forget.earned_consolidated_raw` recovers each contributing real session to credit the erasure veto. A real work
 # session id is a uuid hex, so it can never collide with these `<prefix>:` sentinels.
-TAG_SESSION_PREFIX = "tag:"      # a gist rolling up a cross-session shared-topic-tag cluster
-SIM_SESSION_PREFIX = "sim:"      # a gist rolling up a cross-session lexical-similarity cluster
+TAG_SESSION_PREFIX = "tag:"      # a gist rolling up a cross-session shared-topic-tag cluster (slice B)
+SIM_SESSION_PREFIX = "sim:"      # a gist rolling up a cross-session lexical-similarity cluster (slice C)
 _CROSS_SESSION_SENTINEL_PREFIXES = (TAG_SESSION_PREFIX, SIM_SESSION_PREFIX)
 
 

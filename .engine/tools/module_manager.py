@@ -674,20 +674,27 @@ def select_migrations(from_versions: dict, target_versions: dict, manifests: lis
     return out
 
 
-def _bind_migration_id(seam, module_id: str, version: str, reversibility_floor: bool = False):
+def _bind_migration_id(seam, module_id: str, version: str, reversibility_floor: bool = False, sink=None):
     """Bind the migration's identity into the backup seam so memory names the pre-migration snapshot collision-free
     by it (the retained-tag mechanism, D-264 law 3). The migration calls `context['backup'](store, engine_version)`
     exactly as before — the migration id rides along, so migration authors need not know about it and module_manager
     stays a pure consumer that knows nothing of the snapshot's tag mechanism. `reversibility_floor` (True only for the
     first data migration of the upgrade — #303) likewise rides along so memory records THAT snapshot as the undo floor;
     module_manager passes only this boolean and never learns the snapshot's tag. Passing the extra kwargs is forward-
-    compatible: a seam that ignores them still works (memory falls back to engine-version + generation)."""
+    compatible: a seam that ignores them still works (memory falls back to engine-version + generation).
+
+    `sink`, when a list, receives each returned snapshot handle so the caller can read a plain property of the
+    snapshot it needs to relay to the operator — whether the retained pre-update copy could be locked against
+    hand-deletion — without module_manager learning anything about the snapshot's tag mechanism."""
     if seam is None:
         return None
     migration_id = f"{module_id}@{version}"
 
     def _seam(store, engine_version):
-        return seam(store, engine_version, migration_id=migration_id, reversibility_floor=reversibility_floor)
+        handle = seam(store, engine_version, migration_id=migration_id, reversibility_floor=reversibility_floor)
+        if sink is not None and isinstance(handle, dict):
+            sink.append(handle)
+        return handle
     return _seam
 
 
@@ -711,6 +718,9 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
         module_dir = _modules_dir
     seam = _resolve_backup_seam(backup)
     result = {"ran": [], "refused": []}
+    handles: list = []                                   # each data migration's snapshot handle, so after the run we
+    #                                                      can relay one plain property (could the retained pre-update
+    #                                                      copy be locked?) without learning the snapshot's tag mechanism.
     floor_taken = False                                  # #303: the FIRST data migration of this upgrade is the
     #                                                      reversibility floor — one run_migrations call == one upgrade
     #                                                      == one reversibility unit (true for the sole caller upgrade()).
@@ -727,7 +737,7 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
             floor_taken = True
         ctx = {"module_id": mid, "from_version": from_versions.get(mid), "to_version": ver,
                "engine_version": engine_version, "kind": kind,
-               "backup": _bind_migration_id(seam, mid, ver, reversibility_floor=is_floor) if kind == "data" else None}
+               "backup": _bind_migration_id(seam, mid, ver, reversibility_floor=is_floor, sink=handles) if kind == "data" else None}
         if kind == "data":
             # Raise the in-flight-migration marker for the snapshot+mutate window so a concurrent compaction
             # refuses within it (the compaction↔migration ordering law, memory/README §269-283). Lazy import (the
@@ -760,6 +770,9 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
         else:
             _load_migration(module_dir(mid), item["run"])(ctx)
         result["ran"].append(f"{mid} -> {ver} ({kind})")
+    # A retained pre-update copy that could not be locked can still be deleted by hand; record that (once) so the
+    # operator can be told to keep it. True only when a snapshot reported plainly that it could not be locked.
+    result["backup_unprotected"] = any(isinstance(h, dict) and h.get("hardened") is False for h in handles)
     return result
 
 
@@ -1170,9 +1183,19 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # disclose it ONCE per upgrade (structured kind check, not a per-step or string-match), plainly, so the later
         # restore offer is reassurance rather than a mystery.
         if any(item.get("kind") == "data" for item in selected):
-            result["notes"].append(
+            saved_note = (
                 "Before changing your saved memory, I automatically saved a copy of it from right before this "
                 "update — there's nothing for you to do now. If this update is ever undone, I can bring that copy back.")
+            # When the engine could not confirm the retained copy is locked against hand-deletion, say so plainly so
+            # the operator keeps their undo. It states what the engine KNOWS — that it couldn't confirm the copy is
+            # locked — never a guess about WHY (the check reads "not locked" for a free tier, a paid tier that hasn't
+            # set locking up, and a check that simply couldn't run), and it never claims the copy IS locked, so a
+            # check that can't confirm protection is never a false all-clear.
+            if result["migrations"].get("backup_unprotected"):
+                saved_note += (
+                    " One heads-up: I couldn't confirm that saved copy is locked, so it could be deleted by hand"
+                    " — keep it in place and this undo stays available.")
+            result["notes"].append(saved_note)
         # (5) COHERENCE — a hard finding pauses (the change is staged in the working copy, not landed)
         result["applied"] = True
         result["findings"] = module_coherence.check_coherence()

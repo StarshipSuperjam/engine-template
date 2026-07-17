@@ -33,6 +33,7 @@ Run the demo: `uv run --directory .engine -- python tools/standing_situation.py 
 """
 from __future__ import annotations
 import re
+import sys
 
 # GitHub's own issue-closing keywords (https://docs.github.com/issues — closing keywords). Matching these in a
 # merged PR's body approximates, over REST, the linkage GitHub records as `closingIssuesReferences` for the
@@ -233,7 +234,6 @@ def _demo() -> int:
 
 
 def main(argv: list | None = None) -> int:
-    import sys
     argv = list(argv if argv is not None else sys.argv[1:])
     if argv and argv[0] == "demo":
         return _demo()

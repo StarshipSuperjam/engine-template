@@ -1,4 +1,4 @@
-"""The engine's memory substrate package (SQLite + FTS5).
+"""The engine's memory substrate package (memory-substrate-sqlite-fts5).
 
 The public import surface the rest of the engine binds to as ``memory`` — e.g. the close turn-hook's
 ambient-capture relay does ``import memory; memory.capture_turn_delta(payload)``. As of the capture
@@ -26,6 +26,6 @@ audit-gated physical erasure has shipped its enactment core (the gated removal +
 from memory.capture import capture_turn_delta  # noqa: F401 — the public capture entry close's relay calls
 from memory.backup_vault import migration_backup_available  # noqa: F401 — the migration pre-flight readiness probe
 from memory.backup_vault import snapshot_for_migration  # noqa: F401 — the pre-migration backup seam module_manager calls
-from memory.restore_vault import restore_pre_migration  # noqa: F401 — the migration-revert restore detector calls
+from memory.restore_vault import restore_pre_migration  # noqa: F401 — the migration-revert restore Slice 3's detector calls
 
 __all__ = ["capture_turn_delta", "migration_backup_available", "snapshot_for_migration", "restore_pre_migration"]

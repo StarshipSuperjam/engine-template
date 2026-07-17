@@ -1927,11 +1927,11 @@ def render_engine_issue_backlog(repo: str, token: str, *, transport=None) -> str
         issues = GitHubIssues(repo, token, transport=transport).list_open_engine_issues()
     except Exception as exc:  # noqa: BLE001 — any read failure must surface as an honest gap, never silent empty
         return ("OPEN ENGINE-LABELLED ISSUES (the debt register): could not be read this run — "
-                f"{exc}. Treat the engine's open-issue backlog as unreviewed and say so plainly in your digest.")
+                f"{exc}. Treat concern #2 as unreviewed and say so plainly in your digest.")
     if not issues:
         return ("OPEN ENGINE-LABELLED ISSUES (the debt register): none are open right now — "
-                "the engine's open-issue backlog has nothing to review this run.")
-    parts = [f"OPEN ENGINE-LABELLED ISSUES (the debt register) — {len(issues)} open, fetched for this run's review. "
+                "concern #2 has nothing to review this run.")
+    parts = [f"OPEN ENGINE-LABELLED ISSUES (the debt register) — {len(issues)} open, fetched for concern #2. "
              "This is the COMPLETE set of currently-open engine-labelled issues: it was read by paging the "
              "engine-label query to exhaustion, and any read failure is reported in-band (on a failed read you "
              "would see a read-failure notice in place of this list, never a silently short one) — so "

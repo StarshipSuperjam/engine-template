@@ -1,4 +1,4 @@
-"""test_restore_vault.py — memory's backup vault, the RESTORE path.
+"""test_restore_vault.py — memory's backup vault, the RESTORE path (slice 6b).
 
 The REAL restore logic runs fully offline behind the in-module `_FakeVault` (the backup_vault precedent) — only
 GitHub is faked. Each test redirects a throwaway ledger cabinet (ENGINE_MEMORY_DIR) AND a throwaway repo root
@@ -14,12 +14,14 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools
 import validate  # noqa: E402
 from memory import backup_vault as bv  # noqa: E402
 from memory import index  # noqa: E402
 from memory import ledger  # noqa: E402
+from memory import ledger_migrations as lm  # noqa: E402
 from memory import restore_vault as rv  # noqa: E402
 
 
@@ -134,6 +136,70 @@ class IntegrityTests(_Base):
         self.assertEqual(res["error"], "version-mismatch")
         for banned in ("http", "git", "ledger", "index", "blob"):
             self.assertNotIn(banned, res["message"].lower())
+        # The old copy admitted the fix "isn't built yet" — an under-build admission. The honest degrade names
+        # the consequence and one action instead, never a not-built-yet claim.
+        for stale in ("isn't built", "built yet", "later slice", "not yet built"):
+            self.assertNotIn(stale, res["message"].lower())
+
+    def test_a_bridgeable_older_shape_is_carried_forward_and_restored(self):
+        # A fixture-registered step proves the routing is a LIVE mechanism: an older-shaped backup is carried
+        # up to the current shape in memory, then restored normally. (No such step ships in v1.)
+        self._wipe_local()                                          # empty local -> the resurrection guard is skipped
+        def _to_current(b):
+            return b.replace(b'"kind":"old"', b'"kind":"new"')
+        orig = rv.fetch_snapshot
+        rv.fetch_snapshot = lambda **k: {"ok": True, "error": None, "ledger_bytes": b'{"kind":"old","text":"hi"}\n',
+                                         "manifest": {"ledger-version": 0, "ledger-generation": 0,
+                                                      "timestamp": "t", "engine-version": "x"},
+                                         "owner": "o", "repo": "r", "namespace": "n"}
+        try:
+            with mock.patch.dict(lm._REGISTRY, {(0, ledger.LEDGER_FORMAT_VERSION): _to_current}, clear=False):
+                res = rv.restore_now(consent="y", github=None)
+        finally:
+            rv.fetch_snapshot = orig
+        self.assertTrue(res["ok"], res)
+        self.assertTrue(res["restored"])
+        self.assertIn(b'"kind":"new"', _rb(ledger.ledger_path()))   # the transform ran before the swap
+
+    def test_a_malformed_backup_version_declines_and_leaves_local_unchanged(self):
+        # A missing/malformed version routes to the migrations home, which declines by default; local is never
+        # touched and nothing raises. `True` is the coercion trap (True == 1) — it must still decline.
+        bv._demo_plant("keep me safe")
+        before = _rb(ledger.ledger_path())
+        for bad in (None, "two", {"x": 1}, True):
+            orig = rv.fetch_snapshot
+            rv.fetch_snapshot = lambda _bad=bad, **k: {"ok": True, "error": None, "ledger_bytes": b'{"kind":"x"}\n',
+                                                       "manifest": {"ledger-version": _bad, "ledger-generation": 0,
+                                                                    "timestamp": "t", "engine-version": "x"},
+                                                       "owner": "o", "repo": "r", "namespace": "n"}
+            try:
+                res = rv.restore_now(consent="y", github=None)
+            finally:
+                rv.fetch_snapshot = orig
+            self.assertFalse(res["ok"], bad)
+            self.assertEqual(res["error"], "version-mismatch", bad)
+        self.assertEqual(_rb(ledger.ledger_path()), before)         # local survived every malformed attempt
+
+    def test_a_failing_migration_step_declines_distinctly_and_leaves_local_unchanged(self):
+        # A registered step that RAISES is a bug in that step, not a "no path" case: it declines with a distinct
+        # error code (migration-failed), leaves local memory unchanged, and never crashes the restore.
+        bv._demo_plant("keep me safe")
+        before = _rb(ledger.ledger_path())
+        def _boom(_raw):
+            raise RuntimeError("a broken migration step")
+        orig = rv.fetch_snapshot
+        rv.fetch_snapshot = lambda **k: {"ok": True, "error": None, "ledger_bytes": b'{"kind":"x"}\n',
+                                         "manifest": {"ledger-version": 0, "ledger-generation": 0,
+                                                      "timestamp": "t", "engine-version": "x"},
+                                         "owner": "o", "repo": "r", "namespace": "n"}
+        try:
+            with mock.patch.dict(lm._REGISTRY, {(0, ledger.LEDGER_FORMAT_VERSION): _boom}, clear=False):
+                res = rv.restore_now(consent="y", github=None)
+        finally:
+            rv.fetch_snapshot = orig
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["error"], "migration-failed")          # distinct from a genuine "no path" decline
+        self.assertEqual(_rb(ledger.ledger_path()), before)         # a failed step never touches local memory
 
 
 class ResurrectionTests(_Base):
@@ -211,7 +277,7 @@ class Floor4Tests(_Base):
 
 
 class MigrationRevertTests(_Base):
-    """Restore the local ledger from a retained PRE-migration snapshot TAG (the migration-revert path)."""
+    """Slice 2 — restore the local ledger from a retained PRE-migration snapshot TAG (D-264 migration-revert)."""
 
     def _snapshot_tag(self, fake, migration_id="mod@1.0.0"):
         """Mint a retained pre-migration snapshot tag over the CURRENT ledger; return its name."""
@@ -257,7 +323,7 @@ class MigrationRevertTests(_Base):
         self.assertNotIn(res["message"], (rv._MSG_NO_BACKUP_DATA, rv._MSG_UNREACHABLE))   # distinct from both
         self.assertEqual(_rb(ledger.ledger_path()), before)        # nothing on this computer changed
         for banned in ("tag", "ref", "generation", "http", "git", "ledger", "index"):
-            self.assertNotIn(banned, res["message"].lower())       # plain handle, no engineer-jargon
+            self.assertNotIn(banned, res["message"].lower())       # plain handle, no engineer-jargon (D-265 S1/S2)
 
     def test_empty_tag_argument_is_refused_as_snapshot_missing(self):
         fake = self._seed_and_backup(["x"])
@@ -267,7 +333,7 @@ class MigrationRevertTests(_Base):
 
     def test_legitimate_revert_with_unchanged_generation_proceeds(self):
         # No erasure-compaction in the revert window: the pre-migration generation == local generation, so the
-        # resurrection guard does NOT fire on a routine revert.
+        # resurrection guard does NOT fire on a routine revert (D-264 law 4).
         fake = self._seed_and_backup(["pre-update note"])
         ledger.set_generation(5)
         tag = self._snapshot_tag(fake)
@@ -307,7 +373,7 @@ class MigrationRevertTests(_Base):
 
 
 class MigrationRevertDetectorTests(_Base):
-    """The OFFLINE code-older-than-data detector + the whole-update-undo lifecycle (#303)."""
+    """Slice 3 — the OFFLINE code-older-than-data detector + the whole-update-undo lifecycle (D-264 floor a, #303)."""
 
     def _set_running(self, version):
         with open(os.path.join(validate.ENGINE_DIR, "engine.json"), "w", encoding="utf-8") as fh:
@@ -501,7 +567,7 @@ class NamespaceMissingTests(_Base):
 
 class CoexistenceTests(_Base):
     def test_project_A_memory_survives_project_B_adopting_the_same_vault(self):
-        """The headline shared-vault guarantee: a 2nd project adopting the shared vault never clobbers the first's folder."""
+        """The headline D-237 guarantee: a 2nd project adopting the shared vault never clobbers the first's folder."""
         fake = bv._FakeVault()
         bv._demo_plant("project A note ALPHAWORD")
         a_ledger = _rb(ledger.ledger_path())

@@ -1,10 +1,10 @@
-"""Unit tests for erasure_proposer.py — the Layer-2 erasure EMITTER.
+"""Unit tests for erasure_proposer.py — the Layer-2 erasure EMITTER (slice 4e PR iii).
 
 The emitter selects an already-logically-retired note that has EARNED erasure, writes a content-free proposal at the
 observer's fixed path, and AUTO-OPENS a single-purpose `engine-erasure` pull request. These tests pin the load-bearing
 behavior with the GitHub network + the PR-opener stubbed (no live GitHub, no real git): the deterministic probe selects
 the old hidden duplicate and skips the fresh / recalled / completed ones; the cost leaks NONE of the note's content
-(text, session id, or tags); the written proposal is EXACTLY what the real observer reads back (the
+(text, session id, or tags — D-007); the written proposal is EXACTLY what the real observer reads back (the
 emitter<->observer round-trip); auto-open de-duplicates against an existing PR or marker and DECLINES on host doubt; and
 the real opener is never reached in the suite (every test injects). Throwaway ENGINE_MEMORY_DIR cabinet throughout.
 """
@@ -130,7 +130,7 @@ class ProbeTests(_Base):
         self.assertEqual(len(emit.earned_targets()), 1)
 
 
-# --- the content-free proposal ---------------------------------------------------------------------
+# --- the content-free proposal (D-007) ---------------------------------------------------------------------
 
 class ProposalTests(_Base):
     def test_proposal_is_exactly_targets_and_costs(self):
@@ -149,7 +149,7 @@ class ProposalTests(_Base):
 
     def test_cost_leaks_no_content_from_text_session_or_tags(self):
         # Each record handed to build_proposal carries text, session_id AND tags — distinctive tokens in all three
-        # must appear NOWHERE in the serialized proposal (made to flip — the compact._slip_mentions_word mirror).
+        # must appear NOWHERE in the serialized proposal (D-007, made to flip — the compact._slip_mentions_word mirror).
         # Scanned over a BATCH, so a leak from ANY note in the batch flips it red.
         recs = []
         for i, marker in enumerate(("qwerty", "floodgate", "zzsessionzz", "mytagxyz")):
@@ -603,7 +603,7 @@ class HeadsUpTests(unittest.TestCase):
 # --- structural + the committed placeholder ----------------------------------------------------------------
 
 class StructuralTests(unittest.TestCase):
-    def test_the_emitter_never_calls_the_enactment_minter(self):
+    def test_the_emitter_never_calls_the_slice_i_minter(self):
         # Belt-and-suspenders to test_forget's package-wide scan: the producer writes a file + opens a PR; it never
         # mints the erasure marker (that is compact's, gated on the merge + the observer).
         with open(emit.__file__, encoding="utf-8") as fh:
@@ -612,7 +612,8 @@ class StructuralTests(unittest.TestCase):
     def test_the_committed_proposal_is_well_formed_and_content_free(self):
         # The committed proposal carries EXACTLY {targets, costs}, and every target is CONTENT-FREE: the batch is
         # either the inert empty list the template ships between erasures, OR a list of valid content-free record-id
-        # shapes during a live erasure proposal, with one cost line per target. The design LAW is that the committed PR "names the target(s) by a stable, content-free record id …
+        # shapes during a live erasure proposal, with one cost line per target. The design LAW (memory/README
+        # §Layer-2 + D-007) is that the committed PR "names the target(s) by a stable, content-free record id …
         # read at the merge identity" — so live record-ids here are REQUIRED for the flow, not a hazard (an earlier
         # blanket "target can NEVER validate" assertion contradicted that law and made every erasure PR red
         # engine-ci and so un-mergeable). The real safety is dynamic: the observer binds to the immutable merge
@@ -680,7 +681,7 @@ class PrBodyConsentTests(unittest.TestCase):
 
 
 class BatchProposeTests(_Base):
-    """One merge clears the backlog. `propose` bundles ALL currently-earned notes (minus any already
+    """Slice B: one merge clears the backlog. `propose` bundles ALL currently-earned notes (minus any already
     scheduled or proposed) into ONE single-purpose pull request, so the operator consents to the whole batch once."""
 
     def test_batches_all_earned_notes_into_one_pull_request(self):
@@ -738,7 +739,7 @@ class BatchProposeTests(_Base):
 
 
 class ConsolidatedRawClassTests(_Base):
-    """The consolidated-raw evidence class flows through the emitter — `earned_targets` unions it with the
+    """Slice C: the consolidated-raw evidence class flows through the emitter — `earned_targets` unions it with the
     crash-duplicate class, the role-less cost line is content-free and names the verbatim it ends, the body collapses
     identical lines to a per-vintage count, and neither the committed proposal nor the body leaks a session id."""
 
@@ -763,7 +764,7 @@ class ConsolidatedRawClassTests(_Base):
         self.assertIn("original wording", low)                    # product-S2: erasing ends the verbatim's recovery
         self.assertIn("summary", low)                             # the curated summary stays and stands in
         self.assertIn("recoverable until erased", low)
-        self.assertNotIn("zebrafluxmigration", low)               # the note's own text never leaks
+        self.assertNotIn("zebrafluxmigration", low)               # D-007: the note's own text never leaks
         self.assertNotIn("fuel", low)                             # the retired 'fuel' coinage is not reintroduced
 
     def test_the_committed_proposal_and_body_carry_no_session_id(self):
@@ -796,7 +797,7 @@ class ConsolidatedRawClassTests(_Base):
 
 
 class ReOfferTests(_Base):
-    """Decline semantics (Shane's call): a CLOSED-unmerged (declined) erasure PR is re-offered at the next
+    """Slice C decline semantics (Shane's call): a CLOSED-unmerged (declined) erasure PR is re-offered at the next
     check; a MERGED one stays covered. A close is 'not this time', not 'keep forever' — and never fail-open."""
 
     @staticmethod

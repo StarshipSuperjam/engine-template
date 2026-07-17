@@ -3,10 +3,10 @@
 
 The check *inventory* is data (.engine/check/*.json) and the check *logic* is a
 small registry of kind callables, so adding a check adds a rule file and never
-edits this dispatcher (the validation design). This is the
+edits this dispatcher (systems/guardrails/validation/README.md). This is the
 `core` validation engine the stage-0 seed validator grew into; the engine ships
 here, while the engine-self-validation rule *corpus* rides `validators-core`
-so only the three grandfathered seed rules are committed
+(decision-log D-090), so only the three grandfathered seed rules are committed
 (PR-body completeness, link integrity, and the re-homed protection guard).
 
 The five closed core kinds, plus the `custom/script` escape hatch:
@@ -23,19 +23,19 @@ The five closed core kinds, plus the `custom/script` escape hatch:
                 directory; no orphan surface directory).
   - coherence — the installed module set is consistent (dependency presence, acyclicity,
                 version range). A directly-callable library entry the module manager
-                invokes after an install; no live consumer until the module system lands,
-                so it ships built + fixture-tested.
+                invokes after an install; no live consumer until the module system lands
+                (slice 6), so it ships built + fixture-tested.
   - custom/script — the escape hatch: run a committed script and map its result to
-                findings (the guardrail-weakening guards re-home onto this kind).
+                findings (the §15 guards re-home onto this kind).
 Module-provided kinds bind by PRESENCE and must NOT extend the hardcoded REGISTRY below (which
 holds the closed core set + the `custom/script` escape hatch): a module drops a conforming
 `.engine/tools/<module>/kind_<name>.py` exposing `check(rule, ctx)`, and `resolved_registry()`
 discovers it and merges it OVER a pristine snapshot of the core (core always wins). See the
-discovery block after REGISTRY.
+discovery block after REGISTRY (D-044/D-119).
 
 Each kind callable returns a Result: a pass/fail verdict plus zero or more findings
 on the canonical finding.v1 base {severity, message, location}. A check finding's
-severity is the rule's tier (`hard` | `soft`).
+severity is the rule's tier (`hard` | `soft`) (decision-log D-113).
 
 Suites and triggers: a suite is a thin declaration (.engine/suites.json) — a name,
 a trigger, and an execution context — never a list of its rules; a rule self-declares
@@ -52,10 +52,10 @@ Usage:
 
 A check is also a directly-callable unit, not only a trigger-driven one: --check
 runs the single rule with that `id` and gates on a hard finding (exit 1), with no
-suite involved. This is how a guard that must run from the trusted base — the
+suite involved. This is how a guard that must run from the trusted base — the §15
 guardrail-weakening guard — is invoked from its own workflow (engine-guard.yml),
 NOT from the head-checkout CI suite, so a pull request cannot run its own edited
-guard. The by-id path loads only the check rules, never the
+guard (decision-log D-051). The by-id path loads only the check rules, never the
 suite declarations, so a broken or loosened suites.json cannot strand or alter it.
 
 The PR body is read from --pr-body-file, else from $GITHUB_EVENT_PATH
@@ -78,7 +78,7 @@ import sys
 # Python standard library alone — before that runtime exists. This is load-bearing for
 # the first-run instantiator: it is the one engine tool that must run to BOOTSTRAP the
 # runtime (it installs uv, then `uv sync`), so it cannot presuppose the packages the
-# runtime provides (the tool-runtime bootstrap). When the
+# runtime provides (provisioning README §"Tool-runtime bootstrap"; D-156). When the
 # runtime IS present the symbols resolve on first use exactly as a top-level import
 # would — every `validate.<symbol>` consumer (e.g. wiring's ontology-entry check, the
 # schema-validation tests) and validate's own frontmatter/schema paths are unchanged.
@@ -146,7 +146,7 @@ def disclosed_noop(message: str, location: dict | None = None) -> dict:
 
 def env_override_path(var: str, default: "str | None" = None) -> "str | None":
     """Resolve an input-substitution env var to a path — the one shared seam the negative-fixture
-    meta-check's custom/script units use (#286). When `var` is set and non-empty,
+    meta-check's custom/script units use (#286, D-256…D-260). When `var` is set and non-empty,
     return it resolved under ROOT (an absolute value is used as-is); otherwise return `default`
     unchanged. So when the variable is UNSET — every production run — the caller gets its own
     default and behaviour is byte-unchanged; the seam is inert outside a `run_unit` fixture run,
@@ -235,7 +235,7 @@ def defang_prompt_fence_markers(text: str) -> str:
 def load_json(path: str):
     """Parse a JSON file to a data object. Raises (loud) on a missing or malformed
     file — the halt-on-malformed posture: a broken structured file fails loud rather
-    than misleading the AI (the halt-on-malformed design commitment)."""
+    than misleading the AI (schemas/README.md design commitment)."""
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -260,9 +260,9 @@ def _json_model(obj):
 def frontmatter(path: str) -> dict:
     """Parse a prose file's YAML frontmatter (the block between the first two `---`
     fences) to a data object, normalized to the JSON data model (see _json_model). This
-    is the frontmatter reader the validation foundation calls for ("parses
-    a file or its YAML frontmatter to a data object before validating"). A file that does not
-    open with a `---` fence yields {} — the governing
+    is the frontmatter reader the locked schemas/validation foundation calls for ("parses
+    a file or its YAML frontmatter to a data object before validating"; D-090's deferral,
+    resolved). A file that does not open with a `---` fence yields {} — the governing
     schema's `required` then catches a frontmatter-less file. Malformed YAML RAISES (loud),
     caught by the caller as a fail-closed finding (the halt-on-malformed posture).
     `safe_load` only, never `load`: no arbitrary object construction from frontmatter."""
@@ -289,7 +289,7 @@ def target_files(rule: dict) -> list:
 
 def _body_without_frontmatter(text: str) -> str:
     """The prose body with a leading YAML frontmatter block (`---` ... `---`) removed.
-    Templates govern the body only, so frontmatter is neither a
+    Templates govern the body only (templates/README.md), so frontmatter is neither a
     section nor counted against the body length budget. A file with no opening `---`
     fence is returned unchanged; a `---` thematic break in the body stays in the body
     (only the first two fences are consumed — the same split the `frontmatter` reader uses)."""
@@ -504,7 +504,7 @@ def _surface_record_for(rel_path: str) -> dict | None:
 def _governing_schema(rule: dict, rel_path: str):
     """Resolve the governing schema for a target file, then return the loaded
     schema object to validate the file against. Resolution is CATALOG-FIRST
-    (there is no separate routing table): the surface's
+    (schemas/README.md: 'there is no separate routing table'): the surface's
     `governing_schema`. A rule's `params.schema` is an OVERRIDE only — for the two
     cases the catalog cannot express: a well-formedness check, and the catalog's
     own self-governance (surface-catalog.json is governed by its meta-contract, not
@@ -531,7 +531,7 @@ def _governing_schema(rule: dict, rel_path: str):
 def _template_shape_spec(rel_path: str):
     """The shape-spec (required_sections / allowed_sections / length_budget) for a target file,
     read from its surface's TEMPLATE frontmatter — the single source the AI authors from and the
-    validator checks (catalog -> template -> shape rules -> instance, so
+    validator checks (templates/README.md: catalog -> template -> shape rules -> instance, so
     authored-from and checked-against cannot drift). The catalog surface record's `template`
     reference (relative to the schemas dir, exactly like `governing_schema`) names the template;
     its frontmatter carries the template.v1 spec. Returns None when the surface has no template
@@ -594,7 +594,7 @@ def kind_shape(rule, ctx):
     the body stays within a soft length budget. Section STRUCTURE is the control —
     a missing required or an out-of-allowed section is the rule's tier (hard for a
     governance-critical surface, soft for a lighter one). LENGTH only nudges — over
-    the budget is always SOFT, never the rule's hard tier. The
+    the budget is always SOFT, never the rule's hard tier (templates/README.md). The
     shape-spec (required_sections, allowed_sections, length_budget) is read from the
     surface's TEMPLATE frontmatter via the catalog (catalog -> template -> shape -> instance),
     so the thing the AI authors from is the thing the validator checks and the two cannot
@@ -686,7 +686,7 @@ def kind_coverage(rule, ctx):
     catalog-coverage (every catalogued surface has its location directory; no orphan
     surface directory). An unrecognized mode fails closed as a finding — `mode` is OPEN,
     not a fixed enum, so a later mode (e.g. knowledge fingerprint-coverage) adds no edit
-    here. Core ships this kind; the catalog-coverage RULE rides validators-core."""
+    here. Per D-090 core ships this kind; the catalog-coverage RULE rides validators-core."""
     mode = (rule.get("params") or {}).get("mode")
     if mode == "links":
         return _coverage_links(rule, ctx)
@@ -700,7 +700,7 @@ def kind_coverage(rule, ctx):
 
 
 def _coverage_fingerprint(rule, ctx):
-    """Knowledge fingerprint-coverage (the knowledge fingerprint detection relay): re-derive the
+    """Knowledge fingerprint-coverage (§16 detection relay, decision-log D-090): re-derive the
     knowledge graph from the current surfaces and compare to the committed entities, so a surface
     that changed/was added/was removed without an entity regen is caught at CI. Detection is
     KNOWLEDGE's — this RELAYS to knowledge_gen.check() (the self-map drift-gate model), holding zero
@@ -783,7 +783,7 @@ def _coverage_catalog(rule, ctx):
     """catalog-coverage over the live surface catalog + filesystem (see the pure
     catalog_coverage_findings); non-surface infra directories are passed via
     params.infra_dirs. The catalog source and the walk root default to the live globals
-    (CATALOG_PATH / ROOT — what CI runs); run_unit (#286) may override BOTH
+    (CATALOG_PATH / ROOT — what CI runs); run_unit (#286, D-256…D-260) may override BOTH
     via ctx (coverage_catalog / coverage_root) to point the REAL callable at a seeded
     mini-tree, so the meta-check witnesses this exact entry point. Production callers pass
     neither key, so the behaviour is byte-unchanged."""
@@ -826,8 +826,8 @@ def _ver_tuple(v: str) -> tuple:
 def _version_in_range(version: str, spec: str) -> bool:
     """A pragmatic version-range check on dotted-integer versions: a space/comma list of
     comparators (>=, >, <=, <, ==/=, ^). The exact manifest range grammar is pinned by the
-    module-system manifest schema; this is the stable presence/acyclicity/range
-    seam the module manager calls — the module system may extend the comparator set."""
+    module-system manifest schema (slice 6); this is the stable presence/acyclicity/range
+    seam the module manager calls — slice 6 may extend the comparator set."""
     vt = _ver_tuple(version)
     for part in re.split(r"[,\s]+", (spec or "").strip()):
         if not part:
@@ -882,7 +882,7 @@ def _dependency_cycle(by_id: dict) -> list:
 def coherence_findings(manifests: list, tier: str, message: str) -> list:
     """Pure module-set coherence: given installed module manifests
     [{id, version, depends: {id: range}}, ...], return findings for an absent dependency,
-    a version outside a declared range, or a dependency cycle. The module manager
+    a version outside a declared range, or a dependency cycle. The slice-6 module manager
     imports this directly (a library call, not a suite trigger)."""
     by_id = {m.get("id"): m for m in manifests}
     findings = []
@@ -908,8 +908,8 @@ def topological_order(manifests: list) -> list:
     separate coherence finding, not this function's concern — mirrors `_dependency_cycle`). CYCLE-SAFE:
     if a dependency cycle leaves modules unresolved (a cycle is flagged hard by `coherence_findings`),
     the unresolved modules are appended in alphabetical id order so a caller never crashes — the result
-    stays deterministic. Pure (no IO): the self-map renders modules in this order and the
-    module manager installs/migrates in it (the module system's dependency resolution
+    stays deterministic. Pure (no IO): the self-map (slice 8) renders modules in this order and the
+    module manager (slice 25) installs/migrates in it (module-system/README.md §Dependency resolution
     — "the build order is its topological sort")."""
     by_id = {m.get("id"): m for m in manifests}
     indeg = {mid: 0 for mid in by_id}            # count of THIS module's deps present in the set
@@ -947,7 +947,7 @@ def ownership_findings(inventory: list, claims: dict, exempt, tier: str, message
     is not exempt) and every DOUBLE-CLAIM (a file two or more modules claim). The leg is
     kept pure — the filesystem walk and the glob matching that build `inventory`/`claims`,
     and the policy of what is exempt, live in the module-coherence consumer — so it is
-    testable without the live filesystem and the module manager reuses it."""
+    testable without the live filesystem and the module manager (slice 25) reuses it."""
     exempt = set(exempt)
     findings = []
     for rel in inventory:
@@ -977,9 +977,9 @@ def wiring_findings(declared: list, tier: str, message: str) -> list:
     reflects the committed `.mcp.json` definition (engine wiring), never the operator's runtime
     approval (operator state — a server that is not live for a session, whether unapproved or awaiting
     an app restart, shows up as an ABSENT tool and is surfaced to the operator by boot's AI-observed
-    live-helper check and the control plane's PR-Validation surface, not here; availability subsumes the
+    live-helper check and the control-plane PR-Validation section, not here; availability subsumes the
     approval case) — so a defined-but-unapproved server is simply is_applied=True and never flags
-    (module coherence's MCP-registration leg). FORWARD direction only; the orphan-wire
+    (module-system/README.md §"MCP registration", §Coherence). FORWARD direction only; the orphan-wire
     REVERSE direction (nothing engine-identified applied that no manifest declares) is the companion
     `orphan_wire_findings` below, over the module-coherence consumer's per-seam applied-wire enumerator."""
     findings = []
@@ -995,7 +995,7 @@ def orphan_wire_findings(applied: list, declared_ids, tier: str, message: str) -
     """Pure REVERSE wiring coherence (applied -> declared) — the orphan-wire leg, the inverse of the
     forward wiring_findings (declared -> applied). Together they are the full bidirectional
     "Declared wiring <-> applied wiring" leg the module system mandates
-    (module coherence): "everything a present manifest's `wires`
+    (systems/grammar/module-system/README.md §Coherence): "everything a present manifest's `wires`
     declares is applied in the shared files, AND nothing engine-identified is applied that no manifest
     declares."
 
@@ -1004,17 +1004,17 @@ def orphan_wire_findings(applied: list, declared_ids, tier: str, message: str) -
     leg stays pure and filesystem-free exactly like ownership_findings / wiring_findings), and
     `declared_ids`, the set of (seam_type, identity_key) every present manifest's `wires` declares, return
     a hard `tier` finding for any applied engine entry whose identity NO manifest declares — a stale
-    leftover after an incomplete uninstall.
+    leftover after an incomplete uninstall (Risk R5).
 
     Two carve-outs make the live seam set the three PLATFORM-SHARED-file seams (hook, mcp, gitignore) —
     the only place an orphan has no other governance:
       - PERMISSION is absent from `applied` by construction: a bare permission string is not
         engine-identifiable, so reversal "errs toward leaving it" and coherence cannot reach that honest
-        residue (the wiring library). The consumer's enumerator never emits one.
+        residue (module-system §"The wiring library"). The consumer's enumerator never emits one.
       - ONTOLOGY-ENTRY is out of scope HERE: its target is the engine-OWNED catalog, already covered by
         the ownership leg (every .engine/ file must be claimed) and the SEPARATE locked catalog-coverage
         gate ("ontology catalog coverage is an already-separate locked gate, so [it is] not part of module
-        coherence"). The forward leg still checks a declared ontology-entry wire
+        coherence", module-system §Coherence). The forward leg still checks a declared ontology-entry wire
         is applied; only the reverse (orphan) direction defers to those gates. The asymmetry is sound: the
         reverse leg exists to catch orphans in the platform-shared files that NOTHING ELSE watches; an
         engine-owned-file orphan is already watched twice.
@@ -1023,7 +1023,7 @@ def orphan_wire_findings(applied: list, declared_ids, tier: str, message: str) -
     identity is the server name / fence id, so a content-drifted entry keeps the same identity, still
     matches a declared directive here, and is therefore not an orphan. A HOOK is different by the spec's
     own identity model — a hook's identity is the full {event, matcher, type, command} tuple
-    (the wiring library) — so editing an engine hook's command is, by that definition,
+    (module-system §"The wiring library") — so editing an engine hook's command is, by that definition,
     the declared hook gone (forward leg: not applied) AND a new undeclared engine hook present (reverse
     leg: orphan). Those are two accurate findings about two real facts, not a double-count of one."""
     declared = set(declared_ids)
@@ -1037,7 +1037,7 @@ def orphan_wire_findings(applied: list, declared_ids, tier: str, message: str) -
     return findings
 
 
-# The two authority tiers the ontology reserves to the self-referential core (the ontology's
+# The two authority tiers the ontology reserves to the self-referential core (systems/grammar/ontology
 # "Authority, enforcement, escalation"; eADR-0016): `contract` is the SOLE `decisions` surface and `policy`
 # the SOLE `standing-rules` surface. The reservation is a BIJECTION — a reserved surface holds exactly its
 # reserved tier, and a reserved tier sits on no other surface — so it is broken by BOTH a squatter (an added
@@ -1195,23 +1195,23 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     frontmatter [{name, role, lens?, model-tier, ...}, ...], return a finding for:
 
       - a `role` outside the closed set {plan-review, worker, pre-submission-review, audit} (an
-        'unknown role' is impossible by construction once caught),
-      - a `model-tier` outside the closed demand set {judgment, mechanical},
+        'unknown role' is impossible by construction once caught; agents/README §Coherence),
+      - a `model-tier` outside the closed demand set {judgment, mechanical} (D-100),
       - a `lens` declared by a `worker` or `audit` role — the symmetric guard to the closed-role
-        check: those two roles carry no lens ("a worker or audit instance that
+        check: those two roles carry no lens (agents/README: "a worker or audit instance that
         declares one is a coherence finding"). Scoped to the two KNOWN lensless roles, not "any
         non-review role", so an unknown role carrying a lens yields only the role finding (no
         redundant second finding), and a review role's lens is valid.
       - a `permissions: read-only` persona that does not actually BLOCK the authoritative-write
         tools (Edit, Write, NotebookEdit) — the realization of the design's "permissions maps to the
         Claude Code tool/permission restrictions the platform enforces" (agent.v1 `permissions` /
-        `tools` / `disallowedTools`). A read-only persona blocks a write tool iff it lists it
+        `tools` / `disallowedTools`; D-272). A read-only persona blocks a write tool iff it lists it
         in `disallowedTools` OR declares a `tools` allowlist (a list) that omits it; a read-only
         persona that declares NEITHER inherits every tool (the inherit-all trap) and is a finding.
         HONEST LIMIT: this enforces only that the native file-writing tools (Edit/Write/NotebookEdit)
         are blocked — it deliberately does NOT police `Bash` (which the execution roles
         pre-submission-review/audit legitimately keep to run the suite in a scratch worktree —
-        qa-review dry-run) nor any write-capable MCP tools the session may expose; confining
+        qa-review/README dry-run) nor any write-capable MCP tools the session may expose; confining
         those tool-/shell-side writes is the orchestration worktree's + the protected-branch merge
         gate's job, not a frontmatter invariant this static leg can see. A STRING-valued
         disallowedTools/tools is treated CONSERVATIVELY (a string denylist blocks nothing here; a
@@ -1273,7 +1273,7 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
 
 def dangling_lens_findings(agents: list, consumed: set, tier: str, message: str) -> list:
     """Pure lens-consumption coherence — the realization of the agents surface's dangling-lens
-    posture (the dangling-check-kind). Given the present personas'
+    posture (agents/README §Coherence; the D-023 dangling-check-kind). Given the present personas'
     parsed frontmatter and the CONSUMED lens set a build stage records (build-orchestration's
     consumed-review-lenses block, read by the lens-consumption consumer), return a finding for each
     INSTALLED review lens that no stage consumes: an installed-yet-unconsumed review lens is a
@@ -1283,7 +1283,7 @@ def dangling_lens_findings(agents: list, consumed: set, tier: str, message: str)
     gate consumes (worker/audit carry none — the symmetric agent_coherence_findings guard). The diff
     is strictly installed − consumed. A CONSUMED lens with ZERO installed agents is NOT a finding
     here — that is a gate that ran no review, disclosed as such by build-orchestration, not a
-    coherence error (0..N agents per lens is valid), so the reverse direction is a
+    coherence error (agents/README: 0..N agents per lens is valid), so the reverse direction is a
     disclosed no-op, not an error.
 
     Pure + fixture-testable, mirroring agent_coherence_findings: the consumer discovers the personas
@@ -1312,7 +1312,8 @@ def skill_coherence_findings(skills: list, tier: str, message: str) -> list:
     finding for:
 
       - an `invocation` outside the closed set {model-auto, operator-typed, model-only} (an
-        OMITTED invocation is model-auto, the platform default — NOT a finding),
+        OMITTED invocation is model-auto, the platform default — NOT a finding; skills/README
+        §"The invocation axis"),
       - an invocation that DISAGREES with the real platform flags the instance carries — the
         self-election leak-guard, the load-bearing CROSS-FIELD rule: the engine reads
         `invocation`, Claude Code reads the flags (disable-model-invocation: true makes a skill
@@ -1325,12 +1326,12 @@ def skill_coherence_findings(skills: list, tier: str, message: str) -> list:
     skipped for that instance — the agent-leg precedent: one unknown value, one finding). The
     closed set lives HERE (the leg), NOT as a skill.v1 enum: skill.v1 governs `invocation` as a
     well-formed string and this leg owns both membership AND the cross-field flag-mapping a schema
-    enum cannot express, so the set is defined in one place (the invocation
-    axis, the platform-flag table).
+    enum cannot express, so the set is defined in one place (skills/README §"The invocation
+    axis", the platform-flag table).
 
     Pure + fixture-testable, mirroring the other legs: the SKILL.md frontmatter is parsed by the
     consumer and passed in, so this stays filesystem-free. No live rule wires this in core: the
-    consumer (the operator verbs, which discover the present skill set and decide the
+    consumer (the slice-26 operator verbs, which discover the present skill set and decide the
     engine-vs-operator scope) runs this live and proves the Build-entry verb's self-election
     safety on the live platform — the interface_resolution_findings / agent_coherence_findings
     precedent (built + fixture-tested, no live rule). ZERO skill instances ship with the grammar,
@@ -1386,15 +1387,15 @@ def block_budget_findings(blocks: list, tier: str, message: str, *, stances) -> 
     registry (the multi-rule agent_coherence_findings shape), so one leg — and the one first-class check
     that wraps it — validates the whole invariant, never half of it:
 
-      1. BLOCK BUDGET (the block-budget law): only PreToolUse
+      1. BLOCK BUDGET (systems/infrastructure/hooks/README.md §"The block-budget law"): only PreToolUse
          and Stop may HARD-BLOCK; every other event nudges or injects. The platform would let PreCompact /
          UserPromptSubmit / SubagentStop block too — the Engine declines (a local hard-block buys friction
-         without proportional trust).
-      2. MODE DIMENSION (mode-awareness, eADR-0022): every block behavior DECLARES the
+         without proportional trust; principles §6).
+      2. MODE DIMENSION (hooks/README §"Mode-awareness", eADR-0022): every block behavior DECLARES the
          modes it is active in — "the dimension is the law; the bindings are membership." This makes the
          mode-activeness DECLARED DATA rather than code-only: a block must carry a non-empty `modes` list
          drawn from the valid stance vocabulary (`stances`, passed in so the canonical set lives once in
-         `modes` — this leg never hardcodes it). Honest: it verifies the dimension is
+         `modes` — this leg never hardcodes it). Honest per principles §7: it verifies the dimension is
          declared and well-formed, NOT the un-mechanizable "satisfiable without a human present" (that
          stays a reviewed property the declaration now makes visible at the merge).
 
@@ -1412,7 +1413,7 @@ def block_budget_findings(blocks: list, tier: str, message: str, *, stances) -> 
     systems' declarations, run live by module_coherence.check_coherence and by the first-class
     block-coherence check — the interface_resolution_findings / agent_coherence_findings precedent (a
     pure leg wrapped by a custom/script check, no data rule). The closed eligible set lives HERE (the
-    leg) and in the runtime harness (hooks.py); the locked hooks contract is the single source both cite."""
+    leg) and in the runtime harness (hooks.py); the locked hooks README is the single source both cite."""
     eligible = {"PreToolUse", "Stop"}
     valid_stances = set(stances)
     findings = []
@@ -1439,7 +1440,8 @@ def block_budget_findings(blocks: list, tier: str, message: str, *, stances) -> 
 def effective_policy_values(default: dict, override: dict, *, structural_keys, tier: str,
                             message: str) -> tuple[dict, list]:
     """Merge a per-deployment operator policy-override over a policy's shipped default tuning values,
-    per-key at read time — the core merge mechanism for the operator policy-override. Returns
+    per-key at read time — the core merge mechanism for the operator policy-override (D-167: "the
+    merge-mechanism is core"; policies/README §Per-deployment value override). Returns
     (effective, findings): the effective value map a consumer reads, plus a finding per refused key.
 
     Given the shipped `default` value map (read from the policy frontmatter by the consumer) and a sparse
@@ -1451,7 +1453,7 @@ def effective_policy_values(default: dict, override: dict, *, structural_keys, t
         construction") — is REFUSED and surfaced; the shipped default value stands.
       - a key absent from `default` — a STALE key (a knob the policy no longer carries after an upgrade) —
         falls back to the default (it is simply not present in the result) and is surfaced (the
-        freshly-stale catch at the merge; a lingering one is the audit's job).
+        freshly-stale catch at the merge; a lingering one is the audit's job, audits/README).
 
     An unset eligible key (a partial override) silently keeps the default — the normal case, no finding.
     Eligibility is the CALLER'S parameter (`structural_keys`), so one mechanism serves attention (structural
@@ -1502,9 +1504,9 @@ def _is_tunable_number(value) -> bool:
 
 def kind_coherence(rule, ctx):
     """The installed module set is consistent. A directly-callable library entry the
-    module manager invokes right after an install; the manifests it reads land with
+    slice-6 module manager invokes right after an install; the manifests it reads land with
     the module system, so in core it ships built + fixture-tested with no live rule. As a
-    kind callable it reads the manifest set from ctx['manifests'] (empty until the module system lands)."""
+    kind callable it reads the manifest set from ctx['manifests'] (empty until slice 6)."""
     tier = rule["tier"]
     findings = coherence_findings(ctx.get("manifests") or [], tier, rule.get("message", ""))
     return (not any(f["severity"] == "hard" for f in findings)), findings
@@ -1578,7 +1580,7 @@ def kind_custom_script(rule, ctx):
 
 # The closed core kind registry: the five closed kinds + the `custom/script` escape hatch.
 # Module-provided kinds are NOT added here — they bind by PRESENCE at dispatch (resolved_registry
-# below). This dict stays the closed core, and a discovered kind can never override it.
+# below, D-044/D-119). This dict stays the closed core, and a discovered kind can never override it.
 REGISTRY = {
     "presence": kind_presence,
     "schema": kind_schema,
@@ -1588,7 +1590,7 @@ REGISTRY = {
     "custom/script": kind_custom_script,
 }
 
-# ---- module-provided check-kind discovery by presence --------
+# ---- module-provided check-kind discovery by presence (D-044/D-119) --------
 # A module adds a validation kind by dropping a conforming callable, discovered because it is
 # present — NEVER by editing REGISTRY above or threading a wiring seam (the closed seam vocabulary
 # has no check-kind directive). CORE ALWAYS WINS on a name collision: resolved_registry() snapshots
@@ -1679,8 +1681,8 @@ def _discover_module_kinds(kind_dir: str, core_names):
 
 
 def resolved_registry(kind_dir: str | None = None) -> dict:
-    """The dispatch registry: the closed core kinds plus module-provided kinds DISCOVERED BY PRESENCE,
-    with CORE ALWAYS WINNING. `kind_dir` defaults to the real `.engine/tools/` via the
+    """The dispatch registry: the closed core kinds plus module-provided kinds DISCOVERED BY PRESENCE
+    (D-044/D-119), with CORE ALWAYS WINNING. `kind_dir` defaults to the real `.engine/tools/` via the
     `ENGINE_KIND_DIR` seam, so discovery is LIVE in production — it finds zero kinds today (no v1
     module ships one) but a real module's kind IS found, never dormant. Both the dispatcher
     (_evaluate/run_check/run_unit) and the negative-fixture meta-check call this with no argument, so
@@ -1694,9 +1696,9 @@ def resolved_registry(kind_dir: str | None = None) -> dict:
 
 
 def kind_discovery_findings(tier: str = "hard", message: str = "", kind_dir: str | None = None) -> list:
-    """The module-set-consistency leg for the kind-discovery seam: a module-provided
+    """The module-set-consistency leg for the kind-discovery seam (D-044/D-119): a module-provided
     check-kind file that names a closed core kind, collides with another module's kind, or cannot be
-    imported is a HARD finding naming the file — never a silent drop. The dispatcher already
+    imported is a HARD finding naming the file — never a silent drop (§7). The dispatcher already
     EXCLUDES such a file (resolved_registry); this is the loud, CI-reaching account of why, run by
     module_coherence.check_coherence() over the real tree (green until a real module kind lands)."""
     kind_dir = kind_dir or env_override_path("ENGINE_KIND_DIR", TOOLS_DIR)
@@ -1714,7 +1716,7 @@ def kind_discovery_findings(tier: str = "hard", message: str = "", kind_dir: str
 def _run_kind(registry: dict, rule: dict, ctx: dict):
     """Dispatch `rule`'s kind via `registry` and return `(verdict, findings)`, FAILING CLOSED on every
     fault — a dangling/unregistered kind, an erroring callable, OR a malformed return (a kind that does
-    not honour the `(pass/fail, [finding, ...])` contract). The one dispatch helper the suite
+    not honour the D-115 `(pass/fail, [finding, ...])` contract). The one dispatch helper the suite
     (_evaluate), by-id (run_check), and meta-check (run_unit) paths share, so a discovered module kind
     — a new module-authored trust surface — can neither crash the validator nor slip a malformed result
     past the annotation/report loops that iterate findings OUTSIDE any try. Never raises."""
@@ -1815,7 +1817,7 @@ def _exemption_note(rule: dict, ctx: dict) -> "str | None":
     request — waived by its author (ci_author_exempt) or by a label it carries (ci_label_exempt) —
     or None when the rule binds normally and its kind must run. Called by _evaluate ONLY in the
     blocking-gate suite (so the waiver lands exactly where a rule would otherwise block a merge);
-    the by-id run_check() path never reaches here, so the guardrail-weakening guard is never
+    the by-id run_check() path never reaches here, so the §15 guardrail-weakening guard is never
     exempt. Exact-match only (no case-folding — silent widening is a spoof concern). Author is
     checked first; both forms emit a stated pass that names WHY the rule did not apply, never a
     silent green."""
@@ -1867,7 +1869,7 @@ def _evaluate(rules: list, suite: str, gates: bool, ctx: dict, with_source: bool
         # author OR a matched label yields a DISCLOSED not-applicable pass (a soft note, never
         # gating), never a silent green and never a workflow skip that would leave the required
         # check pending. Exact-match only (no case-folding — silent widening is a spoof concern).
-        # The by-id run_check() path carries no suite and so never reaches here: the
+        # The by-id run_check() path carries no suite and so never reaches here: the §15
         # guardrail-weakening guard is never exempt.
         exempt_note = _exemption_note(rule, ctx) if gates else None
         if exempt_note is not None:
@@ -1938,10 +1940,10 @@ def run(suite: str, ctx: dict) -> int:
 
 def run_check(check_id: str, ctx: dict) -> int:
     """Run ONE check rule, selected by its `id` field, directly — the "a check is a
-    directly-callable unit, not only trigger-driven" path the validation foundation blesses.
+    directly-callable unit, not only trigger-driven" path the validation README blesses.
     It loads ONLY the check rules (NOT suites.json), so a broken or loosened suite
     declaration can never strand or alter a directly-invoked guard — the isolation the
-    guardrail-weakening guard relies on. It dispatches via the same kind registry as
+    §15 weakening guard relies on (D-051). It dispatches via the same kind registry as
     run(), and a dangling kind or an erroring callable FAILS CLOSED (a hard finding),
     exactly as in run(). A by-id run always gates (it is invoked deliberately, outside a
     suite's context): exit 1 on any hard finding, 0 if clean, 2 on an unknown id (a loud
@@ -1968,7 +1970,7 @@ def run_check(check_id: str, ctx: dict) -> int:
 def run_unit(unit, target=None, ctx=None):
     """Run ONE check-logic unit against a caller-substituted target and return its
     (passed, findings) exactly as production would — the target-substitution affordance the
-    negative-fixture meta-check (#286) needs to witness that each hard check
+    negative-fixture meta-check (#286, D-256…D-260) needs to witness that each hard check
     actually BITES a seeded bad input. It is NOT a production entry point: run()/run_check()/
     --check never call it, so those paths and every existing finding are byte-unchanged.
 
@@ -2022,10 +2024,10 @@ def run_unit(unit, target=None, ctx=None):
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
-# ---- local triggers: the pre-commit / pre-close / touched-file nudges ----------
+# ---- local triggers: the pre-commit / pre-close / touched-file nudges (validation README) ----------
 # The four v1 triggers are declared in suites.json; CI is the merge gate (teeth). These wire the three
 # LOCAL ones as best-effort ADVICE that NEVER blocks: the same rules run, but a hard finding surfaces as
-# a nudge, not a wall. The handlers below
+# a nudge, not a wall (validation README §"Tier versus context"/§"Execution mapping"). The handlers below
 # return ONLY hooks.proceed()/hooks.inject() — never block()/decide(...): on a block-eligible event
 # (PreToolUse) the harness WOULD honor a block or a deny, so keeping to proceed/inject is what holds the
 # block budget to modes + close. The block-budget coherence check CANNOT see this (validate registers no
@@ -2046,7 +2048,7 @@ def local_ctx() -> dict:
 
 def _safe_collect(suite: str, ctx: dict = None, *, rule_filter=None) -> list:
     """collect() for a LOCAL advisory: return [] on ANY failure rather than raising, so an advisory run
-    degrades to silence and never strands the session — the local fail-open by design (a broken
+    degrades to silence and never strands the session — the local fail-open the README fixes (a broken
     kind never strands the working session; teeth are at CI). A per-rule kind error is already a
     fail-closed FINDING inside collect() and still surfaces in the nudge; this guards the total-config
     failure that locally is advice-that-couldn't-run. `ctx` defaults to local_ctx() BUILT INSIDE the
@@ -2152,7 +2154,7 @@ def _precommit_handler(payload: dict) -> dict:
 def _accept_handler(payload: dict) -> dict:
     """PostToolUse: after an edit, (1) RELAY the edit to telemetry's ambient capture — record each local
     file-scoped check's pass/fail over the touched file to the gitignored ambient cache (telemetry owns the
-    record + cache; this hook, the one that runs checks, relays — the detection-relay seam); and (2) run the touched-file
+    record + cache; this hook, the one that runs checks, relays — the §16 seam); and (2) run the touched-file
     subset of the pre-commit NUDGE and inject any hard finding. Both are ADVICE only — PostToolUse cannot
     block by contract; this returns proceed()/inject() ONLY. The nudge subset is context-targeted in v1 (so it
     stays quiet), but ambient capture draws from the full file-scoped corpus, so it is genuinely live. The

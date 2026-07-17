@@ -1,11 +1,11 @@
-"""consolidate.py — AI-judged episodic consolidation: the reflection half of the memory substrate.
+"""consolidate.py — AI-judged episodic consolidation: the reflection half of the memory substrate (slice 3b).
 
-The content half (capture.py) saves every completed turn's RAW notes to the ledger. This module is the
+The 3a content half (capture.py) saves every completed turn's RAW notes to the ledger. This module is the
 REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODIC summaries (the "tidy-up"):
 
   - **The tidy-up is AI-judged, and a hook cannot think.** A compact episodic summary ("explored X; rejected
     Y because Z; the operator wants W") is written by the in-context AI, which types it with ONE closed ROLE
-    (decision / rationale-pushback / lesson / dead-end / preference / intent / observation). This was
+    (decision / rationale-pushback / lesson / dead-end / preference / intent / observation — D-030). This was
     validated against the SHIPPED Claude Code runtime: a hook steers the model only by injecting context a
     *later* turn reads, or by blocking — it can NEVER make the model generate. So consolidation cannot run
     inside a `PreCompact`/close hook; the model is not in that loop.
@@ -24,15 +24,15 @@ REFLECTION half — turning those raw turn-deltas into clean, role-typed EPISODI
     operator's request.
     This unifies the "normal" and "abandoned-session" consolidation into ONE sweep: the locked design's
     abandoned-session predicate subsumes the normal path — the previous session is "no longer live with no
-    marker" shortly after it ends. The lease heartbeat (#396) is what tells "no longer live" from a still-
+    marker" shortly after it ends. The lease heartbeat (#396 U08) is what tells "no longer live" from a still-
     running concurrent session: a session is swept once its lease has been silent for a small N (`_LEASE_STALE_N`
     session-starts), so the previous session is tidied within a few starts, not the very next — a small,
     deliberate cushion so a briefly-idle live session is not tidied mid-run (the store-time re-check is the real
-    guard; N only tunes promptness). The sweep ALSO carries the roll-up backlog in the
+    guard; N only tunes promptness). The sweep ALSO carries the roll-up backlog (slice 5 PR 3) in the
     same single injection. `PreCompact` cannot reach the AI, so it carries no consolidation — but it now rides
     the deterministic ledger-compaction trigger (`compact.maybe_compact`).
 
-  - **Leaf discipline.** `detect_unconsolidated` RETURNS session-id signals and renders no
+  - **Leaf discipline (principle §16).** `detect_unconsolidated` RETURNS session-id signals and renders no
     prose; the hook handler — memory's own behavior, exactly as boot's handler renders its briefing — composes
     the directive. The store path is idempotent + race-safe under the SHARED capture lock, favors a duplicate
     over a loss on a mid-write crash, and never gates a turn.
@@ -73,7 +73,7 @@ from memory.records import (  # noqa: E402
 # no marker sits at this sentinel, so its first genuine turn (seq 0) is `0 > -1 == True` — detected. (#446)
 _NO_WATERMARK = -1
 
-# The closed, Engine-shipped role vocabulary — amendable via the grammar, never
+# The closed, Engine-shipped role vocabulary (D-030 / memory/README) — amendable via the grammar, never
 # invented per session. `rationale/pushback` is ONE role (the literal slash); `dead-end` is hyphenated.
 ROLE_VOCABULARY = (
     "decision", "rationale/pushback", "lesson", "dead-end", "preference", "intent", "observation",
@@ -95,7 +95,7 @@ _MAX_TAGS = 8                            # build-spec leaf (#235): the reject-no
 _LEASE_STALE_N = 3                        # build-spec leaf (maintainer, at the plan gate): a session is "silent"
                                          # (consolidatable) once its lease has aged this many SessionStarts. SMALL
                                          # on purpose — the module consolidates the previous session at the NEXT
-                                         # start (the 21-untidied failure mode); a large N would
+                                         # start (README §76-79 / the 21-untidied failure mode); a large N would
                                          # reintroduce that passivity. N is only a recovery-promptness knob — the
                                          # store-time re-check below, NOT N, is the real concurrency guarantee, so
                                          # correctness never rides on N's value.
@@ -213,7 +213,7 @@ def detect_unconsolidated(live_session_id=None, *, cwd=None) -> list:
         pending.discard(live_session_id)
     if not pending:
         return []
-    # The lease heartbeat: drop any candidate whose session is still LIVE. A CORRUPT lease sidecar means we
+    # The lease heartbeat (U08): drop any candidate whose session is still LIVE. A CORRUPT lease sidecar means we
     # cannot tell who is live, so skip the whole sweep this pass (fail safe — all sessions possibly-live), DISTINCT
     # from a missing/empty sidecar (all-absent, the intended first-run recovery of prior sessions).
     lease = capture.read_lease_state(ledger.ledger_dir(cwd))
@@ -270,7 +270,7 @@ def _make_episodic(session_id: str, rec: dict, batch: str) -> dict:
     out = {
         "v": capture.RECORD_VERSION,
         "kind": EPISODIC_KIND,
-        RECORD_ID_KEY: new_record_id(),     # the stable, content-free record id minted at capture
+        RECORD_ID_KEY: new_record_id(),     # the stable, content-free record id minted at capture (slice 4b)
         "session_id": session_id,
         "ts": now,
         "role": rec["role"],
@@ -345,7 +345,7 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
         # point of the incremental sweep, and the termination path for an unsummarizable tail).
         if max_gseq <= watermark and (has_marker or not records):
             return {"status": "already-consolidated", "stored": 0}
-        # The store-time re-check — the actual concurrency guarantee. Detection ran at SessionStart; this
+        # The store-time re-check — the actual concurrency guarantee (U08). Detection ran at SessionStart; this
         # write lands minutes later, in a subagent. RE-COMPUTE staleness under the held lock: if the target has
         # checked in since detection (its lease now reads fresh) — or the lease is unreadable — ABORT before any
         # append, leaving it for its own consolidation. This ALSO closes the incremental revival race: a genuine
@@ -361,7 +361,7 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
                     "stored": 0}
         ledger_file = ledger.ledger_path(cwd)
         # Advance the watermark to the high-water genuine message this pass EXAMINED — past examined-but-
-        # unsummarizable turns alongside any summarized ones — so the sweep terminates. `max`
+        # unsummarizable turns alongside any summarized ones — so the sweep terminates (README §86-89). `max`
         # never regresses a watermark a concurrent pass already advanced (monotonic → revival-safe).
         through_seq = max(max_gseq, watermark)
         batch = uuid.uuid4().hex   # ONE id for this whole pass, stamped on every episodic AND the marker below
@@ -385,7 +385,7 @@ def store_episodic(session_id: str, records, *, cwd=None) -> dict:
 
 def _consolidation_directive(pending: list) -> str:
     """The directive the SessionStart sweep injects when earlier sessions need tidying. It stays SUBORDINATE to
-    the operator's request (memory's operation, not orientation — never a first-turn hijack) and
+    the operator's request (memory's operation, not orientation — boot/README: never a first-turn hijack) and
     ACTIVE (done THIS session — not "whenever, or never"; that passivity is what left 21 sessions untidied). The
     mechanics run OFF the operator's main transcript: the main loop SPAWNS A SUBAGENT to do the read/store, and
     when it returns the main loop relays nothing about the tidy-up (only the runtime's own brief task card may
@@ -443,14 +443,14 @@ def _consolidation_directive(pending: list) -> str:
 
 def _session_start_handler(payload) -> dict:
     """Memory's ONE SessionStart behavior: inject ONE combined directive carrying BOTH maintenance
-    backlogs — untidied raw notes (consolidation) and clusters of old episodes ready to roll up (roll-up,
-    via the lazy `rollup` import) — or proceed silently when neither is pending (the self-
+    backlogs — untidied raw notes (consolidation, 3b) and clusters of old episodes ready to roll up (roll-up,
+    slice 5 PR 3, via the lazy `rollup` import) — or proceed silently when neither is pending (the self-
     interference floor: this fires on the operator's OWN sessions, so a nothing-pending start must add nothing).
     ONE injection, not two competing ones, keeps the operator's first turn unsplit. FINE-GRAINED fail-open: a
     roll-up fault degrades to consolidation-only (it can never drop the older, more important consolidation
     directive); run_hook fail-opens the whole handler on any other fault."""
     live = payload.get("session_id") if isinstance(payload, dict) else None
-    # Stamp THIS session's lease before sweeping: bump the epoch and record us live, so a concurrent sweep
+    # Stamp THIS session's lease before sweeping (U08): bump the epoch and record us live, so a concurrent sweep
     # never mistakes us for abandoned. If the stamp can't land (lock contention / a corrupt sidecar), DEFER the
     # consolidation sweep this pass — never sweep with a missing self-lease — but let roll-up (lease-independent)
     # still run. With no live id we can't stamp; fall through to a best-effort detection (the lease filter still
@@ -481,9 +481,9 @@ def _pre_compact_handler(payload) -> dict:
     """PreCompact CANNOT reach the in-context AI (the shipped runtime: a hook never makes the model generate;
     PreCompact's only lever is blocking compaction), so AI consolidation stays on the SessionStart sweep. But
     DETERMINISTIC ledger compaction is exactly the cheap pre-compaction housekeeping this hook CAN do — it rides
-    the "tolerable moment, never the hot path" the design names for the expensive step and, IF
-    enough reclaimable waste has piled up, folds-and-prunes it. `maybe_compact` is fail-open (never
-    raises); the compaction it rides folds Layer-1 bookkeeping AND physically removes any record an
+    the "tolerable moment, never the hot path" the design names for the expensive step (memory/README) and, IF
+    enough reclaimable waste has piled up, folds-and-prunes it (slice 5 PR 3). `maybe_compact` is fail-open (never
+    raises); the compaction it rides folds Layer-1 bookkeeping AND, since slice 4e, physically removes any record an
     `operator-adjudicated-erasure` marker targets (Layer-2) — and the sole minter, `compact.enact_erasure`, is now
     fired only by the cross-session erasure observer, and only for a target the operator authorised by merging a
     single-purpose `engine-erasure` PR, so absent such a merge it still erases nothing. This handler ALWAYS proceeds — PreCompact must never block the squash."""
