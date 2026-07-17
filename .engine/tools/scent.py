@@ -46,7 +46,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hooks     # noqa: E402  (run_hook + inject/proceed: the fail-open harness this rides)
-import validate  # noqa: E402  (frontmatter + ENGINE_DIR: the attention-policy threshold read)
+import validate  # noqa: E402  (frontmatter + ENGINE_DIR + effective_policy_values: the policy read + the D-167 merge)
+import operator_overrides  # noqa: E402  (the D-167 override slice; a thin stdlib+validate JSON reader — hot-path-safe)
 
 
 # ---- tuning leaves (recorded build-spec leaves; see the slice-5 PR-2 plan) ------------------
@@ -85,14 +86,25 @@ _COMPLETENESS_DISCLOSURE = (
 # ---- the strong-match threshold (read from attention's policy; degrade-safe) ----------------
 
 def _threshold() -> float:
-    """The salience bar a lexical match clears to surface, read from attention's policy frontmatter (attention
-    OWNS the value; the scent reads it). Read DIRECTLY via `validate.frontmatter` — not by importing `attention`
-    (which would pull `attention_rank`→`knowledge_query` onto the hot path). An unreadable/malformed policy or a
-    missing key degrades to `_DEFAULT_THRESHOLD` — never a per-prompt crash and never a silently-disabled scent."""
+    """The salience bar a lexical match clears to surface, read from attention's policy (attention OWNS the
+    value; the scent reads it) THROUGH the D-167 operator-override merge — so a reviewed and merged
+    `/engine-tune` of `scent_strong_match_threshold` actually reaches the per-prompt scent. Merged inline via
+    `operator_overrides.slice_for` + the core `validate.effective_policy_values` (the same merge
+    `attention.load_policy_values` performs) rather than by importing `attention` — that would pull
+    `attention_rank`→`knowledge_query` onto the hot path, while `operator_overrides` is a thin stdlib+validate
+    JSON read. An unreadable/malformed policy or a missing key degrades to `_DEFAULT_THRESHOLD` — never a
+    per-prompt crash and never a silently-disabled scent."""
     try:
         policy = os.path.join(validate.ENGINE_DIR, "policies", "attention.md")
-        values = validate.frontmatter(policy).get("values") or {}
-        return float(values.get(_THRESHOLD_KEY, _DEFAULT_THRESHOLD))
+        default = validate.frontmatter(policy).get("values") or {}
+        # The D-167 read-time merge: the operator's tuned value wins over the shipped default, so a reviewed and
+        # merged `/engine-tune` of the scent threshold actually reaches this hot path (it never did before).
+        # `scent_strong_match_threshold` is override-ELIGIBLE (a threshold, not a structural precedence/trim law),
+        # so `structural_keys=set()` merges it cleanly; `slice_for` already returns {} on any override-file fault.
+        effective, _findings = validate.effective_policy_values(
+            default, operator_overrides.slice_for("attention"), structural_keys=set(), tier="soft",
+            message="An operator policy-override tunes the scent threshold, never the structural ordering.")
+        return float(effective.get(_THRESHOLD_KEY, _DEFAULT_THRESHOLD))
     except Exception:  # noqa: BLE001 — the scent must survive any policy fault, not disable itself or crash
         return _DEFAULT_THRESHOLD
 
