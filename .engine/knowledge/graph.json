@@ -4981,7 +4981,7 @@
       },
       "slug": "state.v1",
       "source": {
-        "fingerprint": "sha256:b61bf41fcb259491a2a8a54983e13dd1448f198fd08d939eb19fde61f79f8ec4",
+        "fingerprint": "sha256:beb4ffcf3cd4113a6a4a996a2720ee235e46034cc73df3be82a004a94fc8b8ee",
         "path": ".engine/schemas/state.v1.json"
       },
       "status": "active",
@@ -5490,7 +5490,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:a26d728965225af6a18425d11db5ec838542600bad922c8f1323a432fd1ac59e",
+        "fingerprint": "sha256:21c7628d2539f711a80b561dab68e1bebbb642c57807d886670bb73cb8733bc8",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6459,7 +6459,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:f4b240b5524ab8cbc992899477ac5816b7aaeab72d183d62933ddd3ab20af05f",
+        "fingerprint": "sha256:1da31b0561871645a432bb3aec1739676ed37ef7e545f4976e68cffa80ae7cbc",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -7632,7 +7632,7 @@
       },
       "slug": "standing_situation",
       "source": {
-        "fingerprint": "sha256:8cf688462b94ef715d34f0890628181d90841de8a3535c4291e873b02c84813e",
+        "fingerprint": "sha256:dfa1b5ffae4674468517e4544aa1b46e979b316b227d1117a0a3a3c8e2d1914c",
         "path": ".engine/tools/standing_situation.py"
       },
       "status": "active",
@@ -7921,7 +7921,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:d8f1fd1d3f4efc667455664ef3b03226712db37191645b7fcfc28793f8d2f667",
+        "fingerprint": "sha256:841b2606df811deda4106e5f7cbd5c2d754fab710b22a8766d9dd8532d3e3ff1",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9519,7 +9519,7 @@
       },
       "slug": "test_standing_situation",
       "source": {
-        "fingerprint": "sha256:f9be9d81389a8d5008bd707f286f9657eec9ecc91f0af08a19e4de73775ef06c",
+        "fingerprint": "sha256:45156db5a265125171e7521d6da2b62d42bed699b21b4480a3b0066ea60255e2",
         "path": ".engine/tools/test_standing_situation.py"
       },
       "status": "active",
@@ -9536,7 +9536,7 @@
       },
       "slug": "test_state",
       "source": {
-        "fingerprint": "sha256:b163b27c1cf87e9747ccf938cfc2a37d3611a6b3c5819d9a2db4f9e3b4827b13",
+        "fingerprint": "sha256:09bc9b7e8f3042d4e21e96d7503e672e6662af5262c9f588c29f43d32e395fa5",
         "path": ".engine/tools/test_state.py"
       },
       "status": "active",
@@ -9587,7 +9587,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:802bc388d854bab272a2e5ad52988a312da86cf2952cf411bc9f8eebd304c77d",
+        "fingerprint": "sha256:1ab668303efb53ab22104b6aae1d59bb8e8f17c5cdcbae761197bee7133f05c3",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

@@ -2,8 +2,9 @@
 """Self-tests for the read-only "where we are" derivation (engine-template #100).
 
 These lock the load-bearing behaviours a non-engineer cannot read code to verify:
-  - `milestone` is the active open Milestone's title, or None when there are none ("none set" is the honest
-    normal state, never an error); the active one is the earliest-due (first returned by the API sort);
+  - `milestone` is the list of OPEN Milestone titles (every open one, in the API's earliest-due-first order),
+    or an empty list when there are none ("none set" is the honest normal state, never an error) — GitHub has
+    no single "current" milestone, so the engine names what is open and elects none (engine-template #496);
   - `phase` is derived from the most-recently-merged TRACKED BUILD Issue — a merged PR whose body closes an
     *engine-labelled* Issue — formatted "<title> (issue #N)"; PRs that merged nothing, that closed nothing,
     or that closed a non-engine Issue are skipped; no tracked build in the window -> None;
@@ -75,20 +76,25 @@ def _engine_issue(number, title):
 
 
 class TestMilestone(unittest.TestCase):
-    def test_active_milestone_title(self):
+    def test_single_open_milestone_is_named(self):
         gh = _gh(_transport(milestones=(200, [{"title": "Ship the beta", "due_on": "2026-09-01T00:00:00Z"}])))
-        self.assertEqual(ss.derive_milestone(gh), "Ship the beta")
+        self.assertEqual(ss.derive_milestone(gh), ["Ship the beta"])
 
-    def test_zero_milestones_is_none_not_an_error(self):
+    def test_zero_milestones_is_empty_list_not_an_error(self):
         gh = _gh(_transport(milestones=(200, [])))
-        self.assertIsNone(ss.derive_milestone(gh))
+        self.assertEqual(ss.derive_milestone(gh), [])
 
-    def test_active_is_the_first_returned_earliest_due(self):
-        # derive takes the API's earliest-due-first ordering and uses the first — the recorded "active" rule.
+    def test_all_open_are_named_not_just_the_earliest(self):
+        # The engine elects none: every open milestone is named, in the API's earliest-due-first order — not
+        # just the first (the pre-#496 single-election this replaces).
         gh = _gh(_transport(milestones=(200, [{"title": "Earliest"}, {"title": "Later"}])))
-        self.assertEqual(ss.derive_milestone(gh), "Earliest")
+        self.assertEqual(ss.derive_milestone(gh), ["Earliest", "Later"])
 
-    def test_read_failure_raises_never_reads_as_none(self):
+    def test_blank_and_malformed_titles_are_dropped(self):
+        gh = _gh(_transport(milestones=(200, [{"title": "  "}, {"title": "Real"}, {}, "not-a-dict"])))
+        self.assertEqual(ss.derive_milestone(gh), ["Real"])
+
+    def test_read_failure_raises_never_reads_as_empty(self):
         gh = _gh(_transport(milestones=(403, None)))
         with self.assertRaises(ss.DeriveUnavailable):
             ss.derive_milestone(gh)
@@ -166,11 +172,11 @@ class TestDeriveStandingSituation(unittest.TestCase):
             pulls=(200, [_merged_pr(99, "Closes #80")]),
             issues={80: (200, _engine_issue(80, "The drift fix"))}))
         self.assertEqual(ss.derive_standing_situation(gh),
-                         {"milestone": "Ship the beta", "phase": "The drift fix (issue #80)"})
+                         {"milestone": ["Ship the beta"], "phase": "The drift fix (issue #80)"})
 
-    def test_genuine_absence_returns_none_fields(self):
+    def test_genuine_absence_is_empty_milestone_and_none_phase(self):
         gh = _gh(_transport(milestones=(200, []), pulls=(200, [])))
-        self.assertEqual(ss.derive_standing_situation(gh), {"milestone": None, "phase": None})
+        self.assertEqual(ss.derive_standing_situation(gh), {"milestone": [], "phase": None})
 
     def test_all_or_nothing_a_read_failure_raises_for_the_whole_derive(self):
         # milestone read fails -> the whole derive raises (boot then shows the cached line), never a
@@ -202,7 +208,7 @@ class TestWhereLinesRendersTheRealCard(unittest.TestCase):
 
     def test_renders_without_keyerror_and_returns_the_standing_block(self):
         import boot  # lazy: boot imports this module at top — importing here mirrors the demo and avoids a cycle
-        live = {"milestone": "Ship the beta", "phase": "Building the checkout page"}
+        live = {"milestone": ["Ship the beta"], "phase": "Building the checkout page"}
         lines = ss._where_lines(boot, live=live, state=None)
         self.assertTrue(any(ln.startswith("**Where we are:**") for ln in lines),
                         "the standing block must carry the 'Where we are' line")

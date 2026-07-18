@@ -45,7 +45,7 @@ def render(session_id: str | None = None) -> str:
 # defensively, and is deliberately a gate-off situation so the demo shows the loudest alarm. Pure data — no I/O.
 _EXAMPLE_SIGNALS = {
     "state": {"schema_version": 1,
-              "standing_situation": {"milestone": "Ship the beta", "phase": "Building the checkout page"},
+              "standing_situation": {"milestone": ["Ship the beta"], "phase": "Building the checkout page"},
               "integration_debt": {}},
     "refused": False,
     "gate": "off",
@@ -70,7 +70,7 @@ _EXAMPLE_SIGNALS = {
                     "message": "The engine hasn't reviewed its own health in a while — re-arm the scheduled "
                                "self-review so it refreshes on the next run, or ask me to do it for you."},
     # the live-derived "where we are" (boot #100); present here so the example shows the current live line
-    "live_standing": {"milestone": "Ship the beta", "phase": "Building the checkout page (issue #128)"},
+    "live_standing": {"milestone": ["Ship the beta"], "phase": "Building the checkout page (issue #128)"},
 }
 
 

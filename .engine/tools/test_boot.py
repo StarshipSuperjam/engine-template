@@ -561,6 +561,23 @@ class TestWhereWeAreLiveOrCached(unittest.TestCase):
             mline = next(ln for ln in dash.splitlines() if ln.startswith("**Milestone"))
             self.assertNotIn(jargon, mline)
 
+    def test_several_open_milestones_are_all_named_electing_none(self):
+        # #496: GitHub has no single "current" milestone, so when several are open the engine names them ALL
+        # under a plural label and elects none — never a silent pick of one.
+        dash = boot.render_dashboard(_signals(
+            live_standing={"milestone": ["Alpha", "Beta", "Gamma"], "phase": "Do the thing (issue #9)"}))
+        self.assertIn("**Milestones:** Alpha, Beta and Gamma", dash)   # every open one, plain words, plural label
+        self.assertEqual(dash.count("**Where we are:**"), 1)           # still exactly one standing block
+
+    def test_legacy_single_string_milestone_still_renders(self):
+        # A cursor written by a pre-#496 engine stored one name as a bare string; boot reads it tolerantly so
+        # an in-place upgrade never breaks the card before the cache refreshes to the list shape.
+        dash = boot.render_dashboard(_signals(
+            live_standing=None,
+            state={"standing_situation": {"milestone": "Ship the beta", "phase": "P",
+                                          "as_of": "2026-06-15T00:00:00Z"}}))
+        self.assertIn("**Milestone:** Ship the beta", dash)
+
 
 class TestConsumesAttentionNeverReRanks(unittest.TestCase):
     def setUp(self):

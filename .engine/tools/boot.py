@@ -393,6 +393,24 @@ def _and_list(items: list) -> str:
     return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
+def _milestone_line(value) -> str:
+    """The 'Milestone' card line, rendering the open milestones as they are (engine-template #496): none open
+    reads as the honest-normal "No milestone is open"; a single open one is named; several are ALL named in
+    plain words under a plural label — the engine elects none. `value` is the list of open titles (the current
+    shape); a bare string (a cursor written by a pre-#496 engine) is read as that one, and None/empty as none."""
+    if isinstance(value, str):
+        names = [value.strip()] if value.strip() else []
+    elif isinstance(value, list):
+        names = [t.strip() for t in value if isinstance(t, str) and t.strip()]
+    else:
+        names = []
+    if not names:
+        return "**Milestone:** No milestone is open"
+    if len(names) == 1:
+        return f"**Milestone:** {names[0]}"
+    return f"**Milestones:** {_and_list(names)}"
+
+
 def needs_attention(state: dict | None, *, gh=None, live_findings: list | None = None,
                     source=None) -> tuple[list, list, dict | None, list, list]:
     """Consume attention.rank_live and SPLIT its ranked partition into (1) operator ACTION lines, rendered in
@@ -1383,14 +1401,14 @@ def render_dashboard(s: dict) -> str:
         # "Where we are" (the active work) and "Milestone" (the larger plan marker) are two self-explanatory
         # lines, from ONE source — live-or-cached, never both. When the live GitHub
         # derive succeeded, render it (always current); otherwise fall back to the committed offline cache,
-        # named with WHEN it was cached and that it may be stale (the debt-count staleness voice). An absent
-        # milestone is an honest normal state on its own line ("No milestone is open"), never an error.
+        # named with WHEN it was cached and that it may be stale (the debt-count staleness voice). The engine
+        # names the open milestones as they are and elects none (#496): none open is the honest normal
+        # "No milestone is open" on its own line, one is named, several are all named — never an error.
         live = s["live_standing"]
         source = live if live is not None else ((s["state"] or {}).get("standing_situation") or {})
         phase = source.get("phase") or "nothing in progress yet"
-        milestone = source.get("milestone") or "No milestone is open"
         out.append(f"**Where we are:** {phase}")
-        out.append(f"**Milestone:** {milestone}")
+        out.append(_milestone_line(source.get("milestone")))
         if live is None:
             when = source.get("as_of") or "an earlier session"
             out.append(f"_(as of {when} — I couldn't refresh this from GitHub, so it may be out of date; "
