@@ -6606,7 +6606,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:6ec8089e2a11742b16cc5e7f1679ab871a26324cab3fc853b4ac828ce1c2c516",
+        "fingerprint": "sha256:d1730d3f7a92d3bc21f58326c2a9bfc143f542309791be16df5d2fcd2a2e4b9f",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -8408,7 +8408,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:2be466371127f2a8efc80f67a61a1591a66eed6bd2dc74ec7ffdf14fd01cf35b",
+        "fingerprint": "sha256:683806a386a477272695d8a87f1f27729d5b36c1d7458e185daed4ad109310dc",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",

@@ -484,7 +484,7 @@ class TestApplyOrchestrator(unittest.TestCase):
             self.assertEqual(res["reason"], "not-confirmed")
             self.assertEqual(res["steps"], [])
 
-    def test_full_happy_path_runs_all_nine_steps(self):
+    def test_full_happy_path_runs_every_step_in_order(self):
         with tempfile.TemporaryDirectory() as d:
             inst._build_fixture(d)
             with inst._redirect_root(d):
@@ -494,7 +494,7 @@ class TestApplyOrchestrator(unittest.TestCase):
             names = [s["step"] for s in res["steps"]]
             self.assertEqual(names, ["remove-unselected", "foundation-ignores", "codeowners", "plan-mode",
                                      "tool-runtime", "substrates", "wires", "control-plane",
-                                     "security-floor"])
+                                     "actions-enablement", "security-floor"])
 
     def test_handle_falls_back_to_the_manifest_value(self):
         with tempfile.TemporaryDirectory() as d:
@@ -504,6 +504,42 @@ class TestApplyOrchestrator(unittest.TestCase):
                 res = _fake_apply(d, handle=None)   # not passed → read from the manifest
                 co = inst.validate.read(os.path.join(d, ".github", "CODEOWNERS"))
             self.assertIn("@manifest-owner", co)
+
+
+class TestApplyActionsEnablement(unittest.TestCase):
+    """#514: the one-time GitHub Actions enablement is the OWNER's click — first-run tells,
+    unconditionally, and never silently automates. No detection buys silence: the review proved every
+    candidate signal dishonest in exactly the deadlock state (GitHub-managed scan runs appear while real
+    workflows stay gated; run history proves the past, not the present) — so the message itself carries
+    the already-on branch, and this class asserts the telling is truly unconditional."""
+
+    def test_tells_the_operator_whenever_the_project_is_connected(self):
+        said = []
+        step = inst._apply_actions_enablement(None, said.append, inst.load_copy(),
+                                              repo="you/your-project", token="tok")
+        self.assertEqual(step, {"step": "actions-enablement", "status": "operator-step-told"})
+        blob = " ".join(said).replace("\n", " ")
+        self.assertIn("Actions tab", blob)
+        self.assertIn("already on and you're done", blob)      # the already-enabled reader has a branch
+        self.assertIn("fresh nudge", blob)                     # and the clicked-but-still-waiting reader too
+
+    def test_production_shape_transport_is_none_and_never_consulted(self):
+        # Both real entry paths hand this step control_transport=None (a review caught the first draft
+        # probing it and dying silently) — the step must behave identically with no transport at all.
+        step = inst._apply_actions_enablement(None, lambda _s: None, inst.load_copy(),
+                                              repo="you/your-project", token="tok")
+        self.assertEqual(step["status"], "operator-step-told")
+
+    def test_no_project_or_signin_skips_quietly(self):
+        said = []
+        # An empty arg falls back to the ambient repo/token resolution, so fake THAT boundary too —
+        # otherwise this test would resolve the construction repo's own live coordinates.
+        with mock.patch.object(inst.boot, "repo_slug", return_value=""), \
+             mock.patch.object(inst.boot, "gh_token", return_value=""):
+            step = inst._apply_actions_enablement(None, said.append,
+                                                  inst.load_copy(), repo=None, token=None)
+        self.assertEqual(step["status"], "skipped")
+        self.assertEqual(said, [])
 
 
 class TestApplyStep1DeleteUnselected(unittest.TestCase):
@@ -966,9 +1002,17 @@ class TestDeriveHandle(unittest.TestCase):
 
 class TestApplyCopySurface(unittest.TestCase):
     def test_template_carries_every_apply_section(self):
+        # Read the template's headings DIRECTLY — load_copy() silently substitutes the built-in fallback
+        # for a missing section, so going through it made this test vacuous on the template side (a review
+        # of #514 proved it by deleting a section and watching this stay green). The name is now true.
+        with open(inst.TEMPLATE_PATH, encoding="utf-8") as fh:
+            template = fh.read()
+        for key, heading in inst.COPY_HEADINGS.items():
+            self.assertIn(f"## {heading}\n", template,
+                          f"apply copy section {key!r} ({heading!r}) missing from the template")
         copy = inst.load_copy(inst.TEMPLATE_PATH)
         for key in inst.COPY_HEADINGS:
-            self.assertTrue(copy[key].strip(), f"apply copy section {key!r} missing from the template")
+            self.assertTrue(copy[key].strip(), f"apply copy section {key!r} resolves empty")
 
     def test_missing_template_falls_back_not_crashes(self):
         copy = inst.load_copy("/no/such/first-run.md")
