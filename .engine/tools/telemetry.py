@@ -436,7 +436,8 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
     its body (open_issues[*].source_id), and the cache's remembered issue number is the fast path /
     cross-check. When a create/create race (GitHub has no atomic create-if-absent) has left MORE THAN
     ONE open Issue for one sid — both markers intact — this pass CONSOLIDATES them: the lowest-numbered
-    survivor is kept and the rest are closed (within authority scope, below), so a keyable duplicate is
+    survivor is kept and the rest are closed, UNCONDITIONALLY of authority scope (#518 — authority governs
+    auto-resolve, never duplicate-folding; see _consolidate), so a keyable duplicate is
     healed, never silently dropped. The one residual worst case is a marker stripped AND the cache wiped:
     that Issue is unkeyable by any pass, so a single duplicate can persist (never a missed signal) — it
     is the honest limit of body+cache dedup, not something absence self-corrects.
@@ -462,7 +463,7 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
     observed = {derive_source_key(r): r for r in records}
     # Group open Issues by signal id. A create/create race can leave MORE THAN ONE open Issue per sid;
     # keep the lowest-numbered as the canonical survivor and treat the rest as duplicates to consolidate
-    # (closed within authority scope below) — never silently overwritten in a map and left open forever.
+    # (unconditionally — see _consolidate) — never silently overwritten in a map and left open forever.
     groups: dict = {}
     for i in open_issues:
         sid = i.get("source_id")
@@ -489,10 +490,14 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
         return min(candidates) if candidates else now
 
     def _consolidate(sid: str, survivor_number: int) -> None:
-        # Fold every same-signal duplicate into the survivor and close it — but ONLY when this pass is
-        # authoritative for the sid, so a scoped pass (e.g. CI-only) never touches another source's dups.
-        if not _claims(authoritative, sid):
-            return
+        # Fold every same-signal duplicate into the survivor and close it — UNCONDITIONALLY, independent of
+        # this pass's authority scope (#518). Authority governs auto-RESOLVE — deciding a signal cleared and
+        # retiring it — where a claim-all pass could silently close another source's live alarm. Folding two
+        # copies of ONE signal into one decides nothing about the signal: the survivor stays open with the
+        # earliest first-noticed, the duplicate is keyed by its own intact marker, and the consolidation
+        # note names where tracking continues. The authority gate that used to sit here is exactly why the
+        # create/create race's duplicates persisted in practice: the racing SessionStart passes were not
+        # authoritative for the raced signal, so no pass ever healed what every pass could see.
         for dup in duplicates_by_sid.get(sid, []):
             plan.to_update.append((dup["number"],
                                    _consolidation_note(survivor_number) + (dup.get("body") or "")))
@@ -526,6 +531,11 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
             continue
         prev = counts.get(sid) or {}
         if not _claims(authoritative, sid):
+            # No authority to RESOLVE this source's signal — carry it forward untouched — but its keyable
+            # duplicates are still folded into the survivor (#518): consolidation is authority-free, and
+            # this carry-forward branch was the chicken-and-egg leg (the tool-runtime signal's own passes
+            # land here, so its race duplicates were never healed by anyone).
+            _consolidate(sid, issue["number"])
             plan.next_counts[sid] = {"persist": int(prev.get("persist", 0)),
                                      "absent": int(prev.get("absent", 0)),
                                      "issue": issue["number"], "first_seen": prev.get("first_seen") or now,
@@ -2311,6 +2321,30 @@ def _run_drain_cli(argv: list) -> int:
     return 0
 
 
+def _serialize_session_passes():
+    """A cross-process lock serializing the SessionStart triage passes (#518). The platform launches the
+    three SessionStart hooks concurrently, and GitHub has no atomic create-if-absent — so two passes
+    promoting the same inbox signal in the same instant each created an Issue (the recorded duplicate
+    pair; a just-created Issue is not immediately visible to a sibling's search either). One blocking
+    file lock turns that race window into a queue: every pass still runs, just one at a time, worst case
+    stacking their few-second latencies at session start. Returns the open lock handle (held until the
+    process exits / the caller closes it) or None where the platform has no fcntl (Windows) — which
+    degrades to the pre-lock behavior, with the unconditional same-signal consolidation in reconcile()
+    as the healer. Same flock idiom as the memory ledger's append lock."""
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    path = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "session-pass.lock")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fh = open(path, "w")
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        return fh
+    except OSError:
+        return None   # fail-open: a lockless pass beats a broken session start
+
+
 def main(argv: list) -> int:
     """Fail-open: telemetry is self-surfacing and must never break a session. Any unexpected error
     emits a plain finding and exits 0."""
@@ -2318,10 +2352,13 @@ def main(argv: list) -> int:
         if argv and argv[0] == "run":
             return _run_cli(argv[1:])
         if argv and argv[0] == "run-ambient":
+            _lock = _serialize_session_passes()
             return _run_ambient_cli(argv[1:])
         if argv and argv[0] == "run-episodic":
+            _lock = _serialize_session_passes()
             return _run_episodic_cli(argv[1:])
         if argv and argv[0] == "drain-inbox":
+            _lock = _serialize_session_passes()
             return _run_drain_cli(argv[1:])
         if argv and argv[0] == "demo":
             return _demo(argv[1:])
