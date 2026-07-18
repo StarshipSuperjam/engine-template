@@ -105,6 +105,7 @@ FOUNDATION_INFRA = (
     ".github/workflows/actionlint.yml",
     ".github/workflows/audit-prep.yml",
     ".github/workflows/engine-issue-conformance.yml",
+    ".github/workflows/engine-overlay-disclosure.yml",
     ".github/dependabot.yml",
     ".github/pull_request_template.md",
     ".github/ISSUE_TEMPLATE/*.md",
