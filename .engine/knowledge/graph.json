@@ -1529,6 +1529,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:codex-validation",
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
@@ -1576,6 +1577,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:codex-validation",
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
@@ -3657,7 +3659,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:d51d36ac03e3ea6a9aa71239166eed8c0309e48d7b3255a8d279b6ddb9c985c0",
+        "fingerprint": "sha256:63cc35696b821a6443ff6d514466ae233505587428c79f3741cbd183d9694732",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -3878,7 +3880,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:7c046d348340f9fbde3efba9412eb575023d101dda0717cf451c4acc0061acbd",
+        "fingerprint": "sha256:4760c89d3798bee611404394f9027b271bc7ee267833ec9eb09ec86c04010f60",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -3900,6 +3902,26 @@
       "source": {
         "fingerprint": "sha256:2fcab34c784f836cd2a8ea3d1115cd9f9fdc5388b7cbffb29fa6a03b664f8b67",
         "path": ".engine/operations/close-turn.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:codex-validation",
+      "name": ".engine/operations/codex-validation.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-validation",
+      "source": {
+        "fingerprint": "sha256:47847e568e2312ff7bcfacbce7282e23e1c17309d699a0621c76ddcbb4442900",
+        "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
       "type": "operation"

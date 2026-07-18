@@ -21,6 +21,7 @@
       ".engine/operations/boot-session-start.md",
       ".engine/operations/build-orchestration.md",
       ".engine/operations/close-turn.md",
+      ".engine/operations/codex-validation.md",
       ".engine/operations/conduct-author.md",
       ".engine/operations/control-plane-bootstrap.md",
       ".engine/operations/engine-arrival.md",
