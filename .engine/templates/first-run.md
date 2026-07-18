@@ -53,7 +53,8 @@ already has? Either way no safety check is removed — you still review and appr
 
 This project came set up with a starting set of codes of conduct — short notes on how you like me to work with
 you (for example, speaking plainly, and explaining choices before you make them). They're here from the first
-session, and they're yours: change, add, or remove any of them any time with /engine-conduct. I didn't put
+session, and they're yours: change, add, or remove any of them any time with /engine-conduct
+($engine-conduct in Codex). I didn't put
 them in place silently — this note is me telling you they're here.
 
 ## A security-contact file came with this project
@@ -92,8 +93,16 @@ template's own setup notes, which are about building the template itself, not yo
 the engine's working guide for **your** project, kept inside a clearly marked block I keep current as the engine
 updates — so if you open that file and see the marker lines around it, that part is mine to maintain, not
 something you need to edit. The part that's yours to shape — how you like me to work with you — lives in your
-codes of conduct instead: change it any time with `/engine-conduct`. I didn't do this silently — this note is me
+codes of conduct instead: change it any time with `/engine-conduct` (`$engine-conduct` in Codex). I didn't do this silently — this note is me
 telling you.
+
+## Your project's working guide for Codex
+
+This project also arrived with the template's own Codex working guide — the `AGENTS.md` at the top, the same
+role `CLAUDE.md` plays when you work in Claude Code, for sessions run in Codex. I've replaced it with the
+engine's working guide for **your** project, kept inside the same kind of clearly marked block I maintain as
+the engine updates. You don't need to edit it — how you like me to work with you lives in your codes of
+conduct, changeable any time with `/engine-conduct` (`$engine-conduct` in Codex).
 
 ## Your project starts from a clean slate
 

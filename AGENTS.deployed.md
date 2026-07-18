@@ -79,7 +79,10 @@ leaving you to reconstruct it from the transcript.
 
 **What runs the same here, and what to know about Codex specifically.** The Engine's brain is shared — the
 same state, memory, decisions, checks, and review personas serve every runtime, so nothing forks when you
-switch. Two Codex-specific things worth knowing: its hooks need your one-time approval (and re-approval after
-the Engine updates them — I'll tell you when that happens), and if Codex ever changes how it stores session
-records, the Engine stops saving session memory **loudly** — it tells you rather than guessing at a changed
-format. The README's support matrix lists what each runtime supports and the minimum versions.
+switch. Four Codex-specific things worth knowing: it needs a 2026 Codex build with hooks support (around
+v0.114 or later — check with `codex --version`); its hooks need your one-time approval (and re-approval
+after the Engine updates them — I'll tell you when that happens); if Codex ever changes how it stores
+session records, the Engine stops saving session memory **loudly** — it tells you rather than guessing at a
+changed format; and this project treats `.codex/config.toml` as a protected file, so adding your own server
+there is fine but the change will ask for your deliberate confirmation at the merge — the same confirmation
+any protection-file edit gets, not a sign you broke something.

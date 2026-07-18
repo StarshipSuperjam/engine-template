@@ -17,4 +17,4 @@ allowed-tools: Bash(uv run *)
 
 This is a command you type to see what the Engine can do. It reads only the command files already in
 your project, so it still answers even when other parts of the Engine are temporarily unavailable. The
-plain `/` menu shows every command your assistant has; this lists the Engine's own.
+assistant's own command menu shows everything it can run; this lists the Engine's own.

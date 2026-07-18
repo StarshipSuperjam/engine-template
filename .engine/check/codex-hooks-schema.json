@@ -11,5 +11,5 @@
   "suites": [
     "CI"
   ],
-  "message": "The engine's Codex hook registration (.codex/hooks.json) does not match the registration format — an event name outside the platform's documented set, or a hook entry missing its command (the exact problem is named just above). A malformed registration means Codex silently runs none of the engine's session hooks. The file is maintained by the engine's module wiring: repair it by re-applying the wiring (or revert the hand-edit) rather than editing entries in place."
+  "message": "The engine's Codex hook registration (.codex/hooks.json) does not match the registration format — an event name outside the platform's documented set, or a hook entry missing its command (the exact problem is named just above). A malformed registration means Codex silently runs none of the engine's session hooks. The file is maintained by the engine's module wiring: restore the committed file (git checkout -- .codex/hooks.json) or revert the hand-edit, rather than editing entries in place."
 }

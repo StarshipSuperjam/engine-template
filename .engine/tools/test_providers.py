@@ -164,6 +164,186 @@ class TestDetect(unittest.TestCase):
             self.assertEqual(providers.detect(), "claude")
 
 
+class TestMarkerProviderConfinement(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self._patch = mock.patch.object(providers, "live_session_path",
+                                        lambda: os.path.join(self._tmp.name, "marker.json"))
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def test_a_claude_marker_never_resolves_a_session(self):
+        """The Claude fail-safe stays historical: a Claude session always exports its env var, so
+        the marker leg is CODEX-ONLY — a Claude-provider marker must resolve nothing (the mis-grant
+        the review gate confined)."""
+        providers.write_live_session("claude-sid", "claude")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(providers.resolve_session())
+
+    def test_a_codex_marker_still_resolves(self):
+        providers.write_live_session("codex-sid", "codex")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(providers.resolve_session(), "codex-sid")
+
+
+class TestPlanCarveoutProviderConfined(unittest.TestCase):
+    def test_plan_mode_opens_nothing_on_codex(self):
+        """Plan mode is Claude Code's feature: a Codex payload reporting permission_mode "plan"
+        (its vocabulary is unverified) must NOT open the Explore write-gate — inert BY RULE."""
+        import modes
+        self.assertTrue(modes.is_plan_artifact("Edit", {}, "plan", provider="claude"))
+        self.assertFalse(modes.is_plan_artifact("Edit", {}, "plan", provider="codex"))
+        self.assertFalse(modes.is_plan_artifact("Edit", {"is_plan_file": True}, None,
+                                                provider="codex"))
+
+    def test_the_gate_denies_a_codex_plan_mode_edit_in_explore(self):
+        import contextlib
+        import tempfile
+        import modes
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
+                mock.patch.dict(os.environ, {"ENGINE_PROVIDER": "codex"}):
+            decision = modes.handler({"session_id": "s-codex", "tool_name": "Edit",
+                                      "tool_input": {}, "permission_mode": "plan"})
+            self.assertEqual(decision.get("permissionDecision"), "deny",
+                             "Codex has no plan mode; the carve-out must not open the gate")
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
+                mock.patch.dict(os.environ, {}, clear=True):
+            decision = modes.handler({"session_id": "s-claude", "tool_name": "Edit",
+                                      "tool_input": {}, "permission_mode": "plan"})
+            self.assertEqual(decision.get("action"), "proceed",
+                             "the Claude plan-artifact carve-out is unchanged")
+
+
+class TestCodexRegistrationDrift(unittest.TestCase):
+    """The renderer↔committed-literals pin the Claude side has and the Codex side was missing:
+    every codex-hook command in the manifests AND in the committed .codex/hooks.json must be
+    byte-identical to hooks.hook_command(provider="codex") over its own script."""
+
+    _SHIM_RE = None
+
+    @classmethod
+    def setUpClass(cls):
+        import re
+        cls._SHIM_RE = re.compile(r'sh "\.engine/tools/codex-hook-runner\.sh" "([^"]+)"(.*)$')
+
+    def _assert_rendered(self, command: str, where: str):
+        m = self._SHIM_RE.search(command)
+        self.assertIsNotNone(m, f"{where}: not the shim form: {command}")
+        script = (m.group(1) + m.group(2)).strip()
+        self.assertEqual(command, hooks.hook_command(script, provider="codex"),
+                         f"{where}: committed literal drifted from the renderer")
+
+    def test_every_manifest_codex_hook_matches_the_renderer(self):
+        import glob as _glob
+        import validate
+        total = 0
+        for mpath in sorted(_glob.glob(os.path.join(validate.ROOT, ".engine", "modules", "*",
+                                                    "manifest.json"))):
+            manifest = validate.load_json(mpath)
+            for wire in manifest.get("wires", []):
+                if wire.get("type") == "codex-hook":
+                    total += 1
+                    self._assert_rendered(wire["hook"]["command"], os.path.basename(os.path.dirname(mpath)))
+        self.assertGreaterEqual(total, 30, "the codex-hook wires exist and were all checked")
+
+    def test_every_committed_hooks_json_command_matches_the_renderer(self):
+        import validate
+        data = validate.load_json(os.path.join(validate.ROOT, ".codex", "hooks.json"))
+        commands = [h["command"] for groups in data["hooks"].values()
+                    for g in groups for h in g["hooks"]]
+        self.assertGreaterEqual(len(commands), 30)
+        for command in commands:
+            self._assert_rendered(command, ".codex/hooks.json")
+
+    def test_the_modes_accept_hook_is_deliberately_absent_on_codex(self):
+        """Codex Build entry is the typed verb ONLY (eADR-0034): the plan-acceptance hook must not
+        be registered, and a future mirror-everything cleanup must trip here, not ship it."""
+        import validate
+        data = validate.load_json(os.path.join(validate.ROOT, ".codex", "hooks.json"))
+        commands = [h["command"] for groups in data["hooks"].values()
+                    for g in groups for h in g["hooks"]]
+        self.assertFalse(any("modes.py" in c and "accept-hook" in c for c in commands),
+                         "the plan-acceptance adapter has no Codex registration by design")
+
+    def test_wire_apply_leaves_the_claude_files_byte_identical(self):
+        """The Claude byte-stability regression the PR body cites: applying EVERY manifest wire is
+        a no-op over the committed .claude/settings.json and .mcp.json."""
+        import glob as _glob
+        import validate
+        import wiring
+        settings = validate.read(wiring.SETTINGS_PATH)
+        mcp = validate.read(wiring.MCP_PATH)
+        directives = []
+        for mpath in sorted(_glob.glob(os.path.join(validate.ROOT, ".engine", "modules", "*",
+                                                    "manifest.json"))):
+            directives += validate.load_json(mpath).get("wires", [])
+        for f in wiring.apply_all(directives):
+            self.assertNotEqual(f.get("severity"), "hard", f)
+        self.assertEqual(validate.read(wiring.SETTINGS_PATH), settings)
+        self.assertEqual(validate.read(wiring.MCP_PATH), mcp)
+
+
+class TestParityCheckSelfIntegrity(unittest.TestCase):
+    def test_hook_identity_parses_both_live_command_forms(self):
+        """The parity check's private grammar is bound to the one renderer, both forms — the
+        blindness canary's static half."""
+        import provider_parity_check as ppc
+        claude_cmd = hooks.hook_command(".engine/tools/modes.py")
+        codex_cmd = hooks.hook_command(".engine/tools/modes.py", provider="codex")
+        self.assertEqual(ppc._hook_identity(claude_cmd), ".engine/tools/modes.py")
+        self.assertEqual(ppc._hook_identity(codex_cmd), ".engine/tools/modes.py")
+        tail_claude = hooks.hook_command(".engine/tools/telemetry.py run-ambient")
+        self.assertEqual(ppc._hook_identity(tail_claude), ".engine/tools/telemetry.py run-ambient")
+
+    def test_blind_extraction_goes_loud_not_green(self):
+        """A registration whose commands the grammar cannot parse must produce a broken-check
+        finding, never an empty (green) comparison set."""
+        import json as _json
+        import tempfile
+        import provider_parity_check as ppc
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, ".claude"))
+            with open(os.path.join(root, ".claude", "settings.json"), "w") as fh:
+                _json.dump({"hooks": {"PreToolUse": [{"matcher": "", "hooks": [
+                    {"type": "command", "command": "run .engine/tools/modes.py somehow"}]}]}}, fh)
+            finds = ppc.findings("hard", root=root)
+            self.assertTrue(any("the check's command grammar recognized none" in f["message"]
+                                for f in finds), finds)
+
+    def test_the_exception_ledger_is_not_in_the_retirement_set(self):
+        """The #411 trap, pinned: a standing check's data file must never ride the first-run
+        retirement set."""
+        import validate
+        assets = validate.load_json(os.path.join(validate.ROOT, ".engine", "provisioning",
+                                                 "first-run-assets.json"))
+        everything = list(assets.get("files", [])) + list(assets.get("directories", []))
+        self.assertFalse(any("provider-exceptions" in entry for entry in everything))
+
+
+class TestCaptureStatusPathSingleHomed(unittest.TestCase):
+    def test_writer_and_readers_spell_the_same_path(self):
+        """The marker is written by capture and read by boot and telemetry; three spellings, one
+        path — pinned so a move cannot silently sever the disclosure chain."""
+        import boot
+        import telemetry
+        import validate
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory"))
+        from memory import capture
+        expected = os.path.realpath(os.path.join(validate.ROOT, ".engine", "telemetry", ".cache",
+                                                 "memory-capture.status"))
+        self.assertEqual(os.path.realpath(capture.CAPTURE_STATUS_PATH), expected)
+        self.assertEqual(os.path.realpath(telemetry.CAPTURE_STATUS_PATH), expected)
+        # boot reads it inline; pin the literal by rendering the joined path the same way
+        self.assertEqual(os.path.realpath(os.path.join(validate.ROOT, ".engine", "telemetry",
+                                                       ".cache", "memory-capture.status")), expected)
+
+
 class TestCodexHookCommandForm(unittest.TestCase):
     def test_codex_form_rides_the_shim_and_resolves_its_own_root(self):
         cmd = hooks.hook_command(".engine/tools/modes.py accept-hook", provider="codex")

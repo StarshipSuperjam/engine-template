@@ -280,12 +280,15 @@ def is_building_action(tool_name: str, tool_input) -> bool:
 _PLAN_MODE = "plan"
 
 
-def is_plan_artifact(tool_name: str, tool_input, permission_mode) -> bool:
+def is_plan_artifact(tool_name: str, tool_input, permission_mode, provider: str = "claude") -> bool:
     """True iff this call is Claude Code's plan-mode artifact write: a file-mutating tool while the
     platform reports plan mode (`permission_mode == "plan"`), or a tool_input the platform flags as the
     plan file (`is_plan_file`). Keyed on the marker, never a path. Anything outside plan mode carries no
-    marker → not the artifact → stays subject to the gate."""
-    if tool_name not in _MUTATING_TOOLS:
+    marker → not the artifact → stays subject to the gate. PROVIDER-CONFINED: plan mode is Claude
+    Code's feature, so on any other runtime this carve-out is inert BY RULE, not by hoping the other
+    platform never reuses the field values — a Codex payload reporting `permission_mode: "plan"`
+    (its vocabulary is unverified) must not open the Explore write-gate."""
+    if provider != "claude" or tool_name not in _MUTATING_TOOLS:
         return False
     if isinstance(tool_input, dict) and tool_input.get("is_plan_file") is True:
         return True
@@ -370,7 +373,10 @@ def handler(payload: dict) -> dict:
     if current_stance(session_id) != EXPLORE:
         return hooks.proceed()                       # Build / Routine permit the write
     permission_mode = payload.get("permission_mode") if isinstance(payload, dict) else None
-    if is_building_action(tool_name, tool_input) and not is_plan_artifact(tool_name, tool_input, permission_mode):
+    import providers  # lazy: keep modes importable stand-alone in tests that stub the seam
+    provider = providers.detect(payload)
+    if is_building_action(tool_name, tool_input) \
+            and not is_plan_artifact(tool_name, tool_input, permission_mode, provider):
         # Same DECISION (deny) regardless; only the relayed reason differs — a memory write earns the
         # memory-specific "noted" line (#257), every other write the generic build-set denial.
         reason = _MEMORY_DENIAL if is_memory_target(tool_name, tool_input) else _DENIAL

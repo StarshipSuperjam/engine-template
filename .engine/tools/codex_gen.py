@@ -86,10 +86,11 @@ def _routing_lines(fm: dict) -> str:
     return "\n".join(lines)
 
 
-def render_agent(src_path: str) -> str:
-    """One persona's committed TOML render."""
+def render_agent(src_path: str, root: str | None = None) -> str:
+    """One persona's committed TOML render. `root` anchors the banner's source path (the render
+    base — defaults to the live repo)."""
     fm, body = _split_frontmatter(src_path)
-    rel_src = os.path.relpath(src_path, validate.ROOT).replace(os.sep, "/")
+    rel_src = os.path.relpath(src_path, root or validate.ROOT).replace(os.sep, "/")
     instructions = _routing_lines(fm) + "\n\n" + body.strip() + "\n"
     effort = _EFFORT_BY_TIER.get(fm.get("model-tier"), "high")
     return "\n".join([
@@ -103,12 +104,13 @@ def render_agent(src_path: str) -> str:
     ])
 
 
-def render_skill(src_dir: str):
-    """One skill's committed Codex render: (SKILL.md text, agents/openai.yaml text)."""
+def render_skill(src_dir: str, root: str | None = None):
+    """One skill's committed Codex render: (SKILL.md text, agents/openai.yaml text). `root`
+    anchors the banner's source path (the render base — defaults to the live repo)."""
     src_path = os.path.join(src_dir, "SKILL.md")
     fm, body = _split_frontmatter(src_path)
     slug = os.path.basename(src_dir)
-    rel_src = os.path.relpath(src_path, validate.ROOT).replace(os.sep, "/")
+    rel_src = os.path.relpath(src_path, root or validate.ROOT).replace(os.sep, "/")
     body = _SESSION_FLAG_RE.sub("", body)
     body = _TYPED_PREFIX_RE.sub(r"$\1", body)
     text = "\n".join([
@@ -148,10 +150,10 @@ def expected_renders(root: str | None = None) -> dict:
     out = {}
     for src in _agent_sources(base):
         name = os.path.splitext(os.path.basename(src))[0]
-        out[os.path.join(AGENT_OUT_DIR, f"{name}.toml")] = render_agent(src)
+        out[os.path.join(AGENT_OUT_DIR, f"{name}.toml")] = render_agent(src, base)
     for src_dir in _skill_sources(base):
         slug = os.path.basename(src_dir)
-        text, policy = render_skill(src_dir)
+        text, policy = render_skill(src_dir, base)
         out[os.path.join(SKILL_OUT_ROOT, slug, "SKILL.md")] = text
         out[os.path.join(SKILL_OUT_ROOT, slug, "agents", "openai.yaml")] = policy
     return out

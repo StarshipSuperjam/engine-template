@@ -604,5 +604,122 @@ def _a_dead_pid():
     return 999_999
 
 
+def _codex_msg(role, text):
+    """A Codex rollout transcript message line (the response_item envelope)."""
+    return {"type": "response_item",
+            "payload": {"type": "message", "role": role,
+                        "content": [{"type": "text", "text": text}]}}
+
+
+class CodexTranscriptTests(CaptureTestCase):
+    """The provider-routed Codex reader and its fail-loud contract (eADR-0036): a Codex-tagged
+    session captures through the dedicated recognizer ONLY, and every zero-yield shape a format
+    change can take reads as unrecognized — a loud status, never a silent green."""
+
+    def setUp(self):
+        super().setUp()
+        self._status_dir = tempfile.mkdtemp(prefix="engine-capture-status-")
+        self._saved_status = capture.CAPTURE_STATUS_PATH
+        capture.CAPTURE_STATUS_PATH = os.path.join(self._status_dir, "memory-capture.status")
+        os.environ["ENGINE_PROVIDER"] = "codex"
+
+    def tearDown(self):
+        capture.CAPTURE_STATUS_PATH = self._saved_status
+        os.environ.pop("ENGINE_PROVIDER", None)
+        shutil.rmtree(self._status_dir, ignore_errors=True)
+        super().tearDown()
+
+    def _status(self):
+        record = capture.read_capture_status()
+        return record and record.get("state")
+
+    def test_happy_path_codex_rollout_captures_and_reports_captured(self):
+        path = self.transcript("codex.jsonl", [
+            {"type": "session_meta", "payload": {"id": "s"}},
+            _codex_msg("user", "Please rename the export job."),
+            _codex_msg("assistant", "Renamed it and updated the schedule."),
+        ])
+        appended = capture.capture_turn_delta(self.payload(path))
+        self.assertEqual(appended, 2)
+        self.assertIn("Please rename the export job.", self.texts())
+        self.assertEqual(self._status(), "captured")
+
+    def test_a_claude_shaped_transcript_never_falls_through_on_codex(self):
+        """No fall-through to the tolerant Claude parser: a Codex-tagged session handed a
+        Claude-shaped transcript captures NOTHING and says so loudly."""
+        path = self.transcript("claudeish.jsonl", [_msg("user", "hello"), _msg("assistant", "hi")])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 0)
+        self.assertEqual(self.texts(), [])
+        self.assertEqual(self._status(), "unparseable")
+
+    def test_an_unknown_envelope_is_loud(self):
+        path = self.transcript("future.jsonl", [
+            {"type": "totally_new_record", "body": {"role": "user", "text": "hello"}}])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 0)
+        self.assertEqual(self._status(), "unparseable")
+
+    def test_a_non_jsonl_transcript_is_loud(self):
+        """The whole-format change (no JSON lines at all) — the review-gate hole, closed."""
+        path = os.path.join(self.tmp, "plain.jsonl")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("the format moved off JSON lines entirely\nsecond line\n")
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 0)
+        self.assertEqual(self._status(), "unparseable")
+
+    def test_known_envelope_with_changed_message_payloads_is_loud(self):
+        """Familiar record types whose message payloads changed shape — zero conversation from a
+        non-empty transcript reads as a format change, never as a healthy quiet turn."""
+        path = self.transcript("shifted.jsonl", [
+            {"type": "session_meta", "payload": {"id": "s"}},
+            {"type": "response_item", "payload": {"type": "msg_v2", "who": "user", "says": "hi"}},
+        ])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 0)
+        self.assertEqual(self._status(), "unparseable")
+
+    def test_missing_transcript_reports_no_transcript(self):
+        self.assertEqual(capture.capture_turn_delta({"session_id": "sess-A"}), 0)
+        self.assertEqual(self._status(), "no-transcript")
+
+    def test_out_of_scope_transcript_reports_invalid_path(self):
+        outside = tempfile.mkdtemp(prefix="engine-outside-")
+        try:
+            path = os.path.join(outside, "t.jsonl")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(_codex_msg("user", "hi")) + "\n")
+            self.assertEqual(capture.capture_turn_delta(self.payload(path)), 0)
+            self.assertEqual(self._status(), "invalid-path")
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+
+    def test_codex_home_is_an_allowed_root(self):
+        roots = capture._allowed_roots()
+        self.assertIn(os.path.realpath(os.path.join(os.path.expanduser("~"), ".codex")), roots)
+
+
+class ClaudeCaptureStatusTests(CaptureTestCase):
+    """The one intended Claude-side behavioral delta: a Claude capture writes the status marker."""
+
+    def setUp(self):
+        super().setUp()
+        self._status_dir = tempfile.mkdtemp(prefix="engine-capture-status-")
+        self._saved_status = capture.CAPTURE_STATUS_PATH
+        capture.CAPTURE_STATUS_PATH = os.path.join(self._status_dir, "memory-capture.status")
+
+    def tearDown(self):
+        capture.CAPTURE_STATUS_PATH = self._saved_status
+        shutil.rmtree(self._status_dir, ignore_errors=True)
+        super().tearDown()
+
+    def test_a_claude_capture_reports_captured(self):
+        path = self.transcript("t.jsonl", [_msg("user", "hello there")])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 1)
+        record = capture.read_capture_status()
+        self.assertEqual(record.get("state"), "captured")
+
+    def test_an_invalid_path_reports_loudly_on_claude_too(self):
+        self.assertEqual(capture.capture_turn_delta(self.payload("/nowhere/at/all.jsonl")), 0)
+        self.assertEqual(capture.read_capture_status().get("state"), "invalid-path")
+
+
 if __name__ == "__main__":
     unittest.main()

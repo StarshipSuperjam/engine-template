@@ -179,7 +179,11 @@ def live_session_path() -> str:
         return os.path.join(tempfile.gettempdir(), f"engine-live-session-test-{os.getpid()}.json")
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     digest = hashlib.sha1(root.encode("utf-8")).hexdigest()[:16]
-    return os.path.join(tempfile.gettempdir(), f"engine-live-session-{digest}.json")
+    # The uid in the name scopes the marker per-user even on a SHARED system temp dir (a pre-created
+    # same-name file by another user then simply isn't ours — the owner check refuses it — and can no
+    # longer squat the one name every user would compute).
+    uid = os.getuid() if hasattr(os, "getuid") else 0
+    return os.path.join(tempfile.gettempdir(), f"engine-live-session-{uid}-{digest}.json")
 
 
 def write_live_session(session_id, provider: str | None = None) -> bool:
@@ -190,7 +194,10 @@ def write_live_session(session_id, provider: str | None = None) -> bool:
     record = {"session_id": session_id, "provider": provider or detect(), "ts": time.time()}
     path = live_session_path()
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW      # a planted symlink must never make this write land elsewhere
+        fd = os.open(path, flags, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(record))
         try:
@@ -241,6 +248,11 @@ def resolve_session(payload: dict | None = None, explicit: str | None = None) ->
     if sid:
         return sid
     record = read_live_session()
-    if record:
+    # PROVIDER-CONFINED: the marker resolves a session ONLY when the session it records is a Codex
+    # one — the runtime with no session env var, the fallback's whole reason to exist. A Claude
+    # session always exports its env var, so reaching this point on Claude means something is off,
+    # and the safe answer is the historical one: resolve nothing (stance changes report failure)
+    # rather than adopt whichever session most recently booted.
+    if record and record.get("provider") == CODEX:
         return record["session_id"]
     return None

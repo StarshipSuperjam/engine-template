@@ -42,9 +42,11 @@ docs governing the current step; `wbs/build-conformance.md` carries the delivera
 **Never invent structure.** Where the design defers a concrete value (a "build-spec leaf"), decide it **explicitly
 with the maintainer and record it**, never silently. Where the design genuinely lacks needed grammar or
 contradicts itself, **stop and raise it** — do not paper over it. A change that would edit a `locked` design doc
-stops for the litigation alarm in `../engine-planning/CLAUDE.md`. The Codex adapter surfaces (`AGENTS.md`,
-`.agents/`, `.codex/`, and the provider seam) are governed by the engine's own decision records
-(`.engine/contracts/` — eADR-0034/0035/0036); cold gate reviewers judge Codex work against those records.
+stops for the litigation alarm in `../engine-planning/CLAUDE.md`.
+
+The Codex adapter surfaces (`AGENTS.md`, `.agents/`, `.codex/`, and the provider seam) are governed by the
+engine's own decision records (`.engine/contracts/` — eADR-0034/0035/0036); cold gate reviewers judge Codex
+work against those records.
 
 ## The trust model — informed consent on evidence, never code review
 

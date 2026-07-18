@@ -107,11 +107,14 @@ def installed_verbs(root: str | None = None) -> list:
     verbs = []
     for entry in seen.values():
         desc = entry["description"]
+        home = None
         if both_present and entry["trees"] == {"claude"}:
             desc += _ONLY_CLAUDE_NOTE
+            home = "claude"      # render with the sigil it actually answers to, whatever the ambient runtime
         elif both_present and entry["trees"] == {"codex"}:
             desc += _ONLY_CODEX_NOTE
-        verbs.append({"name": entry["name"], "description": desc.strip()})
+            home = "codex"
+        verbs.append({"name": entry["name"], "description": desc.strip(), "home": home})
     return sorted(verbs, key=lambda v: v["name"])
 
 
@@ -162,10 +165,18 @@ def ambient_provider() -> "str | None":
 
 def _verb_line(verb: dict, prefix: "str | None" = "/") -> str:
     """One listing line. `prefix` is the typed sigil for the ambient runtime ("/" on Claude Code,
-    "$" on Codex); None means the runtime is unknown, so both forms are shown once per verb."""
+    "$" on Codex); None means the runtime is unknown, so both forms are shown once per verb. A verb
+    installed for only ONE runtime always renders with THAT runtime's sigil (its note names the
+    runtime), so the listing never presents a verb in a form that would not answer."""
     desc = verb.get("description") or ""
     name = verb.get("name", "")
-    typed = f"/{name}  (in Codex: ${name})" if prefix is None else f"{prefix}{name}"
+    home = verb.get("home")
+    if home:
+        typed = f"/{name}" if home == "claude" else f"${name}"
+    elif prefix is None:
+        typed = f"/{name}  (in Codex: ${name})"
+    else:
+        typed = f"{prefix}{name}"
     return f"  {typed} — {desc}" if desc else f"  {typed}"
 
 

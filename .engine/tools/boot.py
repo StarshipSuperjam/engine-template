@@ -902,14 +902,17 @@ def hooks_health_line() -> "str | None":
     without hook support), because the two are indistinguishable from outside."""
     if providers.read_live_session() is not None:
         return None
-    return ("**I can't see the engine's automatic hooks having run recently.** If this session just "
-            "started and this line is here, the hooks are not running — on Codex that usually means "
-            "they're waiting for your approval (run /hooks and approve the engine's hooks) or your "
-            "Codex version predates hook support (the README's support matrix names the minimum); on "
-            "Claude Code it usually means the project's hooks aren't approved yet. Until they run, "
-            "the parts that ride them are off: the write-gate, session memory capture, and the "
-            "automatic start-of-session status. This readout still works — it runs as a plain "
-            "command.")
+    return ("**I can't see the engine's automatic hooks having run recently in this project.** If "
+            "this session just started and this line is here, the hooks are not running — on Codex "
+            "that usually means they're waiting for your approval (run /hooks and approve the "
+            "engine's hooks) or your Codex build predates hook support (hooks arrived in 2026 "
+            "builds, around v0.114); on Claude Code it usually means the project's hooks aren't "
+            "approved yet. Until they run, the parts that ride them are off: the write-gate, "
+            "session memory capture, and the automatic start-of-session status. One honest limit: "
+            "a session on EITHER runtime within the last day clears this line for the whole "
+            "project, so its absence is not per-session proof — the per-session check is whether "
+            "this session's start-of-session briefing actually arrived. This readout still works — "
+            "it runs as a plain command.")
 
 
 def gather_signals(session_id: str | None = None) -> dict:

@@ -12,9 +12,9 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
 
 ## Steps
 
-1. **Item zero — version.** Confirm the installed Codex is a build with hooks support (a 2026 build,
-   ~v0.114 or later; the README's runtime-support table is the record). On an older build every later
-   step fails for that reason alone — upgrade first, or stop here and say so.
+1. **Item zero — version.** Run `codex --version` and confirm the installed Codex is a build with
+   hooks support (a 2026 build, around v0.114 or later). On an older build every later step fails
+   for that reason alone — upgrade first, or stop here and say so.
 2. Open the repository in Codex, run `/hooks`, and approve the engine's hooks (they are skipped
    until trusted; after any engine update that changes `.codex/hooks.json` they need re-approval —
    the engine says so whenever it changes that file).

@@ -12,8 +12,10 @@ conversation-transcript format is treated as unstable, so session-memory capture
 dedicated recognizer that captures fully or not at all — an unrecognized transcript records a visible
 "memory not captured" status, and Codex transcripts never fall through to the tolerant Claude parser.
 Because Codex skips new or changed project hooks until the operator re-trusts them, every engine change to
-its hook registrations tells the operator at the moment it happens that re-trust is needed, and the status
-readout detects and names a session whose hooks did not run. Enforcement the platform cannot mirror is a
+its hook registrations tells the operator at the moment it happens that re-trust is needed; the status
+readout warns when no recent session in the project has run its hooks (a coarse net that a recent session
+on either runtime clears); and the floor's own grounding rule carries the per-session check — verify the
+start-of-session briefing arrived, and treat the gates as off when it did not. Enforcement the platform cannot mirror is a
 ledgered exception (eADR-0035), never a quiet claim of coverage, and the acceptance step for Codex behavior
 is a live post-merge validation session against a written pass bar — a failure inside that bar is a defect
 owed a fix, never a scope removal.

@@ -254,13 +254,26 @@ def _codex_message(rec: dict):
 
 def _codex_messages(transcript_path: str):
     """(messages, recognized): the conversation messages of a Codex transcript as plain
-    {'role','text'} dicts, and whether the transcript's format was recognized AT ALL. recognized is
-    False when the file has JSON records but none carries a known Codex record type — the changed-
-    format case the caller must surface loudly instead of capturing fragments."""
+    {'role','text'} dicts, and whether the transcript's format was recognized. recognized is False —
+    the caller must surface it loudly instead of capturing fragments — in EVERY zero-yield shape a
+    format change can take (the review-gate holes): a non-empty file that parses to no JSON records
+    at all (the whole format moved off JSON lines); JSON records none of which carries a known Codex
+    record type (the envelope changed); and known record types that yield NO conversation messages
+    (the message payload shape changed inside a familiar envelope). A genuinely empty file is
+    recognized-and-empty (nothing happened yet, nothing to say)."""
     recs = _extract_records(transcript_path)
-    if recs and not any(r.get("type") in _CODEX_KNOWN_TYPES for r in recs):
+    if not recs:
+        try:
+            non_empty = os.path.getsize(transcript_path) > 0
+        except OSError:
+            non_empty = False
+        return [], not non_empty       # bytes but no JSON records → the format changed → refuse
+    if not any(r.get("type") in _CODEX_KNOWN_TYPES for r in recs):
         return [], False
-    return [m for m in (_codex_message(r) for r in recs) if m is not None], True
+    messages = [m for m in (_codex_message(r) for r in recs) if m is not None]
+    if not messages:
+        return [], False               # familiar envelope, zero conversation → payload shape changed
+    return messages, True
 
 
 # --- Transcript-path safety (defense-in-depth) ------------------------------------------------
@@ -692,7 +705,7 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
 # promotes a persistently failing marker to one tracked finding. Best-effort: a marker write failure
 # never disturbs the capture or the turn.
 
-CAPTURE_STATUS_STATES = ("captured", "no-transcript", "invalid-path", "unparseable")
+CAPTURE_STATUS_STATES = ("captured", "no-transcript", "invalid-path", "unparseable", "failed")
 _ENGINE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CAPTURE_STATUS_PATH = os.path.join(_ENGINE_DIR, "telemetry", ".cache", "memory-capture.status")
 
@@ -741,6 +754,7 @@ def capture_turn_delta(payload, *, cwd=None) -> int:
     try:
         return _capture(payload, cwd=cwd)
     except Exception:  # noqa: BLE001 — ambient capture never gates close; any failure is a no-op
+        _write_capture_status("failed", None)   # …but never a SILENT one: the crash path is loud too
         return 0
 
 

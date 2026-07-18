@@ -100,14 +100,29 @@ def findings(tier: str, root: str | None = None) -> list:
                    f"{LEDGER_REL} with a reason (eADR-0035).", None))
 
     # HOOKS
-    try:
-        claude_hooks = _engine_hooks(_load_json(os.path.join(base, ".claude", "settings.json")))
-    except (OSError, ValueError):
-        claude_hooks = set()
-    try:
-        codex_hooks = _engine_hooks(_load_json(os.path.join(base, ".codex", "hooks.json")))
-    except (OSError, ValueError):
-        codex_hooks = set()
+    def hooks_with_canary(rel_path: str) -> set:
+        """Extract the engine hook set — and go LOUD when extraction is blind: a registration file
+        that carries `.engine/` commands from which the grammar patterns extract NOTHING means the
+        patterns rotted against the command form, and every hook difference would silently vanish
+        (an empty set equals an empty set). A broken check must never report green (eADR-0036)."""
+        try:
+            data = _load_json(os.path.join(base, rel_path))
+        except (OSError, ValueError):
+            return set()
+        extracted = _engine_hooks(data)
+        raw_engine_commands = sum(
+            1 for groups in (data.get("hooks") or {}).values() for g in (groups or [])
+            for h in (g.get("hooks") or []) if ".engine/" in ((h or {}).get("command") or ""))
+        if raw_engine_commands and not extracted:
+            out.append(validate.finding(tier,
+                       f"The runtime-parity check itself is broken against '{rel_path}': the file "
+                       f"carries {raw_engine_commands} engine hook command(s) but the check's command "
+                       f"grammar recognized none of them — every hook comparison would silently pass. "
+                       f"Update the command patterns in provider_parity_check.py to match the current "
+                       f"hook-command form before trusting this check again.", None))
+        return extracted
+    claude_hooks = hooks_with_canary(os.path.join(".claude", "settings.json"))
+    codex_hooks = hooks_with_canary(os.path.join(".codex", "hooks.json"))
     for event, matcher, script in sorted(claude_hooks - codex_hooks):
         miss("hook", script, "Claude Code",
              f"the engine step '{script}' on {event}" + (f" ({matcher})" if matcher else ""))
@@ -164,8 +179,9 @@ def findings(tier: str, root: str | None = None) -> list:
 
     # FLOORS
     pairs = [("CLAUDE.md", "AGENTS.md")]
-    if os.path.isfile(os.path.join(base, "CLAUDE.deployed.md")) \
-            or os.path.isfile(os.path.join(base, "AGENTS.deployed.md")):
+    construction = os.path.isfile(os.path.join(base, "CLAUDE.deployed.md")) \
+        or os.path.isfile(os.path.join(base, "AGENTS.deployed.md"))
+    if construction:
         pairs.append(("CLAUDE.deployed.md", "AGENTS.deployed.md"))
     for claude_floor, agents_floor in pairs:
         for present, absent in ((claude_floor, agents_floor), (agents_floor, claude_floor)):
@@ -173,6 +189,47 @@ def findings(tier: str, root: str | None = None) -> list:
                     and not os.path.isfile(os.path.join(base, absent)):
                 miss("floor", absent, "one runtime only",
                      f"the instruction floor pair ({present} exists, {absent} is missing)")
+    # Floor CONTENT parity — the two legs a presence check cannot carry:
+    #   CONDUCT SET: every present floor must reference BOTH codes-of-conduct files. On the Claude
+    #   side that reference is the mechanical @import; on the Codex side it is the required-reading
+    #   instruction the conduct-loading ledger entry leans on — losing it silently severs a Codex
+    #   session's only route to the operator's conduct.
+    #   SWAP MARKER: in the construction repo, both construction floors must lead with the marker
+    #   heading the first-run swap keys on — losing it silently breaks the floor swap for every
+    #   generated repo.
+    conduct_refs = (".engine/conduct/defaults.md", ".engine/conduct/operator.md")
+    floor_files = {f for pair in pairs for f in pair}
+    for floor_rel in sorted(floor_files):
+        path = os.path.join(base, floor_rel)
+        if not os.path.isfile(path):
+            continue
+        try:
+            text = validate.read(path)
+        except OSError:
+            continue
+        for ref in conduct_refs:
+            if ref not in text:
+                out.append(validate.finding(tier,
+                           f"'{floor_rel}' no longer references the codes-of-conduct file '{ref}' — "
+                           f"a session grounded on this floor would never load the operator's "
+                           f"standing conduct. Restore the reference (on the Claude floor the "
+                           f"@import; on the Codex floor the required-reading instruction).",
+                           validate.loc(path)))
+        if construction and floor_rel in ("CLAUDE.md", "AGENTS.md"):
+            first = next((ln for ln in text.splitlines() if ln.strip()), "")
+            if "construction governance" not in first.lower():
+                out.append(validate.finding(tier,
+                           f"'{floor_rel}' no longer leads with the construction-governance marker "
+                           f"heading — the first-run floor swap keys on it, so a generated repo "
+                           f"would keep the construction file instead of receiving its own floor. "
+                           f"Restore the marker in the leading heading.", validate.loc(path)))
+    if not os.path.isfile(os.path.join(base, "AGENTS.md")) \
+            and not os.path.isfile(os.path.join(base, "CLAUDE.md")):
+        # Both floors gone at once: the pair legs above see no asymmetry, so this is the one shape
+        # a pure pairwise comparison would wave through. No ledger entry can sanction floorlessness.
+        out.append(validate.finding(tier,
+                   "No runtime instruction floor exists at all (neither CLAUDE.md nor AGENTS.md) — "
+                   "sessions on every runtime would start ungoverned. Restore the floors.", None))
     for override in glob.glob(os.path.join(base, "**", "AGENTS.override.md"), recursive=True):
         out.append(validate.finding(tier, f"'{os.path.relpath(override, base)}' would silently MASK "
                    f"the engine's AGENTS.md floor for every session under its directory — Codex "

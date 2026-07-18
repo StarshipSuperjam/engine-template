@@ -593,6 +593,9 @@ _TOML_BARE_KEY_RE = re.compile(r"\A[A-Za-z0-9_-]+\Z")
 def _toml_scalar(value) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        raise WiringError(f"refused: the codex-mcp definition value {value!r} has no TOML "
+                          f"rendering — fix the directive's value.")
     if isinstance(value, (str, int, float)):
         return json.dumps(value)
     if isinstance(value, list):

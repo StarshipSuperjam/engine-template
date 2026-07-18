@@ -9,8 +9,7 @@ description: Start building — switch from looking around to making changes, wh
 
 1. Switch this session into building by running:
    `uv run --directory .engine -- python tools/modes.py set-build`
-   (the engine works out this session's identity automatically — the flag is filled in for you, and if it
-   comes through empty the engine resolves the session itself. If the command reports it could not
+   (the engine works out this session's identity automatically. If the command reports it could not
    identify the session, say so plainly: the stance stays as it was, and building has not started.)
 2. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
    and submit them as a pull request for your approval."
@@ -21,4 +20,5 @@ description: Start building — switch from looking around to making changes, wh
 ## Notes
 
 This is a command you type to begin building. I won't start building on my own — that is your call: type
-`$engine-start`, or approve a plan I've shown you, and either one begins the work.
+`$engine-start` and the work begins. (In Claude Code, approving a plan I've shown you also starts it; in
+Codex, the typed command is the only way in.)

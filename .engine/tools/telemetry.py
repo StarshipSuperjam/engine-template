@@ -1154,8 +1154,9 @@ def _capture_marker_message() -> str:
     return ("The engine keeps failing to save session conversations to this project's memory — the "
             "session records could not be read. Nothing in the project is lost, but those "
             "conversations won't be recallable later. This usually means the AI runtime changed how "
-            "it stores session records; the engine needs its reader updated. Until then it will keep "
-            "working from what it already remembers.")
+            "it stores session records; the fix arrives as an engine update (ask me to check for "
+            "one, or watch the engine's releases). Until then it will keep working from what it "
+            "already remembers.")
 
 
 def spool_capture_marker(*, marker_path: str = CAPTURE_STATUS_PATH,

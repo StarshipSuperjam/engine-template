@@ -47,6 +47,17 @@ ALLOWLIST = {
         "validate.py",             # the second-belt mutating-tool set
         "wiring.py",               # the seam-vocabulary docs on the codex wiring targets
     },
+    "local_shell": {
+        "providers.py",            # the seam: the shell-name normalization map
+        "modes.py",                # the second-belt shell-name set
+    },
+    "unified_exec": {
+        "providers.py",            # the seam: the shell-name normalization map
+        "modes.py",                # the second-belt shell-name set
+    },
+    "turn_id": {
+        "providers.py",            # the seam: provider detection's payload sniff
+    },
 }
 
 

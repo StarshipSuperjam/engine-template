@@ -279,14 +279,14 @@ FALLBACK_COPY = {
         "marked block I keep current as the engine updates — so if you open that file and see the marker "
         "lines around it, that part is mine to maintain, not something you need to edit. The part that's "
         "yours to shape — how you like me to work with you — lives in your codes of conduct instead: change "
-        "it any time with /engine-conduct. I didn't do this silently — this note is me telling you."
+        "it any time with /engine-conduct ($engine-conduct in Codex). I didn't do this silently — this note is me telling you."
     ),
     "agents-floor-seeded": (
         "This project also arrived with the template's own Codex working guide (the AGENTS.md at the top — "
         "the same role CLAUDE.md plays when you work in Claude Code, for sessions run in Codex). I've "
         "replaced it with the engine's working guide for YOUR project, kept inside the same kind of clearly "
         "marked block I maintain as the engine updates. You don't need to edit it — how you like me to work "
-        "with you lives in your codes of conduct, changeable any time with /engine-conduct."
+        "with you lives in your codes of conduct, changeable any time with /engine-conduct ($engine-conduct in Codex)."
     ),
     "state-reseeded": (
         "I reset this project's starting point to a clean slate. The engine keeps a small saved note of where "
@@ -300,7 +300,7 @@ FALLBACK_COPY = {
         "This project came set up with a starting set of codes of conduct — short notes on how you like me "
         "to work with you (for example, speaking plainly, and explaining choices before you make them). "
         "They're here from the first session, and they're yours: change, add, or remove any of them any time "
-        "with /engine-conduct. I didn't put them in place silently — this note is me telling you they're here."
+        "with /engine-conduct ($engine-conduct in Codex). I didn't put them in place silently — this note is me telling you they're here."
     ),
 }
 
@@ -858,7 +858,8 @@ def _apply_tool_runtime(uv_present, uv_installer, uv_runner, consent, say, copy)
 
 _EMPTY_OPERATOR = (
     "---\ncodes: []\n---\n\n"
-    "<!-- Your own codes of conduct go here — add, revise, or remove them with /engine-conduct. They sit "
+    "<!-- Your own codes of conduct go here — add, revise, or remove them with /engine-conduct "
+    "($engine-conduct in Codex). They sit "
     "alongside the engine's defaults and take priority when they share an id. This file is yours: an engine "
     "update never overwrites it. It starts empty — the engine's defaults are already in force. -->\n"
 )

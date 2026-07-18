@@ -38,8 +38,16 @@
       "id": "hook-trust-gate",
       "missing_or_weaker": "weaker",
       "provider": "codex",
-      "reason": "Codex skips new or changed project hooks until the operator re-trusts them, so every engine update that touches the hook registration turns the engine's local guardrails OFF until /hooks re-approval. The engine says so at the moment it changes the registration, and the status readout detects and names a session whose hooks did not run — disclosure, because no mechanism can re-trust on the operator's behalf.",
+      "reason": "Codex skips new or changed project hooks until the operator re-trusts them, so every engine update that touches the hook registration turns the engine's local guardrails OFF until /hooks re-approval. The engine says so at the moment it changes the registration; the status readout additionally warns when NO session in this project has run its hooks recently (a coarse net — a recent session on either runtime clears it for up to a day); and the per-session check is the floor's own grounding rule: verify the start-of-session briefing arrived, and treat the gates as off when it did not. Disclosure at three ranges, because no mechanism can re-trust on the operator's behalf.",
       "contract_ref": "eADR-0036"
+    },
+    {
+      "kind": "mcp",
+      "id": "engine-helper-tool-approval",
+      "missing_or_weaker": "weaker",
+      "provider": "codex",
+      "reason": "The engine's two helper servers are registered on Codex with every tool auto-approved. Both servers are read-only today (memory exposes search; the wiring map exposes lookups), so nothing runs un-consented — but the grant is standing: a future tool added to either server would be auto-approved on Codex without a new consent moment, an asymmetry the Claude side (which approves per server, per app) does not share. Adding such a tool must revisit this entry and the approval mode together.",
+      "contract_ref": "eADR-0035"
     },
     {
       "kind": "enforcement",
