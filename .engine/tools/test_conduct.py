@@ -134,7 +134,22 @@ class TestConductLoadsInTheWakeupFloor(unittest.TestCase):
                           f"the active root CLAUDE.md must @import {imp} so the engine wakes up with its conduct")
 
     def test_deployed_floor_imports_conduct(self):
-        text = self._floor_text("CLAUDE.deployed.md")
+        # The deployed floor lives at CLAUDE.deployed.md only until first-run's swap-in (#272) makes it
+        # the root CLAUDE.md and removes the staged copy — so in a generated repo this reads the root
+        # file instead of erroring on the removed one. But wherever the root CLAUDE.md is still the
+        # construction-governance body (this repo, or a fresh not-yet-set-up copy), the staged floor MUST
+        # exist as its own file: falling back there would silently retire the only tripwire that catches
+        # an accidental deletion (or a mistaken in-repo floor swap) of CLAUDE.deployed.md. The marker is
+        # the floor-swap recognizer's own discriminator (inlined — the instantiator that defines it is
+        # removed from a deployed repo at first-run).
+        name = "CLAUDE.deployed.md"
+        if not os.path.isfile(os.path.join(validate.ROOT, name)):
+            if "construction governance" in self._floor_text("CLAUDE.md"):
+                self.fail("CLAUDE.deployed.md is missing but the root CLAUDE.md is still the "
+                          "construction-governance body — the staged deployed floor must exist until "
+                          "first-run's swap consumes it")
+            name = "CLAUDE.md"
+        text = self._floor_text(name)
         for imp in self._IMPORTS:
             self.assertIn(imp, text)
 
