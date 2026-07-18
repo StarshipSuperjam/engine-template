@@ -1539,6 +1539,7 @@
           "operation:engine-remove",
           "operation:engine-team-switch",
           "operation:engine-upgrade",
+          "operation:external-contribution-issue",
           "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
@@ -1587,6 +1588,7 @@
           "operation:engine-remove",
           "operation:engine-team-switch",
           "operation:engine-upgrade",
+          "operation:external-contribution-issue",
           "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
@@ -3736,7 +3738,7 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:99ed68c640f803adb217bee0a110a542cff8970dd68cc0037f46fe7fd674c649",
+        "fingerprint": "sha256:e0ac862769bac2e6015fc7529114c2322009df63d92bc04568b96670d09e4527",
         "path": ".engine/modules/external-contribution/manifest.json"
       },
       "status": "optional",
@@ -4065,6 +4067,26 @@
       "source": {
         "fingerprint": "sha256:3f0f04be17875f06ba811a25b8e987ff9e1c23ce04d12e44ea3b538d995527f1",
         "path": ".engine/operations/engine-upgrade.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:external-contribution-issue",
+      "name": ".engine/operations/external-contribution-issue.md",
+      "owner": "external-contribution",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "external-contribution-issue",
+      "source": {
+        "fingerprint": "sha256:116d4e017dd2422a29b3c94bf34141ccc50a2ba0a3d0a8be52c4895f32666608",
+        "path": ".engine/operations/external-contribution-issue.md"
       },
       "status": "active",
       "type": "operation"
@@ -5798,6 +5820,23 @@
       "source": {
         "fingerprint": "sha256:6199ff891c2f6604c2975c76ab9e68d80ba70c32cd4edaadcd58e47f431b2d00",
         "path": ".engine/tools/memory/consolidate.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:contribute_issue",
+      "name": ".engine/tools/external_contribution/contribute_issue.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "contribute_issue",
+      "source": {
+        "fingerprint": "sha256:0c9ddb604e84473ae64c060ddbfef8fd5dfc511cf015e2123da38b8a6a5935ba",
+        "path": ".engine/tools/external_contribution/contribute_issue.py"
       },
       "status": "active",
       "type": "tool"
@@ -8212,6 +8251,23 @@
       "source": {
         "fingerprint": "sha256:b8ab2dc8b5f0d3bd4b789a1c354724862f1679fa2e68ff82c332805a64446483",
         "path": ".engine/tools/test_contract_canon.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_contribute_issue",
+      "name": ".engine/tools/external_contribution/test_contribute_issue.py",
+      "owner": "external-contribution",
+      "predicates": {
+        "provided_by": [
+          "module:external-contribution"
+        ]
+      },
+      "slug": "test_contribute_issue",
+      "source": {
+        "fingerprint": "sha256:3bd2cfec107b9ec4c1489621e6ac79cd527bdc2b50a23b17683fe31c9dbc9350",
+        "path": ".engine/tools/external_contribution/test_contribute_issue.py"
       },
       "status": "active",
       "type": "tool"
