@@ -324,7 +324,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
     def test_core_provides_no_gitkeep_placeholders_and_no_agent_group(self):
         # #411: core once carried .claude/skills/.gitkeep and a .claude/agents/.gitkeep-only `agent`
         # group as empty-dir placeholders. Both directories are now populated in every deployed repo (core
-        # provides the engine-* skills; required audit-library provides .claude/agents/audit.md), so the
+        # provides the engine-* skills; required audit-library provides .claude/agents/engine-audit.md), so the
         # placeholders are obsolete and a literal provides-kind read must be coherent: no .gitkeep in any
         # group, and core declares no `agent` group (it provides no persona).
         core = next(m for _p, m in module_coherence.discover_manifests() if m.get("id") == "core")
@@ -540,10 +540,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertLess(order.index("core"), order.index("validators-core"))
         self.assertLess(order.index("validators-core"), order.index("audit-library"))
         self.assertEqual(al.get("provides"), {
-            "agent": [".claude/agents/audit.md"],
+            "agent": [".claude/agents/engine-audit.md"],
             "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md",
                        ".engine/audits/audit-digest.md"],
-            "codex-agent": [".codex/agents/audit.toml"],
+            "codex-agent": [".codex/agents/engine-audit.toml"],
         }, "audit-library owns the persona (both runtime forms), the seeded concern-list, the setup page, "
            "and the run-time digest")
 

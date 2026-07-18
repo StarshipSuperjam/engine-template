@@ -1,5 +1,5 @@
 ---
-name: design-review-risk-governance
+name: engine-design-review-risk-governance
 description: Before a change you've asked for gets built, checks how the plan could fail, be abused, or break a rule it must keep — security, privacy, compliance, traceability, and resilience. Reports what it finds; you decide.
 role: plan-review
 lens: risk-governance

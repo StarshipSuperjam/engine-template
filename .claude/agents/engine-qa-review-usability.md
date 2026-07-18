@@ -1,5 +1,5 @@
 ---
-name: qa-review-usability
+name: engine-qa-review-usability
 description: After a change you've asked for is built, checks whether it actually works well for the people who use it — is it useful, easy to follow, reachable for everyone, and forgiving when something goes wrong. Reports what it finds; you decide.
 role: pre-submission-review
 lens: usability

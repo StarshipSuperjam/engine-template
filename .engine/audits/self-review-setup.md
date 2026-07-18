@@ -201,7 +201,7 @@ awake — on a **recurring** schedule, not a one-time run, pointed at **this pro
 the instruction. Don't change a word:
 
 ```
-Act as this project's audit. Load and follow the instructions in .claude/agents/audit.md, then run the self-review of this project now and output only the plain-language summary — what you looked at, what you found, and what you recommend — with no preamble.
+Act as this project's audit. Load and follow the instructions in .claude/agents/engine-audit.md, then run the self-review of this project now and output only the plain-language summary — what you looked at, what you found, and what you recommend — with no preamble.
 ```
 
 Then use **Run now** once and check that a fresh summary appears, so you know it's working.

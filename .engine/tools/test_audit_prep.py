@@ -53,7 +53,7 @@ class TestAuditPrepShape(unittest.TestCase):
         # workflow's own later steps commit.
         text = self._text()
         self.assertIn("claude -p", text)
-        self.assertIn("--agent audit", text)
+        self.assertIn("--agent engine-audit", text)
 
     def test_gates_cleanly_when_unarmed(self):
         # The skip-when-unarmed pattern: a gate job's output the real job is conditioned on, so a repo with

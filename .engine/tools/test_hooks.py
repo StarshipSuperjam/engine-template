@@ -853,5 +853,73 @@ class TestIsGitCommit(unittest.TestCase):
                 {"tool_name": "Bash", "tool_input": {"command": bad}}), repr(bad))
 
 
+class TestCapShed(unittest.TestCase):
+    """The #495 measure-and-shed contract, at the helper's own seam: order preserved, pinned never shed,
+    notice counted — and content always beats the label (a class is never shed to fit the notice)."""
+
+    def _blocks(self, p0="G" * 100, p1="D" * 100, p2="O" * 100):
+        return [(0, "governance", p0), (2, "orientation", p2), (1, "dashboard", p1)]
+
+    def test_wide_cap_keeps_all_in_original_order(self):
+        text, shed = hooks.cap_shed(self._blocks("AAA", "BBB", "CCC"), cap=1000,
+                                    notice=lambda names: "N:" + ",".join(names))
+        self.assertEqual(text, "AAA\nCCC\nBBB")     # original order, priorities never reorder
+        self.assertEqual(shed, [])
+
+    def test_sheds_highest_priority_first_with_counted_notice(self):
+        notice = lambda names: "shed:" + ",".join(names)
+        text, shed = hooks.cap_shed(self._blocks(), cap=250, notice=notice)
+        self.assertEqual(shed, ["orientation"])
+        self.assertIn("shed:orientation", text)
+        self.assertLessEqual(len(text), 250)
+
+    def test_content_beats_the_label_notice_shrinks_not_another_class(self):
+        # Governance+dashboard fit; the FULL notice would tip it over — the compact one must be used
+        # and the dashboard KEPT (the converged #495 review finding: never shed 4.9k for a 390-char note).
+        big_notice = lambda names: "X" * 60
+        compact = lambda names: "c"
+        text, shed = hooks.cap_shed(self._blocks(), cap=210, notice=big_notice, compact_notice=compact)
+        self.assertEqual(shed, ["orientation"])
+        self.assertIn("D" * 100, text)               # dashboard kept
+        self.assertIn("c", text)
+        self.assertLessEqual(len(text), 210)
+
+    def test_notice_drops_entirely_before_content_does(self):
+        big_notice = lambda names: "X" * 60
+        compact = lambda names: "y" * 50
+        text, shed = hooks.cap_shed(self._blocks(), cap=201, notice=big_notice, compact_notice=compact)
+        self.assertEqual(shed, ["orientation"])
+        self.assertIn("D" * 100, text)               # dashboard still kept
+        self.assertNotIn("X", text)
+        self.assertNotIn("y", text)                  # even the compact notice gave way to content
+        self.assertLessEqual(len(text), 201)
+
+    def test_pinned_alone_oversize_is_emitted_whole(self):
+        text, shed = hooks.cap_shed([(0, "governance", "G" * 500)], cap=100)
+        self.assertEqual(text, "G" * 500)            # never truncated; documented tradeoff
+        self.assertEqual(shed, [])
+
+
+class TestCrashDebugHermeticGuard(unittest.TestCase):
+    """#495's rider: under the test harness, _record_crash_debug with the DEFAULT path writes nothing
+    (production crash-log stays clean); an explicit path (the unit tests' own temp file) still writes."""
+
+    def test_default_path_is_a_noop_under_unittest(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "crash.log")
+            class _T:                                 # stands in for the lazy telemetry import's constant
+                HOOK_CRASH_DEBUG_PATH = target
+            with mock.patch.dict(sys.modules, {"telemetry": _T}):
+                hooks._record_crash_debug("PreToolUse", RuntimeError("boom"))
+            self.assertFalse(os.path.exists(target))
+
+    def test_explicit_path_still_writes(self):
+        with tempfile.TemporaryDirectory() as d:
+            target = os.path.join(d, "crash.log")
+            hooks._record_crash_debug("PreToolUse", RuntimeError("boom"), path=target)
+            with open(target, encoding="utf-8") as fh:
+                self.assertIn("RuntimeError: boom", fh.read())
+
+
 if __name__ == "__main__":
     unittest.main()

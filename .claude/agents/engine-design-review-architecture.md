@@ -1,5 +1,5 @@
 ---
-name: design-review-architecture
+name: engine-design-review-architecture
 description: Before a change you've asked for gets built, checks whether the plan is soundly designed — clean boundaries, a sensible data model, good seams, and something that stays maintainable rather than turning brittle. Reports what it finds; you decide.
 role: plan-review
 lens: architecture

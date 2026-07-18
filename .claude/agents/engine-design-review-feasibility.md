@@ -1,5 +1,5 @@
 ---
-name: design-review-feasibility
+name: engine-design-review-feasibility
 description: Before a change you've asked for gets built, checks whether the plan can actually be built, shipped, and run — a realistic path, deployment and recovery, any data migration, cost, and outside dependencies. Reports what it finds; you decide.
 role: plan-review
 lens: feasibility

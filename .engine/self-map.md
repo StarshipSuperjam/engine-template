@@ -85,8 +85,8 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
-  - agent: `.claude/agents/design-review-architecture.md`, `.claude/agents/design-review-feasibility.md`, `.claude/agents/design-review-product-intent.md`, `.claude/agents/design-review-risk-governance.md`
-  - codex-agent: `.codex/agents/design-review-architecture.toml`, `.codex/agents/design-review-feasibility.toml`, `.codex/agents/design-review-product-intent.toml`, `.codex/agents/design-review-risk-governance.toml`
+  - agent: `.claude/agents/engine-design-review-architecture.md`, `.claude/agents/engine-design-review-feasibility.md`, `.claude/agents/engine-design-review-product-intent.md`, `.claude/agents/engine-design-review-risk-governance.md`
+  - codex-agent: `.codex/agents/engine-design-review-architecture.toml`, `.codex/agents/engine-design-review-feasibility.toml`, `.codex/agents/engine-design-review-product-intent.toml`, `.codex/agents/engine-design-review-risk-governance.toml`
 - wires: none (this module adds no shared-state edits)
 
 ### `external-contribution` — version `0.1.0` (optional)
@@ -145,8 +145,8 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
-  - agent: `.claude/agents/qa-review-divergence-hunter.md`, `.claude/agents/qa-review-security-governance.md`, `.claude/agents/qa-review-spec-conformance.md`, `.claude/agents/qa-review-technical-integrity.md`, `.claude/agents/qa-review-usability.md`
-  - codex-agent: `.codex/agents/qa-review-divergence-hunter.toml`, `.codex/agents/qa-review-security-governance.toml`, `.codex/agents/qa-review-spec-conformance.toml`, `.codex/agents/qa-review-technical-integrity.toml`, `.codex/agents/qa-review-usability.toml`
+  - agent: `.claude/agents/engine-qa-review-divergence-hunter.md`, `.claude/agents/engine-qa-review-security-governance.md`, `.claude/agents/engine-qa-review-spec-conformance.md`, `.claude/agents/engine-qa-review-technical-integrity.md`, `.claude/agents/engine-qa-review-usability.md`
+  - codex-agent: `.codex/agents/engine-qa-review-divergence-hunter.toml`, `.codex/agents/engine-qa-review-security-governance.toml`, `.codex/agents/engine-qa-review-spec-conformance.toml`, `.codex/agents/engine-qa-review-technical-integrity.toml`, `.codex/agents/engine-qa-review-usability.toml`
 - wires: none (this module adds no shared-state edits)
 
 ### `routine-mode` — version `0.1.0` (required)
@@ -169,7 +169,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `validators-core`
 - provides:
-  - agent: `.claude/agents/audit.md`
+  - agent: `.claude/agents/engine-audit.md`
   - audits: `.engine/audits/audit-digest.md`, `.engine/audits/concern-list.json`, `.engine/audits/self-review-setup.md`
-  - codex-agent: `.codex/agents/audit.toml`
+  - codex-agent: `.codex/agents/engine-audit.toml`
 - wires: none (this module adds no shared-state edits)

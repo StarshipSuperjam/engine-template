@@ -1,9 +1,9 @@
 {
   "entities": [
     {
-      "id": "agent:audit",
+      "id": "agent:engine-audit",
       "model-tier": "judgment",
-      "name": ".claude/agents/audit.md",
+      "name": ".claude/agents/engine-audit.md",
       "owner": "audit-library",
       "predicates": {
         "governed_by": [
@@ -14,19 +14,19 @@
         ]
       },
       "role": "audit",
-      "slug": "audit",
+      "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:e19be8f0b519ea17ac54928a0ee963c9074d696baa651fbdd2c769fe98b9d58f",
-        "path": ".claude/agents/audit.md"
+        "fingerprint": "sha256:acd06479919bf64502557103617b954422a714b19dfb6cd8d2620363b1789aad",
+        "path": ".claude/agents/engine-audit.md"
       },
       "status": "active",
       "type": "agent"
     },
     {
-      "id": "agent:design-review-architecture",
+      "id": "agent:engine-design-review-architecture",
       "lens": "architecture",
       "model-tier": "judgment",
-      "name": ".claude/agents/design-review-architecture.md",
+      "name": ".claude/agents/engine-design-review-architecture.md",
       "owner": "design-review",
       "predicates": {
         "governed_by": [
@@ -37,19 +37,19 @@
         ]
       },
       "role": "plan-review",
-      "slug": "design-review-architecture",
+      "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:7a8452b79dc6f8f33a4ccb0e328c76649808b8437e908141b7a0008041419f79",
-        "path": ".claude/agents/design-review-architecture.md"
+        "fingerprint": "sha256:23968413889efc52643c5ff28e0da2527da5d6e7c7278f1424ba720497e035a2",
+        "path": ".claude/agents/engine-design-review-architecture.md"
       },
       "status": "active",
       "type": "agent"
     },
     {
-      "id": "agent:design-review-feasibility",
+      "id": "agent:engine-design-review-feasibility",
       "lens": "feasibility",
       "model-tier": "judgment",
-      "name": ".claude/agents/design-review-feasibility.md",
+      "name": ".claude/agents/engine-design-review-feasibility.md",
       "owner": "design-review",
       "predicates": {
         "governed_by": [
@@ -60,19 +60,19 @@
         ]
       },
       "role": "plan-review",
-      "slug": "design-review-feasibility",
+      "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:902b6150d4778445e5218de868c8fef79e95a092de0a48814ee36a1da8fee4f3",
-        "path": ".claude/agents/design-review-feasibility.md"
+        "fingerprint": "sha256:058b9287f13b43d5c86895bd520daeebbe9f848670f9d17180b3edfe179da5c8",
+        "path": ".claude/agents/engine-design-review-feasibility.md"
       },
       "status": "active",
       "type": "agent"
     },
     {
-      "id": "agent:design-review-product-intent",
+      "id": "agent:engine-design-review-product-intent",
       "lens": "product-intent",
       "model-tier": "judgment",
-      "name": ".claude/agents/design-review-product-intent.md",
+      "name": ".claude/agents/engine-design-review-product-intent.md",
       "owner": "design-review",
       "predicates": {
         "governed_by": [
@@ -83,19 +83,19 @@
         ]
       },
       "role": "plan-review",
-      "slug": "design-review-product-intent",
+      "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:fb945d85a5954053e14b5916467f21280e155faa8821405f595653ddf9661f8c",
-        "path": ".claude/agents/design-review-product-intent.md"
+        "fingerprint": "sha256:9d507818f981113c0fbf9da6988912be0c554ab732923e2179c27ead9550353a",
+        "path": ".claude/agents/engine-design-review-product-intent.md"
       },
       "status": "active",
       "type": "agent"
     },
     {
-      "id": "agent:design-review-risk-governance",
+      "id": "agent:engine-design-review-risk-governance",
       "lens": "risk-governance",
       "model-tier": "judgment",
-      "name": ".claude/agents/design-review-risk-governance.md",
+      "name": ".claude/agents/engine-design-review-risk-governance.md",
       "owner": "design-review",
       "predicates": {
         "governed_by": [
@@ -106,19 +106,19 @@
         ]
       },
       "role": "plan-review",
-      "slug": "design-review-risk-governance",
+      "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:e3deba61e3e3055be4f11ad4271c1d963b9443b2812452463e6bd319fb5cc38b",
-        "path": ".claude/agents/design-review-risk-governance.md"
+        "fingerprint": "sha256:5bea8c3d24fe3ed15f096f36c101d9a21083a6a2dfcec8988f448b1f3e6c3806",
+        "path": ".claude/agents/engine-design-review-risk-governance.md"
       },
       "status": "active",
       "type": "agent"
     },
     {
-      "id": "agent:qa-review-divergence-hunter",
+      "id": "agent:engine-qa-review-divergence-hunter",
       "lens": "divergence-hunter",
       "model-tier": "judgment",
-      "name": ".claude/agents/qa-review-divergence-hunter.md",
+      "name": ".claude/agents/engine-qa-review-divergence-hunter.md",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -129,19 +129,19 @@
         ]
       },
       "role": "pre-submission-review",
-      "slug": "qa-review-divergence-hunter",
+      "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:ec3e97c1266f0dda2896a5b64502f6d57ffda28c715054924b4e0e85c35eaf5d",
-        "path": ".claude/agents/qa-review-divergence-hunter.md"
+        "fingerprint": "sha256:fbd027f3f23ad6e8770288dd30133ea9d8d47daa406d6b5aed906414522b27ce",
+        "path": ".claude/agents/engine-qa-review-divergence-hunter.md"
       },
       "status": "active",
       "type": "agent"
     },
     {
-      "id": "agent:qa-review-security-governance",
+      "id": "agent:engine-qa-review-security-governance",
       "lens": "security-governance",
       "model-tier": "judgment",
-      "name": ".claude/agents/qa-review-security-governance.md",
+      "name": ".claude/agents/engine-qa-review-security-governance.md",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -152,19 +152,19 @@
         ]
       },
       "role": "pre-submission-review",
-      "slug": "qa-review-security-governance",
+      "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:7a1f1a3535e7cd4ad3bd97c0098ef2a355c0b6bf2a8c376f3d5227fd9b0a9554",
-        "path": ".claude/agents/qa-review-security-governance.md"
+        "fingerprint": "sha256:d0b2a3cdb9cbce9e1831b415fa3ef558853ab41b6de52c3e83f1ec4c56e73b5a",
+        "path": ".claude/agents/engine-qa-review-security-governance.md"
       },
       "status": "active",
       "type": "agent"
     },
     {
-      "id": "agent:qa-review-spec-conformance",
+      "id": "agent:engine-qa-review-spec-conformance",
       "lens": "spec-conformance",
       "model-tier": "judgment",
-      "name": ".claude/agents/qa-review-spec-conformance.md",
+      "name": ".claude/agents/engine-qa-review-spec-conformance.md",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -175,19 +175,19 @@
         ]
       },
       "role": "pre-submission-review",
-      "slug": "qa-review-spec-conformance",
+      "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:63b1fd6a222afce1ca3458dfd5b32170b410b151357bd21c5b8bc8e47f348cb1",
-        "path": ".claude/agents/qa-review-spec-conformance.md"
+        "fingerprint": "sha256:939db95a725244743ceef6dfe24a65a09702ae872c7fde1ef348178fb1315953",
+        "path": ".claude/agents/engine-qa-review-spec-conformance.md"
       },
       "status": "active",
       "type": "agent"
     },
     {
-      "id": "agent:qa-review-technical-integrity",
+      "id": "agent:engine-qa-review-technical-integrity",
       "lens": "technical-integrity",
       "model-tier": "judgment",
-      "name": ".claude/agents/qa-review-technical-integrity.md",
+      "name": ".claude/agents/engine-qa-review-technical-integrity.md",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -198,19 +198,19 @@
         ]
       },
       "role": "pre-submission-review",
-      "slug": "qa-review-technical-integrity",
+      "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:658bfb64a02a835c97c5c6ba7e7700afd9a4de7823219f8a478fd8e3f74c6926",
-        "path": ".claude/agents/qa-review-technical-integrity.md"
+        "fingerprint": "sha256:7399e5441b48fedea2ff27ec8ba108916afb2ddd521e1a480a23d5b6e2999d88",
+        "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
       "type": "agent"
     },
     {
-      "id": "agent:qa-review-usability",
+      "id": "agent:engine-qa-review-usability",
       "lens": "usability",
       "model-tier": "judgment",
-      "name": ".claude/agents/qa-review-usability.md",
+      "name": ".claude/agents/engine-qa-review-usability.md",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -221,10 +221,10 @@
         ]
       },
       "role": "pre-submission-review",
-      "slug": "qa-review-usability",
+      "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:eec3f177ecd94278d6be71bcf3fa89d49fc07495dbba192df74f1ee159c50651",
-        "path": ".claude/agents/qa-review-usability.md"
+        "fingerprint": "sha256:3ff7e0b9f0ac05a5558a12f82788df3b31c10e31dd43179425136bc6225b8056",
+        "path": ".claude/agents/engine-qa-review-usability.md"
       },
       "status": "active",
       "type": "agent"
@@ -267,16 +267,16 @@
           "module:validators-core"
         ],
         "targets": [
-          "agent:audit",
-          "agent:design-review-architecture",
-          "agent:design-review-feasibility",
-          "agent:design-review-product-intent",
-          "agent:design-review-risk-governance",
-          "agent:qa-review-divergence-hunter",
-          "agent:qa-review-security-governance",
-          "agent:qa-review-spec-conformance",
-          "agent:qa-review-technical-integrity",
-          "agent:qa-review-usability"
+          "agent:engine-audit",
+          "agent:engine-design-review-architecture",
+          "agent:engine-design-review-feasibility",
+          "agent:engine-design-review-product-intent",
+          "agent:engine-design-review-risk-governance",
+          "agent:engine-qa-review-divergence-hunter",
+          "agent:engine-qa-review-security-governance",
+          "agent:engine-qa-review-spec-conformance",
+          "agent:engine-qa-review-technical-integrity",
+          "agent:engine-qa-review-usability"
         ]
       },
       "slug": "agent-frontmatter",
@@ -304,16 +304,16 @@
           "module:validators-core"
         ],
         "targets": [
-          "agent:audit",
-          "agent:design-review-architecture",
-          "agent:design-review-feasibility",
-          "agent:design-review-product-intent",
-          "agent:design-review-risk-governance",
-          "agent:qa-review-divergence-hunter",
-          "agent:qa-review-security-governance",
-          "agent:qa-review-spec-conformance",
-          "agent:qa-review-technical-integrity",
-          "agent:qa-review-usability"
+          "agent:engine-audit",
+          "agent:engine-design-review-architecture",
+          "agent:engine-design-review-feasibility",
+          "agent:engine-design-review-product-intent",
+          "agent:engine-design-review-risk-governance",
+          "agent:engine-qa-review-divergence-hunter",
+          "agent:engine-qa-review-security-governance",
+          "agent:engine-qa-review-spec-conformance",
+          "agent:engine-qa-review-technical-integrity",
+          "agent:engine-qa-review-usability"
         ]
       },
       "slug": "agent-shape",
@@ -517,16 +517,16 @@
           "module:validators-core"
         ],
         "targets": [
-          "codex-agent:audit",
-          "codex-agent:design-review-architecture",
-          "codex-agent:design-review-feasibility",
-          "codex-agent:design-review-product-intent",
-          "codex-agent:design-review-risk-governance",
-          "codex-agent:qa-review-divergence-hunter",
-          "codex-agent:qa-review-security-governance",
-          "codex-agent:qa-review-spec-conformance",
-          "codex-agent:qa-review-technical-integrity",
-          "codex-agent:qa-review-usability"
+          "codex-agent:engine-audit",
+          "codex-agent:engine-design-review-architecture",
+          "codex-agent:engine-design-review-feasibility",
+          "codex-agent:engine-design-review-product-intent",
+          "codex-agent:engine-design-review-risk-governance",
+          "codex-agent:engine-qa-review-divergence-hunter",
+          "codex-agent:engine-qa-review-security-governance",
+          "codex-agent:engine-qa-review-spec-conformance",
+          "codex-agent:engine-qa-review-technical-integrity",
+          "codex-agent:engine-qa-review-usability"
         ]
       },
       "slug": "codex-agent-schema",
@@ -2242,8 +2242,8 @@
       "type": "check"
     },
     {
-      "id": "codex-agent:audit",
-      "name": ".codex/agents/audit.toml",
+      "id": "codex-agent:engine-audit",
+      "name": ".codex/agents/engine-audit.toml",
       "owner": "audit-library",
       "predicates": {
         "governed_by": [
@@ -2253,17 +2253,17 @@
           "module:audit-library"
         ]
       },
-      "slug": "audit",
+      "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:d33272530f0ca0410cca435c3ad0570d5172f706e7bd25c80b32c029dce75269",
-        "path": ".codex/agents/audit.toml"
+        "fingerprint": "sha256:648b451814ef5baa008280fb2a0a154b886dda7aee7ecd3e8c8b96e80a4718bd",
+        "path": ".codex/agents/engine-audit.toml"
       },
       "status": "active",
       "type": "codex-agent"
     },
     {
-      "id": "codex-agent:design-review-architecture",
-      "name": ".codex/agents/design-review-architecture.toml",
+      "id": "codex-agent:engine-design-review-architecture",
+      "name": ".codex/agents/engine-design-review-architecture.toml",
       "owner": "design-review",
       "predicates": {
         "governed_by": [
@@ -2273,17 +2273,17 @@
           "module:design-review"
         ]
       },
-      "slug": "design-review-architecture",
+      "slug": "engine-design-review-architecture",
       "source": {
-        "fingerprint": "sha256:afa912e2965dee7624b159b00a54f5852cb38d4756d80867a69b75862024fce4",
-        "path": ".codex/agents/design-review-architecture.toml"
+        "fingerprint": "sha256:fe7b683b18ad5382d4a6cbcc0ebb587a9acb8eef090c76c7f2a0e52bb0f08218",
+        "path": ".codex/agents/engine-design-review-architecture.toml"
       },
       "status": "active",
       "type": "codex-agent"
     },
     {
-      "id": "codex-agent:design-review-feasibility",
-      "name": ".codex/agents/design-review-feasibility.toml",
+      "id": "codex-agent:engine-design-review-feasibility",
+      "name": ".codex/agents/engine-design-review-feasibility.toml",
       "owner": "design-review",
       "predicates": {
         "governed_by": [
@@ -2293,17 +2293,17 @@
           "module:design-review"
         ]
       },
-      "slug": "design-review-feasibility",
+      "slug": "engine-design-review-feasibility",
       "source": {
-        "fingerprint": "sha256:4b9106ca80f2d7935c087166b2cccf70dd33afecc4d1dfd84c670fe6c53928bf",
-        "path": ".codex/agents/design-review-feasibility.toml"
+        "fingerprint": "sha256:0fd1e8532caeac6003624fadabeba9d27747e0ae60dfae4ec235121689d31ee8",
+        "path": ".codex/agents/engine-design-review-feasibility.toml"
       },
       "status": "active",
       "type": "codex-agent"
     },
     {
-      "id": "codex-agent:design-review-product-intent",
-      "name": ".codex/agents/design-review-product-intent.toml",
+      "id": "codex-agent:engine-design-review-product-intent",
+      "name": ".codex/agents/engine-design-review-product-intent.toml",
       "owner": "design-review",
       "predicates": {
         "governed_by": [
@@ -2313,17 +2313,17 @@
           "module:design-review"
         ]
       },
-      "slug": "design-review-product-intent",
+      "slug": "engine-design-review-product-intent",
       "source": {
-        "fingerprint": "sha256:6d84d012e6aae7a66de9b4d60a3396861944833997f10ad6aa2bc69672613f7c",
-        "path": ".codex/agents/design-review-product-intent.toml"
+        "fingerprint": "sha256:08c0c87fbef0f26cd95cd00b031f27491c51edad292f50ecc9679bdd40b7239d",
+        "path": ".codex/agents/engine-design-review-product-intent.toml"
       },
       "status": "active",
       "type": "codex-agent"
     },
     {
-      "id": "codex-agent:design-review-risk-governance",
-      "name": ".codex/agents/design-review-risk-governance.toml",
+      "id": "codex-agent:engine-design-review-risk-governance",
+      "name": ".codex/agents/engine-design-review-risk-governance.toml",
       "owner": "design-review",
       "predicates": {
         "governed_by": [
@@ -2333,17 +2333,17 @@
           "module:design-review"
         ]
       },
-      "slug": "design-review-risk-governance",
+      "slug": "engine-design-review-risk-governance",
       "source": {
-        "fingerprint": "sha256:d26bd31d5c330c81cc38904baafc144c74ef0d0b72ce55617c92449f8521b23c",
-        "path": ".codex/agents/design-review-risk-governance.toml"
+        "fingerprint": "sha256:c2964ddc141e8be66501c73c523f40ebb5314cc77d3a49ddea38bf5eb605c627",
+        "path": ".codex/agents/engine-design-review-risk-governance.toml"
       },
       "status": "active",
       "type": "codex-agent"
     },
     {
-      "id": "codex-agent:qa-review-divergence-hunter",
-      "name": ".codex/agents/qa-review-divergence-hunter.toml",
+      "id": "codex-agent:engine-qa-review-divergence-hunter",
+      "name": ".codex/agents/engine-qa-review-divergence-hunter.toml",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -2353,17 +2353,17 @@
           "module:qa-review"
         ]
       },
-      "slug": "qa-review-divergence-hunter",
+      "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:482ecb756f686f45e6a153e450f2904f6afec82e0565feaa0cc27181ba7663de",
-        "path": ".codex/agents/qa-review-divergence-hunter.toml"
+        "fingerprint": "sha256:71b1d57c33274bcfad9f0d1be63ea33df575d2110b0c2cc355c042f88c690135",
+        "path": ".codex/agents/engine-qa-review-divergence-hunter.toml"
       },
       "status": "active",
       "type": "codex-agent"
     },
     {
-      "id": "codex-agent:qa-review-security-governance",
-      "name": ".codex/agents/qa-review-security-governance.toml",
+      "id": "codex-agent:engine-qa-review-security-governance",
+      "name": ".codex/agents/engine-qa-review-security-governance.toml",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -2373,17 +2373,17 @@
           "module:qa-review"
         ]
       },
-      "slug": "qa-review-security-governance",
+      "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:f3b7301bfdf29862d28f185f37d3d790703f749b7536bd2004e3ece8754fcec1",
-        "path": ".codex/agents/qa-review-security-governance.toml"
+        "fingerprint": "sha256:3495499a4b06450215fc0e55d46c338a6f2e0572ff7f26038423a118d775308f",
+        "path": ".codex/agents/engine-qa-review-security-governance.toml"
       },
       "status": "active",
       "type": "codex-agent"
     },
     {
-      "id": "codex-agent:qa-review-spec-conformance",
-      "name": ".codex/agents/qa-review-spec-conformance.toml",
+      "id": "codex-agent:engine-qa-review-spec-conformance",
+      "name": ".codex/agents/engine-qa-review-spec-conformance.toml",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -2393,17 +2393,17 @@
           "module:qa-review"
         ]
       },
-      "slug": "qa-review-spec-conformance",
+      "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:33d239e816f19cca42e76aed26d510e2b9fb964ce7f71597350ef17f4c5aa973",
-        "path": ".codex/agents/qa-review-spec-conformance.toml"
+        "fingerprint": "sha256:c4b088829ab9dbf6f3cd508856bdc805d1892f112675195de36a7a27d8cbc52f",
+        "path": ".codex/agents/engine-qa-review-spec-conformance.toml"
       },
       "status": "active",
       "type": "codex-agent"
     },
     {
-      "id": "codex-agent:qa-review-technical-integrity",
-      "name": ".codex/agents/qa-review-technical-integrity.toml",
+      "id": "codex-agent:engine-qa-review-technical-integrity",
+      "name": ".codex/agents/engine-qa-review-technical-integrity.toml",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -2413,17 +2413,17 @@
           "module:qa-review"
         ]
       },
-      "slug": "qa-review-technical-integrity",
+      "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:f78ed500bee8f4e35b562800db5e5f3461fec03b6f2201a4251775f8990daf9c",
-        "path": ".codex/agents/qa-review-technical-integrity.toml"
+        "fingerprint": "sha256:f04fcf565d5194040547508e5d61baa0047843e76b02e73f303498b8fb2875b9",
+        "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
       "type": "codex-agent"
     },
     {
-      "id": "codex-agent:qa-review-usability",
-      "name": ".codex/agents/qa-review-usability.toml",
+      "id": "codex-agent:engine-qa-review-usability",
+      "name": ".codex/agents/engine-qa-review-usability.toml",
       "owner": "qa-review",
       "predicates": {
         "governed_by": [
@@ -2433,10 +2433,10 @@
           "module:qa-review"
         ]
       },
-      "slug": "qa-review-usability",
+      "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:873609fa4c2d324ee25ad40b298e0f801fa4e451a76e91a02d3abf45610aed3d",
-        "path": ".codex/agents/qa-review-usability.toml"
+        "fingerprint": "sha256:a677f8ea89803d347fe8ba09d0dae79e5ec21ccc8625bf0c10627f3f5889060c",
+        "path": ".codex/agents/engine-qa-review-usability.toml"
       },
       "status": "active",
       "type": "codex-agent"
@@ -3135,7 +3135,7 @@
       },
       "slug": "eADR-0016-ontology-surfaces-catalogued-ranked",
       "source": {
-        "fingerprint": "sha256:86237553ee450c551a748e5bbf91729a952c5aee3223a6346518ca339001846d",
+        "fingerprint": "sha256:63163a6ce90cdbc79e56822843c5692ffdf9a8d260918cc21775e208090f6221",
         "path": ".engine/contracts/eADR-0016-ontology-surfaces-catalogued-ranked.md"
       },
       "status": "accepted",
@@ -3295,7 +3295,7 @@
       },
       "slug": "eADR-0024-modes-three-stances-two-axes",
       "source": {
-        "fingerprint": "sha256:100630fbc2883dad9565cc4c22ab459f807c4c43f4883d89b2e5067c5680174b",
+        "fingerprint": "sha256:6984eb6b4f15982c8b27b525b51be51876f679495eb3156f4b41cc892d51485d",
         "path": ".engine/contracts/eADR-0024-modes-three-stances-two-axes.md"
       },
       "status": "accepted",
@@ -3645,7 +3645,7 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:7fe313b855bcd1b10b280b7ef181f68e0f2aa8945da31a6301cd770097a94dc1",
+        "fingerprint": "sha256:f3c5d3e498597fd9bea8de4df0210a1afaf43c36e1ea3d0534fabdbffade967f",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
@@ -3695,7 +3695,7 @@
       },
       "slug": "design-review",
       "source": {
-        "fingerprint": "sha256:e35d795be67e2d37fcd7a2194449d07ed4f5e1dc2d33bd91f061846298f59ce4",
+        "fingerprint": "sha256:6637839b9e9b334fa9df3cedd5dc3b32569207a190402d15a1507e1e88eb44d8",
         "path": ".engine/modules/design-review/manifest.json"
       },
       "status": "optional",
@@ -3803,7 +3803,7 @@
       },
       "slug": "qa-review",
       "source": {
-        "fingerprint": "sha256:3db9d60a5e4c933c882c9a937a85045b3ae01631771bef6356d646f43aa0a9c0",
+        "fingerprint": "sha256:3facd4a004a9ef01d63346c8645d0ecb97c298e1c63f8ce82e1ec44dbf8fe1f9",
         "path": ".engine/modules/qa-review/manifest.json"
       },
       "status": "optional",
@@ -5009,7 +5009,7 @@
       },
       "slug": "surface-catalog.schema",
       "source": {
-        "fingerprint": "sha256:9f6d66227a59d415bf9abd1eb0afd27f3f53cb2eebf2424e99069e2466d9ac97",
+        "fingerprint": "sha256:cfad6041aaa6193ac7cd898a939e907bc48f15355648d8b6f4d82f3a96a5159f",
         "path": ".engine/schemas/surface-catalog.schema.json"
       },
       "status": "active",
@@ -5467,7 +5467,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e5736ce573b87b0266c4a6152b072261b3c2a1683ceb937ebb8293d667806e47",
+        "fingerprint": "sha256:a26d728965225af6a18425d11db5ec838542600bad922c8f1323a432fd1ac59e",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6572,7 +6572,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:f54ed4dea7330d34dbc363de41ef8c9f793ff3da50106a3929a390d9e0c16833",
+        "fingerprint": "sha256:b6b023891e2e103dd65bb71e0db65168adacf0de51e6b202d1bdd10bf067318a",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -7694,7 +7694,7 @@
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:635b486793d60bf7f927c18bde66e4d05015c44f47e915af068a581b38a30ae1",
+        "fingerprint": "sha256:44309b387e69e2b943df537f3c71acd8947c39fc96880b6a16c5cd6a3e655dad",
         "path": ".engine/tools/test_agent.py"
       },
       "status": "active",
@@ -7762,7 +7762,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:5e9207217595d091d211df8217cc7eaa7a48daa69b7b2c41f5838a11bf5cd083",
+        "fingerprint": "sha256:b0c43a93f8b0f42bdb7185fcf81abaa52d3a77943a97a5806a8605cba41427a0",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -7864,7 +7864,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:84dae66874b8b9a0a0e26f166c31bf71edc127245bb9a21c9df2f717c99d268a",
+        "fingerprint": "sha256:d8f1fd1d3f4efc667455664ef3b03226712db37191645b7fcfc28793f8d2f667",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8187,7 +8187,7 @@
       },
       "slug": "test_design_review",
       "source": {
-        "fingerprint": "sha256:c2b384df37b43e7f92da862621d0bf0ab10589b90f17abb71cac857a5d24adad",
+        "fingerprint": "sha256:241517b0b1052070e5fcd4507e63b91bf6eb83b07024ac219c9bc92b495a18af",
         "path": ".engine/tools/test_design_review.py"
       },
       "status": "active",
@@ -8391,7 +8391,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:d13e21817ec44e854734611e02195854bdbd4b5f4fc8b14020de5da2ba6d0ce6",
+        "fingerprint": "sha256:d509cca15ead4f5265d55a7c83e28ae36914f0e01784736dd2beb762b77897b3",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -8816,7 +8816,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:a6cc705e823a0a25d2c6f967f2ac21482cdd800fd1bd89a9d4c028089850428d",
+        "fingerprint": "sha256:96d935254736f70372ea695d69b9118cd09ddf0166c3f31c4f7221dce4b32154",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -9003,7 +9003,7 @@
       },
       "slug": "test_qa_review",
       "source": {
-        "fingerprint": "sha256:ee69cf3cace435bee747772ae9bb0a4186408e55f0708b819ebda55de0a53538",
+        "fingerprint": "sha256:aa87228f2f42e8ffe95cdec274318367b2bc6c156a0b19138d04d4b732f10973",
         "path": ".engine/tools/test_qa_review.py"
       },
       "status": "active",

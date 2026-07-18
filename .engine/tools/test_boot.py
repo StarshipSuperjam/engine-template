@@ -379,7 +379,11 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
         # sequence — never beside the don't-relay faculty note.
         patchers = _offline()
         try:
-            pack = boot.assemble_pack()
+            # Cap patched wide: this fixture's dashboard is big enough that the real #495 cap guard
+            # sheds the orientation tier (its own behavior is pinned in TestPackCapGuard); this test
+            # pins CONTENT ORDER, so it needs the orientation tier present.
+            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
+                pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
@@ -725,7 +729,8 @@ class TestFocusedNeighborhood(unittest.TestCase):
         try:
             with mock.patch.object(boot.attention, "derive_focus", return_value=(["tool:attention"], 1)), \
                     mock.patch.object(boot.attention, "rank_live", return_value=self._partition()), \
-                    mock.patch.object(boot.attention, "neighborhood_of", return_value=self._summary()):
+                    mock.patch.object(boot.attention, "neighborhood_of", return_value=self._summary()), \
+                    mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
                 pack = boot.assemble_pack()
         finally:
             for p in patchers:
@@ -1890,7 +1895,8 @@ class TestStanceLine(unittest.TestCase):
         # work-gated #37 neighbourhood block.
         patchers = _offline()
         try:
-            pack = boot.assemble_pack()
+            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):   # see TestPackCapGuard
+                pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
@@ -2216,6 +2222,81 @@ class TestForeignLicenseOffer(unittest.TestCase):
                 boot._relay_lines(s)                       # no marker -> not retired
                 self.assertFalse(s["foreign_license"].get("retired"))
                 self.assertIn("license file", boot.render_dashboard(s))
+
+
+class TestRecognitionSlice(unittest.TestCase):
+    """D-309 / #495: the pack reads the surface catalog's recognition slice — name and location per
+    surface, none of the authoring fields — on every render, and a broken catalog renders nothing."""
+
+    def test_slice_names_every_surface_with_location_only(self):
+        lines = boot.render_recognition_slice()
+        self.assertTrue(lines and lines[0].startswith("Surface recognition"))
+        catalog = boot.validate.load_json(boot.validate.CATALOG_PATH)
+        for name, rec in catalog["surfaces"].items():
+            self.assertIn(f"{name} in `{rec['location']}`", lines[0])
+        for authoring_field in ("authority", "lifecycle", "governing_schema", "template"):
+            for rec in catalog["surfaces"].values():
+                value = rec.get(authoring_field)
+                if isinstance(value, str) and value and value not in rec["location"]:
+                    self.assertNotIn(value, lines[0],
+                                     f"the recognition slice must not carry the authoring field "
+                                     f"{authoring_field!r}")
+
+    def test_unreadable_catalog_renders_nothing_never_fails(self):
+        with mock.patch.object(boot.validate, "CATALOG_PATH", "/no/such/catalog.json"):
+            self.assertEqual(boot.render_recognition_slice(), [])
+
+    def test_slice_reaches_the_pack_when_it_fits(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("Surface recognition", pack)
+
+
+class TestPackCapGuard(unittest.TestCase):
+    """#495's owed-regardless leg: the pack is measured before injecting; the orientation tier sheds
+    first, the status dashboard second, and the pinned governance tier (marker + alarm relay) never —
+    with a relayed notice naming what was left out."""
+
+    def _pack(self, cap):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", cap):
+                return boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+
+    def test_wide_cap_keeps_everything_no_notice(self):
+        pack = self._pack(10**6)
+        self.assertIn(boot.KNOWLEDGE_FACULTY_NOTE, pack)
+        self.assertIn("the full status (your grounding", pack)
+        self.assertNotIn("left out this session", pack)
+
+    def test_moderate_pressure_sheds_orientation_first_keeps_status(self):
+        wide = self._pack(10**6)
+        cap = len(wide) - 100                      # just too small for everything
+        pack = self._pack(cap)
+        self.assertLessEqual(len(pack), cap)
+        self.assertNotIn(boot.KNOWLEDGE_FACULTY_NOTE, pack)          # orientation shed
+        self.assertIn("the full status (your grounding", pack)       # dashboard kept
+        self.assertIn("left out this session", pack)                 # and the shed is named
+        self.assertIn("engine_status.py", pack)                      # with the recovery path
+        self.assertIn("Project status", pack)                        # the grounding marker survives
+
+    def test_extreme_pressure_sheds_status_too_never_the_governance_tier(self):
+        pack = self._pack(4000)
+        self.assertNotIn("the full status (your grounding", pack)
+        self.assertIn("Project status", pack)                        # marker pinned
+        self.assertIn("the status dashboard", pack)                  # named in the shed notice
+
+    def test_pinned_tier_survives_even_an_impossible_cap(self):
+        pack = self._pack(10)                                        # smaller than the pinned tier itself
+        self.assertIn("Project status", pack)                        # never truncated, even oversize
 
 
 if __name__ == "__main__":

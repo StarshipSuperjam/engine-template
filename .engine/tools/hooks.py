@@ -237,6 +237,57 @@ def inject(context: str) -> dict:
     return {"action": "inject", "context": context}
 
 
+# The platform's per-value output cap (#495, a pre-existing latent defect the D-309 pass surfaced): past
+# 10,000 characters the platform silently writes the payload to a file and substitutes a preview — which
+# would strip the boot pack's grounding marker and make the engine report it never grounded, a silent
+# failure that lies about its own cause. The cap binds EACH output value, not the event total.
+HOOK_OUTPUT_CAP = 10_000
+
+
+def cap_shed(blocks: list, cap: "int | None" = None, notice=None,
+             compact_notice=None) -> "tuple[str, list]":
+    """Measure-before-inject with tiered shedding — the guard an injector composes BEFORE handing its
+    payload to inject(), which stays a pure translator. `blocks` is an ordered list of (priority, name,
+    text): priority 0 is PINNED (a governance alarm or grounding marker — never shed, even if the pinned
+    text alone still exceeds the cap, because a truncated alarm is worse than an oversize one the
+    platform previews); higher priorities shed FIRST, a whole priority class at a time, until the joined
+    text fits. When anything is shed and `notice` is given, notice(shed_names) is appended to the kept
+    text and counted against the cap — and CONTENT ALWAYS BEATS THE LABEL (#495 review): a further class
+    is never shed just to make room for the notice. When the kept content fits but the full notice tips
+    it over, the notice shrinks to `compact_notice(shed_names)`; if even that doesn't fit, the notice is
+    dropped (the kept content, grounding marker included, matters more than the sentence about
+    trimming). Returns (text, shed_names) — the order of `blocks` is preserved; priorities select what
+    survives, never reorder it. `cap` defaults to HOOK_OUTPUT_CAP resolved at call time (so a test can
+    patch the module constant)."""
+    if cap is None:
+        cap = HOOK_OUTPUT_CAP
+    kept = list(blocks)
+    shed: list = []
+
+    def _render(current, shed_names, notice_fn):
+        parts = [t for _p, _n, t in current if t]
+        if shed_names and notice_fn is not None:
+            parts.append(notice_fn(shed_names))
+        return "\n".join(parts)
+
+    for priority in sorted({p for p, _n, _t in kept if p > 0}, reverse=True):
+        if len(_render(kept, shed, notice)) <= cap:
+            break
+        if shed and len(_render(kept, shed, None)) <= cap:
+            break                       # only the notice is over — resolved below, never another shed
+        shed.extend(n for p, n, _t in kept if p == priority)
+        kept = [b for b in kept if b[0] != priority]
+    text = _render(kept, shed, notice)
+    if len(text) <= cap or not shed:
+        return text, shed               # fits, or pinned-alone oversize (emitted whole, documented above)
+    if len(_render(kept, shed, None)) <= cap:
+        compact = _render(kept, shed, compact_notice) if compact_notice is not None else None
+        if compact is not None and len(compact) <= cap:
+            return compact, shed
+        return _render(kept, shed, None), shed
+    return text, shed
+
+
 def decide(permission: str, reason: str | None = None) -> dict:
     """A PreToolUse structured permission decision (allow/deny/ask). → structured stdout, exit 0.
     `deny` is a block expressed through the structured channel rather than exit 2."""
@@ -337,6 +388,13 @@ def _record_crash_debug(event: str, exc: BaseException, path: str | None = None)
     finding, so its backstage detail belongs beside telemetry's cache); telemetry is lazy-imported here,
     exactly as the fail-open promotion path already does. Best-effort and fully swallowed by the caller:
     recording a crash must never re-break fail-open."""
+    if "unittest" in sys.modules and path is None:
+        # The hermetic backstop its siblings already carry (telemetry.emit_finding, providers'
+        # live-session write): the test suite exercises crashing handlers by the hundred, and without
+        # this guard every run appends test-harness noise to the PRODUCTION crash log — the pollution
+        # that made tonight's real-crash archaeology harder (#520/#522 investigation). An explicit
+        # `path` (the unit tests' own temp file) still writes.
+        return
     if path is None:
         import telemetry  # noqa: E402 — lazy, on the fail-open branch only (as _do_promote_fail_open is)
         path = telemetry.HOOK_CRASH_DEBUG_PATH
