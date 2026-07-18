@@ -134,7 +134,14 @@ class TestConductLoadsInTheWakeupFloor(unittest.TestCase):
                           f"the active root CLAUDE.md must @import {imp} so the engine wakes up with its conduct")
 
     def test_deployed_floor_imports_conduct(self):
-        text = self._floor_text("CLAUDE.deployed.md")
+        # The deployed floor lives at CLAUDE.deployed.md only until first-run's swap-in (#272) makes it
+        # the root CLAUDE.md and removes the staged copy — so in a generated repo this reads the root
+        # file instead of erroring on the removed one. In the construction repo both files exist and the
+        # two tests keep checking the two floors as distinct files.
+        name = "CLAUDE.deployed.md"
+        if not os.path.isfile(os.path.join(validate.ROOT, name)):
+            name = "CLAUDE.md"
+        text = self._floor_text(name)
         for imp in self._IMPORTS:
             self.assertIn(imp, text)
 
