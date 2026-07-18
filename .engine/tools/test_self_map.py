@@ -463,5 +463,91 @@ class TestCommitBoundaryRegen(unittest.TestCase):
         self.assertTrue(sm_cmds[0].rstrip().endswith(" hook"))
 
 
+class TestRetiredAssetFilter(unittest.TestCase):
+    """#513: a provides entry that first-run retired AND that is absent on disk is filtered from the render,
+    so a deployed repo's map never advertises a file the retire step deleted. While the file still exists
+    (this construction repo, or a fresh not-yet-set-up copy) nothing is filtered. The retired paths are
+    read from the committed census, never named literally here — this test file survives retirement, and
+    the reference-closure check forbids a survivor naming a removed asset."""
+
+    _MANIFEST = {"id": "core", "version": "1.0.0", "status": "active",
+                 "provides": {"operation": [".engine/operations/example-retired.md",
+                                            ".engine/operations/boot-session-start.md"],
+                              "skill": [".claude/skills/example-retired-skill/SKILL.md",
+                                        ".claude/skills/example-kept-skill/SKILL.md"]}}
+
+    def test_construction_repo_filters_nothing(self):
+        # In this repo every census entry exists on disk, so the filter sets are empty and the map renders
+        # every provides entry as before.
+        self.assertEqual(self_map._retired_absent(), (set(), ()))
+        block = "\n".join(self_map.render_module(self._MANIFEST))
+        self.assertIn("example-retired.md", block)
+
+    def test_retired_and_absent_file_is_filtered_siblings_survive(self):
+        with mock.patch.object(self_map, "_retired_absent",
+                               return_value=({".engine/operations/example-retired.md"}, ())):
+            block = "\n".join(self_map.render_module(self._MANIFEST))
+        self.assertNotIn("example-retired.md", block)
+        self.assertIn("boot-session-start.md", block)
+
+    def test_file_under_a_retired_directory_is_filtered(self):
+        # The directories leg: retire deletes whole skill trees, and the manifest advertises files INSIDE
+        # them — prefix matching must catch those, directory-boundary-safe.
+        with mock.patch.object(self_map, "_retired_absent",
+                               return_value=(set(), (".claude/skills/example-retired-skill",))):
+            block = "\n".join(self_map.render_module(self._MANIFEST))
+        self.assertNotIn("example-retired-skill", block)
+        self.assertIn("example-kept-skill", block)
+
+    def test_prefix_match_is_directory_boundary_safe(self):
+        self.assertTrue(self_map._is_retired_absent(".claude/skills/x/SKILL.md", set(), (".claude/skills/x",)))
+        self.assertTrue(self_map._is_retired_absent(".claude/skills/x", set(), (".claude/skills/x",)))
+        self.assertFalse(self_map._is_retired_absent(".claude/skills/xy/SKILL.md", set(), (".claude/skills/x",)))
+
+    def test_missing_census_reads_as_no_filter(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(validate, "ROOT", d), \
+                 mock.patch.object(validate, "ENGINE_DIR", os.path.join(d, ".engine")):
+                self.assertEqual(self_map._retired_absent(), (set(), ()))
+
+    def test_deployed_shape_filters_the_real_retired_entries(self):
+        # The real defect end-to-end: the REAL census + the REAL core manifest, on a tree where the retired
+        # files and directories are absent (the post-first-run deployed shape) — the map must drop EVERY
+        # advertised entry the retire step removes, across every provides group (files AND entries under
+        # retired directories), and keep every sibling that survives.
+        census_src = os.path.join(validate.ENGINE_DIR, "provisioning", "first-run-assets.json")
+        core_src = os.path.join(validate.ENGINE_DIR, "modules", "core", "manifest.json")
+        core = validate.load_json(core_src)
+        census = validate.load_json(census_src)
+        retired_files = set(census.get("files") or [])
+        retired_dirs = tuple(census.get("directories") or [])
+
+        def is_doomed(p):
+            return self_map._is_retired_absent(p, retired_files, retired_dirs)
+
+        entries = [p for group in (core.get("provides") or {}).values() for p in (group or [])]
+        doomed = sorted(p for p in entries if is_doomed(p))
+        survivors = sorted(p for p in entries if not is_doomed(p))
+        self.assertGreaterEqual(len(doomed), 4,
+                                "the defect's class must exist: the retired operation file plus the "
+                                "setup-skill files under the retired directories")
+        self.assertTrue(any(any(p == d or p.startswith(d + "/") for d in retired_dirs) for p in doomed),
+                        "at least one doomed entry must come from the directories leg")
+        self.assertTrue(survivors)
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".engine", "provisioning"))
+            with open(census_src, encoding="utf-8") as src, \
+                 open(os.path.join(d, ".engine", "provisioning", "first-run-assets.json"),
+                      "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+            with mock.patch.object(validate, "ROOT", d), \
+                 mock.patch.object(validate, "ENGINE_DIR", os.path.join(d, ".engine")):
+                block = "\n".join(self_map.render_module(core))
+        for path in doomed:            # full code-span paths — basenames collide across skills
+            self.assertNotIn(f"`{path}`", block)
+        for path in survivors:
+            self.assertIn(f"`{path}`", block)
+
+
 if __name__ == "__main__":
     unittest.main()

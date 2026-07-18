@@ -6606,7 +6606,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:d0e60f6eeb65017d623ee4434dc21a6ef0d442857a7b829958ab45bcdd5b7bce",
+        "fingerprint": "sha256:6ec8089e2a11742b16cc5e7f1679ab871a26324cab3fc853b4ac828ce1c2c516",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7456,7 +7456,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:8e01d2498579b5290806bd1513f68cd1f7df5ad05710a40990748e92ec5a01ed",
+        "fingerprint": "sha256:49b34a1d08f28cf18c13e9582fd3db86f731039a59b6be8dc957b96d259ed41f",
         "path": ".engine/tools/self_map.py"
       },
       "status": "active",
@@ -8408,7 +8408,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:a9d85700243de727aa4c0b8d8de2246461af6fe2746ab81cce160e5dd488d21b",
+        "fingerprint": "sha256:2be466371127f2a8efc80f67a61a1591a66eed6bd2dc74ec7ffdf14fd01cf35b",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9292,7 +9292,7 @@
       },
       "slug": "test_self_map",
       "source": {
-        "fingerprint": "sha256:bb1f189b9cde6f0f08355263811c4daa5c33a2d1e2db14112eebfc9214de10b6",
+        "fingerprint": "sha256:f586a53b72e8e49b487ba5bd8c460192d75a9178d6b3cb0a7e643d778b0cbb30",
         "path": ".engine/tools/test_self_map.py"
       },
       "status": "active",

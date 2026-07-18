@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import instantiator as inst  # noqa: E402
 import license_seeds  # noqa: E402
 import module_coherence  # noqa: E402
+import self_map  # noqa: E402  (the retire-time map re-derive, #513)
 import validate  # noqa: E402
 
 
@@ -1719,6 +1720,43 @@ class TestFirstRunVerbGuards(unittest.TestCase):
             self.assertNotIn("workshop where the engine is built", buf.getvalue())
             self.assertFalse(os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py")),
                              "a real first-run retire tidies the one-time setup tool away")
+
+    def test_retire_rederives_the_self_map_when_the_tree_carries_one(self):
+        # #513: retire re-derives the wiring map beside the knowledge graph, so a deployed repo ships a map
+        # rendered from the post-retire tree (the retired-and-absent filter lives in self_map.render_module;
+        # its shape is proven in test_self_map — here we prove retire actually re-derives). The fixture tree
+        # carries no map, so we seed a stale one; retire must rewrite it in place.
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                # The minimal fixture manifest doesn't carry a map; give the seeded one an owner (the real
+                # core manifest owns it via provides.foundation) so the consistency gate sees no orphan.
+                mpath = os.path.join(d, ".engine", "modules", "core", "manifest.json")
+                with open(mpath, encoding="utf-8") as fh:
+                    m = json.load(fh)
+                m.setdefault("provides", {})["foundation"] = [".engine/self-map.md"]
+                with open(mpath, "w", encoding="utf-8") as fh:
+                    json.dump(m, fh)
+                with open(self_map.SELF_MAP_PATH, "w", encoding="utf-8") as fh:
+                    fh.write("stale placeholder the retire step must replace\n")
+                result = inst.retire(announce=lambda _s: None)
+                map_path = self_map.SELF_MAP_PATH
+                self.assertEqual(result["self_map"], "regenerated")
+                self.assertTrue(map_path.startswith(d), "the map write must stay inside the fixture tree")
+                with open(map_path, encoding="utf-8") as fh:
+                    text = fh.read()
+        self.assertNotIn("stale placeholder", text)
+        self.assertIn("What this engine is made of", text)
+
+    def test_retire_without_a_map_creates_none(self):
+        # A tree that never carried a map (the demo's minimal practice project) gets none — creating one
+        # there would orphan an unowned engine file; the honest status names the absence.
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                result = inst.retire(announce=lambda _s: None)
+                self.assertEqual(result["self_map"], "absent (nothing to re-derive)")
+                self.assertFalse(os.path.isfile(self_map.SELF_MAP_PATH))
 
     def test_root_construction_check_degrades_on_a_non_text_file(self):
         # The guard's "never block on doubt" promise: a binary/non-UTF-8 root CLAUDE.md must read as
