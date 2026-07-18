@@ -508,7 +508,13 @@ class TestResolveSession(unittest.TestCase):
             self.assertEqual(modes._resolve_session(["--session", "${CLAUDE_CODE_SESSION_ID}"]), "from-env")
 
     def test_none_when_neither_present(self):
-        with mock.patch.dict(os.environ, {}, clear=True):
+        # The provider chain now ends at the live-session marker (the typed-Codex-verb fallback), so
+        # "neither present" must ALSO mean no marker: point the marker override at a nonexistent path.
+        import providers
+        with mock.patch.dict(os.environ,
+                             {providers.MARKER_ENV: os.path.join(tempfile.gettempdir(),
+                                                                 "no-such-marker.json")},
+                             clear=True):
             self.assertIsNone(modes._resolve_session([]))
 
     def test_set_build_cli_uses_env_fallback(self):
@@ -558,8 +564,14 @@ class TestResolveSession(unittest.TestCase):
 
     def test_stance_verb_says_unknown_not_explore_when_unresolvable(self):
         # The footgun itself: with NO resolvable session the OLD verb printed a confident `explore`. Now it
-        # says `unknown` and exits non-zero, so a self-check can never confirm the wrong belief.
-        with mock.patch.dict(os.environ, {}, clear=True):
+        # says `unknown` and exits non-zero, so a self-check can never confirm the wrong belief. "No
+        # resolvable session" includes the live-session marker (the typed-Codex-verb fallback), so the
+        # marker override points at a nonexistent path.
+        import providers
+        with mock.patch.dict(os.environ,
+                             {providers.MARKER_ENV: os.path.join(tempfile.gettempdir(),
+                                                                 "no-such-marker.json")},
+                             clear=True):
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 rc = modes.main(["stance"])

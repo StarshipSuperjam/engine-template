@@ -99,6 +99,24 @@
       "lifecycle": "artifact",
       "governing_schema": "doc.v1.json",
       "template": "../templates/doc.md"
+    },
+    "codex-skill": {
+      "class": "prose",
+      "location": ".agents/skills/",
+      "purpose": "The Codex-native render of an engine typed command (a SKILL.md Codex discovers; generated from the canonical Claude skill, never hand-authored).",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": "codex-skill.v1.json",
+      "template": "../templates/codex-skill.md"
+    },
+    "codex-agent": {
+      "class": "structured",
+      "location": ".codex/agents/",
+      "purpose": "The Codex-native render of an engine review persona (a TOML agent Codex spawns; generated from the canonical Claude persona, never hand-authored).",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": "codex-agent.v1.json",
+      "template": null
     }
   }
 }

@@ -28,10 +28,10 @@ When you ask for something that changes your project, the Engine works in carefu
 
 ## Finding the commands
 
-Alongside plain conversation, the Engine gives you a set of shortcuts — short typed commands, each beginning with **`/engine-`** so you can tell them apart from the other commands your assistant offers. There are three easy ways to see what's available:
+Alongside plain conversation, the Engine gives you a set of shortcuts — short typed commands that start with **`engine-`** so you can tell them apart from the other commands your assistant offers. The opening keystroke depends on where you're working: in **Claude Code** you type them as `/engine-…`; in **Codex** the same commands are `$engine-…`. There are three easy ways to see what's available:
 
-- Run **`/engine-help`** — it lists the Engine's commands and explains, in plain language, what each one is for. This is the simplest place to start.
-- Type **`/engine`** in the message box — the menu narrows to just the Engine's commands. (A bare `/` lists *every* command your assistant has, not only the Engine's; the `/engine-` start is how you spot them.)
+- Run **`/engine-help`** (in Codex: **`$engine-help`**) — it lists the Engine's commands in your runtime's own form and explains, in plain language, what each one is for. This is the simplest place to start.
+- Type the opening keystroke and **`engine`** in the message box (`/engine` in Claude Code, `$engine` in Codex) — the menu narrows to just the Engine's commands.
 - Or simply ask, in plain words — *"what can the Engine do?"*
 
 You never have to memorize anything; the list is always a few keystrokes or one question away.

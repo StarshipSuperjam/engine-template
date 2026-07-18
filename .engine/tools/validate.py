@@ -543,29 +543,49 @@ def _template_shape_spec(rel_path: str):
     return frontmatter(os.path.normpath(os.path.join(SCHEMAS_DIR, ref)))
 
 
+def _load_structured(path: str):
+    """Load a structured (non-prose) schema target by extension: a `.toml` target is read
+    with the stdlib's read-only TOML parser (its parsed form maps onto the same JSON data
+    model every schema check validates); everything else is read by `load_json`, exactly as
+    before. TOML targets exist because the Codex runtime's own files are TOML — the engine
+    validates them where they live rather than mirroring them into JSON."""
+    if path.endswith(".toml"):
+        import tomllib
+        with open(path, "rb") as fh:
+            return tomllib.load(fh)
+    return load_json(path)
+
+
 def kind_schema(rule, ctx):
     """A structured file — or a prose file's YAML frontmatter — conforms to its governing
     JSON Schema (2020-12). Validates the PARSED data, not raw text. The loader is chosen by
     the target's surface CLASS (catalog-resolved, the same routing _governing_schema uses):
     a `prose` surface's frontmatter is read (and normalized to the JSON data model) by
     `frontmatter`; every other target — structured surfaces, and the override-schema targets
-    that carry no surface record at all — is read by `load_json`, exactly as before. A
+    that carry no surface record at all — is read by `_load_structured` (JSON, or TOML for a
+    `.toml` target). A rule carrying an explicit `params.schema` OVERRIDE always loads its
+    target as structured, whatever surface home the file sits in: the override exists exactly
+    for whole-file data contracts the catalog cannot route (a data file living inside a prose
+    surface's home — the provider-exception ledger under .engine/policies/ — has no
+    frontmatter to read). A
     malformed file, an unresolvable or offline schema reference, or a malformed governing
     schema is a loud finding (the halt-on-malformed posture), never an uncaught error and
     never a network fetch."""
     from jsonschema import Draft202012Validator        # lazy: see the module __getattr__ note (tool-runtime dep)
     from jsonschema.exceptions import SchemaError
     tier = rule["tier"]
+    overridden = bool((rule.get("params") or {}).get("schema"))
     findings = []
     for path in target_files(rule):
         rel = os.path.relpath(path, ROOT)
         rec = _surface_record_for(rel)                 # None for override-schema targets (engine.json, state.json, manifests)
-        is_prose = bool(rec) and rec.get("class") == "prose"
+        is_prose = bool(rec) and rec.get("class") == "prose" and not overridden
         try:
-            data = frontmatter(path) if is_prose else load_json(path)
+            data = frontmatter(path) if is_prose else _load_structured(path)
         except Exception as exc:
             malformed = ("has a malformed settings block (its YAML frontmatter could not be read)"
-                         if is_prose else "is not valid JSON")
+                         if is_prose else
+                         ("is not valid TOML" if path.endswith(".toml") else "is not valid JSON"))
             findings.append(finding(tier, f"'{rel}' {malformed} and cannot be "
                             f"schema-checked: {exc}. {rule['message']}", loc(path)))
             continue
@@ -797,7 +817,7 @@ def _coverage_catalog(rule, ctx):
                        f"{exc}. {rule['message']}", loc(catalog_path))]
     infra = set((rule.get("params") or {}).get("infra_dirs", []))
     present = set()
-    for root in (".engine", ".claude"):
+    for root in (".engine", ".claude", ".codex", ".agents"):
         abs_root = os.path.join(base, root)
         if os.path.isdir(abs_root):
             for name in sorted(os.listdir(abs_root)):
@@ -2034,7 +2054,9 @@ def run_unit(unit, target=None, ctx=None):
 # handler added here later needs its own never-block test. `hooks` is imported LAZILY inside each handler:
 # validate must import on the stdlib alone (the first-run bootstrap), and hooks imports validate.
 
-_MUTATING_FILE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+# `apply_patch` (Codex's edit tool) is normalized to Edit before any handler runs; its membership
+# here is the second-belt defense, inert on Claude (which never emits the name) — mirrors modes.py.
+_MUTATING_FILE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"})
 
 
 def local_ctx() -> dict:
@@ -2073,17 +2095,24 @@ def _nudge_context(findings: list) -> "str | None":
             "Worth resolving before the change is proposed for merge, but your call.")
 
 
-def _touched_path(payload: dict) -> "str | None":
-    """The file a mutating tool call edited (Edit/Write/MultiEdit → tool_input.file_path; NotebookEdit →
-    notebook_path), or None for any non-file tool (a Bash/Read call has nothing to re-check). Degrades
-    safe on a malformed payload."""
+def _touched_paths(payload: dict) -> list:
+    """EVERY file a mutating tool call edited (Edit/Write/MultiEdit → tool_input.file_path;
+    NotebookEdit → notebook_path; a normalized multi-file edit — Codex's batch apply_patch — carries
+    the full list in tool_input.file_paths), or [] for any non-file tool (a Bash/Read call has
+    nothing to re-check). Degrades safe on a malformed payload."""
     if not isinstance(payload, dict) or payload.get("tool_name") not in _MUTATING_FILE_TOOLS:
-        return None
+        return []
     ti = payload.get("tool_input")
     if not isinstance(ti, dict):
-        return None
-    path = ti.get("file_path") or ti.get("notebook_path")
-    return path if isinstance(path, str) and path else None
+        return []
+    out = []
+    single = ti.get("file_path") or ti.get("notebook_path")
+    if isinstance(single, str) and single:
+        out.append(single)
+    many = ti.get("file_paths")
+    if isinstance(many, list):
+        out += [p for p in many if isinstance(p, str) and p and p not in out]
+    return out
 
 
 def _abs_under_root(path: str) -> str:
@@ -2158,15 +2187,15 @@ def _accept_handler(payload: dict) -> dict:
     stays quiet), but ambient capture draws from the full file-scoped corpus, so it is genuinely live. The
     capture is wrapped so a failure never disturbs the tool call (append_ambient is itself best-effort too)."""
     import hooks  # lazy (see _precommit_handler)
-    path = _touched_path(payload)
-    if not path:
+    paths = _touched_paths(payload)
+    if not paths:
         return hooks.proceed()
     try:
         import telemetry  # lazy: telemetry imports validate (a back-edge safe only lazily)
-        telemetry.capture_touched_fires([path], telemetry.utc_now())
+        telemetry.capture_touched_fires(paths, telemetry.utc_now())
     except Exception:  # noqa: BLE001 — ambient capture is best-effort and NEVER gates a tool call
         pass
-    touched = {_abs_under_root(path)}
+    touched = {_abs_under_root(p) for p in paths}
     findings = _safe_collect("pre-commit", rule_filter=lambda r: _rule_touches(r, touched))
     context = _nudge_context(findings)
     return hooks.inject(context) if context else hooks.proceed()

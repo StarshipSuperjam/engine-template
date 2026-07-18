@@ -115,6 +115,7 @@ COPY_HEADINGS = {
     "readme-seeded": "Your project's front page is now yours",
     "license-cleared": "Your project starts without a license — and that's normal",
     "claude-floor-seeded": "Your project's working guide",
+    "agents-floor-seeded": "Your project's working guide for Codex",
     "state-reseeded": "Your project starts from a clean slate",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
@@ -278,7 +279,14 @@ FALLBACK_COPY = {
         "marked block I keep current as the engine updates — so if you open that file and see the marker "
         "lines around it, that part is mine to maintain, not something you need to edit. The part that's "
         "yours to shape — how you like me to work with you — lives in your codes of conduct instead: change "
-        "it any time with /engine-conduct. I didn't do this silently — this note is me telling you."
+        "it any time with /engine-conduct ($engine-conduct in Codex). I didn't do this silently — this note is me telling you."
+    ),
+    "agents-floor-seeded": (
+        "This project also arrived with the template's own Codex working guide (the AGENTS.md at the top — "
+        "the same role CLAUDE.md plays when you work in Claude Code, for sessions run in Codex). I've "
+        "replaced it with the engine's working guide for YOUR project, kept inside the same kind of clearly "
+        "marked block I maintain as the engine updates. You don't need to edit it — how you like me to work "
+        "with you lives in your codes of conduct, changeable any time with /engine-conduct ($engine-conduct in Codex)."
     ),
     "state-reseeded": (
         "I reset this project's starting point to a clean slate. The engine keeps a small saved note of where "
@@ -292,7 +300,7 @@ FALLBACK_COPY = {
         "This project came set up with a starting set of codes of conduct — short notes on how you like me "
         "to work with you (for example, speaking plainly, and explaining choices before you make them). "
         "They're here from the first session, and they're yours: change, add, or remove any of them any time "
-        "with /engine-conduct. I didn't put them in place silently — this note is me telling you they're here."
+        "with /engine-conduct ($engine-conduct in Codex). I didn't put them in place silently — this note is me telling you they're here."
     ),
 }
 
@@ -850,7 +858,8 @@ def _apply_tool_runtime(uv_present, uv_installer, uv_runner, consent, say, copy)
 
 _EMPTY_OPERATOR = (
     "---\ncodes: []\n---\n\n"
-    "<!-- Your own codes of conduct go here — add, revise, or remove them with /engine-conduct. They sit "
+    "<!-- Your own codes of conduct go here — add, revise, or remove them with /engine-conduct "
+    "($engine-conduct in Codex). They sit "
     "alongside the engine's defaults and take priority when they share an id. This file is yours: an engine "
     "update never overwrites it. It starts empty — the engine's defaults are already in force. -->\n"
 )
@@ -1069,6 +1078,8 @@ def _seed_license(say, copy=None) -> str:
 # substring-anywhere test: the swap therefore never fires on a file the sentinel would not also call the
 # construction repo, so the two can never disagree in the dangerous (clobber) direction.
 _CONSTRUCTION_CLAUDE_MARKER = "construction governance"
+_ROOT_AGENTS_REL = "AGENTS.md"                    # the Codex floor pair mirrors the Claude one: both
+_DEPLOYED_AGENTS_FLOOR_REL = "AGENTS.deployed.md"  # construction files lead with the same marker heading
 _ROOT_CLAUDE_REL = "CLAUDE.md"
 _DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
 # The floor is written as a keyed, comment-fenced engine section (the Markdown/HTML style) so it can later
@@ -1128,12 +1139,34 @@ def _seed_deployed_floor(say, copy=None) -> str:
     inviting edits to CLAUDE.md. Discloses, in plain language, WHAT CHANGED — only when it actually swaps (never
     silent, never on a no-op). Paths are validate.ROOT-relative, so a redirected demo/test touches only the
     fixture, never the real tree."""
-    claude_path = os.path.join(validate.ROOT, _ROOT_CLAUDE_REL)
-    floor_path = os.path.join(validate.ROOT, _DEPLOYED_FLOOR_REL)
+    status = _swap_floor(_ROOT_CLAUDE_REL, _DEPLOYED_FLOOR_REL)
+    if status == "swapped" and copy is not None:
+        say(copy["claude-floor-seeded"])
+    return status
+
+
+def _seed_agents_floor(say, copy=None) -> str:
+    """The AGENTS.md half of the floor swap — the SAME swap-iff-construction mechanics over the Codex
+    floor pair (AGENTS.md / AGENTS.deployed.md). Both runtime floors travel as construction files whose
+    leading heading carries the construction marker, and each generated repo swaps each in independently
+    (a repo may adopt with either floor already customized). One disclosure covers the pair — the
+    claude-floor copy already frames "the working guide"; this one only fires when the Codex floor
+    ALONE swapped, so setup never narrates the same swap twice."""
+    status = _swap_floor(_ROOT_AGENTS_REL, _DEPLOYED_AGENTS_FLOOR_REL)
+    if status == "swapped" and copy is not None:
+        say(copy["agents-floor-seeded"])
+    return status
+
+
+def _swap_floor(root_rel: str, source_rel: str) -> str:
+    """The shared floor-swap mechanics for one (root file, deployed source) pair — see
+    _seed_deployed_floor's contract: swap-iff-construction, never-strand, preserve on any doubt."""
+    root_path = os.path.join(validate.ROOT, root_rel)
+    floor_path = os.path.join(validate.ROOT, source_rel)
     try:
         current = ""
-        if os.path.isfile(claude_path):
-            with open(claude_path, encoding="utf-8") as fh:
+        if os.path.isfile(root_path):
+            with open(root_path, encoding="utf-8") as fh:
                 current = fh.read()
     except OSError:
         return "present"                          # unreadable -> preserve on any doubt (never overwrite)
@@ -1156,13 +1189,11 @@ def _seed_deployed_floor(say, copy=None) -> str:
         # upgrade keyed-merge and brownfield coexistence both use). The whole file is the engine block on
         # greenfield; on a brownfield arrival (#234 6b) the same fence is inserted into the operator's file.
         fenced = wiring.fence_apply("", _FLOOR_FENCE, floor_lines, style=wiring.MD_FENCE)
-        with open(claude_path, "w", encoding="utf-8") as fh:
+        with open(root_path, "w", encoding="utf-8") as fh:
             fh.write(fenced)
         os.remove(floor_path)                     # consume the now-redundant source
     except (OSError, wiring.WiringError):
         return "skipped"
-    if copy is not None:
-        say(copy["claude-floor-seeded"])
     return "swapped"
 
 
@@ -1254,6 +1285,7 @@ def _apply_substrates(say, copy=None) -> dict:
     result["readme"] = _seed_readme(say, copy)
     result["license"] = _seed_license(say, copy)
     result["claude_floor"] = _seed_deployed_floor(say, copy)
+    result["agents_floor"] = _seed_agents_floor(say, copy)
     result["state"] = _seed_state(say, copy)   # AFTER the floor swap (its construction-repo belt reads the swapped root)
     return result
 
@@ -1464,7 +1496,8 @@ _FIRST_RUN_ASSET_FILES = (
     # no empty directory).
     "assets/engine_banner.jpg",
 )
-_FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),)
+_FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),
+                         os.path.join(".agents", "skills", "engine-setup"))
 
 
 def _hard_findings() -> list:
@@ -1581,6 +1614,7 @@ def _redirect_root(root: str):
     / CODEOWNERS / knowledge graph (the isolation guarantee the apply demo then asserts byte-for-byte)."""
     saved = (validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH,
              wiring.SETTINGS_PATH, wiring.MCP_PATH, wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
+             wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH,
              knowledge_gen.KNOWLEDGE_DIR, knowledge_gen.GRAPH_PATH)
     validate.ROOT = root
     validate.ENGINE_DIR = os.path.join(root, ".engine")
@@ -1589,6 +1623,8 @@ def _redirect_root(root: str):
     wiring.MCP_PATH = os.path.join(root, ".mcp.json")
     wiring.GITIGNORE_PATH = os.path.join(root, ".gitignore")
     wiring.CATALOG_PATH = validate.CATALOG_PATH
+    wiring.CODEX_HOOKS_PATH = os.path.join(root, ".codex", "hooks.json")
+    wiring.CODEX_CONFIG_PATH = os.path.join(root, ".codex", "config.toml")
     knowledge_gen.KNOWLEDGE_DIR = os.path.join(root, ".engine", "knowledge")
     knowledge_gen.GRAPH_PATH = os.path.join(knowledge_gen.KNOWLEDGE_DIR, "graph.json")
     try:
@@ -1596,6 +1632,7 @@ def _redirect_root(root: str):
     finally:
         (validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH,
          wiring.SETTINGS_PATH, wiring.MCP_PATH, wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
+         wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH,
          knowledge_gen.KNOWLEDGE_DIR, knowledge_gen.GRAPH_PATH) = saved
 
 
@@ -2337,7 +2374,8 @@ def _finish_apply(tmp: str) -> dict:
 # root project guide, and it must CO-EXIST (never be seized) — so a pre-existing one is surfaced
 # as additive, never as "the engine would replace it". (CODEOWNERS is a shared file too, but its meaningful
 # overlap is the review-rule shadow — class 3 — so it is handled there, not double-reported here.)
-_COLLISION_SHARED = (".gitignore", ".mcp.json", ".claude/settings.json", "CLAUDE.md")
+_COLLISION_SHARED = (".gitignore", ".mcp.json", ".claude/settings.json", "CLAUDE.md",
+                     "AGENTS.md", ".codex/hooks.json", ".codex/config.toml")
 # The engine-EXCLUSIVE path patterns — where the engine expects sole ownership; a pre-existing product file
 # here would be replaced by the incoming engine file. The DECLARATIVE patterns (checked against the project
 # tree), NOT the live-filtered owned set: the engine has not written here yet at arrival, so any occupant is

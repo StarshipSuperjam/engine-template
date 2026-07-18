@@ -47,7 +47,9 @@ _MESSAGE = ("The knowledge graph's entity-type vocabulary must equal the catalog
             "or remove the stray type from the file.")
 
 # An entity-id pattern looks like '^(contract|policy|...|module):[A-Za-z0-9._-]+$'. Capture the alternation.
-_ALT_RE = re.compile(r"^\^\(([a-z][a-z|]*[a-z])\):")
+# Tokens are surface names: lowercase letters and hyphens (the catalog's own name grammar — e.g.
+# codex-skill), joined by '|'.
+_ALT_RE = re.compile(r"^\^\(([a-z][a-z|-]*[a-z])\):")
 
 
 def expected_vocabulary(catalog: dict) -> set:

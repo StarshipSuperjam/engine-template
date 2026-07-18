@@ -77,6 +77,7 @@ import boot_slice        # noqa: E402  (#37: boot's rung-1 knowledge cache; read
 import knowledge_gen     # noqa: E402  (REGEN_CMD: the one operator-facing regenerate-the-map command, cited not re-typed)
 import boot_alarm_ledger  # noqa: E402  (the standing-alarm presentation ledger; decide() fail-opens to full)
 import operator_overrides  # noqa: E402  (the operator policy-override file reader; boot loads it, passes the slice as DATA)
+import providers         # noqa: E402  (the provider seam: live-session marker + runtime detection)
 import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the read-only Issue list)
 import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
@@ -843,6 +844,76 @@ MCP_AVAILABILITY_CHECK = (
     "present, say nothing about this."
 )
 
+# The same consent-critical notice with the FIX instructions in the Codex runtime's own vocabulary
+# (project-scoped servers in .codex/config.toml, gated on the project being trusted — there is no
+# "reopen Claude" on Codex). Same detection (the model's own tool list), same must-relay force.
+MCP_AVAILABILITY_CHECK_CODEX = (
+    "Check your own available tools for the engine's two live helpers — each is a server registered for this "
+    "project that only runs once the operator trusts the project's configuration:\n"
+    "     - `mcp__engine-memory__*` — their saved memory (recall of past decisions and notes)\n"
+    "     - `mcp__engine-knowledge-graph__*` — the engine's wiring map (how the parts connect)\n"
+    "   For EACH of these families ABSENT from your tools this session, you MUST tell the operator, in plain "
+    "words (this is consent-critical — treat it like any must-relay alarm above, never as internal machinery): "
+    "that its live version isn't running this session, so you're working from their saved files instead — "
+    "which still works, but can be out of date; and that to switch it on they trust this project in Codex (the "
+    "engine registers the servers in the project's own `.codex/config.toml`), then restart Codex. If it still "
+    "doesn't appear, offer to help them turn it on — check their Codex MCP settings, or look into why the "
+    "server won't start. If BOTH families are present, say nothing about this."
+)
+
+
+def mcp_availability_check(provider: str | None = None) -> str:
+    """The live-helper availability notice in the current runtime's own fix vocabulary. Same
+    detection and force on both; only the switch-it-on instructions differ."""
+    p = provider or providers.detect()
+    return MCP_AVAILABILITY_CHECK_CODEX if p == providers.CODEX else MCP_AVAILABILITY_CHECK
+
+
+def capture_status_line() -> "str | None":
+    """One plain dashboard line when the LAST session's conversation could not be saved to this
+    project's memory — read from the gitignored capture-status marker the memory capture writes on
+    every attempt (capture owns the detection; boot only renders). None — say nothing — when the
+    marker is absent, unreadable, or reports a successful capture; boot never guesses a failure.
+    Read directly (a small JSON file), not through the memory package, so a repo without the memory
+    module renders nothing rather than failing."""
+    path = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "memory-capture.status")
+    try:
+        import json as _json
+        with open(path, encoding="utf-8") as fh:
+            record = _json.load(fh)
+    except (OSError, ValueError):
+        return None
+    state = record.get("state") if isinstance(record, dict) else None
+    if state in (None, "captured"):
+        return None
+    return ("**Last session's conversation wasn't saved to this project's memory** — the session "
+            "record couldn't be read, so that conversation won't be recallable later. Nothing in "
+            "your project was lost, and everything else still works. If this keeps happening the "
+            "engine will raise it as a tracked finding on its own.")
+
+
+def hooks_health_line() -> "str | None":
+    """One plain line when the live-session heartbeat shows NO recent evidence of the engine's hooks
+    running — the detector behind 'my hooks are silently off' (Codex skips untrusted hooks; either
+    runtime can have them unapproved). Detection is the marker boot's own SessionStart writes, so
+    this line can only be produced by a surface that runs WITHOUT hooks (the status verb is a plain
+    command — the disclosure channel survives the failure it reports). None — say nothing — when a
+    fresh marker exists. Deliberately worded for both causes on Codex (trust pending vs a version
+    without hook support), because the two are indistinguishable from outside."""
+    if providers.read_live_session() is not None:
+        return None
+    return ("**I can't see the engine's automatic hooks having run recently in this project.** If "
+            "this session just started and this line is here, the hooks are not running — on Codex "
+            "that usually means they're waiting for your approval (run /hooks and approve the "
+            "engine's hooks) or your Codex build predates hook support (hooks arrived in 2026 "
+            "builds, around v0.114); on Claude Code it usually means the project's hooks aren't "
+            "approved yet. Until they run, the parts that ride them are off: the write-gate, "
+            "session memory capture, and the automatic start-of-session status. One honest limit: "
+            "a session on EITHER runtime within the last day clears this line for the whole "
+            "project, so its absence is not per-session proof — the per-session check is whether "
+            "this session's start-of-session briefing actually arrived. This readout still works — "
+            "it runs as a plain command.")
+
 
 def gather_signals(session_id: str | None = None) -> dict:
     """Read + DETECT every signal the dashboard renders — the substrates' own detection, which boot only
@@ -1045,6 +1116,12 @@ def gather_signals(session_id: str | None = None) -> dict:
                           else sum(1 for f in findings if not f.get("severity"))),
         "low_severity_count": low_severity_count, "triage_pressure_line": triage_pressure_line,
         "contract_rate_line": contract_rate_line,
+        # One plain line when the last capture attempt could NOT save a session's conversation to
+        # memory (the loud half of the fail-soft capture, eADR-0036); None when fine or no marker.
+        "capture_status_line": capture_status_line(),
+        # One plain line when there is no recent evidence of the hooks running (the silently-off
+        # detector — Codex trust-pending, unapproved hooks, or a pre-hooks version); None when fresh.
+        "hooks_health_line": hooks_health_line(),
         "debt_count": debt_count, "debt_as_of": debt_as_of,
         "att_lines": att_lines, "att_degraded": att_degraded,
         # True iff orientation ran on a LIVE-rebuilt map because the committed graph.json is absent (a distinct
@@ -1351,6 +1428,14 @@ def render_dashboard(s: dict) -> str:
         # that decision). A separate line from the backlog meter: a different signal about a different thing.
         if s.get("contract_rate_line"):
             out.append(s["contract_rate_line"])
+        # The render-only memory-capture heads-up: the last capture attempt failed loudly (capture
+        # owns the detection and the marker; boot only relays). Suppressed when fine or unknown.
+        if s.get("capture_status_line"):
+            out.append(s["capture_status_line"])
+        # The render-only hooks-health heads-up: no recent evidence of the hooks running (suppressed
+        # whenever the live-session heartbeat is fresh — i.e. in any session whose hooks fired).
+        if s.get("hooks_health_line"):
+            out.append(s["hooks_health_line"])
 
     out.append(f"**Stance:** {s['stance']}")
 
@@ -1796,7 +1881,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     else:
         out.append("2. No governance alarm to relay this session.")
     out.append("3. Check the engine's live helpers and tell the operator about any that are off — a check you "
-               "run against your own tools, since the engine cannot see them for you: " + MCP_AVAILABILITY_CHECK)
+               "run against your own tools, since the engine cannot see them for you: " + mcp_availability_check())
     out.append("4. Then surface a brief plain-language headline of anything in the status below that needs "
                "their attention. When the operator asks where things stand or what's next, run "
                "`uv run --directory .engine -- python tools/engine_status.py` and show its output verbatim "
@@ -1839,6 +1924,14 @@ def handler(payload: dict) -> dict:
     any unreadable signal, and the merge wall backstops any write that slips that window."""
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     modes.clear_stance(session_id)
+    # The live-session heartbeat (dual-purpose, best-effort): records {session, provider, time} to the
+    # per-user marker. It is (a) the typed-verb session resolver's last resort on a runtime with no
+    # session env var (providers.resolve_session), and (b) the hooks-ran evidence the status readout's
+    # hooks-health line checks — a session with no fresh marker is a session whose hooks did not run.
+    try:
+        providers.write_live_session(session_id, providers.detect(payload))
+    except Exception:  # noqa: BLE001 — the heartbeat must never break boot
+        pass
     # use_ledger=True: this is the real SessionStart path, so apply the collapse (an unchanged
     # standing alarm relays terse) via the deterministic ledger. fail-toward-full lives inside decide().
     pack = assemble_pack(session_id, use_ledger=True)

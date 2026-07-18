@@ -46,8 +46,19 @@ import validate  # noqa: E402
 import module_catalog  # noqa: E402  (the shared optional-module catalog reader — one parse path, no drift)
 
 # The engine's own commands carry the engine- prefix (the engine/operator wall); this is the same scope
-# the self-election guard governs. The legacy commands directory lives under .claude/commands/.
-_ENGINE_VERB_GLOBS = (".claude/skills/engine-*/SKILL.md", ".claude/commands/engine-*.md")
+# the self-election guard governs. The legacy commands directory lives under .claude/commands/. The two
+# runtime trees carry the SAME verbs (the Codex tree is a committed render of the Claude one), so the
+# listing dedupes by typed name and surfaces a verb present in only one tree as partially installed.
+_CLAUDE_VERB_GLOBS = (".claude/skills/engine-*/SKILL.md", ".claude/commands/engine-*.md")
+_CODEX_VERB_GLOBS = (".agents/skills/engine-*/SKILL.md",)
+_ENGINE_VERB_GLOBS = _CLAUDE_VERB_GLOBS + _CODEX_VERB_GLOBS
+
+# What a one-tree-only verb's listing appends, so a broken mirror is surfaced, never hidden. The
+# engine-routine verb is legitimately Claude-only for now (its Codex twin ships with the routine
+# adapter); the sanctioned asymmetries live in the provider-exception ledger, and this line simply
+# tells the operator which runtime a verb works on today.
+_ONLY_CLAUDE_NOTE = " (currently only available when working in Claude Code)"
+_ONLY_CODEX_NOTE = " (currently only available when working in Codex)"
 
 _HEADER = "Commands you can type:"
 _AVAILABLE_HEADER = "You can also add these by installing more parts of your Engine:"
@@ -72,18 +83,38 @@ def installed_verbs(root: str | None = None) -> list:
     parse is guarded: a malformed command file is skipped rather than allowed to crash the whole listing
     (degrade, never blank — the always-answers guarantee)."""
     base = root or validate.ROOT
+    seen: dict = {}
+    for tree, patterns in (("claude", _CLAUDE_VERB_GLOBS), ("codex", _CODEX_VERB_GLOBS)):
+        for pattern in patterns:
+            for path in sorted(glob.glob(os.path.join(base, pattern))):
+                try:
+                    fm = validate.frontmatter(path)
+                except Exception:
+                    # A broken command file must not blank the list — skip it, keep answering.
+                    continue
+                inv = fm.get("invocation") or "model-auto"   # an omitted invocation is model-auto (platform default)
+                if inv not in ("operator-typed", "model-auto"):
+                    continue   # model-only is hidden from the operator's menu; an unknown value too
+                name = _typed_name(path)
+                entry = seen.setdefault(name, {"name": name, "description": "", "trees": set()})
+                entry["trees"].add(tree)
+                if tree == "claude" or not entry["description"]:   # the Claude source's description wins
+                    entry["description"] = str(fm.get("description") or "") or entry["description"]
+    # Annotate a one-tree-only verb ONLY when BOTH runtime trees are actually populated — a repo
+    # carrying just the Claude adapter (or a minimal test tree) gets no noise; once both adapters
+    # are present, a verb missing its twin is surfaced, never hidden.
+    both_present = all(any(t in e["trees"] for e in seen.values()) for t in ("claude", "codex"))
     verbs = []
-    for pattern in _ENGINE_VERB_GLOBS:
-        for path in sorted(glob.glob(os.path.join(base, pattern))):
-            try:
-                fm = validate.frontmatter(path)
-            except Exception:
-                # A broken command file must not blank the list — skip it, keep answering.
-                continue
-            inv = fm.get("invocation") or "model-auto"   # an omitted invocation is model-auto (platform default)
-            if inv not in ("operator-typed", "model-auto"):
-                continue   # model-only is hidden from the operator's menu; an unknown value too
-            verbs.append({"name": _typed_name(path), "description": str(fm.get("description") or "")})
+    for entry in seen.values():
+        desc = entry["description"]
+        home = None
+        if both_present and entry["trees"] == {"claude"}:
+            desc += _ONLY_CLAUDE_NOTE
+            home = "claude"      # render with the sigil it actually answers to, whatever the ambient runtime
+        elif both_present and entry["trees"] == {"codex"}:
+            desc += _ONLY_CODEX_NOTE
+            home = "codex"
+        verbs.append({"name": entry["name"], "description": desc.strip(), "home": home})
     return sorted(verbs, key=lambda v: v["name"])
 
 
@@ -115,24 +146,52 @@ def available_verbs(catalog_path: str | None = None) -> list:
             for e in module_catalog.entries(catalog_path) if e["id"] not in installed and e["verb"]]
 
 
-def _verb_line(verb: dict) -> str:
+def ambient_provider() -> "str | None":
+    """Which runtime the operator is typing in, for the prefix rendering: the launcher-exported
+    provider tag when a hook chain set it, else the live-session marker's provider (boot records it
+    at every SessionStart), else None — genuinely unknown, so the listing shows both forms."""
+    try:
+        import providers
+        env = (os.environ.get(providers.PROVIDER_ENV) or "").strip().lower()
+        if env in (providers.CLAUDE, providers.CODEX):
+            return env
+        record = providers.read_live_session()
+        if record and record.get("provider") in (providers.CLAUDE, providers.CODEX):
+            return record["provider"]
+    except Exception:  # noqa: BLE001 — an unreadable seam degrades to the both-forms rendering
+        pass
+    return None
+
+
+def _verb_line(verb: dict, prefix: "str | None" = "/") -> str:
+    """One listing line. `prefix` is the typed sigil for the ambient runtime ("/" on Claude Code,
+    "$" on Codex); None means the runtime is unknown, so both forms are shown once per verb. A verb
+    installed for only ONE runtime always renders with THAT runtime's sigil (its note names the
+    runtime), so the listing never presents a verb in a form that would not answer."""
     desc = verb.get("description") or ""
     name = verb.get("name", "")
-    return f"  /{name} — {desc}" if desc else f"  /{name}"
+    home = verb.get("home")
+    if home:
+        typed = f"/{name}" if home == "claude" else f"${name}"
+    elif prefix is None:
+        typed = f"/{name}  (in Codex: ${name})"
+    else:
+        typed = f"{prefix}{name}"
+    return f"  {typed} — {desc}" if desc else f"  {typed}"
 
 
-def render(installed: list, available: list) -> str:
+def render(installed: list, available: list, prefix: "str | None" = "/") -> str:
     """The plain-language listing the operator sees. Installed commands first (alphabetical), then the
     optional ones (alphabetical) or a single plain line when there are none — never a bare empty heading
     — and a closing pointer to the getting-started guide. A pure function of its inputs: no clock, no
-    network, no MCP."""
+    network, no MCP. `prefix` renders each verb in the ambient runtime's own typed form (None = both)."""
     lines = [_HEADER, ""]
-    lines.extend(_verb_line(v) for v in installed)
+    lines.extend(_verb_line(v, prefix) for v in installed)
     lines.append("")
     if available:
         lines.append(_AVAILABLE_HEADER)
         lines.append("")
-        lines.extend(_verb_line(v) for v in available)
+        lines.extend(_verb_line(v, prefix) for v in available)
     else:
         lines.append(_EMPTY_AVAILABLE_LINE)
     lines.append("")
@@ -184,7 +243,9 @@ def _demo() -> int:
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
-    print(render(installed_verbs(), available_verbs()))
+    provider = ambient_provider()
+    prefix = {"claude": "/", "codex": "$"}.get(provider)   # None (unknown) → both forms shown
+    print(render(installed_verbs(), available_verbs(), prefix))
     return 0
 
 

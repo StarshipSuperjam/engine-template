@@ -1269,8 +1269,14 @@ class TestFoundationInfra(unittest.TestCase):
     def test_foundation_code_is_foundation_infra_minus_manifest_codeowners_claude_and_gitignore(self):
         expected = tuple(p for p in module_coherence.FOUNDATION_INFRA
                          if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS",
-                                      "CLAUDE.md", ".gitignore"))
+                                      "CLAUDE.md", "AGENTS.md", ".gitignore"))
         self.assertEqual(module_manager.FOUNDATION_CODE, expected)
+
+    def test_foundation_code_also_excludes_the_agents_floor(self):
+        # AGENTS.md is CLAUDE.md's exact sibling: keyed-merged on upgrade, so it must never be in the
+        # overlay-replace set (an overlay would clobber an adopter's own content around the fence).
+        self.assertNotIn("AGENTS.md", module_manager.FOUNDATION_CODE)
+        self.assertIn("AGENTS.md", module_manager.module_coherence.FOUNDATION_INFRA)
         # the issue templates are now in the overlay set; the manifest, CODEOWNERS, root CLAUDE.md, and root
         # .gitignore are excluded — CLAUDE.md/.gitignore carry a keyed engine fence re-asserted locally
         # (_merge_claude_floor / apply_foundation_ignores), not fetched-and-replaced wholesale (#234 /

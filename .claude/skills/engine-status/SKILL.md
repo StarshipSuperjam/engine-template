@@ -10,9 +10,8 @@ allowed-tools: Bash(uv run *)
 
 1. Show where the project stands by running:
    `uv run --directory .engine -- python tools/engine_status.py --session "${CLAUDE_CODE_SESSION_ID}"`
-   (`${CLAUDE_CODE_SESSION_ID}` holds this session's id; the system fills it in automatically before the
-   command runs. If it ever comes through empty, the status still renders — only the
-   building-or-looking-around line may be left off.)
+   (the engine works out this session's identity automatically. If no session can be identified, the
+   status still renders — only the building-or-looking-around line may be left off.)
 2. Show the operator the status exactly as it is printed — where the project stands, what recently shipped,
    and anything needing their attention. Do not summarize or reword it.
 

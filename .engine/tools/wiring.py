@@ -8,9 +8,9 @@ provisioning subsystems (the one-time instantiator and the permanent module mana
 CODEOWNERS renderer call it, so the wiring logic does not die with the self-deleting
 instantiator.
 
-THE R5 FIREWALL. The seam vocabulary is closed to five types — hook, mcp, ontology-entry,
-permission, gitignore — and there is **no `custom/script` escape hatch**: an arbitrary
-shared-state mutation with no guaranteed reverser *is* the R5 failure (module-system 99-103).
+THE R5 FIREWALL. The seam vocabulary is closed to seven types — hook, mcp, ontology-entry,
+permission, gitignore, codex-hook, codex-mcp — and there is **no `custom/script` escape hatch**: an
+arbitrary shared-state mutation with no guaranteed reverser *is* the R5 failure (module-system 99-103).
 A new seam is a reviewed change to this file (a new applier/reverser pair), not a runtime
 directive. The dispatch is reject-by-default: an unknown type mutates nothing.
 
@@ -22,6 +22,14 @@ REVERSAL KEYS ON ENGINE-NAMESPACED IDENTITY, never bare content (module-system 1
                    leaving it" (a documented no-op) — the worst case is a tolerated residual, never
                    removing one the operator wanted (module-system 110-113)
   - gitignore   -> root .gitignore, engine lines inside a comment-fenced engine-managed block
+  - codex-hook  -> .codex/hooks.json (the Codex runtime's registration), keyed on {event, matcher,
+                   type, command} exactly like `hook`; command -> .engine/. Codex trusts hooks per
+                   exact definition, so every apply/reverse that changes the file carries the
+                   re-trust notice in its finding (eADR-0036).
+  - codex-mcp   -> .codex/config.toml, the engine server rendered inside a comment-fenced
+                   engine-managed block keyed on the engine-prefixed server name — a fence, never a
+                   whole-file TOML rewrite, so product tables outside the fences are untouched; the
+                   whole file must parse as TOML before AND after, or the engine refuses (eADR-0034)
 
 Apply **inserts iff absent**; reverse **removes only the engine-identified entry** (an operator's
 or product's identical-looking entry is left untouched). Every apply and reverse is **idempotent**,
@@ -88,6 +96,14 @@ MCP_PATH = os.path.join(validate.ROOT, ".mcp.json")                       # mcp
 GITIGNORE_PATH = os.path.join(validate.ROOT, ".gitignore")               # gitignore
 CATALOG_PATH = validate.CATALOG_PATH                                      # ontology-entry
 CATALOG_SCHEMA_PATH = os.path.join(validate.SCHEMAS_DIR, "surface-catalog.schema.json")
+CODEX_HOOKS_PATH = os.path.join(validate.ROOT, ".codex", "hooks.json")    # codex-hook
+CODEX_CONFIG_PATH = os.path.join(validate.ROOT, ".codex", "config.toml")  # codex-mcp
+
+# The plain-language re-trust notice every codex-hook change carries: Codex records trust against each
+# hook's exact definition, so a new or changed registration is silently SKIPPED until the operator
+# re-trusts it — the one moment to say so is when the engine makes the change (eADR-0036).
+CODEX_RETRUST_NOTE = ("Codex skips new or changed hooks until you approve them again — open Codex "
+                      "and run /hooks to re-approve the engine's hooks.")
 
 
 class WiringError(Exception):
@@ -511,6 +527,121 @@ def catalog_remove(data: dict, directive: dict):
     return data, False
 
 
+def _codex_matcher(directive: dict):
+    """A codex-hook directive's matcher, normalized: Codex omits the matcher key for an
+    always-fire group (an empty matcher string is undocumented there), so '' and absent both
+    normalize to None and the file carries the key only when a real matcher is set."""
+    return directive.get("matcher") or None
+
+
+def codex_hooks_add(data: dict, directive: dict):
+    event = directive["event"]
+    matcher = _codex_matcher(directive)
+    entry = directive["hook"]
+    command = entry.get("command", "")
+    if ENGINE_DIR_MARKER not in command:
+        raise WiringError("refused: a hook command must point into .engine/ to be an engine-owned "
+                          f"hook (got {command!r}).")
+    groups = data.setdefault("hooks", {}).setdefault(event, [])
+    group = next((g for g in groups if g.get("matcher") == matcher), None)
+    if group is None:
+        group = {"hooks": []} if matcher is None else {"matcher": matcher, "hooks": []}
+        groups.append(group)
+    hooks = group.setdefault("hooks", [])
+    if any(h.get("type") == entry.get("type") and h.get("command") == entry.get("command")
+           for h in hooks):
+        return data, False
+    hooks.append(dict(entry))
+    return data, True
+
+
+def codex_hooks_remove(data: dict, directive: dict):
+    event = directive["event"]
+    matcher = _codex_matcher(directive)
+    entry = directive["hook"]
+    groups = (data.get("hooks") or {}).get(event)
+    if not groups:
+        return data, False
+    changed = False
+    for group in list(groups):
+        if group.get("matcher") != matcher:
+            continue
+        existing = group.get("hooks") or []
+        kept = [h for h in existing
+                if not (h.get("type") == entry.get("type")
+                        and h.get("command") == entry.get("command"))]
+        if len(kept) != len(existing):
+            changed = True
+            if kept:
+                group["hooks"] = kept
+            else:
+                groups.remove(group)
+    if changed and not groups:
+        del data["hooks"][event]
+    if changed and not data.get("hooks"):   # prune the engine-created container iff now empty
+        data.pop("hooks", None)
+    return data, changed
+
+
+# ---- the codex-mcp TOML fence renderer (deterministic; scalars via JSON, whose string escapes
+# are TOML-legal basic-string escapes) ----------------------------------------------------------
+
+_CODEX_MCP_KEY_ORDER = ("command", "args", "cwd", "env")   # the launch keys first, then sorted rest
+_TOML_BARE_KEY_RE = re.compile(r"\A[A-Za-z0-9_-]+\Z")
+
+
+def _toml_scalar(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        raise WiringError(f"refused: the codex-mcp definition value {value!r} has no TOML "
+                          f"rendering — fix the directive's value.")
+    if isinstance(value, (str, int, float)):
+        return json.dumps(value)
+    if isinstance(value, list):
+        if not all(isinstance(v, (str, int, float, bool)) for v in value):
+            raise WiringError("refused: a codex-mcp definition list may hold scalars only.")
+        return "[" + ", ".join(_toml_scalar(v) for v in value) + "]"
+    raise WiringError(f"refused: a codex-mcp definition value of type {type(value).__name__} "
+                      f"cannot be rendered.")
+
+
+def _toml_key(key) -> str:
+    if not isinstance(key, str) or not _TOML_BARE_KEY_RE.match(key):
+        raise WiringError(f"refused: {key!r} is not a plain TOML key (letters, digits, "
+                          f"underscores and hyphens).")
+    return key
+
+
+def render_codex_mcp_body(name: str, definition: dict) -> list:
+    """The deterministic TOML lines for one engine server table — the codex-mcp fence body. The
+    launch keys render first in a fixed order, the rest sorted; a dict-of-scalars value renders as
+    that key's own sub-table, and a dict-of-dicts one level deeper (the per-tool approval tables),
+    so the same definition always renders byte-identically (the is_applied mirror depends on it)."""
+    if not isinstance(definition, dict) or not definition:
+        raise WiringError("refused: a codex-mcp definition must be a non-empty object.")
+    ordered = [k for k in _CODEX_MCP_KEY_ORDER if k in definition]
+    ordered += sorted(k for k in definition if k not in _CODEX_MCP_KEY_ORDER)
+    lines = [f"[mcp_servers.{_toml_key(name)}]"]
+    tables = []
+    for key in ordered:
+        value = definition[key]
+        if isinstance(value, dict):
+            base = f"mcp_servers.{_toml_key(name)}.{_toml_key(key)}"
+            if all(isinstance(v, dict) for v in value.values()) and value:
+                for sub in sorted(value):
+                    tables.append(f"[{base}.{_toml_key(sub)}]")
+                    for k2 in sorted(value[sub]):
+                        tables.append(f"{_toml_key(k2)} = {_toml_scalar(value[sub][k2])}")
+            else:
+                tables.append(f"[{base}]")
+                for k2 in sorted(value):
+                    tables.append(f"{_toml_key(k2)} = {_toml_scalar(value[k2])}")
+        else:
+            lines.append(f"{_toml_key(key)} = {_toml_scalar(value)}")
+    return lines + tables
+
+
 # ---- the five directive-level applier/reverser pairs -----------------------------------------
 
 def hook_apply(directive: dict) -> dict:
@@ -593,6 +724,73 @@ def gitignore_reverse(directive: dict) -> dict:
     return _text_fence_reverse(GITIGNORE_PATH, directive["key"])
 
 
+def codex_hook_apply(directive: dict) -> dict:
+    out = _json_apply(CODEX_HOOKS_PATH, lambda d: codex_hooks_add(d, directive),
+                      f"Wired the hook into .codex/hooks.json. {CODEX_RETRUST_NOTE}",
+                      "Nothing to change - the hook is already wired.", create=True)
+    return out
+
+
+def codex_hook_reverse(directive: dict) -> dict:
+    return _json_apply(CODEX_HOOKS_PATH, lambda d: codex_hooks_remove(d, directive),
+                       f"Removed the engine hook from .codex/hooks.json; other hooks were left "
+                       f"untouched. {CODEX_RETRUST_NOTE}",
+                       "Nothing to remove - the engine hook is not present.", create=True)
+
+
+def _codex_config_toml_guard(text: str, when: str):
+    """Refuse (fail-open) when .codex/config.toml does not parse as TOML — before a change (a file
+    the engine cannot safely read is never blind-edited) and after the pure fence transform (a
+    change that would leave the file unparseable is never written)."""
+    import tomllib
+    if text.strip() == "":
+        return
+    try:
+        tomllib.loads(text)
+    except Exception as exc:
+        raise WiringError(f"refused: .codex/config.toml is not valid TOML {when} ({exc}). "
+                          f"The engine made no change.")
+
+
+def codex_mcp_apply(directive: dict) -> dict:
+    try:
+        name = directive["name"]
+        _validate_mcp_name(name)
+        body = render_codex_mcp_body(name, directive["definition"])
+        text = _read_text(CODEX_CONFIG_PATH)
+        _codex_config_toml_guard(text, "so the engine will not edit it")
+        new = fence_apply(text, name, body)
+        _codex_config_toml_guard(new, "after this change, so the change was not written")
+    except (WiringError, KeyError, TypeError) as exc:
+        return _fail(str(exc) if isinstance(exc, WiringError)
+                     else f"refused: malformed codex-mcp directive ({exc}).", CODEX_CONFIG_PATH)
+    if new != text:
+        _write_text(CODEX_CONFIG_PATH, new)
+        return _ok(f"Registered the engine server '{name}' in .codex/config.toml (inside its own "
+                   f"engine-managed block; anything else in the file is untouched).", CODEX_CONFIG_PATH)
+    return _ok(f"Nothing to change - the engine server '{name}' is already registered.",
+               CODEX_CONFIG_PATH)
+
+
+def codex_mcp_reverse(directive: dict) -> dict:
+    try:
+        name = directive["name"]
+        _validate_mcp_name(name)
+        text = _read_text(CODEX_CONFIG_PATH)
+        _codex_config_toml_guard(text, "so the engine will not edit it")
+        new = fence_reverse(text, name)
+        _codex_config_toml_guard(new, "after this change, so the change was not written")
+    except (WiringError, KeyError, TypeError) as exc:
+        return _fail(str(exc) if isinstance(exc, WiringError)
+                     else f"refused: malformed codex-mcp directive ({exc}).", CODEX_CONFIG_PATH)
+    if new != text:
+        _write_text(CODEX_CONFIG_PATH, new)
+        return _ok(f"Removed the engine server '{name}' from .codex/config.toml; your own "
+                   f"configuration is untouched.", CODEX_CONFIG_PATH)
+    return _ok(f"Nothing to remove - the engine server '{name}' is not registered.",
+               CODEX_CONFIG_PATH)
+
+
 # ---- the closed dispatch (the R5 firewall as code) -------------------------------------------
 
 _APPLIERS = {
@@ -601,6 +799,8 @@ _APPLIERS = {
     "ontology-entry": ontology_entry_apply,
     "permission": permission_apply,
     "gitignore": gitignore_apply,
+    "codex-hook": codex_hook_apply,
+    "codex-mcp": codex_mcp_apply,
 }
 _REVERSERS = {
     "hook": hook_reverse,
@@ -608,6 +808,8 @@ _REVERSERS = {
     "ontology-entry": ontology_entry_reverse,
     "permission": permission_reverse,
     "gitignore": gitignore_reverse,
+    "codex-hook": codex_hook_reverse,
+    "codex-mcp": codex_mcp_reverse,
 }
 SEAMS = frozenset(_APPLIERS)  # the closed seam vocabulary (must equal the module.v1 wires.type enum)
 
@@ -681,6 +883,18 @@ def is_applied(directive: dict) -> bool:
             data, err = _read_json_tolerant(CATALOG_PATH, create=True)
             # FULL-CONTENT, mirroring catalog_add's `surfaces.get(name) == record`.
             return err is None and (data.get("surfaces") or {}).get(directive["name"]) == directive["record"]
+        if seam == "codex-hook":
+            data, err = _read_json_tolerant(CODEX_HOOKS_PATH, create=True)
+            if err is not None:
+                return False
+            _, changed = codex_hooks_add(json.loads(json.dumps(data)), directive)
+            return not changed  # would-be-no-op ⇒ already present
+        if seam == "codex-mcp":
+            # FULL-CONTENT: re-render the fence body and test would-be-no-op, so a drifted
+            # engine table reads as NOT applied — an apply would rewrite it.
+            body = render_codex_mcp_body(directive["name"], directive["definition"])
+            text = _read_text(CODEX_CONFIG_PATH)
+            return fence_apply(text, directive["name"], body) == text
     except (WiringError, KeyError, TypeError):
         return False
     return False
@@ -710,18 +924,26 @@ def declared_wire_identity(directive: dict):
         return ("mcp", directive.get("name"))
     if seam == "gitignore":
         return ("gitignore", directive.get("key"))
+    if seam == "codex-hook":
+        h = directive.get("hook") or {}
+        return ("codex-hook", (directive.get("event"), _codex_matcher(directive),
+                               h.get("type"), h.get("command")))
+    if seam == "codex-mcp":
+        return ("codex-mcp", directive.get("name"))
     return None  # permission / ontology-entry / unknown: outside the reverse-leg seam set
 
 
-def _applied_fence_ids() -> list:
-    """The ids of every well-formed engine-managed fence currently in .gitignore. The id is parsed from
+def _applied_fence_ids(path: str | None = None) -> list:
+    """The ids of every well-formed engine-managed fence currently in `path` (default: the live
+    GITIGNORE_PATH, resolved at call time so test redirection holds; the codex-mcp leg passes
+    .codex/config.toml). The id is parsed from
     each begin marker (single-homed off FENCE_BEGIN) and confirmed as a single well-formed begin..end
     pair via _find_fence; a malformed/half fence is skipped (the forward leg / fence_reverse surface it).
     Returns EVERY fence id, including the foundation FOUNDATION_IGNORES_FENCE — its carve-out from the
     orphan-wire reverse leg is applied one level up, in applied_engine_wires (it is a library-helper fence
     no manifest declares, so the reverse leg must not treat it as undeclared module wiring). This enumerator stays a pure "all fences" reader."""
     pre, post = FENCE_BEGIN.split("{id}")
-    lines = _read_text(GITIGNORE_PATH).split("\n")
+    lines = _read_text(GITIGNORE_PATH if path is None else path).split("\n")
     ids = []
     for ln in lines:
         if ln.startswith(pre) and ln.endswith(post) and len(ln) > len(pre) + len(post):
@@ -770,6 +992,21 @@ def applied_engine_wires() -> list:
         if fence_id == FOUNDATION_IGNORES_FENCE:
             continue   # the foundation fence is a library-helper block, not module wiring — never an orphan
         out.append(("gitignore", fence_id, _rel(GITIGNORE_PATH)))
+    data, err = _read_json_tolerant(CODEX_HOOKS_PATH, create=True)
+    if err is None:
+        for event, groups in (data.get("hooks") or {}).items():
+            for group in (groups or []):
+                if not isinstance(group, dict):
+                    continue
+                matcher = group.get("matcher")
+                for h in (group.get("hooks") or []):
+                    command = (h or {}).get("command", "") if isinstance(h, dict) else ""
+                    if isinstance(command, str) and ENGINE_DIR_MARKER in command:
+                        out.append(("codex-hook", (event, matcher, h.get("type"), command),
+                                    _rel(CODEX_HOOKS_PATH)))
+    for fence_id in _applied_fence_ids(CODEX_CONFIG_PATH):
+        if fence_id.startswith(MCP_NAME_PREFIX):
+            out.append(("codex-mcp", fence_id, _rel(CODEX_CONFIG_PATH)))
     return out
 
 

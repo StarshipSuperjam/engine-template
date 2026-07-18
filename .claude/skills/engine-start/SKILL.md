@@ -10,9 +10,8 @@ allowed-tools: Bash(uv run *)
 
 1. Switch this session into building by running:
    `uv run --directory .engine -- python tools/modes.py set-build --session "${CLAUDE_CODE_SESSION_ID}"`
-   (`${CLAUDE_CODE_SESSION_ID}` holds this session's id; the system fills it in automatically before the
-   command runs. If it ever comes through empty, the command falls back to that same value, so building
-   still starts.)
+   (the engine works out this session's identity automatically. If the command reports it could not
+   identify the session, say so plainly: the stance stays as it was, and building has not started.)
 2. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
    and submit them as a pull request for your approval."
 3. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open
@@ -22,4 +21,5 @@ allowed-tools: Bash(uv run *)
 ## Notes
 
 This is a command you type to begin building. I won't start building on my own — that is your call: type
-`/engine-start`, or approve a plan I've shown you, and either one begins the work.
+`/engine-start` and the work begins. (In Claude Code, approving a plan I've shown you also starts it; in
+Codex, the typed command is the only way in.)

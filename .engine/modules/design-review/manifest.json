@@ -1,6 +1,6 @@
 {
   "id": "design-review",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "optional",
   "provides": {
     "agent": [
@@ -8,6 +8,12 @@
       ".claude/agents/design-review-architecture.md",
       ".claude/agents/design-review-feasibility.md",
       ".claude/agents/design-review-risk-governance.md"
+    ],
+    "codex-agent": [
+      ".codex/agents/design-review-architecture.toml",
+      ".codex/agents/design-review-feasibility.toml",
+      ".codex/agents/design-review-product-intent.toml",
+      ".codex/agents/design-review-risk-governance.toml"
     ]
   },
   "wires": [],

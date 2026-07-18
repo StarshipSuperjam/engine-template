@@ -122,9 +122,20 @@ def _instance_slug(surface_type: str, rel_path: str) -> str:
     always `__init__.py`, so the bare stem would collide every package's marker onto '__init__'; it is
     qualified by its package directory (e.g. `.engine/tools/memory/__init__.py` -> `memory.__init__`) so two
     tool packages stay distinct. Every other surface has a distinct filename, so its slug is the file stem
-    (`_slug`); an agent is `.claude/agents/<name>.md`, whose stem is already its name."""
+    (`_slug`); an agent is `.claude/agents/<name>.md`, whose stem is already its name. A codex-skill is the
+    same directory-identity shape as a skill, with a second per-directory file (the invocation policy,
+    `agents/openai.yaml`), so its slug is the skill directory's name, `.policy`-qualified for the policy
+    file (`.agents/skills/engine-help/agents/openai.yaml` -> `engine-help.policy`) so the pair stays
+    distinct."""
     if surface_type == "skill":
         return os.path.basename(os.path.dirname(rel_path))
+    if surface_type == "codex-skill":
+        parent = os.path.dirname(rel_path)
+        if os.path.basename(rel_path) == "SKILL.md":
+            return os.path.basename(parent)
+        if os.path.basename(parent) == "agents":
+            return os.path.basename(os.path.dirname(parent)) + ".policy"
+        return os.path.basename(parent) + "." + _slug(rel_path)
     stem = _slug(rel_path)
     if stem == "__init__":
         return os.path.basename(os.path.dirname(rel_path)) + ".__init__"

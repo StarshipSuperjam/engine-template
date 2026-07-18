@@ -1,0 +1,15 @@
+{
+  "id": "engine/check/codex-skill-coherence",
+  "target": {
+    "context": "codex-skill-coherence"
+  },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/codex_skill_coherence_check.py"
+  },
+  "tier": "hard",
+  "suites": [
+    "CI"
+  ],
+  "message": "Every engine command rendered for Codex (.agents/skills/engine-*) must keep its operator-only protection: the companion agents/openai.yaml with policy.allow_implicit_invocation: false, so the assistant can never start the command on its own — the same self-election safety the Claude-side skills carry via their own flag. This check goes red when an engine Codex command ships without that companion or with the policy loosened. To fix: regenerate the render (uv run --directory .engine --frozen -- python tools/codex_gen.py generate) or restore the policy file."
+}

@@ -40,7 +40,7 @@ Slow, gated, and verifiable beats fast and opaque. The Engine deliberately trade
 ## Get started
 
 1. Click **Use this template** above to create your own repository.
-2. Open it in [Claude Code](https://claude.com/claude-code).
+2. Open it in [Claude Code](https://claude.com/claude-code), or in [Codex](https://openai.com/codex/) — the Engine runs natively in either.
 3. A guided first-run setup walks you through your choices and stands up the Engine for your project.
 
 ## What's inside
@@ -54,7 +54,24 @@ The Engine externalizes the cognition and controls it runs on — each one a com
 - **Guardrails & the review gate** — a deterministic validation suite (presence, coverage, shape, and coherence checks) gating every pull request, a protected `main`, and a guardrail-weakening classifier that forces an explicit, logged acknowledgment for any change that relaxes a check.
 - **Explore / Build modes** — an enforced write-gate: read-only investigation and planning by default, file edits only after a deliberate build transition, every change landing as a reviewable pull request — autonomy bounded by construction, not by good behavior.
 - **One-shot provisioning** — an instantiator that runs gather → confirm → apply → verify → retire on first use: it installs only the modules you select, wires them in, verifies coherence, and self-deletes the setup scaffolding.
-- **Claude Code-native** — wired into Claude Code through its hooks and an MCP control plane, and built to degrade to plain git-tracked files when an out-of-repo substrate is unavailable, so a broken service never strands the work.
+- **Native in Claude Code and Codex** — one canonical Engine core with a native adapter per AI runtime: wired into Claude Code (its hooks, skills, agents, and MCP control plane) and into Codex (its hooks, skills, agents, and project-scoped MCP), with a parity check that keeps every capability paired across the two and a committed ledger for the few sanctioned differences. Built to degrade to plain git-tracked files when an out-of-repo substrate is unavailable, so a broken service never strands the work.
+
+## Runtime support
+
+The same Engine serves both runtimes from one core; the differences worth knowing:
+
+| Capability | Claude Code | Codex |
+|---|---|---|
+| Instruction floor | `CLAUDE.md` (conduct auto-imported) | `AGENTS.md` (conduct by required reading — an instruction, not a mechanism) |
+| Session hooks (boot, write-gate, memory, status) | Native, on by default | Native; **requires your one-time approval** (`/hooks`), and re-approval after any Engine update that changes them — the Engine tells you when |
+| Explore / Build write-gate | PreToolUse gate | Same gate; Codex's own docs call its hook a guardrail, not a complete boundary — the protected branch and your merge remain the wall on both |
+| Build entry | `/engine-start` or plan approval | `$engine-start` only (Codex has no plan-approval signal) |
+| Typed commands | `/engine-…` (10) | `$engine-…` (9 — `engine-routine` ships with its Codex backend in a follow-up) |
+| Review personas | 10 native agents | The same 10, rendered natively (read-only sandbox) |
+| Memory & knowledge servers | `.mcp.json` | `.codex/config.toml` (trusted projects only) |
+| Session-memory capture | Native transcripts | Dedicated reader; Codex's transcript format is not a stable interface, so a format change degrades **loudly** ("memory not captured"), never silently |
+| Minimum version | Current | A 2026 build with hooks support (~v0.114+) |
+| Windows | Supported | Untested by this project — the hook launcher carries the standard fallbacks, but no Windows/Codex run has verified them |
 
 ## Status
 

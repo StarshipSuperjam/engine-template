@@ -1,6 +1,6 @@
 {
   "id": "audit-library",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "required",
   "provides": {
     "agent": [
@@ -10,6 +10,9 @@
       ".engine/audits/concern-list.json",
       ".engine/audits/self-review-setup.md",
       ".engine/audits/audit-digest.md"
+    ],
+    "codex-agent": [
+      ".codex/agents/audit.toml"
     ]
   },
   "wires": [],

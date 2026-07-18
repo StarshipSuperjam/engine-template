@@ -1,6 +1,6 @@
 {
   "id": "validators-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "required",
   "provides": {
     "check": [
@@ -13,6 +13,13 @@
       ".engine/check/block-coherence.json",
       ".engine/check/catalog-coverage.json",
       ".engine/check/census-completeness.json",
+      ".engine/check/codex-agent-coherence.json",
+      ".engine/check/codex-agent-schema.json",
+      ".engine/check/codex-hooks-schema.json",
+      ".engine/check/codex-provider-parity.json",
+      ".engine/check/codex-skill-coherence.json",
+      ".engine/check/codex-skill-frontmatter.json",
+      ".engine/check/codex-skill-shape.json",
       ".engine/check/conduct-frontmatter.json",
       ".engine/check/conduct-shape.json",
       ".engine/check/conduct-weakening-guard.json",
@@ -42,6 +49,8 @@
       ".engine/check/policy-override-stale.json",
       ".engine/check/policy-shape.json",
       ".engine/check/pr-body-completeness.json",
+      ".engine/check/provider-exceptions-schema.json",
+      ".engine/check/provider-vocabulary-confinement.json",
       ".engine/check/provisioning-catalog.json",
       ".engine/check/release-integrity.json",
       ".engine/check/self-map-drift.json",
@@ -52,6 +61,9 @@
       ".engine/check/template-shape-spec.json",
       ".engine/check/untracked-surface.json",
       ".engine/check/uv-group-drift.json"
+    ],
+    "policy": [
+      ".engine/policies/provider-exceptions.json"
     ]
   },
   "wires": [],

@@ -58,15 +58,17 @@ class _Redirected(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         d = self._tmp.name
         self._saved = (wiring.SETTINGS_PATH, wiring.MCP_PATH, wiring.GITIGNORE_PATH,
-                       wiring.CATALOG_PATH)
+                       wiring.CATALOG_PATH, wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH)
         wiring.SETTINGS_PATH = os.path.join(d, ".claude", "settings.json")
         wiring.MCP_PATH = os.path.join(d, ".mcp.json")
         wiring.GITIGNORE_PATH = os.path.join(d, ".gitignore")
         wiring.CATALOG_PATH = os.path.join(d, "surface-catalog.json")
+        wiring.CODEX_HOOKS_PATH = os.path.join(d, ".codex", "hooks.json")
+        wiring.CODEX_CONFIG_PATH = os.path.join(d, ".codex", "config.toml")
 
     def tearDown(self):
         (wiring.SETTINGS_PATH, wiring.MCP_PATH, wiring.GITIGNORE_PATH,
-         wiring.CATALOG_PATH) = self._saved
+         wiring.CATALOG_PATH, wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH) = self._saved
         self._tmp.cleanup()
 
 
@@ -833,6 +835,172 @@ class TestCommittedFoundationIgnores(unittest.TestCase):
         body = text.split("\n")[span[0] + 1:span[1]]
         self.assertEqual(body, wiring.FOUNDATION_IGNORE_LINES,
                          "the committed fence body must equal the single-source constant (no drift)")
+
+
+# ---- the Codex seams (codex-hook -> .codex/hooks.json; codex-mcp -> .codex/config.toml) -------
+
+CODEX_HOOK = {"type": "codex-hook", "event": "PreToolUse",
+              "hook": {"type": "command",
+                       "command": "cd \"$(git rev-parse --show-toplevel)\" && "
+                                  "sh .engine/tools/codex-hook-runner.sh \".engine/tools/modes.py\""}}
+CODEX_HOOK_MATCHED = dict(CODEX_HOOK, event="SessionStart", matcher="startup")
+CODEX_MCP = {"type": "codex-mcp", "name": "engine-knowledge",
+             "definition": {"command": "uv",
+                            "args": ["run", "--directory", ".engine", "--frozen", "--",
+                                     "python", "tools/knowledge_mcp_server.py"],
+                            "default_tools_approval_mode": "auto"}}
+
+
+class TestCodexHookSeam(_Redirected):
+    def test_apply_writes_entry_and_carries_the_retrust_notice(self):
+        f = wiring.apply(CODEX_HOOK)
+        self.assertEqual(f["severity"], "note")
+        self.assertIn("/hooks", f["message"], "a change to the Codex registration must tell the "
+                      "operator to re-trust (Codex skips changed hooks until re-trusted)")
+        data = json.loads(_read(wiring.CODEX_HOOKS_PATH))
+        [group] = data["hooks"]["PreToolUse"]
+        self.assertNotIn("matcher", group, "an always-fire group omits the matcher key (Codex's "
+                         "documented form; an empty matcher string is undocumented there)")
+        self.assertEqual(group["hooks"][0]["command"], CODEX_HOOK["hook"]["command"])
+
+    def test_matcher_group_carries_the_matcher_key(self):
+        wiring.apply(CODEX_HOOK_MATCHED)
+        data = json.loads(_read(wiring.CODEX_HOOKS_PATH))
+        [group] = data["hooks"]["SessionStart"]
+        self.assertEqual(group["matcher"], "startup")
+
+    def test_apply_is_idempotent_and_noop_carries_no_retrust_notice(self):
+        wiring.apply(CODEX_HOOK)
+        before = _read(wiring.CODEX_HOOKS_PATH)
+        f = wiring.apply(CODEX_HOOK)
+        self.assertEqual(_read(wiring.CODEX_HOOKS_PATH), before)
+        self.assertNotIn("/hooks", f["message"], "a no-op changed nothing, so no re-trust nag")
+
+    def test_non_engine_command_refused(self):
+        bad = dict(CODEX_HOOK, hook={"type": "command", "command": "rm -rf /"})
+        f = wiring.apply(bad)
+        self.assertEqual(f["severity"], "hard")
+        self.assertFalse(os.path.exists(wiring.CODEX_HOOKS_PATH))
+
+    def test_reverse_removes_only_the_engine_entry(self):
+        os.makedirs(os.path.dirname(wiring.CODEX_HOOKS_PATH), exist_ok=True)
+        product = {"type": "command", "command": "python3 scripts/my-own-hook.py"}
+        with open(wiring.CODEX_HOOKS_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"hooks": {"PreToolUse": [{"hooks": [product]}]}}, fh)
+        wiring.apply(CODEX_HOOK)
+        f = wiring.reverse(CODEX_HOOK)
+        self.assertEqual(f["severity"], "note")
+        self.assertIn("/hooks", f["message"])
+        data = json.loads(_read(wiring.CODEX_HOOKS_PATH))
+        [group] = data["hooks"]["PreToolUse"]
+        self.assertEqual(group["hooks"], [product], "the operator's own hook survives the reverse")
+
+    def test_malformed_file_refused_and_unchanged(self):
+        os.makedirs(os.path.dirname(wiring.CODEX_HOOKS_PATH), exist_ok=True)
+        with open(wiring.CODEX_HOOKS_PATH, "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        f = wiring.apply(CODEX_HOOK)
+        self.assertEqual(f["severity"], "hard")
+        self.assertEqual(_read(wiring.CODEX_HOOKS_PATH), "{not json")
+
+    def test_is_applied_and_identity(self):
+        self.assertFalse(wiring.is_applied(CODEX_HOOK))
+        wiring.apply(CODEX_HOOK)
+        self.assertTrue(wiring.is_applied(CODEX_HOOK))
+        seam, key = wiring.declared_wire_identity(CODEX_HOOK)
+        self.assertEqual(seam, "codex-hook")
+        self.assertEqual(key[1], None, "an empty/absent matcher normalizes to None in the identity")
+        empty = dict(CODEX_HOOK, matcher="")
+        self.assertEqual(wiring.declared_wire_identity(empty)[1][1], None)
+
+    def test_orphan_enumerator_sees_the_engine_entry(self):
+        wiring.apply(CODEX_HOOK)
+        entries = [e for e in wiring.applied_engine_wires() if e[0] == "codex-hook"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0][1], wiring.declared_wire_identity(CODEX_HOOK)[1])
+
+
+class TestCodexMcpSeam(_Redirected):
+    def _parsed(self):
+        import tomllib
+        return tomllib.loads(_read(wiring.CODEX_CONFIG_PATH))
+
+    def test_apply_renders_a_parseable_fenced_table(self):
+        f = wiring.apply(CODEX_MCP)
+        self.assertEqual(f["severity"], "note")
+        parsed = self._parsed()
+        self.assertEqual(parsed["mcp_servers"]["engine-knowledge"]["command"], "uv")
+        self.assertEqual(parsed["mcp_servers"]["engine-knowledge"]["args"],
+                         CODEX_MCP["definition"]["args"])
+        self.assertIn(wiring.FENCE_BEGIN.format(id="engine-knowledge"),
+                      _read(wiring.CODEX_CONFIG_PATH))
+
+    def test_per_tool_approval_subtables_render(self):
+        directive = {"type": "codex-mcp", "name": "engine-memory",
+                     "definition": {"command": "uv", "args": ["run"],
+                                    "tools": {"store": {"approval_mode": "writes"}}}}
+        wiring.apply(directive)
+        parsed = self._parsed()
+        self.assertEqual(parsed["mcp_servers"]["engine-memory"]["tools"]["store"]["approval_mode"],
+                         "writes")
+
+    def test_apply_is_idempotent_and_full_content_mirrored(self):
+        wiring.apply(CODEX_MCP)
+        before = _read(wiring.CODEX_CONFIG_PATH)
+        wiring.apply(CODEX_MCP)
+        self.assertEqual(_read(wiring.CODEX_CONFIG_PATH), before)
+        self.assertTrue(wiring.is_applied(CODEX_MCP))
+        drifted = dict(CODEX_MCP, definition=dict(CODEX_MCP["definition"], command="uvx"))
+        self.assertFalse(wiring.is_applied(drifted), "a drifted definition reads as NOT applied")
+
+    def test_product_content_survives_apply_and_reverse(self):
+        os.makedirs(os.path.dirname(wiring.CODEX_CONFIG_PATH), exist_ok=True)
+        product = '# my own notes\n[mcp_servers.my-server]\ncommand = "npx"\n'
+        with open(wiring.CODEX_CONFIG_PATH, "w", encoding="utf-8") as fh:
+            fh.write(product)
+        wiring.apply(CODEX_MCP)
+        self.assertIn('# my own notes', _read(wiring.CODEX_CONFIG_PATH))
+        self.assertEqual(self._parsed()["mcp_servers"]["my-server"]["command"], "npx")
+        f = wiring.reverse(CODEX_MCP)
+        self.assertEqual(f["severity"], "note")
+        text = _read(wiring.CODEX_CONFIG_PATH)
+        self.assertNotIn("engine-knowledge", text)
+        self.assertIn('command = "npx"', text, "the operator's own server survives the reverse")
+
+    def test_unparseable_file_refused_and_unchanged(self):
+        os.makedirs(os.path.dirname(wiring.CODEX_CONFIG_PATH), exist_ok=True)
+        broken = 'x = """unterminated\n'
+        with open(wiring.CODEX_CONFIG_PATH, "w", encoding="utf-8") as fh:
+            fh.write(broken)
+        f = wiring.apply(CODEX_MCP)
+        self.assertEqual(f["severity"], "hard")
+        self.assertEqual(_read(wiring.CODEX_CONFIG_PATH), broken, "refuse means no write")
+
+    def test_result_that_would_not_parse_is_refused_and_not_written(self):
+        # A product-owned table already claims the engine server's name: appending the engine's
+        # fenced table would redeclare it, which TOML forbids — the post-transform guard must
+        # refuse and leave the file byte-identical.
+        os.makedirs(os.path.dirname(wiring.CODEX_CONFIG_PATH), exist_ok=True)
+        clash = '[mcp_servers.engine-knowledge]\ncommand = "npx"\n'
+        with open(wiring.CODEX_CONFIG_PATH, "w", encoding="utf-8") as fh:
+            fh.write(clash)
+        f = wiring.apply(CODEX_MCP)
+        self.assertEqual(f["severity"], "hard")
+        self.assertEqual(_read(wiring.CODEX_CONFIG_PATH), clash)
+
+    def test_non_engine_name_refused(self):
+        f = wiring.apply({"type": "codex-mcp", "name": "my-server",
+                          "definition": {"command": "npx"}})
+        self.assertEqual(f["severity"], "hard")
+        self.assertFalse(os.path.exists(wiring.CODEX_CONFIG_PATH))
+
+    def test_orphan_enumerator_sees_the_engine_fence(self):
+        wiring.apply(CODEX_MCP)
+        entries = [e for e in wiring.applied_engine_wires() if e[0] == "codex-mcp"]
+        self.assertEqual(entries, [("codex-mcp", "engine-knowledge",
+                                    wiring._rel(wiring.CODEX_CONFIG_PATH))])
+        self.assertEqual(wiring.declared_wire_identity(CODEX_MCP),
+                         ("codex-mcp", "engine-knowledge"))
 
 
 if __name__ == "__main__":

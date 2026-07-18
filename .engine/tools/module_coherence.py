@@ -93,6 +93,9 @@ FOUNDATION_INFRA = (
     ".engine/pyproject.toml",
     ".engine/uv.lock",
     "CLAUDE.md",
+    "AGENTS.md",           # the Codex floor — CLAUDE.md's exact sibling: engine-owned foundation, keyed
+    #                        `floor` fence, OUT of FOUNDATION_CODE (keyed-merged on upgrade, never
+    #                        overlay-replaced) + block-reversed in remove_engine.
     ".gitignore",          # a platform-shared keyed file like CLAUDE.md/CODEOWNERS — carries the engine's
     #                        foundation-ignores fence; OUT of FOUNDATION_CODE + block-reversed
     #                        in remove_engine (never overlay-replaced / wholesale-deleted — #409).
@@ -275,22 +278,25 @@ def engine_file_inventory() -> list:
     return [rel for rel in walked if rel in tracked]
 
 
-def _claude_surface_roots() -> list:
-    """The `.claude/` surface-location roots from the surface catalog (today .claude/skills/,
-    .claude/agents/) — read from the catalog so the set stays single-sourced, never hand-listed. Engine
-    surface files live under .engine/ AND these roots; the untracked-surface detector walks both."""
+def _platform_surface_roots() -> list:
+    """The AI-runtime surface-location roots from the surface catalog — the catalogued homes that live
+    OUTSIDE .engine/ because a runtime dictates them (today .claude/skills/ and .claude/agents/ for
+    Claude Code, .agents/skills/ and .codex/agents/ for Codex) — read from the catalog so the set stays
+    single-sourced, never hand-listed. Engine surface files live under .engine/ AND these roots; the
+    untracked-surface detector walks both."""
     catalog = validate.load_json(validate.CATALOG_PATH) or {}
     roots = {(s or {}).get("location") for s in (catalog.get("surfaces") or {}).values()}
-    return sorted(r for r in roots if isinstance(r, str) and r.startswith(".claude/"))
+    return sorted(r for r in roots
+                  if isinstance(r, str) and r.startswith((".claude/", ".codex/", ".agents/")))
 
 
 def _surface_walk() -> list:
     """Every file on disk under the engine's surface territory: the raw .engine/ tree plus the catalogued
-    .claude/ surface roots (so a duplicated skill/agent directory, e.g. `engine-help 2/SKILL.md`, is seen
+    runtime surface roots (so a duplicated skill/agent directory, e.g. `engine-help 2/SKILL.md`, is seen
     — a literal `provides` path never would). The untracked-surface detector cross-references this against
     git."""
     out = set(_walk_engine_files())
-    for root in _claude_surface_roots():
+    for root in _platform_surface_roots():
         for dirpath, dirs, files in os.walk(os.path.join(validate.ROOT, root)):
             dirs[:] = [d for d in dirs if d not in PRUNE_DIRS]
             out.update(_rel(os.path.join(dirpath, f)) for f in files)
@@ -389,6 +395,8 @@ WIRING_TARGETS = {
     "mcp": _rel(wiring.MCP_PATH),
     "gitignore": _rel(wiring.GITIGNORE_PATH),
     "ontology-entry": _rel(wiring.CATALOG_PATH),
+    "codex-hook": _rel(wiring.CODEX_HOOKS_PATH),
+    "codex-mcp": _rel(wiring.CODEX_CONFIG_PATH),
 }
 
 

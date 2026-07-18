@@ -480,6 +480,216 @@
       "type": "check"
     },
     {
+      "id": "check:codex-agent-coherence",
+      "kind": "custom/script",
+      "name": ".engine/check/codex-agent-coherence.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "codex-agent-coherence",
+      "source": {
+        "fingerprint": "sha256:4a46f6fca5583388d701307d233889cfe460fbee29fe1f69b42834fdcf203620",
+        "path": ".engine/check/codex-agent-coherence.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-agent-schema",
+      "kind": "schema",
+      "name": ".engine/check/codex-agent-schema.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "codex-agent:audit",
+          "codex-agent:design-review-architecture",
+          "codex-agent:design-review-feasibility",
+          "codex-agent:design-review-product-intent",
+          "codex-agent:design-review-risk-governance",
+          "codex-agent:qa-review-divergence-hunter",
+          "codex-agent:qa-review-security-governance",
+          "codex-agent:qa-review-spec-conformance",
+          "codex-agent:qa-review-technical-integrity",
+          "codex-agent:qa-review-usability"
+        ]
+      },
+      "slug": "codex-agent-schema",
+      "source": {
+        "fingerprint": "sha256:ccaba9a21d56ee5dee4d404767ab2132773e3eafa6bccb4af510fae1863e703a",
+        "path": ".engine/check/codex-agent-schema.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-hooks-schema",
+      "kind": "schema",
+      "name": ".engine/check/codex-hooks-schema.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "codex-hooks-schema",
+      "source": {
+        "fingerprint": "sha256:950178a8c9a114fd261c9a7858ae74502d480eb40d2f1ad7ecc8814602d5d3f4",
+        "path": ".engine/check/codex-hooks-schema.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-provider-parity",
+      "kind": "custom/script",
+      "name": ".engine/check/codex-provider-parity.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "codex-provider-parity",
+      "source": {
+        "fingerprint": "sha256:385bfc14cd8bf5a47ada40e871df8657b3fb74d3642b340dbf74ebf1456bcda7",
+        "path": ".engine/check/codex-provider-parity.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-skill-coherence",
+      "kind": "custom/script",
+      "name": ".engine/check/codex-skill-coherence.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "codex-skill-coherence",
+      "source": {
+        "fingerprint": "sha256:0a6024905a16a23622f82ab4801305820a23b96fb85adbe2dcb134c63f3c7e38",
+        "path": ".engine/check/codex-skill-coherence.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-skill-frontmatter",
+      "kind": "schema",
+      "name": ".engine/check/codex-skill-frontmatter.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "codex-skill:engine-board-setup",
+          "codex-skill:engine-conduct",
+          "codex-skill:engine-design",
+          "codex-skill:engine-help",
+          "codex-skill:engine-parts",
+          "codex-skill:engine-setup",
+          "codex-skill:engine-start",
+          "codex-skill:engine-status",
+          "codex-skill:engine-tune"
+        ]
+      },
+      "slug": "codex-skill-frontmatter",
+      "source": {
+        "fingerprint": "sha256:8e8d89398d80cbaac92cf1ac70c2ded8783208028ec1c74fb7d5384ab7eda39f",
+        "path": ".engine/check/codex-skill-frontmatter.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-skill-shape",
+      "kind": "shape",
+      "name": ".engine/check/codex-skill-shape.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "codex-skill:engine-board-setup",
+          "codex-skill:engine-conduct",
+          "codex-skill:engine-design",
+          "codex-skill:engine-help",
+          "codex-skill:engine-parts",
+          "codex-skill:engine-setup",
+          "codex-skill:engine-start",
+          "codex-skill:engine-status",
+          "codex-skill:engine-tune"
+        ]
+      },
+      "slug": "codex-skill-shape",
+      "source": {
+        "fingerprint": "sha256:e8858d0f745ad300d0ab9efb5d6965a33005fb1eb6255d35864102a640648858",
+        "path": ".engine/check/codex-skill-shape.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "audit-prep"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:conduct-frontmatter",
       "kind": "schema",
       "name": ".engine/check/conduct-frontmatter.json",
@@ -602,7 +812,10 @@
           "contract:eADR-0030-operator-stance-floor",
           "contract:eADR-0031-state-cursor-pointers-and-counts",
           "contract:eADR-0032-attention-policy-plus-function",
-          "contract:eADR-0033-boot-refresh-family"
+          "contract:eADR-0033-boot-refresh-family",
+          "contract:eADR-0034-dual-provider-adapter-core",
+          "contract:eADR-0035-provider-parity-committed-exceptions",
+          "contract:eADR-0036-codex-degradation-disclosure"
         ]
       },
       "slug": "contract-frontmatter",
@@ -662,7 +875,10 @@
           "contract:eADR-0030-operator-stance-floor",
           "contract:eADR-0031-state-cursor-pointers-and-counts",
           "contract:eADR-0032-attention-policy-plus-function",
-          "contract:eADR-0033-boot-refresh-family"
+          "contract:eADR-0033-boot-refresh-family",
+          "contract:eADR-0034-dual-provider-adapter-core",
+          "contract:eADR-0035-provider-parity-committed-exceptions",
+          "contract:eADR-0036-codex-degradation-disclosure"
         ]
       },
       "slug": "contract-shape",
@@ -723,7 +939,10 @@
           "contract:eADR-0030-operator-stance-floor",
           "contract:eADR-0031-state-cursor-pointers-and-counts",
           "contract:eADR-0032-attention-policy-plus-function",
-          "contract:eADR-0033-boot-refresh-family"
+          "contract:eADR-0033-boot-refresh-family",
+          "contract:eADR-0034-dual-provider-adapter-core",
+          "contract:eADR-0035-provider-parity-committed-exceptions",
+          "contract:eADR-0036-codex-degradation-disclosure"
         ]
       },
       "slug": "contract-threshold",
@@ -1310,6 +1529,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:codex-validation",
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
@@ -1357,6 +1577,7 @@
           "operation:boot-session-start",
           "operation:build-orchestration",
           "operation:close-turn",
+          "operation:codex-validation",
           "operation:conduct-author",
           "operation:control-plane-bootstrap",
           "operation:engine-arrival",
@@ -1667,6 +1888,59 @@
       "type": "check"
     },
     {
+      "id": "check:provider-exceptions-schema",
+      "kind": "schema",
+      "name": ".engine/check/provider-exceptions-schema.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "policy:provider-exceptions"
+        ]
+      },
+      "slug": "provider-exceptions-schema",
+      "source": {
+        "fingerprint": "sha256:5f0a1a3dae2cc718060648f4581492b2ac570af38787554833e408c232c894b9",
+        "path": ".engine/check/provider-exceptions-schema.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:provider-vocabulary-confinement",
+      "kind": "custom/script",
+      "name": ".engine/check/provider-vocabulary-confinement.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "provider-vocabulary-confinement",
+      "source": {
+        "fingerprint": "sha256:9888dc5039c0068f74b8df73568f120df9527231aa68c2ae6598c9a1fc7c849a",
+        "path": ".engine/check/provider-vocabulary-confinement.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:provisioning-catalog",
       "kind": "schema",
       "name": ".engine/check/provisioning-catalog.json",
@@ -1966,6 +2240,566 @@
       ],
       "tier": "hard",
       "type": "check"
+    },
+    {
+      "id": "codex-agent:audit",
+      "name": ".codex/agents/audit.toml",
+      "owner": "audit-library",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:audit-library"
+        ]
+      },
+      "slug": "audit",
+      "source": {
+        "fingerprint": "sha256:d33272530f0ca0410cca435c3ad0570d5172f706e7bd25c80b32c029dce75269",
+        "path": ".codex/agents/audit.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:design-review-architecture",
+      "name": ".codex/agents/design-review-architecture.toml",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "slug": "design-review-architecture",
+      "source": {
+        "fingerprint": "sha256:afa912e2965dee7624b159b00a54f5852cb38d4756d80867a69b75862024fce4",
+        "path": ".codex/agents/design-review-architecture.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:design-review-feasibility",
+      "name": ".codex/agents/design-review-feasibility.toml",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "slug": "design-review-feasibility",
+      "source": {
+        "fingerprint": "sha256:4b9106ca80f2d7935c087166b2cccf70dd33afecc4d1dfd84c670fe6c53928bf",
+        "path": ".codex/agents/design-review-feasibility.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:design-review-product-intent",
+      "name": ".codex/agents/design-review-product-intent.toml",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "slug": "design-review-product-intent",
+      "source": {
+        "fingerprint": "sha256:6d84d012e6aae7a66de9b4d60a3396861944833997f10ad6aa2bc69672613f7c",
+        "path": ".codex/agents/design-review-product-intent.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:design-review-risk-governance",
+      "name": ".codex/agents/design-review-risk-governance.toml",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "slug": "design-review-risk-governance",
+      "source": {
+        "fingerprint": "sha256:d26bd31d5c330c81cc38904baafc144c74ef0d0b72ce55617c92449f8521b23c",
+        "path": ".codex/agents/design-review-risk-governance.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-divergence-hunter",
+      "name": ".codex/agents/qa-review-divergence-hunter.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-divergence-hunter",
+      "source": {
+        "fingerprint": "sha256:482ecb756f686f45e6a153e450f2904f6afec82e0565feaa0cc27181ba7663de",
+        "path": ".codex/agents/qa-review-divergence-hunter.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-security-governance",
+      "name": ".codex/agents/qa-review-security-governance.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-security-governance",
+      "source": {
+        "fingerprint": "sha256:f3b7301bfdf29862d28f185f37d3d790703f749b7536bd2004e3ece8754fcec1",
+        "path": ".codex/agents/qa-review-security-governance.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-spec-conformance",
+      "name": ".codex/agents/qa-review-spec-conformance.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-spec-conformance",
+      "source": {
+        "fingerprint": "sha256:33d239e816f19cca42e76aed26d510e2b9fb964ce7f71597350ef17f4c5aa973",
+        "path": ".codex/agents/qa-review-spec-conformance.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-technical-integrity",
+      "name": ".codex/agents/qa-review-technical-integrity.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-technical-integrity",
+      "source": {
+        "fingerprint": "sha256:f78ed500bee8f4e35b562800db5e5f3461fec03b6f2201a4251775f8990daf9c",
+        "path": ".codex/agents/qa-review-technical-integrity.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-usability",
+      "name": ".codex/agents/qa-review-usability.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-usability",
+      "source": {
+        "fingerprint": "sha256:873609fa4c2d324ee25ad40b298e0f801fa4e451a76e91a02d3abf45610aed3d",
+        "path": ".codex/agents/qa-review-usability.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-skill:engine-board-setup",
+      "name": ".agents/skills/engine-board-setup/SKILL.md",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "engine-board-setup",
+      "source": {
+        "fingerprint": "sha256:288d87feff3bda1e8202ea460baa8d61bb067bb7f4f17eb7e151ac7f76cbc1d5",
+        "path": ".agents/skills/engine-board-setup/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-board-setup.policy",
+      "name": ".agents/skills/engine-board-setup/agents/openai.yaml",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "engine-board-setup.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-board-setup/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-conduct",
+      "name": ".agents/skills/engine-conduct/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-conduct",
+      "source": {
+        "fingerprint": "sha256:32cfe4b192683595d0505601c5ffc8241184f28e2e5286ea3e5441182520172c",
+        "path": ".agents/skills/engine-conduct/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-conduct.policy",
+      "name": ".agents/skills/engine-conduct/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-conduct.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-conduct/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-design",
+      "name": ".agents/skills/engine-design/SKILL.md",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "engine-design",
+      "source": {
+        "fingerprint": "sha256:b823e67aa6f4426f332e025dae9a1c5a234f54d98618345dc55bae819a56e9f6",
+        "path": ".agents/skills/engine-design/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-design.policy",
+      "name": ".agents/skills/engine-design/agents/openai.yaml",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "engine-design.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-design/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-help",
+      "name": ".agents/skills/engine-help/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-help",
+      "source": {
+        "fingerprint": "sha256:a6b0cee25e31ba78ed42e0c9e13a27cc8bc8a8f7251a57b01a99f1775a361648",
+        "path": ".agents/skills/engine-help/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-help.policy",
+      "name": ".agents/skills/engine-help/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-help.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-help/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-parts",
+      "name": ".agents/skills/engine-parts/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-parts",
+      "source": {
+        "fingerprint": "sha256:b1087973ee354f35d122f5fa0416bbd9dcd1836bf292186d90b6eb2a3db9f5f2",
+        "path": ".agents/skills/engine-parts/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-parts.policy",
+      "name": ".agents/skills/engine-parts/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-parts.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-parts/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup",
+      "name": ".agents/skills/engine-setup/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup",
+      "source": {
+        "fingerprint": "sha256:6398a90695346ea456c881152b22056271cfc4fb13f814dafb55c2f2a235adc1",
+        "path": ".agents/skills/engine-setup/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup.policy",
+      "name": ".agents/skills/engine-setup/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-setup/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-start",
+      "name": ".agents/skills/engine-start/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-start",
+      "source": {
+        "fingerprint": "sha256:0a030ec4843759d4842b6a7df13488449956ba6cc61bd52e98df3623ad26c4e2",
+        "path": ".agents/skills/engine-start/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-start.policy",
+      "name": ".agents/skills/engine-start/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-start.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-start/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-status",
+      "name": ".agents/skills/engine-status/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-status",
+      "source": {
+        "fingerprint": "sha256:1f4ea2c4fd8c4f2808297ead3149816d7271e5e2235d58c7a9941eb26f7d45ff",
+        "path": ".agents/skills/engine-status/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-status.policy",
+      "name": ".agents/skills/engine-status/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-status.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-status/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-tune",
+      "name": ".agents/skills/engine-tune/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-tune",
+      "source": {
+        "fingerprint": "sha256:82517fea3f9ff363b2d866ada63bdbc26e15e0861b59444a0154fdb5f70b3d3e",
+        "path": ".agents/skills/engine-tune/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-tune.policy",
+      "name": ".agents/skills/engine-tune/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-tune.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-tune/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
     },
     {
       "id": "conduct:defaults",
@@ -2648,6 +3482,66 @@
       "type": "contract"
     },
     {
+      "id": "contract:eADR-0034-dual-provider-adapter-core",
+      "name": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0034-dual-provider-adapter-core",
+      "source": {
+        "fingerprint": "sha256:833f54e2e9ab04b25c87494c76db50d99ff9c2332160a6cd83cc4513fac88104",
+        "path": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0035-provider-parity-committed-exceptions",
+      "name": ".engine/contracts/eADR-0035-provider-parity-committed-exceptions.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0035-provider-parity-committed-exceptions",
+      "source": {
+        "fingerprint": "sha256:79d30adea6208d676a215dd214ddd970decac6dbd03ccc20d120c02a927b0c5e",
+        "path": ".engine/contracts/eADR-0035-provider-parity-committed-exceptions.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0036-codex-degradation-disclosure",
+      "name": ".engine/contracts/eADR-0036-codex-degradation-disclosure.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0036-codex-degradation-disclosure",
+      "source": {
+        "fingerprint": "sha256:f07f9a81bf2fdf912ea97fe83a5ef0244fbf171fbbcb12e77b906630168e56c1",
+        "path": ".engine/contracts/eADR-0036-codex-degradation-disclosure.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -2661,7 +3555,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:f36f6d533866943da5f24fe7c4f27326528862d6f9c74642b1c6e85e8eb2449d",
+        "fingerprint": "sha256:7a901fc176e85171d8187b9b65e41588cbc6a87cb4af8912e3050bbe0f81c5c5",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -2708,7 +3602,7 @@
       },
       "slug": "knowledge-retrieval",
       "source": {
-        "fingerprint": "sha256:8ce00e4864a5f40976feb329a5f62dc2c36061feb76f1da38b67f250ea8dc397",
+        "fingerprint": "sha256:228bacdf2581f421487d08f62cf34d3ac04f461d3a6eec54c70c731ecf550a0e",
         "path": ".engine/interfaces/knowledge-retrieval.json"
       },
       "status": "active",
@@ -2751,12 +3645,12 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:cf507265583aefc4a3fc9915d203127922ef0edc48ae3f8b6e30f92917b2cc6d",
+        "fingerprint": "sha256:7fe313b855bcd1b10b280b7ef181f68e0f2aa8945da31a6301cd770097a94dc1",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:core",
@@ -2765,12 +3659,12 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:4a4d75f3d4f79382d1b4363e6daa645293eef67d37871b3f25454e2bfdb879ef",
+        "fingerprint": "sha256:63cc35696b821a6443ff6d514466ae233505587428c79f3741cbd183d9694732",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:dependency-discipline",
@@ -2801,12 +3695,12 @@
       },
       "slug": "design-review",
       "source": {
-        "fingerprint": "sha256:faba4087dc059f60d31c676d4a74e42a10a108c733c0b236801f6ae08a6a8020",
+        "fingerprint": "sha256:e35d795be67e2d37fcd7a2194449d07ed4f5e1dc2d33bd91f061846298f59ce4",
         "path": ".engine/modules/design-review/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:external-contribution",
@@ -2837,12 +3731,12 @@
       },
       "slug": "github-projects-sync",
       "source": {
-        "fingerprint": "sha256:629f6a40ca465a2382920e89925d8ce14ee965938db04844a148a0515fb7dfe9",
+        "fingerprint": "sha256:dc5505a3bbb3e5f6c8d8a786de4a0e364f25cc9e99d7970ee04fcfcffca091fe",
         "path": ".engine/modules/github-projects-sync/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:memory-substrate-sqlite-fts5",
@@ -2855,12 +3749,12 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:c57dd309898992667c4a1fc3aaab6e706447c13d52088c7d420aa33d3eccf448",
+        "fingerprint": "sha256:fcba2db422a94305921b54fdde8b73d1cbd51df9aafb4dfc05e7f148371f374c",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:migration-discipline",
@@ -2891,12 +3785,12 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:7ffec2ac27544551004150e8a0489edf1d8adb75402f866516b35498dff78a3f",
+        "fingerprint": "sha256:1c8707bb6c32d613e954a20e0066a870eddde1b4da5f758d4580be030085315e",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:qa-review",
@@ -2909,12 +3803,12 @@
       },
       "slug": "qa-review",
       "source": {
-        "fingerprint": "sha256:0c9664d3d2686ac184bccf9cad36bb945472a25669314b4cf7bd8a9300a59893",
+        "fingerprint": "sha256:3db9d60a5e4c933c882c9a937a85045b3ae01631771bef6356d646f43aa0a9c0",
         "path": ".engine/modules/qa-review/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:routine-mode",
@@ -2945,12 +3839,12 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:8d501984a3ecb35330fcab09283a49e72ef77f841b4acb895f4ed69cf0b9f7e8",
+        "fingerprint": "sha256:4e72cc4098ccb8cd2d2b69a5eef29c556a4d01e47f6f4d6521df0217664152e0",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "operation:boot-session-start",
@@ -2986,7 +3880,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:7c046d348340f9fbde3efba9412eb575023d101dda0717cf451c4acc0061acbd",
+        "fingerprint": "sha256:4760c89d3798bee611404394f9027b271bc7ee267833ec9eb09ec86c04010f60",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -3008,6 +3902,26 @@
       "source": {
         "fingerprint": "sha256:2fcab34c784f836cd2a8ea3d1115cd9f9fdc5388b7cbffb29fa6a03b664f8b67",
         "path": ".engine/operations/close-turn.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:codex-validation",
+      "name": ".engine/operations/codex-validation.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-validation",
+      "source": {
+        "fingerprint": "sha256:a43b503d8a78e191851af86f66a63e733c8e6dfe6fd4c2c716c2bd4a69b64731",
+        "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
       "type": "operation"
@@ -3500,6 +4414,26 @@
       "type": "policy"
     },
     {
+      "id": "policy:provider-exceptions",
+      "name": ".engine/policies/provider-exceptions.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "provider-exceptions",
+      "source": {
+        "fingerprint": "sha256:50b8a111e00bf877d1a79b7537e8f99ee4ec591c4000f090d040edd77b7bc500",
+        "path": ".engine/policies/provider-exceptions.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
       "id": "policy:triage-threshold",
       "name": ".engine/policies/triage-threshold.md",
       "owner": "core",
@@ -3601,6 +4535,57 @@
       "source": {
         "fingerprint": "sha256:80f7e0799a95ad02621aa44d1f1b0982e9c4b255a6c8db033d688cd687d1dba9",
         "path": ".engine/schemas/check.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:codex-agent.v1",
+      "name": ".engine/schemas/codex-agent.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-agent.v1",
+      "source": {
+        "fingerprint": "sha256:c83ce942df3b2cdf9cc7ea7eea4736be5462534ef25b6c564a2bc2d6d84334f5",
+        "path": ".engine/schemas/codex-agent.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:codex-hooks.v1",
+      "name": ".engine/schemas/codex-hooks.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-hooks.v1",
+      "source": {
+        "fingerprint": "sha256:eb3d53e55b40b68a77c91257e95fb6876cfcdfb3325624e78d14db88603b8421",
+        "path": ".engine/schemas/codex-hooks.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:codex-skill.v1",
+      "name": ".engine/schemas/codex-skill.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-skill.v1",
+      "source": {
+        "fingerprint": "sha256:b28f686a59a58f2cb88913ae206523e3f16f833a17fafafb36d91b996902034c",
+        "path": ".engine/schemas/codex-skill.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -3786,7 +4771,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:4738e7f877844bd7b089411dcae2fbd7e300b7485a9f88aee396d108d00b2e30",
+        "fingerprint": "sha256:61f53aa2afd49565dcfb274915429c1a78a75182aff92c853be01ee5ed1c105c",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "status": "active",
@@ -3803,7 +4788,7 @@
       },
       "slug": "module.v1",
       "source": {
-        "fingerprint": "sha256:b1bd18ab7a60d55f17003d0687e07139b9c7b3a3eb693a432cd65ee14e09713b",
+        "fingerprint": "sha256:978323b169845499e9d3b936fe30b68551d4007a6918a5a1afbcdb0c9bbe323b",
         "path": ".engine/schemas/module.v1.json"
       },
       "status": "active",
@@ -3912,6 +4897,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:provider-exceptions.v1",
+      "name": ".engine/schemas/provider-exceptions.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "provider-exceptions.v1",
+      "source": {
+        "fingerprint": "sha256:e1cd518ef5ed22722f16be751054f629062a20da6e9290570bc600b251de91b8",
+        "path": ".engine/schemas/provider-exceptions.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:provisioning-catalog.v1",
       "name": ".engine/schemas/provisioning-catalog.v1.json",
       "owner": "core",
@@ -3990,7 +4992,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:4aff2f38cac9e45e16ea0d1ffb24b9a6ead1687076d0280d146eb993a6f54dc5",
+        "fingerprint": "sha256:7b440c4c8f81d0287e74b14e67ff413537939c4c72ce6ee173d51bb3ea658c66",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "status": "active",
@@ -4007,7 +5009,7 @@
       },
       "slug": "surface-catalog.schema",
       "source": {
-        "fingerprint": "sha256:15dfb73e0601a90eff15da27bfcd0214ec2429a434e38b81c6904dd1fef57f5d",
+        "fingerprint": "sha256:9f6d66227a59d415bf9abd1eb0afd27f3f53cb2eebf2424e99069e2466d9ac97",
         "path": ".engine/schemas/surface-catalog.schema.json"
       },
       "status": "active",
@@ -4111,7 +5113,7 @@
       },
       "slug": "engine-help",
       "source": {
-        "fingerprint": "sha256:b92114fb8c0a208594e1cd68a8cd9695065b85bbbb1fdc41a363e7dcb5f0be18",
+        "fingerprint": "sha256:dc3cc732838a0b84f4d3c26343f6a5f76a0dd6aeacfef700090dcebc0442b20c",
         "path": ".claude/skills/engine-help/SKILL.md"
       },
       "status": "active",
@@ -4199,7 +5201,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:13cb9c58702a5cef1876a61bf81d36c12c9d3a81d62afece50eb86d0ec02abf3",
+        "fingerprint": "sha256:7da11c5cad8b131459f0ee6cd674e242ffdbf43820d7dcd517030057bd9acfd7",
         "path": ".claude/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -4221,7 +5223,7 @@
       },
       "slug": "engine-status",
       "source": {
-        "fingerprint": "sha256:a74838709d668ea5af7a8aee1d1d52451086c5f818e152e3c23c97633d0da7c7",
+        "fingerprint": "sha256:106158b8f33023e478575f768d6b3cf57eda7582275ee7d6f29085ff06fc95a1",
         "path": ".claude/skills/engine-status/SKILL.md"
       },
       "status": "active",
@@ -4465,7 +5467,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e97542e28544bef8a5c61d6987845eb74e340fb23a206a96239c632b155a0726",
+        "fingerprint": "sha256:e5736ce573b87b0266c4a6152b072261b3c2a1683ceb937ebb8293d667806e47",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4550,7 +5552,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:4a2ed899b352fed2d74aa76fbe23bb9044a7fa50ef13f1cc9093472183e2edaa",
+        "fingerprint": "sha256:9f3765669731f95c67fe5530f833d0e26c47d3388dfe603cd12292fe2251be34",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -4620,6 +5622,74 @@
       "source": {
         "fingerprint": "sha256:aca1a9f37ac1791452c984c5d73d5950db9d0a37a545c6f0d4e8ebdce61002aa",
         "path": ".engine/tools/close_linkage_preflight.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:codex-hook-runner",
+      "name": ".engine/tools/codex-hook-runner.sh",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-hook-runner",
+      "source": {
+        "fingerprint": "sha256:3f9ae7fe4a6d191754a2ebf05f0f48afc4ccfaa4f5005fb96b7e366742d6afd9",
+        "path": ".engine/tools/codex-hook-runner.sh"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:codex_agent_coherence_check",
+      "name": ".engine/tools/codex_agent_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex_agent_coherence_check",
+      "source": {
+        "fingerprint": "sha256:67996282fdd28e1826ab4a154152590df7fd54e034a5f32975b3e9d5652bc495",
+        "path": ".engine/tools/codex_agent_coherence_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:codex_gen",
+      "name": ".engine/tools/codex_gen.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex_gen",
+      "source": {
+        "fingerprint": "sha256:cd40705736c4043361b47ef265cd73cd0fb7c67897939846be81e366ed53e425",
+        "path": ".engine/tools/codex_gen.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:codex_skill_coherence_check",
+      "name": ".engine/tools/codex_skill_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex_skill_coherence_check",
+      "source": {
+        "fingerprint": "sha256:1e1357c5f5938bef98a69b542af9a57fca03e20a89060d32ca9a70b16533fad3",
+        "path": ".engine/tools/codex_skill_coherence_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -4703,7 +5773,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:cc44bc7e88c2863311b917fcdf052ddd6b09ec5bd7eb306841f4e19bcb810ad2",
+        "fingerprint": "sha256:6199ff891c2f6604c2975c76ab9e68d80ba70c32cd4edaadcd58e47f431b2d00",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -5315,7 +6385,7 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:67b0cf83d090cc4620c06ee0cb47a64a8f402395adad77f7f697055fc7889ec0",
+        "fingerprint": "sha256:0fc140d7c43eef3664e50c133413803caded3e93674a6b2ee2e6ca20d47851c5",
         "path": ".engine/tools/engine_help.py"
       },
       "status": "active",
@@ -5332,7 +6402,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:7695ead6a2df95281179459fae1e57a40809f436e3638fba798e6a0930f2b7f1",
+        "fingerprint": "sha256:f4b240b5524ab8cbc992899477ac5816b7aaeab72d183d62933ddd3ab20af05f",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -5485,7 +6555,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:d62e6c7ee9a5494ed238bec220edbf8a6c196c4e7813bb44fd616e6aa629e80d",
+        "fingerprint": "sha256:f54ed4dea7330d34dbc363de41ef8c9f793ff3da50106a3929a390d9e0c16833",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -5536,7 +6606,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:11cc16bde84a3cca13b3892836cc77f7d9e375c723c6b571e792f40bf31eab87",
+        "fingerprint": "sha256:d0e60f6eeb65017d623ee4434dc21a6ef0d442857a7b829958ab45bcdd5b7bce",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -5621,7 +6691,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:5b28a56fdec6d1a1808c82767af4de7a862ef5981c909e04fcc4b0862ee6430f",
+        "fingerprint": "sha256:f63f72a59e6f4f86a45e8bd52614cc13972ca80329793d273214a5af5f570d41",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -5689,7 +6759,7 @@
       },
       "slug": "knowledge_vocabulary_check",
       "source": {
-        "fingerprint": "sha256:00b98f1bb91fc7ad53873f893b0939814873e513a3b70f7e190ff80ca7f53af4",
+        "fingerprint": "sha256:45181ed68ec3e62d5b5242794b6782c962e60e9a4226309e657fc98bc85acb53",
         "path": ".engine/tools/knowledge_vocabulary_check.py"
       },
       "status": "active",
@@ -5910,7 +6980,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:ab0dc6d2225ab3f1119d56736e9e6bcc140d675d0d9deb55c1c834a342f600b9",
+        "fingerprint": "sha256:26cada73ae54d3135e7e1803b91b903e89c09ff6addea2ba014429265e04c8e8",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -5944,7 +7014,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:ca72a49c54a4555e54a549f3df30e11adb5f1af6c0bceae14b0208d5a32c9dbc",
+        "fingerprint": "sha256:1b1228ce0b800650ec735b166aace56ef4909828e2092d7a00d2afc86c8e9bd6",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -5961,7 +7031,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:074578e5ccea9e011a6f5e3c22da9adbf91930897b2abaa1fea109ebf199e03e",
+        "fingerprint": "sha256:a1b12abaf6fb660705369ac354365e26738a41103203c1923f4899fbc9e19c9f",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -6116,6 +7186,57 @@
       "source": {
         "fingerprint": "sha256:83565420c8b03c83093962d85b68df68a638430723bda2eeaaf3069637bd974e",
         "path": ".engine/tools/protection_guard.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:provider_parity_check",
+      "name": ".engine/tools/provider_parity_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "provider_parity_check",
+      "source": {
+        "fingerprint": "sha256:119fabbbf3ee2b1f4f8ae4c24f32700e209eac4de17d1232b5a9dde3e6a1c7db",
+        "path": ".engine/tools/provider_parity_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:provider_vocab_check",
+      "name": ".engine/tools/provider_vocab_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "provider_vocab_check",
+      "source": {
+        "fingerprint": "sha256:e670225ce5822435351292980c9b71c43df9dfaf4f9ffa73f842cbbf6e63e2b4",
+        "path": ".engine/tools/provider_vocab_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:providers",
+      "name": ".engine/tools/providers.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "providers",
+      "source": {
+        "fingerprint": "sha256:49d7dcc3ef891b451510f06a69b9f1d69d4e63327b51f015c829cb15bf19f4af",
+        "path": ".engine/tools/providers.py"
       },
       "status": "active",
       "type": "tool"
@@ -6471,7 +7592,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:d647f035373f640bd78e53aaa1deab693fdbe8a02ed7a67b3a446e09c90ff536",
+        "fingerprint": "sha256:45d380f44c881363f4045b4176f98b86859a3c7b26e40aa9347c14e87131ef93",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -6794,7 +7915,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:bc07857a9da968c0032bbb36dc34f5d86757515b325eceae07325fa11c1cb3d8",
+        "fingerprint": "sha256:ea9eddb9ef093cea2288f31659ed65bcb4a8dbcdb6a79cca32f4c259552ecc78",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -6864,6 +7985,23 @@
       "source": {
         "fingerprint": "sha256:c27abe6e7ace181b6d81b5ca8571b1f1bf1d677d0d99ac5754bb695d8350d022",
         "path": ".engine/tools/test_close_linkage_preflight.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_codex_gen",
+      "name": ".engine/tools/test_codex_gen.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_codex_gen",
+      "source": {
+        "fingerprint": "sha256:aa5ba75322cdc51117e8cad50039758e7d908bb6c6f24b44aeaf295b989f9ab1",
+        "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
       "type": "tool"
@@ -7406,7 +8544,7 @@
       },
       "slug": "test_knowledge_vocabulary",
       "source": {
-        "fingerprint": "sha256:c3b33fd54869ba9369ec0e7e811cfbc8e29fd59b356814980a2226d013364895",
+        "fingerprint": "sha256:c347ad68d939de32ac632a40680a2530b6d97e7ca2826177f7c6c3591a634994",
         "path": ".engine/tools/test_knowledge_vocabulary.py"
       },
       "status": "active",
@@ -7593,7 +8731,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:7d3fdc27b1eb077ff054fb7978d001b2ee804d3fd2e057b5d1e0ed687fbe387d",
+        "fingerprint": "sha256:689182b02f72b0d28b147fc244664454ce23d6797ebd1c160657f8dcec813e2b",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -7627,7 +8765,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:cd7f570b711cf7addb00b842d5c339fcf0413c8b0e70abc8b00abb64e13775a8",
+        "fingerprint": "sha256:dc6180c5d69bd9b5f76db8952616c5aeb2795443665576c18e1b6c0349b94fa0",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -7644,7 +8782,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:8693cef5cf25d6ff2441a5c8f865e4c87b2401e0c55e6f9efaf067fe6d8e935d",
+        "fingerprint": "sha256:a6cc705e823a0a25d2c6f967f2ac21482cdd800fd1bd89a9d4c028089850428d",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -7799,6 +8937,23 @@
       "source": {
         "fingerprint": "sha256:80ec87ce7f8ebe895ad31c02486a86d716da137ca82a45593f65dfc74b279c28",
         "path": ".engine/tools/test_protection_guard.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_providers",
+      "name": ".engine/tools/test_providers.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_providers",
+      "source": {
+        "fingerprint": "sha256:396dd479b16e9cdaae59f25925cfff176ca89f0591738980de94c4a8c34c719d",
+        "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
       "type": "tool"
@@ -8409,7 +9564,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:ec2be851ac040624df7cfeb58510d10679da1218c14c09adaaefabbe2e0657de",
+        "fingerprint": "sha256:534f6ec189ceccc6297f233d07118d06f32d2a0d3b3382333f2dc805f93366fb",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -8528,7 +9683,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:cff5062cd440f57857fe40cb58cb92b5fa19ca1c4be699f2cba7dd3c17f1bf56",
+        "fingerprint": "sha256:dbce460c85db465a2046cfa9ed1dca48a0629285e7e3ef17bfa52ad8494e5e4f",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -8545,7 +9700,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:500e6ee8721cf4c599cf8729d1b2092aafa494b25b2e93679a6d50fd7bd00d64",
+        "fingerprint": "sha256:e0822c73529e14df8d7570ecd3682c3603bbc30e245b552cf9549917a4a6e656",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
@@ -8562,7 +9717,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:17d15e8239ff05c5833787aa23ae0feec80c3e5750d09cf690d2e297b31b1e45",
+        "fingerprint": "sha256:ebfa289c01389aa8207ca7848246b83c8110bf286f688a12dc451262c476eecd",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

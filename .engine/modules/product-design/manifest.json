@@ -1,6 +1,6 @@
 {
   "id": "product-design",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "optional",
   "provides": {
     "check": [
@@ -27,6 +27,10 @@
     ],
     "scaffold": [
       ".engine/modules/product-design/scaffold/*.md"
+    ],
+    "codex-skill": [
+      ".agents/skills/engine-design/SKILL.md",
+      ".agents/skills/engine-design/agents/openai.yaml"
     ]
   },
   "wires": [
@@ -37,6 +41,14 @@
       "hook": {
         "type": "command",
         "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" \"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" \"${CLAUDE_PROJECT_DIR}/.engine/tools/product_design/obligation_matrix.py\" hook"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "PreToolUse",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/product_design/obligation_matrix.py\" hook"
       }
     }
   ],
