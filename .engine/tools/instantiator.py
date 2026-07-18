@@ -120,6 +120,7 @@ COPY_HEADINGS = {
     "state-reseeded": "Your project starts from a clean slate",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
+    "actions-enablement": "One more switch only you can flip",
     # The finish (verify + tidy-up) phase.
     "verify-paused": "If something needs fixing before finishing",
     "verify-next-actions": "Your two ways forward",
@@ -209,6 +210,14 @@ FALLBACK_COPY = {
         "I couldn't find this project on GitHub or sign in just now, so I couldn't turn on the review gate that "
         "protects your main branch. The rest of setup is unaffected. Once you're signed in to GitHub from the "
         "command line and the project is connected, I can turn it on — just ask me to finish setup."
+    ),
+    "actions-enablement": (
+        "One more one-time switch, and GitHub reserves it for you: your review gate waits for two automatic "
+        "checks that run through GitHub Actions, and on a brand-new project GitHub keeps Actions off until the "
+        "owner turns it on — a click I can't make for you. Open your repository's Actions tab on GitHub and "
+        "choose the button that enables workflows. Until you do, those checks never start, so nothing can be "
+        "approved into your project — including this setup change itself. After that one click, everything "
+        "runs on its own."
     ),
     "verify-paused": (
         "Before finishing, I check that everything fits together — and something doesn't line up yet, so I've "
@@ -1348,6 +1357,34 @@ def _apply_control_plane(control_transport, gh_refresh, control_issues, say, cop
             "protected": result.is_protected()}
 
 
+def _apply_actions_enablement(control_transport, say, copy, repo=None, token=None) -> dict:
+    """STEP 7b — the one-time GitHub Actions enablement only the OWNER can perform (#514). A repo created
+    via "Use this template" has workflow runs gated behind the owner's explicit Actions-tab click; until
+    then the required checks the control plane just bound never start, and no pull request — including the
+    setup one — can merge. The API cannot perform that click, and the deployment evidence shows the
+    permissions endpoint can report enabled while the UI gate still blocks — so this step TELLS, it never
+    silently automates. Detection is best-effort and only ever buys silence on POSITIVE evidence: when at
+    least one workflow run is observed, Actions demonstrably works and the operator hears nothing; a probe
+    that sees zero runs or cannot check falls back to saying the plain-language step (fail-talkative,
+    never fail-quiet). Reuses the operator-privileged transport the ruleset bootstrap already holds."""
+    repo = repo or boot.repo_slug()
+    token = token or boot.gh_token()
+    if not repo or not token:
+        return {"step": "actions-enablement", "status": "skipped", "detail": "no project/sign-in"}
+    runs = None
+    try:
+        status, data, _headers = control_transport("GET", f"/repos/{repo}/actions/runs?per_page=1", None)
+        if status == 200 and isinstance(data, dict) and isinstance(data.get("total_count"), int):
+            runs = data["total_count"]
+    except Exception:  # noqa: BLE001 — a failed probe is just "couldn't check"; the step is still told
+        runs = None
+    if isinstance(runs, int) and runs > 0:
+        return {"step": "actions-enablement", "status": "confirmed-running", "runs_seen": runs}
+    say(copy["actions-enablement"])
+    return {"step": "actions-enablement", "status": "operator-step-told",
+            "detail": "no workflow run observed" if runs == 0 else "could not check"}
+
+
 def _apply_security_toggles(control_transport, say, copy, repo=None, token=None) -> dict:
     """STEP 8 — turn on GitHub's NATIVE security features (secret scanning + push protection, code scanning,
     private vulnerability reporting) where the repository's tier supports them, branching on each call's
@@ -1370,7 +1407,7 @@ def _apply_security_toggles(control_transport, say, copy, repo=None, token=None)
 def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_present=None,
           uv_installer=None, uv_runner=None, consent=None, control_transport=None, gh_refresh=None,
           control_issues=None, control_repo=None, control_token=None, handle=None) -> dict:
-    """The apply phase: run the nine ordered steps against the confirmed manifest. Refuses (no change) when
+    """The apply phase: run the ten ordered steps against the confirmed manifest. Refuses (no change) when
     the manifest is absent — apply presupposes a confirmed selection. The handle is the passed one, else the
     one the manifest stored. Returns a step ledger: {refused, halted, steps:[…]}. A degraded tool-runtime
     sets `halted` and the remaining steps are not attempted (they presuppose the runtime); every other step
@@ -1394,6 +1431,8 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     steps.append(_apply_wires(say))
     steps.append(_apply_control_plane(control_transport, gh_refresh, control_issues, say, copy,
                                       repo=control_repo, token=control_token, root=root))
+    steps.append(_apply_actions_enablement(control_transport, say, copy,
+                                           repo=control_repo, token=control_token))
     steps.append(_apply_security_toggles(control_transport, say, copy,
                                          repo=control_repo, token=control_token))
     return {"refused": False, "halted": False, "steps": steps}
@@ -1949,13 +1988,14 @@ _STEP_LABELS = {
     "substrates": "Prepare the engine's saved information",
     "wires": "Switch the engine on (its automatic helpers)",
     "control-plane": "Turn on the branch review gate",
+    "actions-enablement": "Tell you about GitHub's one-time Actions switch",
     "security-floor": "Turn on GitHub's native security features",
 }
 # A security-floor "applied" means every native toggle reached an honest outcome (on / already / pending /
 # unavailable-and-disclosed); "skipped" is the clean no-project/sign-in case. Only a failed/unconfirmed
 # toggle degrades the step.
 _GOOD_STATUSES = {"done", "written", "adopted", "already", "materialized", "applied",
-                  "kept-operator-default", "skipped"}
+                  "kept-operator-default", "skipped", "operator-step-told", "confirmed-running"}
 
 
 def _step(steps: list, name: str) -> dict:
@@ -1974,7 +2014,7 @@ def _print_apply_ledger(steps: list, faked: dict) -> None:
 
 
 def _apply_demo() -> int:
-    """Operator-runnable demonstration of the APPLY phase. Runs the REAL nine-step apply logic against a
+    """Operator-runnable demonstration of the APPLY phase. Runs the REAL ten-step apply logic against a
     throwaway generated-repo fixture, faking ONLY the external boundaries (your computer's settings, the uv
     install + sync, the GitHub review-gate calls — each marked in the ledger). Shows the full happy path, an
     interrupted-then-resumed run, a tools-failure that halts safely, and a review-gate that can't be turned
@@ -2063,7 +2103,7 @@ def _apply_demo() -> int:
                         uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
                         control_transport=_defer_transport(), **dict(common, gh_refresh=lambda s: False))
         cp = _step(res["steps"], "control-plane")
-        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 9
+        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 10
         print(f"    → the review-gate step: {cp['status']} (the engine never pretends it's on: "
               f"protected={cp.get('protected')}).")
         print(f"    → setup still completed every other step and ended cleanly ({ended}).")

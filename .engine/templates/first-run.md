@@ -125,6 +125,14 @@ I couldn't find this project on GitHub or sign in just now, so I couldn't turn o
 protects your main branch. The rest of setup is unaffected. Once you're signed in to GitHub from the command
 line and the project is connected, I can turn it on — just ask me to finish setup.
 
+## One more switch only you can flip
+
+One more one-time switch, and GitHub reserves it for you: your review gate waits for two automatic checks
+that run through GitHub Actions, and on a brand-new project GitHub keeps Actions off until the owner turns
+it on — a click I can't make for you. Open your repository's Actions tab on GitHub and choose the button
+that enables workflows. Until you do, those checks never start, so nothing can be approved into your
+project — including this setup change itself. After that one click, everything runs on its own.
+
 ## If something needs fixing before finishing
 
 Before finishing, I check that everything fits together — and something doesn't line up yet, so I've paused

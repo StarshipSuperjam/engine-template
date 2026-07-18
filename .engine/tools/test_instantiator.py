@@ -494,7 +494,7 @@ class TestApplyOrchestrator(unittest.TestCase):
             names = [s["step"] for s in res["steps"]]
             self.assertEqual(names, ["remove-unselected", "foundation-ignores", "codeowners", "plan-mode",
                                      "tool-runtime", "substrates", "wires", "control-plane",
-                                     "security-floor"])
+                                     "actions-enablement", "security-floor"])
 
     def test_handle_falls_back_to_the_manifest_value(self):
         with tempfile.TemporaryDirectory() as d:
@@ -504,6 +504,57 @@ class TestApplyOrchestrator(unittest.TestCase):
                 res = _fake_apply(d, handle=None)   # not passed → read from the manifest
                 co = inst.validate.read(os.path.join(d, ".github", "CODEOWNERS"))
             self.assertIn("@manifest-owner", co)
+
+
+class TestApplyActionsEnablement(unittest.TestCase):
+    """#514: the one-time GitHub Actions enablement is the OWNER's click — first-run tells, never silently
+    automates, and buys silence only on positive evidence (an observed workflow run)."""
+
+    def _copy(self):
+        return inst.load_copy()
+
+    def _run(self, transport):
+        said = []
+        step = inst._apply_actions_enablement(transport, said.append, self._copy(),
+                                              repo="you/your-project", token="tok")
+        return step, said
+
+    def test_zero_runs_tells_the_operator_the_enable_step(self):
+        step, said = self._run(lambda m, p, b=None: (200, {"total_count": 0}, {}))
+        self.assertEqual(step["status"], "operator-step-told")
+        self.assertEqual(step["detail"], "no workflow run observed")
+        self.assertTrue(any("Actions tab" in s for s in said), said)
+
+    def test_observed_runs_buy_silence(self):
+        step, said = self._run(lambda m, p, b=None: (200, {"total_count": 7}, {}))
+        self.assertEqual(step["status"], "confirmed-running")
+        self.assertEqual(step["runs_seen"], 7)
+        self.assertEqual(said, [], "positive evidence means the operator hears nothing")
+
+    def test_probe_failure_still_tells_fail_talkative(self):
+        def boom(m, p, b=None):
+            raise RuntimeError("network down")
+        step, said = self._run(boom)
+        self.assertEqual(step["status"], "operator-step-told")
+        self.assertEqual(step["detail"], "could not check")
+        self.assertTrue(any("Actions tab" in s for s in said), said)
+
+    def test_unrecognized_response_shape_still_tells(self):
+        step, said = self._run(lambda m, p, b=None: (200, {"full_name": "x"}, {}))
+        self.assertEqual(step["status"], "operator-step-told")
+        self.assertEqual(step["detail"], "could not check")
+        self.assertTrue(said)
+
+    def test_no_project_or_signin_skips_quietly(self):
+        said = []
+        # An empty arg falls back to the ambient repo/token resolution, so fake THAT boundary too —
+        # otherwise this test would resolve the construction repo's own live coordinates.
+        with mock.patch.object(inst.boot, "repo_slug", return_value=""), \
+             mock.patch.object(inst.boot, "gh_token", return_value=""):
+            step = inst._apply_actions_enablement(lambda m, p, b=None: (200, {}, {}), said.append,
+                                                  self._copy(), repo=None, token=None)
+        self.assertEqual(step["status"], "skipped")
+        self.assertEqual(said, [])
 
 
 class TestApplyStep1DeleteUnselected(unittest.TestCase):
