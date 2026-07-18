@@ -30,6 +30,36 @@ def _flagged(filename: str, status: str = "modified") -> bool:
     return bool(weakening_guard.flagged_changes([{"filename": filename, "status": status}]))
 
 
+_BASE_HOME = "acme/engine-home"   # a stand-in "current home" so the demo needs no real manifest
+
+def _home_flagged(patch: str) -> bool:
+    """True iff the REAL repoint detector would stop the merge for this manifest diff, given a home already
+    recorded. Drives `home_repoint` directly (the manifest-content leg the file-set cases above don't reach)."""
+    return weakening_guard.home_repoint(
+        [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}], _BASE_HOME) is not None
+
+
+# (label, unified-diff patch, should_ask_approval, plain-language why) — the manifest's update-home line.
+_HOME_CASES = [
+    ("a harmless reformat (trailing comma)",
+     '@@ -1,3 +1,4 @@\n-  "home_repository": "acme/engine-home"\n'
+     '+  "home_repository": "acme/engine-home",\n+  "control_plane": {"ruleset_id": 901}\n }\n',
+     False,
+     "first-run appends a block after the home line, so it gains a comma — the VALUE is unchanged, so no "
+     "approval is asked (this is the #515 false alarm the fix removes)"),
+    ("a real repoint (new value)",
+     '@@ -1,3 +1,3 @@\n-  "home_repository": "acme/engine-home"\n'
+     '+  "home_repository": "evil/look-alike"\n }\n',
+     True,
+     "the home value changes — where your engine fetches its own code from — so it asks for your approval"),
+    ("removing the home line",
+     '@@ -1,4 +1,3 @@\n   "identity": "solo",\n-  "home_repository": "acme/engine-home"\n }\n',
+     True,
+     "removing the recorded home would let a LATER change set a new one unchecked, so the removal itself "
+     "asks for approval (#550 — this used to slip through)"),
+]
+
+
 # (label, filename, status, should_be_flagged, plain-language why)
 CASES = [
     ("a check's enforcement code", ".engine/tools/product_design/coverage.py", "modified", True,
@@ -79,13 +109,29 @@ def main(_argv=None) -> int:
         print(f"  [{ok:5}] {verb} {label:32} -> guard {mark}")
         print(f"          ({filename} — {why})")
 
+    # The manifest-content leg (#515/#550): the guard also asks for approval when a change repoints the
+    # engine's update home — the repository it fetches its own code from — but stays quiet on a harmless
+    # reformat of an unchanged home. This drives the REAL repoint detector against example manifest diffs.
+    print()
+    print("And the engine's update home (the repository it fetches its own code from), against example")
+    print(f"manifest changes with a home already recorded ({_BASE_HOME}):\n")
+    for label, patch, expect, why in _HOME_CASES:
+        got = _home_flagged(patch)
+        mark = "asks for approval" if got else "stays quiet"
+        ok = "OK" if got == expect else "WRONG"
+        if got != expect:
+            wrong.append((label, ".engine/engine.json", expect, got))
+        print(f"  [{ok:5}] {label:34} -> guard {mark}")
+        print(f"          ({why})")
+
     print()
     if not wrong:
         print("In plain words: every real safety gate still triggers the deliberate approval, and every harmless")
         print("helper is left alone — so the approval you give stays rare and worth reading. The four 'stays")
-        print("quiet' helpers above would ALL have demanded approval before #250.\n")
-        print("Vary it yourself: add a line to CASES with any file path and whether you expect it flagged, then")
-        print("re-run — e.g. try `.engine/tools/telemetry.py` (quiet) or `.engine/tools/validate.py` (approval).")
+        print("quiet' helpers above would ALL have demanded approval before #250; the home leg stays quiet only")
+        print("for a reformat that leaves the value unchanged, and asks whenever the home is repointed OR removed.\n")
+        print("Vary it yourself: add a line to CASES with any file path and whether you expect it flagged, or a")
+        print("line to _HOME_CASES with a manifest diff — then re-run.")
         return 0
     print("This run did NOT confirm the guard's behavior — these cases came out wrong:")
     for label, filename, expected, got in wrong:

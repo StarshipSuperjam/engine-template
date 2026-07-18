@@ -1824,6 +1824,180 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
         self.assertIn("update home", out[0]["message"])
 
+    def test_home_formatting_only_touch_is_not_flagged(self):
+        # #515: first-run appends control_plane AFTER home_repository, so the home line gains a trailing
+        # comma — same value, pure formatting. Every adopter's first PR false-alarmed on this. The benign
+        # carve-out: every touched home line parses cleanly to exactly the base value -> no flag.
+        patch = ('@@ -1,3 +1,4 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "acme/engine-home",\n'
+                 '+  "control_plane": {"ruleset_id": 901}\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(out, [], "a same-value formatting touch must not demand an ack")
+
+    def test_home_same_value_duplicate_add_is_not_flagged(self):
+        # A second key line carrying the SAME value is harmless whichever line JSON's last-value-wins
+        # picks — the effective home is still the base. Documented as the carve-out's boundary: the value
+        # must EQUAL the base to clear; any difference flags (the injection test above).
+        patch = ('@@ -1,3 +1,4 @@\n'
+                 '   "identity": "solo",\n'
+                 '+  "home_repository": "acme/engine-home",\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(out, [])
+
+    def test_home_value_split_across_lines_is_flagged(self):
+        # #367 evasion: a value split across physical lines defeats a line regex — the carve-out requires
+        # a clean one-line parse of EVERY touched home line, so this fails the parse and stays flagged.
+        patch = ('@@ -1,3 +1,4 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "evil/\n'
+                 '+look-alike"\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+
+    def test_home_unreadable_new_value_says_so_never_asserts_a_destination(self):
+        # #515's message honesty: when the touched home line can't be parsed, the operator is told the
+        # value couldn't be read — never that the home is changing "to a different repository".
+        patch = ('@@ -1,3 +1,3 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "evil/\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("couldn't cleanly read", out[0]["message"])
+        self.assertNotIn("a different repository", out[0]["message"])
+
+    def test_home_deletion_is_flagged_and_names_the_removal(self):
+        # THE #550 BLOCKING FIX: a pure removal of the home line parses cleanly to the base value, but the
+        # home does not SURVIVE — with no home recorded, a later add is a first recording, unflagged, so a
+        # deletion + a later add would compose into a silent two-PR repoint. The carve-out now requires an
+        # ADDED benign home line, so a deletion falls through to the flag, and the message says it's a removal.
+        patch = ('@@ -1,4 +1,3 @@\n'
+                 '   "identity": "solo",\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+        self.assertIn("REMOVED", out[0]["message"])            # named as a removal, not a value change
+        self.assertIn("guardrail-ack", out[0]["message"])
+
+    def test_home_pure_classifier_flags_a_deletion(self):
+        # The same at the classifier seam, so the reason is pinned directly.
+        patch = ('@@ -1,4 +1,3 @@\n   "identity": "solo",\n'
+                 '-  "home_repository": "acme/engine-home"\n }\n')
+        files = [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}]
+        self.assertEqual(weakening_guard.home_repoint(files, "acme/engine-home"),
+                         ("acme/engine-home", None, "deletion"))
+
+    def test_home_trailing_fragment_on_the_line_is_flagged(self):
+        # The conformance lens's finding: a base-valued home line with a SECOND fragment after it is not
+        # "formatting churn" — the strict full-line benign match rejects it, so it flags.
+        patch = ('@@ -1,3 +1,3 @@\n'
+                 '-  "home_repository": "acme/engine-home",\n'
+                 '+  "home_repository": "acme/engine-home", "update_channel": "evil",\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+
+    def test_home_escaped_key_injection_is_flagged(self):
+        # The pre-existing evasion the review surfaced: an escaped key ("home_repositor\\u0079") slips past a
+        # substring touch-test while JSON folds it back to the real key (last value wins). The engine
+        # manifest never legitimately carries an escape, so any backslash in an added manifest line fails
+        # closed — the escaped-key repoint now demands the ack instead of passing silently.
+        patch = ('@@ -1,3 +1,4 @@\n'
+                 '   "home_repository": "acme/engine-home",\n'
+                 '+  "home_repositor\\u0079": "evil/look-alike",\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+        self.assertIn("guardrail-ack", out[0]["message"])
+
+    def test_home_no_patch_message_does_not_assert_the_home_line_was_touched(self):
+        # #515's message honesty, second half: when the WHOLE diff was too large to return, the guard only
+        # knows the manifest changed unreadably — it must not claim the home line itself was changed.
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified"}],   # no 'patch' field
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("too large for this check to read in full", out[0]["message"])
+        self.assertNotIn("home_repository` line", out[0]["message"])   # never asserts the line was touched
+
+    def test_home_cr_hidden_repoint_is_flagged(self):
+        # #550 review (the exploitable split): a carriage return is a line break to str.splitlines but NOT
+        # to a GitHub `\n`-delimited diff or to JSON (where it is whitespace). One added `+` line carries a
+        # benign base-valued home entry, a CR, then a SECOND home entry with an evil value — which the
+        # applied manifest resolves as the effective home (last value wins). The guard must extract lines on
+        # `\n` only and fail closed on the embedded separator, never clear it.
+        patch = ('@@ -1,3 +1,3 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "acme/engine-home",\r  "home_repository": "evil/look-alike"\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+        self.assertIn("guardrail-ack", out[0]["message"])
+
+    def test_home_same_line_duplicate_key_is_flagged(self):
+        # The no-separator sibling: two home keys on ONE added line, last value wins. The strict full-line
+        # benign match rejects it (trailing content), so it flags.
+        patch = ('@@ -1,3 +1,3 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "acme/engine-home", "home_repository": "evil/look-alike"\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+
+    def test_home_trailing_crlf_reformat_does_not_false_alarm(self):
+        # The false-alarm guard on the separator defense: a Windows-checkout diff ends each line with a
+        # trailing CRLF. That trailing `\r` is NOT an embedded separator (splitlines yields one piece), so
+        # the benign trailing-comma reformat must still CLEAR — the #515 fix survives CRLF line endings.
+        patch = ('@@ -1,3 +1,4 @@\r\n'
+                 '-  "home_repository": "acme/engine-home"\r\n'
+                 '+  "home_repository": "acme/engine-home",\r\n'
+                 '+  "control_plane": {"ruleset_id": 901}\r\n'
+                 ' }\r\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(out, [], "a trailing-CRLF reformat of the unchanged home must not demand an ack")
+
     def test_home_change_with_no_patch_fails_closed(self):
         # #367 security review: GitHub elides the patch on a large PR. A manifest change we cannot inspect,
         # with a home recorded, fails CLOSED (demands the ack) rather than passing silently.
@@ -1838,7 +2012,7 @@ class TestWeakeningReHome(unittest.TestCase):
     def test_home_repoint_pure_classifier_reads_only_the_manifest(self):
         files = [{"filename": ".engine/engine.json", "status": "modified", "patch": self._REPOINT_PATCH}]
         self.assertEqual(weakening_guard.home_repoint(files, "acme/engine-home"),
-                         ("acme/engine-home", "evil/look-alike"))
+                         ("acme/engine-home", "evil/look-alike", "changed"))
         # no base home recorded -> a first recording, never a repoint
         self.assertIsNone(weakening_guard.home_repoint(files, None))
         # the same patch on a NON-manifest file is ignored — only the manifest carries the home coordinate
@@ -1871,6 +2045,18 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertTrue(d(self._f('@@ -15,1 +16,1 @@\n+  "identity": "solo",\n'), "team"))
         # the same patch on a NON-manifest file is ignored
         self.assertFalse(d([{"filename": "docs/x.md", "status": "modified", "patch": self._DOWNGRADE_PATCH}], "team"))
+        # #550 review: the identity guard shares the home guard's line-extraction, so it shares both
+        # evasions. A CR-hidden second `"identity": "solo"` (str.splitlines would fragment the line and
+        # drop the `+` marker) must fail closed:
+        self.assertTrue(d(self._f('@@ -15,1 +15,1 @@\n-  "identity": "team"\n'
+                                  '+  "identity": "team",\r  "identity": "solo"\n'), "team"))
+        # ...and a same-line duplicate `identity` key (last value wins) must be caught by reading EVERY
+        # value on the line (findall, not first-match search):
+        self.assertTrue(d(self._f('@@ -15,1 +15,1 @@\n-  "identity": "team"\n'
+                                  '+  "identity": "team", "identity": "solo"\n'), "team"))
+        # a trailing CRLF on a legit keep-team reformat is NOT an embedded separator -> not flagged
+        self.assertFalse(d(self._f('@@ -15,1 +15,1 @@\r\n-  "identity": "team"\r\n'
+                                   '+  "identity": "team",\r\n'), "team"))
 
     def test_identity_downgrade_is_flagged_and_cleared_by_the_ack(self):
         # end-to-end through main(): a team->solo edit on a team-base repo blocks until the ack, then clears.
