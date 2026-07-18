@@ -42,6 +42,7 @@ import self_map           # noqa: E402  (generate() — the wiring map re-derive
 import license_seeds      # noqa: E402  (the permanent seed set + recognizer, shared with license_health)
 import bootstrap          # noqa: E402  (ControlPlane + render — the control-plane bootstrap; _parse_sections)
 import security_floor     # noqa: E402  (the native-scanning toggles — reuses ControlPlane's transport)
+import repo_behavior      # noqa: E402  (the repository-behavior settings leg, #541 — same transport reuse)
 
 # These sibling tools import only the Python standard library plus each other (validate binds its two
 # third-party packages LAZILY), and every one carries `from __future__ import annotations`
@@ -1398,10 +1399,30 @@ def _apply_security_toggles(control_transport, say, copy, repo=None, token=None)
             "toggles": {t.key: t.state for t in toggles}}
 
 
+def _apply_repo_behavior(control_transport, say, copy, repo=None, token=None) -> dict:
+    """STEP 10 — turn on the repository-behavior settings a new engine repo should carry (#541):
+    delete-branch-on-merge, the pull-request update button, and Dependabot alerts + automatic security-fix
+    pull requests. Same posture as the security floor beside it: the same operator-privileged transport (no
+    new capability), verify-after-write, degrade-never-fake with a plain-language disclosure, augment-never-
+    override (a setting already on is left untouched and reported as already yours; an organization-reserved
+    Dependabot switch is disclosed, never forced), and never a required merge check. Skips quietly when the
+    repo/sign-in is unavailable (e.g. the construction repo) — these are comfort/alert upgrades that can be
+    turned on any time later."""
+    repo = repo or boot.repo_slug()
+    token = token or boot.gh_token()
+    if not repo or not token:
+        return {"step": "repo-behavior", "status": "skipped", "detail": "no project/sign-in"}
+    leg = repo_behavior.RepoBehavior(repo, token, transport=control_transport)
+    toggles = leg.apply(announce=say)
+    status = "applied" if all(t.is_good() for t in toggles) else "degraded"
+    return {"step": "repo-behavior", "status": status,
+            "toggles": {t.key: t.state for t in toggles}}
+
+
 def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_present=None,
           uv_installer=None, uv_runner=None, consent=None, control_transport=None, gh_refresh=None,
           control_issues=None, control_repo=None, control_token=None, handle=None) -> dict:
-    """The apply phase: run the ten ordered steps against the confirmed manifest. Refuses (no change) when
+    """The apply phase: run the eleven ordered steps against the confirmed manifest. Refuses (no change) when
     the manifest is absent — apply presupposes a confirmed selection. The handle is the passed one, else the
     one the manifest stored. Returns a step ledger: {refused, halted, steps:[…]}. A degraded tool-runtime
     sets `halted` and the remaining steps are not attempted (they presuppose the runtime); every other step
@@ -1429,6 +1450,8 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
                                            repo=control_repo, token=control_token))
     steps.append(_apply_security_toggles(control_transport, say, copy,
                                          repo=control_repo, token=control_token))
+    steps.append(_apply_repo_behavior(control_transport, say, copy,
+                                      repo=control_repo, token=control_token))
     return {"refused": False, "halted": False, "steps": steps}
 
 
@@ -1851,6 +1874,7 @@ def _approve_transport():
     """An in-memory GitHub where the operator can administer the repo and the branch starts UNprotected:
     apply creates the engine ruleset and the verify read then sees the floor met → a true 'applied'."""
     state = {"met": False}
+    rb_state = {}
 
     def t(method, path, body=None):
         headers = {"X-OAuth-Scopes": "repo"}
@@ -1864,6 +1888,9 @@ def _approve_transport():
         if method == "PUT" and "/rulesets/" in path:
             state["met"] = True
             return 200, {"id": 901}, headers
+        rb = _repo_behavior_responses(method, path, body, rb_state, sec_available=True)
+        if rb is not None:
+            return rb[0], rb[1], headers
         sec = _security_floor_responses(method, path, body, available=True)
         if sec is not None:
             return sec[0], sec[1], headers
@@ -1871,6 +1898,36 @@ def _approve_transport():
             return 200, {"full_name": "you/your-project"}, headers
         return 404, None, headers
     return t
+
+
+
+def _repo_behavior_responses(method: str, path: str, body, state: dict, sec_available: bool):
+    """Demo-fake answers for the repo-behavior endpoints (#541): the repo-settings read/PATCH and the two
+    Dependabot switches. STATEFUL, so a write really flips what the read-back reports — the leg's
+    verify-after-write is exercised for real. Also owns the bare `GET /repos/{repo}` answer (merging the
+    security-floor's read-back fields, keyed on `sec_available`), since both legs read that one endpoint.
+    Returns (status, json) for a handled endpoint, else None."""
+    if path.endswith("/vulnerability-alerts"):
+        if method == "PUT":
+            state["alerts"] = True
+            return 204, None
+        return (204, None) if state.get("alerts") else (404, None)
+    if path.endswith("/automated-security-fixes"):
+        if method == "PUT":
+            state["fixes"] = True
+            return 204, None
+        return 200, {"enabled": bool(state.get("fixes")), "paused": False}
+    if method == "PATCH" and isinstance(body, dict) and (
+            "delete_branch_on_merge" in body or "allow_update_branch" in body):
+        state.setdefault("repo", {}).update(body)
+        return 200, {}
+    if method == "GET" and path.startswith("/repos/") and path.count("/") == 3:
+        sa = {"secret_scanning": {"status": "enabled" if sec_available else "disabled"}}
+        data = {"full_name": "you/your-project", "security_and_analysis": sa,
+                "delete_branch_on_merge": False, "allow_update_branch": False}
+        data.update(state.get("repo", {}))
+        return 200, data
+    return None
 
 
 def _security_floor_responses(method: str, path: str, body, available: bool):
@@ -1898,11 +1955,18 @@ def _security_floor_responses(method: str, path: str, body, available: bool):
 
 def _already_transport():
     """An in-memory GitHub where the branch is ALREADY protected (models a resumed run after the first
-    pass turned the gate on) → a clean 'already', no write. The native security features read back as on."""
+    pass turned the gate on) → a clean 'already', no write. The native security features read back as on,
+    and the repo-behavior settings likewise read as already chosen — the resumed-run shape throughout."""
+    rb_state = {"repo": {"delete_branch_on_merge": True, "allow_update_branch": True},
+                "alerts": True, "fixes": True}
+
     def t(method, path, body=None):
         headers = {"X-OAuth-Scopes": "repo"}
         if method == "GET" and path.endswith("/rules/branches/main"):
             return 200, bootstrap.floor_ruleset(tier=bootstrap.SOLO)["rules"], headers
+        rb = _repo_behavior_responses(method, path, body, rb_state, sec_available=True)
+        if rb is not None:
+            return rb[0], rb[1], headers
         sec = _security_floor_responses(method, path, body, available=True)
         if sec is not None:
             return sec[0], sec[1], headers
@@ -1984,6 +2048,7 @@ _STEP_LABELS = {
     "control-plane": "Turn on the branch review gate",
     "actions-enablement": "Tell you about GitHub's one-time Actions switch",
     "security-floor": "Turn on GitHub's native security features",
+    "repo-behavior": "Turn on the working-comfort repository settings",
 }
 # A security-floor "applied" means every native toggle reached an honest outcome (on / already / pending /
 # unavailable-and-disclosed); "skipped" is the clean no-project/sign-in case. Only a failed/unconfirmed
@@ -2008,7 +2073,7 @@ def _print_apply_ledger(steps: list, faked: dict) -> None:
 
 
 def _apply_demo() -> int:
-    """Operator-runnable demonstration of the APPLY phase. Runs the REAL ten-step apply logic against a
+    """Operator-runnable demonstration of the APPLY phase. Runs the REAL eleven-step apply logic against a
     throwaway generated-repo fixture, faking ONLY the external boundaries (your computer's settings, the uv
     install + sync, the GitHub review-gate calls — each marked in the ledger). Shows the full happy path, an
     interrupted-then-resumed run, a tools-failure that halts safely, and a review-gate that can't be turned
@@ -2021,7 +2086,8 @@ def _apply_demo() -> int:
     ok = True
     faked = {"plan-mode": "your computer's own settings",
              "tool-runtime": "downloading + setting up the tools",
-             "control-plane": "GitHub"}
+             "control-plane": "GitHub",
+             "repo-behavior": "GitHub"}
     common = dict(home_reader=lambda: {}, uv_present=lambda: None, uv_runner=lambda uv, g: True,
                   consent=lambda kind: True, gh_refresh=lambda s: True, control_issues=_FakeIssues(),
                   control_repo="you/your-project", control_token="demo-token")  # the GitHub coordinates,
@@ -2097,7 +2163,7 @@ def _apply_demo() -> int:
                         uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
                         control_transport=_defer_transport(), **dict(common, gh_refresh=lambda s: False))
         cp = _step(res["steps"], "control-plane")
-        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 10
+        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 11
         print(f"    → the review-gate step: {cp['status']} (the engine never pretends it's on: "
               f"protected={cp.get('protected')}).")
         print(f"    → setup still completed every other step and ended cleanly ({ended}).")

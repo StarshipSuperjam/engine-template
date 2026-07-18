@@ -494,7 +494,9 @@ class TestApplyOrchestrator(unittest.TestCase):
             names = [s["step"] for s in res["steps"]]
             self.assertEqual(names, ["remove-unselected", "foundation-ignores", "codeowners", "plan-mode",
                                      "tool-runtime", "substrates", "wires", "control-plane",
-                                     "actions-enablement", "security-floor"])
+                                     "actions-enablement", "security-floor", "repo-behavior"])
+            behavior = next(s for s in res["steps"] if s["step"] == "repo-behavior")
+            self.assertEqual(behavior["status"], "applied", behavior)
 
     def test_handle_falls_back_to_the_manifest_value(self):
         with tempfile.TemporaryDirectory() as d:
@@ -540,6 +542,28 @@ class TestApplyActionsEnablement(unittest.TestCase):
                                                   inst.load_copy(), repo=None, token=None)
         self.assertEqual(step["status"], "skipped")
         self.assertEqual(said, [])
+
+
+class TestApplyRepoBehavior(unittest.TestCase):
+    """#541: the repo-behavior step mirrors the security floor's posture — quiet skip without a
+    project/sign-in, honest degraded status when a setting doesn't confirm."""
+
+    def test_no_project_or_signin_skips_quietly(self):
+        said = []
+        with mock.patch.object(inst.boot, "repo_slug", return_value=""), \
+             mock.patch.object(inst.boot, "gh_token", return_value=""):
+            step = inst._apply_repo_behavior(lambda m, p, b=None: (200, {}, {}), said.append,
+                                             inst.load_copy(), repo=None, token=None)
+        self.assertEqual(step["status"], "skipped")
+        self.assertEqual(said, [])
+
+    def test_unconfirmed_setting_degrades_the_step_honestly(self):
+        def t(method, path, body=None):   # a GitHub that answers nothing usable
+            return 500, None, {}
+        step = inst._apply_repo_behavior(t, lambda _s: None, inst.load_copy(),
+                                         repo="you/your-project", token="tok")
+        self.assertEqual(step["status"], "degraded")
+        self.assertIn("toggles", step)
 
 
 class TestApplyStep1DeleteUnselected(unittest.TestCase):
