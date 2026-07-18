@@ -16,7 +16,7 @@
           "id": {
             "description": "The entity id to fetch (e.g. 'check:state-cursor', 'module:core').",
             "type": "string",
-            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|interface|doc|module):[A-Za-z0-9._-]+$"
+            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
           }
         }
       },
@@ -41,7 +41,7 @@
         "properties": {
           "type": {
             "description": "Restrict to one surface type (or 'module').",
-            "enum": ["contract", "policy", "conduct", "schema", "check", "tool", "operation", "skill", "agent", "interface", "doc", "module"]
+            "enum": ["contract", "policy", "conduct", "schema", "check", "tool", "operation", "skill", "agent", "codex-skill", "codex-agent", "interface", "doc", "module"]
           },
           "path_glob": {
             "description": "Restrict to entities whose source path matches this glob (e.g. '.engine/check/*.json').",
@@ -79,7 +79,7 @@
           "id": {
             "description": "The entity to find neighbors of.",
             "type": "string",
-            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|interface|doc|module):[A-Za-z0-9._-]+$"
+            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
           },
           "edge_filter": {
             "description": "Restrict to these predicate kinds. Omit to follow the default cold-start walk set — the four structural edges (provided_by, governed_by, targets, depends_on); name a non-structural edge such as supersedes explicitly to pull it.",
@@ -130,12 +130,12 @@
           "id_a": {
             "description": "The first entity id.",
             "type": "string",
-            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|interface|doc|module):[A-Za-z0-9._-]+$"
+            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
           },
           "id_b": {
             "description": "The second entity id.",
             "type": "string",
-            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|interface|doc|module):[A-Za-z0-9._-]+$"
+            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
           }
         }
       },

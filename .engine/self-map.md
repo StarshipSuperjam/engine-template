@@ -13,12 +13,14 @@ Engine release `0.2.0` · identity `solo`
 
 ## Surfaces
 
-Every kind of file the engine governs — its home and authority, and the schema and template that govern it (11 surfaces).
+Every kind of file the engine governs — its home and authority, and the schema and template that govern it (13 surfaces).
 
 | surface | purpose | home | authority | lifecycle | class | governing schema | template |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `agent` | Personas the engine runs for a trigger (review, worker, and audit roles), routed by role, lens, model tier, permissions, and output contract. | `.claude/agents/` | mechanics-and-guidance | artifact | prose | `agent.v1.json` | `../templates/agent.md` |
 | `check` | Declarative validation rules the validator dispatches (target, kind, params, tier, suites, message) — authored as data, never as validator code. | `.engine/check/` | mechanics-and-guidance | artifact | structured | `check.v1.json` | (none) |
+| `codex-agent` | The Codex-native render of an engine review persona (a TOML agent Codex spawns; generated from the canonical Claude persona, never hand-authored). | `.codex/agents/` | mechanics-and-guidance | artifact | structured | `codex-agent.v1.json` | (none) |
+| `codex-skill` | The Codex-native render of an engine typed command (a SKILL.md Codex discovers; generated from the canonical Claude skill, never hand-authored). | `.agents/skills/` | mechanics-and-guidance | artifact | prose | `codex-skill.v1.json` | `../templates/codex-skill.md` |
 | `conduct` | Codes of conduct — the operator's standing behavioral stance for how the AI engages (plain language, provenance, push-back, and the like); tier-3 guidance, pure posture, never an enforcement gate. Two committed layers (engine defaults plus operator override) composed by rule id, loaded at the grounding floor. | `.engine/conduct/` | mechanics-and-guidance | artifact | prose | `conduct.v1.json` | `../templates/conduct.md` |
 | `contract` | Architecturally significant decision records — one decision each, with rationale and the rejected alternative; the top authority tier, file-per-decision, append-only. | `.engine/contracts/` | decisions | decision | prose | `contract.v1.json` | `../templates/contract.md` |
 | `doc` | Operator-facing, hand-authored plain-language explanations of the engine — written for the human, not the AI. | `.engine/docs/` | mechanics-and-guidance | artifact | prose | `doc.v1.json` | `../templates/doc.md` |

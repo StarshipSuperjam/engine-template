@@ -2777,7 +2777,7 @@
       },
       "slug": "knowledge-retrieval",
       "source": {
-        "fingerprint": "sha256:8ce00e4864a5f40976feb329a5f62dc2c36061feb76f1da38b67f250ea8dc397",
+        "fingerprint": "sha256:228bacdf2581f421487d08f62cf34d3ac04f461d3a6eec54c70c731ecf550a0e",
         "path": ".engine/interfaces/knowledge-retrieval.json"
       },
       "status": "active",
@@ -3906,7 +3906,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:4738e7f877844bd7b089411dcae2fbd7e300b7485a9f88aee396d108d00b2e30",
+        "fingerprint": "sha256:61f53aa2afd49565dcfb274915429c1a78a75182aff92c853be01ee5ed1c105c",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "status": "active",
@@ -4127,7 +4127,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:4aff2f38cac9e45e16ea0d1ffb24b9a6ead1687076d0280d146eb993a6f54dc5",
+        "fingerprint": "sha256:7b440c4c8f81d0287e74b14e67ff413537939c4c72ce6ee173d51bb3ea658c66",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "status": "active",
@@ -4336,7 +4336,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:13cb9c58702a5cef1876a61bf81d36c12c9d3a81d62afece50eb86d0ec02abf3",
+        "fingerprint": "sha256:ca83eae4362336fe9ce938d7d85af6618b645c2a6dce72cb32a45e18add28ca7",
         "path": ".claude/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -4358,7 +4358,7 @@
       },
       "slug": "engine-status",
       "source": {
-        "fingerprint": "sha256:a74838709d668ea5af7a8aee1d1d52451086c5f818e152e3c23c97633d0da7c7",
+        "fingerprint": "sha256:188448d61486a5e2654269a46005cbf1eabb59364713a6c433458614df4d111a",
         "path": ".claude/skills/engine-status/SKILL.md"
       },
       "status": "active",
@@ -4774,6 +4774,23 @@
       "source": {
         "fingerprint": "sha256:3f9ae7fe4a6d191754a2ebf05f0f48afc4ccfaa4f5005fb96b7e366742d6afd9",
         "path": ".engine/tools/codex-hook-runner.sh"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:codex_gen",
+      "name": ".engine/tools/codex_gen.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex_gen",
+      "source": {
+        "fingerprint": "sha256:a3aa1f16ec2a39cb6ac421cad63e612f926288c7325fe1b8a3593e66ad736480",
+        "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
       "type": "tool"
@@ -5843,7 +5860,7 @@
       },
       "slug": "knowledge_vocabulary_check",
       "source": {
-        "fingerprint": "sha256:00b98f1bb91fc7ad53873f893b0939814873e513a3b70f7e190ff80ca7f53af4",
+        "fingerprint": "sha256:45181ed68ec3e62d5b5242794b6782c962e60e9a4226309e657fc98bc85acb53",
         "path": ".engine/tools/knowledge_vocabulary_check.py"
       },
       "status": "active",
@@ -7577,7 +7594,7 @@
       },
       "slug": "test_knowledge_vocabulary",
       "source": {
-        "fingerprint": "sha256:c3b33fd54869ba9369ec0e7e811cfbc8e29fd59b356814980a2226d013364895",
+        "fingerprint": "sha256:c347ad68d939de32ac632a40680a2530b6d97e7ca2826177f7c6c3591a634994",
         "path": ".engine/tools/test_knowledge_vocabulary.py"
       },
       "status": "active",
