@@ -463,5 +463,65 @@ class TestCommitBoundaryRegen(unittest.TestCase):
         self.assertTrue(sm_cmds[0].rstrip().endswith(" hook"))
 
 
+class TestRetiredAssetFilter(unittest.TestCase):
+    """#513: a provides entry that first-run retired AND that is absent on disk is filtered from the render,
+    so a deployed repo's map never advertises a file the retire step deleted. While the file still exists
+    (this construction repo, or a fresh not-yet-set-up copy) nothing is filtered. The retired paths are
+    read from the committed census, never named literally here — this test file survives retirement, and
+    the reference-closure check forbids a survivor naming a removed asset."""
+
+    _MANIFEST = {"id": "core", "version": "1.0.0", "status": "active",
+                 "provides": {"operation": [".engine/operations/example-retired.md",
+                                            ".engine/operations/boot-session-start.md"]}}
+
+    def test_construction_repo_filters_nothing(self):
+        # In this repo every census entry exists on disk, so the filter set is empty and the map renders
+        # every provides entry as before.
+        self.assertEqual(self_map._retired_absent(), set())
+        block = "\n".join(self_map.render_module(self._MANIFEST))
+        self.assertIn("example-retired.md", block)
+
+    def test_retired_and_absent_entry_is_filtered_siblings_survive(self):
+        with mock.patch.object(self_map, "_retired_absent",
+                               return_value={".engine/operations/example-retired.md"}):
+            block = "\n".join(self_map.render_module(self._MANIFEST))
+        self.assertNotIn("example-retired.md", block)
+        self.assertIn("boot-session-start.md", block)
+
+    def test_missing_census_reads_as_no_filter(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(validate, "ROOT", d), \
+                 mock.patch.object(validate, "ENGINE_DIR", os.path.join(d, ".engine")):
+                self.assertEqual(self_map._retired_absent(), set())
+
+    def test_deployed_shape_filters_the_real_retired_entries(self):
+        # The real defect end-to-end: the REAL census + the REAL core manifest, on a tree where the retired
+        # files are absent (the post-first-run deployed shape) — the map must drop every census-listed
+        # operation the manifest advertises (the #513 defect class) and keep every sibling that survives.
+        census_src = os.path.join(validate.ENGINE_DIR, "provisioning", "first-run-assets.json")
+        core_src = os.path.join(validate.ENGINE_DIR, "modules", "core", "manifest.json")
+        core = validate.load_json(core_src)
+        census = validate.load_json(census_src)
+        retired = set(census.get("files") or [])
+        core_ops = set((core.get("provides") or {}).get("operation") or [])
+        doomed = sorted(core_ops & retired)          # the advertised-but-retired entries (#513's class)
+        survivors = sorted(core_ops - retired)
+        self.assertTrue(doomed, "the defect's class must exist: core advertises a retired operation")
+        self.assertTrue(survivors)
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, ".engine", "provisioning"))
+            with open(census_src, encoding="utf-8") as src, \
+                 open(os.path.join(d, ".engine", "provisioning", "first-run-assets.json"),
+                      "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+            with mock.patch.object(validate, "ROOT", d), \
+                 mock.patch.object(validate, "ENGINE_DIR", os.path.join(d, ".engine")):
+                block = "\n".join(self_map.render_module(core))
+        for path in doomed:
+            self.assertNotIn(os.path.basename(path), block)
+        for path in survivors:
+            self.assertIn(os.path.basename(path), block)
+
+
 if __name__ == "__main__":
     unittest.main()

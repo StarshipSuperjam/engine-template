@@ -38,6 +38,7 @@ import module_catalog     # noqa: E402  (the shared optional-module catalog read
 import module_manager     # noqa: E402  (remove() — the delete-unselected reuse; derive_uv_groups)
 import wiring             # noqa: E402  (render_codeowners + apply_all — the apply-phase appliers)
 import knowledge_gen      # noqa: E402  (generate() — substrate re-derive)
+import self_map           # noqa: E402  (generate() — the wiring map re-derives at retire, #513)
 import license_seeds      # noqa: E402  (the permanent seed set + recognizer, shared with license_health)
 import bootstrap          # noqa: E402  (ControlPlane + render — the control-plane bootstrap; _parse_sections)
 import security_floor     # noqa: E402  (the native-scanning toggles — reuses ControlPlane's transport)
@@ -1596,11 +1597,26 @@ def retire(*, root=None, announce=None) -> dict:
         knowledge_gen.generate(path=knowledge_gen.GRAPH_PATH)  # so the saved information no longer lists the
     except Exception as exc:  # noqa: BLE001 — degrade-and-disclose; never crash the close   # removed tools
         graph_status = f"skipped ({type(exc).__name__})"
+    # The wiring map is the graph's sibling index and re-derives here for the same reason (#513): its
+    # provides render filters retired-and-absent census entries, so without this regen the deployed repo
+    # ships a map still advertising the files this step just deleted (the map otherwise refreshes only at
+    # the adopter's own first commit). Re-derive-if-present, never create: a tree that carries no map (the
+    # demo's minimal practice project) gets none — writing one there would orphan an unowned engine file.
+    # Same degrade-and-disclose posture as the graph.
+    map_status = "regenerated"
+    try:
+        if os.path.isfile(self_map.SELF_MAP_PATH):
+            self_map.generate()
+        else:
+            map_status = "absent (nothing to re-derive)"
+    except Exception as exc:  # noqa: BLE001
+        map_status = f"skipped ({type(exc).__name__})"
     preserved = [".engine/tools/module_catalog.py", ".engine/tools/test_module_catalog.py",
                  ".engine/schemas/provisioning-catalog.v1.json", ".engine/provisioning/module-catalog.json"]
     say(copy["retire-success"])
     return {"refused": False, "deleted": deleted, "already_absent": already, "preserved": preserved,
-            "graph": graph_status, "steps": [{"step": "retire", "status": "done", "deleted": deleted}]}
+            "graph": graph_status, "self_map": map_status,
+            "steps": [{"step": "retire", "status": "done", "deleted": deleted}]}
 
 
 # ---- demo (mutation-free, real logic, fixture boundary) ---------------------------------------
@@ -1615,7 +1631,7 @@ def _redirect_root(root: str):
     saved = (validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH,
              wiring.SETTINGS_PATH, wiring.MCP_PATH, wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
              wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH,
-             knowledge_gen.KNOWLEDGE_DIR, knowledge_gen.GRAPH_PATH)
+             knowledge_gen.KNOWLEDGE_DIR, knowledge_gen.GRAPH_PATH, self_map.SELF_MAP_PATH)
     validate.ROOT = root
     validate.ENGINE_DIR = os.path.join(root, ".engine")
     validate.CATALOG_PATH = os.path.join(root, ".engine", "schemas", "surface-catalog.json")
@@ -1627,13 +1643,14 @@ def _redirect_root(root: str):
     wiring.CODEX_CONFIG_PATH = os.path.join(root, ".codex", "config.toml")
     knowledge_gen.KNOWLEDGE_DIR = os.path.join(root, ".engine", "knowledge")
     knowledge_gen.GRAPH_PATH = os.path.join(knowledge_gen.KNOWLEDGE_DIR, "graph.json")
+    self_map.SELF_MAP_PATH = os.path.join(root, ".engine", "self-map.md")
     try:
         yield
     finally:
         (validate.ROOT, validate.ENGINE_DIR, validate.CATALOG_PATH,
          wiring.SETTINGS_PATH, wiring.MCP_PATH, wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
          wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH,
-         knowledge_gen.KNOWLEDGE_DIR, knowledge_gen.GRAPH_PATH) = saved
+         knowledge_gen.KNOWLEDGE_DIR, knowledge_gen.GRAPH_PATH, self_map.SELF_MAP_PATH) = saved
 
 
 # A representative subset of core's real wiring for the fixture: hooks across the gating events (boot at

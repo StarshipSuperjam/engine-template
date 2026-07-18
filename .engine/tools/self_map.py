@@ -155,10 +155,34 @@ def render_surfaces(surfaces: dict) -> list:
     return out
 
 
+def _retired_absent() -> set:
+    """The first-run retirement census entries that are ALSO absent on disk — the post-retire state of a
+    deployed repo (#513). Without this filter the map keeps advertising the retired first-run operation
+    file (and its census siblings) after first-run deleted them, pointing a session at files that don't
+    exist. Read as plain data from the committed census (never by importing the retiring instantiator —
+    the reference-closure check's own discipline); resolved at call time so tests can redirect the root. A
+    missing or unreadable census reads as an empty set — the map renders over it rather than failing. In
+    the construction repo every census entry still exists, so the set is empty and the map is unchanged."""
+    census = os.path.join(validate.ENGINE_DIR, "provisioning", "first-run-assets.json")
+    try:
+        data = validate.load_json(census)
+        entries = list(data.get("files") or []) + list(data.get("dirs") or [])
+    except Exception:  # noqa: BLE001 — no census, no filter; never fail the render over it
+        return set()
+    out = set()
+    for rel in entries:
+        p = os.path.join(validate.ROOT, rel)
+        if not (os.path.isfile(p) or os.path.isdir(p)):
+            out.add(rel)
+    return out
+
+
 def render_module(manifest: dict) -> list:
     """One module's block (the reusable per-module render the module manager inherits).
     Renders id, version (from the manifest's own `version`), status, depends, provides, and the
-    `wires` directive TYPE list (the locked closed seam vocabulary; per-type bodies land later)."""
+    `wires` directive TYPE list (the locked closed seam vocabulary; per-type bodies land later).
+    Provides entries that first-run has retired AND that are absent on disk are filtered out
+    (#513, see _retired_absent) — the map never advertises a file the retire step deleted."""
     mid = manifest.get("id", "?")
     version = manifest.get("version", "?")
     status = manifest.get("status", "?")
@@ -175,9 +199,10 @@ def render_module(manifest: dict) -> list:
 
     provides = manifest.get("provides") or {}
     if provides:
+        retired = _retired_absent()
         out.append("- provides:")
         for group in sorted(provides):
-            patterns = ", ".join(_code(p) for p in sorted(provides[group] or []))
+            patterns = ", ".join(_code(p) for p in sorted(provides[group] or []) if p not in retired)
             out.append(f"  - {_cell(group)}: {patterns or '(none)'}")
     else:
         out.append("- provides: nothing")
