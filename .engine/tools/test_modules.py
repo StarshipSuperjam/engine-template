@@ -540,10 +540,10 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertLess(order.index("core"), order.index("validators-core"))
         self.assertLess(order.index("validators-core"), order.index("audit-library"))
         self.assertEqual(al.get("provides"), {
-            "agent": [".claude/agents/audit.md"],
+            "agent": [".claude/agents/engine-audit.md"],
             "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md",
                        ".engine/audits/audit-digest.md"],
-            "codex-agent": [".codex/agents/audit.toml"],
+            "codex-agent": [".codex/agents/engine-audit.toml"],
         }, "audit-library owns the persona (both runtime forms), the seeded concern-list, the setup page, "
            "and the run-time digest")
 

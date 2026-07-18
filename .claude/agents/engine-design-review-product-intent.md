@@ -1,5 +1,5 @@
 ---
-name: design-review-product-intent
+name: engine-design-review-product-intent
 description: Before a change you've asked for gets built, checks the plan against what you actually need — is it solving the right problem, is the scope right, will the result be usable, and are the success criteria clear enough to check later. Reports what it finds; you decide.
 role: plan-review
 lens: product-intent

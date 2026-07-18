@@ -38,7 +38,7 @@ ENGINE_JSON = validate.load_json(os.path.join(validate.ENGINE_DIR, "engine.json"
 CATALOG = validate.load_json(os.path.join(validate.ENGINE_DIR, "provisioning", "module-catalog.json"))
 
 LENSES = {"product-intent", "architecture", "feasibility", "risk-governance"}
-PERSONA_FILES = {lens: f"design-review-{lens}.md" for lens in LENSES}
+PERSONA_FILES = {lens: f"engine-design-review-{lens}.md" for lens in LENSES}
 
 
 def _errors(schema, instance):
@@ -91,7 +91,7 @@ class TestDesignReviewPersonas(unittest.TestCase):
             path = os.path.join(AGENTS_DIR, fname)
             self.assertTrue(os.path.exists(path), f"missing persona file {fname}")
             fm = validate.frontmatter(path)
-            self.assertEqual(fm.get("name"), f"design-review-{lens}", fname)
+            self.assertEqual(fm.get("name"), f"engine-design-review-{lens}", fname)
             self.assertEqual(fm.get("role"), "plan-review", fname)
             self.assertEqual(fm.get("lens"), lens, fname)
             self.assertEqual(fm.get("model-tier"), "judgment", fname)

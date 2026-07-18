@@ -273,7 +273,7 @@ jobs:
           ${conformance}
           ----- END PRODUCT-SPEC CONFORMANCE -----"
           claude -p \
-            --agent audit \
+            --agent engine-audit \
             --model "${AUDIT_MODEL}" \
             "${prompt}" \
             > "${RUNNER_TEMP}/audit-digest-body.md"

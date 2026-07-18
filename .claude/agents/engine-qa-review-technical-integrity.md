@@ -1,5 +1,5 @@
 ---
-name: qa-review-technical-integrity
+name: engine-qa-review-technical-integrity
 description: After a change you've asked for is built, checks whether the software underneath is healthy — well-built, performant, observable, reliable when things fail, and not the kind of thing that turns brittle or expensive to keep running. Reports what it finds; you decide.
 role: pre-submission-review
 lens: technical-integrity

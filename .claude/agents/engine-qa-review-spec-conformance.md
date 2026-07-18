@@ -1,5 +1,5 @@
 ---
-name: qa-review-spec-conformance
+name: engine-qa-review-spec-conformance
 description: After a change you've asked for is built, checks it against what was actually asked for — does it meet every agreed success criterion, cover the edge cases, get the data right, and not break what worked before. Reports what it verified and what it couldn't; you decide.
 role: pre-submission-review
 lens: spec-conformance

@@ -4,7 +4,7 @@
   "status": "required",
   "provides": {
     "agent": [
-      ".claude/agents/audit.md"
+      ".claude/agents/engine-audit.md"
     ],
     "audits": [
       ".engine/audits/concern-list.json",
@@ -12,7 +12,7 @@
       ".engine/audits/audit-digest.md"
     ],
     "codex-agent": [
-      ".codex/agents/audit.toml"
+      ".codex/agents/engine-audit.toml"
     ]
   },
   "wires": [],

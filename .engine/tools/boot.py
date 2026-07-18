@@ -1826,6 +1826,27 @@ def _relay_lines(s: dict) -> list:
     return lines
 
 
+def render_recognition_slice() -> "list[str]":
+    """The surface catalog's RECOGNITION slice (D-309 / #495): the NAME and LOCATION of every surface,
+    re-read and re-rendered on every pack build — deliberately NO dedup mechanism (it is a few hundred
+    characters, and the platform re-issues session ids on resume, so a once-per-session latch cannot
+    hold; earlier drafts of the owe said "once per session" and that was withdrawn). The authoring
+    fields (authority, lifecycle, schema, template) are deliberately NOT read: they are the pull-request
+    author's business, and a cold session pays context for them without acting on them. AI-facing
+    orientation; a missing or unreadable catalog renders nothing — boot never fails over orientation."""
+    try:
+        catalog = validate.load_json(validate.CATALOG_PATH)
+        surfaces = catalog.get("surfaces") or {}
+        if not isinstance(surfaces, dict) or not surfaces:
+            return []
+        entries = "; ".join(f"{name} in `{(rec or {}).get('location', '?')}`"
+                            for name, rec in sorted(surfaces.items()) if isinstance(rec, dict))
+    except Exception:  # noqa: BLE001 — orientation is best-effort, never a boot failure
+        return []
+    return ["Surface recognition — the kinds of file this engine governs and where each lives: "
+            + entries + ".", ""]
+
+
 def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) -> str:
     """The AI-FACING briefing injected at SessionStart (the operator-presentation relay). It
     reaches the MODEL, never the operator's screen — so it tells the AI to (1) render the present-marker
@@ -1894,22 +1915,37 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     # relay. Always the Explore note: the handler clears the stance to Explore before this pack is built.
     out.append(modes.describe_explore_scope())
     out.append("")
-    # The standing knowledge-faculty advertisement (#92): unconditional, so a cold session with no work in
-    # hand still learns the wiring map exists and when to reach for it. AI-facing (above the dashboard
-    # divider, no RELAY_MARKER); it complements — does not duplicate — the conditional in-flow cue below,
-    # which fires only when there is a neighbourhood to pull deeper into.
-    out.append(KNOWLEDGE_FACULTY_NOTE)
-    out.append("")
-    # The focused knowledge read (#37): the structural neighborhood of the work in hand — AI-orientation
-    # context, placed in the briefing (not the operator dashboard), and only when there is work in hand.
-    out.extend(render_neighborhood(s.get("neighborhood")))
-    # The memory half of attention's recent decisions (#394): what was DECIDED lately, pulled from the
-    # project's saved memory at cold start and ordered by the ranking — AI-orientation context beside the
-    # structural neighbourhood, not an operator alarm, and only when there is something recalled.
-    out.extend(render_recalled_decisions(s.get("recalled")))
-    out.append("--- the full status (your grounding for this session) ---")
-    out.append(dashboard)
-    return "\n".join(out)
+
+    # The ORIENTATION tier (shed first under the platform's output cap — see below): the standing
+    # knowledge-faculty advertisement (#92), the surface-catalog recognition slice (D-309 / #495), the
+    # structural neighborhood of the work in hand (#37), and the recently-decided memory recall (#394).
+    orientation: list[str] = []
+    orientation.append(KNOWLEDGE_FACULTY_NOTE)
+    orientation.append("")
+    orientation.extend(render_recognition_slice())
+    orientation.extend(render_neighborhood(s.get("neighborhood")))
+    orientation.extend(render_recalled_decisions(s.get("recalled")))
+
+    status = ["--- the full status (your grounding for this session) ---", dashboard]
+
+    # Measure before injecting (#495 — owed regardless of D-309): the platform silently swaps an
+    # over-cap value for a file preview, which would strip the grounding marker above. Tier 0 (the
+    # governance instructions, marker, and alarm relay) is never shed; the orientation tier goes first,
+    # the status dashboard only after it; a shed is named so the AI relays it instead of the operator
+    # silently losing their status.
+    def _shed_notice(names: list) -> str:
+        return ("(To fit the platform's size limit, part of this briefing was left out this session: "
+                + ", ".join(names) + ". Tell the operator, in one plain sentence, that today's session "
+                "briefing was trimmed to fit a size limit and the full status is always available with "
+                "`uv run --directory .engine -- python tools/engine_status.py`.)")
+
+    text, _shed = hooks.cap_shed(
+        [(0, "the governance briefing", "\n".join(out)),
+         (2, "the orientation notes (wiring map, surface recognition, work neighborhood, recent decisions)",
+          "\n".join(orientation)),
+         (1, "the status dashboard", "\n".join(status))],
+        notice=_shed_notice)
+    return text
 
 
 # ---- the hook handler + CLI -----------------------------------------------------------------

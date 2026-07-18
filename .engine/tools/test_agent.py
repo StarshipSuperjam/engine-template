@@ -195,7 +195,7 @@ class TestShapeRule(unittest.TestCase):
         # Bash too — the same lock the design-review lenses carry — not only the file-writing tools. The
         # coherence leg enforces only the write-tool floor (Bash is above it), so this pins the audit
         # persona's own frontmatter lock: a future edit can't silently reopen Bash on the self-audit.
-        fm = validate.frontmatter(os.path.join(AGENTS_DIR, "audit.md"))
+        fm = validate.frontmatter(os.path.join(AGENTS_DIR, "engine-audit.md"))
         self.assertEqual(fm.get("role"), "audit")
         denied = fm.get("disallowedTools", [])
         for tool in ("Edit", "Write", "NotebookEdit", "Bash"):

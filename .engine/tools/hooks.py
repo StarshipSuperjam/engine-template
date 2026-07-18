@@ -237,6 +237,44 @@ def inject(context: str) -> dict:
     return {"action": "inject", "context": context}
 
 
+# The platform's per-value output cap (#495, a pre-existing latent defect the D-309 pass surfaced): past
+# 10,000 characters the platform silently writes the payload to a file and substitutes a preview — which
+# would strip the boot pack's grounding marker and make the engine report it never grounded, a silent
+# failure that lies about its own cause. The cap binds EACH output value, not the event total.
+HOOK_OUTPUT_CAP = 10_000
+
+
+def cap_shed(blocks: list, cap: "int | None" = None, notice=None) -> "tuple[str, list]":
+    """Measure-before-inject with tiered shedding — the guard an injector composes BEFORE handing its
+    payload to inject(), which stays a pure translator. `blocks` is an ordered list of (priority, name,
+    text): priority 0 is PINNED (a governance alarm or grounding marker — never shed, even if the pinned
+    text alone still exceeds the cap, because a truncated alarm is worse than an oversize one the
+    platform previews); higher priorities shed FIRST, a whole priority class at a time, until the joined
+    text fits. When anything is shed and `notice` is given, notice(shed_names) is appended to the kept
+    text and counted against the cap. Returns (text, shed_names) — the order of `blocks` is preserved;
+    priorities select what survives, never reorder it. `cap` defaults to HOOK_OUTPUT_CAP resolved at
+    call time (so a test can patch the module constant)."""
+    if cap is None:
+        cap = HOOK_OUTPUT_CAP
+    kept = list(blocks)
+    shed: list = []
+
+    def _render(current, shed_names):
+        parts = [t for _p, _n, t in current if t]
+        if shed_names and notice is not None:
+            parts.append(notice(shed_names))
+        return "\n".join(parts)
+
+    text = _render(kept, shed)
+    for priority in sorted({p for p, _n, _t in kept if p > 0}, reverse=True):
+        if len(text) <= cap:
+            break
+        shed.extend(n for p, n, _t in kept if p == priority)
+        kept = [b for b in kept if b[0] != priority]
+        text = _render(kept, shed)
+    return text, shed
+
+
 def decide(permission: str, reason: str | None = None) -> dict:
     """A PreToolUse structured permission decision (allow/deny/ask). → structured stdout, exit 0.
     `deny` is a block expressed through the structured channel rather than exit 2."""
@@ -337,6 +375,13 @@ def _record_crash_debug(event: str, exc: BaseException, path: str | None = None)
     finding, so its backstage detail belongs beside telemetry's cache); telemetry is lazy-imported here,
     exactly as the fail-open promotion path already does. Best-effort and fully swallowed by the caller:
     recording a crash must never re-break fail-open."""
+    if "unittest" in sys.modules and path is None:
+        # The hermetic backstop its siblings already carry (telemetry.emit_finding, providers'
+        # live-session write): the test suite exercises crashing handlers by the hundred, and without
+        # this guard every run appends test-harness noise to the PRODUCTION crash log — the pollution
+        # that made tonight's real-crash archaeology harder (#520/#522 investigation). An explicit
+        # `path` (the unit tests' own temp file) still writes.
+        return
     if path is None:
         import telemetry  # noqa: E402 — lazy, on the fail-open branch only (as _do_promote_fail_open is)
         path = telemetry.HOOK_CRASH_DEBUG_PATH

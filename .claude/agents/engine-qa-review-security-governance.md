@@ -1,5 +1,5 @@
 ---
-name: qa-review-security-governance
+name: engine-qa-review-security-governance
 description: After a change you've asked for is built, checks whether it is safe to release — how it could be attacked or misused, what could leak, and whether it keeps the privacy, compliance, and change-control rules it must. Reports what it finds; you decide.
 role: pre-submission-review
 lens: security-governance
