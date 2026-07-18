@@ -213,11 +213,13 @@ FALLBACK_COPY = {
     ),
     "actions-enablement": (
         "One more one-time switch, and GitHub reserves it for you: your review gate waits for two automatic "
-        "checks that run through GitHub Actions, and on a brand-new project GitHub keeps Actions off until the "
-        "owner turns it on — a click I can't make for you. Open your repository's Actions tab on GitHub and "
-        "choose the button that enables workflows. Until you do, those checks never start, so nothing can be "
-        "approved into your project — including this setup change itself. After that one click, everything "
-        "runs on its own."
+        "checks that run through GitHub Actions, and on a brand-new project GitHub keeps Actions off until "
+        "the owner turns it on — a click I can't make for you. Open your repository's Actions tab on GitHub; "
+        "if you see a button asking you to enable workflows, that's the one — click it. If the tab already "
+        "shows your workflows with no button asking to enable anything, this switch is already on and you're "
+        "done. Until it's on, those checks never start, so nothing can be approved into your project — "
+        "including this setup change itself. And if a waiting change still shows its checks as waiting a "
+        "minute or two after you've clicked, tell me and I'll give them a fresh nudge."
     ),
     "verify-paused": (
         "Before finishing, I check that everything fits together — and something doesn't line up yet, so I've "
@@ -1362,27 +1364,19 @@ def _apply_actions_enablement(control_transport, say, copy, repo=None, token=Non
     via "Use this template" has workflow runs gated behind the owner's explicit Actions-tab click; until
     then the required checks the control plane just bound never start, and no pull request — including the
     setup one — can merge. The API cannot perform that click, and the deployment evidence shows the
-    permissions endpoint can report enabled while the UI gate still blocks — so this step TELLS, it never
-    silently automates. Detection is best-effort and only ever buys silence on POSITIVE evidence: when at
-    least one workflow run is observed, Actions demonstrably works and the operator hears nothing; a probe
-    that sees zero runs or cannot check falls back to saying the plain-language step (fail-talkative,
-    never fail-quiet). Reuses the operator-privileged transport the ruleset bootstrap already holds."""
+    permissions endpoint can report enabled while the UI gate still blocks — so this step TELLS,
+    unconditionally, and never silently automates. NO detection buys silence: the review of this step
+    proved every candidate signal dishonest in exactly the deadlock state — GitHub-managed scan runs
+    (CodeQL/Dependabot) appear in the runs listing while real workflows are still gated, and any run
+    history proves Actions worked once, never that it can run now. The message itself carries the
+    already-on branch ("if the tab shows no enable button, you're done"), so telling is never misleading.
+    The `control_transport` parameter is accepted for signature symmetry with the sibling steps but unused."""
     repo = repo or boot.repo_slug()
     token = token or boot.gh_token()
     if not repo or not token:
         return {"step": "actions-enablement", "status": "skipped", "detail": "no project/sign-in"}
-    runs = None
-    try:
-        status, data, _headers = control_transport("GET", f"/repos/{repo}/actions/runs?per_page=1", None)
-        if status == 200 and isinstance(data, dict) and isinstance(data.get("total_count"), int):
-            runs = data["total_count"]
-    except Exception:  # noqa: BLE001 — a failed probe is just "couldn't check"; the step is still told
-        runs = None
-    if isinstance(runs, int) and runs > 0:
-        return {"step": "actions-enablement", "status": "confirmed-running", "runs_seen": runs}
     say(copy["actions-enablement"])
-    return {"step": "actions-enablement", "status": "operator-step-told",
-            "detail": "no workflow run observed" if runs == 0 else "could not check"}
+    return {"step": "actions-enablement", "status": "operator-step-told"}
 
 
 def _apply_security_toggles(control_transport, say, copy, repo=None, token=None) -> dict:
@@ -1995,7 +1989,7 @@ _STEP_LABELS = {
 # unavailable-and-disclosed); "skipped" is the clean no-project/sign-in case. Only a failed/unconfirmed
 # toggle degrades the step.
 _GOOD_STATUSES = {"done", "written", "adopted", "already", "materialized", "applied",
-                  "kept-operator-default", "skipped", "operator-step-told", "confirmed-running"}
+                  "kept-operator-default", "skipped", "operator-step-told"}
 
 
 def _step(steps: list, name: str) -> dict:

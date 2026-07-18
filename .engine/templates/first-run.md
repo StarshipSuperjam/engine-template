@@ -127,11 +127,13 @@ line and the project is connected, I can turn it on — just ask me to finish se
 
 ## One more switch only you can flip
 
-One more one-time switch, and GitHub reserves it for you: your review gate waits for two automatic checks
-that run through GitHub Actions, and on a brand-new project GitHub keeps Actions off until the owner turns
-it on — a click I can't make for you. Open your repository's Actions tab on GitHub and choose the button
-that enables workflows. Until you do, those checks never start, so nothing can be approved into your
-project — including this setup change itself. After that one click, everything runs on its own.
+One more one-time switch, and GitHub reserves it for you: your review gate waits for two automatic checks that
+run through GitHub Actions, and on a brand-new project GitHub keeps Actions off until the owner turns it on —
+a click I can't make for you. Open your repository's Actions tab on GitHub; if you see a button asking you to
+enable workflows, that's the one — click it. If the tab already shows your workflows with no button asking to
+enable anything, this switch is already on and you're done. Until it's on, those checks never start, so
+nothing can be approved into your project — including this setup change itself. And if a waiting change still
+shows its checks as waiting a minute or two after you've clicked, tell me and I'll give them a fresh nudge.
 
 ## If something needs fixing before finishing
 
