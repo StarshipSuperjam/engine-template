@@ -402,6 +402,13 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/block-coherence.json",
             ".engine/check/catalog-coverage.json",
             ".engine/check/census-completeness.json",
+            ".engine/check/codex-agent-coherence.json",
+            ".engine/check/codex-agent-schema.json",
+            ".engine/check/codex-hooks-schema.json",
+            ".engine/check/codex-provider-parity.json",
+            ".engine/check/codex-skill-coherence.json",
+            ".engine/check/codex-skill-frontmatter.json",
+            ".engine/check/codex-skill-shape.json",
             ".engine/check/conduct-frontmatter.json",
             ".engine/check/conduct-shape.json",
             ".engine/check/conduct-weakening-guard.json",
@@ -431,6 +438,8 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/policy-override-stale.json",
             ".engine/check/policy-shape.json",
             ".engine/check/pr-body-completeness.json",
+            ".engine/check/provider-exceptions-schema.json",
+            ".engine/check/provider-vocabulary-confinement.json",
             ".engine/check/provisioning-catalog.json",
             ".engine/check/release-integrity.json",
             ".engine/check/self-map-drift.json",
@@ -441,7 +450,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/template-shape-spec.json",
             ".engine/check/untracked-surface.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 48 corpus rules")
+        ], "validators-core owns exactly the 57 corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = sorted(r for r, o in check_owner.items() if o == ["dependency-discipline"])

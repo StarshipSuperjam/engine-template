@@ -73,7 +73,15 @@ _FLOOR_ENFORCEMENT_CONFIG = (
     ".engine/uv.lock",            # (foundation artifacts — a change here changes what code runs)
     ".engine/suites.json",        # decides WHICH suite blocks the merge — loosening it (CI -> local-nudge) is a killswitch
     ".claude/settings.json",      # wires the PreToolUse write-gate + the other enforcement hooks (was ABSENT —
-)                                 # a live hole; a PR gutting those hooks passed the guard with NO ack)
+    #                               a live hole; a PR gutting those hooks passed the guard with NO ack)
+    ".codex/hooks.json",          # the Codex runtime's mirror of settings.json — the SAME hole, closed on
+    #                               arrival (whole file for now; its engine entries wire the same gates)
+    ".codex/config.toml",         # the Codex helper-server registration (whole file for now, mirroring the
+    #                               settings.json posture; a fence-scoped guard is the recorded refinement)
+    ".engine/policies/provider-exceptions.json",  # the parity check's sanctioned-exception ledger — the file
+    #                               that grants exemptions from an enforcement check is itself guarded, or
+    #                               widening an exception would be the quiet way around the check (eADR-0035)
+)
 # The validator + this guard. validate.py is ALSO the sole home of the 5 built-in HARD check kinds
 # (presence/schema/shape/coverage/coherence): those carry no `params.script`, so the derived clause below
 # structurally cannot reach them — they are guarded ONLY by validate.py being floored here. weakening_guard.py is
@@ -102,6 +110,12 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     ".engine/tools/github_client.py",  # the off-host/auth substrate BOTH guardrail-weakening guards depend on
     ".engine/tools/wiring.py",         # the sole mutator of settings.json / CODEOWNERS / hook registrations
     ".engine/tools/security_floor.py", # configures secret-scanning / push-protection
+    ".engine/tools/providers.py",      # the provider-normalization seam EVERY gate's payload flows through —
+    #                                    weakening normalize() un-recognizes the other runtime's edits
+    ".engine/tools/codex-hook-runner.sh",  # the Codex launcher every Codex hook runs through (hook-runner's twin)
+    ".engine/tools/codex_gen.py",      # renders the reviewer permission floors (read-only sandbox, policy files)
+    #                                    the codex coherence checks then verify — weakening the renderer weakens
+    #                                    what "in sync" means
 )
 # Traveling security-floor provisions — NOT enforcement gates (they check nothing and gate no merge), so they
 # do not belong with _FLOOR_ENFORCEMENT_CONFIG above. They are the git-native security floor the control plane
@@ -127,6 +141,9 @@ _FLOOR_SECURITY_PROVISION = (".github/dependabot.yml",)
 # 'added'), so first-install is ungated; only a later weakening of a floored gate schema is held.
 _FLOOR_GATE_SCHEMAS = (
     ".engine/schemas/agent.v1.json",
+    ".engine/schemas/codex-agent.v1.json",
+    ".engine/schemas/codex-hooks.v1.json",
+    ".engine/schemas/codex-skill.v1.json",
     ".engine/schemas/concern-list.v1.json",
     ".engine/schemas/conduct.v1.json",
     ".engine/schemas/contract.v1.json",
@@ -137,6 +154,7 @@ _FLOOR_GATE_SCHEMAS = (
     ".engine/schemas/module.v1.json",
     ".engine/schemas/operation.v1.json",
     ".engine/schemas/policy.v1.json",
+    ".engine/schemas/provider-exceptions.v1.json",
     ".engine/schemas/provisioning-catalog.v1.json",
     ".engine/schemas/skill.v1.json",
     ".engine/schemas/state.v1.json",

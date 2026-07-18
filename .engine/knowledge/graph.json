@@ -480,6 +480,216 @@
       "type": "check"
     },
     {
+      "id": "check:codex-agent-coherence",
+      "kind": "custom/script",
+      "name": ".engine/check/codex-agent-coherence.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "codex-agent-coherence",
+      "source": {
+        "fingerprint": "sha256:4a46f6fca5583388d701307d233889cfe460fbee29fe1f69b42834fdcf203620",
+        "path": ".engine/check/codex-agent-coherence.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-agent-schema",
+      "kind": "schema",
+      "name": ".engine/check/codex-agent-schema.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "codex-agent:audit",
+          "codex-agent:design-review-architecture",
+          "codex-agent:design-review-feasibility",
+          "codex-agent:design-review-product-intent",
+          "codex-agent:design-review-risk-governance",
+          "codex-agent:qa-review-divergence-hunter",
+          "codex-agent:qa-review-security-governance",
+          "codex-agent:qa-review-spec-conformance",
+          "codex-agent:qa-review-technical-integrity",
+          "codex-agent:qa-review-usability"
+        ]
+      },
+      "slug": "codex-agent-schema",
+      "source": {
+        "fingerprint": "sha256:ccaba9a21d56ee5dee4d404767ab2132773e3eafa6bccb4af510fae1863e703a",
+        "path": ".engine/check/codex-agent-schema.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-hooks-schema",
+      "kind": "schema",
+      "name": ".engine/check/codex-hooks-schema.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "codex-hooks-schema",
+      "source": {
+        "fingerprint": "sha256:7edf5798723acf449b38c952a17e70a2b11e21ec71677d6159887ff1c2eb45da",
+        "path": ".engine/check/codex-hooks-schema.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-provider-parity",
+      "kind": "custom/script",
+      "name": ".engine/check/codex-provider-parity.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "codex-provider-parity",
+      "source": {
+        "fingerprint": "sha256:385bfc14cd8bf5a47ada40e871df8657b3fb74d3642b340dbf74ebf1456bcda7",
+        "path": ".engine/check/codex-provider-parity.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-skill-coherence",
+      "kind": "custom/script",
+      "name": ".engine/check/codex-skill-coherence.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "codex-skill-coherence",
+      "source": {
+        "fingerprint": "sha256:0a6024905a16a23622f82ab4801305820a23b96fb85adbe2dcb134c63f3c7e38",
+        "path": ".engine/check/codex-skill-coherence.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-skill-frontmatter",
+      "kind": "schema",
+      "name": ".engine/check/codex-skill-frontmatter.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "codex-skill:engine-board-setup",
+          "codex-skill:engine-conduct",
+          "codex-skill:engine-design",
+          "codex-skill:engine-help",
+          "codex-skill:engine-parts",
+          "codex-skill:engine-setup",
+          "codex-skill:engine-start",
+          "codex-skill:engine-status",
+          "codex-skill:engine-tune"
+        ]
+      },
+      "slug": "codex-skill-frontmatter",
+      "source": {
+        "fingerprint": "sha256:8e8d89398d80cbaac92cf1ac70c2ded8783208028ec1c74fb7d5384ab7eda39f",
+        "path": ".engine/check/codex-skill-frontmatter.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:codex-skill-shape",
+      "kind": "shape",
+      "name": ".engine/check/codex-skill-shape.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "codex-skill:engine-board-setup",
+          "codex-skill:engine-conduct",
+          "codex-skill:engine-design",
+          "codex-skill:engine-help",
+          "codex-skill:engine-parts",
+          "codex-skill:engine-setup",
+          "codex-skill:engine-start",
+          "codex-skill:engine-status",
+          "codex-skill:engine-tune"
+        ]
+      },
+      "slug": "codex-skill-shape",
+      "source": {
+        "fingerprint": "sha256:e8858d0f745ad300d0ab9efb5d6965a33005fb1eb6255d35864102a640648858",
+        "path": ".engine/check/codex-skill-shape.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "audit-prep"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:conduct-frontmatter",
       "kind": "schema",
       "name": ".engine/check/conduct-frontmatter.json",
@@ -1667,6 +1877,59 @@
       "source": {
         "fingerprint": "sha256:80d7664cab7d91a4b95cf11fc7b175e956d61ac86140b1d7dd2f423833cd9e14",
         "path": ".engine/check/protection.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:provider-exceptions-schema",
+      "kind": "schema",
+      "name": ".engine/check/provider-exceptions-schema.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "policy:provider-exceptions"
+        ]
+      },
+      "slug": "provider-exceptions-schema",
+      "source": {
+        "fingerprint": "sha256:5f0a1a3dae2cc718060648f4581492b2ac570af38787554833e408c232c894b9",
+        "path": ".engine/check/provider-exceptions-schema.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:provider-vocabulary-confinement",
+      "kind": "custom/script",
+      "name": ".engine/check/provider-vocabulary-confinement.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "provider-vocabulary-confinement",
+      "source": {
+        "fingerprint": "sha256:9888dc5039c0068f74b8df73568f120df9527231aa68c2ae6598c9a1fc7c849a",
+        "path": ".engine/check/provider-vocabulary-confinement.json"
       },
       "status": "active",
       "suites": [
@@ -3574,12 +3837,12 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:8d501984a3ecb35330fcab09283a49e72ef77f841b4acb895f4ed69cf0b9f7e8",
+        "fingerprint": "sha256:4e72cc4098ccb8cd2d2b69a5eef29c556a4d01e47f6f4d6521df0217664152e0",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "operation:boot-session-start",
@@ -4129,6 +4392,26 @@
       "type": "policy"
     },
     {
+      "id": "policy:provider-exceptions",
+      "name": ".engine/policies/provider-exceptions.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "provider-exceptions",
+      "source": {
+        "fingerprint": "sha256:fbc1d1f588366c27e53357b5b1fe865d9bee837a8797cadb9bdec3cb304355e1",
+        "path": ".engine/policies/provider-exceptions.json"
+      },
+      "status": "active",
+      "type": "policy"
+    },
+    {
       "id": "policy:triage-threshold",
       "name": ".engine/policies/triage-threshold.md",
       "owner": "core",
@@ -4602,7 +4885,7 @@
       },
       "slug": "provider-exceptions.v1",
       "source": {
-        "fingerprint": "sha256:2df54f60ea1115108f40c21e8af0c3445da7bc5164f64205da33048282c96350",
+        "fingerprint": "sha256:e1cd518ef5ed22722f16be751054f629062a20da6e9290570bc600b251de91b8",
         "path": ".engine/schemas/provider-exceptions.v1.json"
       },
       "status": "active",
@@ -5339,6 +5622,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:codex_agent_coherence_check",
+      "name": ".engine/tools/codex_agent_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex_agent_coherence_check",
+      "source": {
+        "fingerprint": "sha256:67996282fdd28e1826ab4a154152590df7fd54e034a5f32975b3e9d5652bc495",
+        "path": ".engine/tools/codex_agent_coherence_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:codex_gen",
       "name": ".engine/tools/codex_gen.py",
       "owner": "core",
@@ -5351,6 +5651,23 @@
       "source": {
         "fingerprint": "sha256:a3aa1f16ec2a39cb6ac421cad63e612f926288c7325fe1b8a3593e66ad736480",
         "path": ".engine/tools/codex_gen.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:codex_skill_coherence_check",
+      "name": ".engine/tools/codex_skill_coherence_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex_skill_coherence_check",
+      "source": {
+        "fingerprint": "sha256:1e1357c5f5938bef98a69b542af9a57fca03e20a89060d32ca9a70b16533fad3",
+        "path": ".engine/tools/codex_skill_coherence_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -6847,6 +7164,40 @@
       "source": {
         "fingerprint": "sha256:83565420c8b03c83093962d85b68df68a638430723bda2eeaaf3069637bd974e",
         "path": ".engine/tools/protection_guard.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:provider_parity_check",
+      "name": ".engine/tools/provider_parity_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "provider_parity_check",
+      "source": {
+        "fingerprint": "sha256:304e93d59aa211f311fd5d47731e951037c0943566889f0f633818a9b048d3a9",
+        "path": ".engine/tools/provider_parity_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:provider_vocab_check",
+      "name": ".engine/tools/provider_vocab_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "provider_vocab_check",
+      "source": {
+        "fingerprint": "sha256:9d48c457e3032a3198c121e886696e2356a9fa3ed969e8a5d903badf3b616ae1",
+        "path": ".engine/tools/provider_vocab_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -8392,7 +8743,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:b54e9912e51eafe4c1cad87dddc83a220f42acb8f04f3847017578a816e1b768",
+        "fingerprint": "sha256:a6cc705e823a0a25d2c6f967f2ac21482cdd800fd1bd89a9d4c028089850428d",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -9310,7 +9661,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:500e6ee8721cf4c599cf8729d1b2092aafa494b25b2e93679a6d50fd7bd00d64",
+        "fingerprint": "sha256:e0822c73529e14df8d7570ecd3682c3603bbc30e245b552cf9549917a4a6e656",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

@@ -2,7 +2,7 @@
   "engine_release": "0.2.0",
   "packages": {
     "core": "0.2.0",
-    "validators-core": "0.1.0",
+    "validators-core": "0.2.0",
     "memory-substrate-sqlite-fts5": "0.2.0",
     "routine-mode": "0.1.0",
     "audit-library": "0.2.0",
