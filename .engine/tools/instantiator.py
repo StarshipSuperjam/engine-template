@@ -1558,7 +1558,7 @@ def retire(*, root=None, announce=None) -> dict:
     saved information so the repo stays consistent after the tools are gone. PRESERVES the shared catalog
     reader, the catalog + schema, and every permanent primitive. Self-deletes its own source last; the
     running process keeps executing from memory (POSIX). Returns {refused, deleted, already_absent,
-    preserved, graph, steps}."""
+    preserved, graph, self_map, steps}."""
     say = announce if announce is not None else (lambda text: print(text))
     copy = load_copy()
     base = root or validate.ROOT
@@ -1566,7 +1566,7 @@ def retire(*, root=None, announce=None) -> dict:
     if hard:
         _say_consistency_pause(say, copy, hard)
         return {"refused": True, "reason": "inconsistent", "deleted": [], "already_absent": [],
-                "preserved": [], "graph": "unchanged",
+                "preserved": [], "graph": "unchanged", "self_map": "unchanged",
                 "steps": [{"step": "retire", "status": "refused", "issues": len(hard)}]}
     deleted, already = [], []
     for rel in _FIRST_RUN_ASSET_FILES:
@@ -2272,7 +2272,7 @@ def _finish_demo() -> int:
             still_clean = not _hard_findings()
         print(f"    → the check passed ({not v['paused']}); the one-time files are gone ({assets_gone}); the "
               f"catalog the engine keeps is still here ({catalog_kept}); the result is still consistent "
-              f"({still_clean}); saved information re-derived ({r['graph']}).")
+              f"({still_clean}); saved information re-derived ({r['graph']}; wiring map {r['self_map']}).")
         ok &= (not v["paused"] and not r["refused"] and assets_gone and catalog_kept and still_clean)
 
     # Scenario 2 — inconsistent setup: the check PAUSES, tidy-up REFUSES; a repair then lets it finish.

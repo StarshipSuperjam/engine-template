@@ -5,8 +5,9 @@ A non-engineer needs a lay of the land. This tool generates ONE committed Markdo
 `.engine/self-map.md`, that answers "what is my engine made of": the engine release, the kinds
 of file the engine governs (surfaces), and the packages it is assembled from (modules). It is
 DERIVED from the declarations the engine already requires — the surface catalog and the module
-manifests — so it cannot diverge from them. It is never hand-authored (it would
-drift) and never boot-only (a human opening the repo could not read it).
+manifests, plus (#513) the first-run retirement census cross-checked against what actually
+exists on disk, so a deployed repo's map never advertises a file the retire step deleted. It is
+never hand-authored (it would drift) and never boot-only (a human opening the repo could not read it).
 
 The map is kept honest by a FINGERPRINT GATE: the committed file is checked against its canonical
 derivation. The committed content IS the fingerprint of its sources — the checker regenerates the
@@ -155,26 +156,37 @@ def render_surfaces(surfaces: dict) -> list:
     return out
 
 
-def _retired_absent() -> set:
+def _retired_absent() -> "tuple[set, tuple]":
     """The first-run retirement census entries that are ALSO absent on disk — the post-retire state of a
-    deployed repo (#513). Without this filter the map keeps advertising the retired first-run operation
-    file (and its census siblings) after first-run deleted them, pointing a session at files that don't
-    exist. Read as plain data from the committed census (never by importing the retiring instantiator —
-    the reference-closure check's own discipline); resolved at call time so tests can redirect the root. A
-    missing or unreadable census reads as an empty set — the map renders over it rather than failing. In
-    the construction repo every census entry still exists, so the set is empty and the map is unchanged."""
+    deployed repo (#513), as (absent files, absent directories). Without this filter the map keeps
+    advertising the retired first-run operation file, the deleted setup-skill trees, and their census
+    siblings after first-run removed them, pointing a session at files that don't exist. Read as plain
+    data from the committed census (never by importing the retiring instantiator — the reference-closure
+    check's own discipline); resolved at call time so tests can redirect the root. A missing or unreadable
+    census reads as empty — the map renders un-filtered rather than failing (a corrupted census is caught
+    by its own surviving CI shape check, never by this renderer). In the construction repo every census
+    entry still exists, so both sets are empty and the map is unchanged."""
     census = os.path.join(validate.ENGINE_DIR, "provisioning", "first-run-assets.json")
     try:
         data = validate.load_json(census)
-        entries = list(data.get("files") or []) + list(data.get("dirs") or [])
+        files = list(data.get("files") or [])
+        dirs = list(data.get("directories") or [])
     except Exception:  # noqa: BLE001 — no census, no filter; never fail the render over it
-        return set()
-    out = set()
-    for rel in entries:
-        p = os.path.join(validate.ROOT, rel)
-        if not (os.path.isfile(p) or os.path.isdir(p)):
-            out.add(rel)
-    return out
+        return set(), ()
+    absent_files = {rel for rel in files
+                    if not os.path.exists(os.path.join(validate.ROOT, rel))}
+    absent_dirs = tuple(rel for rel in dirs
+                        if not os.path.isdir(os.path.join(validate.ROOT, rel)))
+    return absent_files, absent_dirs
+
+
+def _is_retired_absent(path: str, absent_files: set, absent_dirs: tuple) -> bool:
+    """True iff a provides entry is retired-and-absent: an exact census-file match, or a path AT or UNDER a
+    census directory that retire removed wholesale (the engine-setup skill trees) — the two ways the retire
+    step deletes things. Prefix matching is directory-boundary-safe (`d + "/"`), never substring."""
+    if path in absent_files:
+        return True
+    return any(path == d or path.startswith(d + "/") for d in absent_dirs)
 
 
 def render_module(manifest: dict) -> list:
@@ -199,10 +211,11 @@ def render_module(manifest: dict) -> list:
 
     provides = manifest.get("provides") or {}
     if provides:
-        retired = _retired_absent()
+        absent_files, absent_dirs = _retired_absent()
         out.append("- provides:")
         for group in sorted(provides):
-            patterns = ", ".join(_code(p) for p in sorted(provides[group] or []) if p not in retired)
+            patterns = ", ".join(_code(p) for p in sorted(provides[group] or [])
+                                 if not _is_retired_absent(p, absent_files, absent_dirs))
             out.append(f"  - {_cell(group)}: {patterns or '(none)'}")
     else:
         out.append("- provides: nothing")
