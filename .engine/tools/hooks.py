@@ -244,34 +244,47 @@ def inject(context: str) -> dict:
 HOOK_OUTPUT_CAP = 10_000
 
 
-def cap_shed(blocks: list, cap: "int | None" = None, notice=None) -> "tuple[str, list]":
+def cap_shed(blocks: list, cap: "int | None" = None, notice=None,
+             compact_notice=None) -> "tuple[str, list]":
     """Measure-before-inject with tiered shedding — the guard an injector composes BEFORE handing its
     payload to inject(), which stays a pure translator. `blocks` is an ordered list of (priority, name,
     text): priority 0 is PINNED (a governance alarm or grounding marker — never shed, even if the pinned
     text alone still exceeds the cap, because a truncated alarm is worse than an oversize one the
     platform previews); higher priorities shed FIRST, a whole priority class at a time, until the joined
     text fits. When anything is shed and `notice` is given, notice(shed_names) is appended to the kept
-    text and counted against the cap. Returns (text, shed_names) — the order of `blocks` is preserved;
-    priorities select what survives, never reorder it. `cap` defaults to HOOK_OUTPUT_CAP resolved at
-    call time (so a test can patch the module constant)."""
+    text and counted against the cap — and CONTENT ALWAYS BEATS THE LABEL (#495 review): a further class
+    is never shed just to make room for the notice. When the kept content fits but the full notice tips
+    it over, the notice shrinks to `compact_notice(shed_names)`; if even that doesn't fit, the notice is
+    dropped (the kept content, grounding marker included, matters more than the sentence about
+    trimming). Returns (text, shed_names) — the order of `blocks` is preserved; priorities select what
+    survives, never reorder it. `cap` defaults to HOOK_OUTPUT_CAP resolved at call time (so a test can
+    patch the module constant)."""
     if cap is None:
         cap = HOOK_OUTPUT_CAP
     kept = list(blocks)
     shed: list = []
 
-    def _render(current, shed_names):
+    def _render(current, shed_names, notice_fn):
         parts = [t for _p, _n, t in current if t]
-        if shed_names and notice is not None:
-            parts.append(notice(shed_names))
+        if shed_names and notice_fn is not None:
+            parts.append(notice_fn(shed_names))
         return "\n".join(parts)
 
-    text = _render(kept, shed)
     for priority in sorted({p for p, _n, _t in kept if p > 0}, reverse=True):
-        if len(text) <= cap:
+        if len(_render(kept, shed, notice)) <= cap:
             break
+        if shed and len(_render(kept, shed, None)) <= cap:
+            break                       # only the notice is over — resolved below, never another shed
         shed.extend(n for p, n, _t in kept if p == priority)
         kept = [b for b in kept if b[0] != priority]
-        text = _render(kept, shed)
+    text = _render(kept, shed, notice)
+    if len(text) <= cap or not shed:
+        return text, shed               # fits, or pinned-alone oversize (emitted whole, documented above)
+    if len(_render(kept, shed, None)) <= cap:
+        compact = _render(kept, shed, compact_notice) if compact_notice is not None else None
+        if compact is not None and len(compact) <= cap:
+            return compact, shed
+        return _render(kept, shed, None), shed
     return text, shed
 
 

@@ -1,4 +1,4 @@
-# audit-prep — the engine's scheduled self-review (audit-library). It runs the read-only `audit` persona
+# audit-prep — the engine's scheduled self-review (audit-library). It runs the read-only `engine-audit` persona
 # on a recurring schedule, then commits the plain-language digest it produces (plus an auto-refreshed
 # where-we-stand cache) back as an ordinary pull request for the operator to read and merge.
 #
@@ -15,7 +15,7 @@
 # produces a digest is confirmed the first time an operator arms it (the same maturity honesty the project
 # applies to its other v1-shipped-but-undogfooded paths).
 #
-# THE PERSONA STAYS READ-ONLY — THE WORKFLOW COMMITS. The `audit` persona only reads and reports; it never
+# THE PERSONA STAYS READ-ONLY — THE WORKFLOW COMMITS. The `engine-audit` persona only reads and reports; it never
 # writes. The sealing, the cache refresh, and the git + pull-request steps below are the WORKFLOW's, kept
 # separate from the persona, which is why this runs `claude` directly rather than an action that would let
 # the agent do the commit itself.

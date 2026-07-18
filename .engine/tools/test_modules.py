@@ -324,7 +324,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
     def test_core_provides_no_gitkeep_placeholders_and_no_agent_group(self):
         # #411: core once carried .claude/skills/.gitkeep and a .claude/agents/.gitkeep-only `agent`
         # group as empty-dir placeholders. Both directories are now populated in every deployed repo (core
-        # provides the engine-* skills; required audit-library provides .claude/agents/audit.md), so the
+        # provides the engine-* skills; required audit-library provides .claude/agents/engine-audit.md), so the
         # placeholders are obsolete and a literal provides-kind read must be coherent: no .gitkeep in any
         # group, and core declares no `agent` group (it provides no persona).
         core = next(m for _p, m in module_coherence.discover_manifests() if m.get("id") == "core")

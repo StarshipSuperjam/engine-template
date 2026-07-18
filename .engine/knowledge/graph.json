@@ -5467,7 +5467,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:fe2d29e70b88a772c9f12553d555ee47f2dbd4558f9aed1a192d36458a768d45",
+        "fingerprint": "sha256:a26d728965225af6a18425d11db5ec838542600bad922c8f1323a432fd1ac59e",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6572,7 +6572,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:9363471049bd999b3f1a10c5142fa7e32f860222b35b638216ac0b645d10f803",
+        "fingerprint": "sha256:b6b023891e2e103dd65bb71e0db65168adacf0de51e6b202d1bdd10bf067318a",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -8391,7 +8391,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:d13e21817ec44e854734611e02195854bdbd4b5f4fc8b14020de5da2ba6d0ce6",
+        "fingerprint": "sha256:d509cca15ead4f5265d55a7c83e28ae36914f0e01784736dd2beb762b77897b3",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -8816,7 +8816,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:1f7eaa348976b76c16787f0fcca2486ee251eae58bd58cf6fe66f2d0f51ccc72",
+        "fingerprint": "sha256:96d935254736f70372ea695d69b9118cd09ddf0166c3f31c4f7221dce4b32154",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

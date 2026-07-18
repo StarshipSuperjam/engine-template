@@ -1841,6 +1841,8 @@ def render_recognition_slice() -> "list[str]":
             return []
         entries = "; ".join(f"{name} in `{(rec or {}).get('location', '?')}`"
                             for name, rec in sorted(surfaces.items()) if isinstance(rec, dict))
+        if not entries:
+            return []                  # a catalog of malformed records renders nothing, not "…lives: ."
     except Exception:  # noqa: BLE001 — orientation is best-effort, never a boot failure
         return []
     return ["Surface recognition — the kinds of file this engine governs and where each lives: "
@@ -1903,8 +1905,9 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
         out.append("2. No governance alarm to relay this session.")
     out.append("3. Check the engine's live helpers and tell the operator about any that are off — a check you "
                "run against your own tools, since the engine cannot see them for you: " + mcp_availability_check())
-    out.append("4. Then surface a brief plain-language headline of anything in the status below that needs "
-               "their attention. When the operator asks where things stand or what's next, run "
+    out.append("4. Then surface a brief plain-language headline of anything in the status below (when "
+               "present — if it was trimmed away to fit a size limit, the notice at the end says so) that "
+               "needs their attention. When the operator asks where things stand or what's next, run "
                "`uv run --directory .engine -- python tools/engine_status.py` and show its output verbatim "
                "— the same dashboard the `/engine-status` verb prints — rather than paraphrasing it. The "
                "protected-branch merge is the real governance guarantee — this relay is your discipline, "
@@ -1939,12 +1942,17 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
                 "briefing was trimmed to fit a size limit and the full status is always available with "
                 "`uv run --directory .engine -- python tools/engine_status.py`.)")
 
+    def _compact_notice(names: list) -> str:
+        return ("(Part of this briefing was trimmed to fit the platform's size limit. Tell the operator in "
+                "one plain sentence; the full status is always available with "
+                "`uv run --directory .engine -- python tools/engine_status.py`.)")
+
     text, _shed = hooks.cap_shed(
         [(0, "the governance briefing", "\n".join(out)),
          (2, "the orientation notes (wiring map, surface recognition, work neighborhood, recent decisions)",
           "\n".join(orientation)),
          (1, "the status dashboard", "\n".join(status))],
-        notice=_shed_notice)
+        notice=_shed_notice, compact_notice=_compact_notice)
     return text
 
 
