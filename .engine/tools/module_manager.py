@@ -566,6 +566,8 @@ _UNSET = object()   # sentinel: "no GitHub boundary passed (resolve close._githu
 # than being seized (the #234/#272 coexistence obligation). The floor is sourced
 # from the release's CLAUDE.deployed.md by `_merge_claude_floor`.
 _ROOT_CLAUDE_REL = "CLAUDE.md"
+_ROOT_AGENTS_REL = "AGENTS.md"                     # the Codex floor — same keyed-merge/block-reverse posture
+_DEPLOYED_AGENTS_FLOOR_REL = "AGENTS.deployed.md"
 _DEPLOYED_FLOOR_REL = "CLAUDE.deployed.md"
 _FLOOR_FENCE = "floor"
 _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives here (#409) — a shared keyed
@@ -590,7 +592,8 @@ _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives her
 # forward-only).
 FOUNDATION_CODE = tuple(
     p for p in module_coherence.FOUNDATION_INFRA
-    if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", _ROOT_CLAUDE_REL, _GITIGNORE_REL)
+    if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", _ROOT_CLAUDE_REL,
+                 _ROOT_AGENTS_REL, _GITIGNORE_REL)
 )
 
 
@@ -1007,6 +1010,12 @@ def _refresh_codeowners(handle) -> str:
         return "degraded"
 
 
+def _merge_agents_floor(release_tree: str) -> str:
+    """The AGENTS.md half of the floor keyed-merge — _merge_claude_floor's mechanics over the Codex
+    floor pair (local AGENTS.md, release AGENTS.deployed.md). Same return vocabulary."""
+    return _merge_floor(release_tree, _ROOT_AGENTS_REL, _DEPLOYED_AGENTS_FLOOR_REL)
+
+
 def _merge_claude_floor(release_tree: str) -> str:
     """Keyed-merge the engine's root-CLAUDE.md floor from the release's CLAUDE.deployed.md into the local
     CLAUDE.md, replacing ONLY the engine `floor` fence and preserving any operator content outside it
@@ -1020,13 +1029,19 @@ def _merge_claude_floor(release_tree: str) -> str:
     append a duplicate floor: the pre-keyed-merge raw-floor case); 'degraded' (a malformed local fence —
     leave it untouched, never a mid-upgrade crash). Structural sibling of `_refresh_codeowners`, but with
     no handle dependency."""
-    src = os.path.join(release_tree, _DEPLOYED_FLOOR_REL)
+    return _merge_floor(release_tree, _ROOT_CLAUDE_REL, _DEPLOYED_FLOOR_REL)
+
+
+def _merge_floor(release_tree: str, root_rel: str, source_rel: str) -> str:
+    """The shared keyed-merge mechanics for one (local root file, release floor source) pair — see
+    _merge_claude_floor's contract."""
+    src = os.path.join(release_tree, source_rel)
     if not os.path.isfile(src):
         return "skipped"
     floor_lines = validate.read(src).split("\n")
     if floor_lines and floor_lines[-1] == "":
         floor_lines = floor_lines[:-1]   # drop the trailing-newline empty element; fence_apply re-terminates
-    local_path = os.path.join(validate.ROOT, _ROOT_CLAUDE_REL)
+    local_path = os.path.join(validate.ROOT, root_rel)
     local = validate.read(local_path) if os.path.isfile(local_path) else ""
     try:
         if not wiring.fence_present(local, _FLOOR_FENCE, style=wiring.MD_FENCE):
@@ -1059,7 +1074,8 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
     injected = release_tree is not None
     result = {"refused": False, "applied": False, "reason": None, "from": None, "to": None,
               "copied": [], "wiring": [], "synced": None, "migrations": {"ran": [], "refused": []},
-              "findings": [], "pr": None, "notes": [], "codeowners": None, "claude_floor": None}
+              "findings": [], "pr": None, "notes": [], "codeowners": None, "claude_floor": None,
+              "agents_floor": None}
     tmp = None
     try:
         engine = module_coherence.load_engine_manifest() or {"packages": {}}
@@ -1142,6 +1158,7 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # engine `floor` fence; preserve operator content; never overlay the construction CLAUDE.md). Same
         # placement rationale as the CODEOWNERS re-render: after the overlay, before coherence/PR.
         result["claude_floor"] = _merge_claude_floor(release_tree)
+        result["agents_floor"] = _merge_agents_floor(release_tree)   # the Codex floor pair, same posture
         # (2f) RE-ASSERT the foundation `.gitignore` fence — release-evolvable, like the CODEOWNERS/CLAUDE.md
         # re-renders above: a new release's FOUNDATION_IGNORE_LINES reach a provisioned repo here (the block
         # is excluded from the overlay-replace set, so this is the ONLY path that evolves it). Idempotent and
@@ -1309,7 +1326,8 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
     # CODEOWNERS, root CLAUDE.md, and root .gitignore — which carry the engine as a keyed fenced block, so
     # they are block-reversed (operator content kept) rather than deleted wholesale.
     outside = sorted({r for r in (provides | set(foundation))
-                      if not r.startswith(".engine/") and r not in (co_rel, _ROOT_CLAUDE_REL, _GITIGNORE_REL)})
+                      if not r.startswith(".engine/") and r not in (co_rel, _ROOT_CLAUDE_REL,
+                                                                    _ROOT_AGENTS_REL, _GITIGNORE_REL)})
     deleted = []
     for rel in outside:
         p = os.path.join(validate.ROOT, rel)
@@ -1352,6 +1370,23 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
             with open(claude_path, "w", encoding="utf-8") as fh:
                 fh.write(remainder)
             deleted.append(f"{_ROOT_CLAUDE_REL} (engine block removed; your own content kept)")
+    # Root AGENTS.md: the SAME block-reversal as CLAUDE.md — the Codex floor pair shares the keyed model.
+    agents_path = os.path.join(validate.ROOT, _ROOT_AGENTS_REL)
+    if os.path.isfile(agents_path):
+        text = validate.read(agents_path)
+        try:
+            remainder = wiring.fence_reverse(text, _FLOOR_FENCE, style=wiring.MD_FENCE)
+        except wiring.WiringError as exc:
+            remainder = text
+            result["left_in_place"].append(
+                f"Left {_ROOT_AGENTS_REL} as it is — its engine section looked damaged ({exc}).")
+        if remainder.strip() == "":
+            os.remove(agents_path)
+            deleted.append(_ROOT_AGENTS_REL)
+        elif remainder != text:
+            with open(agents_path, "w", encoding="utf-8") as fh:
+                fh.write(remainder)
+            deleted.append(f"{_ROOT_AGENTS_REL} (engine block removed; your own content kept)")
     # Root .gitignore: the SAME block-reversal — remove only the engine `foundation-ignores` fence and keep
     # the operator's own ignore lines (delete the file only if nothing but whitespace remains, which never
     # happens in practice — the generic dev-ignores survive). The module `gitignore` fences were already
@@ -1579,18 +1614,22 @@ def _redirect_root(root: str):
     path constants are bound at import, so they are redirected explicitly (the same discipline the
     coherence tests use)."""
     saved = (validate.ROOT, validate.ENGINE_DIR, wiring.SETTINGS_PATH, wiring.MCP_PATH,
-             wiring.GITIGNORE_PATH, wiring.CATALOG_PATH)
+             wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
+             wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH)
     validate.ROOT = root
     validate.ENGINE_DIR = os.path.join(root, ".engine")
     wiring.SETTINGS_PATH = os.path.join(root, ".claude", "settings.json")
     wiring.MCP_PATH = os.path.join(root, ".mcp.json")
     wiring.GITIGNORE_PATH = os.path.join(root, ".gitignore")
     wiring.CATALOG_PATH = os.path.join(root, ".engine", "schemas", "surface-catalog.json")
+    wiring.CODEX_HOOKS_PATH = os.path.join(root, ".codex", "hooks.json")
+    wiring.CODEX_CONFIG_PATH = os.path.join(root, ".codex", "config.toml")
     try:
         yield
     finally:
         (validate.ROOT, validate.ENGINE_DIR, wiring.SETTINGS_PATH, wiring.MCP_PATH,
-         wiring.GITIGNORE_PATH, wiring.CATALOG_PATH) = saved
+         wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
+         wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH) = saved
 
 
 def _build_fixture(root: str) -> None:

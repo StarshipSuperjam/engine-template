@@ -50,11 +50,12 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - `validators-core` → `core`
 - `audit-library` → `validators-core`
 
-### `core` — version `0.1.0` (required)
+### `core` — version `0.2.0` (required)
 
 - depends on: nothing
 - provides:
   - check: `.engine/check/guardrail-weakening.json`, `.engine/check/protection.json`
+  - codex-skill: `.agents/skills/engine-conduct/SKILL.md`, `.agents/skills/engine-conduct/agents/openai.yaml`, `.agents/skills/engine-help/SKILL.md`, `.agents/skills/engine-help/agents/openai.yaml`, `.agents/skills/engine-parts/SKILL.md`, `.agents/skills/engine-parts/agents/openai.yaml`, `.agents/skills/engine-setup/SKILL.md`, `.agents/skills/engine-setup/agents/openai.yaml`, `.agents/skills/engine-start/SKILL.md`, `.agents/skills/engine-start/agents/openai.yaml`, `.agents/skills/engine-status/SKILL.md`, `.agents/skills/engine-status/agents/openai.yaml`, `.agents/skills/engine-tune/SKILL.md`, `.agents/skills/engine-tune/agents/openai.yaml`
   - conduct: `.engine/conduct/defaults.md`
   - contract: `.engine/contracts/*.md`
   - doc: `.engine/docs/getting-started.md`
@@ -69,7 +70,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - state: `.engine/state/*.json`
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`, `.engine/tools/*.sh`
-- wires: gitignore, hook, mcp
+- wires: codex-hook, codex-mcp, gitignore, hook, mcp
 
 ### `dependency-discipline` — version `0.1.0` (optional)
 
@@ -80,11 +81,12 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/dependency_discipline/*.py`
 - wires: none (this module adds no shared-state edits)
 
-### `design-review` — version `0.1.0` (optional)
+### `design-review` — version `0.2.0` (optional)
 
 - depends on: `core`
 - provides:
   - agent: `.claude/agents/design-review-architecture.md`, `.claude/agents/design-review-feasibility.md`, `.claude/agents/design-review-product-intent.md`, `.claude/agents/design-review-risk-governance.md`
+  - codex-agent: `.codex/agents/design-review-architecture.toml`, `.codex/agents/design-review-feasibility.toml`, `.codex/agents/design-review-product-intent.toml`, `.codex/agents/design-review-risk-governance.toml`
 - wires: none (this module adds no shared-state edits)
 
 ### `external-contribution` — version `0.1.0` (optional)
@@ -97,23 +99,24 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/external_contribution/*.py`
 - wires: none (this module adds no shared-state edits)
 
-### `github-projects-sync` — version `0.1.0` (optional)
+### `github-projects-sync` — version `0.2.0` (optional)
 
 - depends on: `core`
 - provides:
+  - codex-skill: `.agents/skills/engine-board-setup/SKILL.md`, `.agents/skills/engine-board-setup/agents/openai.yaml`
   - operation: `.engine/operations/projects-sync-setup.md`
   - skill: `.claude/skills/engine-board-setup/SKILL.md`
   - tool: `.engine/tools/projects_sync/*.py`
-- wires: gitignore, hook
+- wires: codex-hook, gitignore, hook
 
-### `memory-substrate-sqlite-fts5` — version `0.1.0` (required)
+### `memory-substrate-sqlite-fts5` — version `0.2.0` (required)
 
 - depends on: `core`
 - provides:
   - backup: `.engine/memory-backup/pointer.json`
   - erasures: `.engine/erasures/proposal.json`
   - tool: `.engine/tools/memory/*.py`
-- wires: gitignore, hook, mcp
+- wires: codex-hook, codex-mcp, gitignore, hook, mcp
 
 ### `migration-discipline` — version `0.1.0` (optional)
 
@@ -124,24 +127,26 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/migration_discipline/*.py`
 - wires: none (this module adds no shared-state edits)
 
-### `product-design` — version `0.1.0` (optional)
+### `product-design` — version `0.2.0` (optional)
 
 - depends on: `core`
 - provides:
   - check: `.engine/check/product-adr-form.json`, `.engine/check/product-lock-integrity.json`, `.engine/check/product-spec-coverage.json`, `.engine/check/product-spec-form.json`, `.engine/check/product-spec-matrix.json`
+  - codex-skill: `.agents/skills/engine-design/SKILL.md`, `.agents/skills/engine-design/agents/openai.yaml`
   - doc: `.engine/docs/product-design.md`
   - foundation: `.engine/product-spec-matrix.json`
   - operation: `.engine/operations/product-intake.md`
   - scaffold: `.engine/modules/product-design/scaffold/*.md`
   - skill: `.claude/skills/engine-design/SKILL.md`
   - tool: `.engine/tools/product_design/*.py`
-- wires: hook
+- wires: codex-hook, hook
 
-### `qa-review` — version `0.1.0` (optional)
+### `qa-review` — version `0.2.0` (optional)
 
 - depends on: `core`
 - provides:
   - agent: `.claude/agents/qa-review-divergence-hunter.md`, `.claude/agents/qa-review-security-governance.md`, `.claude/agents/qa-review-spec-conformance.md`, `.claude/agents/qa-review-technical-integrity.md`, `.claude/agents/qa-review-usability.md`
+  - codex-agent: `.codex/agents/qa-review-divergence-hunter.toml`, `.codex/agents/qa-review-security-governance.toml`, `.codex/agents/qa-review-spec-conformance.toml`, `.codex/agents/qa-review-technical-integrity.toml`, `.codex/agents/qa-review-usability.toml`
 - wires: none (this module adds no shared-state edits)
 
 ### `routine-mode` — version `0.1.0` (required)
@@ -159,10 +164,11 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - check: `.engine/check/agent-coherence.json`, `.engine/check/agent-frontmatter.json`, `.engine/check/agent-shape.json`, `.engine/check/audit-concern-list.json`, `.engine/check/audit-digest-fingerprint.json`, `.engine/check/audit-digest-staleness.json`, `.engine/check/block-coherence.json`, `.engine/check/catalog-coverage.json`, `.engine/check/census-completeness.json`, `.engine/check/conduct-frontmatter.json`, `.engine/check/conduct-shape.json`, `.engine/check/conduct-weakening-guard.json`, `.engine/check/contract-frontmatter.json`, `.engine/check/contract-shape.json`, `.engine/check/contract-threshold.json`, `.engine/check/disposition-issue-resolution.json`, `.engine/check/doc-frontmatter.json`, `.engine/check/doc-shape.json`, `.engine/check/engine-manifest.json`, `.engine/check/first-run-assets.json`, `.engine/check/first-run-reference-closure.json`, `.engine/check/hard-check-bite.json`, `.engine/check/in-tool-demo-failure-path.json`, `.engine/check/interface-coherence.json`, `.engine/check/interface-declaration.json`, `.engine/check/knowledge-coverage.json`, `.engine/check/knowledge-vocabulary.json`, `.engine/check/lens-consumption.json`, `.engine/check/link-integrity.json`, `.engine/check/memory-pointer-public-safety.json`, `.engine/check/module-manifest.json`, `.engine/check/ontology-authority-reservation.json`, `.engine/check/operation-frontmatter.json`, `.engine/check/operation-shape.json`, `.engine/check/policy-frontmatter.json`, `.engine/check/policy-override-stale.json`, `.engine/check/policy-shape.json`, `.engine/check/pr-body-completeness.json`, `.engine/check/provisioning-catalog.json`, `.engine/check/release-integrity.json`, `.engine/check/self-map-drift.json`, `.engine/check/skill-coherence.json`, `.engine/check/skill-frontmatter.json`, `.engine/check/skill-shape.json`, `.engine/check/state-cursor.json`, `.engine/check/template-shape-spec.json`, `.engine/check/untracked-surface.json`, `.engine/check/uv-group-drift.json`
 - wires: none (this module adds no shared-state edits)
 
-### `audit-library` — version `0.1.0` (required)
+### `audit-library` — version `0.2.0` (required)
 
 - depends on: `validators-core`
 - provides:
   - agent: `.claude/agents/audit.md`
   - audits: `.engine/audits/audit-digest.md`, `.engine/audits/concern-list.json`, `.engine/audits/self-review-setup.md`
+  - codex-agent: `.codex/agents/audit.toml`
 - wires: none (this module adds no shared-state edits)

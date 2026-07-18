@@ -1977,6 +1977,566 @@
       "type": "check"
     },
     {
+      "id": "codex-agent:audit",
+      "name": ".codex/agents/audit.toml",
+      "owner": "audit-library",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:audit-library"
+        ]
+      },
+      "slug": "audit",
+      "source": {
+        "fingerprint": "sha256:d33272530f0ca0410cca435c3ad0570d5172f706e7bd25c80b32c029dce75269",
+        "path": ".codex/agents/audit.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:design-review-architecture",
+      "name": ".codex/agents/design-review-architecture.toml",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "slug": "design-review-architecture",
+      "source": {
+        "fingerprint": "sha256:afa912e2965dee7624b159b00a54f5852cb38d4756d80867a69b75862024fce4",
+        "path": ".codex/agents/design-review-architecture.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:design-review-feasibility",
+      "name": ".codex/agents/design-review-feasibility.toml",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "slug": "design-review-feasibility",
+      "source": {
+        "fingerprint": "sha256:4b9106ca80f2d7935c087166b2cccf70dd33afecc4d1dfd84c670fe6c53928bf",
+        "path": ".codex/agents/design-review-feasibility.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:design-review-product-intent",
+      "name": ".codex/agents/design-review-product-intent.toml",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "slug": "design-review-product-intent",
+      "source": {
+        "fingerprint": "sha256:6d84d012e6aae7a66de9b4d60a3396861944833997f10ad6aa2bc69672613f7c",
+        "path": ".codex/agents/design-review-product-intent.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:design-review-risk-governance",
+      "name": ".codex/agents/design-review-risk-governance.toml",
+      "owner": "design-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:design-review"
+        ]
+      },
+      "slug": "design-review-risk-governance",
+      "source": {
+        "fingerprint": "sha256:d26bd31d5c330c81cc38904baafc144c74ef0d0b72ce55617c92449f8521b23c",
+        "path": ".codex/agents/design-review-risk-governance.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-divergence-hunter",
+      "name": ".codex/agents/qa-review-divergence-hunter.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-divergence-hunter",
+      "source": {
+        "fingerprint": "sha256:482ecb756f686f45e6a153e450f2904f6afec82e0565feaa0cc27181ba7663de",
+        "path": ".codex/agents/qa-review-divergence-hunter.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-security-governance",
+      "name": ".codex/agents/qa-review-security-governance.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-security-governance",
+      "source": {
+        "fingerprint": "sha256:f3b7301bfdf29862d28f185f37d3d790703f749b7536bd2004e3ece8754fcec1",
+        "path": ".codex/agents/qa-review-security-governance.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-spec-conformance",
+      "name": ".codex/agents/qa-review-spec-conformance.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-spec-conformance",
+      "source": {
+        "fingerprint": "sha256:33d239e816f19cca42e76aed26d510e2b9fb964ce7f71597350ef17f4c5aa973",
+        "path": ".codex/agents/qa-review-spec-conformance.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-technical-integrity",
+      "name": ".codex/agents/qa-review-technical-integrity.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-technical-integrity",
+      "source": {
+        "fingerprint": "sha256:f78ed500bee8f4e35b562800db5e5f3461fec03b6f2201a4251775f8990daf9c",
+        "path": ".codex/agents/qa-review-technical-integrity.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-agent:qa-review-usability",
+      "name": ".codex/agents/qa-review-usability.toml",
+      "owner": "qa-review",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-agent.v1"
+        ],
+        "provided_by": [
+          "module:qa-review"
+        ]
+      },
+      "slug": "qa-review-usability",
+      "source": {
+        "fingerprint": "sha256:873609fa4c2d324ee25ad40b298e0f801fa4e451a76e91a02d3abf45610aed3d",
+        "path": ".codex/agents/qa-review-usability.toml"
+      },
+      "status": "active",
+      "type": "codex-agent"
+    },
+    {
+      "id": "codex-skill:engine-board-setup",
+      "name": ".agents/skills/engine-board-setup/SKILL.md",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "engine-board-setup",
+      "source": {
+        "fingerprint": "sha256:288d87feff3bda1e8202ea460baa8d61bb067bb7f4f17eb7e151ac7f76cbc1d5",
+        "path": ".agents/skills/engine-board-setup/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-board-setup.policy",
+      "name": ".agents/skills/engine-board-setup/agents/openai.yaml",
+      "owner": "github-projects-sync",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:github-projects-sync"
+        ]
+      },
+      "slug": "engine-board-setup.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-board-setup/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-conduct",
+      "name": ".agents/skills/engine-conduct/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-conduct",
+      "source": {
+        "fingerprint": "sha256:32cfe4b192683595d0505601c5ffc8241184f28e2e5286ea3e5441182520172c",
+        "path": ".agents/skills/engine-conduct/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-conduct.policy",
+      "name": ".agents/skills/engine-conduct/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-conduct.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-conduct/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-design",
+      "name": ".agents/skills/engine-design/SKILL.md",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "engine-design",
+      "source": {
+        "fingerprint": "sha256:b823e67aa6f4426f332e025dae9a1c5a234f54d98618345dc55bae819a56e9f6",
+        "path": ".agents/skills/engine-design/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-design.policy",
+      "name": ".agents/skills/engine-design/agents/openai.yaml",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "engine-design.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-design/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-help",
+      "name": ".agents/skills/engine-help/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-help",
+      "source": {
+        "fingerprint": "sha256:d4c1394591075c31743e7c3762421d6f5cc2a60e95c1dbcbcb57fd522990565a",
+        "path": ".agents/skills/engine-help/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-help.policy",
+      "name": ".agents/skills/engine-help/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-help.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-help/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-parts",
+      "name": ".agents/skills/engine-parts/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-parts",
+      "source": {
+        "fingerprint": "sha256:b1087973ee354f35d122f5fa0416bbd9dcd1836bf292186d90b6eb2a3db9f5f2",
+        "path": ".agents/skills/engine-parts/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-parts.policy",
+      "name": ".agents/skills/engine-parts/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-parts.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-parts/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup",
+      "name": ".agents/skills/engine-setup/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup",
+      "source": {
+        "fingerprint": "sha256:6398a90695346ea456c881152b22056271cfc4fb13f814dafb55c2f2a235adc1",
+        "path": ".agents/skills/engine-setup/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-setup.policy",
+      "name": ".agents/skills/engine-setup/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-setup.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-setup/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-start",
+      "name": ".agents/skills/engine-start/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-start",
+      "source": {
+        "fingerprint": "sha256:9e33626261c6facf7ceff84af23dd65161fcdbfb7afffc77854d6da0bc0a054b",
+        "path": ".agents/skills/engine-start/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-start.policy",
+      "name": ".agents/skills/engine-start/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-start.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-start/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-status",
+      "name": ".agents/skills/engine-status/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-status",
+      "source": {
+        "fingerprint": "sha256:f735c89fb42b3cd5f0092aa8bd1510f9fd5aefd773a5187b7855d79a253b5187",
+        "path": ".agents/skills/engine-status/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-status.policy",
+      "name": ".agents/skills/engine-status/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-status.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-status/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-tune",
+      "name": ".agents/skills/engine-tune/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-tune",
+      "source": {
+        "fingerprint": "sha256:82517fea3f9ff363b2d866ada63bdbc26e15e0861b59444a0154fdb5f70b3d3e",
+        "path": ".agents/skills/engine-tune/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-tune.policy",
+      "name": ".agents/skills/engine-tune/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-tune.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-tune/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
       "id": "conduct:defaults",
       "name": ".engine/conduct/defaults.md",
       "owner": "core",
@@ -2820,12 +3380,12 @@
       },
       "slug": "audit-library",
       "source": {
-        "fingerprint": "sha256:cf507265583aefc4a3fc9915d203127922ef0edc48ae3f8b6e30f92917b2cc6d",
+        "fingerprint": "sha256:7fe313b855bcd1b10b280b7ef181f68e0f2aa8945da31a6301cd770097a94dc1",
         "path": ".engine/modules/audit-library/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:core",
@@ -2834,12 +3394,12 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:4a4d75f3d4f79382d1b4363e6daa645293eef67d37871b3f25454e2bfdb879ef",
+        "fingerprint": "sha256:d51d36ac03e3ea6a9aa71239166eed8c0309e48d7b3255a8d279b6ddb9c985c0",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:dependency-discipline",
@@ -2870,12 +3430,12 @@
       },
       "slug": "design-review",
       "source": {
-        "fingerprint": "sha256:faba4087dc059f60d31c676d4a74e42a10a108c733c0b236801f6ae08a6a8020",
+        "fingerprint": "sha256:e35d795be67e2d37fcd7a2194449d07ed4f5e1dc2d33bd91f061846298f59ce4",
         "path": ".engine/modules/design-review/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:external-contribution",
@@ -2906,12 +3466,12 @@
       },
       "slug": "github-projects-sync",
       "source": {
-        "fingerprint": "sha256:629f6a40ca465a2382920e89925d8ce14ee965938db04844a148a0515fb7dfe9",
+        "fingerprint": "sha256:dc5505a3bbb3e5f6c8d8a786de4a0e364f25cc9e99d7970ee04fcfcffca091fe",
         "path": ".engine/modules/github-projects-sync/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:memory-substrate-sqlite-fts5",
@@ -2924,12 +3484,12 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:c57dd309898992667c4a1fc3aaab6e706447c13d52088c7d420aa33d3eccf448",
+        "fingerprint": "sha256:fcba2db422a94305921b54fdde8b73d1cbd51df9aafb4dfc05e7f148371f374c",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:migration-discipline",
@@ -2960,12 +3520,12 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:7ffec2ac27544551004150e8a0489edf1d8adb75402f866516b35498dff78a3f",
+        "fingerprint": "sha256:1c8707bb6c32d613e954a20e0066a870eddde1b4da5f758d4580be030085315e",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:qa-review",
@@ -2978,12 +3538,12 @@
       },
       "slug": "qa-review",
       "source": {
-        "fingerprint": "sha256:0c9664d3d2686ac184bccf9cad36bb945472a25669314b4cf7bd8a9300a59893",
+        "fingerprint": "sha256:3db9d60a5e4c933c882c9a937a85045b3ae01631771bef6356d646f43aa0a9c0",
         "path": ".engine/modules/qa-review/manifest.json"
       },
       "status": "optional",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:routine-mode",
@@ -5707,7 +6267,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:11cc16bde84a3cca13b3892836cc77f7d9e375c723c6b571e792f40bf31eab87",
+        "fingerprint": "sha256:6cb26e715f57a4e8e74fdab22046dac8dae93650e58515a07bf5da75b9ef1166",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -5792,7 +6352,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:5b28a56fdec6d1a1808c82767af4de7a862ef5981c909e04fcc4b0862ee6430f",
+        "fingerprint": "sha256:f63f72a59e6f4f86a45e8bd52614cc13972ca80329793d273214a5af5f570d41",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -6115,7 +6675,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:8652a12390875f2411927baf48df40272ec6a99a12f88b119da8d4bc44d9f21f",
+        "fingerprint": "sha256:1b1228ce0b800650ec735b166aace56ef4909828e2092d7a00d2afc86c8e9bd6",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -6132,7 +6692,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:074578e5ccea9e011a6f5e3c22da9adbf91930897b2abaa1fea109ebf199e03e",
+        "fingerprint": "sha256:a1b12abaf6fb660705369ac354365e26738a41103203c1923f4899fbc9e19c9f",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -7815,7 +8375,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:cd7f570b711cf7addb00b842d5c339fcf0413c8b0e70abc8b00abb64e13775a8",
+        "fingerprint": "sha256:dc6180c5d69bd9b5f76db8952616c5aeb2795443665576c18e1b6c0349b94fa0",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -7832,7 +8392,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:8693cef5cf25d6ff2441a5c8f865e4c87b2401e0c55e6f9efaf067fe6d8e935d",
+        "fingerprint": "sha256:b54e9912e51eafe4c1cad87dddc83a220f42acb8f04f3847017578a816e1b768",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",

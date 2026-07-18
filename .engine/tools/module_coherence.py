@@ -93,6 +93,9 @@ FOUNDATION_INFRA = (
     ".engine/pyproject.toml",
     ".engine/uv.lock",
     "CLAUDE.md",
+    "AGENTS.md",           # the Codex floor — CLAUDE.md's exact sibling: engine-owned foundation, keyed
+    #                        `floor` fence, OUT of FOUNDATION_CODE (keyed-merged on upgrade, never
+    #                        overlay-replaced) + block-reversed in remove_engine.
     ".gitignore",          # a platform-shared keyed file like CLAUDE.md/CODEOWNERS — carries the engine's
     #                        foundation-ignores fence; OUT of FOUNDATION_CODE + block-reversed
     #                        in remove_engine (never overlay-replaced / wholesale-deleted — #409).
@@ -392,6 +395,8 @@ WIRING_TARGETS = {
     "mcp": _rel(wiring.MCP_PATH),
     "gitignore": _rel(wiring.GITIGNORE_PATH),
     "ontology-entry": _rel(wiring.CATALOG_PATH),
+    "codex-hook": _rel(wiring.CODEX_HOOKS_PATH),
+    "codex-mcp": _rel(wiring.CODEX_CONFIG_PATH),
 }
 
 

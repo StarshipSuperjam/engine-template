@@ -534,7 +534,9 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             "agent": [".claude/agents/audit.md"],
             "audits": [".engine/audits/concern-list.json", ".engine/audits/self-review-setup.md",
                        ".engine/audits/audit-digest.md"],
-        }, "audit-library owns the persona, the seeded concern-list, the setup page, and the run-time digest")
+            "codex-agent": [".codex/agents/audit.toml"],
+        }, "audit-library owns the persona (both runtime forms), the seeded concern-list, the setup page, "
+           "and the run-time digest")
 
     def test_committed_digest_is_owned_not_an_orphan(self):
         # Regression (digest PR #194): the scheduled run commits .engine/audits/audit-digest.md, but that file
@@ -597,7 +599,13 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                      "command": "sh \"${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh\" "
                                 "\"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python\" "
                                 "\"${CLAUDE_PROJECT_DIR}/.engine/tools/product_design/obligation_matrix.py\" hook"},
-        }], "product-design wires its obligation-matrix commit-boundary regen hook")
+        }, {
+            "type": "codex-hook", "event": "PreToolUse",
+            "hook": {"type": "command",
+                     "command": 'cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && '
+                                'sh ".engine/tools/codex-hook-runner.sh" '
+                                '".engine/tools/product_design/obligation_matrix.py" hook'},
+        }], "product-design wires its obligation-matrix commit-boundary regen hook on both runtimes")
         self.assertEqual(pd.get("depends"), {"core": ""})
         self.assertEqual(pd.get("provides"), {
             "check": [".engine/check/product-adr-form.json", ".engine/check/product-lock-integrity.json",
@@ -607,11 +615,14 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             "foundation": [".engine/product-spec-matrix.json"],
             "operation": [".engine/operations/product-intake.md"],
             "skill": [".claude/skills/engine-design/SKILL.md"],
+            "codex-skill": [".agents/skills/engine-design/SKILL.md",
+                            ".agents/skills/engine-design/agents/openai.yaml"],
             "doc": [".engine/docs/product-design.md"],
             "scaffold": [".engine/modules/product-design/scaffold/*.md"],
         }, "product-design owns its front door: the ADR-form + spec-form + coverage + lock-integrity + "
            "obligation-matrix checks and their tools, the committed obligation matrix (its foundation file), "
-           "the intake operation, the engine-design skill, the orientation doc, and the scaffold")
+           "the intake operation, the engine-design skill (both runtime forms), the orientation doc, and "
+           "the scaffold")
 
     def test_doc_ownership_is_partitioned_core_and_product_design(self):
         # The orientation doc lives under .engine/docs/, which core used to claim by a whole-surface glob

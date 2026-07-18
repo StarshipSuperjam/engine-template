@@ -1,18 +1,18 @@
 {
   "engine_release": "0.2.0",
   "packages": {
-    "core": "0.1.0",
+    "core": "0.2.0",
     "validators-core": "0.1.0",
-    "memory-substrate-sqlite-fts5": "0.1.0",
+    "memory-substrate-sqlite-fts5": "0.2.0",
     "routine-mode": "0.1.0",
-    "audit-library": "0.1.0",
-    "github-projects-sync": "0.1.0",
+    "audit-library": "0.2.0",
+    "github-projects-sync": "0.2.0",
     "dependency-discipline": "0.1.0",
-    "design-review": "0.1.0",
+    "design-review": "0.2.0",
     "external-contribution": "0.1.0",
-    "qa-review": "0.1.0",
+    "qa-review": "0.2.0",
     "migration-discipline": "0.1.0",
-    "product-design": "0.1.0"
+    "product-design": "0.2.0"
   },
   "identity": "solo",
   "home_repository": "StarshipSuperjam/engine-template"

@@ -1,6 +1,6 @@
 {
   "id": "core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "status": "required",
   "provides": {
     "check": [
@@ -76,6 +76,22 @@
     "provisioning": [
       ".engine/provisioning/first-run-assets.json",
       ".engine/provisioning/module-catalog.json"
+    ],
+    "codex-skill": [
+      ".agents/skills/engine-conduct/SKILL.md",
+      ".agents/skills/engine-conduct/agents/openai.yaml",
+      ".agents/skills/engine-help/SKILL.md",
+      ".agents/skills/engine-help/agents/openai.yaml",
+      ".agents/skills/engine-parts/SKILL.md",
+      ".agents/skills/engine-parts/agents/openai.yaml",
+      ".agents/skills/engine-setup/SKILL.md",
+      ".agents/skills/engine-setup/agents/openai.yaml",
+      ".agents/skills/engine-start/SKILL.md",
+      ".agents/skills/engine-start/agents/openai.yaml",
+      ".agents/skills/engine-status/SKILL.md",
+      ".agents/skills/engine-status/agents/openai.yaml",
+      ".agents/skills/engine-tune/SKILL.md",
+      ".agents/skills/engine-tune/agents/openai.yaml"
     ]
   },
   "wires": [
@@ -268,6 +284,160 @@
       "lines": [
         ".engine/boot/.cache/"
       ]
+    },
+    {
+      "type": "codex-mcp",
+      "name": "engine-knowledge-graph",
+      "definition": {
+        "command": "uv",
+        "args": [
+          "run",
+          "--directory",
+          ".engine",
+          "--frozen",
+          "--",
+          "python",
+          "tools/knowledge_mcp_server.py"
+        ],
+        "default_tools_approval_mode": "auto"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
+      "matcher": "startup",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/boot.py\""
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
+      "matcher": "resume",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/boot.py\""
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
+      "matcher": "clear",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/boot.py\""
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
+      "matcher": "startup",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/telemetry.py\" run-ambient"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
+      "matcher": "resume",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/telemetry.py\" run-ambient"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
+      "matcher": "startup",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/telemetry.py\" run-episodic"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
+      "matcher": "resume",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/telemetry.py\" run-episodic"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
+      "matcher": "startup",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/telemetry.py\" drain-inbox"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "SessionStart",
+      "matcher": "resume",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/telemetry.py\" drain-inbox"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "PreToolUse",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/modes.py\""
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "PreToolUse",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/knowledge_gen.py\" hook"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "PreToolUse",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/self_map.py\" hook"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "PreToolUse",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/validate.py\" hook"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "PostToolUse",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/validate.py\" accept-hook"
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "Stop",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/close.py\""
+      }
+    },
+    {
+      "type": "codex-hook",
+      "event": "UserPromptSubmit",
+      "hook": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && sh \".engine/tools/codex-hook-runner.sh\" \".engine/tools/scent.py\""
+      }
     }
   ],
   "depends": {}
