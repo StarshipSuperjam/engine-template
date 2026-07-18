@@ -1951,6 +1951,53 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("too large for this check to read in full", out[0]["message"])
         self.assertNotIn("home_repository` line", out[0]["message"])   # never asserts the line was touched
 
+    def test_home_cr_hidden_repoint_is_flagged(self):
+        # #550 review (the exploitable split): a carriage return is a line break to str.splitlines but NOT
+        # to a GitHub `\n`-delimited diff or to JSON (where it is whitespace). One added `+` line carries a
+        # benign base-valued home entry, a CR, then a SECOND home entry with an evil value — which the
+        # applied manifest resolves as the effective home (last value wins). The guard must extract lines on
+        # `\n` only and fail closed on the embedded separator, never clear it.
+        patch = ('@@ -1,3 +1,3 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "acme/engine-home",\r  "home_repository": "evil/look-alike"\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+        self.assertIn("guardrail-ack", out[0]["message"])
+
+    def test_home_same_line_duplicate_key_is_flagged(self):
+        # The no-separator sibling: two home keys on ONE added line, last value wins. The strict full-line
+        # benign match rejects it (trailing content), so it flags.
+        patch = ('@@ -1,3 +1,3 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "acme/engine-home", "home_repository": "evil/look-alike"\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+
+    def test_home_trailing_crlf_reformat_does_not_false_alarm(self):
+        # The false-alarm guard on the separator defense: a Windows-checkout diff ends each line with a
+        # trailing CRLF. That trailing `\r` is NOT an embedded separator (splitlines yields one piece), so
+        # the benign trailing-comma reformat must still CLEAR — the #515 fix survives CRLF line endings.
+        patch = ('@@ -1,3 +1,4 @@\r\n'
+                 '-  "home_repository": "acme/engine-home"\r\n'
+                 '+  "home_repository": "acme/engine-home",\r\n'
+                 '+  "control_plane": {"ruleset_id": 901}\r\n'
+                 ' }\r\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(out, [], "a trailing-CRLF reformat of the unchanged home must not demand an ack")
+
     def test_home_change_with_no_patch_fails_closed(self):
         # #367 security review: GitHub elides the patch on a large PR. A manifest change we cannot inspect,
         # with a home recorded, fails CLOSED (demands the ack) rather than passing silently.
@@ -1998,6 +2045,18 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertTrue(d(self._f('@@ -15,1 +16,1 @@\n+  "identity": "solo",\n'), "team"))
         # the same patch on a NON-manifest file is ignored
         self.assertFalse(d([{"filename": "docs/x.md", "status": "modified", "patch": self._DOWNGRADE_PATCH}], "team"))
+        # #550 review: the identity guard shares the home guard's line-extraction, so it shares both
+        # evasions. A CR-hidden second `"identity": "solo"` (str.splitlines would fragment the line and
+        # drop the `+` marker) must fail closed:
+        self.assertTrue(d(self._f('@@ -15,1 +15,1 @@\n-  "identity": "team"\n'
+                                  '+  "identity": "team",\r  "identity": "solo"\n'), "team"))
+        # ...and a same-line duplicate `identity` key (last value wins) must be caught by reading EVERY
+        # value on the line (findall, not first-match search):
+        self.assertTrue(d(self._f('@@ -15,1 +15,1 @@\n-  "identity": "team"\n'
+                                  '+  "identity": "team", "identity": "solo"\n'), "team"))
+        # a trailing CRLF on a legit keep-team reformat is NOT an embedded separator -> not flagged
+        self.assertFalse(d(self._f('@@ -15,1 +15,1 @@\r\n-  "identity": "team"\r\n'
+                                   '+  "identity": "team",\r\n'), "team"))
 
     def test_identity_downgrade_is_flagged_and_cleared_by_the_ack(self):
         # end-to-end through main(): a team->solo edit on a team-base repo blocks until the ack, then clears.

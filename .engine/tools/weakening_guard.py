@@ -271,12 +271,33 @@ def _read_base_home() -> str | None:
         return None
 
 
+def _diff_lines(patch: str) -> list:
+    """The unified-diff `patch` split into lines on `\\n` ONLY — GitHub's sole line delimiter. NEVER
+    `str.splitlines()`, which also breaks on CR, VT, FF, the FS/GS/RS separators, NEL, and U+2028/U+2029 —
+    characters a GitHub diff and JSON treat as ordinary content, so `splitlines` would fragment one `+`
+    line into pieces, and every fragment past the separator loses its `+`/`-` marker and goes invisible to
+    the checks below. Splitting on `\\n` keeps each diff line whole, so an embedded separator stays inside
+    its line where `_added_line_is_anomalous` can catch it (#550 review)."""
+    return patch.split("\n")
+
+
+def _added_line_is_anomalous(ln: str) -> bool:
+    """True iff an ADDED manifest diff line carries content the plain-ASCII engine manifest never
+    legitimately holds and which could disguise a key/value from the value checks: a backslash (a JSON
+    string escape — `home_repositor\\u0079` folds back to the real key, last value wins), or an EMBEDDED
+    line-separator that `str.splitlines` splits on but a GitHub `\\n`-delimited diff does not (CR, VT, FF,
+    FS/GS/RS, NEL, U+2028/9 — the fragment past it would lose its `+` marker and hide a second key/value).
+    A TRAILING CRLF `\\r` is deliberately NOT flagged — `"…"\\r`.splitlines() yields one piece — so a
+    Windows-checkout diff never false-alarms; only an INTERNAL separator (which yields >1 piece) does."""
+    return "\\" in ln or len(ln.splitlines()) > 1
+
+
 def _touches_home_key(patch: str) -> bool:
     """True iff the unified-diff `patch` adds or removes any line mentioning the `home_repository` key — a
     SUBSTRING test (not a value regex), so a duplicate-key injection (JSON's last value wins, but the added
     key line still shows), a value split across lines, and any reformatting of the home line all register as
     a touch. The `+++`/`---` file headers are excluded."""
-    for line in patch.splitlines():
+    for line in _diff_lines(patch):
         plus = line.startswith("+") and not line.startswith("+++")
         minus = line.startswith("-") and not line.startswith("---")
         if (plus or minus) and "home_repository" in line:
@@ -321,14 +342,15 @@ def home_repoint(files: list, base_home: str | None) -> tuple | None:
         patch = f.get("patch")
         if not patch:
             return (base_home, None, "unreadable-patch")   # a manifest change we cannot inspect -> fail closed
-        added = [ln for ln in patch.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
+        added = [ln for ln in _diff_lines(patch) if ln.startswith("+") and not ln.startswith("+++")]
         # The engine manifest holds only plain-ASCII values (versions, package names, identity, the home
-        # slug, the control-plane marker's ids + enumerated rule names), so a JSON string escape in an ADDED
-        # line is anomalous — it can disguise the home key past the substring touch-test below. Fail closed.
-        if any("\\" in ln for ln in added):
+        # slug, the control-plane marker's ids + enumerated rule names), so a backslash escape OR an
+        # embedded line-separator in an ADDED line is anomalous — either can disguise the home key or a
+        # second hidden value past the checks below. Fail closed on it.
+        if any(_added_line_is_anomalous(ln) for ln in added):
             return (base_home, None, "escaped")
         if _touches_home_key(patch):
-            touched = [ln for ln in patch.splitlines()
+            touched = [ln for ln in _diff_lines(patch)
                        if ((ln.startswith("+") and not ln.startswith("+++"))
                            or (ln.startswith("-") and not ln.startswith("---")))
                        and "home_repository" in ln]
@@ -371,7 +393,7 @@ def _touches_identity_key(patch: str) -> bool:
     """True iff the unified-diff `patch` adds or removes any line mentioning the `identity` key — a SUBSTRING
     test (mirrors _touches_home_key), so a duplicate-key injection, a value split across lines, and any
     reformatting of the identity line all register. The `+++`/`---` file headers are excluded."""
-    for line in patch.splitlines():
+    for line in _diff_lines(patch):
         plus = line.startswith("+") and not line.startswith("+++")
         minus = line.startswith("-") and not line.startswith("---")
         if (plus or minus) and '"identity"' in line:
@@ -397,13 +419,16 @@ def identity_downgrade(files: list, base_tier: str | None) -> bool:
         patch = f.get("patch")
         if not patch:
             return True                    # a manifest change we cannot inspect on a team repo -> fail closed
+        added_lines = [ln for ln in _diff_lines(patch) if ln.startswith("+") and not ln.startswith("+++")]
+        # Same fail-closed anomaly guard as home_repoint: a backslash escape or an embedded line-separator
+        # in an added line could hide a second `"identity": "solo"` value past the value read below.
+        if any(_added_line_is_anomalous(ln) for ln in added_lines):
+            return True
         if _touches_identity_key(patch):
-            added = []
-            for line in patch.splitlines():
-                if line.startswith("+") and not line.startswith("+++"):
-                    m = _IDENTITY_VALUE_RE.search(line)
-                    if m:
-                        added.append(m.group(1))
+            # findall, not search — collect EVERY identity value on each added line, so a duplicate-key
+            # injection on ONE line (`"identity": "team", "identity": "solo"`, last value wins) cannot hide
+            # the downgrade behind the first (team) value.
+            added = [v for ln in added_lines for v in _IDENTITY_VALUE_RE.findall(ln)]
             # touched the tier key: a downgrade unless every added `identity` value provably stays `team`
             if not added or any(v != _TEAM for v in added):
                 return True
@@ -543,9 +568,9 @@ def main() -> int:
                     f"removal is where the safety check has to stop and ask you.")
         elif reason == "escaped":
             lead = (f"A change to `.engine/engine.json` (where your update home, {old}, is recorded) adds an "
-                    f"unusual escaped character where the engine's settings are normally plain text. This "
-                    f"check can't safely read what it does — an escape can hide a change to the home — so it "
-                    f"stops and asks you.")
+                    f"unusual character — a backslash escape or a hidden line break — where the engine's "
+                    f"settings are normally plain text. This check can't safely read what it does, and such "
+                    f"a character can hide a change to the home, so it stops and asks you.")
         elif reason == "unreadable-patch":
             lead = (f"A change to `.engine/engine.json` (where your update home, {old}, is recorded) was too "
                     f"large for this check to read in full, so it can't confirm whether the home changed — "
