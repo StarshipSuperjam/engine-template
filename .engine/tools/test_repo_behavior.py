@@ -18,13 +18,16 @@ REPO = "you/your-project"
 
 
 def _fake(*, repo_settings=None, patch=(200, {}), alerts_on=False, alerts_put=(204, None),
-          fixes_put=(204, None), fixes_enabled=True, record=None):
+          fixes_on=False, fixes_put=(204, None), fixes_enabled=True, record=None):
     """A fake GitHub: `repo_settings` is the live repo-settings dict the GET returns (a PATCH mutates it, so
-    the read-back really reflects the write); the Dependabot switches answer with the given statuses.
+    the read-back really reflects the write); the Dependabot switches are stateful the same way —
+    `alerts_on`/`fixes_on` are the starting states, a successful PUT flips them (to `fixes_enabled` for the
+    fixes switch, so a lying server — write accepted, state unchanged — stays expressible).
     `record` (a list) captures every (method, path) so a test can assert what was NOT called."""
     state = dict(repo_settings if repo_settings is not None
                  else {"delete_branch_on_merge": False, "allow_update_branch": False})
     alerts = {"on": alerts_on}
+    fixes = {"on": fixes_on}
 
     def t(method, path, body=None):
         if record is not None:
@@ -37,8 +40,10 @@ def _fake(*, repo_settings=None, patch=(200, {}), alerts_on=False, alerts_put=(2
             return (204, None, {}) if alerts["on"] else (404, None, {})
         if path.endswith("/automated-security-fixes"):
             if method == "PUT":
+                if fixes_put[0] < 400:
+                    fixes["on"] = fixes_enabled
                 return fixes_put[0], fixes_put[1], {}
-            return 200, {"enabled": fixes_enabled, "paused": False}, {}
+            return 200, {"enabled": fixes["on"], "paused": False}, {}
         if method == "PATCH" and isinstance(body, dict):
             if patch[0] < 400:
                 state.update(body)
@@ -126,6 +131,14 @@ class TestDependabotAlertsBranches(unittest.TestCase):
 class TestDependabotFixesBranches(unittest.TestCase):
     def test_enabled_and_confirmed_is_on(self):
         self.assertEqual(_leg(_fake()).enable_dependabot_fixes().state, rb.ON)
+
+    def test_already_on_is_left_untouched_no_write(self):
+        # Read-first like every other setting (a review caught the first draft writing unconditionally
+        # and disclosing the no-op as a change).
+        record = []
+        t = _leg(_fake(fixes_on=True, record=record)).enable_dependabot_fixes()
+        self.assertEqual(t.state, rb.ALREADY)
+        self.assertFalse(any(m == "PUT" and p.endswith("/automated-security-fixes") for m, p in record))
 
     def test_org_policy_403_is_disclosed(self):
         t = _leg(_fake(fixes_put=(403, {}))).enable_dependabot_fixes()

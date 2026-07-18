@@ -21,11 +21,12 @@ import repo_behavior as rb   # noqa: E402
 REPO = "you/your-project"
 
 
-def _fake(*, settings, alerts_on, alerts_put, fixes_put, fixes_enabled):
+def _fake(*, settings, alerts_on, alerts_put, fixes_on, fixes_put):
     """A fake GitHub: `settings` is the live repo-settings dict (a PATCH mutates it, so the read-back really
-    reflects the write); the Dependabot switches answer with the given statuses."""
+    reflects the write); the Dependabot switches are stateful the same way — a successful PUT flips them."""
     state = dict(settings)
     alerts = {"on": alerts_on}
+    fixes = {"on": fixes_on}
 
     def t(method, path, body=None):
         if path.endswith("/vulnerability-alerts"):
@@ -36,8 +37,10 @@ def _fake(*, settings, alerts_on, alerts_put, fixes_put, fixes_enabled):
             return (204, None, {}) if alerts["on"] else (404, None, {})
         if path.endswith("/automated-security-fixes"):
             if method == "PUT":
+                if fixes_put[0] < 400:
+                    fixes["on"] = True
                 return fixes_put[0], fixes_put[1], {}
-            return 200, {"enabled": fixes_enabled, "paused": False}, {}
+            return 200, {"enabled": fixes["on"], "paused": False}, {}
         if method == "PATCH" and isinstance(body, dict):
             state.update(body)
             return 200, {}, {}
@@ -69,19 +72,19 @@ def main() -> int:
 
     scenario("A fresh project (everything off): all four are turned on and confirmed.",
              _fake(settings=_FRESH, alerts_on=False, alerts_put=(204, None),
-                   fixes_put=(204, None), fixes_enabled=True),
+                   fixes_on=False, fixes_put=(204, None)),
              {"delete-branch-on-merge": rb.ON, "update-branch": rb.ON,
               "dependabot-alerts": rb.ON, "dependabot-fixes": rb.ON})
 
     scenario("A project that already chose these settings: everything is left exactly as it was.",
              _fake(settings=_DONE, alerts_on=True, alerts_put=(204, None),
-                   fixes_put=(204, None), fixes_enabled=True),
+                   fixes_on=True, fixes_put=(204, None)),
              {"delete-branch-on-merge": rb.ALREADY, "update-branch": rb.ALREADY,
-              "dependabot-alerts": rb.ALREADY, "dependabot-fixes": rb.ON})
+              "dependabot-alerts": rb.ALREADY, "dependabot-fixes": rb.ALREADY})
 
     scenario("An organization reserves the Dependabot switches: disclosed, never forced.",
              _fake(settings=_FRESH, alerts_on=False, alerts_put=(403, {"message": "org policy"}),
-                   fixes_put=(403, {}), fixes_enabled=False),
+                   fixes_on=False, fixes_put=(403, {})),
              {"dependabot-alerts": rb.UNSUPPORTED, "dependabot-fixes": rb.UNSUPPORTED})
 
     def _down(method, path, body=None):

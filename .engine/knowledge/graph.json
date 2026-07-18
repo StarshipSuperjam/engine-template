@@ -6232,7 +6232,7 @@
       },
       "slug": "demo_repo_behavior",
       "source": {
-        "fingerprint": "sha256:8140ede6440dd29babb3b29925e41f51481e43c0279bf648c5cedf6ebc635c67",
+        "fingerprint": "sha256:01d8c65bb944351f70a07102d3732db3c1d84d1fa2c61f7ef0066d4db0b78326",
         "path": ".engine/tools/demo_repo_behavior.py"
       },
       "status": "active",
@@ -6623,7 +6623,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:c66c06e1bdba56493318956a396fde7f499a1b11d7e85b89b413ec32509f2c96",
+        "fingerprint": "sha256:d2fc9bb58e5e5873cd0941becdb9276c4dce67ed6136ed5e888e1b24fea55851",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7354,7 +7354,7 @@
       },
       "slug": "repo_behavior",
       "source": {
-        "fingerprint": "sha256:08c5cf4e9b6b85e9bf43887dfb39d22ff3ddae048430b57695cc7d54f5ab4b1b",
+        "fingerprint": "sha256:4f1a57646d88199d4ef19d486347156617a5383ca2cbdb1c0fd9eb0496a51c30",
         "path": ".engine/tools/repo_behavior.py"
       },
       "status": "active",
@@ -8442,7 +8442,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:822c24871dd419e68ae1adaa61d43273c56009ddf21401d27895ff9121bf0001",
+        "fingerprint": "sha256:5aceaf67465ee69c63a93bf1d236187c94d6ace28c8c9fc5c7c39ca33c913d84",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9088,7 +9088,7 @@
       },
       "slug": "test_repo_behavior",
       "source": {
-        "fingerprint": "sha256:39a9c21a8f9a9e12811eca148d0a0785b1ad75a71fbc252c2e28f9543845960b",
+        "fingerprint": "sha256:7b5158329615c01ff99fba300dc92c4f8161d6d442c4bcb98d534a6a2755a331",
         "path": ".engine/tools/test_repo_behavior.py"
       },
       "status": "active",

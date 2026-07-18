@@ -565,6 +565,20 @@ class TestApplyRepoBehavior(unittest.TestCase):
         self.assertEqual(step["status"], "degraded")
         self.assertIn("toggles", step)
 
+    def test_org_reserved_switch_is_an_honest_outcome_not_a_degrade(self):
+        # An organization-reserved Dependabot switch is disclosed, never forced — and the step's ledger
+        # reads "applied" (the leg did its whole job), not "degraded".
+        def t(method, path, body=None):
+            if path.endswith("/vulnerability-alerts") or path.endswith("/automated-security-fixes"):
+                return (403, {"message": "org policy"}, {}) if method == "PUT" else (404, None, {})
+            if method == "GET" and path.startswith("/repos/"):
+                return 200, {"delete_branch_on_merge": True, "allow_update_branch": True}, {}
+            return 404, None, {}
+        step = inst._apply_repo_behavior(t, lambda _s: None, inst.load_copy(),
+                                         repo="you/your-project", token="tok")
+        self.assertEqual(step["status"], "applied")
+        self.assertEqual(step["toggles"]["dependabot-alerts"], "unsupported")
+
 
 class TestApplyStep1DeleteUnselected(unittest.TestCase):
     def test_deletes_the_unkept_module_keeps_required(self):

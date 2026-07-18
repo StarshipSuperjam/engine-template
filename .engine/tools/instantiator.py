@@ -1900,7 +1900,6 @@ def _approve_transport():
     return t
 
 
-
 def _repo_behavior_responses(method: str, path: str, body, state: dict, sec_available: bool):
     """Demo-fake answers for the repo-behavior endpoints (#541): the repo-settings read/PATCH and the two
     Dependabot switches. STATEFUL, so a write really flips what the read-back reports — the leg's
@@ -1979,7 +1978,9 @@ def _already_transport():
 def _defer_transport():
     """An in-memory GitHub that denies the protection write (the operator can't administer the repo) → a
     cause-matched degraded banner; the engine never pretends the gate is on. The native security features
-    read back as unavailable (the free-private/public-only gaps), so the floor discloses them."""
+    read back as unavailable (the free-private/public-only gaps), so the floor discloses them. The
+    repo-behavior writes are denied the same way (a permission-starved sign-in), so that step degrades
+    honestly rather than riding the generic catch-all."""
     def t(method, path, body=None):
         headers = {"X-OAuth-Scopes": "repo"}
         if method == "GET" and path.endswith("/rules/branches/main"):
@@ -1989,7 +1990,7 @@ def _defer_transport():
         sec = _security_floor_responses(method, path, body, available=False)
         if sec is not None:
             return sec[0], sec[1], headers
-        if method in ("POST", "PUT"):
+        if method in ("POST", "PUT", "PATCH"):
             return 403, {"message": "Resource not accessible by integration"}, headers
         if path.startswith("/repos/"):
             return 200, {"full_name": "you/your-project"}, headers

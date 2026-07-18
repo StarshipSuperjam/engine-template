@@ -103,6 +103,13 @@ class RepoBehavior:
 
     def enable_dependabot_fixes(self) -> Toggle:
         path = f"/repos/{self.repo}/automated-security-fixes"
+        # Read first, like every other setting in this leg: an already-on switch is left untouched and
+        # reported as already yours (the review caught the first draft writing unconditionally and then
+        # disclosing a no-op as a change). GitHub 404s this GET when Dependabot alerts are off — in which
+        # case fixes cannot be on — so anything but a confirmed `enabled` proceeds to the write.
+        status, data = self._call("GET", path, None)
+        if status == 200 and isinstance(data, dict) and bool(data.get("enabled")):
+            return Toggle("dependabot-fixes", ALREADY)
         status, _ = self._call("PUT", path, None)
         if status is None:
             return Toggle("dependabot-fixes", UNVERIFIED)
@@ -170,14 +177,20 @@ def render(toggles: list) -> str:
     join = security_floor._join
     parts = []
     if on_lines:
-        parts.append("A few working-comfort settings are now on for your project:\n- " + "\n- ".join(on_lines))
+        lead = ("One working-comfort setting is now on for your project:" if len(on_lines) == 1
+                else "A few working-comfort settings are now on for your project:")
+        parts.append(lead + "\n- " + "\n- ".join(on_lines)
+                     + "\n\nEach of these is an ordinary repository setting — you can flip any of them "
+                       "back at any time on your project's Settings page on GitHub.")
     if already:
         parts.append("Already set up on your project, left exactly as it was: " + join(already) + ".")
     if org_held:
-        parts.append("Your organization's own settings control " + join(org_held) + ", so I left "
-                     + ("them" if len(org_held) > 1 else "it") + " alone — turning "
+        parts.append("I couldn't turn on " + join(org_held) + " — this usually means your organization's "
+                     "own settings reserve "
+                     + ("them" if len(org_held) > 1 else "it") + ", so turning "
                      + ("them" if len(org_held) > 1 else "it") + " on is a call for whoever manages the "
-                     "organization.")
+                     "organization. If this project isn't in an organization, check the repository's "
+                     "security settings on GitHub.")
     if unconfirmed:
         parts.append("I couldn't confirm " + join(unconfirmed) + " turned on, so I'm not reporting "
                      + ("them" if len(unconfirmed) > 1 else "it") + " as on. Please check your repository's "
