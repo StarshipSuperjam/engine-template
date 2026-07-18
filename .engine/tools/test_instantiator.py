@@ -1486,14 +1486,18 @@ class TestConstructionClaudeRecognizer(unittest.TestCase):
 
     def test_marker_is_identical_to_the_construction_repo_sentinel_marker(self):
         # The floor-swap recognizer and EVERY construction-scoped check must agree on what "the construction
-        # CLAUDE.md" is, or one could swap/act on a file another still treats as the construction repo. Three
+        # CLAUDE.md" is, or one could swap/act on a file another still treats as the construction repo. Four
         # copies of the marker exist (self-contained per-tool, so extraction never forces a guarded-file edit);
-        # this binds all three so they cannot silently drift — a drift would make a construction-scoped check
-        # no-op in the construction repo (fail OPEN, the worst direction). #424 U13c adds census_completeness.
+        # this binds them all so they cannot silently drift — a drift would make a construction-scoped check
+        # no-op in the construction repo (fail OPEN, the worst direction). #424 U13c adds census_completeness;
+        # #512 adds the bite-harness copy (whose drift would let the checker-of-checkers excuse a broken
+        # construction-scoped check here, the same worst direction).
         import memory_pointer_public_safety_check as sentinel
         import census_completeness_check as census
+        import hard_check_bite_check as hcb
         self.assertEqual(inst._CONSTRUCTION_CLAUDE_MARKER, sentinel._CONSTRUCTION_MARKER)
         self.assertEqual(census._CONSTRUCTION_MARKER, sentinel._CONSTRUCTION_MARKER)
+        self.assertEqual(hcb._CONSTRUCTION_MARKER, sentinel._CONSTRUCTION_MARKER)
 
 
 class TestSeedDeployedFloor(unittest.TestCase):

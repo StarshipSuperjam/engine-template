@@ -199,12 +199,20 @@ class TestS4LiveRosterBackfill(unittest.TestCase):
                     self.assertTrue(any("NOT APPLICABLE" in (f.get("message") or "") for f in found), found)
                 elif stem == "disposition-issue-resolution":
                     # The roster's first NON-OFFLINE unit (#292): its negative path is a live issue-API query
-                    # against the cited sentinel, witnessable only with a repository + token (CI, or a local
-                    # run with both exported). Without them the declared-environment carve-out (#531) collapses
-                    # the red to a loud soft note so a local rehearsal reads honestly — asserted, not skipped.
+                    # against the cited sentinel, witnessable only with a repository + token. THREE ambient
+                    # environments, asserted rather than skipped: fully-witnessed -> the live bite; CI without
+                    # the token (this repo's own self-test step — the workflow passes the token only to the
+                    # validator step, the enforcing surface) -> the carve-out is deliberately ignored and the
+                    # fail-closed hard finding stands; a local machine missing the variables -> the
+                    # declared-environment carve-out (#531) collapses the red to a loud soft note.
                     found = hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard")
-                    if os.environ.get("GITHUB_REPOSITORY") and os.environ.get("GITHUB_TOKEN"):
+                    witnessed = os.environ.get("GITHUB_REPOSITORY") and os.environ.get("GITHUB_TOKEN")
+                    in_ci = bool(os.environ.get("GITHUB_ACTIONS") or os.environ.get("CI"))
+                    if witnessed:
                         self.assertEqual(found, [], f"{stem}: the live witness did not bite")
+                    elif in_ci:
+                        self.assertTrue(any(f["severity"] == "hard" and "did NOT catch" in f["message"]
+                                            for f in found), found)
                     else:
                         self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
                         self.assertTrue(any("NOT WITNESSED HERE" in (f.get("message") or "") for f in found),
@@ -252,14 +260,22 @@ class TestS5GoLive(unittest.TestCase):
         stems = {r["id"].split("engine/check/")[-1] for r in _live_hard_script_rules()}
         self.assertIn("hard-check-bite", stems, "the meta-check must be in its own live roster")
         # The full evaluate() includes the NON-OFFLINE disposition-issue-resolution unit (#292), whose live
-        # witness needs a repository + token. CI provides both and enforces the bite; without them the
-        # declared-environment carve-out (#531) yields a loud soft note instead of a false red — so this
-        # regression now runs everywhere, token or not, and asserts no HARD finding either way.
+        # witness needs a repository + token. Three ambient environments (see the S4 disposition branch):
+        # fully-witnessed and plain-local runs produce no hard finding; CI WITHOUT the token (this repo's own
+        # self-test step) keeps exactly the disposition fail-closed hard — the carve-out is deliberately
+        # ignored there, and the enforcing validator step (which has the token) witnesses the live bite.
         findings = hcb.evaluate()
         # A merge is blocked only by a HARD finding; the disclosed carve-outs are loud SOFT notes by design.
         hard = [f for f in findings if f["severity"] == "hard"]
-        self.assertEqual(hard, [], "the live meta-check must produce no hard finding over the real repo (every "
-                         "covered check bites or is a disclosed carve-out, and the self-entry terminates)")
+        witnessed = os.environ.get("GITHUB_REPOSITORY") and os.environ.get("GITHUB_TOKEN")
+        in_ci = bool(os.environ.get("GITHUB_ACTIONS") or os.environ.get("CI"))
+        if witnessed or not in_ci:
+            self.assertEqual(hard, [], "the live meta-check must produce no hard finding over the real repo "
+                             "(every covered check bites or is a disclosed carve-out, and the self-entry "
+                             "terminates)")
+        else:
+            self.assertEqual(len(hard), 1, hard)
+            self.assertIn("disposition-issue-resolution", hard[0]["message"])
         # The carve-outs are surfaced loudly so the reviewer can re-derive them at the gate (not silently
         # skipped). The 4 static N/A disclosures are a fixed census; in a DEPLOYED repo (root CLAUDE.md no
         # longer the construction body) the two construction-scoped checks (#512) add their ambient-derived
@@ -455,27 +471,100 @@ class TestFailedBiteApplicability(unittest.TestCase):
         self.assertTrue(any("NOT APPLICABLE HERE" in f["message"] for f in found), found)
 
     def test_requires_env_missing_locally_yields_loud_soft_note(self):
-        fix = self._fixture({"requires.json": {"env": ["GITHUB_TOKEN"], "reason": "test."}})
+        fix = self._fixture({"requires.json": {"property": hcb._REQ_PROPERTY,
+                                               "env": ["GITHUB_TOKEN"], "reason": "test."}})
         found = self._cover(fix, self._root("# my project\n"))
         self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
         self.assertTrue(any("NOT WITNESSED HERE" in f["message"] and "GITHUB_TOKEN" in f["message"]
                             for f in found), found)
 
     def test_requires_is_ignored_in_ci(self):
-        fix = self._fixture({"requires.json": {"env": ["GITHUB_TOKEN"], "reason": "test."}})
+        fix = self._fixture({"requires.json": {"property": hcb._REQ_PROPERTY,
+                                               "env": ["GITHUB_TOKEN"], "reason": "test."}})
         found = self._cover(fix, self._root("# my project\n"), extra_env={"GITHUB_ACTIONS": "true"})
         self.assertTrue(any(f["severity"] == "hard" and "did NOT catch" in f["message"] for f in found), found)
 
     def test_requires_env_present_falls_through_to_the_failed_bite(self):
-        fix = self._fixture({"requires.json": {"env": ["GITHUB_TOKEN"], "reason": "test."}})
+        fix = self._fixture({"requires.json": {"property": hcb._REQ_PROPERTY,
+                                               "env": ["GITHUB_TOKEN"], "reason": "test."}})
         found = self._cover(fix, self._root("# my project\n"), extra_env={"GITHUB_TOKEN": "x"})
         self.assertTrue(any(f["severity"] == "hard" and "did NOT catch" in f["message"] for f in found), found)
 
     def test_requires_malformed_env_list_is_rejected_hard(self):
-        fix = self._fixture({"requires.json": {"env": "GITHUB_TOKEN", "reason": "not a list"}})
+        fix = self._fixture({"requires.json": {"property": hcb._REQ_PROPERTY,
+                                               "env": "GITHUB_TOKEN", "reason": "not a list"}})
         found = self._cover(fix, self._root("# my project\n"))
         self.assertTrue(any(f["severity"] == "hard" and "must name the environment variables" in f["message"]
                             for f in found), found)
+
+    def test_requires_wrong_property_is_rejected_hard(self):
+        fix = self._fixture({"requires.json": {"property": "needs-the-internet",
+                                               "env": ["GITHUB_TOKEN"], "reason": "lazy"}})
+        found = self._cover(fix, self._root("# my project\n"))
+        self.assertTrue(any(f["severity"] == "hard" and "only admissible reason" in f["message"]
+                            for f in found), found)
+
+    def test_non_object_declaration_is_rejected_hard_not_a_crash(self):
+        fix = self._fixture({"construction-scoped.json": ["not", "an", "object"]})
+        found = self._cover(fix, self._root("# my project\n"))
+        self.assertTrue(any(f["severity"] == "hard" and "not a JSON object" in f["message"]
+                            for f in found), found)
+
+    def test_unreadable_declaration_is_rejected_hard(self):
+        fix = tempfile.mkdtemp()
+        fdir = os.path.join(fix, "x-live")
+        _write(os.path.join(fdir, "expect.json"),
+               json.dumps({"severity": "hard", "message_contains": "token-this-unit-never-produces"}))
+        _write(os.path.join(fdir, "construction-scoped.json"), "{not valid json")
+        found = self._cover(fix, self._root("# my project\n"))
+        self.assertTrue(any(f["severity"] == "hard" and "is unreadable" in f["message"]
+                            for f in found), found)
+
+    def test_construction_root_falls_through_to_the_requires_declaration(self):
+        # Both declarations present, construction root: the construction-scoped one is inert here, and the
+        # declared-environment one still applies (env missing, not CI) — the documented fall-through.
+        fix = self._fixture({
+            "construction-scoped.json": {"property": hcb._CS_PROPERTY, "reason": "test."},
+            "requires.json": {"property": hcb._REQ_PROPERTY, "env": ["GITHUB_TOKEN"], "reason": "test."}})
+        found = self._cover(fix, self._root("# x — construction governance body\n"))
+        self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
+        self.assertTrue(any("NOT WITNESSED HERE" in f["message"] for f in found), found)
+
+    def test_a_crashing_check_is_never_excused_as_inert(self):
+        # The masking hunt: a unit whose run produced a HARD finding (here: a script that emits no findings
+        # array, so the kind fail-closes) is evidence of a live, broken check — a valid construction-scoped
+        # declaration in a deployed-shape repo must NOT collapse that to the soft "structurally inert" note.
+        rule = dict(self._RULE)
+        rule["params"] = {"script": ".engine/tools/validate.py"}   # runs, but emits no findings JSON
+        fix = self._fixture({"construction-scoped.json": {"property": hcb._CS_PROPERTY, "reason": "test."}})
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("GITHUB_REPOSITORY", "GITHUB_TOKEN", "GITHUB_ACTIONS", "CI")}
+        with mock.patch.dict(os.environ, env, clear=True):
+            found = hcb._cover_script_instance(rule, fix, self._root("# my project\n"), "hard")
+        self.assertTrue(any(f["severity"] == "hard" for f in found), found)
+        self.assertFalse(any("NOT APPLICABLE HERE" in (f.get("message") or "") for f in found), found)
+
+
+class TestDeclarationCensus(unittest.TestCase):
+    """Drift canary (#512/#531 review): the bite-harness applicability declarations are exemption-granting
+    data, and a NEW one arrives as a file addition — a change class the weakening guard structurally cannot
+    flag (a pure addition never trips it). Binding the exact shipped set here makes any new declaration a
+    visible, reviewable test edit instead of a quiet file drop."""
+
+    def test_exact_shipped_declaration_set(self):
+        found = sorted(
+            os.path.relpath(p, ROOT)
+            for name in ("not-applicable.json", "construction-scoped.json", "requires.json")
+            for p in _glob.glob(os.path.join(LIVE_FIXTURES, "*", name)))
+        self.assertEqual(found, [
+            ".engine/_fixtures/census-completeness/construction-scoped.json",
+            ".engine/_fixtures/dependency-review/not-applicable.json",
+            ".engine/_fixtures/disposition-issue-resolution/requires.json",
+            ".engine/_fixtures/guardrail-weakening/not-applicable.json",
+            ".engine/_fixtures/memory-pointer-public-safety/construction-scoped.json",
+            ".engine/_fixtures/product-lock-integrity/not-applicable.json",
+            ".engine/_fixtures/protection/not-applicable.json",
+        ])
 
 
 if __name__ == "__main__":
