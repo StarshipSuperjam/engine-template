@@ -579,6 +579,55 @@ class TestApplyRepoBehavior(unittest.TestCase):
         self.assertEqual(step["status"], "applied")
         self.assertEqual(step["toggles"]["dependabot-alerts"], "unsupported")
 
+    def _fresh_repo_transport(self):
+        # A fresh repo: the four comfort settings enable-and-confirm; wiki + project boards start ON.
+        state = {"has_wiki": True, "has_projects": True,
+                 "delete_branch_on_merge": False, "allow_update_branch": False}
+        alerts, fixes = {"on": False}, {"on": False}
+
+        def t(method, path, body=None):
+            if path.endswith("/vulnerability-alerts"):
+                if method == "PUT":
+                    alerts["on"] = True; return 204, None, {}
+                return (204, None, {}) if alerts["on"] else (404, None, {})
+            if path.endswith("/automated-security-fixes"):
+                if method == "PUT":
+                    fixes["on"] = True; return 204, None, {}
+                return 200, {"enabled": fixes["on"]}, {}
+            if method == "PATCH" and isinstance(body, dict):
+                state.update(body); return 200, {}, {}
+            if method == "GET" and path.startswith("/repos/"):
+                return 200, dict(state, full_name="you/your-project"), {}
+            return 404, None, {}
+        return t
+
+    def test_greenfield_turns_off_wiki_and_projects_when_module_absent(self):
+        # #541 item 4: fresh repo, github-projects-sync NOT installed -> both wiki and project boards off.
+        with mock.patch.object(inst, "_github_projects_sync_present", return_value=False):
+            step = inst._apply_repo_behavior(self._fresh_repo_transport(), lambda _s: None, inst.load_copy(),
+                                             repo="you/your-project", token="tok", brownfield=False)
+        self.assertEqual(step["status"], "applied")
+        self.assertEqual(step["toggles"]["wiki"], "off")
+        self.assertEqual(step["toggles"]["projects"], "off")
+
+    def test_greenfield_retains_projects_when_module_present(self):
+        # The board-sync module is installed -> project boards are RETAINED (not touched); wiki still off.
+        with mock.patch.object(inst, "_github_projects_sync_present", return_value=True):
+            step = inst._apply_repo_behavior(self._fresh_repo_transport(), lambda _s: None, inst.load_copy(),
+                                             repo="you/your-project", token="tok", brownfield=False)
+        self.assertEqual(step["status"], "applied")
+        self.assertEqual(step["toggles"]["wiki"], "off")
+        self.assertNotIn("projects", step["toggles"], "retained project boards are left untouched")
+
+    def test_brownfield_skips_the_turnoffs(self):
+        # A brownfield arrival never overrides the operator's own wiki/projects choices.
+        with mock.patch.object(inst, "_github_projects_sync_present", return_value=False):
+            step = inst._apply_repo_behavior(self._fresh_repo_transport(), lambda _s: None, inst.load_copy(),
+                                             repo="you/your-project", token="tok", brownfield=True)
+        self.assertEqual(step["status"], "applied")
+        self.assertNotIn("wiki", step["toggles"])
+        self.assertNotIn("projects", step["toggles"])
+
 
 class TestApplyStep1DeleteUnselected(unittest.TestCase):
     def test_deletes_the_unkept_module_keeps_required(self):

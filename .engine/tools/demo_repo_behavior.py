@@ -17,8 +17,20 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import repo_behavior as rb   # noqa: E402
+import module_coherence      # noqa: E402  (the live present-module reader — the real turn-off decision input)
 
 REPO = "you/your-project"
+
+
+def _board_sync_present() -> bool:
+    """Whether the github-projects-sync module is installed — the REAL input to the project-boards
+    decision (the same read `instantiator._github_projects_sync_present` makes at setup). Read from the
+    actual present manifests, never faked, so the demo exercises the real add-on linkage."""
+    try:
+        return any((m or {}).get("id") == "github-projects-sync"
+                   for _p, m in module_coherence.discover_manifests())
+    except Exception:  # noqa: BLE001 — can't tell -> retain boards (never turn off on doubt)
+        return True
 
 
 def _fake(*, settings, alerts_on, alerts_put, fixes_on, fixes_put):
@@ -58,11 +70,12 @@ def main() -> int:
     print("REPO-BEHAVIOR DEMO — the working-comfort settings a new project should carry, honestly reported.\n")
     ok = True
 
-    def scenario(title, transport, expect_states):
+    def scenario(title, transport, expect_states, *, disable_wiki=False, disable_projects=False):
         nonlocal ok
         print(f"— {title}")
         said = []
-        toggles = rb.RepoBehavior(REPO, "tok", transport=transport).apply(announce=said.append)
+        toggles = rb.RepoBehavior(REPO, "tok", transport=transport).apply(
+            announce=said.append, disable_wiki=disable_wiki, disable_projects=disable_projects)
         for line in said[0].split("\n"):
             print(f"    {line}")
         got = {t.key: t.state for t in toggles}
@@ -94,10 +107,43 @@ def main() -> int:
              {"delete-branch-on-merge": rb.UNVERIFIED, "update-branch": rb.UNVERIFIED,
               "dependabot-alerts": rb.UNVERIFIED, "dependabot-fixes": rb.UNVERIFIED})
 
+    _NEW = dict(_FRESH, has_wiki=True, has_projects=True)   # a fresh repo: wiki + project boards on
+
+    # The turn-off MECHANICS, shown for both project-board inputs. The titles describe the INPUT the step is
+    # given (whether project boards are slated to turn off), not a module read — the module→input decision is
+    # exercised for real just below.
+    scenario("A fresh project with the wiki and its project boards both slated to turn off:",
+             _fake(settings=_NEW, alerts_on=False, alerts_put=(204, None),
+                   fixes_on=False, fixes_put=(204, None)),
+             {"wiki": rb.OFF, "projects": rb.OFF},
+             disable_wiki=True, disable_projects=True)
+
+    scenario("A fresh project with project boards RETAINED (not slated): only the wiki turns off.",
+             _fake(settings=_NEW, alerts_on=False, alerts_put=(204, None),
+                   fixes_on=False, fixes_put=(204, None)),
+             {"wiki": rb.OFF},
+             disable_wiki=True, disable_projects=False)   # projects retained -> not in the toggle set
+
+    # The module→input decision, exercised for REAL against the actual installed module set (no mock): the
+    # setup step turns project boards off ONLY when the github-projects-sync add-on is absent.
+    present = _board_sync_present()
+    disable_projects = not present
+    print(f"— The board-sync add-on (github-projects-sync) is {'installed' if present else 'not installed'} "
+          f"in THIS project — read from your real module selection, not faked. So the setup step would slate "
+          f"project boards to {'stay on (the add-on uses them)' if present else 'turn off (nothing uses them)'}.")
+    expect = {"wiki": rb.OFF}
+    if disable_projects:
+        expect["projects"] = rb.OFF
+    scenario("  …and running the turn-off with that real decision:",
+             _fake(settings=_NEW, alerts_on=False, alerts_put=(204, None),
+                   fixes_on=False, fixes_put=(204, None)),
+             expect, disable_wiki=True, disable_projects=disable_projects)
+
     if not ok:
         print("DEMO UNEXPECTED: an outcome did not behave as expected.", file=sys.stderr)
         return 1
-    print("DEMO OK — on, already-yours, organization-reserved, and unconfirmed are distinct and honest.")
+    print("DEMO OK — on, already-yours, organization-reserved, unconfirmed, and the fresh-repo turn-offs "
+          "(wiki off; project boards off unless the add-on is kept) are distinct and honest.")
     return 0
 
 

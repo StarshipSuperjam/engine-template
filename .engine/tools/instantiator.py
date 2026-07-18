@@ -1399,29 +1399,46 @@ def _apply_security_toggles(control_transport, say, copy, repo=None, token=None)
             "toggles": {t.key: t.state for t in toggles}}
 
 
-def _apply_repo_behavior(control_transport, say, copy, repo=None, token=None) -> dict:
-    """STEP 10 — turn on the repository-behavior settings a new engine repo should carry (#541):
+def _github_projects_sync_present() -> bool:
+    """True iff the github-projects-sync module is installed (its manifest is present). Read at the
+    repo-behavior step, AFTER the deselect step has already removed unpicked modules — so it reflects the
+    deployer's actual selection. Fails toward RETAIN (return True) when the present set can't be read, so an
+    unreadable module tree never turns off project boards a retained module might need."""
+    try:
+        return any((m or {}).get("id") == "github-projects-sync"
+                   for _path, m in module_coherence.discover_manifests())
+    except Exception:  # noqa: BLE001 — can't tell -> keep project boards on (never turn off on doubt)
+        return True
+
+
+def _apply_repo_behavior(control_transport, say, copy, repo=None, token=None, brownfield=False) -> dict:
+    """STEP 10 — the repository-behavior settings a new engine repo should carry (#541). Turns ON
     delete-branch-on-merge, the pull-request update button, and Dependabot alerts + automatic security-fix
-    pull requests. Same posture as the security floor beside it: the same operator-privileged transport (no
-    new capability), verify-after-write, degrade-never-fake with a plain-language disclosure, augment-never-
-    override (a setting already on is left untouched and reported as already yours; an organization-reserved
-    Dependabot switch is disclosed, never forced), and never a required merge check. Skips quietly when the
-    repo/sign-in is unavailable (e.g. the construction repo) — these are comfort/alert upgrades that can be
-    turned on any time later."""
+    pull requests; and — on a FRESH repo only (item 4) — turns OFF the project wiki, and project boards when
+    the github-projects-sync module is not installed (retained if it is). Same posture as the security floor
+    beside it: the same operator-privileged transport (no new capability), verify-after-write,
+    degrade-never-fake with a plain-language disclosure, augment-never-override, and never a required merge
+    check. On a BROWNFIELD arrival the turn-offs are skipped — the operator's own wiki/projects choices are
+    left untouched, since hiding an active project's wiki would be an override. Skips quietly when the
+    repo/sign-in is unavailable (e.g. the construction repo)."""
     repo = repo or boot.repo_slug()
     token = token or boot.gh_token()
     if not repo or not token:
         return {"step": "repo-behavior", "status": "skipped", "detail": "no project/sign-in"}
     leg = repo_behavior.RepoBehavior(repo, token, transport=control_transport)
-    toggles = leg.apply(announce=say)
-    status = "applied" if all(t.is_good() for t in toggles) else "degraded"
+    # Greenfield-only turn-offs (augment-never-override on brownfield); project boards stay on when the
+    # board-sync module is retained.
+    disable_wiki = not brownfield
+    disable_projects = (not brownfield) and not _github_projects_sync_present()
+    toggles = leg.apply(announce=say, disable_wiki=disable_wiki, disable_projects=disable_projects)
+    status = "applied" if repo_behavior.all_good(toggles) else "degraded"
     return {"step": "repo-behavior", "status": status,
             "toggles": {t.key: t.state for t in toggles}}
 
 
 def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_present=None,
           uv_installer=None, uv_runner=None, consent=None, control_transport=None, gh_refresh=None,
-          control_issues=None, control_repo=None, control_token=None, handle=None) -> dict:
+          control_issues=None, control_repo=None, control_token=None, handle=None, brownfield=False) -> dict:
     """The apply phase: run the eleven ordered steps against the confirmed manifest. Refuses (no change) when
     the manifest is absent — apply presupposes a confirmed selection. The handle is the passed one, else the
     one the manifest stored. Returns a step ledger: {refused, halted, steps:[…]}. A degraded tool-runtime
@@ -1451,7 +1468,7 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     steps.append(_apply_security_toggles(control_transport, say, copy,
                                          repo=control_repo, token=control_token))
     steps.append(_apply_repo_behavior(control_transport, say, copy,
-                                      repo=control_repo, token=control_token))
+                                      repo=control_repo, token=control_token, brownfield=brownfield))
     return {"refused": False, "halted": False, "steps": steps}
 
 
@@ -1917,13 +1934,17 @@ def _repo_behavior_responses(method: str, path: str, body, state: dict, sec_avai
             return 204, None
         return 200, {"enabled": bool(state.get("fixes")), "paused": False}
     if method == "PATCH" and isinstance(body, dict) and (
-            "delete_branch_on_merge" in body or "allow_update_branch" in body):
+            "delete_branch_on_merge" in body or "allow_update_branch" in body
+            or "has_wiki" in body or "has_projects" in body):
         state.setdefault("repo", {}).update(body)
         return 200, {}
     if method == "GET" and path.startswith("/repos/") and path.count("/") == 3:
         sa = {"secret_scanning": {"status": "enabled" if sec_available else "disabled"}}
+        # A fresh "Use this template" repo inherits the template's defaults: the working-comfort settings off,
+        # the wiki + project boards ON (GitHub's defaults). The step turns the first pair on and the latter off.
         data = {"full_name": "you/your-project", "security_and_analysis": sa,
-                "delete_branch_on_merge": False, "allow_update_branch": False}
+                "delete_branch_on_merge": False, "allow_update_branch": False,
+                "has_wiki": True, "has_projects": True}
         data.update(state.get("repo", {}))
         return 200, data
     return None
@@ -1956,7 +1977,8 @@ def _already_transport():
     """An in-memory GitHub where the branch is ALREADY protected (models a resumed run after the first
     pass turned the gate on) → a clean 'already', no write. The native security features read back as on,
     and the repo-behavior settings likewise read as already chosen — the resumed-run shape throughout."""
-    rb_state = {"repo": {"delete_branch_on_merge": True, "allow_update_branch": True},
+    rb_state = {"repo": {"delete_branch_on_merge": True, "allow_update_branch": True,
+                         "has_wiki": False, "has_projects": False},
                 "alerts": True, "fixes": True}
 
     def t(method, path, body=None):
@@ -2804,7 +2826,7 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
                         uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
                         consent=consent, control_transport=control_transport, gh_refresh=gh_refresh,
                         control_issues=control_issues, control_repo=slug,
-                        control_token=control_token, handle=handle)
+                        control_token=control_token, handle=handle, brownfield=True)
         result["steps"] = applied.get("steps", [])
         result["tier"] = tier or "solo"
         if applied.get("refused") or applied.get("halted"):
