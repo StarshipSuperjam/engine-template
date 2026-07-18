@@ -463,7 +463,7 @@ def reconcile(records: list, open_issues: list, counts: dict, thresholds: dict, 
     observed = {derive_source_key(r): r for r in records}
     # Group open Issues by signal id. A create/create race can leave MORE THAN ONE open Issue per sid;
     # keep the lowest-numbered as the canonical survivor and treat the rest as duplicates to consolidate
-    # (closed within authority scope below) — never silently overwritten in a map and left open forever.
+    # (unconditionally — see _consolidate) — never silently overwritten in a map and left open forever.
     groups: dict = {}
     for i in open_issues:
         sid = i.get("source_id")

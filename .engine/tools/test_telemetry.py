@@ -2083,6 +2083,26 @@ class TestSessionPassSerialization(unittest.TestCase):
         with mock.patch("os.makedirs", side_effect=OSError("read-only")):
             self.assertIsNone(telemetry._serialize_session_passes())
 
+    def test_main_takes_the_lock_for_each_session_start_verb(self):
+        # The WIRING, not just the primitive: a future edit dropping one `_lock = ...` assignment in
+        # main() would silently un-serialize a pass while every other test stayed green.
+        for verb, target in (("run-ambient", "_run_ambient_cli"), ("run-episodic", "_run_episodic_cli"),
+                             ("drain-inbox", "_run_drain_cli")):
+            with self.subTest(verb=verb):
+                with mock.patch.object(telemetry, "_serialize_session_passes") as lock, \
+                     mock.patch.object(telemetry, target, return_value=0) as run:
+                    rc = telemetry.main([verb])
+                self.assertEqual(rc, 0)
+                lock.assert_called_once()
+                run.assert_called_once()
+
+    def test_the_ci_run_verb_does_not_take_the_lock(self):
+        # `run` is the hosted CI driver on an ephemeral runner — nothing to serialize against.
+        with mock.patch.object(telemetry, "_serialize_session_passes") as lock, \
+             mock.patch.object(telemetry, "_run_cli", return_value=0):
+            telemetry.main(["run"])
+        lock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
