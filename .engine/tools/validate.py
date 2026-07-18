@@ -563,18 +563,23 @@ def kind_schema(rule, ctx):
     a `prose` surface's frontmatter is read (and normalized to the JSON data model) by
     `frontmatter`; every other target — structured surfaces, and the override-schema targets
     that carry no surface record at all — is read by `_load_structured` (JSON, or TOML for a
-    `.toml` target). A
+    `.toml` target). A rule carrying an explicit `params.schema` OVERRIDE always loads its
+    target as structured, whatever surface home the file sits in: the override exists exactly
+    for whole-file data contracts the catalog cannot route (a data file living inside a prose
+    surface's home — the provider-exception ledger under .engine/policies/ — has no
+    frontmatter to read). A
     malformed file, an unresolvable or offline schema reference, or a malformed governing
     schema is a loud finding (the halt-on-malformed posture), never an uncaught error and
     never a network fetch."""
     from jsonschema import Draft202012Validator        # lazy: see the module __getattr__ note (tool-runtime dep)
     from jsonschema.exceptions import SchemaError
     tier = rule["tier"]
+    overridden = bool((rule.get("params") or {}).get("schema"))
     findings = []
     for path in target_files(rule):
         rel = os.path.relpath(path, ROOT)
         rec = _surface_record_for(rel)                 # None for override-schema targets (engine.json, state.json, manifests)
-        is_prose = bool(rec) and rec.get("class") == "prose"
+        is_prose = bool(rec) and rec.get("class") == "prose" and not overridden
         try:
             data = frontmatter(path) if is_prose else _load_structured(path)
         except Exception as exc:
