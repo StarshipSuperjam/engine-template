@@ -8510,7 +8510,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:a3ebc4ac56ca76a3e40b3bfd2f28321b7bf850bd8b7b813d89e3246d9d256a8a",
+        "fingerprint": "sha256:1d0ded98e484c2586556f5134911820a8bc298d45e449f7e66ccddf5f57f22a9",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
