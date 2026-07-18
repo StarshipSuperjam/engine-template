@@ -26,9 +26,20 @@ The roster (the set proven):
   - the `custom/script` INSTANCES — every `*.json` in the check directory whose kind is `custom/script` — each
     with a fixture under `<fixtures>/<check-id-stem>/` (the rule id minus `engine/check/`).
 
-The only admissible carve-out is a unit with **no statically-decidable failure path in the CI
-environment** — disclosed by a `not-applicable.json` carrying that exact bounded reason, listed loudly here as a
-soft note, never an author's silent self-classification. The meta-check is **self-covering**: it is itself a
+The only admissible carve-outs are bounded and disclosed, never an author's silent self-classification:
+  - a unit with **no statically-decidable failure path in the CI environment** — disclosed by a
+    `not-applicable.json` carrying that exact bounded reason, listed loudly here as a soft note;
+  - a **construction-scoped** unit (#512) — disclosed by a `construction-scoped.json` carrying the exact bounded
+    reason below, and honored ONLY where the ambient repo state confirms it: the unit is still run, and only a
+    silent failed bite (no hard finding at all — a crash or fail-closed verdict is evidence, never excused) in a
+    repo whose root CLAUDE.md is no longer the construction-governance body collapses to a loud
+    soft note. In the construction repo the declaration is inert and the bite stays required — so the
+    declaration can never exempt a check where its failure path is reachable;
+  - a unit whose bite is witnessable only with a **declared live environment** (#531) — disclosed by a
+    `requires.json` naming the environment variables the witness needs. Ignored entirely in CI (where the
+    declared environment is provided and the bite stays enforced); on a local machine missing one of the named
+    variables, a failed bite collapses to a loud soft note instead of a false red.
+The meta-check is **self-covering**: it is itself a
 `custom/script` instance, and a unit test drives it against a seeded mini-scenario where a unit is missing or
 non-biting, proving the checker-of-checkers is itself falsifiable — terminating the regress with no meta-meta-check.
 
@@ -54,6 +65,18 @@ _PATH_KINDS = {"presence", "schema", "shape"}
 # The exact bounded carve-out property (fixed VERBATIM precisely so a compressed slug cannot reopen
 # the self-classification escape). A not-applicable.json must carry this exact string.
 _NA_PROPERTY = "no statically-decidable failure path in the CI environment"
+# The construction-scoped property (#512), same VERBATIM discipline. A construction-scoped.json must carry it —
+# and the declaration is honored only where the ambient root confirms the repo is NOT the construction one.
+_CS_PROPERTY = "no reachable failure path outside the construction repository"
+# The declared-environment property (#531), same VERBATIM discipline for the same reason: a requires.json
+# must carry it alongside the named variables, so this class of declaration can no more be minted casually
+# than the other two.
+_REQ_PROPERTY = "the aimed bite is witnessable only with a live repository connection"
+# The construction recognizer — the same marker (and lowercased read) the two construction-scoped checks'
+# own `_is_construction_repo()` gates on (census_completeness_check / memory_pointer_public_safety_check),
+# so the harness and the checks agree on what "the construction repo" is. Keyed on the PASSED root (unlike
+# the checks, which deliberately read the real root) so a test can drive both branches.
+_CONSTRUCTION_MARKER = "construction governance"
 
 
 def _load(path: str):
@@ -156,7 +179,9 @@ def _cover_custom_script_kind(fixture_root: str, root: str, tier: str) -> list:
 def _cover_script_instance(rule: dict, fixture_root: str, root: str, tier: str) -> list:
     """Prove one custom/script INSTANCE bites its fixture. The fixture dir (`<id-stem>/`) holds an expect.json and
     an optional target.json (the run_unit target — e.g. a seeded `env`); a missing dir with no disclosure fails
-    closed. The instance's own rule (its real script) runs unchanged — only the target is substituted."""
+    closed. The instance's own rule (its real script) runs unchanged — only the target is substituted. A failed
+    bite consults the fixture's bounded applicability declarations (construction-scoped / declared environment)
+    LAST — the unit always runs first, so a check that unexpectedly bites is simply covered, never excused."""
     stem = (rule.get("id") or "").split("engine/check/")[-1]
     fdir = os.path.join(fixture_root, stem)
     na = os.path.join(fdir, "not-applicable.json")
@@ -174,7 +199,98 @@ def _cover_script_instance(rule: dict, fixture_root: str, root: str, tier: str) 
                 f"under {os.path.relpath(fdir, root)} is malformed ({exc}).")]
     if _bit(found, expect):
         return []
+    # The declarations may only excuse a unit that ran and STAYED SILENT (no hard finding at all) — the true
+    # signature of a structurally-inert check. A run that produced any hard finding (a crash, a non-zero exit,
+    # unreadable output, or the check's own fail-closed verdict) is evidence, and evidence is never excused:
+    # a genuinely construction-scoped check cannot crash in a deployed repo, because it returns at its gate
+    # before doing anything.
+    if not any(f.get("severity") == "hard" for f in found):
+        alt = _failed_bite_applicability(rule.get("id"), fdir, root, tier)
+        if alt is not None:
+            return alt
     return [validate.finding(tier, _no_bite_msg(f"check '{rule.get('id')}'", fdir, expect, found, root))]
+
+
+def _is_construction_root(root: str) -> bool:
+    """True iff `root`'s CLAUDE.md is the construction-governance body — the same marker and lowercased read as
+    the construction-scoped checks' own gate, but keyed on the passed root so tests can drive both branches (the
+    live run passes validate.ROOT). No/unreadable CLAUDE.md reads as not-construction, mirroring the checks."""
+    try:
+        with open(os.path.join(root, "CLAUDE.md"), encoding="utf-8") as fh:
+            return _CONSTRUCTION_MARKER in fh.read().lower()
+    except Exception:  # noqa: BLE001 — no/unreadable CLAUDE.md -> not the construction repo
+        return False
+
+
+def _failed_bite_applicability(unit, fdir: str, root: str, tier: str) -> "list | None":
+    """The bounded applicability declarations, consulted ONLY after a unit failed to bite. Returns the finding
+    list that replaces the did-not-bite red (a loud soft note, or a hard rejection of a malformed declaration),
+    or None when no declaration applies and the failed bite must stand. Two declarations exist:
+
+      - construction-scoped.json (#512): the check's failure path is reachable only in the construction repo.
+        Honored only where the AMBIENT root confirms the repo is not the construction one — in the construction
+        repo the declaration is inert and the failed bite stands, so it can never exempt a reachable check.
+      - requires.json (#531): the bite is witnessable only with the named environment variables (a live-API
+        witness). IGNORED in CI, where the declared environment is provided and the bite stays enforced; outside
+        CI a missing named variable collapses the red to a loud soft note so a local rehearsal reads honestly.
+    """
+    cs_path = os.path.join(fdir, "construction-scoped.json")
+    if os.path.isfile(cs_path):
+        try:
+            disclosure = _load(cs_path)
+        except Exception as exc:  # noqa: BLE001 — an unreadable declaration is a failure to prove, fails closed
+            return [validate.finding(tier, f"The construction-scoped disclosure for '{unit}' is unreadable "
+                    f"({exc}); the failed bite stands until it is fixed.")]
+        if not isinstance(disclosure, dict):
+            return [validate.finding(tier, f"The construction-scoped disclosure for '{unit}' is not a JSON "
+                    f"object; the failed bite stands until it is fixed.")]
+        if disclosure.get("property") != _CS_PROPERTY:
+            return [validate.finding(tier, f"The construction-scoped disclosure for '{unit}' does not carry the "
+                    f"only admissible reason (\"{_CS_PROPERTY}\"); a check may be construction-scoped only when "
+                    f"its failure path is unreachable outside the construction repository. Either fix the check "
+                    f"or correct the disclosure's recorded reason.")]
+        if not _is_construction_root(root):
+            reason = disclosure.get("reason", "")
+            # A plain soft finding (never the collapsible no-op class): this note is the loud disclosure the
+            # carve-out promises, and it must render in full in the suite output, not fold into a
+            # "nothing to do" summary line.
+            return [validate.finding("soft", f"NOT APPLICABLE HERE — '{unit}' is construction-scoped: "
+                    f"{_CS_PROPERTY}. This repository's root CLAUDE.md is not the construction-governance body, "
+                    f"so the check is structurally inert here and its bite cannot be witnessed; it stays "
+                    f"required to bite in the construction repository's CI. Recorded reason: {reason} This "
+                    f"carve-out is disclosed here and re-derived at the review gate; it is not a proof that the "
+                    f"check bites.")]
+        # The construction repo itself: the declaration is inert — fall through to any other declaration.
+    req_path = os.path.join(fdir, "requires.json")
+    if os.path.isfile(req_path):
+        try:
+            req = _load(req_path)
+        except Exception as exc:  # noqa: BLE001
+            return [validate.finding(tier, f"The environment-requirements disclosure for '{unit}' is unreadable "
+                    f"({exc}); the failed bite stands until it is fixed.")]
+        if not isinstance(req, dict):
+            return [validate.finding(tier, f"The environment-requirements disclosure for '{unit}' is not a "
+                    f"JSON object; the failed bite stands until it is fixed.")]
+        if req.get("property") != _REQ_PROPERTY:
+            return [validate.finding(tier, f"The environment-requirements disclosure for '{unit}' does not "
+                    f"carry the only admissible reason (\"{_REQ_PROPERTY}\"); a check's bite may be excused "
+                    f"locally only when its aimed failure needs a live repository witness. Either add a real "
+                    f"offline fixture, or correct the disclosure's recorded reason.")]
+        names = req.get("env")
+        if not (isinstance(names, list) and names and all(isinstance(n, str) and n for n in names)):
+            return [validate.finding(tier, f"The environment-requirements disclosure for '{unit}' must name the "
+                    f"environment variables its live witness needs (a non-empty `env` list of names); the failed "
+                    f"bite stands until it is fixed.")]
+        in_ci = bool(os.environ.get("GITHUB_ACTIONS") or os.environ.get("CI"))
+        missing = [n for n in names if not os.environ.get(n)]
+        if missing and not in_ci:
+            reason = req.get("reason", "")
+            # A plain soft finding for the same render-in-full reason as the construction-scoped note.
+            return [validate.finding("soft", f"NOT WITNESSED HERE — '{unit}' declares its bite needs "
+                    f"{', '.join(missing)}, absent on this machine. In CI the declaration is ignored and the "
+                    f"bite stays enforced; this note only keeps a local rehearsal honest instead of falsely "
+                    f"red. Recorded reason: {reason}")]
+    return None
 
 
 def _cover_module_kind(kind: str, fixture_root: str, root: str, tier: str) -> list:

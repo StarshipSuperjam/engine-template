@@ -1,0 +1,4 @@
+{
+  "property": "no reachable failure path outside the construction repository",
+  "reason": "This check's whole body gates on _is_construction_repo() (bound identical to census-completeness's gate by a parity test) — it guards the construction repo's own MEMORY.md pointer hygiene. In a deployed repo (post first-run floor swap) the gate reads False and the check returns before any failure path, so the fixture structurally cannot bite there. In the construction repository this declaration is inert and the bite stays required. Whether this protection should ALSO run in deployed repos is a scoping question surfaced on issue #512 — widening it is a check change, not a fixture change."
+}
