@@ -285,24 +285,34 @@ def _touches_home_key(patch: str) -> bool:
 
 
 def home_repoint(files: list, base_home: str | None) -> tuple | None:
-    """A change to the engine's update home when one is ALREADY recorded (`base_home`) is a supply-chain repoint —
-    returns (base_home, new_value_or_None) to flag, else None. FAILS CLOSED so the guard cannot be falsified
-    by the change it judges: once a home exists, a touch of the `home_repository` key in the manifest diff,
-    and a `patch` too large to be returned at all, both require the ack — with ONE provably-benign carve-out
-    (#515): when EVERY touched home line, added and removed alike, parses cleanly as a single one-line
-    `\"home_repository\": \"<value>\"` AND every parsed value equals the trusted base home, the touch is
-    formatting-only churn around an unchanged value (the first-run trailing comma that false-alarmed every
-    adopter) and does not flag. The carve-out is deliberately dumb — no patch application, no head
-    reconstruction — and strictly narrower than the fail-closed default, so the #367 evasions all still
-    register: a duplicate-key injection adds a line whose value differs (flagged, JSON's last value wins
-    over the base only by matching it); a value split across lines fails the one-line parse (flagged); a
-    patch-suppressing bloat never reaches the carve-out (flagged above). A first recording (no `base_home`
-    yet) is never a repoint, so seeding and back-fill need no ack; a version-only bump (no home line in the
-    patch) does not touch the key and does not flag. `new_value` is the added home value when parseable on
-    one line, else None (the operator message then says the value could not be read, never asserts a
-    destination)."""
+    """A change to the engine's update home when one is ALREADY recorded (`base_home`) is a supply-chain
+    repoint — returns `(base_home, new_value_or_None, reason)` to flag, else None. FAILS CLOSED so the guard
+    cannot be falsified by the change it judges. `reason` drives the operator message and is one of:
+      - "changed" — a new home value was parsed (`new_value` carries it);
+      - "deletion" — the home line is REMOVED and not re-added. A removal is not harmless: with no home
+        recorded, the guard's own rule makes the NEXT change that adds one back a first recording, unflagged
+        — so a deletion + a later add would compose into a silent two-PR repoint. A deletion therefore always
+        keeps the flag (the review of #515 proved this composition against the first draft, which cleared it);
+      - "unclear" — the home line is touched with an added line, but no clean single-line value could be read;
+      - "unreadable-patch" — the whole manifest diff was too large for GitHub to return;
+      - "escaped" — an ADDED manifest line carries a JSON string escape (a backslash), which the plain-ASCII
+        engine manifest never legitimately needs and which can disguise the home key past the substring
+        touch-test (JSON folds e.g. `home_repositor\\u0079` back to the real key, last value wins).
+
+    ONE provably-benign carve-out (#515): the flag is suppressed ONLY when EVERY touched home line (added and
+    removed alike) is EXACTLY a one-line `"home_repository": "<base>"` entry — bare key, base value, optional
+    trailing comma, nothing else — AND at least one such line is ADDED (the home must SURVIVE the change).
+    That admits the first-run trailing-comma reformat (which always re-adds the line) and nothing wider: a
+    duplicate-key injection with a differing value, a value split across lines, a trailing fragment on the
+    line, a pure deletion, an escaped key, and a patch too large to inspect all still flag. The carve-out is
+    deliberately dumb — no patch application, no head reconstruction — and strictly narrower than the
+    fail-closed default. A first recording (no `base_home`) is never a repoint; a version-only bump (no home
+    line touched) does not flag."""
     if not base_home:
         return None                        # no home recorded yet -> establishing one is not a repoint
+    # A touched home line is benign only as the EXACT one-line entry at the base value (bare key, optional
+    # trailing comma, nothing else) — a full-line anchor, so a trailing fragment or split value fails it.
+    benign_re = re.compile(r'^[+-]\s*"home_repository"\s*:\s*"' + re.escape(base_home) + r'"\s*,?\s*$')
     for f in files:
         if f.get("filename") != ENGINE_MANIFEST_REL:
             continue
@@ -310,30 +320,33 @@ def home_repoint(files: list, base_home: str | None) -> tuple | None:
             continue
         patch = f.get("patch")
         if not patch:
-            return (base_home, None)        # a manifest change we cannot inspect -> fail closed
+            return (base_home, None, "unreadable-patch")   # a manifest change we cannot inspect -> fail closed
+        added = [ln for ln in patch.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
+        # The engine manifest holds only plain-ASCII values (versions, package names, identity, the home
+        # slug, the control-plane marker's ids + enumerated rule names), so a JSON string escape in an ADDED
+        # line is anomalous — it can disguise the home key past the substring touch-test below. Fail closed.
+        if any("\\" in ln for ln in added):
+            return (base_home, None, "escaped")
         if _touches_home_key(patch):
             touched = [ln for ln in patch.splitlines()
                        if ((ln.startswith("+") and not ln.startswith("+++"))
                            or (ln.startswith("-") and not ln.startswith("---")))
                        and "home_repository" in ln]
-
-            def _benign(ln: str) -> bool:
-                # One quoted key, one cleanly-parsed value, and that value IS the base home. Anything
-                # less clean — a second fragment on the line, an unclosed value, the substring inside
-                # some other context — fails this and keeps the fail-closed flag.
-                values = _HOME_VALUE_RE.findall(ln)
-                return (len(values) == 1 and ln.count('"home_repository"') == 1
-                        and values[0] == base_home)
-
-            if touched and all(_benign(ln) for ln in touched):
-                continue                    # formatting-only churn around an unchanged home value
+            added_home = [ln for ln in touched if ln.startswith("+")]
+            if touched and added_home and all(benign_re.match(ln) for ln in touched):
+                continue                    # formatting churn around an unchanged, SURVIVING home value
             new = None
-            for line in touched:
-                if line.startswith("+"):
-                    m = _HOME_VALUE_RE.search(line)
-                    if m and m.group(1) != base_home:
-                        new = m.group(1)
-            return (base_home, new)
+            for line in added_home:
+                m = _HOME_VALUE_RE.search(line)
+                if m and m.group(1) != base_home:
+                    new = m.group(1)
+            if new:
+                reason = "changed"
+            elif not added_home:
+                reason = "deletion"          # the home line is removed and not re-added
+            else:
+                reason = "unclear"           # touched with an added line but no clean single-line value
+            return (base_home, new, reason)
     return None
 
 
@@ -520,14 +533,28 @@ def main() -> int:
                      "If merged unwatched, a safety check could be turned off, renamed, or loosened — "
                      "letting future changes reach the protected branch without being checked.\n")
     if repoint:
-        old, new = repoint
-        if new:
+        old, new, reason = repoint
+        if reason == "changed":
             lead = f"Your engine's update home is being changed from {old} to {new}."
-        else:
-            lead = (f"Your engine's update home line is being changed, and this check couldn't read the "
-                    f"new value from the diff (it is {old} today) — treat this as a possible change of "
-                    f"home until you confirm the value yourself.")
-        parts.append(lead + " This matters because it decides WHERE "
+        elif reason == "deletion":
+            lead = (f"Your engine's update home ({old}) is being REMOVED from `.engine/engine.json`. "
+                    f"Removing the recorded home is not harmless: once no home is recorded, the next change "
+                    f"that adds one back is treated as a first-time setup and is not re-checked — so this "
+                    f"removal is where the safety check has to stop and ask you.")
+        elif reason == "escaped":
+            lead = (f"A change to `.engine/engine.json` (where your update home, {old}, is recorded) adds an "
+                    f"unusual escaped character where the engine's settings are normally plain text. This "
+                    f"check can't safely read what it does — an escape can hide a change to the home — so it "
+                    f"stops and asks you.")
+        elif reason == "unreadable-patch":
+            lead = (f"A change to `.engine/engine.json` (where your update home, {old}, is recorded) was too "
+                    f"large for this check to read in full, so it can't confirm whether the home changed — "
+                    f"confirm this change before merging.")
+        else:  # "unclear" — the home line was touched but no clean value could be read
+            lead = (f"The `home_repository` line in `.engine/engine.json` was changed in a way this check "
+                    f"couldn't cleanly read (it is {old} today) — confirm the value in this pull request's "
+                    f"changed files before merging.")
+        parts.append(lead + " This matters because that setting decides WHERE "
                      "your engine's own code is fetched from when it updates — a supply-chain change: a "
                      "wrong or look-alike home could feed your engine altered code at its next update. The "
                      "engine cannot itself tell a genuine home from a convincing look-alike — only you can "
