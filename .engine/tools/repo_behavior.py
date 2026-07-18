@@ -253,7 +253,8 @@ def render(toggles: list) -> str:
         lead = ("A GitHub feature your new project doesn't use is now off:" if len(off_lines) == 1
                 else "A couple of GitHub features your new project doesn't use are now off:")
         parts.append(lead + "\n- " + "\n- ".join(off_lines)
-                     + "\n\nEach is an ordinary repository setting you can turn back on any time on GitHub.")
+                     + "\n\nEach is an ordinary repository setting you can turn back on at any time on your "
+                       "project's Settings page on GitHub.")
     if already:
         parts.append("Already set up on your project, left exactly as it was: " + join(already) + ".")
     if off_already:

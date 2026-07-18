@@ -6232,7 +6232,7 @@
       },
       "slug": "demo_repo_behavior",
       "source": {
-        "fingerprint": "sha256:e46145ed375d4ae68d166c6692ea14a97a6e4c183f51106134375f9ab9b4bc4f",
+        "fingerprint": "sha256:b29dec934c01853e786683483f6a5c6af451424eb296880bfc4ea97d9ca108ce",
         "path": ".engine/tools/demo_repo_behavior.py"
       },
       "status": "active",
@@ -7354,7 +7354,7 @@
       },
       "slug": "repo_behavior",
       "source": {
-        "fingerprint": "sha256:51867be4e821ae9c525bef5795badd28d55658aec0199922fbf1e2ecdbc66ff9",
+        "fingerprint": "sha256:85ef34224ac42c48f5c0c22db644dd3cad23fd59477de5ba9095e47f91224ebe",
         "path": ".engine/tools/repo_behavior.py"
       },
       "status": "active",

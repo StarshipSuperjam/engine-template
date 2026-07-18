@@ -17,8 +17,20 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import repo_behavior as rb   # noqa: E402
+import module_coherence      # noqa: E402  (the live present-module reader — the real turn-off decision input)
 
 REPO = "you/your-project"
+
+
+def _board_sync_present() -> bool:
+    """Whether the github-projects-sync module is installed — the REAL input to the project-boards
+    decision (the same read `instantiator._github_projects_sync_present` makes at setup). Read from the
+    actual present manifests, never faked, so the demo exercises the real add-on linkage."""
+    try:
+        return any((m or {}).get("id") == "github-projects-sync"
+                   for _p, m in module_coherence.discover_manifests())
+    except Exception:  # noqa: BLE001 — can't tell -> retain boards (never turn off on doubt)
+        return True
 
 
 def _fake(*, settings, alerts_on, alerts_put, fixes_on, fixes_put):
@@ -96,17 +108,36 @@ def main() -> int:
               "dependabot-alerts": rb.UNVERIFIED, "dependabot-fixes": rb.UNVERIFIED})
 
     _NEW = dict(_FRESH, has_wiki=True, has_projects=True)   # a fresh repo: wiki + project boards on
-    scenario("A fresh project without the board-sync add-on: the wiki AND unused project boards turn off.",
+
+    # The turn-off MECHANICS, shown for both project-board inputs. The titles describe the INPUT the step is
+    # given (whether project boards are slated to turn off), not a module read — the module→input decision is
+    # exercised for real just below.
+    scenario("A fresh project with the wiki and its project boards both slated to turn off:",
              _fake(settings=_NEW, alerts_on=False, alerts_put=(204, None),
                    fixes_on=False, fixes_put=(204, None)),
              {"wiki": rb.OFF, "projects": rb.OFF},
              disable_wiki=True, disable_projects=True)
 
-    scenario("A fresh project that KEPT the board-sync add-on: the wiki turns off, project boards stay.",
+    scenario("A fresh project with project boards RETAINED (not slated): only the wiki turns off.",
              _fake(settings=_NEW, alerts_on=False, alerts_put=(204, None),
                    fixes_on=False, fixes_put=(204, None)),
              {"wiki": rb.OFF},
              disable_wiki=True, disable_projects=False)   # projects retained -> not in the toggle set
+
+    # The module→input decision, exercised for REAL against the actual installed module set (no mock): the
+    # setup step turns project boards off ONLY when the github-projects-sync add-on is absent.
+    present = _board_sync_present()
+    disable_projects = not present
+    print(f"— The board-sync add-on (github-projects-sync) is {'installed' if present else 'not installed'} "
+          f"in THIS project — read from your real module selection, not faked. So the setup step would slate "
+          f"project boards to {'stay on (the add-on uses them)' if present else 'turn off (nothing uses them)'}.")
+    expect = {"wiki": rb.OFF}
+    if disable_projects:
+        expect["projects"] = rb.OFF
+    scenario("  …and running the turn-off with that real decision:",
+             _fake(settings=_NEW, alerts_on=False, alerts_put=(204, None),
+                   fixes_on=False, fixes_put=(204, None)),
+             expect, disable_wiki=True, disable_projects=disable_projects)
 
     if not ok:
         print("DEMO UNEXPECTED: an outcome did not behave as expected.", file=sys.stderr)
