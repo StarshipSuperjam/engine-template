@@ -801,8 +801,11 @@ class TestSentinelRecovery(unittest.TestCase):
 class TestConsolidation(unittest.TestCase):
     """A create/create race can leave two open Issues for ONE signal (GitHub has no atomic
     create-if-absent). reconcile/run must CONVERGE keyable duplicates onto the lowest-numbered survivor,
-    close the rest, and preserve the earliest first-noticed — but ONLY within authority scope, so a
-    partial (e.g. CI-only) pass never touches another source's duplicates. Real reconcile; network faked."""
+    close the rest, and preserve the earliest first-noticed — UNCONDITIONALLY of authority scope (#518):
+    authority governs auto-RESOLVING a signal, never folding two copies of one signal into one, and the
+    old authority gate here was exactly why the recorded duplicate pair persisted (no racing pass was
+    authoritative for the raced signal). The survivor itself stays under authority scope — a scoped pass
+    still never closes it. Real reconcile; network faked."""
 
     def _inject(self, f, number, sid, first_seen):
         body = telemetry.issue_body(rec(sid, "trust-critical", "A safety check could not run."),
@@ -832,15 +835,47 @@ class TestConsolidation(unittest.TestCase):
         self.assertEqual(f.issues[434]["state"], "closed")       # duplicate consolidated
         self.assertEqual(f.issues[433]["state"], "open")         # survivor carried forward
 
-    def test_scoped_pass_leaves_another_sources_duplicates_untouched(self):
-        # THE INVARIANT: a CI-scoped pass has no authority over hooks/fail-open, so it must NOT consolidate
-        # that source's duplicate pair — the same source-scoping that stops it auto-resolving foreign Issues.
+    def test_scoped_pass_consolidates_foreign_duplicates_but_never_resolves_the_survivor(self):
+        # THE #518 INVERSION: a CI-scoped pass has no authority over hooks/fail-open, so it must never
+        # auto-RESOLVE that source's signal — but folding the signal's two copies into one decides nothing
+        # about the signal, so the duplicate IS consolidated. This is the chicken-and-egg leg the recorded
+        # duplicate pair sat in: the raced signal's own passes were never authoritative for it.
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
         self._inject(f, 433, "hooks/fail-open/PreToolUse/crash", T[0])
         self._inject(f, 434, "hooks/fail-open/PreToolUse/crash", T[1])
         run(gh(f), [], cache, TH, T[5], authoritative=frozenset({"ci/some-check"}))
-        self.assertEqual(f.open_count(), 2)                      # both left open — no authority
-        self.assertEqual(f.issues[434]["state"], "open")
+        self.assertEqual(f.issues[434]["state"], "closed")       # the duplicate is healed
+        self.assertIn("Consolidated into #433", f.issues[434]["body"])
+        self.assertEqual(f.issues[433]["state"], "open")         # the survivor is NOT resolved — no authority
+        self.assertEqual(f.open_count(), 1)
+
+    def test_scoped_pass_repeated_absences_never_resolve_a_foreign_survivor(self):
+        # The auto-resolve boundary consolidation must not erode: even past the auto-resolve threshold,
+        # a pass without authority for the sid keeps the survivor open.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._inject(f, 433, "hooks/fail-open/PreToolUse/crash", T[0])
+        self._inject(f, 434, "hooks/fail-open/PreToolUse/crash", T[1])
+        for t in (T[2], T[3], T[4], T[5]):
+            run(gh(f), [], cache, TH, t, authoritative=frozenset({"ci/some-check"}))
+        self.assertEqual(f.issues[433]["state"], "open")
+
+    def test_cache_pointing_at_a_closed_duplicate_rekeys_to_the_survivor(self):
+        # The cross-pass hazard the review named: the owning source's cache remembers the DUPLICATE's
+        # number, then a different (non-authoritative) pass closes that duplicate. The owner's next pass
+        # must re-key to the open survivor via the body marker, not resurrect or re-open anything.
+        f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
+        self._inject(f, 433, "sid/x", T[0])
+        self._inject(f, 434, "sid/x", T[1])
+        counts = {"sid/x": {"persist": 3, "absent": 0, "issue": 434, "first_seen": T[1],
+                            "severity": "trust-critical"}}
+        cache.store(counts)
+        run(gh(f), [], cache, TH, T[2], authoritative=frozenset({"ci/some-check"}))   # closes 434
+        self.assertEqual(f.issues[434]["state"], "closed")
+        r = run(gh(f), [rec("sid/x", "trust-critical")], cache, TH, T[3])             # the owner's pass
+        self.assertEqual(f.open_count(), 1)
+        self.assertEqual(f.issues[433]["state"], "open")
+        self.assertEqual(cache.load()["sid/x"]["issue"], 433, "the cache re-keys to the survivor")
+        self.assertEqual(r.opened, 0, "nothing is re-created for a signal whose survivor is open")
 
     def test_consolidation_is_idempotent(self):
         f, cache = FakeGH(labels={"engine"}), telemetry.Cache(_tmpcache())
@@ -2016,6 +2051,37 @@ class TestFindingsInbox(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("no new alerts", out.getvalue())
         self.assertIn("opened=0", out.getvalue())
+
+
+class TestSessionPassSerialization(unittest.TestCase):
+    """#518's second leg: the SessionStart triage passes are serialized by a cross-process file lock, so
+    two passes can no longer promote the same signal in the same instant (the create/create race window
+    becomes a queue). Exercised through the real flock; skipped where the platform has none."""
+
+    def setUp(self):
+        try:
+            import fcntl  # noqa: F401
+        except ImportError:
+            self.skipTest("no fcntl on this platform (the lock degrades to unserialized there)")
+
+    def test_lock_is_exclusive_while_held_and_reusable_after_release(self):
+        import fcntl
+        first = telemetry._serialize_session_passes()
+        self.assertIsNotNone(first)
+        # A second open file description on the same lock path cannot take the lock while held —
+        # flock is per-open-file-description, so this genuinely probes exclusion, same process or not.
+        probe = open(first.name, "w")
+        with self.assertRaises((BlockingIOError, OSError)):
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        probe.close()
+        first.close()                                            # release
+        second = telemetry._serialize_session_passes()           # now acquirable again
+        self.assertIsNotNone(second)
+        second.close()
+
+    def test_lock_failure_fails_open_never_blocks_the_pass(self):
+        with mock.patch("os.makedirs", side_effect=OSError("read-only")):
+            self.assertIsNone(telemetry._serialize_session_passes())
 
 
 if __name__ == "__main__":
