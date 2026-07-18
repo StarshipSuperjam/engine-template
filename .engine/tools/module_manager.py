@@ -821,6 +821,51 @@ def surface_stamp_mismatch(store_label: str, stamped_version: str, running_versi
 
 # ---- upgrade: overlay (off the PRESENT set) + wiring deltas + re-sync + migrations + coherence + PR ----
 
+def _overlay_copy_map(tree_root: str, manifests_by_id: dict) -> dict:
+    """{repo-relative-path -> source-abspath} the engine overlay copies, enumerated against `tree_root`:
+    each present module's `provides` files + its own `manifest.json`, plus FOUNDATION_CODE (files the
+    release ships wholesale). THE SINGLE SOURCE of the overlay membership: `_overlay_engine_code` copies
+    this map from a downloaded RELEASE tree, and `overlay_replace_paths()` reads its keys against the LIVE
+    tree — so the operator-facing "this file gets overwritten on the next update" disclosure cannot drift
+    from what the update actually overwrites. A manifest also matched by a `provides` glob dedups to one
+    entry (dict key). Module manifests are in no module's `provides`, so they are added explicitly here —
+    the overlay overwrites them wholesale, and the disclosure must warn on them too."""
+    to_copy: dict = {}
+    for mid, man in manifests_by_id.items():
+        for _group, patterns in (man.get("provides") or {}).items():
+            for pattern in patterns:
+                for src in glob.glob(os.path.join(tree_root, pattern), recursive=True):
+                    if os.path.isfile(src):
+                        to_copy[os.path.relpath(src, tree_root).replace(os.sep, "/")] = src
+        to_copy[f".engine/modules/{mid}/manifest.json"] = os.path.join(
+            tree_root, ".engine", "modules", mid, "manifest.json")
+    for member in FOUNDATION_CODE:
+        # Glob-expand each foundation member against the tree (a member may be a glob, e.g.
+        # .github/ISSUE_TEMPLATE/*.md; glob.glob on a literal path returns it iff it exists). A literal
+        # os.path.isfile on a glob string would silently drop the issue templates.
+        for src in glob.glob(os.path.join(tree_root, member), recursive=True):
+            if os.path.isfile(src):
+                to_copy[os.path.relpath(src, tree_root).replace(os.sep, "/")] = src
+    return to_copy
+
+
+def overlay_replace_paths() -> set:
+    """The repo-relative engine files the NEXT engine update would OVERWRITE, expanded against the LIVE
+    tree — exactly the membership `_overlay_engine_code` copies (present modules' `provides` files + their
+    manifests + FOUNDATION_CODE), via the shared `_overlay_copy_map`. This is what the merge-time
+    upgrade-overwrite disclosure (`overlay_disclosure.py`) warns an operator about.
+
+    An APPROXIMATION, named honestly: the true overwrite source is a future RELEASE tree, which this live
+    tree only stands in for — a path this tree has that a future release drops (or vice-versa) is inherent
+    slack, not a guarantee. What IS guaranteed is that it cannot drift from the overlay's own enumeration.
+
+    DISTINCT from `module_coherence.engine_owned_paths()` — do NOT dedupe into it: that set unions the
+    FULL `FOUNDATION_INFRA` (including the keyed-merge/CODEOWNERS carve-outs the overlay PRESERVES) and
+    omits module manifests, so reusing it would both cry wolf on preserved files and miss the manifests."""
+    manifests = {m.get("id"): m for _rel, m in module_coherence.discover_manifests()}
+    return set(_overlay_copy_map(validate.ROOT, manifests).keys())
+
+
 def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> tuple:
     """Overlay the engine CODE of the PRESENT packages from `release_tree`: each present module's
     `provides` files + its manifest, plus the FOUNDATION_CODE infra the release ships. Driven off the
@@ -833,28 +878,16 @@ def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> 
     so the engine coexists around them rather than replacing them. Returns (copied_relpaths,
     {module_id: release_manifest})."""
     skip = set(exclude or ())
-    to_copy: dict = {}   # rel -> src (dedup; a manifest also matched by a glob resolves to one entry)
     candidates: dict = {}
     for mid in present_ids:
         man_src = os.path.join(release_tree, ".engine", "modules", mid, "manifest.json")
         if not os.path.isfile(man_src):
             raise _UpgradeRefused(f"the engine release does not contain the installed module '{mid}', so "
                                   f"the update was stopped and nothing was changed.")
-        cand = validate.load_json(man_src)
-        candidates[mid] = cand
-        for _group, patterns in (cand.get("provides") or {}).items():
-            for pattern in patterns:
-                for src in glob.glob(os.path.join(release_tree, pattern), recursive=True):
-                    if os.path.isfile(src):
-                        to_copy[os.path.relpath(src, release_tree).replace(os.sep, "/")] = src
-        to_copy[f".engine/modules/{mid}/manifest.json"] = man_src
-    for member in FOUNDATION_CODE:
-        # Glob-expand each foundation member against the release tree (a member may be a glob, e.g.
-        # .github/ISSUE_TEMPLATE/*.md; glob.glob on a literal path returns it iff it exists). A literal
-        # os.path.isfile on a glob string would silently drop the issue templates.
-        for src in glob.glob(os.path.join(release_tree, member), recursive=True):
-            if os.path.isfile(src):
-                to_copy[os.path.relpath(src, release_tree).replace(os.sep, "/")] = src
+        candidates[mid] = validate.load_json(man_src)
+    # The overlay membership is single-homed in _overlay_copy_map, so the merge-time upgrade-overwrite
+    # disclosure (overlay_replace_paths) reads the SAME enumeration against the live tree and cannot drift.
+    to_copy = _overlay_copy_map(release_tree, candidates)
     escapes = sorted(rel for rel in to_copy if not _within_root(rel))
     if escapes:
         shown = ", ".join(escapes[:3]) + ("…" if len(escapes) > 3 else "")

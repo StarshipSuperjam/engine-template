@@ -815,7 +815,8 @@
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-provider-parity-committed-exceptions",
-          "contract:eADR-0036-codex-degradation-disclosure"
+          "contract:eADR-0036-codex-degradation-disclosure",
+          "contract:eADR-0037-upgrade-overwrite-disclosure"
         ]
       },
       "slug": "contract-frontmatter",
@@ -878,7 +879,8 @@
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-provider-parity-committed-exceptions",
-          "contract:eADR-0036-codex-degradation-disclosure"
+          "contract:eADR-0036-codex-degradation-disclosure",
+          "contract:eADR-0037-upgrade-overwrite-disclosure"
         ]
       },
       "slug": "contract-shape",
@@ -942,7 +944,8 @@
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-provider-parity-committed-exceptions",
-          "contract:eADR-0036-codex-degradation-disclosure"
+          "contract:eADR-0036-codex-degradation-disclosure",
+          "contract:eADR-0037-upgrade-overwrite-disclosure"
         ]
       },
       "slug": "contract-threshold",
@@ -3537,6 +3540,26 @@
       "source": {
         "fingerprint": "sha256:f07f9a81bf2fdf912ea97fe83a5ef0244fbf171fbbcb12e77b906630168e56c1",
         "path": ".engine/contracts/eADR-0036-codex-degradation-disclosure.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
+      "id": "contract:eADR-0037-upgrade-overwrite-disclosure",
+      "name": ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0037-upgrade-overwrite-disclosure",
+      "source": {
+        "fingerprint": "sha256:64d43cfd1ffe40a68fca4aa70175247774ad6ff1fa3f8fc3b66e3a6975ddbdc1",
+        "path": ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md"
       },
       "status": "accepted",
       "type": "contract"
@@ -6137,6 +6160,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_overlay_disclosure",
+      "name": ".engine/tools/demo_overlay_disclosure.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_overlay_disclosure",
+      "source": {
+        "fingerprint": "sha256:3e8b089f3fb2852ab8652b77f99f1587effea47226e9ad59daf8b52c32ef5220",
+        "path": ".engine/tools/demo_overlay_disclosure.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_pr_reconcile",
       "name": ".engine/tools/demo_pr_reconcile.py",
       "owner": "core",
@@ -7031,7 +7071,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:1b1228ce0b800650ec735b166aace56ef4909828e2092d7a00d2afc86c8e9bd6",
+        "fingerprint": "sha256:3473dd75220f6ec28f0643ae405273f0571265815bda3fa00f03bc646e1c7590",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7048,7 +7088,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:a1b12abaf6fb660705369ac354365e26738a41103203c1923f4899fbc9e19c9f",
+        "fingerprint": "sha256:169344431a4b400fe6ee32d5d0ea28f2d3720aabb113cc86eecac81e71b51020",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -7084,6 +7124,23 @@
       "source": {
         "fingerprint": "sha256:d25b8fafb7073cef460791579c72999b1bd5f212037948e1cfd501c9cd597e28",
         "path": ".engine/tools/operator_overrides.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:overlay_disclosure",
+      "name": ".engine/tools/overlay_disclosure.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "overlay_disclosure",
+      "source": {
+        "fingerprint": "sha256:6ee4d23f7295891f05844357cc67850488bef50db5ec5a1fff03f12755cfbf8e",
+        "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
       "type": "tool"
@@ -8869,6 +8926,23 @@
       "source": {
         "fingerprint": "sha256:870c4c3f45032797e768ea8cc31dae6caa3796a5833974f293cc3e7c130c4bf6",
         "path": ".engine/tools/test_operator_overrides.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_overlay_disclosure",
+      "name": ".engine/tools/test_overlay_disclosure.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_overlay_disclosure",
+      "source": {
+        "fingerprint": "sha256:eaf25daa3e592c0218386dca6f6b9e523ce524f62776e1fe4380d74e2948d6af",
+        "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",
       "type": "tool"
