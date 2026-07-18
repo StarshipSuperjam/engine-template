@@ -43,6 +43,7 @@ import sys
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import providers  # noqa: E402  (stdlib-only; the provider-normalization seam run_hook applies)
 import validate  # noqa: E402
 
 
@@ -148,7 +149,7 @@ def interpreter_path(os_name: str | None = None) -> str:
 HOOK_RUNNER = f"{PROJECT_DIR_VAR}/.engine/tools/hook-runner.sh"
 
 
-def hook_command(script_relpath: str, os_name: str | None = None) -> str:
+def hook_command(script_relpath: str, os_name: str | None = None, provider: str = "claude") -> str:
     """The full hook `command` string a settings.json registration carries: a call to the hook launcher
     (`.engine/tools/hook-runner.sh`) passing the explicit ${CLAUDE_PROJECT_DIR}-rooted venv interpreter and
     the ${CLAUDE_PROJECT_DIR}-rooted script. The launcher does the bounded wait that closes the
@@ -168,12 +169,23 @@ def hook_command(script_relpath: str, os_name: str | None = None) -> str:
     word-split into the launcher's positional params. `${CLAUDE_PROJECT_DIR}` expanding to a spaced path
     inside the double quotes does NOT re-split (a parameter expansion in double quotes is field-split-exempt),
     which is why the already-quoted interpreter token has always survived a spaced path and only the bare
-    script tail did not. The settings.json registration itself is wiring's."""
-    interp = interpreter_path(os_name)
+    script tail did not. The settings.json registration itself is wiring's.
+
+    `provider` selects the runtime's command form. "claude" (the default) renders the historical form
+    byte-identically. "codex" renders the .codex/hooks.json form: Codex has NO project-directory token,
+    so the command first resolves the project root itself (`cd` to `git rev-parse --show-toplevel`,
+    falling back to the current directory) and then rides the Codex shim
+    (.engine/tools/codex-hook-runner.sh), which tags ENGINE_PROVIDER=codex and execs the SAME shared
+    launcher — the wait/exec mechanics and per-OS fallback are one implementation for both runtimes.
+    The same quoting law applies: the path tokens are double-quoted, the args tail stays bare."""
     # `script_relpath` is the script PATH plus any trailing args, space-joined (e.g. "modes.py accept-hook").
     # Quote ONLY the path token; leave the args as the bare, still-word-splittable tail (see docstring, #390).
     script_path, _, script_args = script_relpath.partition(" ")
     args_tail = f" {script_args}" if script_args else ""
+    if provider == "codex":
+        return ('cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && '
+                f'sh ".engine/tools/codex-hook-runner.sh" "{script_path}"{args_tail}')
+    interp = interpreter_path(os_name)
     return f'sh "{HOOK_RUNNER}" "{interp}" "{PROJECT_DIR_VAR}/{script_path}"{args_tail}'
 
 
@@ -374,6 +386,13 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
     try:
         raw = inp.read()
         payload = json.loads(raw) if raw and raw.strip() else {}
+        if not isinstance(payload, dict):
+            payload = {}
+        # Canonicalize the payload vocabulary at the boundary (eADR-0034): a Codex payload is
+        # rewritten into the canonical tool names every handler is written against; a Claude
+        # payload passes through as the SAME object (identity — providers' test pins it), so the
+        # Claude path is byte-unchanged. A normalization fault is a payload fault: fail open.
+        payload = providers.normalize(event, payload)
         if not isinstance(payload, dict):
             payload = {}
     except Exception:  # noqa: BLE001 — reading the platform's event must NEVER block: any input the

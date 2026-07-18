@@ -501,7 +501,8 @@ def main(argv: list) -> int:
     if cmd == "pre-compact":
         return hooks.run_hook("PreCompact", _pre_compact_handler)
     if cmd == "detect":
-        for sid in detect_unconsolidated(os.environ.get(SESSION_ENV)):
+        import providers   # lazy: the provider seam (neutral override, then the platform session vars)
+        for sid in detect_unconsolidated(os.environ.get(SESSION_ENV) or providers.session_from_env()):
             print(sid)
         return 0
     if cmd == "read":

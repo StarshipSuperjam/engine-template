@@ -2049,7 +2049,9 @@ def run_unit(unit, target=None, ctx=None):
 # handler added here later needs its own never-block test. `hooks` is imported LAZILY inside each handler:
 # validate must import on the stdlib alone (the first-run bootstrap), and hooks imports validate.
 
-_MUTATING_FILE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+# `apply_patch` (Codex's edit tool) is normalized to Edit before any handler runs; its membership
+# here is the second-belt defense, inert on Claude (which never emits the name) — mirrors modes.py.
+_MUTATING_FILE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"})
 
 
 def local_ctx() -> dict:
@@ -2088,17 +2090,24 @@ def _nudge_context(findings: list) -> "str | None":
             "Worth resolving before the change is proposed for merge, but your call.")
 
 
-def _touched_path(payload: dict) -> "str | None":
-    """The file a mutating tool call edited (Edit/Write/MultiEdit → tool_input.file_path; NotebookEdit →
-    notebook_path), or None for any non-file tool (a Bash/Read call has nothing to re-check). Degrades
-    safe on a malformed payload."""
+def _touched_paths(payload: dict) -> list:
+    """EVERY file a mutating tool call edited (Edit/Write/MultiEdit → tool_input.file_path;
+    NotebookEdit → notebook_path; a normalized multi-file edit — Codex's batch apply_patch — carries
+    the full list in tool_input.file_paths), or [] for any non-file tool (a Bash/Read call has
+    nothing to re-check). Degrades safe on a malformed payload."""
     if not isinstance(payload, dict) or payload.get("tool_name") not in _MUTATING_FILE_TOOLS:
-        return None
+        return []
     ti = payload.get("tool_input")
     if not isinstance(ti, dict):
-        return None
-    path = ti.get("file_path") or ti.get("notebook_path")
-    return path if isinstance(path, str) and path else None
+        return []
+    out = []
+    single = ti.get("file_path") or ti.get("notebook_path")
+    if isinstance(single, str) and single:
+        out.append(single)
+    many = ti.get("file_paths")
+    if isinstance(many, list):
+        out += [p for p in many if isinstance(p, str) and p and p not in out]
+    return out
 
 
 def _abs_under_root(path: str) -> str:
@@ -2173,15 +2182,15 @@ def _accept_handler(payload: dict) -> dict:
     stays quiet), but ambient capture draws from the full file-scoped corpus, so it is genuinely live. The
     capture is wrapped so a failure never disturbs the tool call (append_ambient is itself best-effort too)."""
     import hooks  # lazy (see _precommit_handler)
-    path = _touched_path(payload)
-    if not path:
+    paths = _touched_paths(payload)
+    if not paths:
         return hooks.proceed()
     try:
         import telemetry  # lazy: telemetry imports validate (a back-edge safe only lazily)
-        telemetry.capture_touched_fires([path], telemetry.utc_now())
+        telemetry.capture_touched_fires(paths, telemetry.utc_now())
     except Exception:  # noqa: BLE001 — ambient capture is best-effort and NEVER gates a tool call
         pass
-    touched = {_abs_under_root(path)}
+    touched = {_abs_under_root(p) for p in paths}
     findings = _safe_collect("pre-commit", rule_filter=lambda r: _rule_touches(r, touched))
     context = _nudge_context(findings)
     return hooks.inject(context) if context else hooks.proceed()

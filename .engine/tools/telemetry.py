@@ -1143,6 +1143,44 @@ def _runtime_marker_message() -> str:
             "retire this note.")
 
 
+CAPTURE_STATUS_PATH = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "memory-capture.status")
+CAPTURE_DEGRADED_SOURCE_ID = "memory/capture-degraded"
+
+
+def _capture_marker_message() -> str:
+    """The plain-language operator line for a persistently failing memory capture. Engine's-own-health
+    framing; no backstage vocabulary (no marker / spool / transcript-format words beyond what the
+    operator needs)."""
+    return ("The engine keeps failing to save session conversations to this project's memory — the "
+            "session records could not be read. Nothing in the project is lost, but those "
+            "conversations won't be recallable later. This usually means the AI runtime changed how "
+            "it stores session records; the engine needs its reader updated. Until then it will keep "
+            "working from what it already remembers.")
+
+
+def spool_capture_marker(*, marker_path: str = CAPTURE_STATUS_PATH,
+                         spool_path: str = INBOX_SPOOL_PATH) -> bool:
+    """Feed a FAILING memory-capture status marker into the findings inbox as ONE benign finding —
+    the persistence-gated half of the capture degradation surface (eADR-0036: boot's dashboard line
+    is the immediate half; this leg tracks a PERSISTENT failure as a durable finding via the drain's
+    cross-session accrual, so a one-off hiccup never becomes an Issue). The marker is NOT cleared —
+    the next successful capture overwrites it with 'captured', which simply stops the feed. De-duped
+    by the fixed source_id. Fail-open: any error is a no-op."""
+    try:
+        with open(marker_path, encoding="utf-8") as fh:
+            record = json.load(fh)
+        state = record.get("state") if isinstance(record, dict) else None
+        if state in (None, "captured"):
+            return False
+        _append_inbox({"source_id": CAPTURE_DEGRADED_SOURCE_ID, "severity": PERSISTENT_BENIGN,
+                       "message": _capture_marker_message(), "location": None}, path=spool_path)
+        return True
+    except (OSError, ValueError):
+        return False
+    except Exception:  # noqa: BLE001 — fail-open: the feed must never break the driver
+        return False
+
+
 def promote_runtime_marker(github: GitHubIssues, *, marker_path: str = RUNTIME_HEALTH_MARKER_PATH) -> bool:
     """Convert a present broken-runtime marker into ONE tracked finding. The hook launcher drops the marker
     when it cannot start the engine's Python (see RUNTIME_HEALTH_MARKER_PATH); here — on a session where the
@@ -2218,7 +2256,8 @@ def _run_episodic_cli(argv: list) -> int:
     repo, token = repo_slug(), gh_token()
     if not repo or not token:
         return 0   # no local GitHub context — the normal state off a logged-in machine; skip silently
-    live = _hook_payload_session_id() or os.environ.get("CLAUDE_CODE_SESSION_ID")   # payload first, env fallback
+    import providers   # lazy: the provider seam (neutral override, then the platform session vars)
+    live = _hook_payload_session_id() or providers.session_from_env()   # payload first, env-chain fallback
     now = utc_now()
     gh = GitHubIssues(repo, token)
     cache = Cache(argv[0]) if argv else Cache(DEFAULT_EPISODIC_STREAMS_PATH)
@@ -2254,6 +2293,7 @@ def _run_drain_cli(argv: list) -> int:
         return 0   # no local GitHub context — the normal state off a logged-in machine; skip silently
     gh = GitHubIssues(repo, token)
     runtime_alert = promote_runtime_marker(gh)
+    spool_capture_marker()   # a failing memory-capture marker joins the drain (persistence-gated)
     _sweep_stranded_asides(INBOX_SPOOL_PATH)
     cache = Cache(argv[0]) if argv else Cache(DEFAULT_INBOX_STREAMS_PATH)
     report = drain_inbox(gh, cache=cache, thresholds=load_thresholds(), now=utc_now())

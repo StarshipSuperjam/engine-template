@@ -4602,7 +4602,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e97542e28544bef8a5c61d6987845eb74e340fb23a206a96239c632b155a0726",
+        "fingerprint": "sha256:d98a0ba4c8238055425c7745251c6b9e19b8abb5f00b3cd031d200f462c8b6cc",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -4687,7 +4687,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:4a2ed899b352fed2d74aa76fbe23bb9044a7fa50ef13f1cc9093472183e2edaa",
+        "fingerprint": "sha256:c9ffa03fb00424d95667beca24801e1df3307be6cca2dfa674b39ce41c8dfa4a",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -4757,6 +4757,23 @@
       "source": {
         "fingerprint": "sha256:aca1a9f37ac1791452c984c5d73d5950db9d0a37a545c6f0d4e8ebdce61002aa",
         "path": ".engine/tools/close_linkage_preflight.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:codex-hook-runner",
+      "name": ".engine/tools/codex-hook-runner.sh",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-hook-runner",
+      "source": {
+        "fingerprint": "sha256:3f9ae7fe4a6d191754a2ebf05f0f48afc4ccfaa4f5005fb96b7e366742d6afd9",
+        "path": ".engine/tools/codex-hook-runner.sh"
       },
       "status": "active",
       "type": "tool"
@@ -4840,7 +4857,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:cc44bc7e88c2863311b917fcdf052ddd6b09ec5bd7eb306841f4e19bcb810ad2",
+        "fingerprint": "sha256:6199ff891c2f6604c2975c76ab9e68d80ba70c32cd4edaadcd58e47f431b2d00",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -5452,7 +5469,7 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:67b0cf83d090cc4620c06ee0cb47a64a8f402395adad77f7f697055fc7889ec0",
+        "fingerprint": "sha256:ee94252e6609531980c1e2ffdaf19dce56a9a6fee86625dff3c2dfe51c2e3df0",
         "path": ".engine/tools/engine_help.py"
       },
       "status": "active",
@@ -5622,7 +5639,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:d62e6c7ee9a5494ed238bec220edbf8a6c196c4e7813bb44fd616e6aa629e80d",
+        "fingerprint": "sha256:f54ed4dea7330d34dbc363de41ef8c9f793ff3da50106a3929a390d9e0c16833",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -6047,7 +6064,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:ab0dc6d2225ab3f1119d56736e9e6bcc140d675d0d9deb55c1c834a342f600b9",
+        "fingerprint": "sha256:929eaac0bd5eec4d2d78bdb8da2141c2f79c9c7f5d20871a9153e157fc683683",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -6253,6 +6270,23 @@
       "source": {
         "fingerprint": "sha256:83565420c8b03c83093962d85b68df68a638430723bda2eeaaf3069637bd974e",
         "path": ".engine/tools/protection_guard.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:providers",
+      "name": ".engine/tools/providers.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "providers",
+      "source": {
+        "fingerprint": "sha256:7779edb712c33ac88a0c13951617055c8f8a0d07485ef95b687c5122e5ef1a5f",
+        "path": ".engine/tools/providers.py"
       },
       "status": "active",
       "type": "tool"
@@ -6608,7 +6642,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:d647f035373f640bd78e53aaa1deab693fdbe8a02ed7a67b3a446e09c90ff536",
+        "fingerprint": "sha256:d957984b9594f159913f27f5e26e0ec36c0d87a3346713212e4738bc803935a3",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -7730,7 +7764,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:7d3fdc27b1eb077ff054fb7978d001b2ee804d3fd2e057b5d1e0ed687fbe387d",
+        "fingerprint": "sha256:689182b02f72b0d28b147fc244664454ce23d6797ebd1c160657f8dcec813e2b",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -7936,6 +7970,23 @@
       "source": {
         "fingerprint": "sha256:80ec87ce7f8ebe895ad31c02486a86d716da137ca82a45593f65dfc74b279c28",
         "path": ".engine/tools/test_protection_guard.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_providers",
+      "name": ".engine/tools/test_providers.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_providers",
+      "source": {
+        "fingerprint": "sha256:3169293c77c657bbcf54b475d98fb3cd4f4c523287fd8e3f10a0a708f99ce4d8",
+        "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
       "type": "tool"
@@ -8665,7 +8716,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:609ba90c13c260b83c366398221e89e806701ef8ffc1c718a83a7c413876c184",
+        "fingerprint": "sha256:e68d5d53f8f7250e4699cdd7e7061acfad4bc837150efcb432dea19e8bda4464",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

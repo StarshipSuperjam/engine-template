@@ -201,13 +201,79 @@ def _is_noise(text: str) -> bool:
     return stripped.startswith(_NOISE_TAG_PREFIXES) or stripped.startswith(_NOISE_TEXT_PREFIXES)
 
 
+# --- The Codex transcript recognizer (provider-routed; never the tolerant Claude parser) --------
+# Codex's transcript format is EXPLICITLY unstable (its docs reserve the right to change it), so a
+# Codex-tagged session parses ONLY through this dedicated recognizer and NEVER falls through to the
+# tolerant Claude parser above — a partially-recognized transcript writing fragments into long-term
+# memory is strictly worse than an honestly-empty capture (eADR-0036). The recognizer captures fully
+# or not at all: a transcript with no recognized record shapes reads as UNRECOGNIZED, the capture is
+# a zero-record no-op, and the loud status marker (below) says so.
+
+# The record `type` values the recognizer knows. A transcript whose records match NONE of these is an
+# unrecognized (changed) format → refuse + status, never guess.
+_CODEX_KNOWN_TYPES = frozenset({
+    "session_meta", "turn_context", "response_item", "event_msg", "compacted", "message",
+})
+# Codex-side scaffolding wrappers (same conservative anchored-prefix doctrine as the Claude tuple,
+# kept SEPARATE so the Claude tuple is untouched).
+_CODEX_NOISE_PREFIXES = (
+    "<environment_context>",
+    "<user_instructions>",
+    "<turn_aborted>",
+)
+
+
+def _codex_message(rec: dict):
+    """One recognized Codex conversation message as a plain {'role','text'} dict, or None for a
+    non-conversation record (reasoning, function calls, meta — the same 'is this conversation at
+    all?' filter doctrine, never a worth judgment). Accepts the rollout envelope
+    ({'type':'response_item','payload':{...}}) and a bare message record."""
+    payload = None
+    if rec.get("type") == "response_item" and isinstance(rec.get("payload"), dict):
+        payload = rec["payload"]
+    elif rec.get("type") == "message":
+        payload = rec
+    if not isinstance(payload, dict) or payload.get("type") not in ("message", None):
+        return None
+    role = payload.get("role")
+    if role not in ("user", "assistant"):
+        return None
+    content = payload.get("content")
+    if isinstance(content, str):
+        parts = [content]
+    elif isinstance(content, list):
+        parts = [b.get("text") for b in content
+                 if isinstance(b, dict) and isinstance(b.get("text"), str)]
+    else:
+        parts = []
+    text = "\n".join(p for p in parts if p).strip()
+    if not text or text.startswith(_CODEX_NOISE_PREFIXES):
+        return None
+    return {"role": role, "text": text}
+
+
+def _codex_messages(transcript_path: str):
+    """(messages, recognized): the conversation messages of a Codex transcript as plain
+    {'role','text'} dicts, and whether the transcript's format was recognized AT ALL. recognized is
+    False when the file has JSON records but none carries a known Codex record type — the changed-
+    format case the caller must surface loudly instead of capturing fragments."""
+    recs = _extract_records(transcript_path)
+    if recs and not any(r.get("type") in _CODEX_KNOWN_TYPES for r in recs):
+        return [], False
+    return [m for m in (_codex_message(r) for r in recs) if m is not None], True
+
+
 # --- Transcript-path safety (defense-in-depth) ------------------------------------------------
 
 def _allowed_roots(cwd=None) -> list:
-    """Directory roots a transcript_path may resolve under. `~/.claude/` is the primary (Claude Code's
-    default); the shared clone root is belt-and-suspenders (in-repo test fixtures); the env override is
-    an ADDITIONAL root, never a bypass of the checks below."""
-    roots = [os.path.realpath(os.path.join(os.path.expanduser("~"), ".claude"))]
+    """Directory roots a transcript_path may resolve under. `~/.claude/` and `~/.codex/` are the two
+    runtime homes (each platform's default transcript territory — the payload's transcript_path is
+    the source of truth, so no location inside them is ever hardcoded); the shared clone root is
+    belt-and-suspenders (in-repo test fixtures); the env override is an ADDITIONAL root, never a
+    bypass of the checks below."""
+    home = os.path.expanduser("~")
+    roots = [os.path.realpath(os.path.join(home, ".claude")),
+             os.path.realpath(os.path.join(home, ".codex"))]
     root = ledger._git_common_root(cwd)
     if root:
         roots.append(os.path.realpath(root))
@@ -618,12 +684,59 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
     }
 
 
+# --- The capture-status marker (loud degradation, eADR-0036) ----------------------------------
+# The one intended Claude-side behavioral delta of the dual-runtime work: capture used to no-op
+# SILENTLY on a fault. Now every capture attempt records its outcome to a gitignored marker —
+# captured / no-transcript / invalid-path / unparseable — which boot renders as one plain dashboard
+# line when the previous session's conversation could not be saved, and telemetry's inbox drain
+# promotes a persistently failing marker to one tracked finding. Best-effort: a marker write failure
+# never disturbs the capture or the turn.
+
+CAPTURE_STATUS_STATES = ("captured", "no-transcript", "invalid-path", "unparseable")
+_ENGINE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+CAPTURE_STATUS_PATH = os.path.join(_ENGINE_DIR, "telemetry", ".cache", "memory-capture.status")
+
+
+def _write_capture_status(state: str, session_id=None) -> None:
+    try:
+        os.makedirs(os.path.dirname(CAPTURE_STATUS_PATH), exist_ok=True)
+        with open(CAPTURE_STATUS_PATH, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"state": state, "session_id": session_id,
+                                 "ts": int(time.time())}))
+    except OSError:
+        pass
+
+
+def read_capture_status():
+    """The last capture attempt's outcome record, or None (no marker yet / unreadable). Consumers
+    (boot's dashboard line, telemetry's drain) treat None as nothing-to-say, never as failure."""
+    try:
+        with open(CAPTURE_STATUS_PATH, encoding="utf-8") as fh:
+            record = json.load(fh)
+        return record if isinstance(record, dict) and record.get("state") in CAPTURE_STATUS_STATES \
+            else None
+    except (OSError, ValueError):
+        return None
+
+
 # --- The public capture entry (what close's relay calls) --------------------------------------
+
+def _session_from_env_chain():
+    """The provider seam's env chain (the neutral ENGINE_SESSION_ID override and the platform vars) —
+    consulted after the payload and the historical SESSION_ENV read, so existing behavior is a strict
+    superset. Fail-soft: an unimportable seam resolves nothing."""
+    try:
+        import providers   # lazy: the tools-dir seam; this package puts the tools dir on sys.path
+        return providers.session_from_env()
+    except Exception:  # noqa: BLE001 — capture never breaks on an optional seam
+        return None
+
 
 def capture_turn_delta(payload, *, cwd=None) -> int:
     """Append the completed turn's new transcript messages to the memory ledger. Returns the number of
     records appended. FAIL-SOFT: any fault — bad payload, missing/oversized/out-of-scope transcript,
-    lock contention — is a clean no-op (returns 0) and NEVER raises into the caller. This is the
+    lock contention — is a clean no-op (returns 0) and NEVER raises into the caller; the outcome is
+    recorded to the capture-status marker so the degradation is visible, never silent. This is the
     mechanism close's ambient-capture relay triggers on every `Stop`."""
     try:
         return _capture(payload, cwd=cwd)
@@ -634,12 +747,14 @@ def capture_turn_delta(payload, *, cwd=None) -> int:
 def _capture(payload, *, cwd) -> int:
     if not isinstance(payload, dict):
         return 0
-    session_id = payload.get("session_id") or os.environ.get(SESSION_ENV)
+    session_id = payload.get("session_id") or os.environ.get(SESSION_ENV) or _session_from_env_chain()
     transcript_str = payload.get("transcript_path") or os.environ.get(TRANSCRIPT_ENV)
     if not session_id or not transcript_str:
+        _write_capture_status("no-transcript", session_id)
         return 0
     transcript_path = _validate_transcript_path(transcript_str, cwd)
     if transcript_path is None:
+        _write_capture_status("invalid-path", session_id)
         return 0
 
     data_dir = ledger.ledger_dir(cwd)
@@ -652,10 +767,21 @@ def _capture(payload, *, cwd) -> int:
         # hold and BEFORE the no-delta early return — so even a no-delta turn (noise-only, interrupted) still
         # refreshes liveness and a live session can never drift stale to the consolidation sweep.
         refresh_lease_locked(data_dir, session_id)
-        messages = [r for r in _extract_records(transcript_path) if _is_message(r)]
+        # PROVIDER-ROUTED parsing (eADR-0036): a Codex session's transcript goes ONLY through the
+        # Codex recognizer — an unrecognized (changed) format is a loud zero-capture, never a
+        # fall-through to the tolerant Claude parser below, which could capture fragments.
+        import providers  # lazy: the tools-dir seam; this package puts the tools dir on sys.path
+        if providers.detect(payload) == providers.CODEX:
+            messages, recognized = _codex_messages(transcript_path)
+            if not recognized:
+                _write_capture_status("unparseable", session_id)
+                return 0
+        else:
+            messages = [r for r in _extract_records(transcript_path) if _is_message(r)]
         cursor = _read_cursor(data_dir, session_id)
         delta = messages[cursor:]
         if not delta:
+            _write_capture_status("captured", session_id)
             return 0
         ledger_file = ledger.ledger_path(cwd)
         appended = 0
@@ -675,6 +801,7 @@ def _capture(payload, *, cwd) -> int:
                               path=ledger_file)
                 appended += 1
         _write_cursor(data_dir, session_id, len(messages))
+        _write_capture_status("captured", session_id)
         return appended
     finally:
         _release_lock(lock_fd)
