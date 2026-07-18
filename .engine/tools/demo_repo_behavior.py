@@ -58,11 +58,12 @@ def main() -> int:
     print("REPO-BEHAVIOR DEMO — the working-comfort settings a new project should carry, honestly reported.\n")
     ok = True
 
-    def scenario(title, transport, expect_states):
+    def scenario(title, transport, expect_states, *, disable_wiki=False, disable_projects=False):
         nonlocal ok
         print(f"— {title}")
         said = []
-        toggles = rb.RepoBehavior(REPO, "tok", transport=transport).apply(announce=said.append)
+        toggles = rb.RepoBehavior(REPO, "tok", transport=transport).apply(
+            announce=said.append, disable_wiki=disable_wiki, disable_projects=disable_projects)
         for line in said[0].split("\n"):
             print(f"    {line}")
         got = {t.key: t.state for t in toggles}
@@ -94,10 +95,24 @@ def main() -> int:
              {"delete-branch-on-merge": rb.UNVERIFIED, "update-branch": rb.UNVERIFIED,
               "dependabot-alerts": rb.UNVERIFIED, "dependabot-fixes": rb.UNVERIFIED})
 
+    _NEW = dict(_FRESH, has_wiki=True, has_projects=True)   # a fresh repo: wiki + project boards on
+    scenario("A fresh project without the board-sync add-on: the wiki AND unused project boards turn off.",
+             _fake(settings=_NEW, alerts_on=False, alerts_put=(204, None),
+                   fixes_on=False, fixes_put=(204, None)),
+             {"wiki": rb.OFF, "projects": rb.OFF},
+             disable_wiki=True, disable_projects=True)
+
+    scenario("A fresh project that KEPT the board-sync add-on: the wiki turns off, project boards stay.",
+             _fake(settings=_NEW, alerts_on=False, alerts_put=(204, None),
+                   fixes_on=False, fixes_put=(204, None)),
+             {"wiki": rb.OFF},
+             disable_wiki=True, disable_projects=False)   # projects retained -> not in the toggle set
+
     if not ok:
         print("DEMO UNEXPECTED: an outcome did not behave as expected.", file=sys.stderr)
         return 1
-    print("DEMO OK — on, already-yours, organization-reserved, and unconfirmed are distinct and honest.")
+    print("DEMO OK — on, already-yours, organization-reserved, unconfirmed, and the fresh-repo turn-offs "
+          "(wiki off; project boards off unless the add-on is kept) are distinct and honest.")
     return 0
 
 

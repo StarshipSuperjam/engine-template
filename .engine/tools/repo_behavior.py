@@ -35,6 +35,18 @@ FAILED = security_floor.FAILED
 
 # The one unlock category this leg adds: a Dependabot switch an organization's policy reserves.
 ORG_CONTROLLED = "org-controlled"
+# The turn-OFF outcomes (#541 item 4): a surface a new engine repo doesn't use, disabled on a fresh repo.
+OFF = "off"                # was on, just turned off, read-back confirms it off
+OFF_ALREADY = "off-already"  # already off — left untouched
+
+# Every honest, non-failure outcome the repo-behavior step may report — the step is "applied" when all of
+# its toggles land here (mirrors security_floor._GOOD, extended with the turn-off outcomes).
+_GOOD_STATES = (ON, ALREADY, UNSUPPORTED, OFF, OFF_ALREADY)
+
+
+def all_good(toggles: list) -> bool:
+    """True iff every toggle reached an honest, non-failure outcome — the step's `applied` verdict."""
+    return all(t.state in _GOOD_STATES for t in toggles)
 
 
 class RepoBehavior:
@@ -122,13 +134,52 @@ class RepoBehavior:
             return Toggle("dependabot-fixes", UNVERIFIED)
         return Toggle("dependabot-fixes", ON if bool(data.get("enabled")) else FAILED)
 
-    def apply(self, announce=None) -> list:
-        """Enable all four settings, branching on each status, and disclose the outcome in plain language.
-        Returns the list of Toggles (data). NEVER touches the branch ruleset / required checks, and never
-        changes repository visibility."""
+    # -- turn OFF the surfaces a fresh engine repo doesn't use (#541 item 4): wiki, and unused project boards --
+
+    def disable_unused_surfaces(self, disable_wiki: bool, disable_projects: bool) -> list:
+        """Turn OFF the requested surfaces — the same read-first / verify-after / augment-never-override
+        discipline as the enable legs, in reverse. Only a surface currently ON is written; one already off is
+        left untouched (`OFF_ALREADY`). One read → one PATCH of only the on-and-slated fields → one confirming
+        read; a field reported OFF only when the read-back confirms it. The CALLER decides WHICH surfaces to
+        disable (wiki always on a fresh repo; project boards only when the github-projects-sync module is not
+        installed) and passes False for both on a brownfield arrival — so this never overrides an existing
+        project's deliberate choice. Returns [] when nothing is slated."""
+        fields = {}
+        if disable_wiki:
+            fields["wiki"] = "has_wiki"
+        if disable_projects:
+            fields["projects"] = "has_projects"
+        if not fields:
+            return []
+        status, data = self._call("GET", f"/repos/{self.repo}", None)
+        if status is None or status >= 400 or not isinstance(data, dict):
+            return [Toggle(key, UNVERIFIED) for key in fields]
+        need = {api for key, api in fields.items() if data.get(api) is True}   # currently ON -> turn off
+        if not need:
+            return [Toggle(key, OFF_ALREADY) for key in fields]
+        status, _ = self._call("PATCH", f"/repos/{self.repo}", {api: False for api in need})
+        if status is None:
+            return [Toggle(key, OFF_ALREADY if fields[key] not in need else UNVERIFIED) for key in fields]
+        if status >= 400:
+            return [Toggle(key, OFF_ALREADY if fields[key] not in need else FAILED) for key in fields]
+        status, data = self._call("GET", f"/repos/{self.repo}", None)
+        confirmed = data if (status is not None and status < 400 and isinstance(data, dict)) else {}
+        out = []
+        for key, api in fields.items():
+            if api not in need:
+                out.append(Toggle(key, OFF_ALREADY))
+            else:
+                out.append(Toggle(key, OFF if confirmed.get(api) is False else UNVERIFIED))
+        return out
+
+    def apply(self, announce=None, *, disable_wiki: bool = False, disable_projects: bool = False) -> list:
+        """Enable the four working-comfort settings, and — on a fresh repo — turn OFF the surfaces it doesn't
+        use (#541 item 4). Branches on each status, discloses the outcome in plain language. Returns the list
+        of Toggles (data). NEVER touches the branch ruleset / required checks, and never changes visibility."""
         say = announce if announce is not None else (lambda text: print(text))
         toggles = self.enable_merge_hygiene() + [self.enable_dependabot_alerts(),
                                                  self.enable_dependabot_fixes()]
+        toggles += self.disable_unused_surfaces(disable_wiki, disable_projects)
         say(render(toggles))
         return toggles
 
@@ -156,6 +207,18 @@ _HUMAN_NAME = {
     "update-branch": "The pull-request update button",
     "dependabot-alerts": "Dependency alerts",
     "dependabot-fixes": "Automatic security-fix pull requests",
+    "wiki": "The project wiki",
+    "projects": "Project boards",
+}
+_HUMAN_OFF = {
+    "wiki": ("The project wiki is now off — a new engine project keeps its documentation in the repository "
+             "itself, so the separate wiki isn't needed."),
+    "projects": ("Project boards are now off — nothing in this project uses them. (If you add the project-board "
+                 "sync later, turn them back on then.)"),
+}
+_HUMAN_OFF_ALREADY = {
+    "wiki": "the project wiki",
+    "projects": "project boards",
 }
 
 
@@ -163,7 +226,7 @@ def render(toggles: list) -> str:
     """The bidirectional disclosure: what was just turned on, what was already yours (left untouched), what
     an organization policy reserves, and what couldn't be confirmed. Built ONLY from the decided states —
     never from a GitHub response body or status code."""
-    on_lines, already, org_held, unconfirmed = [], [], [], []
+    on_lines, already, org_held, unconfirmed, off_lines, off_already = [], [], [], [], [], []
     for t in toggles:
         if t.state == ON:
             on_lines.append(_HUMAN_ON[t.key])
@@ -171,6 +234,10 @@ def render(toggles: list) -> str:
             already.append(_HUMAN_ALREADY[t.key])
         elif t.state == UNSUPPORTED:
             org_held.append(_HUMAN_NAME[t.key].lower())
+        elif t.state == OFF:
+            off_lines.append(_HUMAN_OFF[t.key])
+        elif t.state == OFF_ALREADY:
+            off_already.append(_HUMAN_OFF_ALREADY[t.key])
         else:  # UNVERIFIED / FAILED
             unconfirmed.append(_HUMAN_NAME[t.key].lower())
 
@@ -182,8 +249,15 @@ def render(toggles: list) -> str:
         parts.append(lead + "\n- " + "\n- ".join(on_lines)
                      + "\n\nEach of these is an ordinary repository setting — you can flip any of them "
                        "back at any time on your project's Settings page on GitHub.")
+    if off_lines:
+        lead = ("A GitHub feature your new project doesn't use is now off:" if len(off_lines) == 1
+                else "A couple of GitHub features your new project doesn't use are now off:")
+        parts.append(lead + "\n- " + "\n- ".join(off_lines)
+                     + "\n\nEach is an ordinary repository setting you can turn back on any time on GitHub.")
     if already:
         parts.append("Already set up on your project, left exactly as it was: " + join(already) + ".")
+    if off_already:
+        parts.append("Already off, left as it was: " + join(off_already) + ".")
     if org_held:
         parts.append("I couldn't turn on " + join(org_held) + " — this usually means your organization's "
                      "own settings reserve "

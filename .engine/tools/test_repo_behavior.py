@@ -195,6 +195,77 @@ class TestDisclosureIsPlainLanguage(unittest.TestCase):
         self.assertIn("organization", text)
 
 
+class TestDisableUnusedSurfaces(unittest.TestCase):
+    """#541 item 4: on a fresh repo, turn OFF the wiki and (when the board-sync module isn't installed)
+    project boards — read-first, verify-after, augment-never-override, never on brownfield."""
+
+    def _on(self):
+        return {"has_wiki": True, "has_projects": True,
+                "delete_branch_on_merge": False, "allow_update_branch": False}
+
+    def test_wiki_and_projects_turned_off_and_confirmed(self):
+        toggles = _leg(_fake(repo_settings=self._on())).disable_unused_surfaces(True, True)
+        self.assertEqual({t.key: t.state for t in toggles}, {"wiki": rb.OFF, "projects": rb.OFF})
+
+    def test_already_off_is_left_untouched_no_write(self):
+        record = []
+        settings = {"has_wiki": False, "has_projects": False,
+                    "delete_branch_on_merge": False, "allow_update_branch": False}
+        toggles = _leg(_fake(repo_settings=settings, record=record)).disable_unused_surfaces(True, True)
+        self.assertTrue(all(t.state == rb.OFF_ALREADY for t in toggles))
+        self.assertFalse(any(m == "PATCH" for m, _p in record), "an already-off surface is never re-written")
+
+    def test_projects_retained_only_wiki_considered(self):
+        # disable_projects=False (the board-sync module is installed) -> project boards are not touched.
+        record = []
+        toggles = _leg(_fake(repo_settings=self._on(), record=record)).disable_unused_surfaces(True, False)
+        self.assertEqual({t.key: t.state for t in toggles}, {"wiki": rb.OFF})
+        self.assertNotIn("projects", {t.key for t in toggles}, "retained boards are not in the toggle set")
+
+    def test_brownfield_disables_nothing(self):
+        record = []
+        toggles = _leg(_fake(repo_settings=self._on(), record=record)).disable_unused_surfaces(False, False)
+        self.assertEqual(toggles, [])
+        self.assertFalse(any(m == "PATCH" for m, _p in record))
+
+    def test_write_ok_but_readback_still_on_is_unverified_never_off(self):
+        def t(method, path, body=None):
+            if method == "PATCH":
+                return 200, {}, {}                          # accepts but the fake never flips the state
+            if method == "GET" and path.startswith("/repos/"):
+                return 200, {"has_wiki": True, "has_projects": True}, {}
+            return 404, None, {}
+        toggles = _leg(t).disable_unused_surfaces(True, True)
+        self.assertTrue(all(x.state == rb.UNVERIFIED for x in toggles),
+                        "a turn-off the read-back doesn't confirm is never reported off")
+
+    def test_network_failure_is_unverified(self):
+        def boom(method, path, body=None):
+            raise rb.bootstrap.BootstrapError("unreachable")
+        toggles = _leg(boom).disable_unused_surfaces(True, True)
+        self.assertTrue(all(t.state == rb.UNVERIFIED for t in toggles))
+
+    def test_all_good_counts_the_off_states(self):
+        self.assertTrue(rb.all_good([rb.Toggle("wiki", rb.OFF), rb.Toggle("projects", rb.OFF_ALREADY)]))
+        self.assertFalse(rb.all_good([rb.Toggle("wiki", rb.UNVERIFIED)]))
+
+    def test_disclosure_names_the_off_surfaces_plainly(self):
+        text = rb.render([rb.Toggle("wiki", rb.OFF), rb.Toggle("projects", rb.OFF)])
+        self.assertIn("wiki is now off", text)
+        self.assertIn("Project boards are now off", text)
+        for term in ("has_wiki", "has_projects", "PATCH", "404", "http"):
+            self.assertNotIn(term, text.lower())
+
+    def test_apply_wires_the_disable_into_the_step(self):
+        # apply() with the disable flags folds the turn-off toggles into its returned set + disclosure.
+        said = []
+        toggles = _leg(_fake(repo_settings=self._on())).apply(
+            announce=said.append, disable_wiki=True, disable_projects=True)
+        keys = {t.key for t in toggles}
+        self.assertTrue({"wiki", "projects"} <= keys)
+        self.assertTrue(rb.all_good(toggles))
+
+
 class TestRepoBehaviorDemo(unittest.TestCase):
     def test_demo_passes(self):
         self.assertEqual(quiet_call.run(demo_repo_behavior.main), 0)
