@@ -6222,6 +6222,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_repo_behavior",
+      "name": ".engine/tools/demo_repo_behavior.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_repo_behavior",
+      "source": {
+        "fingerprint": "sha256:01d8c65bb944351f70a07102d3732db3c1d84d1fa2c61f7ef0066d4db0b78326",
+        "path": ".engine/tools/demo_repo_behavior.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_restore_migration_routing",
       "name": ".engine/tools/demo_restore_migration_routing.py",
       "owner": "core",
@@ -6606,7 +6623,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:d1730d3f7a92d3bc21f58326c2a9bfc143f542309791be16df5d2fcd2a2e4b9f",
+        "fingerprint": "sha256:d2fc9bb58e5e5873cd0941becdb9276c4dce67ed6136ed5e888e1b24fea55851",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7322,6 +7339,23 @@
       "source": {
         "fingerprint": "sha256:1c6fb317dabf722aeaa4e2567e04fce960354e68b0a07186297f93cde0e0d29a",
         "path": ".engine/tools/release_terminal.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:repo_behavior",
+      "name": ".engine/tools/repo_behavior.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "repo_behavior",
+      "source": {
+        "fingerprint": "sha256:4f1a57646d88199d4ef19d486347156617a5383ca2cbdb1c0fd9eb0496a51c30",
+        "path": ".engine/tools/repo_behavior.py"
       },
       "status": "active",
       "type": "tool"
@@ -8408,7 +8442,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:683806a386a477272695d8a87f1f27729d5b36c1d7458e185daed4ad109310dc",
+        "fingerprint": "sha256:5aceaf67465ee69c63a93bf1d236187c94d6ace28c8c9fc5c7c39ca33c913d84",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9039,6 +9073,23 @@
       "source": {
         "fingerprint": "sha256:475046e6d9bced8edf9c9ce6cafb0a7ec6648a52ea6178f3d7a6e3a39f4bc758",
         "path": ".engine/tools/test_release_terminal.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_repo_behavior",
+      "name": ".engine/tools/test_repo_behavior.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_repo_behavior",
+      "source": {
+        "fingerprint": "sha256:7b5158329615c01ff99fba300dc92c4f8161d6d442c4bcb98d534a6a2755a331",
+        "path": ".engine/tools/test_repo_behavior.py"
       },
       "status": "active",
       "type": "tool"
