@@ -13,7 +13,8 @@
       ".engine/tools/external_contribution/*.py"
     ],
     "operation": [
-      ".engine/operations/external-contribution-submit.md"
+      ".engine/operations/external-contribution-submit.md",
+      ".engine/operations/external-contribution-issue.md"
     ]
   },
   "wires": [],
