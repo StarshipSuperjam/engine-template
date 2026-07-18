@@ -1824,6 +1824,65 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
         self.assertIn("update home", out[0]["message"])
 
+    def test_home_formatting_only_touch_is_not_flagged(self):
+        # #515: first-run appends control_plane AFTER home_repository, so the home line gains a trailing
+        # comma — same value, pure formatting. Every adopter's first PR false-alarmed on this. The benign
+        # carve-out: every touched home line parses cleanly to exactly the base value -> no flag.
+        patch = ('@@ -1,3 +1,4 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "acme/engine-home",\n'
+                 '+  "control_plane": {"ruleset_id": 901}\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(out, [], "a same-value formatting touch must not demand an ack")
+
+    def test_home_same_value_duplicate_add_is_not_flagged(self):
+        # A second key line carrying the SAME value is harmless whichever line JSON's last-value-wins
+        # picks — the effective home is still the base. Documented as the carve-out's boundary: the value
+        # must EQUAL the base to clear; any difference flags (the injection test above).
+        patch = ('@@ -1,3 +1,4 @@\n'
+                 '   "identity": "solo",\n'
+                 '+  "home_repository": "acme/engine-home",\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(out, [])
+
+    def test_home_value_split_across_lines_is_flagged(self):
+        # #367 evasion: a value split across physical lines defeats a line regex — the carve-out requires
+        # a clean one-line parse of EVERY touched home line, so this fails the parse and stays flagged.
+        patch = ('@@ -1,3 +1,4 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "evil/\n'
+                 '+look-alike"\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("GUARDRAIL CHANGE DETECTED", out[0]["message"])
+
+    def test_home_unreadable_new_value_says_so_never_asserts_a_destination(self):
+        # #515's message honesty: when the touched home line can't be parsed, the operator is told the
+        # value couldn't be read — never that the home is changing "to a different repository".
+        patch = ('@@ -1,3 +1,3 @@\n'
+                 '-  "home_repository": "acme/engine-home"\n'
+                 '+  "home_repository": "evil/\n'
+                 ' }\n')
+        rc, out = self._main_json(
+            {"pull_request": {"number": 1, "labels": []}},
+            [{"filename": ".engine/engine.json", "status": "modified", "patch": patch}],
+            base_home="acme/engine-home")
+        self.assertEqual(len(out), 1)
+        self.assertIn("couldn't read the new value", out[0]["message"])
+        self.assertNotIn("a different repository", out[0]["message"])
+
     def test_home_change_with_no_patch_fails_closed(self):
         # #367 security review: GitHub elides the patch on a large PR. A manifest change we cannot inspect,
         # with a home recorded, fails CLOSED (demands the ack) rather than passing silently.

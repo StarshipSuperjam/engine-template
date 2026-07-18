@@ -287,13 +287,20 @@ def _touches_home_key(patch: str) -> bool:
 def home_repoint(files: list, base_home: str | None) -> tuple | None:
     """A change to the engine's update home when one is ALREADY recorded (`base_home`) is a supply-chain repoint —
     returns (base_home, new_value_or_None) to flag, else None. FAILS CLOSED so the guard cannot be falsified
-    by the change it judges: once a home exists, ANY touch of the `home_repository` key in the manifest diff,
-    and a `patch` too large to be returned at all, both require the ack. This defeats a duplicate-key
-    injection, a value split across lines, and a patch-suppressing bloat — the line-pair match this replaced
-    missed all three (#367 security review). A first recording (no `base_home` yet) is never a repoint, so
-    seeding and back-fill need no ack; a version-only bump (no home line in the patch) does not touch the key
-    and does not flag. `new_value` is the added home value when parseable on one line, else None (the
-    operator message then says 'a different repository')."""
+    by the change it judges: once a home exists, a touch of the `home_repository` key in the manifest diff,
+    and a `patch` too large to be returned at all, both require the ack — with ONE provably-benign carve-out
+    (#515): when EVERY touched home line, added and removed alike, parses cleanly as a single one-line
+    `\"home_repository\": \"<value>\"` AND every parsed value equals the trusted base home, the touch is
+    formatting-only churn around an unchanged value (the first-run trailing comma that false-alarmed every
+    adopter) and does not flag. The carve-out is deliberately dumb — no patch application, no head
+    reconstruction — and strictly narrower than the fail-closed default, so the #367 evasions all still
+    register: a duplicate-key injection adds a line whose value differs (flagged, JSON's last value wins
+    over the base only by matching it); a value split across lines fails the one-line parse (flagged); a
+    patch-suppressing bloat never reaches the carve-out (flagged above). A first recording (no `base_home`
+    yet) is never a repoint, so seeding and back-fill need no ack; a version-only bump (no home line in the
+    patch) does not touch the key and does not flag. `new_value` is the added home value when parseable on
+    one line, else None (the operator message then says the value could not be read, never asserts a
+    destination)."""
     if not base_home:
         return None                        # no home recorded yet -> establishing one is not a repoint
     for f in files:
@@ -305,9 +312,24 @@ def home_repoint(files: list, base_home: str | None) -> tuple | None:
         if not patch:
             return (base_home, None)        # a manifest change we cannot inspect -> fail closed
         if _touches_home_key(patch):
+            touched = [ln for ln in patch.splitlines()
+                       if ((ln.startswith("+") and not ln.startswith("+++"))
+                           or (ln.startswith("-") and not ln.startswith("---")))
+                       and "home_repository" in ln]
+
+            def _benign(ln: str) -> bool:
+                # One quoted key, one cleanly-parsed value, and that value IS the base home. Anything
+                # less clean — a second fragment on the line, an unclosed value, the substring inside
+                # some other context — fails this and keeps the fail-closed flag.
+                values = _HOME_VALUE_RE.findall(ln)
+                return (len(values) == 1 and ln.count('"home_repository"') == 1
+                        and values[0] == base_home)
+
+            if touched and all(_benign(ln) for ln in touched):
+                continue                    # formatting-only churn around an unchanged home value
             new = None
-            for line in patch.splitlines():
-                if line.startswith("+") and not line.startswith("+++"):
+            for line in touched:
+                if line.startswith("+"):
                     m = _HOME_VALUE_RE.search(line)
                     if m and m.group(1) != base_home:
                         new = m.group(1)
@@ -499,12 +521,17 @@ def main() -> int:
                      "letting future changes reach the protected branch without being checked.\n")
     if repoint:
         old, new = repoint
-        target = new if new else "a different repository (the full change couldn't be read here)"
-        parts.append(f"Your engine's update home is being changed from {old} to {target}. This changes WHERE "
-                     f"your engine's own code is fetched from when it updates — a supply-chain change: a "
-                     f"wrong or look-alike home could feed your engine altered code at its next update. The "
-                     f"engine cannot itself tell a genuine home from a convincing look-alike — only you can "
-                     f"confirm this is the home you intend.\n")
+        if new:
+            lead = f"Your engine's update home is being changed from {old} to {new}."
+        else:
+            lead = (f"Your engine's update home line is being changed, and this check couldn't read the "
+                    f"new value from the diff (it is {old} today) — treat this as a possible change of "
+                    f"home until you confirm the value yourself.")
+        parts.append(lead + " This matters because it decides WHERE "
+                     "your engine's own code is fetched from when it updates — a supply-chain change: a "
+                     "wrong or look-alike home could feed your engine altered code at its next update. The "
+                     "engine cannot itself tell a genuine home from a convincing look-alike — only you can "
+                     "confirm this is the home you intend.\n")
     if downgrade:
         parts.append("Your engine is being switched from team mode back to on-your-own (solo) mode. In team mode a "
                      "separate identity's approval is required before anything merges — switching back removes "
