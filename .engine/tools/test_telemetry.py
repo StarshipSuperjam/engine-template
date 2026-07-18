@@ -512,7 +512,7 @@ class TestCacheRefresh(unittest.TestCase):
         self.assertEqual(data["integration_debt"]["as_of"], T[2])
         self.assertIn("is:open", data["integration_debt"]["register"])
         self.assertEqual(data["standing_situation"],
-                         {"milestone": "Ship the beta", "phase": "The drift fix (issue #80)", "as_of": T[2]})
+                         {"milestone": ["Ship the beta"], "phase": "The drift fix (issue #80)", "as_of": T[2]})
         self.assertEqual(list(validate.Draft202012Validator(self._schema()).iter_errors(data)), [])
 
     def test_debt_read_failure_preserves_debt_and_still_refreshes_standing(self):
@@ -522,7 +522,7 @@ class TestCacheRefresh(unittest.TestCase):
             telemetry.refresh_cache(sp, "o/r", "tok", now=T[2], transport=transport)
             data = validate.load_json(sp)
         self.assertEqual(data["integration_debt"]["open_count"], 7)               # prior debt untouched
-        self.assertEqual(data["standing_situation"]["milestone"], "Ship the beta")  # standing refreshed
+        self.assertEqual(data["standing_situation"]["milestone"], ["Ship the beta"])  # standing refreshed
 
     def test_standing_derive_failure_preserves_standing_and_still_refreshes_debt(self):
         transport = _cache_transport(open_issues=self.OPEN, milestones=(403, None))
@@ -700,7 +700,7 @@ class TestStandingCacheRefresh(unittest.TestCase):
             sp = _write_state(d, open_count=3, as_of=T[0], register="https://x/issues")
             written = telemetry.refresh_standing(sp, "o/r", "tok", now=T[2], transport=transport)
             data = validate.load_json(sp)
-        self.assertEqual(written, {"milestone": "Ship the beta", "phase": "The drift fix (issue #80)", "as_of": T[2]})
+        self.assertEqual(written, {"milestone": ["Ship the beta"], "phase": "The drift fix (issue #80)", "as_of": T[2]})
         self.assertEqual(data["standing_situation"], written)
         self.assertEqual(data["integration_debt"]["open_count"], 3)   # debt left untouched
         self.assertEqual(list(validate.Draft202012Validator(self._schema()).iter_errors(data)), [])

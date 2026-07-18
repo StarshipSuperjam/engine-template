@@ -17,9 +17,12 @@
       "required": ["milestone", "phase"],
       "properties": {
         "milestone": {
-          "description": "A pointer to the milestone the work is currently aimed at — the larger plan marker. Null until the project sets one.",
-          "type": ["string", "null"],
-          "minLength": 1
+          "description": "The open milestones the work is aimed at, read as they are: an empty list when none is open (the honest normal state, not an error), the one name when a single milestone is open, or every open name when several are. GitHub has no notion of a single 'current' milestone, so the engine names what is open and elects none of them (engine-template #496). A bare string is the pre-#496 single-milestone shape and is still accepted, so a cursor written by an older engine stays valid across the upgrade and reads as that one milestone; null also means none is set.",
+          "anyOf": [
+            { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
         },
         "phase": {
           "description": "A pointer to the active phase inside that milestone — a finer 'where in the plan' marker. Null until the project sets one.",

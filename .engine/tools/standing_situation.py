@@ -11,8 +11,10 @@ is that projection:
     derives it: take the recent closed PRs, order the merged ones by `merged_at` (newest first), parse each PR
     body for a closing keyword (`Closes/Fixes/Resolves #N`, the common forms), and take the first whose
     referenced Issue carries the engine label. A PR that closes several Issues contributes its first reference.
-  - **milestone** <- the project's active open GitHub Milestone (the earliest-due one), or None when the project
-    keeps none ("none set" — the honest normal state, not an error).
+  - **milestone** <- the titles of the project's OPEN GitHub Milestones, read as they are — every open one, in
+    GitHub's earliest-due-first order — or an empty list when the project keeps none ("none set" — the honest
+    normal state, not an error). GitHub has no notion of a single "current" milestone, so the engine names what
+    is open and elects none of them (engine-template #496).
 
 This is the strong/best-effort split the design names: `phase` is engine-derivable (strong, like the debt
 count); `milestone` is operator-plan-derivable (best-effort — None when no Milestone exists).
@@ -61,16 +63,17 @@ def _read(gh, path: str):
     return data
 
 
-def derive_milestone(gh) -> str | None:
-    """The project's active open Milestone title, or None when there are none ("none set"). "Active" = the
-    earliest-due open Milestone (GitHub's `sort=due_on&direction=asc`); ties / no due date fall to the first
-    returned. A read failure raises DeriveUnavailable (never read as "none set")."""
+def derive_milestone(gh) -> list[str]:
+    """The titles of the project's OPEN Milestones, read as they are — every open one, in GitHub's
+    earliest-due-first order — or an empty list when there are none ("none set", the honest normal state, not
+    an error). GitHub has no notion of a single "current" milestone, so the engine names what is open and
+    elects none of them (engine-template #496); a read failure raises DeriveUnavailable (never read as an
+    empty "none set")."""
     data = _read(gh, f"/repos/{gh.repo}/milestones?state=open&sort=due_on&direction=asc&per_page=100")
     if not isinstance(data, list):
         raise DeriveUnavailable("milestones response was not a list")
-    if not data:
-        return None                          # genuinely no open milestone -> "none set" (honest normal)
-    return (data[0].get("title") or "").strip() or None
+    # Every open milestone named (blank titles dropped), electing none — not just data[0], the pre-#496 pick.
+    return [title for m in data if isinstance(m, dict) and (title := (m.get("title") or "").strip())]
 
 
 def derive_phase(gh, *, window: int = _PR_WINDOW) -> str | None:
@@ -104,9 +107,9 @@ def derive_phase(gh, *, window: int = _PR_WINDOW) -> str | None:
 
 def derive_standing_situation(gh) -> dict:
     """Assemble {"milestone", "phase"} live from native sources, read-only. ALL-OR-NOTHING: if either read
-    fails, DeriveUnavailable propagates (boot then shows the cached line); on success, a None field means
-    genuine absence (boot renders "none set" / "—"). Milestone is read first so a read failure short-circuits
-    before the phase walk."""
+    fails, DeriveUnavailable propagates (boot then shows the cached line). On success, milestone is the list of
+    open Milestone titles (empty when none) and phase is None when there is no tracked build (boot renders the
+    honest "none set" / "—"). Milestone is read first so a read failure short-circuits before the phase walk."""
     milestone = derive_milestone(gh)
     phase = derive_phase(gh)
     return {"milestone": milestone, "phase": phase}
@@ -160,7 +163,7 @@ def _where_lines(boot, *, live, state) -> list:
         if ln.startswith("**Where we are"):
             out.append(ln)
             for nxt in lines[i + 1:i + 3]:          # the Milestone line + an optional staleness sub-line
-                if nxt.startswith("**Milestone:**") or nxt.startswith("_("):
+                if nxt.startswith("**Milestone") or nxt.startswith("_("):
                     out.append(nxt)
                 else:
                     break
@@ -173,12 +176,14 @@ def _demo() -> int:
 
     print("What boot shows for 'where we are' — derived live from your GitHub each session:\n")
 
-    # (1) A project that DOES keep a milestone, with a recent tracked build.
+    # (1) A project with SEVERAL open milestones — GitHub elects none, so the engine names them all — plus a
+    #     recent tracked build.
     gh1 = _FakeGH(_canned(
-        milestones=[{"title": "Ship the beta", "due_on": "2026-09-01T00:00:00Z"}],
+        milestones=[{"title": "Ship the beta", "due_on": "2026-09-01T00:00:00Z"},
+                    {"title": "Public launch", "due_on": "2026-11-01T00:00:00Z"}],
         pulls=[{"number": 42, "merged_at": "2026-06-10T00:00:00Z", "body": "Closes #40\n\nthe checkout page"}],
         issues={40: {"number": 40, "title": "Build the checkout page", "labels": [{"name": "engine"}]}}))
-    print("1) A project with an active milestone and a recent tracked build:")
+    print("1) A project with several open milestones — the engine names them all, electing none:")
     l1 = _where_lines(boot, live=derive_standing_situation(gh1), state=None)
     for ln in l1:
         print("   " + ln)
@@ -221,9 +226,12 @@ def _demo() -> int:
     print("Note: in THIS construction repo the phase line shows a maintainer-framed issue title verbatim")
     print("(e.g. #80's '...silently drift'); in a generated project, build-issue titles are written to read")
     print("cleanly for you. No real GitHub call was made, and your saved status was not modified.")
-    # Self-check: scenario 1 surfaces the live milestone, scenario 2 (no milestone) does not, and an
-    # unreadable GitHub raises rather than reading a confident 'none set' (it falls back to the cached copy).
-    ok = (any("Ship the beta" in ln for ln in l1) and not any("Ship the beta" in ln for ln in l2)
+    # Self-check: scenario 1 names BOTH open milestones under the plural label (electing none), scenario 2
+    # (no milestone) names none, and an unreadable GitHub raises rather than reading a confident 'none set'
+    # (it falls back to the cached copy).
+    ok = (all(any(name in ln for ln in l1) for name in ("Ship the beta", "Public launch"))
+          and any("Milestones:" in ln for ln in l1)
+          and not any("Ship the beta" in ln for ln in l2)
           and live3 is None)
     if not ok:
         print("\nDEMO UNEXPECTED: the live 'where we are' derivation did not behave as expected across the "

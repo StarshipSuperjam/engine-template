@@ -133,6 +133,19 @@ class TestStateSchema(unittest.TestCase):
             bad[parent][child] = ""
             self.assertTrue(_errors(STATE_SCHEMA, bad), f"empty {parent}.{child} should fail")
 
+    def test_milestone_accepts_list_string_or_null(self):
+        # #496: the open milestones are read as they are — a list of names (empty = none). A bare string (a
+        # pre-#496 cursor) and null both stay valid so an older cursor upgrades cleanly.
+        for ok in ([], ["One"], ["One", "Two"], "Legacy single", None):
+            s = json.loads(json.dumps(VALID_STATE))
+            s["standing_situation"]["milestone"] = ok
+            self.assertEqual(_errors(STATE_SCHEMA, s), [], f"milestone={ok!r} should pass")
+        # a blank name (bare or inside the list) and a non-string member are still rejected (minLength/type bite)
+        for bad in ("", [""], ["ok", ""], [1]):
+            s = json.loads(json.dumps(VALID_STATE))
+            s["standing_situation"]["milestone"] = bad
+            self.assertTrue(_errors(STATE_SCHEMA, s), f"milestone={bad!r} should fail")
+
 
 class TestStateRuleIntegration(unittest.TestCase):
     """The committed rule joins CI, names its schema directly via params.schema (state is a
