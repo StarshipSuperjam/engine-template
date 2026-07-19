@@ -41,4 +41,4 @@ part of the record — do not copy it into the eADR. -->
 
 ## Supersedes
 
-<Include this section only when this decision replaces an earlier one: name the eADR it replaces (a canon record names an earlier canon eADR, e.g. eADR-0003; a deployment's own record names an earlier record in this same instance/ stream, e.g. acme-eADR-0003) and add one line on what changed. Delete this whole section for a first-of-its-kind decision.>
+<Include this section only when a deployment's own (instance/) decision replaces an earlier one in that same stream: name the earlier record (e.g. acme-eADR-0003) and add one line on what changed. Delete this whole section for a first-of-its-kind decision. A founding canon record never uses this section — the canon is revised in place and carried forward by an engine release, not superseded.>

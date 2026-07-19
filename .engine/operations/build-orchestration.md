@@ -44,7 +44,10 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    the change touches, **what will run** (the passes this depth runs, and what is missing — never a time or
    cost figure, which the engine cannot know; a made-up number is the false confidence the trust model
    refuses), the how-careful depth choice, and — only when the change weakens an engine guardrail — the
-   plain-language warning naming which protection weakens and what the AI could then do unwatched. The
+   plain-language warning naming which protection weakens and what the AI could then do unwatched.
+   Applying the `guardrail-ack` is the operator's act, never the engine's: when a change weakens a guardrail,
+   surface it and leave the gate red for the operator to clear — the engine never labels its own change to
+   clear its own gate. The
    operator iterates the plan to solid and approves the plan and the depth **before any work starts**. This
    plan gate (steps 1–2) *always runs as a shape*, even with zero review packs — its depth collapses to a
    single plain-language headline on the fast path (Notes), but the gate itself is never skipped.
@@ -275,3 +278,18 @@ notice (`.engine/tools/boot.py` `MCP_AVAILABILITY_CHECK`). Check
 your own tools for `mcp__engine-memory__*` and `mcp__engine-knowledge-graph__*`; for any absent, add a **named,
 non-blocking line** — which helper is off, that the change was authored on the committed-file fallback, and the
 fix (approve the servers when the Claude app prompts, then fully restart Claude). If both are live, say nothing.
+
+**Build each slice to its full capability.** Each pull request drives the work it touches to its full agreed
+requirement — the settled description's acceptance criteria where one resolves, the slice's own complete
+behaviour otherwise. A partial or deferred build is a divergence, not a smaller change: a deferral is an
+explicitly recorded decision (a tracked issue or a logged carve-out), never a quiet stub or a leg left
+unwired, and a change is measured by the capability it delivers, not by effort or count. The pre-submission
+spec-conformance and divergence-hunter passes flag an under-build as a divergence; this is the intent the
+builder holds *before* that catch. This is the full statement; the conduct floor carries its terse form.
+
+**Ground-truth load-bearing claims first-hand.** Before resting a gate, an escalation, or a merge consent on a
+claim, verify it against the source yourself: read the locked or settled specification directly rather than a
+summary of it; check a platform or harness capability against the installed binary, not its documentation; and
+re-verify a subagent's finding or a code comment's implied authority before relaying it — a code comment
+carries no design authority, and a delegated reader's reach to the source is proven, not assumed. The evidence
+bundle is only as strong as the ground truth beneath it.

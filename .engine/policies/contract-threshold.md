@@ -15,7 +15,7 @@ A decision is recorded as its own contract (a permanent decision record) only wh
 How the set of records changes — and stays small — follows three rules, so the body of contracts grows only on real decisions, never on routine work:
 
 - **A new record is added only for a genuinely new decision** that clears the four-part bar above. Routine work adds no record.
-- **An accepted record is never edited to change what it decided.** If a decision is re-opened and genuinely changes, that is written as a *new* record which says it supersedes the earlier one; the earlier one is kept, never rewritten, so the history of why stays auditable.
+- **An accepted record of your own is never edited to change what it decided.** If one of your engine decisions is re-opened and genuinely changes, that is written as a *new* record which says it supersedes the earlier one; the earlier one is kept, never rewritten, so the history of why stays auditable. (The engine's own founding records are the exception — you don't edit those at all: a change to one rides an engine release, which revises it in place and carries it forward wholesale.)
 - **A small correction or re-confirmation that does not change the decision is not a new record.** It rides the pull request's description — the same durable place everything below the bar goes — rather than spawning another contract.
 
 ## Scope
