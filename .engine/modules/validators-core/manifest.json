@@ -45,6 +45,7 @@
       ".engine/check/ontology-authority-reservation.json",
       ".engine/check/operation-frontmatter.json",
       ".engine/check/operation-shape.json",
+      ".engine/check/operator-guarded-paths.json",
       ".engine/check/policy-frontmatter.json",
       ".engine/check/policy-override-stale.json",
       ".engine/check/policy-shape.json",

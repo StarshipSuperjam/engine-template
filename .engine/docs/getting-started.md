@@ -24,6 +24,8 @@ You might say *"I want to start working on the booking page"* or *"remind me wha
 
 When you make a significant decision about how your Engine itself is set up — turning a feature on, adjusting one of its safety rules — you can ask it to record that decision (*"note that we decided to…"*). It keeps that as one of your own engine decisions, kept apart from the Engine's own built-in ones and held onto even when the Engine is later updated, so your reasoning is not lost.
 
+If your project builds its own safety-critical piece — say a script that guards something important — you can ask the Engine to *"protect this file"* (or name a folder). It adds it to the files the Engine's safety check watches, so from then on any change to that file asks for your deliberate sign-off, exactly like the Engine's own protections do. This too is kept as yours and preserved across updates.
+
 When you ask for something that changes your project, the Engine works in careful steps and shows you what it plans before it does it, so nothing significant happens without your say-so.
 
 ## Finding the commands
