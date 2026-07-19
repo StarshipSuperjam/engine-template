@@ -48,13 +48,18 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
     no ungated or main-checkout writes.
 11. **Check the from-Codex self-review (the read-only audit convenience).** Item zero (platform facts, unverifiable
     from inside the repo): a scheduled Automation fires and runs its pasted prompt; that prompt makes the run **adopt
-    the audit persona** — it loads and follows `.claude/agents/engine-audit.md`, rather than musing generically; and a
-    `sandbox_mode = "read-only"` Automation genuinely blocks writes. Then configure a **read-only** Codex Automation
+    the audit persona** — it loads and follows `.claude/agents/engine-audit.md`, rather than musing generically; a
+    `sandbox_mode = "read-only"` Automation genuinely blocks writes **and reads only within the project** (so the
+    operator's out-of-repo saved memory at `~/.claude/.../memory/` is mechanically out of reach, not merely by the
+    persona's discipline); and — for an operator who also runs the write-capable build routine — the review's
+    read-only sandbox can be scoped to **this** Automation without disabling that routine's `workspace-write` (if
+    Codex cannot scope the sandbox per Automation, record that limitation here). Then configure a **read-only** Codex Automation
     (`sandbox_mode = "read-only"` + `approval_policy = "never"`; no worktree, no network, no token) with the paste
     instruction from `.engine/audits/self-review-setup.md`, and **Run now**. Confirm all three: (a) a **plain-language
     self-review summary appears in the run** — what it looked at, found, and recommends; (b) it is the **real persona
     degrading honestly, not a look-alike** — the summary **discloses what it could not reach** (the saved memory, the
-    engine's issue backlog, prior reviews, live soft findings, the spec-conformance feed), since a committed-files-only
+    engine's issue backlog, prior reviews, live soft findings, and — only where the project has settled a `docs/spec/`
+    — the spec-conformance feed), since a committed-files-only
     run is handed none of them; a summary that claims to have reviewed those, or quotes a specific saved-memory note,
     is the tell that the paste loaded something generic **or** that the read-only sandbox reached your local memory —
     either is a defect owed a fix here; (c) it **writes nothing** — no file edit, no commit, no pull request, no

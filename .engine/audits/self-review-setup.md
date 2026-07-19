@@ -193,7 +193,7 @@ as your check that it's working.
 This part is optional. The setup above — the scheduled run on GitHub — is the supported, dependable way, and you
 don't need anything more. If you'd rather the review also run somewhere else — on Anthropic's cloud so it runs even
 while your computer is off, or from **Codex** on your own machine — you can set up a recurring **routine** that runs
-it. Both are extras alongside the GitHub schedule, and three things are true of **either** one before you choose.
+it. Both are extras alongside the GitHub schedule, and three things are worth knowing before you choose either one.
 
 **These off-schedule runs are a lighter review.** The GitHub schedule hands the review a set of things gathered for
 it — your saved memory (from its backup), the engine's open health issues, its own past reviews, and any warnings
@@ -230,18 +230,26 @@ Routine needs a paid plan with Claude Code on the web turned on, and it counts a
 allowance.
 
 **From Codex — a Codex Automation.** On Codex, schedule the same review as a **Codex Automation**: create a
-**recurring** Automation (not a one-time run), pointed at **this project**, and paste the instruction above. **The one
-setting that keeps this safe is the sandbox: set `sandbox_mode = "read-only"` in your Codex settings
-(`.codex/config.toml`).** That — and only that — is what stops the run from changing anything; it is the read-only wall
-the whole arm rests on, so do **not** reuse the `workspace-write` sandbox from the build-routine setup here. Set
-`approval_policy = "never"` as well, so an unattended run doesn't stall waiting to be asked — but know that setting
-only means "don't pause to ask me," **not** "don't make changes": on its own it would leave an unattended run free to
-write, so it is no substitute for the read-only sandbox. With that in place the review needs no network and no token:
-it works from your committed files and reports in the run. It is told not to go reaching through your machine for your
-saved memory or the engine's issues — and with no network it cannot fetch your memory backup or your issues from
-GitHub in any case — and its summary says plainly what it couldn't see. Then use **Run now** once and check that a
-fresh summary appears in the run. A Codex Automation needs a Codex build that supports scheduling, and it counts
-against your Codex usage.
+**recurring** Automation (not a one-time run), pointed at **this project**, and paste the instruction above. One
+setting makes it safe, and it's easy to miss:
+
+- **Set `sandbox_mode = "read-only"`** in your **Codex settings** (`.codex/config.toml`) — **not on the Automation's
+  own screen**. This is the only thing that stops the run from changing anything; the whole convenience depends on it.
+- `approval_policy = "never"` belongs there too, so an unattended run doesn't stall to ask — but it only means "don't
+  pause to ask me," never "don't make changes," so it is no substitute for the read-only sandbox. Setting never-ask
+  (which you *can* see on the Automation screen) while forgetting the read-only sandbox is exactly how an unattended
+  run ends up write-capable.
+- **If you also run the Codex build routine** (`$engine-routine`, from *Running unattended* in the README): it wants
+  `sandbox_mode = "workspace-write"` in that **same** file — the opposite of this review. They can't both be the global
+  default at once. If your Codex lets you scope the sandbox per Automation, give this review its own read-only one;
+  otherwise don't leave `workspace-write` in force while an unattended review runs.
+- **Confirm it took.** After **Run now**, check that a fresh summary appears **and that the run changed nothing** — no
+  new commit, no edited file, no pull request.
+
+With read-only in place the review needs no network and no token: it works from your committed files, is told not to go
+reaching through your machine for your saved memory or the engine's issues (and with no network it can't fetch your
+memory backup or issues from GitHub anyway), and its summary says plainly what it couldn't see. A Codex Automation
+needs a Codex build that supports scheduling, and it counts against your Codex usage.
 
 **Honest about maturity:** neither routine above has been run end-to-end while building this version of the engine —
 the steps are written from the design, not yet tried here — so treat them as conveniences to try, not guarantees, and

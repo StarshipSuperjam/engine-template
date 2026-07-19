@@ -3970,7 +3970,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:ae81f875708375b065b3dc29ef0d2cf154e4dcb9ab7e95df577667059a42aa2a",
+        "fingerprint": "sha256:5edfd3644c4160c11d9f1ce2047074a446df441e675dd591ab3568f09ef8409b",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -9672,7 +9672,7 @@
       },
       "slug": "test_self_review_setup",
       "source": {
-        "fingerprint": "sha256:7fe02b2383c9eea8a25f9cd0e84c4c9a32328d7b111bf92931a3493855d74ffa",
+        "fingerprint": "sha256:f18a90eac6bd9b65100d261a1d3df91e6db50ba126b136a95417cb340e6e09fa",
         "path": ".engine/tools/test_self_review_setup.py"
       },
       "status": "active",
