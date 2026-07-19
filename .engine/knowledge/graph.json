@@ -2885,7 +2885,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:63c677d4800f576fde9ea25f6b41a61e2bd530eb2d92b1e3f14ddb594b9cbadb",
+        "fingerprint": "sha256:d3a141664ba761165ca80a61fe7910a74be05d49d2e1ca21a8ab4ae8b4861c9a",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
@@ -3165,7 +3165,7 @@
       },
       "slug": "eADR-0014-one-history-living-documents",
       "source": {
-        "fingerprint": "sha256:1aeab5d4475ec21b96984c2a10d6976b2b89a6070e433143e207a08f8d165447",
+        "fingerprint": "sha256:d28af0de197bef90d35dd11a1dbccdf455bc5ee88c5601a425dab745942e15d8",
         "path": ".engine/contracts/eADR-0014-one-history-living-documents.md"
       },
       "status": "accepted",
@@ -3930,7 +3930,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:8c4f891b5ad983a7d43d67403e49252f09f08139c1e186dd8b8b177c7325f9e1",
+        "fingerprint": "sha256:9c09daaae9312f138b9e92160d63f56870db7734648d4db4e702433ed3175dac",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4371,7 +4371,7 @@
       },
       "slug": "contract-threshold",
       "source": {
-        "fingerprint": "sha256:275ea7d96038c0a04e3f54793752fe1f65e114e300f8ca756e3ebdb42cfa86d5",
+        "fingerprint": "sha256:99461797f5507ea339ea658b391dc9bf4b735fefa27920b4af26e673d3dd6691",
         "path": ".engine/policies/contract-threshold.md"
       },
       "status": "active",
@@ -4743,7 +4743,7 @@
       },
       "slug": "contract.v1",
       "source": {
-        "fingerprint": "sha256:70f4508a183dba0531ab1c3a980516d27409e67a16ce475fc23b4b82d5e2e5ec",
+        "fingerprint": "sha256:95a37258f57a0193099b9e498078d3a5c13be69f8fcf24b1560822ae0f03a55b",
         "path": ".engine/schemas/contract.v1.json"
       },
       "status": "active",
@@ -8295,7 +8295,7 @@
       },
       "slug": "test_conduct",
       "source": {
-        "fingerprint": "sha256:e827ae511da0c318e3d1550929155e5ee540106dcb0dca0d215a7e6546beeedc",
+        "fingerprint": "sha256:357dddb2be6dd217ad25ca4dbc4a60ee044d816999ed73ef8e12f634a8e25836",
         "path": ".engine/tools/test_conduct.py"
       },
       "status": "active",
@@ -8363,7 +8363,7 @@
       },
       "slug": "test_contract_canon",
       "source": {
-        "fingerprint": "sha256:b8ab2dc8b5f0d3bd4b789a1c354724862f1679fa2e68ff82c332805a64446483",
+        "fingerprint": "sha256:b8792a6824599442dc6ee5a4582784a8339bf6fb830e00807a5946101247813e",
         "path": ".engine/tools/test_contract_canon.py"
       },
       "status": "active",

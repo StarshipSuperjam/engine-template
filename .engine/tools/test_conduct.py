@@ -43,11 +43,11 @@ class TestShippedDefaults(unittest.TestCase):
     _EXPECTED = {
         "conduct-critical-partner", "conduct-plain-language", "conduct-explain-before-acting",
         "conduct-ground-claims", "conduct-verify-and-report", "conduct-preserve-intent",
-        "conduct-smallest-safe-change", "conduct-stay-in-scope", "conduct-record-decisions",
-        "conduct-care-with-risk",
+        "conduct-smallest-safe-change", "conduct-full-capability", "conduct-stay-in-scope",
+        "conduct-record-decisions", "conduct-care-with-risk",
     }
 
-    def test_ten_universal_codes_present(self):
+    def test_universal_codes_present(self):
         ids = {c["id"] for c in validate.frontmatter(_DEFAULTS)["codes"]}
         self.assertEqual(ids, self._EXPECTED)
 

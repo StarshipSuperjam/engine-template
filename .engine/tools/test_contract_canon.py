@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """The foundational eADR canon's cold-start gate — the design-rationale transplant's own check.
 
-The contract canon (the `eADR-####` records under `.engine/contracts/`) is append-only: once a record
-merges it cannot be edited, only superseded. These tests pin the three permanence-critical properties that
-no other check enforces, reading the REAL committed graph and running the REAL attention render — they fake
-nothing, so a regression in any of them fails here:
+The contract canon (the `eADR-####` records under `.engine/contracts/`) is a living cold-copy snapshot:
+each record is revised in place to current truth and carries no supersession chain, so the canon stays
+all-first-of-its-kind (a deployment's own records under instance/ stay append-only). These tests pin the
+three permanence-critical properties that no other check enforces, reading the REAL committed graph and
+running the REAL attention render — they fake nothing, so a regression in any of them fails here:
 
   - COVERAGE — every committed contract record derives exactly one knowledge entity (none dropped, none
     duplicated, the `.gitkeep` placeholder excluded).
