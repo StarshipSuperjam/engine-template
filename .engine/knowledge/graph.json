@@ -4105,7 +4105,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:82d63e496c3d97548c270dd2261de4422888659fdf18eb403e56fb970091c607",
+        "fingerprint": "sha256:5a6b501ce62050c7d1bf6d74a9c9b673a4d365667b2c1a83547d46e86806af14",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -7688,7 +7688,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:9c013f646f0256e87c89cffc4def4d675f5286651c0317775117c4842953053b",
+        "fingerprint": "sha256:78bd54c39ef12c8cf64592c91d40194ab9c129ebe762a4869c388d4301cbbc7a",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -9609,7 +9609,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:2adb29c9c1244723184b54455716a067a1ed6de2539891fb4148e893da79698d",
+        "fingerprint": "sha256:f15a7ef79afa13c64cafac2bec7d17f4812438b0aad6c6866225d0ec136c4bc0",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

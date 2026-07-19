@@ -28,7 +28,10 @@ open-the-pull-request step has not yet been exercised against a live project —
    contributing to a project you don't own.
 2. **Cut an engine-clean branch from the upstream's default.** The engine creates the feature branch from the
    upstream's default branch, which carries no engine files — so the branch is clean of the engine by origin.
-   The engine's own memory and knowledge stay on your fork's main, never on this branch.
+   The engine's own memory and knowledge stay on your fork's main, never on this branch. This step also brings
+   the upstream's latest down locally, which the clean-check later compares against; if that hasn't happened
+   (the project was never reached), the engine can't check what your change would carry, so it holds and tells
+   you plainly rather than opening a pull request on an unchecked change.
 3. **Make the change as ordinary commits.** The engine authors the product change on that branch. Nothing of
    the engine's own machinery is committed to it.
 4. **Check the contribution is clean.** The engine compares the whole outgoing change against the upstream's
@@ -41,7 +44,10 @@ open-the-pull-request step has not yet been exercised against a live project —
    contribution passes silently.
 5. **Review the prepared pull request.** The engine assembles the pull-request text to the **project's own
    template** when it has one (a contributor follows the host's conventions), or a plain fallback shape when
-   it doesn't. It shows you what it will open — the title, the text, and which branch goes where.
+   it doesn't. It shows you what it will open — the title, the text, which branch goes where, **and the branch
+   it measured your change against** (the project's own default). That comparison is what the clean-check
+   rests on, so if the branch it names isn't the project you're contributing to, say so before it opens —
+   it's the one thing to glance at here.
 6. **Authorize the submission — your call.** The engine opens the pull request **only on your go-ahead**;
    without it, the prepared request just waits. When it opens, it tells you plainly that *submitting is not
    the same as being accepted* — the project's maintainers decide, it may take a while or be declined, and

@@ -92,7 +92,7 @@ def _run_git(args: list) -> str | None:
         return None
 
 
-def outgoing_diff_status(base: str, *, run=_run_git) -> tuple[list, bool]:
+def outgoing_diff_status(diff_ref: str, *, run=_run_git) -> tuple[list, bool]:
     """The outgoing contribution's changed paths AND whether the diff was actually inspected.
 
     Returns `(paths, inspected)`:
@@ -101,27 +101,32 @@ def outgoing_diff_status(base: str, *, run=_run_git) -> tuple[list, bool]:
       - git ran, has paths                  -> `(sorted set, True)`.
 
     The paths are the COMMITTED diff of the current branch against the upstream's default branch —
-    `git diff --name-only <base>...HEAD` (three-dot: against the merge-base, "what this branch adds"). `base`
-    is the upstream's default ref (e.g. `upstream/main`), injectable through `run` for offline tests.
+    `git diff --name-only <diff_ref>...HEAD` (three-dot: against the merge-base, "what this branch adds").
+    `diff_ref` is the local ref that resolves to the UPSTREAM's default tip (e.g. `upstream/main`) — NOT a
+    plain branch name and NOT the fork's own default. `submit()` composes it as `{remote}/{base}`; the
+    distinction is load-bearing (see `submit`'s docstring): a `diff_ref` that points at the fork's default
+    under-flags a real leak, because the fork already carries the engine's files. Injectable through `run`
+    for offline tests.
 
     DELIBERATELY UNCAPPED. Unlike `work_record.changed_paths` (which caps at 50 for orientation), this feeds a
     safety check: a cap could let a leaked engine path sort past it and slip through the intersection. The
     `inspected` flag is the fail-open-AND-flag guard (the hooks fail-open-and-flag pattern): the clean
     check still fails open to `[]`, but a caller must never narrate cleanliness on an uninspected diff."""
-    out = run(["diff", "--name-only", f"{base}...HEAD"])
+    out = run(["diff", "--name-only", f"{diff_ref}...HEAD"])
     if out is None:            # git failed — NOT inspected (distinct from a clean, empty diff)
         return [], False
     return sorted({p for p in out.splitlines() if p}), True
 
 
-def outgoing_diff(base: str, *, run=_run_git) -> list:
+def outgoing_diff(diff_ref: str, *, run=_run_git) -> list:
     """The changed-path list only (fail-open: `[]` on either a git failure or a clean diff). A thin wrapper
     over `outgoing_diff_status` for the callers that only need the leak-check intersection; the submission
-    flow uses the status form so it can refuse to narrate cleanliness on an uninspected diff."""
-    return outgoing_diff_status(base, run=run)[0]
+    flow uses the status form so it can refuse to narrate cleanliness on an uninspected diff. `diff_ref` is
+    the resolved upstream-tip ref (see `outgoing_diff_status`), never a plain branch name."""
+    return outgoing_diff_status(diff_ref, run=run)[0]
 
 
-# ---- the engine-clean check (the live caller of the upstream-clean predicate) --------------------------
+# ---- the engine-clean check (a test/introspection helper; `submit()` inlines this same intersection) ----
 
 def _resolve_owned(owned):
     """The engine-owned set: the injected one, or the real file-precise set (CODEOWNERS' source of truth)."""
@@ -130,11 +135,13 @@ def _resolve_owned(owned):
     return module_coherence.engine_owned_paths(module_coherence.discover_manifests())
 
 
-def clean_findings(base: str, *, run=_run_git, owned=None) -> list:
+def clean_findings(diff_ref: str, *, run=_run_git, owned=None) -> list:
     """The upstream-clean findings for the outgoing contribution: the upstream-clean predicate run against the
-    cross-fork outgoing diff. Empty list = clean. `owned` defaults to the real engine-owned set; inject it
-    (with `run`) to keep tests and the demo fully offline."""
-    changed = outgoing_diff(base, run=run)
+    cross-fork outgoing diff. Empty list = clean. `diff_ref` is the resolved upstream-tip ref (never a plain
+    branch name — see `outgoing_diff_status`). `owned` defaults to the real engine-owned set; inject it (with
+    `run`) to keep tests and the demo fully offline. A test/introspection helper — the live `submit()` flow
+    inlines this same intersection so it can hold on an uninspected diff."""
+    changed = outgoing_diff(diff_ref, run=run)
     return upstream_clean_check.findings("soft", changed=changed, owned=_resolve_owned(owned))
 
 
@@ -265,11 +272,21 @@ def _status_narration(upstream_repo: str, pr_url: str, state: str) -> str:
             f"{pr_url}")
 
 
-def _prepared_narration(upstream_repo: str, head: str, base: str) -> str:
+def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
+                        leak_overridden: bool = False) -> str:
+    # Never assert "carries no engine files" when the operator reached here by OVERRIDING a leak
+    # (proceed_despite_leak=True, confirm=False) — that would be a false-clean claim at the authorize gate.
+    cleanliness = (
+        "you've chosen to go ahead with the engine files I flagged still on the branch"
+        if leak_overridden else
+        "the changes carry no engine files"
+    )
     return (
-        f"I've prepared the contribution to {upstream_repo} ({head} → {base}): the changes carry no engine "
-        "files and the pull-request text is ready. I won't open it until you say so — opening a pull request "
-        "on a project you don't own is your call. Say the word and I'll submit it."
+        f"I've prepared the contribution to {upstream_repo} ({head} → {base}): I compared it against "
+        f"`{diff_ref}` — the branch I'm treating as the project's default — and {cleanliness}, and the "
+        "pull-request text is ready. If that isn't the branch this should be measured against, tell me before "
+        "I open it. I won't open it until you say so — opening a pull request on a project you don't own is "
+        "your call. Say the word and I'll submit it."
     )
 
 
@@ -285,20 +302,21 @@ def _unverified_narration(upstream_repo: str) -> str:
     )
 
 
-def _leak_narration(upstream_repo: str, offending: list) -> str:
+def _leak_narration(upstream_repo: str, offending: list, diff_ref: str) -> str:
     """The submission's own pause narration — distinct from the upstream-clean check message (which is a merge-gate
     nudge that 'never blocks'). Opening a pull request is a one-way outward act, so the submission tool PAUSES
     here and surfaces the leak as a decision rather than send the engine's files along on its own; it names the
-    files and both ways forward (clear them, or proceed anyway) in plain words ("never a bare block")."""
+    files and both ways forward (clear them, or proceed anyway) in plain words ("never a bare block"). It also
+    names the branch it compared against (`diff_ref`) so a mis-aimed comparison is catchable here."""
     files = ", ".join(offending)
     return (
-        f"Before opening the pull request, I checked what it would carry to {upstream_repo} and found files "
-        f"that belong to the Engine, not to the project you're contributing to: {files}. The Engine's files "
-        "shouldn't ride along into a repository that isn't yours — they've most likely slipped in by accident. "
-        "I'd take them off this branch first (your fork keeps its copy, nothing is lost) and then I'll prepare "
-        "the contribution again — or, if you're sure, tell me to go ahead anyway and I'll open it as it is. "
-        "I've paused rather than send them along on my own, because opening a pull request on a project you "
-        "don't own can't be undone — so it's your call."
+        f"Before opening the pull request, I checked what it would carry to {upstream_repo} — comparing against "
+        f"`{diff_ref}` — and found files that belong to the Engine, not to the project you're contributing to: "
+        f"{files}. The Engine's files shouldn't ride along into a repository that isn't yours — they've most "
+        "likely slipped in by accident. I'd take them off this branch first (your fork keeps its copy, nothing "
+        "is lost) and then I'll prepare the contribution again — or, if you're sure, tell me to go ahead anyway "
+        "and I'll open it as it is. I've paused rather than send them along on my own, because opening a pull "
+        "request on a project you don't own can't be undone — so it's your call."
     )
 
 
@@ -408,10 +426,33 @@ def _run_gh(args: list):
         return 1, "", str(exc)
 
 
-def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str,
+def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str, summary: str,
            run=_run_git, root=None, owned=None, gh_run=None, github=_UNSET,
            confirm: bool = False, proceed_despite_leak: bool = False, now: str | None = None) -> dict:
     """Prepare (and, on an explicit affirmative decision, open) a cross-fork contribution pull request.
+
+    `base` and `remote` are TWO roles that were once conflated into one value (issue #561), which made a live
+    `gh pr create` impossible — a value that resolves the diff locally (`origin/main`) is not a value `gh`
+    accepts as a base (`main`), and vice-versa. They are now distinct:
+      - `base`   is the upstream's default branch NAME (e.g. `main`) — passed verbatim to `gh pr create --base`,
+        which requires a plain branch name in the target repo.
+      - `remote` is the LOCAL remote that tracks the UPSTREAM you're contributing to (the PR target) — `upstream`
+        in an ordinary fork install (where `origin` is your fork), or `origin` when the checkout's origin IS the
+        upstream (the engine-mechanic building engine-template). The outgoing diff is taken against the composed
+        ref `{remote}/{base}`.
+    `remote` is REQUIRED and deliberately has NO default: it is safety-load-bearing. The leak check sees only
+    what `git diff {remote}/{base}...HEAD` reports, so `remote` MUST name the upstream, never the fork's own
+    origin — a fork's default already carries the engine's files, so diffing against it makes them absent from
+    the delta and the check would FALSELY narrate "carries no engine files" and open a PR that in fact leaks
+    them (an inspected-but-wrong-ref hole the uninspected-diff guard cannot catch). A conventional `origin`
+    default would silently select that under-flagging direction, so there is no default at all. PRECONDITION:
+    the upstream must already be fetched under `remote` (the branch-cut step establishes this); this tool stays
+    read-only and never fetches. Two unfetched-ish cases, both safe: an ABSENT ref (never fetched) makes the
+    diff fail, so the flow holds at `unverified-diff` and nothing opens; a merely STALE ref (present but behind
+    the real upstream tip) still resolves, so the diff runs against the older base — which only WIDENS the
+    three-dot diff, making the leak check over-flag (the safe direction, never under-flag), while the plain
+    `base` handed to `gh` is unaffected. The composed `{remote}/{base}` is surfaced in the prepared/leak
+    narration so a wrong `remote` is catchable at the human gate before the irreversible open.
 
     Returns a result dict whose `status` is one of:
       - `"unverified-diff"`     — the outgoing diff could NOT be inspected (git unavailable); STOPPED before
@@ -437,10 +478,15 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
     """
     now = now or telemetry.utc_now()
 
+    # The diff ref is the UPSTREAM tip as seen locally — `{remote}/{base}`, never the plain `base` (`gh`'s job)
+    # and never the fork's own default (which would under-flag; see the docstring). This is the whole #561 fix:
+    # one composed ref for the diff, the plain `base` for `gh pr create --base`.
+    diff_ref = f"{remote}/{base}"
+
     # 0. Refuse to assert cleanliness on an UNINSPECTED diff (fail-open-AND-flag). A git failure yields
     #    changed=[] just like a clean diff, so without this an unread diff would narrate "carries no engine
     #    files" and open a one-way pull request on an unchecked change. Hold, and promote the failure.
-    changed, inspected = outgoing_diff_status(base, run=run)
+    changed, inspected = outgoing_diff_status(diff_ref, run=run)
     if not inspected:
         promoted = _promote(_unverified_record(now), now, github=github)
         return {
@@ -472,7 +518,7 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
                 "findings": findings,
                 "offending": offending,
                 "promoted": promoted,
-                "narration": _leak_narration(upstream_repo, offending),
+                "narration": _leak_narration(upstream_repo, offending, diff_ref),
             }
         # proceed_despite_leak: the operator has acknowledged the leak — fall through to the human confirm gate.
 
@@ -484,9 +530,12 @@ def submit(*, upstream_repo: str, base: str, head: str, title: str, summary: str
           "followed_template": template_text is not None, "contributing": contributing}
 
     # 3. The human gate: without an affirmative decision, PREPARE only — never open the pull request. (B1)
+    #    `findings` is truthy here only when the operator OVERRODE a leak (proceed_despite_leak) to reach this
+    #    point, so the prepared narration must not claim the branch is engine-clean in that case.
     if not confirm:
         return {"status": "prepared", "pr": pr,
-                "narration": _prepared_narration(upstream_repo, head, base)}
+                "narration": _prepared_narration(upstream_repo, head, base, diff_ref,
+                                                  leak_overridden=bool(findings))}
 
     # 4. Open the pull request (the one un-exercised-at-v1 boundary). Degrade to a draft on any failure.
     gh = gh_run or _run_gh
@@ -581,7 +630,7 @@ def demo() -> int:
     try:
         # Case 0 — git can't be read: the diff is UNINSPECTED, so the flow refuses to narrate cleanliness
         #          and never opens a PR, even with the decision given (confirm=True).
-        r0 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+        r0 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=lambda args: None,  # a git that fails on every call
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -596,7 +645,7 @@ def demo() -> int:
         # Case 1 — a leaked engine path PAUSES for a decision (not a terminal halt), fires telemetry-on-fire,
         #          and never opens a PR while the leak is unacknowledged (even with confirm=True).
         leak_diff = run_with(["src/app.py", ".engine/tools/external_contribution/submit.py"])
-        r1 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+        r1 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=leak_diff,
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -611,7 +660,7 @@ def demo() -> int:
 
         # Case 1b — the operator OVERRIDES the leak (proceed_despite_leak=True): the flow no longer terminates;
         #           it carries on to the ordinary human gate (here confirm=False -> prepared, still not opened).
-        r1b = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+        r1b = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                      title="Fix the thing", summary="Fixes the thing.",
                      run=leak_diff,
                      root=root_without, owned=owned, gh_run=gh_ok, github=None,
@@ -621,7 +670,7 @@ def demo() -> int:
                             f"{r1b['status']} / recorded={recorded}")
 
         # Case 2 — a clean diff with NO decision PREPARES; it must NOT open a pull request.
-        r2 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+        r2 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py", "README.md"]),
                     root=root_with, owned=owned, gh_run=gh_ok, github=None, confirm=False, now=now)
@@ -633,7 +682,7 @@ def demo() -> int:
             failures.append("prepared case: the body did not follow the upstream's template")
 
         # Case 3 — clean + decision + a present upstream template: SUBMITS, follows the host's form.
-        r3 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+        r3 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py", "README.md"]),
                     root=root_with, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -643,10 +692,17 @@ def demo() -> int:
             failures.append(f"submit case: expected submitted with a url, got {r3['status']} / {r3.get('url')}")
         if recorded.get("args", [])[:2] != ["pr", "create"]:
             failures.append("submit case: gh pr create was not invoked with the expected verb")
+        # #561 regression guard: gh's `--base` must be the PLAIN branch name, never a remote-qualified ref
+        # (`upstream/main`), which is what made a real `gh pr create` fail. Assert no slash — the old code
+        # passed `upstream/main` here and gh rejected it.
+        _args = recorded.get("args", [])
+        _base_arg = _args[_args.index("--base") + 1] if "--base" in _args else ""
+        if "/" in _base_arg:
+            failures.append(f"submit case: gh --base must be a plain branch name, got {_base_arg!r}")
 
         # Case 4 — clean + decision but NO upstream template: falls back to the engine's own shape.
         recorded.clear()
-        r4 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+        r4 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py"]),
                     root=root_without, owned=owned, gh_run=gh_ok, github=None, confirm=True, now=now)
@@ -656,7 +712,7 @@ def demo() -> int:
             failures.append("fallback case: the engine's fallback section shape was not used")
 
         # Case 5 — clean + decision but the upstream is unreachable: degrades to a drafted submission.
-        r5 = submit(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+        r5 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                     title="Fix the thing", summary="Fixes the thing.",
                     run=run_with(["src/app.py"]),
                     root=root_without, owned=owned, gh_run=gh_fail, github=None, confirm=True, now=now)

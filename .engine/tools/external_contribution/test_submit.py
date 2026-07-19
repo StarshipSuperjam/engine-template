@@ -148,7 +148,7 @@ class TestBuildPrBody(unittest.TestCase):
 
 
 class TestSubmitFlow(unittest.TestCase):
-    BASE = dict(upstream_repo="upstream/project", base="upstream/main", head="me:feature",
+    BASE = dict(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
                 title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z")
 
     def setUp(self):
@@ -183,6 +183,10 @@ class TestSubmitFlow(unittest.TestCase):
         self.assertEqual(r["status"], "prepared")        # operator-decidable: proceeds past the leak
         self.assertNotIn("args", rec)                    # still not opened (confirm=False) — double opt-in
         self.assertEqual(len(opened), 1)                 # ...but the leak still left a durable trace
+        # HONESTY: after an override the prepared narration must NOT claim the branch is engine-clean — that
+        # would be a false-clean assertion at the authorize gate. It names the overridden files instead.
+        self.assertNotIn("carry no engine files", r["narration"])
+        self.assertIn("engine files I flagged", r["narration"])
 
     def test_foundation_name_over_flags_by_name_safe_direction(self):
         # The predicate is a NAME set. It over-flags an upstream product's OWN foundation-named
@@ -229,8 +233,31 @@ class TestSubmitFlow(unittest.TestCase):
         self.assertEqual(r["url"], "https://github.com/upstream/project/pull/7")
         self.assertEqual(rec["args"][:2], ["pr", "create"])
         self.assertIn("upstream/project", rec["args"])
+        # #561 regression guard: gh's `--base` must be the PLAIN branch name (`main`), never the
+        # remote-qualified diff ref (`upstream/main`) — passing the latter is exactly what made the real
+        # `gh pr create` fail ("Base ref must be a branch"). Assert the value and that it carries no slash.
+        base_arg = rec["args"][rec["args"].index("--base") + 1]
+        self.assertEqual(base_arg, "main")
+        self.assertNotIn("/", base_arg)
         self.assertTrue(r["pr"]["followed_template"])
         self.assertIn("## Upstream Description", r["pr"]["body"])
+
+    def test_diff_is_taken_against_the_composed_remote_ref_not_the_plain_base(self):
+        # #561 core: `base` ("main") is gh's plain branch name; the DIFF must run against the composed
+        # upstream ref `{remote}/{base}` ("upstream/main"), so the leak check measures the branch against the
+        # UPSTREAM tip — never the plain local `main` (which would under-flag). Capture the git args.
+        seen = {}
+
+        def rec_git(args):
+            seen["args"] = args
+            return "src/app.py"
+
+        r = submit.submit(**self.BASE, run=rec_git, owned=OWNED, root=self.root,
+                          gh_run=_gh_ok({}), github=None, confirm=False)
+        self.assertEqual(r["status"], "prepared")
+        self.assertEqual(seen["args"], ["diff", "--name-only", "upstream/main...HEAD"])
+        # And the compared ref is surfaced to the operator at the gate (so a wrong remote is catchable).
+        self.assertIn("upstream/main", r["narration"])
 
     def test_unreachable_upstream_degrades_to_a_drafted_submission(self):
         r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED, root=self.root,
