@@ -2125,6 +2125,75 @@ class TestRetire(unittest.TestCase):
             self.assertTrue(set(inst._FIRST_RUN_ASSET_FILES).issubset(set(second["already_absent"])))
 
 
+class TestRetireGuard(unittest.TestCase):
+    """The fail-closed safety guard on retire(): no retirement target may resolve outside the engine's own
+    paths, so a future bad manifest entry can never `rmtree`/`remove` a brownfield adopter's own file or
+    directory. The guard runs first — before the consistency check and before any delete."""
+
+    def test_the_committed_first_run_asset_set_is_all_engine_owned(self):
+        # The load-bearing regression pin: every real retire entry (files AND dirs) is a safe, engine-owned
+        # target today, and a future non-engine entry (e.g. "README.md" or the shared ".claude/skills") fails
+        # this before it can ship.
+        base = inst.validate.ROOT
+        for rel in inst._FIRST_RUN_ASSET_FILES + inst._FIRST_RUN_ASSET_DIRS:
+            self.assertIsNone(inst._unsafe_retire_reason(base, rel),
+                              f"committed retire target is not engine-owned: {rel}")
+
+    def test_the_guard_refuses_unsafe_targets_and_admits_engine_owned_ones(self):
+        with tempfile.TemporaryDirectory() as d:
+            unsafe = ["/etc/passwd", os.path.join("..", "outside"),
+                      os.path.join(".claude", "skills"), os.path.join(".agents", "commands"),
+                      "README.md", os.path.join("src", "main.py"), ".engine", "", "."]
+            for rel in unsafe:
+                self.assertIsNotNone(inst._unsafe_retire_reason(d, rel),
+                                     f"the guard must refuse a non-engine target: {rel!r}")
+            safe = [os.path.join(".engine", "tools", "x.py"), os.path.join(".engine", "audits", "d.md"),
+                    os.path.join(".claude", "skills", "engine-setup"),
+                    os.path.join(".agents", "skills", "engine-setup"),
+                    os.path.join("assets", "engine_banner.jpg")]
+            for rel in safe:
+                self.assertIsNone(inst._unsafe_retire_reason(d, rel),
+                                  f"the guard must admit an engine-owned target: {rel!r}")
+
+    def _refuses_and_preserves(self, kind, rel, make):
+        # Drive the REAL retire() on a coherent finished fixture (so a reverted guard would actually delete the
+        # stand-in — keeping this falsifiable), with a dangerous `rel` injected into the retire set.
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                victim = os.path.join(d, rel)
+                make(victim)                                # planted AFTER the build, outside the engine roots
+                orig_dirs, orig_files = inst._FIRST_RUN_ASSET_DIRS, inst._FIRST_RUN_ASSET_FILES
+                if kind == "dir":
+                    inst._FIRST_RUN_ASSET_DIRS = orig_dirs + (rel,)
+                else:
+                    inst._FIRST_RUN_ASSET_FILES = orig_files + (rel,)
+                try:
+                    res = inst.retire(announce=lambda _t: None)
+                finally:
+                    inst._FIRST_RUN_ASSET_DIRS, inst._FIRST_RUN_ASSET_FILES = orig_dirs, orig_files
+                survived = os.path.exists(victim)
+                engine_self_present = os.path.isfile(os.path.join(d, ".engine", "tools", "instantiator.py"))
+        self.assertTrue(res["refused"])
+        self.assertEqual(res["reason"], "unsafe-retire-target",
+                         "refused for the guard's reason, distinct from the pre-existing inconsistent-refuse")
+        self.assertEqual(res["target"], rel)
+        self.assertEqual(res["deleted"], [], "fail-closed — nothing is deleted when a target is unsafe")
+        self.assertTrue(survived, "the operator's own path must survive an unsafe retire entry")
+        self.assertTrue(engine_self_present,
+                        "no engine asset was retired either — the whole set is refused up front (no half-retire)")
+
+    def test_refuses_an_unsafe_directory_entry_and_deletes_nothing(self):
+        self._refuses_and_preserves("dir", os.path.join("src", "app"),
+                                    lambda p: os.makedirs(p, exist_ok=True))
+
+    def test_refuses_an_unsafe_file_entry_and_deletes_nothing(self):
+        def _plant(p):
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write("the operator's own file\n")
+        self._refuses_and_preserves("file", "IMPORTANT.md", _plant)
+
+
 class TestRetireIsolation(unittest.TestCase):
     def test_retire_under_redirect_leaves_real_files_untouched(self):
         # The most dangerous demo: retire deletes its own source. A redirect leak would delete the REAL tool.
