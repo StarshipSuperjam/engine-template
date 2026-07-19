@@ -415,13 +415,16 @@ def _milestone_line(value) -> str:
     """The 'Milestone' card line, rendering the open milestones as they are (engine-template #496): none open
     reads as the honest-normal "No milestone is open"; a single open one is named; several are ALL named in
     plain words under a plural label — the engine elects none. `value` is the list of open titles (the current
-    shape); a bare string (a cursor written by a pre-#496 engine) is read as that one, and None/empty as none."""
+    shape); a bare string (a cursor written by a pre-#496 engine) is read as that one, and None/empty as none.
+    Milestone titles are GitHub-supplied and render into the model-visible briefing, so each is defanged — the
+    same guard the neighbouring 'What merged last' PR title and the product slug carry."""
     if isinstance(value, str):
         names = [value.strip()] if value.strip() else []
     elif isinstance(value, list):
         names = [t.strip() for t in value if isinstance(t, str) and t.strip()]
     else:
         names = []
+    names = [validate.defang_prompt_fence_markers(n) for n in names]
     if not names:
         return "**Milestone:** No milestone is open"
     if len(names) == 1:

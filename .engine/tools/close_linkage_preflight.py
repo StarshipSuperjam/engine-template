@@ -61,11 +61,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402 — for section_blocks (the PR-body section parser)
 
-# The closing-keyword alternation — GitHub's common close/fix/resolve forms. A KNOWING DUPLICATE of
-# standing_situation._CLOSES_RE's core (a self-contained tool must not couple to that module, whose role —
-# deriving the standing-situation card — is unrelated; the spec_referent.py knowing-duplicate precedent). The
-# `[:\s]+` separator and keyword set are a **best-effort approximation** of GitHub's rule: a commit-message close
-# GitHub honors but this misses would degrade toward a false clean, so keep this aligned with GitHub's keywords.
+# The closing-keyword alternation — GitHub's common close/fix/resolve forms, kept SELF-CONTAINED here (a
+# standalone submit-time tool must not couple to another module for this; the spec_referent.py
+# self-contained-regex precedent). The `[:\s]+` separator and keyword set are a **best-effort approximation**
+# of GitHub's rule: a commit-message close GitHub honors but this misses would degrade toward a false clean, so
+# keep this aligned with GitHub's keywords.
 _KW = r"close[sd]?|fix(?:es|ed)?|resolve[sd]?"
 
 # One closing REFERENCE-LIST after a keyword: `#N`, an `owner/repo#N` cross-repo ref, or a comma-run of them

@@ -5562,7 +5562,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:2ed668c0fafbb8a1bc226539a210505f2fadcf090e78761dc7bfb7626288b825",
+        "fingerprint": "sha256:af5a96445286d951f749c156167cffd98ef5d02799a1b60eb9b225d45743c8ec",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5715,7 +5715,7 @@
       },
       "slug": "close_linkage_preflight",
       "source": {
-        "fingerprint": "sha256:aca1a9f37ac1791452c984c5d73d5950db9d0a37a545c6f0d4e8ebdce61002aa",
+        "fingerprint": "sha256:650553c392772a8b2aa054a6c8a74cad03c3cf464d20b6eca07c987e7d615f6b",
         "path": ".engine/tools/close_linkage_preflight.py"
       },
       "status": "active",
@@ -6038,7 +6038,7 @@
       },
       "slug": "demo_boot_alarm_collapse",
       "source": {
-        "fingerprint": "sha256:e6bdf76f974f55ae8832b7b29837d0ca3aaf13464ab42309e4fc7d982b4ef501",
+        "fingerprint": "sha256:3d49d95918e0f5610a3c45c00c46b58329119a822e30c39fed20bdf381df6be7",
         "path": ".engine/tools/demo_boot_alarm_collapse.py"
       },
       "status": "active",
@@ -6055,7 +6055,7 @@
       },
       "slug": "demo_boot_set_aside_readout",
       "source": {
-        "fingerprint": "sha256:b846e723f2a663c7124d014034c42c66d51b995cac8dd3ed04bc7b8695117ce6",
+        "fingerprint": "sha256:af7a9fdf1f83a5aa02e04814420693aff8e1cdaac063df82c82c35bd984e7f7b",
         "path": ".engine/tools/demo_boot_set_aside_readout.py"
       },
       "status": "active",
@@ -6123,7 +6123,7 @@
       },
       "slug": "demo_contract_rate",
       "source": {
-        "fingerprint": "sha256:1ae097bc91bf91433718d6b04e3c5679ad92683cad74f6411986c4b276213c9b",
+        "fingerprint": "sha256:9b7a009a244d1820a02a23b9c4f9b58bbfb51c3cb07f35702f24eea66165528f",
         "path": ".engine/tools/demo_contract_rate.py"
       },
       "status": "active",
@@ -6242,7 +6242,7 @@
       },
       "slug": "demo_memory_degradation_backup",
       "source": {
-        "fingerprint": "sha256:0d0498e8c5f290460fe98af65bf9f20bcccef043fe45672eb9395999406d397d",
+        "fingerprint": "sha256:68e1d123fd9d97d13cc3a04ee6e7aa407d603861bc37de01805ee764c1c963aa",
         "path": ".engine/tools/demo_memory_degradation_backup.py"
       },
       "status": "active",
@@ -6259,7 +6259,7 @@
       },
       "slug": "demo_operator_backlog",
       "source": {
-        "fingerprint": "sha256:c842849a1c261ee505f93dd76db8a9d3c8dbc5ad0601dda1929618b48b0f885e",
+        "fingerprint": "sha256:931e35d0c480f59108118e7f5ac2eef5e24e62dd43804522afed4a3d7028a0fd",
         "path": ".engine/tools/demo_operator_backlog.py"
       },
       "status": "active",
@@ -7755,7 +7755,7 @@
       },
       "slug": "standing_situation",
       "source": {
-        "fingerprint": "sha256:dfa1b5ffae4674468517e4544aa1b46e979b316b227d1117a0a3a3c8e2d1914c",
+        "fingerprint": "sha256:18e501192357a61fb76cdfd206047fd78a381cc1f5d4bb9babb6065db91dd216",
         "path": ".engine/tools/standing_situation.py"
       },
       "status": "active",
@@ -7806,7 +7806,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:3cb2043aea751b85c81eb01ff2c4294cc6aaf235193428bbeef4b5bb853441a1",
+        "fingerprint": "sha256:bee4b76b651a4b95798a00a7810f10a1158344b6370b2a3bded50ddd58380eb5",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -8044,7 +8044,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:6c9a1075fec78c43917a42451c82e09ae72a6c1410cb3485c53ccc5be78057c9",
+        "fingerprint": "sha256:78f422eac1604ee5daad1f6231ffaec3c201e7f957b77cf2690dbde02c18f8ea",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8486,7 +8486,7 @@
       },
       "slug": "test_engine_status",
       "source": {
-        "fingerprint": "sha256:dd3ce3771e9d18c5f769d085c3d74cb8a824b3bc9a653eb449b8fd95d98c4636",
+        "fingerprint": "sha256:bbebd96e3779110074c05c1440022a788396f64098382dc758103ccb7e46eff5",
         "path": ".engine/tools/test_engine_status.py"
       },
       "status": "active",
@@ -9693,7 +9693,7 @@
       },
       "slug": "test_standing_situation",
       "source": {
-        "fingerprint": "sha256:45156db5a265125171e7521d6da2b62d42bed699b21b4480a3b0066ea60255e2",
+        "fingerprint": "sha256:c2bb2f2d8e2e1e3199d883d7b8330204da26d052135daae714960fabdcbda47f",
         "path": ".engine/tools/test_standing_situation.py"
       },
       "status": "active",
@@ -9761,7 +9761,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:99a2000464a3692d9a7f4b69e003b59fd0bf17584a7396100f3911f847b88c3b",
+        "fingerprint": "sha256:492fb11f381f0e53d0f178d8c5baecf0574ad14cb6ca25143fb8147e7b3f2838",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
