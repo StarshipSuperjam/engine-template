@@ -1033,6 +1033,14 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         absent_home = None
     try:
+        # The PRODUCT signal, RELAYED from checkout_health's OFFLINE manifest read (boot reads no manifest
+        # itself — its relay-only discipline). The recorded product repo is present ONLY when this engine
+        # builds a repo DIFFERENT from the one it is deployed into (eADR-0026); absent for the common
+        # self-building case, so the dashboard says nothing then. Degrades QUIETLY to None on any read failure.
+        product_repository = checkout_health.recorded_product_repository()
+    except Exception:  # noqa: BLE001 — a manifest read failure degrades this one signal, never the pack
+        product_repository = None
+    try:
         # The leftover-template-LICENSE signal (#471), RELAYED from license_health's OFFLINE, READ-ONLY detection
         # (boot computes no new state): the operator's main checkout still carries the engine's OWN template
         # LICENSE at its committed root (a repo generated before the first-run clear shipped, or drifted back to
@@ -1166,6 +1174,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         "off_main": off_main,
         # the absent-update-home signal (#367): the engine's manifest records no home to fetch updates from, or None
         "absent_home": absent_home,
+        # the PRODUCT signal (eADR-0026): the repo this engine builds when it differs from the deployed-into
+        # repo, or None for the common self-building case (the dashboard then shows no product line)
+        "product_repository": product_repository,
         # the leftover-template-LICENSE signal (#471): the main checkout's committed root LICENSE is still the
         # engine's own template seed (with a best-effort `pr_open` dedupe flag), or None (healthy / the engine's
         # own template repo / unresolvable). Rendered below the governance alarms; retire/collapse decided hook-side.
@@ -1407,6 +1418,15 @@ def render_dashboard(s: dict) -> str:
         live = s["live_standing"]
         source = live if live is not None else ((s["state"] or {}).get("standing_situation") or {})
         phase = source.get("phase") or "nothing in progress yet"
+        # The PRODUCT line — shown ONLY when this engine builds a repo DIFFERENT from the one it is deployed
+        # into (a recorded product; eADR-0026), so a self-building deployment gets no line rather than its own
+        # slug echoed back. Rendered ABOVE the live-derived facts so the offline "may be out of date, re-ground"
+        # caveat below can't misattach to this static stored label (re-grounding never changes it). Defanged:
+        # the slug can be operator- or remote-supplied on the external path, and this renders into the
+        # model-visible briefing.
+        if s.get("product_repository"):
+            out.append(f"**What this engine builds:** "
+                       f"{validate.defang_prompt_fence_markers(s['product_repository'])}")
         out.append(f"**Where we are:** {phase}")
         out.append(_milestone_line(source.get("milestone")))
         if live is None:

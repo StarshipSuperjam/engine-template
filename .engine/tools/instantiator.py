@@ -89,6 +89,14 @@ _TIER_PROMPT = (
     "Worth it even on your own if you want that stronger guarantee. It's a bigger, one-time setup, so you "
     "start on-your-own and I walk you through switching whenever you're ready."
 )
+_PRODUCT_PROMPT = (
+    "One thing worth confirming — what this engine builds:\n"
+    "  • Most projects build themselves: this engine works on the very project it's set up in. If that's you, "
+    "there's nothing to do — I'll take this project as what you're building.\n"
+    "  • If instead this engine exists to work on a DIFFERENT project — a fork you contribute to, or a "
+    "template it maintains — tell me which project that is (its owner/name), and I'll record it, so every "
+    "session knows where the work is headed."
+)
 _DESELECT_PREFACE = (
     "When you confirm: the optional add-ons you did NOT keep will be removed from this project — their files\n"
     "are deleted, not just switched off. Wanting one later is a fresh request, not a checkbox you flip back."
@@ -429,6 +437,8 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
         f"The branch I'll protect with a review gate: {ident['branch']}",
         "",
         _TIER_PROMPT,
+        "",
+        _PRODUCT_PROMPT,
     ]
     team = team if team is not None else detect_team(root=root)
     if team.get("detected"):
@@ -467,7 +477,8 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
 
 def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
             engine_release: str | None = None, handle: str | None = None,
-            default_branch: str | None = None, manifests=None) -> dict:
+            default_branch: str | None = None, product_repository: str | None = None,
+            manifests=None) -> dict:
     """CONFIRM — write the engine manifest, the resumability checkpoint. Records the engine release,
     the identity tier, the kept package set (the always-present required spine plus the optional features the
     operator kept — an unkept optional is simply left out of the manifest, its files removed later in the
@@ -507,6 +518,15 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     home_repository = _existing_home_repository(root)
     if home_repository:
         written["home_repository"] = home_repository
+    # The PRODUCT coordinate — the repo this engine works ON when that differs from the repo it is deployed
+    # into (eADR-0026's fork-native arrangement). Precedence: an explicit external override (the caller passes
+    # it ONLY when the product is a repository distinct from self) wins; else an already-recorded product is
+    # carried FORWARD, so a resumed/re-run confirm never clobbers the operator's choice (the home_repository
+    # precedence at #367). NEVER a self-default: self is derivable live from origin, so storing it would only
+    # duplicate origin and drift stale on a rename — a self-building deployment writes nothing here.
+    product_repository = (product_repository or "").strip() or _existing_product_repository(root)
+    if product_repository and product_repository.strip():
+        written["product_repository"] = product_repository.strip()
     path = _engine_manifest_path(root)
     _write_json(path, written)
     return {"path": path, "manifest": written}
@@ -655,6 +675,41 @@ def _existing_home_repository(root: str | None = None) -> str | None:
         return home if isinstance(home, str) and home.strip() else None
     except Exception:
         return None
+
+
+def _existing_product_repository(root: str | None = None) -> str | None:
+    """The engine's recorded PRODUCT repository, if any — carried FORWARD on a resumed/re-run confirm so a
+    resume never clobbers an operator's external-product override with nothing (the _existing_home_repository
+    precedence). None when there is no readable manifest or none is recorded (the common self-building case),
+    in which case the product is this repository itself and is derived live at read time, never stored."""
+    try:
+        with open(_engine_manifest_path(root), encoding="utf-8") as fh:
+            product = json.load(fh).get("product_repository")
+        return product if isinstance(product, str) and product.strip() else None
+    except Exception:
+        return None
+
+
+def _external_product_or_none(supplied: str | None, self_slug: str | None) -> str | None:
+    """The product coordinate to RECORD from an operator-supplied `--product-repository`, or None to record
+    nothing. Records ONLY a genuine EXTERNAL product: the trimmed value when it differs from `self_slug` (the
+    deployed-into repo), else None — a self-equal override is the common self-building case, derived live and
+    never stored, so it can't drift on a rename. The self-comparison is NORMALIZED — case-insensitive and
+    ignoring a trailing `.git` and surrounding whitespace — because GitHub owner/repo is case-insensitive and an
+    operator hand-types the value (so `Acme/Widget`, `acme/widget.git`, and ` acme/widget ` all read as self).
+    When `self_slug` is None (origin unreadable) the value cannot be proven self, so it is kept trimmed — a
+    conservative fallback: there is then no live origin for it to duplicate, and the coordinate is display-only."""
+    product = (supplied or "").strip()
+    if not product:
+        return None
+
+    def _norm(s: str) -> str:
+        s = s.strip().casefold()
+        return s[:-4] if s.endswith(".git") else s
+
+    if self_slug and _norm(product) == _norm(self_slug):
+        return None
+    return product
 
 
 # ==== APPLY — install the confirmed selection and turn on the engine's guardrails =====
@@ -3291,9 +3346,20 @@ def main(argv: list) -> int:
         tier = _flag_value(argv, "--tier") or "solo"
         handle = _flag_value(argv, "--handle") or derive_handle()
         default_branch = _flag_value(argv, "--default-branch") or derive_default_branch()
-        res = confirm(keep, tier, handle=handle, default_branch=default_branch)
-        print(f"Saved your choices ({', '.join(sorted(res['manifest']['packages']))}; "
-              f"reviewer = {'a team' if tier == 'team' else 'on your own'}).")
+        # The PRODUCT override (eADR-0026): the operator names an EXTERNAL product only when the engine builds a
+        # repo DIFFERENT from the one it is deployed into. _external_product_or_none records it ONLY when it
+        # genuinely differs from self (the deployed-into slug, compared normalized) — a self-equal override is
+        # the common self-building case, left unstored (derived live), never a duplicate that could drift.
+        ident = derive_identity()
+        self_slug = (f"{ident['owner']}/{ident['name']}"
+                     if ident.get("owner") and ident.get("name") else None)
+        product = _external_product_or_none(_flag_value(argv, "--product-repository"), self_slug)
+        res = confirm(keep, tier, handle=handle, default_branch=default_branch, product_repository=product)
+        saved = (f"Saved your choices ({', '.join(sorted(res['manifest']['packages']))}; "
+                 f"reviewer = {'a team' if tier == 'team' else 'on your own'}).")
+        if res["manifest"].get("product_repository"):   # close the loop on the external path
+            saved += f" Recorded what this engine builds: {res['manifest']['product_repository']}."
+        print(saved)
         return 0
     if argv and argv[0] == "apply":
         # FIRST-RUN GUARD (#297): apply re-fires the one-time, file-replacing setup steps, so a bare hand-run on

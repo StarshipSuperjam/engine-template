@@ -579,6 +579,46 @@ class TestAbsentHome(unittest.TestCase):
             self.assertIsNone(checkout_health.detect_absent_home(cwd=root))
 
 
+class TestRecordedProduct(unittest.TestCase):
+    """eADR-0026: a manifest recording an external product (a repo different from the one the engine is deployed
+    into) reads that slug; no product recorded / no manifest / a broken strand all read None — the common
+    self-building case, where the product is this repo itself and is derived live from origin, never stored."""
+
+    @staticmethod
+    def _write_manifest(root, product=None):
+        m = {"engine_release": "0.0.0-dev", "packages": {"core": "0.0.0-dev"}, "identity": "solo"}
+        if product is not None:
+            m["product_repository"] = product
+        with open(os.path.join(root, ".engine", "engine.json"), "w") as fh:
+            json.dump(m, fh)
+
+    def test_reads_the_recorded_external_product(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _healthy_repo(tmp, default_branch="main")
+            self._write_manifest(root, product="acme/upstream")
+            self.assertEqual(checkout_health.recorded_product_repository(cwd=root), "acme/upstream")
+
+    def test_none_when_no_product_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _healthy_repo(tmp, default_branch="main")   # manifest without a product -> self-building
+            self.assertIsNone(checkout_health.recorded_product_repository(cwd=root))
+
+    def test_none_when_no_manifest_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _healthy_repo(tmp, branch="main")           # no default_branch -> no manifest written
+            self.assertIsNone(checkout_health.recorded_product_repository(cwd=root))
+
+    def test_none_on_a_broken_strand(self):
+        # a detached/missing strand is the strand detector's territory -> this signal stays quiet (None),
+        # never reading a manifest off a broken checkout (mirrors detect_absent_home's strand guard).
+        orig = checkout_health._resolve_state
+        checkout_health._resolve_state = lambda cwd=None: ("/nonexistent", True, False, "abc123")  # detached
+        try:
+            self.assertIsNone(checkout_health.recorded_product_repository())
+        finally:
+            checkout_health._resolve_state = orig
+
+
 class TestReturnToDefault(unittest.TestCase):
     """#342 off-main correction: point a side-branch park back at its default, LOSSLESS — the side-branch work
     stays on its branch; a dirty / paused state BLOCKS with no mutation."""

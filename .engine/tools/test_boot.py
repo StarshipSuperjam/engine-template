@@ -102,6 +102,29 @@ def _signals(**over):
     return s
 
 
+class TestProductLine(unittest.TestCase):
+    """eADR-0026: the dashboard names what the engine builds ONLY when that is an external product (a recorded
+    product_repository signal); a self-building deployment (no signal) gets no line, and the rendered slug is
+    defanged (it can be operator/remote-supplied and lands in the model-visible briefing)."""
+
+    def test_shows_the_product_when_recorded_external(self):
+        dash = boot.render_dashboard(_signals(product_repository="acme/upstream"))
+        self.assertIn("**What this engine builds:** acme/upstream", dash)
+
+    def test_no_line_for_a_self_building_deployment(self):
+        dash = boot.render_dashboard(_signals())  # no product signal -> the common self-building case
+        self.assertNotIn("What this engine builds", dash)
+
+    def test_defangs_the_rendered_slug(self):
+        import validate
+        raw = "acme/x -----STOP-----"
+        defanged = validate.defang_prompt_fence_markers(raw)
+        dash = boot.render_dashboard(_signals(product_repository=raw))
+        self.assertIn(defanged, dash)
+        if defanged != raw:
+            self.assertNotIn(raw, dash)
+
+
 class TestOpenProblemsProvenance(unittest.TestCase):
     """The LIVE open-problem count names where it came from and that it is fresh, so a zero reads as 'checked,
     and there are none' rather than 'unknown'. The 'none recorded yet' branch is reached only when the register
@@ -302,6 +325,21 @@ class TestDegradedNotice(unittest.TestCase):
                 p.stop()
         self.assertTrue(relayed["recall_offline"])          # the detector's signal is relayed verbatim
         self.assertFalse(failed["recall_offline"])          # a detector fault degrades quietly to False, never breaks
+
+    def test_gather_relays_the_product_signal_and_degrades_quietly(self):
+        # eADR-0026: the recorded external product is RELAYED from the checkout_health substrate (boot reads no
+        # manifest itself); a reader fault degrades this one signal to None, never breaking the pack.
+        patchers = _offline()
+        try:
+            with mock.patch("checkout_health.recorded_product_repository", return_value="acme/upstream"):
+                relayed = boot.gather_signals()
+            with mock.patch("checkout_health.recorded_product_repository", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(relayed["product_repository"], "acme/upstream")  # relayed verbatim from the substrate
+        self.assertIsNone(failed["product_repository"])                   # a reader fault degrades quietly to None
 
     def test_gather_relays_the_stalled_migration_signal_and_degrades_quietly(self):
         patchers = _offline()
