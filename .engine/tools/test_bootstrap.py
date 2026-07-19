@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bootstrap  # noqa: E402
 import protection_guard  # noqa: E402
 import weakening_guard  # noqa: E402  (ACK_LABEL — the frozen name bootstrap reuses when provisioning the label)
+import telemetry  # noqa: E402  (ENGINE_DOMAIN_LABEL — the engine label's canonical name/color/description)
 
 REPO = "you/proj"
 
@@ -110,6 +111,29 @@ def quiet(_text):
     """An announce sink so tests don't print operator copy."""
 
 
+class TestProvisionedLabelsMatchTheirOwners(unittest.TestCase):
+    """bootstrap re-types two externally-owned label identities as local mirrors, because it cannot import their
+    owning modules on the pre-venv first-run path (system Python, before the venv exists). These drift-guards hold
+    each mirror equal to its canonical home — they run in the venv, where importing the owner is free — so a rename
+    or recolour in the owning module that isn't reflected in bootstrap's mirror fails here, not silently in a
+    generated repo."""
+
+    def test_needs_reauthoring_label_matches_conformance_contract(self):
+        import issue_conformance_ci  # noqa: E402 — venv-side; canonical home of the needs-reauthoring identity
+        self.assertEqual(
+            (bootstrap.NEEDS_REAUTHORING_LABEL, bootstrap.NEEDS_REAUTHORING_LABEL_COLOR,
+             bootstrap.NEEDS_REAUTHORING_LABEL_DESCRIPTION),
+            (issue_conformance_ci.NEEDS_REAUTHORING_LABEL, issue_conformance_ci.NEEDS_REAUTHORING_LABEL_COLOR,
+             issue_conformance_ci.NEEDS_REAUTHORING_LABEL_DESCRIPTION))
+
+    def test_erasure_label_matches_the_memory_contract(self):
+        from memory import erasure_observer  # noqa: E402 — venv-side; canonical home of the engine-erasure identity
+        self.assertEqual(
+            (bootstrap.ERASURE_LABEL, bootstrap.ERASURE_LABEL_COLOR, bootstrap.ERASURE_LABEL_DESCRIPTION),
+            (erasure_observer.ERASURE_LABEL, erasure_observer.ERASURE_LABEL_COLOR,
+             erasure_observer.ERASURE_LABEL_DESCRIPTION))
+
+
 class TestFloorPayload(unittest.TestCase):
     def test_floor_satisfies_the_real_guard(self):
         # The decisive fidelity test: what the bootstrap WRITES must satisfy the SAME evaluation the
@@ -139,16 +163,25 @@ class TestApplyCreatesAndIsIdempotent(unittest.TestCase):
         self.assertTrue(result.is_protected())
         self.assertEqual([c[0] for c in fake.writes()], ["POST"])  # created, not repaired
         self.assertIn(bootstrap.ENGINE_RULESET_NAME, fake.names())
-        self.assertEqual(issues.ensured, 1)                        # engine label ensured (inherited)
-        # The guardrail-ack label is bootstrap-provisioned too — reuse the guard's frozen name (never a
-        # hardcoded string here, so a future rename can't silently drift the two apart), with its build-spec-leaf
-        # color + a plain-language description under GitHub's 100-char label cap.
-        self.assertEqual(len(issues.named), 1)
-        name, color, desc = issues.named[0]
-        self.assertEqual(name, weakening_guard.ACK_LABEL)
-        self.assertEqual(color, bootstrap.ACK_LABEL_COLOR)
-        self.assertEqual(desc, bootstrap.ACK_LABEL_DESCRIPTION)
-        self.assertLessEqual(len(desc), 100)                       # GitHub label-description hard limit
+        # Provisioning ensures the COMPLETE required-label set — all four via ensure_named_label, so the engine
+        # label no longer routes through the bare ensure_label (ensured stays 0). The four: the engine-domain
+        # label, guardrail-ack, needs-reauthoring, and engine-erasure.
+        self.assertEqual(issues.ensured, 0)
+        provisioned = {name: (color, desc) for name, color, desc in issues.named}
+        self.assertEqual(set(provisioned), {
+            telemetry.ENGINE_DOMAIN_LABEL,
+            weakening_guard.ACK_LABEL,
+            bootstrap.NEEDS_REAUTHORING_LABEL,
+            bootstrap.ERASURE_LABEL,
+        })
+        # ensure_labels emits EXACTLY the REQUIRED_LABELS table (the one auditable home), so a row dropped or
+        # mis-sourced there fails here; every description fits GitHub's 100-char label cap.
+        self.assertEqual(issues.named, list(bootstrap.REQUIRED_LABELS))
+        for name, color, desc in issues.named:
+            self.assertLessEqual(len(desc), 100, name)
+        # guardrail-ack keeps its build-spec-leaf identity (name from the guard, color/desc from bootstrap).
+        self.assertEqual(provisioned[weakening_guard.ACK_LABEL],
+                         (bootstrap.ACK_LABEL_COLOR, bootstrap.ACK_LABEL_DESCRIPTION))
 
     def test_already_protected_is_a_no_op(self):
         fake = FakeGitHub(floor_met=True, rulesets=[])

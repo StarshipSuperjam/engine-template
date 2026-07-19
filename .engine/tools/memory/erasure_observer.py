@@ -54,6 +54,12 @@ import hooks  # noqa: E402 — .engine/tools/hooks.py: the SessionStart fail-ope
 from memory import compact, ledger, records  # noqa: E402
 
 ERASURE_LABEL = "engine-erasure"   # the dedicated label a single-purpose erasure PR carries (the observer↔proposer contract)
+# The label's own colour + description — canonical here, next to the name. Two creators read them: the proposer
+# (which stamps a genuine erasure PR's label) and first-run provisioning (which mirrors this trio, held equal by a
+# drift-test). A clear medium blue — deliberate and distinct from the engine label's grey and the reauthoring lavender,
+# never an alarm red. The description is count-neutral (a merge can forget a whole batch) and under GitHub's 100-char cap.
+ERASURE_LABEL_COLOR = "1d76db"
+ERASURE_LABEL_DESCRIPTION = "The engine puts this on a pull request whose merge permanently forgets the notes it lists."
 
 # The committed proposal file the observer reads at the PR's merge tree. A COMMITTED path (NOT under the gitignored
 # `.engine/memory/` ledger dir, which could not be committed). The emitter MUST emit `{"targets": [<id>, …], "costs":

@@ -32,6 +32,7 @@
     ".engine/tools/demo_contract_rate.py",
     ".engine/tools/demo_restore_migration_routing.py",
     ".engine/tools/demo_operator_backlog.py",
+    ".engine/tools/demo_control_plane_labels.py",
     ".engine/audits/audit-digest.md",
     ".engine/operations/first-run.md",
     ".engine/templates/first-run.md",

@@ -3330,7 +3330,7 @@
       },
       "slug": "eADR-0021-control-plane-enforcement-layer",
       "source": {
-        "fingerprint": "sha256:ea50a422701146d8d2a58e7ecc291f254631a6c81de19383efe96e4b9811fe3e",
+        "fingerprint": "sha256:e10d39bcc1ff8f366f364724f0cbf66012ab7409e01f223d1c9035d81483e869",
         "path": ".engine/contracts/eADR-0021-control-plane-enforcement-layer.md"
       },
       "status": "accepted",
@@ -3955,7 +3955,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:9c09daaae9312f138b9e92160d63f56870db7734648d4db4e702433ed3175dac",
+        "fingerprint": "sha256:74cd22029cf2daf6c6d8f44ba6359ef8e2de2eb88b9d1ae354f8dd6eb2c9b9cc",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5634,7 +5634,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:4207bb3ee4984344f82a1ccbd96a7de1d65160c20fb296624bc553932b3c991f",
+        "fingerprint": "sha256:838f8ec9e70aec0aad126c379a21e1201e8e3aecd7e164272286318a4f121412",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -6151,6 +6151,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_control_plane_labels",
+      "name": ".engine/tools/demo_control_plane_labels.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_control_plane_labels",
+      "source": {
+        "fingerprint": "sha256:f9d0b0eea40045c8aba5040244b9e3d50e3bedd1d56479615cf12c1082c39499",
+        "path": ".engine/tools/demo_control_plane_labels.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_derived_reconcile",
       "name": ".engine/tools/demo_derived_reconcile.py",
       "owner": "core",
@@ -6620,7 +6637,7 @@
       },
       "slug": "erasure_observer",
       "source": {
-        "fingerprint": "sha256:8640ddfc3d07d54f8f120043a1a5876aa50fc62395467bbac4cc64ee6fb78df5",
+        "fingerprint": "sha256:0c240c884dcf48446cc28603af640a10202f87b23121db1fa6f3277912bd515b",
         "path": ".engine/tools/memory/erasure_observer.py"
       },
       "status": "active",
@@ -6637,7 +6654,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:e6f74bd76d7f411e48a022b4aa92fcd4758cc9847f86c7b0fed807855d60d73b",
+        "fingerprint": "sha256:2c012606bfbbde6638e9f86e393b744c7399f288179ff2cd564fce2f741b560a",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -6841,7 +6858,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:cffaa7803768d2006667129043ab3e110651af717938dd26d99a11357e20dfa7",
+        "fingerprint": "sha256:bdbee7945b1935466ce460b9d90172c0052e4f3390e0f4ea725eed211cec4cac",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -6892,7 +6909,7 @@
       },
       "slug": "issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:1d4d3572d91626c9e575aa18a5b37f117d780c24aba78e47c1567cab912424ec",
+        "fingerprint": "sha256:8608072d07b2ca30d47da8cefd78b7c2464d2fd2afa618b9501856b5c788d56d",
         "path": ".engine/tools/issue_conformance_ci.py"
       },
       "status": "active",
@@ -7878,7 +7895,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:4bd12ef3e3bf977d6d29d920e3b9fff07474ec66d9dc73f02868785c423de125",
+        "fingerprint": "sha256:5a183a14514263198d502b45dd34ff7e12ce38315c510d019e555bf6fcde069e",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -8167,7 +8184,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:b27af96f1a1055babfa8a8efd808b84230fd3eb7fd4a64b63d07f180193b4d12",
+        "fingerprint": "sha256:fa4d885f56b0956ab729fa8132ac677476a2cf7fcab85ff6f48ee05ccc6ed710",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -8609,7 +8626,7 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:fd7be2f35aac2d9d1a9fdd8ac9b1248de7932e278e3ada51f821a50ba3543623",
+        "fingerprint": "sha256:a17dc0a85be80242e02af38552c661bf09fa23adf08def0e0cbef9f11e45c50b",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",
