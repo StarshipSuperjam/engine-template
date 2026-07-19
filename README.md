@@ -16,13 +16,12 @@
 
 The Engine keeps a human director in charge of AI that writes the code. It does that by making every change
 **legible** and **safe to approve** — so you can direct serious work on a real project and approve it on
-evidence you can actually judge, rather than on trust or a code review you'd have to perform yourself. (It runs natively
-in Claude Code and Codex.)
+evidence you can actually judge, rather than on trust or a code review you'd have to perform yourself.
 
 ## Why the Engine
 
 Most AI coding tools assume a power user who will read the diff and catch what's wrong. The Engine makes the
-opposite bet: **you shouldn't have to read code to stay in control of it — whether or not you can.** You remain
+opposite bet: **you shouldn't have to read code to stay in control of it.** You remain
 the decision-maker by governing on evidence, not by reviewing source. "Build real software without reading
 code" isn't a limitation the Engine works around; it's the workflow the whole thing is built to support.
 
@@ -107,9 +106,7 @@ don't need — you can add it later, and each one is removable.
   a change that brings in a known security hole or a risky license, with gentler nudges toward pinned
   versions; a genuinely unavoidable case can pass with a recorded decision.
 - **Upstream contribution** — offer your changes to a project you don't own (an open-source project you've
-  forked) as a pull request from your fork, carrying only your files and never the Engine's own. *Honest
-  caveat:* the final step that opens the real upstream pull request has not yet been run end-to-end against a
-  live project — your first contribution would be the first time it runs anywhere.
+  forked) as a pull request from your fork, carrying only your files and never the Engine's own.
 
 **Verification & validation**
 
@@ -131,14 +128,11 @@ not running, never passed off as a silent green.
 - **Claude Code** (current version), or **Codex** (a 2026 build with hooks support, around v0.114 or later).
 - The **GitHub CLI (`gh`) signed in** — otherwise assigning who reviews your changes, and the review gate
   itself, quietly defer until it is.
-- A **network connection** for a one-time tool download during setup. Setup pauses to ask before it downloads
-  anything; offline, it stops safely rather than guessing.
 
 ### The steps
 
 1. **Create your repo.** Click **Use this template** at the top of this page.
-2. **Open it in Claude Code or Codex.** *On Codex only:* approve the Engine's session hooks first with
-   `/hooks`, or setup won't start on its own.
+2. **Open it in Claude Code or Codex.** *On Codex only:* approve the Engine's session hooks first, or setup won't start on its own.
 3. **Run setup.** Say **"set up my project"** — or type `/engine-setup` (`$engine-setup` on Codex). The Engine
    walks you through a couple of choices: **how it commits on your behalf** (on your own, or with a team — a
    bigger setup with a security trade-off it explains), and **which optional add-ons to include**. Then it
@@ -200,7 +194,7 @@ and rough edges worth knowing below.
 | Capability | Claude Code | Codex |
 |---|---|---|
 | Instruction floor | `CLAUDE.md` (conduct auto-imported) | `AGENTS.md` (conduct by required reading — an instruction, not a mechanism) |
-| Session hooks (boot, write-gate, memory, status) | Native, on by default | Native; **requires your one-time approval** (`/hooks`), and re-approval after any Engine update that changes them — the Engine tells you when |
+| Session hooks (boot, write-gate, memory, status) | Native, on by default | Native; **requires your one-time approval in Codex settings**, and re-approval after any Engine update that changes them — the Engine tells you when |
 | Explore / Build write-gate | A session hook that blocks writes until you build | Same gate; Codex's own docs call its hook a guardrail, not a complete boundary — the protected branch and your merge remain the wall on both |
 | Build entry | `/engine-start` or plan approval | `$engine-start` only (Codex has no plan-approval signal) |
 | Typed commands | `/engine-…` (10) | `$engine-…` (10) |
