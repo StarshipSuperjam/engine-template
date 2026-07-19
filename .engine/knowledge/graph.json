@@ -5512,7 +5512,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:9814134da857452c376dce41153a37267453c114c28205d9b48236c2a71f2d2c",
+        "fingerprint": "sha256:907342001ecec122ec984bc9ccdb169a5c4de4b4f6148fb65d2d6b694b6b765f",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6583,7 +6583,7 @@
       },
       "slug": "first_run_health",
       "source": {
-        "fingerprint": "sha256:145793c119826f8d66c77124447b7e739501534754422be1534c63fefab2f967",
+        "fingerprint": "sha256:3779ef7f4dc902e293aa37e30d09d302c1adc0bd9e12a5b06c72c4a93d2dc2f7",
         "path": ".engine/tools/first_run_health.py"
       },
       "status": "active",
@@ -7144,7 +7144,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:433a2bda1a9ef8aba305ddae4e2c5fdcd7be9c85e729a9f8eb129f6ed1523dc3",
+        "fingerprint": "sha256:fdf1726fcee3065e3d6df84dedf372b2440909c120ea6f91902af1ced612b7af",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -8487,7 +8487,7 @@
       },
       "slug": "test_first_run_health",
       "source": {
-        "fingerprint": "sha256:b3f902ec3afd7e0ae1c54c3feba87b3e1eb5c6ed115629f4cde5809142b7ef3b",
+        "fingerprint": "sha256:ed421e2d964bbd935777376e75dd561d6604583949c7793b2c01d099e31259f0",
         "path": ".engine/tools/test_first_run_health.py"
       },
       "status": "active",

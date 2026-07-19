@@ -1129,7 +1129,9 @@ def gather_signals(session_id: str | None = None) -> dict:
         # confirmed fork of the engine home (a contributor's fork, not an adopter). A network miss offers normally.
         first_run = first_run_health.detect_first_run_pending()
         if first_run and first_run.get("present"):
-            if first_run_health.forked_from_home(repo, token, first_run.get("home")) is True:
+            # Pass the detector's OWN origin slug (read from the examined checkout's disk remote), not `repo`
+            # (env-first) — so the online fork check is about the same repository the offline verdict placed.
+            if first_run_health.forked_from_home(first_run.get("own"), token, first_run.get("home")) is True:
                 first_run = None
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         first_run = None
@@ -1346,7 +1348,9 @@ def render_dashboard(s: dict) -> str:
     # `/engine-setup` on the operator's consent, never a boot-time transform. Provenance-framed (a copied-in
     # template state, not a defect the operator caused) and reversible-in-tone ("if I've got this wrong, tell
     # me"). When it fires it SUPPRESSES the redundant "your safety gate is off" offer just below, because
-    # first-run setup is exactly what turns the gate on — one onboarding ask, not two.
+    # first-run setup is exactly what turns the gate on — one onboarding ask, not two. The offer keeps
+    # showing until setup actually runs (the detector is stateless by design — it nudges toward the real
+    # fix rather than being dismissible), so the copy makes no "I'll stop bringing it up" promise it can't keep.
     first_run = s.get("first_run")
     if first_run and first_run.get("present"):
         pinned.append(
@@ -1354,8 +1358,8 @@ def render_dashboard(s: dict) -> str:
             "yet.** That's the one thing to do before we start building: it swaps in your own project's "
             "starting files and turns on your safety gate, so your main branch is protected. Say **set up my "
             "project** and I'll walk you through `/engine-setup` step by step — nothing on your project changes "
-            "until you approve each step. (If you've already set this up and I've got it wrong, tell me and "
-            "I'll stop bringing it up.)")
+            "until you approve each step. If setup was interrupted partway, running it again just picks up "
+            "where it left off.")
 
     if s["gate"] == "off" and not (first_run and first_run.get("present")):
         # boot OFFERS the fix here and stays READ-ONLY; the assistant runs the already-built, idempotent

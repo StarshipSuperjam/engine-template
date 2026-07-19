@@ -51,7 +51,7 @@ import module_coherence  # noqa: E402  (slug_eq — the ONE normalized slug comp
 # signal — `instantiator.retire` self-deletes it as the final setup step.
 _SETUP_TOOL_REL = os.path.join(".engine", "tools", "instantiator.py")
 _MANIFEST_REL = os.path.join(".engine", "engine.json")
-_GITHUB_SLUG_RE = re.compile(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$")
+_GITHUB_SLUG_RE = re.compile(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", re.IGNORECASE)
 
 
 def _run(cmd: list, cwd: str | None = None, timeout: int = 30) -> str | None:
@@ -134,26 +134,31 @@ def detect_first_run_pending(cwd: str | None = None) -> dict | None:
             return None                       # setup tool retired -> first-run finished -> nothing to offer
         home = _recorded_home(main)
         own = _origin_slug(main)
-        if not (home and own and not module_coherence.slug_eq(home, own)):
+        if not module_coherence.is_downstream_copy(own, home):
             return None                       # workshop (home == own), or origin/home unreadable -> quiet
         return {"present": True, "main": main, "home": home, "own": own}
     except Exception:  # noqa: BLE001 — any unexpected failure degrades this one signal, never the pack
         return None
 
 
-def forked_from_home(repo: str | None, token: str | None, home: str | None) -> bool | None:
+def forked_from_home(repo: str | None, token: str | None, home: str | None, transport=None) -> bool | None:
     """ONLINE, best-effort, READ-ONLY: is `repo` a FORK of the engine's own home `home`? True (suppress the
     offer — a fork of the engine home is a contributor's fork, not an adopter to nag), False (not a fork of
     home — a genuine template copy / clone, keep offering), or None when it can't be determined (no
     repo/token/home, offline, or any error — the caller treats None as "don't suppress, offer normally").
     Kept OFF `detect_first_run_pending` so a network round-trip never sits on the offline detector's critical
     path. Only a fork OF THE HOME suppresses: a template-generated copy and a clone-and-push copy are both
-    `fork == false`, so neither is silenced and the dead-on-arrival case they represent is still caught."""
+    `fork == false`, so neither is silenced and the dead-on-arrival case they represent is still caught.
+    `transport(method, path, body) -> (status, json)` is injectable (the `GitHubIssues` seam) so a test drives
+    the real fork/parent decision logic without a network round-trip. NOTE (issue #353): this deliberately
+    silences a FORK-based *adopter* too (indistinguishable from a contributor's fork through this one signal);
+    a fork-adopter is still rescued via `/engine-setup show`, which does not apply this suppressor. Revisit
+    when the project's contribution model is defined (see README 'Contributing')."""
     if not repo or not token or not home:
         return None
     try:
         import telemetry
-        gh = telemetry.GitHubIssues(repo, token)
+        gh = telemetry.GitHubIssues(repo, token, transport=transport)
         status, data = gh._transport("GET", f"/repos/{repo}", None)
         if status >= 400 or not isinstance(data, dict):
             return None

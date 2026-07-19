@@ -20,6 +20,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import first_run_health
 import module_coherence
@@ -96,6 +97,13 @@ class TestDetectFirstRunPending(unittest.TestCase):
         repo = _repo(self.tmp, "nohome", origin="https://github.com/adopter/their-product.git", home=None)
         self.assertIsNone(first_run_health.detect_first_run_pending(cwd=repo))
 
+    def test_quiet_on_a_corrupt_manifest(self):
+        # Fail-soft: a malformed engine.json (unreadable home) cannot place the repo -> no fire, no crash.
+        repo = _repo(self.tmp, "corrupt", origin="https://github.com/adopter/their-product.git")
+        with open(os.path.join(repo, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ this is not valid json ")
+        self.assertIsNone(first_run_health.detect_first_run_pending(cwd=repo))
+
     def test_slug_comparison_is_normalized_against_case_and_git_suffix(self):
         # A case/.git-skewed origin that is REALLY the workshop must not mis-read as a downstream copy.
         repo = _repo(self.tmp, "skew", origin="git@github.com:starshipsuperjam/Engine-Template.git")
@@ -116,23 +124,57 @@ class TestDetectFirstRunPending(unittest.TestCase):
 
 
 class TestIsDownstreamCopy(unittest.TestCase):
-    # The shared, injectable, normalized predicate this detector's compare is built on (module_coherence).
+    # The shared, injectable, normalized predicate both callers (show branch + boot detector) run through.
     def test_none_own_slug_is_never_a_copy(self):
-        self.assertFalse(module_coherence.is_downstream_copy(None))
+        self.assertFalse(module_coherence.is_downstream_copy(None, HOME))
 
-    def test_slug_equal_is_not_a_copy_even_with_skew(self):
-        # is_downstream_copy reads THIS process's home; assert the None/normalization guards without a manifest
-        # dependency by driving slug_eq directly (the comparison core is single-homed there).
-        self.assertTrue(module_coherence.slug_eq("Owner/Repo.git", "owner/repo"))
-        self.assertFalse(module_coherence.slug_eq("owner/repo", "owner/other"))
+    def test_different_origin_and_home_is_a_copy(self):
+        self.assertTrue(module_coherence.is_downstream_copy("adopter/their-product", HOME))
+
+    def test_equal_origin_and_home_is_not_a_copy_even_with_skew(self):
+        # The workshop (or any non-copy): origin == home, tolerant of case / .git / SSH skew.
+        self.assertFalse(module_coherence.is_downstream_copy("StarshipSuperjam/Engine-Template.git", HOME))
+
+    def test_absent_home_is_not_a_copy(self):
+        self.assertFalse(module_coherence.is_downstream_copy("adopter/their-product", None))
+
+    def test_malformed_manifest_home_degrades_to_not_a_copy(self):
+        # The fail-soft path: when home defaults (None passed) and home_repository() RAISES on a corrupt
+        # manifest, the predicate returns False rather than crashing its read-only caller.
+        with mock.patch.object(module_coherence, "home_repository", side_effect=ValueError("corrupt")):
+            self.assertFalse(module_coherence.is_downstream_copy("adopter/their-product"))
 
 
 class TestForkedFromHome(unittest.TestCase):
+    @staticmethod
+    def _transport(status, body):
+        def t(method, path, body_arg=None):
+            return status, body
+        return t
+
     def test_missing_repo_token_or_home_returns_none(self):
         # Best-effort online step: any missing input -> None (caller offers normally, never suppresses blindly).
         self.assertIsNone(first_run_health.forked_from_home(None, None, None))
         self.assertIsNone(first_run_health.forked_from_home("owner/repo", None, HOME))
         self.assertIsNone(first_run_health.forked_from_home("owner/repo", "tok", None))
+
+    def test_a_non_fork_is_not_suppressed(self):
+        # A "Use this template" copy AND a clone-and-push copy are both fork:false -> return False (keep
+        # offering); the dead-on-arrival case they represent must never be silenced (#353 req #4).
+        t = self._transport(200, {"fork": False})
+        self.assertIs(first_run_health.forked_from_home("adopter/product", "tok", HOME, transport=t), False)
+
+    def test_a_fork_of_home_is_suppressed(self):
+        t = self._transport(200, {"fork": True, "parent": {"full_name": HOME}})
+        self.assertIs(first_run_health.forked_from_home("adopter/product", "tok", HOME, transport=t), True)
+
+    def test_a_fork_of_a_different_parent_is_not_suppressed(self):
+        t = self._transport(200, {"fork": True, "parent": {"full_name": "someone/unrelated"}})
+        self.assertIs(first_run_health.forked_from_home("adopter/product", "tok", HOME, transport=t), False)
+
+    def test_an_api_error_degrades_to_none(self):
+        t = self._transport(404, None)
+        self.assertIsNone(first_run_health.forked_from_home("adopter/product", "tok", HOME, transport=t))
 
 
 class TestReadOnly(unittest.TestCase):
