@@ -3,7 +3,7 @@
 
 This page is the returnable, plain-language guide that tells the operator how to arm the engine's scheduled
 self-review (the one-time token), keep it running (expiry / usage limits / re-arm), change how-often / which
-model, and optionally run it as a Cloud Routine. It survives first-run (the year-later token re-arm depends on
+model, and optionally run it off-schedule as a Claude Cloud Routine or a Codex Automation. It survives first-run (the year-later token re-arm depends on
 it), so it lives with the audit's own files and is owned by audit-library's `provides`.
 
 These pin the load-bearing facts a future edit must not silently drop — the EXACT secret name, the two-step
@@ -96,8 +96,20 @@ class TestSetupPageContent(unittest.TestCase):
         self.assertIn("Remote", self.text)
         self.assertIn("recurring", self.text)
 
-    def test_discloses_the_cloud_path_is_unrun_at_v1(self):
-        self.assertIn("not yet been run end-to-end", self.text)
+    def test_discloses_both_off_schedule_routines_are_unrun_at_v1(self):
+        # The off-schedule conveniences — the Claude Cloud Routine AND the Codex Automation — are written from the
+        # design and not exercised live during construction; the page must disclose that honestly for both, so a
+        # future edit that quietly drops the maturity hedge fails here.
+        self.assertIn("neither routine above has been run end-to-end", self.text)
+
+    def test_foregrounds_the_read_only_sandbox_as_the_codex_write_wall(self):
+        # The from-Codex convenience is safe ONLY because its Codex Automation runs sandbox_mode=read-only — that,
+        # not approval_policy, is the write wall. A future edit must not drop the read-only setting, let the
+        # never-ask setting stand in for it, or point the paste at a generated render. Pin the load-bearing facts.
+        t = self.text
+        self.assertIn("Codex Automation", t)                 # the from-Codex arm exists
+        self.assertIn('sandbox_mode = "read-only"', t)       # the write-safety wall, exact
+        self.assertIn(".claude/agents/engine-audit.md", t)   # the paste names the canonical persona, not a render
 
     def test_discloses_the_cloud_path_leaves_no_committed_freshness_record(self):
         # #406: the Cloud-Routine path yields a chat summary but never refreshes the committed record the
