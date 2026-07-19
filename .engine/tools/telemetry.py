@@ -57,6 +57,11 @@ import github_client  # noqa: E402  (the shared authenticated GitHub API client;
 # this; provisioning later generalises the ensure-it-exists step and inherits the minimal
 # ensure below. Renaming it elsewhere would split the routing substrate, so it lives once, here.
 ENGINE_DOMAIN_LABEL = "engine"
+# The engine label's colour + description — the single home for its presentation, so provisioning (which
+# lists the whole label set in one place) and the minimal ensure below both read the same values rather
+# than re-typing them. Grey, calm and neutral; the description frames it for the operator.
+ENGINE_DOMAIN_LABEL_COLOR = "ededed"          # a calm neutral grey
+ENGINE_DOMAIN_LABEL_DESCRIPTION = "Opened by the engine about its own health (not your product)."
 
 # The two self-monitoring severity classes (distinct from the agent and check enums).
 TRUST_CRITICAL = "trust-critical"          # could-not-run; promotes immediately
@@ -602,8 +607,7 @@ class GitHubIssues:
         """Idempotently ensure the engine-domain label exists (create it iff absent). The genesis
         construction repo runs no first-run bootstrap, so the first producer ensures its own label;
         provisioning later owns the general, re-runnable ensure and inherits this."""
-        self.ensure_named_label(self.label, "ededed",  # a calm neutral grey
-                                "Opened by the engine about its own health (not your product).")
+        self.ensure_named_label(self.label, ENGINE_DOMAIN_LABEL_COLOR, ENGINE_DOMAIN_LABEL_DESCRIPTION)
 
     def ensure_named_label(self, name: str, color: str, description: str) -> None:
         """Idempotently ensure an arbitrary repo label exists (create it iff absent). `ensure_label` above is

@@ -298,11 +298,14 @@ def _open_erasure_pr_numbers(gh):
 
 
 def _apply_label(gh, number: int) -> bool:
-    """Ensure the `engine-erasure` label exists and apply it to the just-opened pull request (a PR is an issue for
-    labelling). The observer discovers ONLY by this label, so this is load-bearing. Fail-OPEN: a label failure leaves
-    the PR un-discovered (safe — no erasure) rather than raising; returns True iff the label was applied."""
+    """Ensure the `engine-erasure` label exists — with ITS OWN colour and description (never the engine label's grey
+    'health' identity `gh.ensure_label()` would stamp, since `gh.label` is `engine-erasure` here) — and apply it to the
+    just-opened pull request (a PR is an issue for labelling). This is the producer-side self-heal for a repo that never
+    ran first-run provisioning (this genesis repo); provisioning creates the same label from the same canonical trio.
+    The observer discovers ONLY by this label, so this is load-bearing. Fail-OPEN: a label failure leaves the PR
+    un-discovered (safe — no erasure) rather than raising; returns True iff the label was applied."""
     try:
-        gh.ensure_label()
+        gh.ensure_named_label(observer.ERASURE_LABEL, observer.ERASURE_LABEL_COLOR, observer.ERASURE_LABEL_DESCRIPTION)
         gh._transport("POST", f"/repos/{gh.repo}/issues/{number}/labels", {"labels": [observer.ERASURE_LABEL]})
         return True
     except Exception:  # noqa: BLE001 — a degraded host must not strand the caller; the un-labelled PR simply won't fire
