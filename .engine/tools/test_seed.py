@@ -646,6 +646,37 @@ class TestWeakeningClassifier(unittest.TestCase):
             [{"filename": "src/app.py", "status": "modified", "patch": removed}]))
         self.assertEqual(weakening_guard.instance_declaration_shrink(
             [{"filename": rel, "status": "modified", "patch": ""}]), ("unreadable-patch", []))
+        # a RENAME off the canonical path is a full removal (the reader loads a fixed path) — the silent-drop
+        # bypass the deliverable gate caught: it must NOT slip past unflagged.
+        self.assertEqual(weakening_guard.instance_declaration_shrink(
+            [{"filename": "docs/old-guards.json", "status": "renamed", "previous_filename": rel}]), ("removed", []))
+        # an escape/embedded separator that could disguise a removal -> fail closed
+        escaped = '@@\n   "guarded_paths": [\n-    "scanners/a\\b.py"\n   ]'
+        self.assertEqual(weakening_guard.instance_declaration_shrink(
+            [{"filename": rel, "status": "modified", "patch": escaped}]), ("escaped", []))
+
+    def test_flagged_changes_unions_the_base_declaration_end_to_end(self):
+        # The load-bearing WIRING (#532): flagged_changes with the DEFAULT instance seam actually reads the base
+        # declaration from disk and flags an edit to a declared product path. A refactor that broke the base-read
+        # threading would make THIS fail rather than passing green with the injected-pair tests above.
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump({"guarded_paths": ["scanners/contain.py"], "guarded_prefixes": ["scanners/"]}, fh)
+            decl_path = fh.name
+        original = weakening_guard._BASE_INSTANCE_GUARDS
+        try:
+            weakening_guard._BASE_INSTANCE_GUARDS = decl_path
+            flagged = weakening_guard.flagged_changes(
+                [{"filename": "scanners/contain.py", "status": "modified"},
+                 {"filename": "scanners/deep/helper.py", "status": "modified"},
+                 {"filename": "src/app.py", "status": "modified"}],
+                derived_scripts=frozenset())
+            names = {shown for _status, shown in flagged}
+            self.assertIn("scanners/contain.py", names)      # the exact declared path
+            self.assertIn("scanners/deep/helper.py", names)  # under the declared prefix
+            self.assertNotIn("src/app.py", names)            # undeclared -> not flagged
+        finally:
+            weakening_guard._BASE_INSTANCE_GUARDS = original
+            os.unlink(decl_path)
 
 
 def _write_check_json(path, obj):

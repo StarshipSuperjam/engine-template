@@ -501,15 +501,22 @@ def instance_declaration_shrink(files: list) -> tuple | None:
                              a removal past the substring diff (fail closed);
       - "shrink"           — one or more quoted entries present in the base diff are removed and not re-added.
     Dumb by design (like home_repoint's carve-out): it compares quoted strings on `-` vs `+` lines, never applies
-    the patch. A rename (remove old + add new) reads as a removal of the old entry and flags — the safe direction,
-    since the old path is no longer guarded. A pure reformat that keeps every entry present drops nothing."""
+    the patch. A rename of an ENTRY (remove old + add new) reads as a removal of the old entry and flags — the safe
+    direction, since the old path is no longer guarded. A pure reformat that keeps every entry present drops
+    nothing. The re-add-under-an-inert-key decoy is closed upstream: the shape check forbids unknown top-level
+    keys, so a re-added string is always a genuine `guarded_paths`/`guarded_prefixes` member — still guarded."""
     for f in files:
-        if f.get("filename") != INSTANCE_DECL_REL:
+        name = f.get("filename", "")
+        prev = f.get("previous_filename", "")
+        # A rename OFF the canonical path is functionally a delete: the reader loads a FIXED path, so renaming the
+        # declaration away silently drops every guard post-merge, exactly like `status: removed`. Catch both.
+        renamed_away = prev == INSTANCE_DECL_REL and name != INSTANCE_DECL_REL
+        if name != INSTANCE_DECL_REL and not renamed_away:
             continue
         if f.get("status") not in WEAKENING_STATUS:
             continue                       # an ADDED declaration is a strengthening — never a shrink
-        if f.get("status") == "removed":
-            return ("removed", [])         # the whole declaration is gone -> every declared guard dropped
+        if renamed_away or f.get("status") == "removed":
+            return ("removed", [])         # the declaration is gone from its canonical path -> every guard dropped
         patch = f.get("patch")
         if not patch:
             return ("unreadable-patch", [])  # a declaration change we cannot inspect -> fail closed
@@ -519,7 +526,9 @@ def instance_declaration_shrink(files: list) -> tuple | None:
             return ("escaped", [])         # an escape/embedded separator could disguise a removal -> fail closed
         removed_strs = {s for ln in removed_lines for s in _QUOTED_RE.findall(ln)}
         added_strs = {s for ln in added_lines for s in _QUOTED_RE.findall(ln)}
-        dropped = sorted(removed_strs - added_strs)
+        # The two array KEYS are not guarded ENTRIES, so filter them from the reported list — a change that only
+        # reflows the key lines but keeps every entry drops nothing.
+        dropped = sorted((removed_strs - added_strs) - {"guarded_paths", "guarded_prefixes"})
         if dropped:
             return ("shrink", dropped)
     return None

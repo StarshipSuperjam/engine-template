@@ -39,6 +39,10 @@ _NOT_JSON = ("Your list of extra protected files (" + _FILE + ") is not valid JS
 _NOT_OBJECT = ("Your list of extra protected files (" + _FILE + ") must be a single set of entries (a JSON object "
                "with “guarded_paths” and “guarded_prefixes” lists), but it is something else, so "
                "none of it is being applied. Fix the shape before merging.")
+_UNKNOWN_KEY = ("Your list of extra protected files (" + _FILE + ") has an entry the engine does not recognise "
+                "(“{key}”). The only entries allowed are “guarded_paths” and “guarded_prefixes”; anything else is "
+                "ignored — and a value hidden under an unrecognised entry could quietly drop a protection without "
+                "the safety check noticing. Remove “{key}” before merging.")
 _NOT_LIST = ("In your list of extra protected files (" + _FILE + "), “{field}” must be a list, but it is "
              "something else, so it is being ignored. Make it a list of paths before merging.")
 _BAD_PATH = ("In your list of extra protected files (" + _FILE + "), one entry under “guarded_paths” is not a "
@@ -101,6 +105,14 @@ def findings(tier: str, decl, root: str | None = None) -> list:
     if not isinstance(decl, dict):
         return [validate.finding(tier, _NOT_OBJECT)]
     out = []
+    # Forbid unknown top-level keys. This is load-bearing for the weakening guard's shrink detector, not mere
+    # tidiness: if an unrecognised key were allowed, a pull request could remove a path from `guarded_paths`
+    # while re-adding the same string under that inert key — the diff would look unchanged and the removal would
+    # slip past the shrink detector, silently un-guarding the path. With only the two honored keys, every place a
+    # removed value can be re-added means it is genuinely still guarded.
+    for key in decl:
+        if key not in ("guarded_paths", "guarded_prefixes"):
+            out.append(validate.finding(tier, _UNKNOWN_KEY.format(key=key)))
     paths = decl.get("guarded_paths", [])
     prefixes = decl.get("guarded_prefixes", [])
     if not isinstance(paths, list):

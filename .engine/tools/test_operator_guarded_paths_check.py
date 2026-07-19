@@ -37,6 +37,12 @@ class TestOperatorGuardedPathsFindings(unittest.TestCase):
     def test_non_object_top_level_is_hard(self):
         self.assertEqual(_sev(check.findings("hard", ["not", "an", "object"], root=self.root)), ["hard"])
 
+    def test_unknown_top_level_key_is_hard(self):
+        # Load-bearing for the shrink detector: an unrecognised key is an inert place to re-add a removed path
+        # (the decoy the deliverable gate caught). Forbidding it at the shape gate closes that bypass.
+        decl = {"guarded_paths": ["scanners/contain.py"], "_moved": "scanners/contain.py"}
+        self.assertEqual(_sev(check.findings("hard", decl, root=self.root)), ["hard"])
+
     def test_non_list_field_is_hard(self):
         self.assertEqual(_sev(check.findings("hard", {"guarded_paths": "scanners/contain.py"},
                                              root=self.root)), ["hard"])
