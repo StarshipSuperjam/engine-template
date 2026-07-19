@@ -5,6 +5,7 @@
   "provides": {
     "check": [
       ".engine/check/product-adr-form.json",
+      ".engine/check/product-design-form.json",
       ".engine/check/product-lock-integrity.json",
       ".engine/check/product-spec-coverage.json",
       ".engine/check/product-spec-form.json",
@@ -18,6 +19,9 @@
     ],
     "operation": [
       ".engine/operations/product-intake.md"
+    ],
+    "policy": [
+      ".engine/policies/spec-structure-integrity.md"
     ],
     "skill": [
       ".claude/skills/engine-design/SKILL.md"

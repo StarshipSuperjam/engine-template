@@ -1635,6 +1635,7 @@
           "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
+          "policy:spec-structure-integrity",
           "policy:triage-threshold"
         ]
       },
@@ -1695,6 +1696,7 @@
           "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
+          "policy:spec-structure-integrity",
           "policy:triage-threshold"
         ]
       },
@@ -1753,6 +1755,33 @@
       "source": {
         "fingerprint": "sha256:6af50fc9d737a2b2987cac591645307136e78da8b8572d2c8c229f0463d77607",
         "path": ".engine/check/product-adr-form.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "pre-close",
+        "pre-commit"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:product-design-form",
+      "kind": "custom/script",
+      "name": ".engine/check/product-design-form.json",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "product-design-form",
+      "source": {
+        "fingerprint": "sha256:34922096ade1c3bf98546cfac7f47d0923afad896a78c9399d4f8e2122aec991",
+        "path": ".engine/check/product-design-form.json"
       },
       "status": "active",
       "suites": [
@@ -3600,7 +3629,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:6d5cb37f8047d05675f96cc157985bc3acc8eb20a63159b15893e7f00d54210f",
+        "fingerprint": "sha256:b8883ebc451c52ca1600b33076c08e66f19050d6b233bd5873044601d97d7e5d",
         "path": ".engine/docs/product-design.md"
       },
       "status": "active",
@@ -3810,7 +3839,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:1c8707bb6c32d613e954a20e0066a870eddde1b4da5f758d4580be030085315e",
+        "fingerprint": "sha256:d78dcb70e3ac83ab2222433b3ac67348ff0a4ed9af7fa62de947b71f1c6f311d",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
@@ -4245,7 +4274,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:c1584b9f141d5f3f6499ee10a0f6cb2f851e02ecaf25c5669b49f60b35a40f8e",
+        "fingerprint": "sha256:a47bbffc5a64f4301b3dca41347c0780c52f03518c7c10010c9eb7d65dccb622",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -4476,6 +4505,27 @@
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
+      "type": "policy"
+    },
+    {
+      "id": "policy:spec-structure-integrity",
+      "name": ".engine/policies/spec-structure-integrity.md",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "spec-structure-integrity",
+      "source": {
+        "fingerprint": "sha256:92823596b1a938f11d3e738238d7d1f93a8d2691a23b27a69e7ab6e7a38ed782",
+        "path": ".engine/policies/spec-structure-integrity.md"
+      },
+      "status": "active",
+      "title": "Spec structure integrity",
       "type": "policy"
     },
     {
@@ -6471,6 +6521,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:design_form",
+      "name": ".engine/tools/product_design/design_form.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "design_form",
+      "source": {
+        "fingerprint": "sha256:d0f3fc7c26513b41608f169266547f6ab3835d440af6a5c0fac931667fc4f70b",
+        "path": ".engine/tools/product_design/design_form.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:disposition_issue_resolution_check",
       "name": ".engine/tools/disposition_issue_resolution_check.py",
       "owner": "core",
@@ -7926,7 +7993,7 @@
       },
       "slug": "test_authoring_scaffolds",
       "source": {
-        "fingerprint": "sha256:e703bc2215a36f353ac9546642dcc15198903744635ac7a8449a9185c322f5c0",
+        "fingerprint": "sha256:2a9d00cf92f8864fb9cbc5682c070bd234b4b9ab9d969dffec84168b204b17cf",
         "path": ".engine/tools/product_design/test_authoring_scaffolds.py"
       },
       "status": "active",
@@ -8302,6 +8369,23 @@
       "source": {
         "fingerprint": "sha256:41329db3dc093f33dfa6c5b4a1a5db4d61ef474b0657153990faf35186b73cd6",
         "path": ".engine/tools/product_design/test_coverage.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_design_form",
+      "name": ".engine/tools/product_design/test_design_form.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "test_design_form",
+      "source": {
+        "fingerprint": "sha256:e55935267c56e9bb327b50262bb6d69e4262a94a0cef778feaa4bee3bf06e29d",
+        "path": ".engine/tools/product_design/test_design_form.py"
       },
       "status": "active",
       "type": "tool"
@@ -8963,7 +9047,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:96d935254736f70372ea695d69b9118cd09ddf0166c3f31c4f7221dce4b32154",
+        "fingerprint": "sha256:d8e56852955b1af3a9b1f5aff4f39b9dbd913b66bc2d8effad250ffc925c059c",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -9065,7 +9149,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:7ca5c7c8c2a42e41c26bd0ed51b138d8cb10b990b2a62a75e85d87fc484ef09c",
+        "fingerprint": "sha256:27165c81131651b27fce7405dbb07d49330acccb227c738875753d9567f609cb",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
@@ -9354,7 +9438,7 @@
       },
       "slug": "test_scaffold",
       "source": {
-        "fingerprint": "sha256:b7707e378801f23b2a0b8ca344352c8d5b166495b8914f4e874513bdf9181feb",
+        "fingerprint": "sha256:09e0593a27eb7f396089b46c3f8466f3e412ad252a0db3c36066b5d866f705a2",
         "path": ".engine/tools/product_design/test_scaffold.py"
       },
       "status": "active",

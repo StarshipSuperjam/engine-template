@@ -55,12 +55,14 @@ EXISTING_SCHEMA_RULES = ("engine-manifest", "interface-declaration", "module-man
 # four but the attention system's own governed policy. An OPTIONAL
 # module may also ship its own policy on this surface: the dependency-discipline module contributes a posture
 # policy stating its pinning/review-gate/cadence expectations, the
-# migration-discipline module a posture policy for the product's own schema migrations, and the external-contribution module a posture policy for how the
-# engine narrates contributing to an upstream the operator does not own — each present in this construction repo and removed in a generated
+# migration-discipline module a posture policy for the product's own schema migrations, the external-contribution module a posture policy for how the
+# engine narrates contributing to an upstream the operator does not own, and the product-design module the
+# spec-structure-integrity policy that keeps a description's structure from being dismantled — each present in this construction repo and removed in a generated
 # repo that opts the module out. The committed set is their union; growing it here is how a missing/renamed/
 # unexpected policy fails this suite.
 FOUNDATIONAL_POLICIES = {"contract-threshold", "finding-disposition", "escalation", "triage-threshold"}
-OPTIONAL_MODULE_POLICIES = {"dependency-discipline", "migration-discipline", "external-contribution"}
+OPTIONAL_MODULE_POLICIES = {"dependency-discipline", "migration-discipline", "external-contribution",
+                            "spec-structure-integrity"}
 EXPECTED_POLICIES = FOUNDATIONAL_POLICIES | {"attention"} | OPTIONAL_MODULE_POLICIES
 
 # A representative, conforming policy frontmatter instance (a foundational policy omits established_by).

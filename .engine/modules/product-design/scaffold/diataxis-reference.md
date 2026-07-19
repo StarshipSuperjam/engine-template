@@ -3,8 +3,9 @@
 <!-- Starting shape for an information-oriented reference under docs/reference/. A reference describes the product
 accurately and completely so someone can look up a fact and trust it — it is consulted, not read through. Copy it
 to docs/reference/<name>.md. This is one of four kinds of user guide (learning tutorial, task how-to, reference,
-explanation); author the kinds the product needs, on the "write it down properly" path. It is NOT checked by the
-engine — it is yours to get right. Keep it neutral and factual: describe what is, not how to use it (that is the
+explanation); these guides are optional, so author only the kinds the product needs. A guide's SHAPE is checked
+when it is present (a reference needs at least one section), but whether it is RIGHT is yours to get right —
+the engine never judges that. Keep it neutral and factual: describe what is, not how to use it (that is the
 how-to) and not why it is so (that is the explanation). Structure it for lookup — tables and consistent entries
 beat prose. Strip these comments and the bracketed placeholders before committing. -->
 

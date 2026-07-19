@@ -4,9 +4,10 @@
 to find their way. Copy it to docs/architecture.md and replace the guidance here with the real thing. This
 follows the widely-used arc42 outline (context, building blocks, runtime, decisions) and carries a C4-style
 container diagram drawn as a mermaid `flowchart` so it renders on GitHub and stays diffable — but the operator
-never needs those framework names; the plain section headings below are all they see. This is a fuller-detail
-document, authored only on the "write it down properly" path, and it is NOT checked by the engine — it is yours
-to get right. Keep the diagram in stable `flowchart` form so its shape is reviewable in a diff. Strip these
+never needs those framework names; the plain section headings below are all they see. This is part of the full
+write-up, which is the default: it is authored unless the operator has chosen to keep the description light.
+Its SHAPE is checked (the engine confirms the sections below and the diagram are present), but whether the
+architecture is RIGHT is yours to get right — the engine never judges that. Keep the diagram in stable `flowchart` form so its shape is reviewable in a diff. Strip these
 comment blocks and the bracketed placeholders before committing. -->
 
 ## Overview and context

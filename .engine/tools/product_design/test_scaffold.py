@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 from product_design import spec_form  # noqa: E402
 from product_design import coverage  # noqa: E402
 from product_design import adr_form  # noqa: E402
+from product_design import design_form  # noqa: E402
 import validate  # noqa: E402
 
 # The committed scaffold lives beside the module manifest, NOT under a catalogued surface location, so it is
@@ -30,6 +31,8 @@ _INDEX_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "spec-index.md")
 _CAPABILITY_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "spec-capability.md")
 _BUILD_PLAN_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "spec-build-plan.md")
 _ADR_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "adr.md")
+_PRINCIPLES_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "principles.md")
+_ARCHITECTURE_TEMPLATE = os.path.join(_SCAFFOLD_DIR, "architecture.md")
 
 
 def _read(path: str) -> str:
@@ -102,6 +105,51 @@ class ScaffoldConformanceTests(unittest.TestCase):
         self.assertTrue(hard, "a broken build-order link must produce a hard finding")
         self.assertTrue(any("doesn't exist" in f["message"] for f in hard),
                         f"the finding must name the missing document: {[f['message'] for f in hard]}")
+
+
+class DesignFormScaffoldConformanceTests(unittest.TestCase):
+    """The write-from = check-against tie for the fuller design documents: the committed scaffold ships the
+    index at `spec_depth: full`, so a description authored straight from it — with the principles and
+    architecture templates as its backbone — must pass the design-form check, and removing the architecture
+    diagram the scaffold ships must make the check bite. So the templates can never silently fall out of
+    conformance with the rule that validates the operator's real fuller documents. Reads the templates from
+    disk, so it exercises exactly the bytes that ship."""
+
+    def _full_tree_from_scaffold(self, *, architecture_body=None) -> str:
+        d = tempfile.mkdtemp(prefix="engine-design-scaffold-test-")
+        self.addCleanup(shutil.rmtree, d, True)
+        spec = os.path.join(d, "docs", "spec")
+        os.makedirs(spec)
+        with open(os.path.join(spec, "index.md"), "w", encoding="utf-8") as fh:
+            fh.write(_read(_INDEX_TEMPLATE))  # ships spec_depth: full
+        with open(os.path.join(d, "docs", "principles.md"), "w", encoding="utf-8") as fh:
+            fh.write(_read(_PRINCIPLES_TEMPLATE))
+        with open(os.path.join(d, "docs", "architecture.md"), "w", encoding="utf-8") as fh:
+            fh.write(architecture_body if architecture_body is not None else _read(_ARCHITECTURE_TEMPLATE))
+        return d
+
+    def test_the_index_scaffold_defaults_to_the_full_write_up(self):
+        depth = design_form._frontmatter_field(_read(_INDEX_TEMPLATE), "spec_depth")
+        self.assertEqual(depth, "full", "the committed index scaffold records the full write-up as the default")
+
+    def test_the_backbone_templates_are_committed(self):
+        self.assertTrue(os.path.isfile(_PRINCIPLES_TEMPLATE), "the principles scaffold template must be committed")
+        self.assertTrue(os.path.isfile(_ARCHITECTURE_TEMPLATE),
+                        "the architecture scaffold template must be committed")
+
+    def test_a_full_backbone_from_the_scaffold_passes_the_design_form_check(self):
+        fs = design_form.findings("hard", root=self._full_tree_from_scaffold())
+        self.assertEqual(fs, [], f"a scaffold-authored full backbone must pass the design-form check: {fs}")
+
+    def test_the_design_form_check_bites_when_the_architecture_diagram_is_removed(self):
+        # Falsification: drop the mermaid diagram the scaffold ships; the check must fire its named finding, so
+        # the passing test above is not vacuous.
+        broken = _read(_ARCHITECTURE_TEMPLATE).replace("```mermaid", "```text")
+        fs = design_form.findings("hard", root=self._full_tree_from_scaffold(architecture_body=broken))
+        hard = [f for f in fs if f["severity"] == "hard"]
+        self.assertTrue(hard, "removing the architecture diagram must produce a hard finding")
+        self.assertTrue(any("has no diagram" in f["message"] for f in hard),
+                        f"the finding must name the missing diagram: {[f['message'] for f in hard]}")
 
 
 class AdrScaffoldConformanceTests(unittest.TestCase):
