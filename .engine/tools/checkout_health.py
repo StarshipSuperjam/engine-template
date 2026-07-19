@@ -149,6 +149,20 @@ def _main_checkout(cwd: str | None = None) -> tuple[str, bool] | None:
     return None
 
 
+def is_isolated_worktree(cwd: str | None = None) -> bool:
+    """True ONLY when this session runs in a dedicated (linked) git worktree — NOT the operator's main
+    checkout. The POSITIVE isolation signal the unattended Routine stance-entry requires before it grants a
+    write stance: a scheduled run that mutated the operator's own checkout is the never-strand-main harm, so
+    Routine writes only where isolation is PROVEN. Compares this working tree's root against the resolved
+    main checkout; any inability to confirm — git absent, either query fails, a bare repo — returns False, so
+    the safe floor is 'not isolated' (never merely un-disproven)."""
+    top = _run(["git", "rev-parse", "--show-toplevel"], cwd=cwd)
+    resolved = _main_checkout(cwd)
+    if not top or not resolved:
+        return False
+    return os.path.realpath(top.strip()) != os.path.realpath(resolved[0])
+
+
 def _resolve_state(cwd: str | None = None) -> tuple[str, bool, bool, str] | None:
     """Resolve the operator's main checkout ONCE, OFFLINE, for all three classifiers (strand / off-main /
     behind) — so a single detection pass needs only one `git worktree list`. Returns
