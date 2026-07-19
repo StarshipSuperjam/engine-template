@@ -410,6 +410,29 @@ def detect_absent_home(cwd: str | None = None) -> dict | None:
     return {"state": "absent-home", "main": main}
 
 
+def recorded_product_repository(cwd: str | None = None) -> str | None:
+    """OFFLINE, READ-ONLY: the engine's recorded PRODUCT repository (`product_repository` in the manifest) — the
+    repo this engine builds/works ON when that is a repository DIFFERENT from the one it is deployed into (the
+    fork-native / engine-mechanic case). None when no product is recorded, in which case the product IS this
+    repository itself (the common self-building case) and the caller derives it live from origin rather than
+    relaying a stored duplicate. A pure manifest read (the detect_absent_home idiom); it NEVER fetches from,
+    executes against, or writes to the value — the coordinate is a display-only label (see engine.v1.json).
+    boot RELAYS this signal; it does not read the manifest itself (its read-only relay discipline)."""
+    st = _resolve_state(cwd)
+    if not st:
+        return None
+    main, detached, missing, _current = st
+    if detached or missing:
+        return None                # a broken strand is the strand detector's territory, not this signal
+    try:
+        with open(os.path.join(main, ".engine", "engine.json"), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except Exception:  # noqa: BLE001 — no manifest / unreadable -> nothing to relay
+        return None
+    product = manifest.get("product_repository")
+    return product if isinstance(product, str) and product.strip() else None
+
+
 # ---- the behind-the-main-line tail: online signal + the fast-forward corrections (#335; #342) ----
 
 def _days_between(a: str, b: str) -> int:

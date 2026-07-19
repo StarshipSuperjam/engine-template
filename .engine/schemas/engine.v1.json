@@ -35,6 +35,11 @@
       "type": "string",
       "minLength": 1
     },
+    "product_repository": {
+      "description": "The repository this engine exists to build and work ON, as an owner/repo slug (for example StarshipSuperjam/engine-template) — the engine's PRODUCT, a DISTINCT coordinate from home_repository (which is where the engine's own code is fetched FROM). Recorded ONLY when the product is a repository DIFFERENT from the one the engine is deployed into (the fork-native / engine-mechanic arrangement of eADR-0026 'external-contribution-fork-native', where self = the deployed-into repo, product = the un-owned upstream it contributes to); when absent, the product IS this repository itself, derived live from the checkout's origin — so a self-building deployment stores nothing and cannot drift stale. INVARIANT (load-bearing): this is a display-only work-target LABEL. Nothing may fetch from, execute against, clone, or issue a GitHub write to this coordinate. A wrong value here can only mislabel a status line — never fetch or run code, which is exactly why (unlike home_repository) changing it is not a guardrail-weakening act. Giving it any consumer that fetches/executes/writes would inherit home_repository's supply-chain and command surface and is a re-classification event that must go back through the engine's guardrail-weakening analysis (eADR-0011) before it ships. Optional: absent on a self-building deployment and in a repository generated before this coordinate shipped.",
+      "type": "string",
+      "minLength": 1
+    },
     "control_plane": {
       "description": "What the engine did to this repository's branch protection at setup, recorded so a later clean removal can reverse exactly that and nothing of the operator's. Written by the control-plane apply step on a brownfield arrival (and on greenfield, to record that the engine owns its own ruleset). Optional: absent until the gate is turned on, and on a repo whose protection was already fully in force.",
       "type": "object",

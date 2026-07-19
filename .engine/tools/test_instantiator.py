@@ -303,6 +303,60 @@ class TestConfirm(unittest.TestCase):
                 res = inst.confirm([], "solo", engine_release="1.0.0")
             self.assertNotIn("home_repository", res["manifest"])
 
+    def test_persists_an_external_product_repository(self):
+        # eADR-0026: when the engine builds a repo DIFFERENT from the one it is deployed into, the operator's
+        # named product is recorded. It validates against the (closed) engine schema.
+        import validate as _v
+        schema = _v.load_json(os.path.join(_v.SCHEMAS_DIR, "engine.v1.json"))
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo", engine_release="1.0.0", product_repository="acme/upstream")
+            self.assertEqual(res["manifest"]["product_repository"], "acme/upstream")
+            with open(res["path"], encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh)["product_repository"], "acme/upstream")
+            self.assertEqual(list(_v.Draft202012Validator(schema).iter_errors(res["manifest"])), [],
+                             "the manifest with product_repository validates against the closed engine schema")
+
+    def test_omits_product_when_self_building(self):
+        # The common self-building case: no external product named -> the key is absent (the product is this
+        # repo itself, derived live at read time), so the manifest never stores a derivable, rename-stale copy.
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo", engine_release="1.0.0")
+            self.assertNotIn("product_repository", res["manifest"])
+
+    def test_carries_the_recorded_product_forward_across_setup(self):
+        # Resume-safe: a re-run of confirm that does NOT re-supply the override must NOT clobber a recorded
+        # external product with nothing — it is carried forward (the home_repository precedence).
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            inst._write_json(inst._engine_manifest_path(d),
+                             {"engine_release": "1.0.0", "packages": {"core": "1.0.0"}, "identity": "solo",
+                              "product_repository": "acme/upstream"})
+            with inst._redirect_root(d):
+                res = inst.confirm([], "solo")   # no product param -> carried forward, not overwritten
+            self.assertEqual(res["manifest"]["product_repository"], "acme/upstream")
+
+    def test_external_product_guard_reads_normalized_self_as_self(self):
+        # The load-bearing "never store self" guard: an override that equals self — case-insensitively,
+        # ignoring a .git suffix and surrounding whitespace — records NOTHING (self is derived live).
+        for same in ("acme/widget", "Acme/Widget", "acme/widget.git", "  acme/widget  ", "ACME/WIDGET.git"):
+            self.assertIsNone(inst._external_product_or_none(same, "acme/widget"),
+                              f"{same!r} should read as self and store nothing")
+
+    def test_external_product_guard_keeps_a_real_external_trimmed(self):
+        self.assertEqual(inst._external_product_or_none("  other/upstream  ", "acme/widget"), "other/upstream")
+
+    def test_external_product_guard_keeps_when_self_underivable(self):
+        # origin unreadable -> self can't be proven; keep the trimmed value (conservative, display-only)
+        self.assertEqual(inst._external_product_or_none(" other/x ", None), "other/x")
+
+    def test_external_product_guard_none_for_empty_or_blank(self):
+        self.assertIsNone(inst._external_product_or_none(None, "acme/widget"))
+        self.assertIsNone(inst._external_product_or_none("   ", "acme/widget"))
+
     def test_derive_default_branch_prefers_gh_then_degrades_to_none(self):
         # gh is authoritative: a fake transport reports the repo's default branch (scoped to the given slug).
         self.assertEqual(

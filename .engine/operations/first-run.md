@@ -14,16 +14,22 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
 
 1. **Check it's a new project.** Run `python3 .engine/tools/instantiator.py show`. If it reports the project is
    already set up, stop and tell the operator — first-time setup only runs once, on a brand-new project.
-2. **Present the choices.** That same command prints the project's details and the two choices to make: who
+2. **Present the choices.** That same command prints the project's details and the choices to make: who
    reviews changes here (on their own — the usual choice; or with a team), and which optional add-ons to
-   include or leave out (grouped by what they help with). Show these to the operator in plain words.
-3. **Take the operator's answers** — their reviewer choice, and which optional add-ons to keep.
+   include or leave out (grouped by what they help with). It also confirms **what this engine builds** — usually
+   the very repo it's set up in, so there's nothing to decide; but if this engine exists to work on a *different*
+   project (a fork it contributes to, or a template it maintains), it asks which project that is. Show these to
+   the operator in plain words.
+3. **Take the operator's answers** — their reviewer choice, which optional add-ons to keep, and — only if this
+   engine works on a project *different* from the repo it's set up in — which project that is (its owner/name).
 4. **State plainly what confirming does, then confirm.** Before saving, tell the operator: any optional add-on
    they did not keep will be removed from the project — its files are deleted, not just switched off — and
    adding one back later is a fresh request, not a checkbox they flip back. On their go-ahead, save their
    choices: run `python3 .engine/tools/instantiator.py confirm` with their reviewer choice, the add-ons they
-   kept, and their account name (for example `confirm --tier solo --keep "" --handle their-account`). Before
-   this point nothing is changed; saving is the step the rest of setup builds on.
+   kept, and their account name (for example `confirm --tier solo --keep "" --handle their-account`). If the
+   operator named a *different* project for this engine to build, pass it too with `--product-repository
+   owner/name`; omit it for the usual self-building case, where the engine simply takes this repo as what it
+   builds. Before this point nothing is changed; saving is the step the rest of setup builds on.
 5. **Install the choices and turn on the review gate.** With the choices saved, run
    `python3 .engine/tools/instantiator.py apply --first-run`. In order, the engine: removes the add-ons that were not
    kept (their files are deleted); sets who reviews changes to the engine's own files; turns on the safer
