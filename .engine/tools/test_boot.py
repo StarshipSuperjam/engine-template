@@ -698,12 +698,37 @@ class TestWhereWeAreLiveOrCached(unittest.TestCase):
             self.assertNotIn(jargon, mline)
 
     def test_several_open_milestones_are_all_named_electing_none(self):
-        # #496: GitHub has no single "current" milestone, so when several are open the engine names them ALL
-        # under a plural label and elects none — never a silent pick of one.
+        # #496: GitHub has no single "current" milestone, so when several (up to the cap) are open the engine
+        # names them ALL under a plural label and elects none — never a silent pick of one. #558: each is quoted
+        # so a comma or "and" inside a title cannot blur where one ends and the next begins.
         dash = boot.render_dashboard(_signals(
             live_standing={"milestone": ["Alpha", "Beta", "Gamma"], "phase": "Do the thing (PR #9)"}))
-        self.assertIn("**Milestones:** Alpha, Beta and Gamma", dash)   # every open one, plain words, plural label
+        self.assertIn('**Milestones:** "Alpha", "Beta" and "Gamma"', dash)  # every open one, quoted, plural label
         self.assertEqual(dash.count("**What merged last:**"), 1)           # still exactly one standing block
+
+    def test_many_open_milestones_soft_capped_with_honest_count_electing_none(self):
+        # #558: past a glanceable few the line names the first CAP and discloses the true total in the engine's
+        # own label — a sample, not a silent truncation and not an election. Seven open, cap five.
+        dash = boot.render_dashboard(_signals(
+            live_standing={"milestone": [f"M{i}" for i in range(1, 8)], "phase": "Do the thing (PR #9)"}))
+        self.assertIn('**Milestones (showing 5 of 7 open):** "M1", "M2", "M3", "M4", "M5"', dash)
+        self.assertNotIn('"M6"', dash)                        # beyond-cap titles are not named...
+        self.assertNotIn('"M7"', dash)
+        self.assertNotIn("**Milestone:**", dash)              # ...and none is elected as the singular "current"
+
+    def test_open_milestone_titles_with_commas_are_quoted_not_blurred(self):
+        # #558's second edge: a title containing a comma or "and" must not read as more than one milestone.
+        dash = boot.render_dashboard(_signals(
+            live_standing={"milestone": ["Ship, test and deploy", "Launch"], "phase": "P"}))
+        self.assertIn('**Milestones:** "Ship, test and deploy" and "Launch"', dash)  # quoted boundaries
+        # the ambiguous un-quoted run-on ("...deploy and Launch") must NOT appear
+        self.assertNotIn("deploy and Launch", dash)
+
+    def test_open_milestone_title_with_embedded_quote_cannot_spoof_boundary(self):
+        # #558: a title's own double-quote is neutralized so it cannot forge the engine's boundary quoting.
+        dash = boot.render_dashboard(_signals(
+            live_standing={"milestone": ['Launch "v2"', "Beta"], "phase": "P"}))
+        self.assertIn('**Milestones:** "Launch \'v2\'" and "Beta"', dash)  # embedded " defanged to '
 
     def test_legacy_single_string_milestone_still_renders(self):
         # A cursor written by a pre-#496 engine stored one name as a bare string; boot reads it tolerantly so

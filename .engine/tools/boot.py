@@ -413,13 +413,30 @@ def _and_list(items: list) -> str:
     return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
+# How many open milestones the card names before it switches to a named sample plus an honest count — a
+# build-spec-leaf cap decided with the maintainer (engine-template #558). It bounds only how many titles fit on
+# one glanceable card line; the full open set is never dropped (derive_milestone stays uncapped, and the count
+# discloses the true total). Independent of attention.FOCUS_CAP — the equal value is coincidental, not a coupling.
+_MILESTONE_NAME_CAP = 5
+
+
 def _milestone_line(value) -> str:
-    """The 'Milestone' card line, rendering the open milestones as they are (engine-template #496): none open
-    reads as the honest-normal "No milestone is open"; a single open one is named; several are ALL named in
-    plain words under a plural label — the engine elects none. `value` is the list of open titles (the current
-    shape); a bare string (a cursor written by a pre-#496 engine) is read as that one, and None/empty as none.
+    """The 'Milestone' card line, rendering the open milestones as they are (engine-template #496, #558): none
+    open reads as the honest-normal "No milestone is open"; a single open one is named plainly; several are named
+    under a plural label, still electing none. When more than a glanceable few are open the line names the first
+    `_MILESTONE_NAME_CAP` and moves the true total into the engine's own label — "Milestones (showing 5 of 21
+    open):" — a disclosed sample, never a silent truncation and never an election of a current one (#558). `value`
+    is the list of open titles (the current shape); a bare string (a cursor written by a pre-#496 engine) is read
+    as that one, and None/empty as none. This cap is a RENDER concern only: `derive_milestone` still returns every
+    open title, so the same capping applies honestly to the cached/offline list too (the count is the cached
+    total, and the staleness caveat still follows the line).
+
     Milestone titles are GitHub-supplied and render into the model-visible briefing, so each is defanged — the
-    same guard the neighbouring 'What merged last' PR title and the product slug carry."""
+    same guard the neighbouring 'What merged last' PR title and the product slug carry. The count lives in the
+    engine-controlled label, NOT a trailing clause, so an untrusted title cannot forge the disclosure the honesty
+    rests on; and in the quoted (multi-name) branches each title's own double-quotes are neutralized so a title
+    cannot spoof the engine's boundary quoting. The single/none branches are unquoted by design — one name has no
+    neighbour boundary to blur."""
     if isinstance(value, str):
         names = [value.strip()] if value.strip() else []
     elif isinstance(value, list):
@@ -431,7 +448,15 @@ def _milestone_line(value) -> str:
         return "**Milestone:** No milestone is open"
     if len(names) == 1:
         return f"**Milestone:** {names[0]}"
-    return f"**Milestones:** {_and_list(names)}"
+    # Multi-name: quote each title so a comma or "and" inside a title cannot blur where one ends and the next
+    # begins; neutralize a title's own double-quotes first so it cannot spoof that boundary quoting.
+    quoted = [f'"{n.replace(chr(34), chr(39))}"' for n in names]
+    if len(quoted) <= _MILESTONE_NAME_CAP:
+        return f"**Milestones:** {_and_list(quoted)}"
+    # More open than fits: name the first few, disclose the true total in the engine's own label (out of reach of
+    # untrusted title text), and comma-join the shown sample — no "and", which would falsely read as a full list.
+    shown = ", ".join(quoted[:_MILESTONE_NAME_CAP])
+    return f"**Milestones (showing {_MILESTONE_NAME_CAP} of {len(names)} open):** {shown}"
 
 
 def needs_attention(state: dict | None, *, gh=None, live_findings: list | None = None,
