@@ -77,7 +77,10 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    discover -s tools -p 'test_*.py' -b` (the same commands CI runs) — cold review is not spent on code that
    fails its checks. The `--frozen` keeps a test run from quietly rewriting the locked `uv.lock`, and the `-b`
    keeps the `Ran N … OK` summary visible: it buffers each test's stdout so the walkthrough output the
-   `test_*.py` self-tests emit while exercising their demos does not bury the tail. Then
+   `test_*.py` self-tests emit while exercising their demos does not bury the tail. **The self-test suite
+   runs about 4 minutes (4,000+ tests, varying with machine and cache)** — run it with a generous timeout
+   or in the background: a tool whose command timeout defaults to ~2 minutes cuts it off mid-run, which
+   reads as a hang rather than a failure. Then
    the installed pre-submission passes run cold-context and findings are dispositioned. Validation reruns on
    every change including post-audit fixes; the cold review runs once at the agreed depth and does **not**
    rerun on those fixes unless the operator asks — but the orchestrator **advises re-audit when a post-audit
