@@ -62,8 +62,12 @@ USER_AGENT = "engine-issue-conformance"
 # chose this string verbatim. Because the label keeps the design term, the COMMENT (below) carries the
 # plain-language reassurance that it is not a task for the operator.
 NEEDS_REAUTHORING_LABEL = "needs-reauthoring"
-_LABEL_COLOR = "d4c5f9"  # a calm lavender — distinct from the engine label's grey, never an alarm red
-_LABEL_DESCRIPTION = "Engine Issue not yet in the engine's standard format — the engine will re-file it."
+# The label's colour + description are public so provisioning can mirror them into its one-place label set
+# (a drift-test in test_bootstrap holds the mirror equal to these). This module remains the canonical home.
+NEEDS_REAUTHORING_LABEL_COLOR = "d4c5f9"  # a calm lavender — distinct from the engine label's grey, never an alarm red
+NEEDS_REAUTHORING_LABEL_DESCRIPTION = "Engine Issue not yet in the engine's standard format — the engine will re-file it."
+_LABEL_COLOR = NEEDS_REAUTHORING_LABEL_COLOR              # internal aliases (kept so existing call sites read unchanged)
+_LABEL_DESCRIPTION = NEEDS_REAUTHORING_LABEL_DESCRIPTION
 
 # The invisible dedup marker stamped into the bot comment so a re-fire never double-comments and the un-flag
 # path can recognise the net's own comment. Mirrors telemetry's _SENTINEL_TEMPLATE; no collision with the

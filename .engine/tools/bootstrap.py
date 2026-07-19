@@ -91,6 +91,29 @@ RULESET_SCOPE = "repo"
 ACK_LABEL_COLOR = "fbca04"  # a deliberate amber — a conscious "I accept this", not an alarm
 ACK_LABEL_DESCRIPTION = "You add this to approve a change the engine flagged as weakening a built-in safety protection."
 
+# Two more required labels the engine's guards depend on, MIRRORED here so first-run provisioning creates the COMPLETE
+# set in one auditable place. bootstrap runs on the operator's SYSTEM python BEFORE the venv exists (see the future-import
+# note above), so it must NOT import these labels' owning modules — issue_conformance_ci and memory.erasure_observer pull
+# heavier import chains onto that pre-venv path. Instead the identity is re-typed here and a drift-test in test_bootstrap
+# holds each mirror equal to its canonical home; the owning module stays the single source of truth.
+NEEDS_REAUTHORING_LABEL = "needs-reauthoring"            # canonical: issue_conformance_ci.NEEDS_REAUTHORING_LABEL
+NEEDS_REAUTHORING_LABEL_COLOR = "d4c5f9"                 # canonical: issue_conformance_ci.NEEDS_REAUTHORING_LABEL_COLOR
+NEEDS_REAUTHORING_LABEL_DESCRIPTION = "Engine Issue not yet in the engine's standard format — the engine will re-file it."
+ERASURE_LABEL = "engine-erasure"                         # canonical: memory.erasure_observer.ERASURE_LABEL
+ERASURE_LABEL_COLOR = "1d76db"                           # canonical: memory.erasure_observer.ERASURE_LABEL_COLOR
+ERASURE_LABEL_DESCRIPTION = "The engine puts this on a pull request whose merge permanently forgets the notes it lists."
+
+# The COMPLETE set of labels first-run provisioning ensures — one auditable home, each row (name, color, description).
+# The engine label sources its whole triple live from telemetry; guardrail-ack's name from the guard that reads it
+# (color/desc are its leaves above); the other two from the drift-tested mirrors above. Adding a future guard-depended
+# label is one new row here — the single place the required set is declared, so none can be silently forgotten.
+REQUIRED_LABELS = [
+    (telemetry.ENGINE_DOMAIN_LABEL, telemetry.ENGINE_DOMAIN_LABEL_COLOR, telemetry.ENGINE_DOMAIN_LABEL_DESCRIPTION),
+    (weakening_guard.ACK_LABEL, ACK_LABEL_COLOR, ACK_LABEL_DESCRIPTION),
+    (NEEDS_REAUTHORING_LABEL, NEEDS_REAUTHORING_LABEL_COLOR, NEEDS_REAUTHORING_LABEL_DESCRIPTION),
+    (ERASURE_LABEL, ERASURE_LABEL_COLOR, ERASURE_LABEL_DESCRIPTION),
+]
+
 
 class BootstrapError(Exception):
     """A GitHub read/transport failure during bootstrap — surfaced and degraded, never swallowed."""
@@ -682,17 +705,19 @@ class ControlPlane:
         return "not-admin"
 
     def ensure_labels(self) -> bool:
-        """Idempotently ensure the engine's bootstrap-provisioned labels exist, INHERITING the minimal ensure
-        (telemetry.GitHubIssues) — never re-deciding a string, never re-implementing the mechanism. Two labels:
-        the engine-domain label, and the `guardrail-ack` acknowledgment label the operator APPLIES to consent to
-        a guardrail-weakening change but (per the control-plane label scheme) never hand-creates — so a fresh
-        generated repo's first safety-gate merge is not blocked waiting on a label the operator was told they
-        never make. Best-effort: returns False on any failure so the caller can disclose, never crashing the
-        bootstrap (and if provisioning ever fails, the guard simply stays blocking — never a silent pass)."""
+        """Idempotently ensure the COMPLETE set of labels the engine's guards depend on exists (REQUIRED_LABELS),
+        INHERITING the minimal ensure (telemetry.GitHubIssues.ensure_named_label) — never re-deciding a string, never
+        re-implementing the mechanism. The set: the engine-domain label; the `guardrail-ack` label the operator APPLIES
+        to consent to a guardrail-weakening change but (per the control-plane label scheme) never hand-creates; the
+        `needs-reauthoring` malformed-issue flag; and the `engine-erasure` erasure-consent marker — so a fresh generated
+        repo's first safety-gate merge, first malformed-issue re-file, and first memory-erasure never block on (nor
+        lazily mis-create) a label the operator was told they never make. Create-only and idempotent (never overwrites
+        an operator's own label edits). Best-effort: returns False on any failure so the caller can disclose, never
+        crashing the bootstrap (and if provisioning ever fails, the guard simply stays blocking — never a silent pass)."""
         try:
             issues = self._issues or telemetry.GitHubIssues(self.repo, self.token)
-            issues.ensure_label()
-            issues.ensure_named_label(weakening_guard.ACK_LABEL, ACK_LABEL_COLOR, ACK_LABEL_DESCRIPTION)
+            for name, color, description in REQUIRED_LABELS:
+                issues.ensure_named_label(name, color, description)
             return True
         except Exception:  # noqa: BLE001 — DegradedReadError / transport failure -> disclose, don't crash
             return False

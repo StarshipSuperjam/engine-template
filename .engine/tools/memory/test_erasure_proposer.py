@@ -293,6 +293,30 @@ class AutoOpenTests(_Base):
         self.assertIn(obs.ERASURE_LABEL, labels)                            # the label was ensured + applied
         self.assertIs(result["labelled"], True)
 
+    def test_apply_label_creates_engine_erasure_with_its_own_identity(self):
+        # Producer-side self-heal: on a repo that never ran first-run provisioning, _apply_label must ensure the
+        # engine-erasure label with ITS OWN colour + description (never the engine label's grey 'health' identity
+        # that a bare ensure_label() would stamp, since gh.label is engine-erasure here).
+        created = []
+
+        def transport(method, path, body):
+            if path.endswith(f"/labels/{obs.ERASURE_LABEL}") and method == "GET":
+                return 404, None                                            # absent -> forces the create
+            if "/issues/" in path and path.endswith("/labels") and method == "POST":
+                return 200, []                                              # the attach to the PR
+            if path.endswith("/labels") and method == "POST":
+                created.append(body)
+                return 201, {}
+            return 404, None
+
+        gh = emit._reader(transport)
+        self.assertIs(emit._apply_label(gh, 7), True)
+        self.assertEqual(created, [{
+            "name": obs.ERASURE_LABEL,
+            "color": obs.ERASURE_LABEL_COLOR,
+            "description": obs.ERASURE_LABEL_DESCRIPTION,
+        }])
+
     def test_the_pr_body_carries_the_cost_but_none_of_the_notes_words(self):
         self._retired("the secret zibbleflux migration", role="lesson", age_days=60, batch="b1")
         opener = _OpenerSpy()
