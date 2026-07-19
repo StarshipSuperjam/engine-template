@@ -50,6 +50,13 @@ class DesignFormFindingsTests(unittest.TestCase):
     def _actionable(self, result):
         return [f for f in result if not f.get("not_applicable")]
 
+    def _hard(self, result):
+        return [f for f in result if f["severity"] == "hard"]
+
+    def _soft_visible(self, result):
+        # soft findings that are NOT disclosed no-ops (dormant) — the visible, actionable nudges.
+        return [f for f in result if f["severity"] == "soft" and not f.get("not_applicable")]
+
     # ---- the depth-marker teeth ------------------------------------------------------------------
 
     def test_full_with_wellformed_backbone_is_clean(self):
@@ -78,6 +85,25 @@ class DesignFormFindingsTests(unittest.TestCase):
         self.assertTrue(nudges, "an unrecorded description with no backbone is nudged")
         self.assertTrue(all(f["severity"] == "soft" for f in nudges))
 
+    def test_unrecognized_depth_marker_is_surfaced_as_soft(self):
+        # a typo (e.g. `fll` for `full`) must not silently drop the teeth: it is surfaced as a soft note and
+        # the description is treated as unrecorded, never hard-blocked.
+        root = self._seed({"docs/spec/index.md": _index("fll")})
+        result = design_form.findings("hard", root)
+        self.assertEqual(self._hard(result), [], "an unrecognized marker never hard-blocks")
+        self.assertTrue(any("isn't one I recognize" in f["message"] for f in self._soft_visible(result)),
+                        "the unrecognized marker is surfaced plainly")
+
+    def test_mermaid_diagram_accepts_indented_and_tilde_fences(self):
+        # a correctly-drawn diagram in a valid CommonMark variant (up to 3-space indent, or a ~~~ fence) must
+        # not be mistaken for a missing one and hard-block the merge.
+        for fence in ("   ```mermaid\n   flowchart TD\n     A --> B\n   ```", "~~~mermaid\nflowchart TD\n~~~"):
+            arch = _GOOD_ARCHITECTURE.replace("```mermaid\nflowchart TD\n  A --> B\n```", fence)
+            root = self._seed({"docs/spec/index.md": _index("full"), "docs/principles.md": _GOOD_PRINCIPLES,
+                               "docs/architecture.md": arch})
+            self.assertEqual(self._hard(design_form.findings("hard", root)), [],
+                             f"a {fence.strip()[:6]}-style diagram must be recognized")
+
     # ---- well-formedness of a present backbone document ------------------------------------------
 
     def test_architecture_missing_diagram_is_hard(self):
@@ -96,28 +122,47 @@ class DesignFormFindingsTests(unittest.TestCase):
         self.assertEqual([f["severity"] for f in result], ["hard"])
         self.assertIn("what these rule out", result[0]["message"].lower())
 
-    # a malformed present backbone document bites even under a light opt-out — opt-out excuses ABSENCE,
-    # never a broken document the operator did write.
-    def test_present_document_is_checked_even_in_light_mode(self):
+    # a malformed present backbone document under a light opt-out is SURFACED (soft), never HARD-blocked:
+    # the operator opted out of the fuller write-up, so a stray/partial doc is a nudge, not a merge gate.
+    def test_present_document_under_light_is_a_soft_nudge_not_hard(self):
         no_diagram = _GOOD_ARCHITECTURE.replace("```mermaid\nflowchart TD\n  A --> B\n```\n\n", "prose\n\n")
         root = self._seed({"docs/spec/index.md": _index("light"), "docs/architecture.md": no_diagram})
-        result = self._actionable(design_form.findings("hard", root))
-        self.assertEqual([f["severity"] for f in result], ["hard"])
+        result = design_form.findings("hard", root)
+        self.assertEqual(self._hard(result), [], "a present-but-malformed doc under light must not hard-block")
+        self.assertTrue(self._soft_visible(result), "it is surfaced as a soft nudge")
+
+    # THE BROWNFIELD REGRESSION (deliverable-gate SERIOUS): a repo that adopted product-design under the old
+    # "not checked" regime — a docs/spec tree, no depth marker, and a freely-authored (malformed) architecture
+    # doc — must NEVER be retroactively hard-blocked. It is surfaced as a soft nudge only.
+    def test_brownfield_present_malformed_document_is_soft_never_hard(self):
+        no_diagram = _GOOD_ARCHITECTURE.replace("```mermaid\nflowchart TD\n  A --> B\n```\n\n", "prose\n\n")
+        root = self._seed({"docs/spec/index.md": _index(None), "docs/architecture.md": no_diagram})
+        result = design_form.findings("hard", root)
+        self.assertEqual(self._hard(result), [], "an unrecorded/brownfield description is never hard-blocked")
+        self.assertTrue(self._soft_visible(result), "the malformed doc is still surfaced as a soft nudge")
 
     # ---- discretionary guides --------------------------------------------------------------------
 
-    def test_present_guide_missing_sections_is_hard(self):
-        root = self._seed({"docs/spec/index.md": _index("light"),
+    def test_present_guide_missing_sections_is_hard_in_full_mode(self):
+        root = self._seed({"docs/spec/index.md": _index("full"), "docs/principles.md": _GOOD_PRINCIPLES,
+                           "docs/architecture.md": _GOOD_ARCHITECTURE,
                            "docs/how-to/deploy.md": "# How to deploy\n\n## Goal\nx\n"})  # missing 2 sections
-        result = self._actionable(design_form.findings("hard", root))
-        self.assertEqual([f["severity"] for f in result], ["hard"])
+        result = self._hard(design_form.findings("hard", root))
+        self.assertEqual(len(result), 1)
         self.assertIn("docs/how-to/deploy.md", result[0]["message"])
 
-    def test_reference_guide_needs_at_least_one_section(self):
+    def test_present_guide_under_light_is_a_soft_nudge_not_hard(self):
         root = self._seed({"docs/spec/index.md": _index("light"),
+                           "docs/how-to/deploy.md": "# How to deploy\n\n## Goal\nx\n"})
+        result = design_form.findings("hard", root)
+        self.assertEqual(self._hard(result), [], "a guide the operator didn't opt into must not hard-block")
+        self.assertTrue(self._soft_visible(result), "it is surfaced as a soft nudge")
+
+    def test_reference_guide_needs_at_least_one_section(self):
+        root = self._seed({"docs/spec/index.md": _index("full"), "docs/principles.md": _GOOD_PRINCIPLES,
+                           "docs/architecture.md": _GOOD_ARCHITECTURE,
                            "docs/reference/settings.md": "# Settings\n\nno sections here\n"})
-        result = self._actionable(design_form.findings("hard", root))
-        self.assertEqual([f["severity"] for f in result], ["hard"])
+        self.assertEqual(len(self._hard(design_form.findings("hard", root))), 1)
 
     def test_absent_guides_are_never_flagged(self):
         root = self._seed({"docs/spec/index.md": _index("full"), "docs/principles.md": _GOOD_PRINCIPLES,

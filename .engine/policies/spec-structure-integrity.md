@@ -2,7 +2,6 @@
 title: Spec structure integrity
 status: accepted
 date: 2026-07-18
-established_by: eADR-0038
 ---
 
 ## Rule
@@ -10,10 +9,10 @@ established_by: eADR-0038
 An instruction to loosen how tightly a description's *prose* pins the details — keeping what is written at the
 level of durable rules and leaving the specifics to the sessions that build it — is **never** license to
 delete or collapse the description's *structure*. A build or design session may loosen the wording; it may not
-dismantle the structural apparatus the product-design module produces: the `docs/spec/` description corpus and
-its index, the guiding principles, the architecture overview and its diagram, the decision records, and the
-user-guide tree. Loosening the prose and removing the structure are different acts, and only the first is ever
-what "keep it at the level of laws" authorizes.
+dismantle the structural apparatus the product-design module produces — the description corpus and the fuller
+documents the module's scaffold defines (`.engine/modules/product-design/scaffold/`), which is the one place
+that set is enumerated. Loosening the prose and removing the structure are different acts, and only the first
+is ever what "keep it at the level of laws" authorizes.
 
 ## Scope
 

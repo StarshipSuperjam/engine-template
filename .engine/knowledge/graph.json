@@ -816,8 +816,7 @@
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-provider-parity-committed-exceptions",
           "contract:eADR-0036-codex-degradation-disclosure",
-          "contract:eADR-0037-upgrade-overwrite-disclosure",
-          "contract:eADR-0038-structured-description-by-default"
+          "contract:eADR-0037-upgrade-overwrite-disclosure"
         ]
       },
       "slug": "contract-frontmatter",
@@ -881,8 +880,7 @@
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-provider-parity-committed-exceptions",
           "contract:eADR-0036-codex-degradation-disclosure",
-          "contract:eADR-0037-upgrade-overwrite-disclosure",
-          "contract:eADR-0038-structured-description-by-default"
+          "contract:eADR-0037-upgrade-overwrite-disclosure"
         ]
       },
       "slug": "contract-shape",
@@ -947,8 +945,7 @@
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-provider-parity-committed-exceptions",
           "contract:eADR-0036-codex-degradation-disclosure",
-          "contract:eADR-0037-upgrade-overwrite-disclosure",
-          "contract:eADR-0038-structured-description-by-default"
+          "contract:eADR-0037-upgrade-overwrite-disclosure"
         ]
       },
       "slug": "contract-threshold",
@@ -1783,7 +1780,7 @@
       },
       "slug": "product-design-form",
       "source": {
-        "fingerprint": "sha256:e09c1f8c7ceda041512236a772c48a2489e7fcaf3f90895e1f67d9533bf0424c",
+        "fingerprint": "sha256:34922096ade1c3bf98546cfac7f47d0923afad896a78c9399d4f8e2122aec991",
         "path": ".engine/check/product-design-form.json"
       },
       "status": "active",
@@ -3599,26 +3596,6 @@
       "type": "contract"
     },
     {
-      "id": "contract:eADR-0038-structured-description-by-default",
-      "name": ".engine/contracts/eADR-0038-structured-description-by-default.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0038-structured-description-by-default",
-      "source": {
-        "fingerprint": "sha256:fe933ce10482225dade2a7346ea0c95e8f69a7814c66d24ec31dd90ee8ff0618",
-        "path": ".engine/contracts/eADR-0038-structured-description-by-default.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -4544,7 +4521,7 @@
       },
       "slug": "spec-structure-integrity",
       "source": {
-        "fingerprint": "sha256:cafb4384feba8f7a3ffc8bf745708a20f286eeaa32b1f0610f47e135c5696a08",
+        "fingerprint": "sha256:92823596b1a938f11d3e738238d7d1f93a8d2691a23b27a69e7ab6e7a38ed782",
         "path": ".engine/policies/spec-structure-integrity.md"
       },
       "status": "active",
@@ -6554,7 +6531,7 @@
       },
       "slug": "design_form",
       "source": {
-        "fingerprint": "sha256:62c27250808d7c2202a90f46585f3b8756a2a0045b66d9ac0a61d9fbd3dd6440",
+        "fingerprint": "sha256:d0f3fc7c26513b41608f169266547f6ab3835d440af6a5c0fac931667fc4f70b",
         "path": ".engine/tools/product_design/design_form.py"
       },
       "status": "active",
@@ -8407,7 +8384,7 @@
       },
       "slug": "test_design_form",
       "source": {
-        "fingerprint": "sha256:8d22754aa4d13862d3810f0ad9d96044fcc36ff966a6ab0609f2bd7f79dd4bf6",
+        "fingerprint": "sha256:e55935267c56e9bb327b50262bb6d69e4262a94a0cef778feaa4bee3bf06e29d",
         "path": ".engine/tools/product_design/test_design_form.py"
       },
       "status": "active",
