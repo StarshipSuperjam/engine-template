@@ -69,7 +69,7 @@ def _refuses_dangerous_entry(kind: str, rel: str, make, label: str) -> bool:
 
 def main() -> int:
     print("=" * 78)
-    print("First-run cleanup safety: retire() never deletes anything that isn't the engine's own")
+    print("First-run cleanup safety: the setup cleanup never deletes anything that isn't the engine's own")
     print("=" * 78)
 
     print("\n[1] A dangerous FOLDER entry in the cleanup list. Expect: refused, your folder survives.")

@@ -6153,7 +6153,7 @@
       },
       "slug": "demo_first_run_guard",
       "source": {
-        "fingerprint": "sha256:df76cc40442ab01eac58ff231c844833f61359680888e3305584e105246dd3c8",
+        "fingerprint": "sha256:4c39d7fbd06334d886694fd5ecdf314caab298a14c3d0823dce671555f30bc11",
         "path": ".engine/tools/demo_first_run_guard.py"
       },
       "status": "active",
@@ -6833,7 +6833,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:824d2b34ee0c090e94a8df9c3d6be58e3eb411e10d891cbdea95342eabacb594",
+        "fingerprint": "sha256:3172a86b82ebea32dcb1a0e1d41028983d1a40cdccc8a4fbfa3495607d733f66",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",

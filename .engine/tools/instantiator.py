@@ -1643,7 +1643,7 @@ _FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),
 # are the operator's own tool namespaces (the same reason the banner is retired as a FILE, not the `assets/`
 # directory, above). So outside `.engine/`, only these explicitly-sanctioned engine-owned paths may ever be
 # retired; anything else is refused before any delete. A new non-`.engine/` retire entry must be added here on
-# purpose — the manifest-safety test (test_first_run_asset_manifest_is_safe) fails until it is, so the choice
+# purpose — the manifest-safety test (TestRetireGuard.test_the_committed_first_run_asset_set_is_all_engine_owned) fails until it is, so the choice
 # is deliberate, not accidental.
 _SANCTIONED_NON_ENGINE_RETIRE_PATHS = frozenset({
     os.path.join(".claude", "skills", "engine-setup"),
@@ -1748,7 +1748,7 @@ def retire(*, root=None, announce=None) -> dict:
         _unsafe = _unsafe_retire_reason(base, _rel)
         if _unsafe is not None:
             say("Setup cleanup was stopped for safety: an item in the cleanup list is not one of the engine's "
-                f"own files, so nothing was removed ({_unsafe}).")
+                f"own files or folders, so nothing was removed. The item was: {_rel}.")
             return {"refused": True, "reason": "unsafe-retire-target", "target": _rel,
                     "deleted": [], "already_absent": [], "preserved": [],
                     "graph": "unchanged", "self_map": "unchanged",
@@ -2954,6 +2954,12 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
         verify(announce=say)
         retired = retire(announce=say)
         if retired.get("refused"):
+            if retired.get("reason") == "unsafe-retire-target":
+                return {**result, "proceeded": True,
+                        "reason": "the engine is installed, but its one-time setup cleanup was stopped for "
+                                  "safety — the cleanup list named an item that isn't one of the engine's own "
+                                  "files or folders, so nothing was removed. This is an engine defect to "
+                                  "report, not something re-running fixes; the setup files were left in place."}
             return {**result, "proceeded": True,
                     "reason": "the engine is installed but a consistency check did not pass, so the one-time "
                               "setup files were left in place; fix the cause and run the arrival again."}
