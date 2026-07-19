@@ -502,6 +502,17 @@ class DirectiveTests(_Base):
         self.assertIn("omit the list", low)                                # …omit-rather-than-invent discipline
         self.assertIn("\"tags\"", text)                                    # the store format includes the field
 
+    def test_directive_names_both_decision_record_kinds_without_the_phantom_term(self):
+        # The entity-tag guidance points a note at the decision it discusses, so recall/scent surfaces a pointer
+        # to it. It must name BOTH an engine decision id (eADR) and a product ADR id (docs/adr/…), and must NOT
+        # carry the fabricated "eDEC" record type — a term invented once and rejected as a phantom (nothing in
+        # the engine defines or resolves it; the canonical deployment-side record is `<project>-eADR-####`).
+        text = consolidate._consolidation_directive(["s0"])
+        self.assertIn("eADR-0031", text)                                   # the engine-decision example is kept
+        self.assertIn("docs/adr/", text)                                   # …and a product ADR id is now named too
+        self.assertNotIn("eDEC", text)                                     # the phantom record type is gone
+        self.assertIn("canonical case", text.lower())                      # the verbatim/canonical stabilizer stays
+
     def test_the_stalled_backlog_alarm_is_the_main_loops_job(self):
         # Plan-gate serious: the suppressed subagent's output is not shown to the operator, so the one
         # break-silence line MUST be spoken by the MAIN loop (deterministic on the count), or a silently
