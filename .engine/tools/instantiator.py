@@ -1561,6 +1561,10 @@ _FIRST_RUN_ASSET_FILES = (
     # this list (parity-tested) so the closure check can read the retired set without importing the instantiator.
     ".engine/tools/test_security_seed.py",
     ".engine/tools/demo_security_seed.py",
+    # demo_first_run_guard exercises retire()'s own fail-closed safety guard against a redirected fixture; it
+    # imports the retiring instantiator, so it retires in the SAME pass (else it dangles a reference to a
+    # removed module — the first-run reference-closure invariant). Mirrored in first-run-assets.json (parity).
+    ".engine/tools/demo_first_run_guard.py",
     # Construction-phase behavioral demos: falsifications over real engine surfaces that are maintainer build
     # evidence, not operator capability — so they retire here rather than travel into a generated repo
     # (a construction demo does not travel unless promoted by an explicit logged
@@ -1634,6 +1638,45 @@ _FIRST_RUN_ASSET_FILES = (
 _FIRST_RUN_ASSET_DIRS = (os.path.join(".claude", "skills", "engine-setup"),
                          os.path.join(".agents", "skills", "engine-setup"))
 
+# Every retirement target must be engine-owned. The `.engine/` subtree is wholly the engine's, even on a
+# brownfield "add the engine to an existing project" arrival; `.claude/` and `.agents/` are NOT — there they
+# are the operator's own tool namespaces (the same reason the banner is retired as a FILE, not the `assets/`
+# directory, above). So outside `.engine/`, only these explicitly-sanctioned engine-owned paths may ever be
+# retired; anything else is refused before any delete. A new non-`.engine/` retire entry must be added here on
+# purpose — the manifest-safety test (test_first_run_asset_manifest_is_safe) fails until it is, so the choice
+# is deliberate, not accidental.
+_SANCTIONED_NON_ENGINE_RETIRE_PATHS = frozenset({
+    os.path.join(".claude", "skills", "engine-setup"),
+    os.path.join(".agents", "skills", "engine-setup"),
+    os.path.join("assets", "engine_banner.jpg"),
+})
+
+
+def _unsafe_retire_reason(base: str, rel: str):
+    """Return a plain-language reason if `rel` is NOT a safe retirement target under `base`, else None.
+    Fail-closed: a target is safe only if it resolves strictly inside the repo (realpath — so `..`, absolute,
+    and symlink escapes are refused) AND is either under `.engine/` (engine-exclusive) or an explicitly
+    sanctioned engine-owned path. This guards the irreversible `retire()` delete against a future manifest
+    entry that would remove a brownfield adopter's own file or directory."""
+    if not rel or os.path.isabs(rel):
+        return f"retire target is empty or an absolute path: {rel!r}"
+    norm = os.path.normpath(rel)
+    if norm == os.curdir or norm == os.pardir or norm.startswith(os.pardir + os.sep):
+        return f"retire target escapes the repository: {rel!r}"
+    root = os.path.realpath(base)
+    target = os.path.realpath(os.path.join(base, rel))
+    if target == root:
+        return f"retire target is the repository root itself: {rel!r}"
+    if not target.startswith(root + os.sep):
+        return f"retire target resolves outside the repository: {rel!r}"
+    norm_slash = norm.replace(os.sep, "/")
+    if norm_slash.startswith(".engine/"):
+        return None
+    if norm in _SANCTIONED_NON_ENGINE_RETIRE_PATHS:
+        return None
+    return (f"retire target is not an engine-owned path (not under .engine/ and not a sanctioned engine "
+            f"path): {rel!r}")
+
 
 def _hard_findings() -> list:
     """The hard consistency findings over the present engine (the verify check). Pure read."""
@@ -1696,6 +1739,20 @@ def retire(*, root=None, announce=None) -> dict:
     say = announce if announce is not None else (lambda text: print(text))
     copy = load_copy()
     base = root or validate.ROOT
+    # SAFETY FIRST — before the consistency check and before any deletion, validate the WHOLE retire set: no
+    # target may resolve outside the engine's own paths. This guards the irreversible delete against a future
+    # bad manifest entry that would remove a brownfield adopter's own file/directory, and refusing up front
+    # (delete nothing) means no half-retired tree. A clean set is the common path; a hit is a code defect the
+    # manifest-safety test already fails on in CI, so this is the fail-closed last line, not a routine branch.
+    for _rel in _FIRST_RUN_ASSET_FILES + _FIRST_RUN_ASSET_DIRS:
+        _unsafe = _unsafe_retire_reason(base, _rel)
+        if _unsafe is not None:
+            say("Setup cleanup was stopped for safety: an item in the cleanup list is not one of the engine's "
+                f"own files, so nothing was removed ({_unsafe}).")
+            return {"refused": True, "reason": "unsafe-retire-target", "target": _rel,
+                    "deleted": [], "already_absent": [], "preserved": [],
+                    "graph": "unchanged", "self_map": "unchanged",
+                    "steps": [{"step": "retire", "status": "refused", "unsafe": _rel}]}
     hard = _hard_findings()
     if hard:
         _say_consistency_pause(say, copy, hard)
