@@ -40,7 +40,10 @@ import os
 import sys
 
 # A pure leaf: the repo root computed from __file__, no sibling import. .engine/tools/greenfield_intake.py
-# → up three (tools → .engine → root).
+# → up three (tools → .engine → root). This reads the booting worktree's tree (not, like license_health, the
+# resolved main checkout): the anchors it checks are tracked files, so every worktree sees a consistent
+# picture — the one benign edge is booting an OLD worktree branched before the spec was first authored, which
+# re-offers until merged; harmless (a terse offer, self-corrects) and not worth a git resolution here.
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # .engine/tools for the sibling import below

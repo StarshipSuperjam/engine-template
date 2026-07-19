@@ -3563,7 +3563,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:c43066e86390c6133fa7a8056003f33741a3e5645ddcaba5edbde8c5faf3f942",
+        "fingerprint": "sha256:cee2e8dd1f13b61c341187c58fec9453754578265a8072fac76471f7d0fbdcb5",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -3868,7 +3868,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:0cc812993622076e5d825234d9288dbc54379be5076a5ff9ce2ea6526e3a1a62",
+        "fingerprint": "sha256:5a538e9c44645061b9e615835033955246f701c9868db18c76ca7b242f8348e4",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -5516,7 +5516,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:70ae1581235a14790c75a58e451a715da635b58ff25ac853c6692e2468bcf17b",
+        "fingerprint": "sha256:98638558de8a0b2c46bd35e32d08474ed5c1569b024b64830c4aff4a9db543de",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5533,7 +5533,7 @@
       },
       "slug": "boot_alarm_ledger",
       "source": {
-        "fingerprint": "sha256:9c9ff3b6cc89e83a8e349093503d8a1613c37bc4d243911ec80e17ac6d19bf94",
+        "fingerprint": "sha256:a13019ffd49386d2783102440ef21253e3cdd61cff8f310aa9e4ac178fb18f2f",
         "path": ".engine/tools/boot_alarm_ledger.py"
       },
       "status": "active",
@@ -6672,7 +6672,7 @@
       },
       "slug": "greenfield_intake",
       "source": {
-        "fingerprint": "sha256:15bdb20a2b4d6df264914716658095b921abcc0701000029a8f923eda8e341b0",
+        "fingerprint": "sha256:a32c7f9203292ac1e2aff6fb6f81aee6bd2f77b561182ee4670494cc4bccf61a",
         "path": ".engine/tools/greenfield_intake.py"
       },
       "status": "active",
@@ -8049,7 +8049,7 @@
       },
       "slug": "test_boot_alarm_ledger",
       "source": {
-        "fingerprint": "sha256:ddbab82f229e0caf573aef074394498a3235569b1f7370fc758bb059b3f71630",
+        "fingerprint": "sha256:e209c0dbf097c6e4ac9cececeab6c252f97359b731de6d8234afa8ac29f7da7c",
         "path": ".engine/tools/test_boot_alarm_ledger.py"
       },
       "status": "active",

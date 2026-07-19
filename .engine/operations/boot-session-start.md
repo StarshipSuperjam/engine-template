@@ -150,4 +150,7 @@ and never forces. What differs is *what* each protects and *how* it declines:
   installed (never offering a command that isn't there) and self-resolves the moment the intake runs and writes
   `docs/spec/index.md`; it no-ops in the engine's own construction repo. On the operator's "I'd rather work without a
   written description" the assistant runs `boot_alarm_ledger.retire` (class `greenfield_intake`) so the offer stops
-  surfacing; a plain not-now instead collapses it to a terse reminder, never fully silent.
+  surfacing — run it as `python tools/boot_alarm_ledger.py retire-greenfield` (an Explore-permitted tool call),
+which DERIVES the fingerprint from the live detector so the marker can never silently mismatch and keep the
+offer firing; never hand-build the retire call. A plain not-now instead collapses it to a terse reminder,
+never fully silent.

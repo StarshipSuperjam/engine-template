@@ -294,7 +294,23 @@ def main(argv: list) -> int:
             return 0
         print(f"Could not retire ({r.get('reason')}) — it will surface again; try once more.", file=sys.stderr)
         return 1
-    print("usage: boot_alarm_ledger.py [path|retire]", file=sys.stderr)
+    if argv and argv[0] == "retire-greenfield":
+        # The operator said "I'd rather work without a written description." DERIVE the current greenfield
+        # fingerprint from the live detector (single source of truth), so the honored marker always matches what
+        # the detector emits — never a caller-supplied value that could silently mismatch and keep the offer
+        # firing. No greenfield state -> nothing to retire.
+        import greenfield_intake
+        d = greenfield_intake.detect_greenfield()
+        if d is None:
+            print("No greenfield-intake offer to retire (nothing is offering).", file=sys.stderr)
+            return 1
+        r = retire(d["fingerprint"], "greenfield_intake")
+        if r.get("ok"):
+            print("Retired: the describe-your-project offer won't surface again on this checkout.")
+            return 0
+        print(f"Could not retire ({r.get('reason')}) — it will surface again; try once more.", file=sys.stderr)
+        return 1
+    print("usage: boot_alarm_ledger.py [path|retire|retire-greenfield]", file=sys.stderr)
     return 2
 
 

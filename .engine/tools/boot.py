@@ -1555,17 +1555,18 @@ def render_dashboard(s: dict) -> str:
     if gf and gf.get("greenfield") and not gf.get("retired"):
         if gf.get("collapsed"):
             pinned.append(
-                "🧭 You haven't written down what you want to build yet (unchanged since last session) — whenever "
-                "you're ready, just tell me what you have in mind and I'll help you write it down clearly and "
-                "check it holds together. Or, if you'd rather work without a written description, say so and I'll "
-                "stop bringing it up.")
+                "🧭 There's still no written description of this project in the engine (unchanged since last "
+                "session) — whenever you're ready, just tell me what you have in mind and I'll help you write it "
+                "down clearly and check it holds together. Or, if you'd rather work without a written "
+                "description, say so and I'll stop bringing it up.")
         else:
             pinned.append(
-                "🧭 **Want to start by describing what you're building?** You haven't written down what you want "
-                "to build yet. If you tell me what you have in mind, I can help you turn it into a clear, checked "
-                "description to build from — laid out a piece at a time, in plain language (this is what the "
-                "**engine-design** command does). It's optional and you can do it any time. If you'd rather just "
-                "start building without a written description, that's fine — say so and I'll stop offering.")
+                "🧭 **Want to start by describing what you're building?** There's no written description of this "
+                "project in the engine yet. If you tell me what you have in mind, I can help you turn it into a "
+                "clear, checked description to build from — laid out a piece at a time, in plain language (this "
+                "is what the **engine-design** command does). It's optional and you can do it any time. If you'd "
+                "rather just start building without a written description, that's fine — say so and I'll stop "
+                "offering.")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)

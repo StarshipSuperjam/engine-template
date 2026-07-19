@@ -189,6 +189,23 @@ class TestRetireAndSection15(unittest.TestCase):
         self.assertFalse(bal.is_retired("fp-gov", "gate", path=self.path))
         self.assertFalse(bal.is_retired("fp-gov", "findings", path=self.path))
 
+    def test_retire_greenfield_cli_derives_the_fingerprint_from_the_detector(self):
+        # The self-deriving dismiss: the CLI reads the LIVE detector's fingerprint (never a hand-supplied value
+        # that could silently mismatch), so the marker it writes is exactly the one is_retired later checks.
+        import greenfield_intake
+        with mock.patch.dict(os.environ, {bal.ENV_DIR: self.dir}):
+            with mock.patch.object(greenfield_intake, "detect_greenfield",
+                                   return_value={"greenfield": True, "fingerprint": "greenfield"}):
+                self.assertEqual(bal.main(["retire-greenfield"]), 0)
+            # the marker the detector's real fingerprint would resolve to is now honored
+            self.assertTrue(bal.is_retired("greenfield", "greenfield_intake"))
+
+    def test_retire_greenfield_cli_reports_nothing_to_retire_when_not_greenfield(self):
+        import greenfield_intake
+        with mock.patch.dict(os.environ, {bal.ENV_DIR: self.dir}):
+            with mock.patch.object(greenfield_intake, "detect_greenfield", return_value=None):
+                self.assertEqual(bal.main(["retire-greenfield"]), 1)
+
     def test_retire_refuses_a_non_eligible_class_at_write_time(self):
         r = bal.retire("x", "gate", path=self.path)
         self.assertFalse(r["ok"])
