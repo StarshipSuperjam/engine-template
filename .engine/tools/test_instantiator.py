@@ -181,7 +181,8 @@ class TestPresentGather(unittest.TestCase):
             with open(p, "w", encoding="utf-8") as fh:
                 json.dump([{"id": "x", "verb": "engine-x", "description": "Does x.",
                             "category": "Product Management"}], fh)
-            out = self._gather(p)
+            with mock.patch.object(inst.boot, "repo_slug", return_value="acme/widgets"):
+                out = inst.present_gather(catalog_path=p, manifests=[])
         self.assertIn("you can add any later", out, "add-later is stated")
         self.assertIn("removable", out, "removability is stated")
         self.assertIn("fresh request, not a checkbox you flip back", out, "delete-on-unkeep detail is kept")
