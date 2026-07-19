@@ -6185,6 +6185,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_first_run_guard",
+      "name": ".engine/tools/demo_first_run_guard.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_first_run_guard",
+      "source": {
+        "fingerprint": "sha256:4c39d7fbd06334d886694fd5ecdf314caab298a14c3d0823dce671555f30bc11",
+        "path": ".engine/tools/demo_first_run_guard.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_first_run_reference_closure",
       "name": ".engine/tools/demo_first_run_reference_closure.py",
       "owner": "core",
@@ -6858,7 +6875,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:bdbee7945b1935466ce460b9d90172c0052e4f3390e0f4ea725eed211cec4cac",
+        "fingerprint": "sha256:52bf115c5cafb6444bfd10634680206c9e4f8b06611e594717445b22da4652b9",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -8796,7 +8813,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:e7bcc54a1c187fbe0e08e008444b04cc651f5dbedfd71fd9406d495bf85f328e",
+        "fingerprint": "sha256:871eced67d38ae65dbf8245c9e8f1557a81626c747cdc589b79ed4029e0ae245",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
