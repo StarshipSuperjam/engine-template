@@ -55,10 +55,16 @@ open-the-pull-request step has not yet been exercised against a live project —
    the change look as reviewed as any other; **that note is a backstop, not a substitute for the review**.
 6. **Review the prepared pull request.** The engine assembles the pull-request text to the **project's own
    template** when it has one (a contributor follows the host's conventions), or a plain fallback shape when
-   it doesn't. It shows you what it will open — the title, the text, which branch goes where, **and the branch
-   it measured your change against** (the project's own default). That comparison is what the clean-check
-   rests on, so if the branch it names isn't the project you're contributing to, say so before it opens —
-   it's the one thing to glance at here.
+   it doesn't. For a project whose template has sections to fill and a check that the pull-request text is
+   complete — engine-template itself is one — the engine **writes those sections in full** (the same way it
+   authors the text for a change to this project) and opens *that*, rather than a template with the prompts
+   left blank. If the sections aren't written and the project is the engine's own home, the engine **won't
+   open it** — an unfilled body would just come back red on the home's own checks — and tells you plainly it
+   needs the text authored first; for any other project it opens on your go-ahead but says plainly that the
+   sections aren't filled, so you can have it complete them before you send. It shows you what it will open —
+   the title, the text, which branch goes where, **and the branch it measured your change against** (the
+   project's own default). That comparison is what the clean-check rests on, so if the branch it names isn't
+   the project you're contributing to, say so before it opens — it's the one thing to glance at here.
 7. **Authorize the submission — your call.** The engine opens the pull request **only on your go-ahead**;
    without it, the prepared request just waits. When it opens, it tells you plainly that *submitting is not
    the same as being accepted* — the project's maintainers decide, it may take a while or be declined, and
@@ -67,10 +73,12 @@ open-the-pull-request step has not yet been exercised against a live project —
 ## Done when
 
 The engine reports the pull request is **open** and prints its link — or, if you haven't authorized it yet,
-that it is **prepared and waiting** for your go-ahead — or, if the upstream couldn't be reached, that it is
-**drafted and safe on your fork** for you to file later. In every case the work is committed on your own fork,
-and **no step has left you at a raw git conflict**: anything the engine couldn't resolve on its own was put to
-you as a plain "I need a decision from you" question.
+that it is **prepared and waiting** for your go-ahead, its text either complete or plainly flagged as still
+needing sections filled — or, if the pull-request text isn't authored for a contribution to the engine's own
+home, that it is **held until that text is written** (with the engine offering to write it) — or, if the
+upstream couldn't be reached, that it is **drafted and safe on your fork** for you to file later. In every
+case the work is committed on your own fork, and **no step has left you at a raw git conflict**: anything the
+engine couldn't resolve on its own was put to you as a plain "I need a decision from you" question.
 
 ## Notes
 

@@ -233,14 +233,37 @@ _COLD_REVIEW_RAN = (
 )
 
 
-def build_pr_body(*, summary: str, template_text: str | None = None, reviewed: bool = False) -> str:
-    """The cross-fork pull-request body. When the upstream has a template, follow the host's form: lead with a
-    plain one-line summary, then carry the upstream's template for completion. When it has none, fall back to
-    the Engine's own contribution shape (the `_FALLBACK_SECTIONS`). Leads with a review note stating the TRUTH
-    about this contribution — that the engine's second review ran (`reviewed=True`) or that it did not (#562) —
-    so the note is informative, never an always-on warning. Never invokes the owner-repo completeness check."""
-    summary = summary.strip()
+# The host completeness gate (`pr-body-completeness`) counts a section EMPTY when it holds only the template's
+# angle-bracket placeholder PROMPTS — "<one-line summary of why this change exists>" and the like. A body still
+# carrying such a prompt would fail that gate, so the submit flow uses the SAME signal (#557) to tell a ready
+# body from an unfilled template it must not open blind. The pattern is deliberately narrow — an angle-bracket
+# span that is lowercase-led AND contains whitespace — so it matches the template's prose prompts but not an
+# HTML comment (`<!-- ... -->`, `!`-led) or an inline code token (`<div>`, `<T>`, no inner space).
+_PLACEHOLDER_RE = re.compile(r"<[a-z][^>\n]*\s[^>\n]*>")
+
+
+def _has_unfilled_placeholders(body: str) -> bool:
+    """True when the assembled body still carries an angle-bracket placeholder prompt — the mechanical signal
+    that a host template (or an authored body) was left with sections to fill. Mirrors the host completeness
+    gate's own rule rather than re-implementing its section logic (the engine/product wall — submit never
+    invokes the owner-repo check)."""
+    return _PLACEHOLDER_RE.search(body) is not None
+
+
+def build_pr_body(*, summary: str, template_text: str | None = None, authored_body: str | None = None,
+                  reviewed: bool = False) -> str:
+    """The cross-fork pull-request body. Precedence: an AUTHORED body (a session wrote the full body to the
+    host's form — the mergeable path for a host with a completeness gate, #557) is used as given; else the
+    host's TEMPLATE is carried after a one-line summary for completion; else the Engine's own fallback shape
+    (`_FALLBACK_SECTIONS`). EVERY path LEADS with the review-disclosure note stating the TRUTH about this
+    contribution — that the engine's second review ran (`reviewed=True`) or did not (#562). The note is a
+    leading blockquote that rides any body without corrupting it, so an authored body keeps the #562 disclosure
+    too (dropping it there would reopen the gap #562 closed). Never invokes the owner-repo completeness check
+    (the engine/product wall)."""
     note = _COLD_REVIEW_RAN if reviewed else _COLD_REVIEW_BACKSTOP
+    if authored_body is not None and authored_body.strip():
+        return f"{note}\n\n{authored_body.strip()}"
+    summary = summary.strip()
     if template_text is not None:
         return f"{note}\n\n{summary}\n\n{template_text}"
     parts = [f"{note}\n", f"## {_FALLBACK_SECTIONS[0]}\n\n{summary}\n"]
@@ -291,8 +314,24 @@ def _status_narration(upstream_repo: str, pr_url: str, state: str) -> str:
             f"{pr_url}")
 
 
+def _body_incomplete_narration(upstream_repo: str) -> str:
+    """The HOLD narration when a contribution to the engine's OWN home would open with an unfilled body (#557).
+    The home enforces the pull-request-completeness gate THIS engine ships, so a body with sections still to
+    fill would come back red — the flow holds before the one-way open rather than send a body its own CI will
+    bounce. The remedy is always available and is the engine's own job (author the body to the home's form), so
+    this is a hold with a clear next step, never a dead end."""
+    return (
+        f"I've prepared the contribution to {upstream_repo}, but its pull-request text still has the home "
+        f"template's sections to fill in — and {upstream_repo}'s own checks require every section written, so "
+        "opening it now would only come back red. I haven't opened it. Let me write the pull-request text to "
+        "the home's form (the same way I write it for a change to this project), and I'll prepare it again — "
+        "then opening it is your call."
+    )
+
+
 def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
-                        leak_overridden: bool = False, reviewed: bool = False) -> str:
+                        leak_overridden: bool = False, reviewed: bool = False,
+                        body_unfilled: bool = False) -> str:
     # Never assert "carries no engine files" when the operator reached here by OVERRIDING a leak
     # (proceed_despite_leak=True, confirm=False) — that would be a false-clean claim at the authorize gate.
     cleanliness = (
@@ -311,12 +350,23 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
         "doesn't run by itself on a contribution to another project. Unless this is trivial, ask me to run it "
         "before you send it; a real mistake can otherwise reach the merge looking fully checked."
     )
+    # #557: when the body is the host's template with sections still to fill (only reached here for a NON-home
+    # host — the home case is HELD earlier), advise it plainly. Carrying a host's template for completion is a
+    # normal contribution flow, so this is an advisory, not a block; the engine can't know whether that host
+    # gates completeness, so it names the gap and offers to fill it rather than assert the text is ready.
+    unfilled_line = (
+        " One thing first, though: the pull-request text still carries this project's own template with its "
+        "sections not yet filled in. I should write those before this opens, or the project may bounce an "
+        "incomplete description — ask me to fill it in and I'll prepare it again."
+        if body_unfilled else ""
+    )
+    ready = "the pull-request text is ready" if not body_unfilled else "I've assembled the pull-request text"
     return (
         f"I've prepared the contribution to {upstream_repo} ({head} → {base}): I compared it against "
-        f"`{diff_ref}` — the branch I'm treating as the project's default — and {cleanliness}, and the "
-        "pull-request text is ready. If that isn't the branch this should be measured against, tell me before "
-        f"I open it.{review_line} I won't open it until you say so — opening a pull request on a project you "
-        "don't own is your call. Say the word and I'll submit it."
+        f"`{diff_ref}` — the branch I'm treating as the project's default — and {cleanliness}, and "
+        f"{ready}. If that isn't the branch this should be measured against, tell me before "
+        f"I open it.{review_line}{unfilled_line} I won't open it until you say so — opening a pull request on a "
+        "project you don't own is your call. Say the word and I'll submit it."
     )
 
 
@@ -473,8 +523,8 @@ def _run_gh(args: list):
 
 def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str, summary: str,
            run=_run_git, root=None, owned=None, gh_run=None, github=_UNSET, home=_UNSET,
-           confirm: bool = False, proceed_despite_leak: bool = False, reviewed: bool = False,
-           now: str | None = None) -> dict:
+           authored_body: str | None = None, confirm: bool = False, proceed_despite_leak: bool = False,
+           reviewed: bool = False, now: str | None = None) -> dict:
     """Prepare (and, on an explicit affirmative decision, open) a cross-fork contribution pull request.
 
     `base` and `remote` are TWO roles that were once conflated into one value (issue #561), which made a live
@@ -511,6 +561,13 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
       - `"prepared"`       — clean (or leak-acknowledged), but no affirmative decision yet; the pull request is
         NOT opened. Carries the assembled `pr` (repo/base/head/title/body) the engine WOULD open and the
         prepared `narration`.
+      - `"body-incomplete"` — clean, but the assembled body is the engine home's own template with sections
+        still to fill (#557), and the target IS the engine's home — whose completeness gate this engine
+        enforces would reject it. HELD before the one-way open regardless of `confirm`, so the consent-critical
+        disclosure can't be routed past by a direct `confirm=True`. Carries the assembled `pr` (with
+        `body_unfilled=True`) and a remedy-naming `narration`. A NON-home host with an unfilled body is not
+        held — it is only advised in the `prepared` narration (carrying a host's template for completion is a
+        normal flow, and the engine can't know whether that host gates completeness).
       - `"submitted"`      — clean (or leak-acknowledged) and `confirm=True`; the pull request was opened.
         Carries its `url` and the submitted-is-not-accepted `narration`.
       - `"degraded-draft"` — clean and `confirm=True`, but the upstream was unreachable; the submission is
@@ -538,6 +595,13 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     submitting (issue #562): it selects the truthful review note in the prepared narration and the PR body — a
     contribution that WAS reviewed says so; one that was not carries the "no cold review ran" backstop. It
     changes only disclosure, never the gate.
+
+    `authored_body` is the pull-request body a session wrote to the host's own form (#557). When given, it is
+    used AS THE BODY (after the leading #562 review note) instead of the host's raw template — the mergeable
+    path for a host that gates body completeness (engine-template itself). When it is absent and the host has a
+    template, the assembled body carries that template with its sections still to fill: for the engine-HOME
+    target the flow HOLDS (`body-incomplete`) rather than open a body the home's own gate will bounce; for any
+    other host it opens on the ordinary gates with a plain advisory that the sections are unfilled.
     """
     now = now or telemetry.utc_now()
 
@@ -604,12 +668,29 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
             }
         # proceed_despite_leak: the operator has acknowledged the leak — fall through to the human confirm gate.
 
-    # 2. Follow the host's conventions: build the body to the upstream's template, else the fallback shape.
+    # 2. Follow the host's conventions: use an authored body when the session wrote one to the host's form
+    #    (#557); else carry the upstream's template for completion; else the fallback shape. `body_unfilled` is
+    #    derived from the FINAL assembled body (a single source of truth — it catches a raw template AND an
+    #    authored body a session left with placeholders), mirroring the host completeness gate's own rule.
     template_text = detect_upstream_pr_template(root)
     contributing = detect_contributing(root)
-    body = build_pr_body(summary=summary, template_text=template_text, reviewed=reviewed)
+    body = build_pr_body(summary=summary, template_text=template_text, authored_body=authored_body,
+                         reviewed=reviewed)
+    body_unfilled = _has_unfilled_placeholders(body)
     pr = {"repo": upstream_repo, "base": base, "head": head, "title": title, "body": body,
-          "followed_template": template_text is not None, "contributing": contributing}
+          "followed_template": template_text is not None, "body_unfilled": body_unfilled,
+          "contributing": contributing}
+
+    # 2b. #557 — never open a body the target's own completeness gate will bounce. When the target is the
+    #     engine's OWN home (whose gate this engine ships and enforces) and the assembled body still carries
+    #     unfilled placeholders, HOLD before the one-way open — regardless of `confirm`, so a direct
+    #     confirm=True cannot route past this consent-critical surface. A NON-home host is only ADVISED (in the
+    #     prepared narration below): carrying a host's template for completion is a normal contribution flow,
+    #     and the engine cannot know whether that host gates completeness. The remedy — author the body — is
+    #     always available and is the engine's own job, so the hold names it rather than dead-ends.
+    if body_unfilled and contributing_to_engine_home:
+        return {"status": "body-incomplete", "pr": pr,
+                "narration": _body_incomplete_narration(upstream_repo)}
 
     # 3. The human gate: without an affirmative decision, PREPARE only — never open the pull request. (B1)
     #    `findings` is truthy here only when the operator OVERRODE a leak (proceed_despite_leak) to reach this
@@ -617,7 +698,8 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     if not confirm:
         return {"status": "prepared", "pr": pr,
                 "narration": _prepared_narration(upstream_repo, head, base, diff_ref,
-                                                  leak_overridden=bool(findings), reviewed=reviewed)}
+                                                  leak_overridden=bool(findings), reviewed=reviewed,
+                                                  body_unfilled=body_unfilled)}
 
     # 4. Open the pull request (the one un-exercised-at-v1 boundary). Degrade to a draft on any failure.
     gh = gh_run or _run_gh
@@ -696,6 +778,14 @@ def demo() -> int:
     template_marker = "## Description\n<!-- upstream's own template -->\n"
     with open(os.path.join(root_with, ".github", "pull_request_template.md"), "w", encoding="utf-8") as fh:
         fh.write(template_marker)
+    # A GATED template — one that carries angle-bracket placeholder PROMPTS, like engine-template's own — used
+    # to exercise #557: an unfilled body must not silently open, and an authored body opens verbatim.
+    root_gated = tempfile.mkdtemp(prefix="engine-submit-demo-gated-")
+    os.makedirs(os.path.join(root_gated, ".github"), exist_ok=True)
+    gated_template = ("## Purpose\n\n**<one-line summary of why this change exists>**\n\n"
+                      "## Validation\n\n**<how this was checked>**\n")
+    with open(os.path.join(root_gated, ".github", "pull_request_template.md"), "w", encoding="utf-8") as fh:
+        fh.write(gated_template)
 
     recorded = {}
 
@@ -842,9 +932,50 @@ def demo() -> int:
                      github=None, home=home, confirm=False, now=now)
         if r7s["status"] != "leak-decision-needed" or ".engine/tools/boot.py" not in r7s.get("offending", []):
             failures.append("stranger case: engine source MUST be flagged for a third-party target (safety case)")
+
+        # Case 8 — #557: an AUTHORED body is carried VERBATIM (the mergeable path against a gated host), no raw
+        #          <placeholder> survives, and the #562 review note still leads it.
+        authored = ("## Purpose\n\n**It fixes the thing.**\n\n*Impact: the thing works.*\n\n"
+                    "## Validation\n\n**Tests pass.**\n\n*Impact: green.*\n")
+        r8 = submit(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
+                    title="Fix the thing", summary="Fixes the thing.", run=run_with(["src/app.py"]),
+                    root=root_gated, owned=owned, gh_run=gh_ok, github=None, authored_body=authored,
+                    home=None, confirm=False, now=now)
+        print("--- an authored body is carried verbatim; no unfilled placeholder survives ---")
+        print(r8["narration"], "\n")
+        if r8["status"] != "prepared" or r8["pr"]["body_unfilled"]:
+            failures.append(f"authored case: expected prepared with a filled body, got {r8['status']} / "
+                            f"unfilled={r8['pr'].get('body_unfilled')}")
+        if authored.strip() not in r8["pr"]["body"] or "second, independent" not in r8["pr"]["body"]:
+            failures.append("authored case: the authored body (with the review note) was not carried verbatim")
+        if _PLACEHOLDER_RE.search(r8["pr"]["body"]):
+            failures.append("authored case: a raw <placeholder> survived into the body")
+
+        # Case 9 — #557: NO authored body against the engine's OWN home (whose completeness gate we KNOW rejects
+        #          an unfilled body): HELD before the open even with confirm=True, remedy named. The SAME
+        #          unfilled template to a stranger's repo is only ADVISED (opening a template for completion is
+        #          normal there).
+        recorded.clear()
+        r9 = submit(upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
+                    summary="Fix.", run=run_with(["src/app.py"]), root=root_gated, owned=owned, gh_run=gh_ok,
+                    github=None, home=home, confirm=True, now=now)
+        print("--- an unfilled body to the engine's OWN home: held before opening, remedy named ---")
+        print(r9["narration"], "\n")
+        if r9["status"] != "body-incomplete" or "args" in recorded:
+            failures.append(f"unfilled-home case: expected body-incomplete and NO pr create, got {r9['status']} "
+                            f"/ recorded={recorded}")
+        r9f = submit(upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
+                     summary="Fix.", run=run_with(["src/app.py"]), root=root_gated, owned=owned, gh_run=gh_ok,
+                     github=None, home=home, confirm=False, now=now)
+        if r9f["status"] != "prepared" or not r9f["pr"]["body_unfilled"]:
+            failures.append(f"unfilled-foreign case: expected prepared with an unfilled advisory, got "
+                            f"{r9f['status']} / unfilled={r9f['pr'].get('body_unfilled')}")
+        if "sections not yet filled" not in r9f["narration"]:
+            failures.append("unfilled-foreign case: the prepared narration did not advise the unfilled sections")
     finally:
         shutil.rmtree(root_with, ignore_errors=True)
         shutil.rmtree(root_without, ignore_errors=True)
+        shutil.rmtree(root_gated, ignore_errors=True)
 
     if failures:
         print("DEMO FAILED — the cross-fork submission broke an invariant:")
@@ -856,7 +987,9 @@ def demo() -> int:
           "telemetry either way; a clean contribution is only PREPARED until you authorize it; on your go-ahead "
           "it opens following the host's template (or the engine's fallback shape); a contribution back to the "
           "engine's OWN home lets the engine's product code travel while still flagging this deployment's own "
-          "state, and the same diff to a stranger's repo flags every engine file; an unreachable upstream "
+          "state, and the same diff to a stranger's repo flags every engine file; an authored body is carried "
+          "verbatim (the mergeable path against a host that gates body completeness) while an unfilled body to "
+          "the engine's own home is HELD before it opens and a stranger's is advised; an unreachable upstream "
           "degrades to a drafted submission, nothing lost; and the status check tells you honestly where a "
           "submission stands, or that it couldn't be read.")
     return 0
