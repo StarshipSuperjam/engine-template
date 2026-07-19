@@ -46,13 +46,29 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
     request, and **never merges**. Then confirm the safety refusals: pointed at your main checkout (worktree
     off), or with hooks un-retrusted after an update, it **refuses to write** and says why in the run output —
     no ungated or main-checkout writes.
+11. **Check the from-Codex self-review (the read-only audit convenience).** Item zero (platform facts, unverifiable
+    from inside the repo): a scheduled Automation fires and runs its pasted prompt; that prompt makes the run **adopt
+    the audit persona** — it loads and follows `.claude/agents/engine-audit.md`, rather than musing generically; and a
+    `sandbox_mode = "read-only"` Automation genuinely blocks writes. Then configure a **read-only** Codex Automation
+    (`sandbox_mode = "read-only"` + `approval_policy = "never"`; no worktree, no network, no token) with the paste
+    instruction from `.engine/audits/self-review-setup.md`, and **Run now**. Confirm all three: (a) a **plain-language
+    self-review summary appears in the run** — what it looked at, found, and recommends; (b) it is the **real persona
+    degrading honestly, not a look-alike** — the summary **discloses what it could not reach** (the saved memory, the
+    engine's issue backlog, prior reviews, live soft findings, the spec-conformance feed), since a committed-files-only
+    run is handed none of them; a summary that claims to have reviewed those, or quotes a specific saved-memory note,
+    is the tell that the paste loaded something generic **or** that the read-only sandbox reached your local memory —
+    either is a defect owed a fix here; (c) it **writes nothing** — no file edit, no commit, no pull request, no
+    Issue. This arm is a convenience — its findings live in the run; the scheduled GitHub self-review stays the
+    dependable, durable-findings path.
 
 ## Done when
 
 Every step above passed in a live Codex session — or each failure is recorded as a defect owed an
 immediate fix in this line of work (a failure inside this bar is never re-scoped as a follow-up). With the
 routine adapter shipped, the provider-exception ledger carries no remaining capability follow-up — every
-engine command now has its Codex twin.
+engine command now has its Codex twin. The from-Codex self-review (step 11) rides the audit persona's
+existing twin as a read-only convenience — its findings surface in the run, not a filed record — so it opens
+no new capability the ledger must track.
 
 ## Notes
 

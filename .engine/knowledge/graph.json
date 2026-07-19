@@ -3970,7 +3970,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:708e8d2789c94daa96eac3973fd7679b5304859859173a8585ab137a9aa83544",
+        "fingerprint": "sha256:ae81f875708375b065b3dc29ef0d2cf154e4dcb9ab7e95df577667059a42aa2a",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",

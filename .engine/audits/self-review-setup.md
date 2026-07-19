@@ -5,7 +5,7 @@
 The engine can look over its own health on a regular schedule — once a week by default — and write up what
 it found as a short, plain-language summary you read and approve, like any other change. This page shows you
 how to turn that on, how to keep it running, how to change how often it runs or which model does the review,
-and — if you'd like — how to run it on Anthropic's cloud instead.
+and — if you'd like — how to run it off that schedule, from Claude's cloud or from Codex.
 
 It ships switched **off**: it does nothing until you set it up here. While it's off, or if it ever quietly
 stops, the engine tells you on your next start — so a self-review that never ran, or stopped running, is never
@@ -188,44 +188,67 @@ isolation and the test read above exercises the real read path, but the full sch
 written from the design, not yet proven in a live run here. Treat it as a capability to try, with the test read
 as your check that it's working.
 
-## Optional: run it in the cloud instead
+## Optional: run it off the schedule — from Claude or from Codex
 
-This part is optional. The setup above — the scheduled run on GitHub — is the supported way, and you don't need
-anything more. If you'd rather the review run on Anthropic's cloud, so it can run even while your computer is
-off, you can set up a **Cloud Routine** instead. The engine never depends on this: the normal GitHub schedule
-above stays your dependable path, and a cloud run is an extra on top of it — with one thing worth knowing, in
-the note after the setup steps below.
+This part is optional. The setup above — the scheduled run on GitHub — is the supported, dependable way, and you
+don't need anything more. If you'd rather the review also run somewhere else — on Anthropic's cloud so it runs even
+while your computer is off, or from **Codex** on your own machine — you can set up a recurring **routine** that runs
+it. Both are extras alongside the GitHub schedule, and three things are true of **either** one before you choose.
 
-To set one up, in Claude create a **Remote** routine — not a Local one, which only runs while your computer is
-awake — on a **recurring** schedule, not a one-time run, pointed at **this project**, and paste this exactly as
-the instruction. Don't change a word:
+**These off-schedule runs are a lighter review.** The GitHub schedule hands the review a set of things gathered for
+it — your saved memory (from its backup), the engine's open health issues, its own past reviews, and any warnings
+firing right now. A routine run here gets none of that handed to it: it reads your project's **committed files** and
+reports from those alone. The review stays honest about the difference — its summary tells you which of those it
+couldn't reach this time — so you're never misled into thinking it checked more than it did. Treat an off-schedule
+run as a quick, lighter look, not the full self-review.
+
+**The freshness reminder won't count these runs.** The engine works out whether your self-review is up to date from
+the record each *scheduled* run leaves behind in the project — and a routine gives you its summary in the moment
+without leaving that record. So if a routine is your only path, the engine can't tell those runs happened: on your
+next start it may still say the self-review *hasn't run yet*, or *hasn't reviewed its own health in a while*, and
+point you back to the GitHub schedule — even while your routine runs are going fine. That reminder is trustworthy;
+it only ever tracks the scheduled runs, so this is a blind spot, not a sign anything is broken, and it won't settle
+as these features mature — a routine simply never leaves the record the engine reads.
+
+**The dependable schedule needs a Claude sign-in token — even on Codex.** The GitHub schedule is done by a capable
+model reached through the **Claude sign-in token** from *Turn it on* above, no matter which AI you build your project
+with. If you build on Codex and don't keep a Claude subscription, that scheduled path isn't open to you — so the
+**from-Codex routine below is your only unattended review**, not a lesser extra on top of a schedule you already run.
+Set it up knowing that.
+
+**The instruction to paste — the same for both.** Whichever routine you set up, paste this exactly as its
+instruction, and don't change a word:
 
 ```
 Act as this project's audit. Load and follow the instructions in .claude/agents/engine-audit.md, then run the self-review of this project now and output only the plain-language summary — what you looked at, what you found, and what you recommend — with no preamble.
 ```
 
-Then use **Run now** once and check that a fresh summary appears, so you know it's working.
+**From Claude — a Cloud Routine.** In Claude create a **Remote** routine — not a Local one, which only runs while
+your computer is awake — on a **recurring** schedule, not a one-time run, pointed at **this project**, and paste the
+instruction above. Then use **Run now** once and check that a fresh summary appears, so you know it's working. A Cloud
+Routine needs a paid plan with Claude Code on the web turned on, and it counts against your account's daily routine
+allowance.
 
-**One thing to know about the freshness reminder.** The engine works out whether your self-review is up to date
-from the record each *scheduled* run leaves behind in the project — and a Cloud Routine gives you its summary in
-chat without leaving that record. So if a cloud run is your only path, the engine can't tell those runs
-happened: on your next start it may still say the self-review *hasn't run yet*, or that it
-*hasn't reviewed its own health in a while*, and point you back to the GitHub schedule — to set it up, or to
-re-arm it if it has stopped — even while your cloud runs are going fine.
-That reminder is trustworthy; it is only ever tracking the scheduled runs, so this is a blind spot, not a sign
-anything is broken — and unlike the preview caveat just below, it won't settle as the cloud feature matures,
-because the cloud path simply never leaves the record the engine reads. If you want the engine to keep track
-that the review ran, keep the GitHub schedule above as your main path and let a cloud run be the extra
-convenience it is.
+**From Codex — a Codex Automation.** On Codex, schedule the same review as a **Codex Automation**: create a
+**recurring** Automation (not a one-time run), pointed at **this project**, and paste the instruction above. **The one
+setting that keeps this safe is the sandbox: set `sandbox_mode = "read-only"` in your Codex settings
+(`.codex/config.toml`).** That — and only that — is what stops the run from changing anything; it is the read-only wall
+the whole arm rests on, so do **not** reuse the `workspace-write` sandbox from the build-routine setup here. Set
+`approval_policy = "never"` as well, so an unattended run doesn't stall waiting to be asked — but know that setting
+only means "don't pause to ask me," **not** "don't make changes": on its own it would leave an unattended run free to
+write, so it is no substitute for the read-only sandbox. With that in place the review needs no network and no token:
+it works from your committed files and reports in the run. It is told not to go reaching through your machine for your
+saved memory or the engine's issues — and with no network it cannot fetch your memory backup or your issues from
+GitHub in any case — and its summary says plainly what it couldn't see. Then use **Run now** once and check that a
+fresh summary appears in the run. A Codex Automation needs a Codex build that supports scheduling, and it counts
+against your Codex usage.
 
-A few honest notes: a Cloud Routine needs a paid plan with Claude Code on the web turned on; it's a newer,
-preview feature that may change; and it counts against your account's daily routine allowance. And in fairness:
-this cloud path has not yet been run end-to-end while building this version of the engine — the steps are
-written from the design, not yet tried here — so treat it as a convenience to try, not a guarantee, and keep
-the standard GitHub schedule as your dependable path.
+**Honest about maturity:** neither routine above has been run end-to-end while building this version of the engine —
+the steps are written from the design, not yet tried here — so treat them as conveniences to try, not guarantees, and
+keep the standard GitHub schedule as your dependable path where a Claude token is available to you.
 
 ## Once it's running
 
 Each review opens as an ordinary change for you to read and approve — nothing about your project changes on its
 own. You don't need to come back here unless you want to change how often it runs, change the model, or set up
-the cloud option. If the engine ever tells you the self-review has stopped, this page is how you start it again.
+an off-schedule routine. If the engine ever tells you the self-review has stopped, this page is how you start it again.

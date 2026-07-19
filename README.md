@@ -123,6 +123,9 @@ so the run's own history in the app is the only record of that. **The routine ne
 when you're back, open a normal session and ask the Engine to wrap it up, review it for cohesion, and submit it
 for your merge.
 
+The Engine's periodic **self-review** — its own health check — can also run unattended on a schedule, including from
+Codex; that's set up separately. See [Setting up the engine's scheduled self-review](.engine/audits/self-review-setup.md).
+
 ## Status
 
 The Engine is pre-1.0 and under active construction toward its first milestone. Expect rapid change.
