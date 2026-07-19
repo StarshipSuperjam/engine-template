@@ -12,9 +12,13 @@ post-core):
 
   1. THE STANCE SIGNAL — an ephemeral, session-keyed marker in OS-temp storage, never committed and
      never carried across sessions. It is set only by a deliberate in-session entry, and CLEARED at
-     every SessionStart (boot calls clear_stance first, so a resumed Build session never resurrects as
-     Build). When the signal is absent, stale, or unreadable, the stance is explore: the safe default is
-     the floor, never the ceiling (stance is session-scoped and never persists).
+     every SessionStart (boot calls clear_stance first; combined with session-keying — a resume is keyed
+     to a fresh session id, so the prior marker is absent — a resumed session resolves to Explore rather
+     than resurrecting a prior Build). When the signal is absent, unreadable, or unrecognized, the stance
+     is explore: the safe default is the floor, never the ceiling (stance is session-scoped and never
+     persists). The boot clear is best-effort (a failed delete is swallowed, below); session-keying and
+     absent-resolves-to-Explore are the reliable legs, backstopped by the protected-branch merge — not a
+     mechanical guarantee.
 
   2. THE EXPLORE WRITE-GATE — a PreToolUse hook, active only while the stance is explore, that DENIES the
      small enumerated set that BEGINS building — edits to engine or product files, branch creation,
@@ -92,7 +96,7 @@ REROUTE_BLOCK_INVARIANT = {"event": "PreToolUse", "name": "engine-issue-conforma
 # ---- the stance signal: ephemeral, session-keyed, OS-temp, non-committed --------------------
 # A session_id-keyed marker in OS-temp storage (a build-spec leaf settled here). NON-committed, never
 # read across sessions, no repo footprint. Cleared at every SessionStart; resolves to explore when
-# absent / stale / unreadable. The gate reads it from the session id the platform supplies.
+# absent / unreadable / unrecognized. The gate reads it from the session id the platform supplies.
 _SIGNAL_PREFIX = "engine-stance-"
 
 
@@ -149,7 +153,10 @@ def set_stance(session_id: str | None, stance: str) -> bool:
 def clear_stance(session_id: str | None) -> bool:
     """Delete the session's stance marker → the session resolves to EXPLORE. Idempotent (a missing
     marker is success) and never raises. Boot calls this FIRST at every SessionStart so a resumed
-    session never inherits a prior Build signal (the resume-safety guarantee)."""
+    session does not inherit a prior Build signal. This clear is best-effort — a failed delete is
+    swallowed (below), so it is not a mechanical guarantee; the reliable resume-safety legs are
+    session-keying (a resume gets a fresh session id → the prior marker is absent) and
+    absent-resolves-to-Explore, with the protected-branch merge as the absolute backstop."""
     path = _signal_path(session_id)
     if not path:
         return False

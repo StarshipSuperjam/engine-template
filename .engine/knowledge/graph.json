@@ -3329,7 +3329,7 @@
       },
       "slug": "eADR-0024-modes-three-stances-two-axes",
       "source": {
-        "fingerprint": "sha256:6984eb6b4f15982c8b27b525b51be51876f679495eb3156f4b41cc892d51485d",
+        "fingerprint": "sha256:369a5c4f0ba40802e3715cb36a6473f4bcbfda8fb07f457b08792bb0ddbbf061",
         "path": ".engine/contracts/eADR-0024-modes-three-stances-two-axes.md"
       },
       "status": "accepted",
@@ -4254,7 +4254,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:b2f0421e24cbc62937a0a1276b0a7781ee3b9a7cf97d4db756737dda60bbc178",
+        "fingerprint": "sha256:306b4dbfaf8fa582753223859ca1df70549fa857f8ee1c8fa6306cd722140c8b",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -5562,7 +5562,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:86946ca766c42020019b0de9bb3e0035fd22d73bf5a45dcda6de49f0ef47606b",
+        "fingerprint": "sha256:ee141cbe6dfa53f6b2f90efab5874cb59f911d9bb0dc9634bc8619385ef276fd",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6616,7 +6616,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:3f0be07e1ba7f04baaa1cc4ae5104e4bdeb9cb289122265d2e4f03808c36082e",
+        "fingerprint": "sha256:2e879d3c299e511b92d3a84ffa1b337467ce56e9375b399f10e8fa1e7cc8b1c5",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -6735,7 +6735,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:b6b023891e2e103dd65bb71e0db65168adacf0de51e6b202d1bdd10bf067318a",
+        "fingerprint": "sha256:dcc4473ffaa1708bd39f60aad571b799956b7c5a7a8716469abe61b364744521",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -7160,7 +7160,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:26cada73ae54d3135e7e1803b91b903e89c09ff6addea2ba014429265e04c8e8",
+        "fingerprint": "sha256:88527fafd20c503a1595d8b5fb27657e4dd890094824a54b587dd51d695017ec",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -8537,7 +8537,7 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:023b0f3bcb88cb53cca34cc536a78c13bab50b86ca83d78970169805d675f00c",
+        "fingerprint": "sha256:fd7be2f35aac2d9d1a9fdd8ac9b1248de7932e278e3ada51f821a50ba3543623",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
       },
       "status": "active",

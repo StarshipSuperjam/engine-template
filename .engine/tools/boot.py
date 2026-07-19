@@ -2013,11 +2013,14 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
 
     status = ["--- the full status (your grounding for this session) ---", dashboard]
 
-    # Measure before injecting (#495 — owed regardless of D-309): the platform silently swaps an
-    # over-cap value for a file preview, which would strip the grounding marker above. Tier 0 (the
-    # governance instructions, marker, and alarm relay) is never shed; the orientation tier goes first,
-    # the status dashboard only after it; a shed is named so the AI relays it instead of the operator
-    # silently losing their status.
+    # Measure before injecting (#495 — owed regardless of D-309): past the platform's per-value output
+    # cap it saves the full value to a file and substitutes a preview of the first characters (plus the
+    # file path). The grounding marker near the top of the pack survives inside that preview; what drops
+    # from the injected context is the material past it — the status headline and dashboard. So Tier 0
+    # (the governance instructions, marker, and alarm relay) is never shed; the orientation tier goes
+    # first, the status dashboard only after it, keeping the essential content within the surviving
+    # preview window; a shed is named so the AI relays it instead of the operator silently losing their
+    # status.
     def _shed_notice(names: list) -> str:
         return ("(To fit the platform's size limit, part of this briefing was left out this session: "
                 + ", ".join(names) + ". Tell the operator, in one plain sentence, that today's session "
