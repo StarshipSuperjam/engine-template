@@ -1,5 +1,5 @@
 {
-  "engine_release": "0.2.0",
+  "engine_release": "0.3.0",
   "packages": {
     "core": "0.2.0",
     "validators-core": "0.2.0",
