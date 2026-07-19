@@ -131,11 +131,12 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
-  - check: `.engine/check/product-adr-form.json`, `.engine/check/product-lock-integrity.json`, `.engine/check/product-spec-coverage.json`, `.engine/check/product-spec-form.json`, `.engine/check/product-spec-matrix.json`
+  - check: `.engine/check/product-adr-form.json`, `.engine/check/product-design-form.json`, `.engine/check/product-lock-integrity.json`, `.engine/check/product-spec-coverage.json`, `.engine/check/product-spec-form.json`, `.engine/check/product-spec-matrix.json`
   - codex-skill: `.agents/skills/engine-design/SKILL.md`, `.agents/skills/engine-design/agents/openai.yaml`
   - doc: `.engine/docs/product-design.md`
   - foundation: `.engine/product-spec-matrix.json`
   - operation: `.engine/operations/product-intake.md`
+  - policy: `.engine/policies/spec-structure-integrity.md`
   - scaffold: `.engine/modules/product-design/scaffold/*.md`
   - skill: `.claude/skills/engine-design/SKILL.md`
   - tool: `.engine/tools/product_design/*.py`

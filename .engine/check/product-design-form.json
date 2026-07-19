@@ -1,0 +1,9 @@
+{
+  "id": "engine/check/product-design-form",
+  "target": { "context": "product-design" },
+  "kind": "custom/script",
+  "params": { "script": ".engine/tools/product_design/design_form.py" },
+  "tier": "hard",
+  "suites": ["CI", "pre-commit", "pre-close"],
+  "message": "Checks that the deeper design documents beside your `docs/spec/` description are present and well-formed — the guiding principles, the architecture overview with its diagram, and any user guides. It checks structure, not whether the design is right — that is your call and the review lenses'. The full write-up is the default: when your description is set to the full write-up, the guiding principles (`docs/principles.md`) and the architecture overview (`docs/architecture.md`) are expected, each carrying the sections it needs (and the overview a simple diagram); a missing one blocks the merge, and the finding names the document and what to add — always self-clearable by writing it or recording that you are keeping the description light. When you have recorded that lighter choice, the deeper write-up is not expected and nothing is flagged. A description with no recorded depth is only nudged, never blocked, so an older project is never failed for a document written before this became the default. User guides are always optional — one is checked for shape only when it is present, and an absent guide is never flagged. When your project has no `docs/spec/` description yet, the check says so plainly and does nothing. It only ever reads your files; it never changes them."
+}

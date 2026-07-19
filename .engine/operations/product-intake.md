@@ -27,32 +27,38 @@ short markers the files carry in their frontmatter stay in the files, never on s
    piece. Ask at the shape level: "does this look like the right pieces, or is something obvious missing?" —
    and let them say yes, add one, or ask you to decide. Settle the shape first, so each piece is written with
    the others in mind rather than as an island.
-3. **Agree how much to capture now — and name the trade.** Offer the depth as a consequence, not a setting:
-   you can capture just enough to get moving, or take the time now to write each piece down more fully so there
-   are fewer surprises later. For a product meant to last, the fuller path can also write up the guiding
-   principles behind it, an overview of how it fits together (with a simple diagram), and guides for the people
-   who will use it. **Most projects start light; default to that unless the operator asks for more.** Be plain
-   that these fuller write-ups are authored *for* the operator but are theirs to get right: the engine drafts
-   them from a starting shape, but — unlike the description under `docs/spec/` — it does not check them, so
-   never imply that it did.
+3. **Confirm how much to write up — full by default — and record the choice.** The default is the full
+   write-up: besides each capability's description under `docs/spec/`, you also write the guiding principles
+   behind the product and an overview of how it fits together (with a simple diagram), and the guides its users
+   need. Say so plainly, and give the operator the one-sentence way to decline: if they would rather capture
+   just enough to get moving, you keep it light — the description alone — and they add the rest whenever they
+   want. **Record their choice in the index frontmatter** (`spec_depth: full`, or `light` if they opt out) so it
+   is written down, not just remembered, and the engine can hold the full write-up to its default. Be honest
+   about "checked": the engine confirms these fuller documents are present and well-formed — the same shape
+   check it runs on the description — but never judges whether the design is *right* (the operator's call and
+   the review lenses'). Never imply the engine vouched for the design.
 4. **Write the description from the scaffold.** Author the documents into `docs/spec/`, starting from the
    templates in `.engine/modules/product-design/scaffold/`: a master index at `docs/spec/index.md` that lists
    every capability, its stage, and a link to its document, plus one document per capability. Fill in the real
    content and strip the templates' own guidance as you go — the bracketed placeholders and the comment blocks
    are written for you, not the operator, and must not survive into the operator's files. Write each document's
    acceptance criteria as a table — each row is what must be true, how it is checked, and who checks it (the
-   operator themselves, or the engine). Mark each document's stage in its frontmatter. When the operator chose
-   the fuller path in step 3, also author the deeper documents from their starting shapes in the same
-   `scaffold/` folder — the guiding principles (`principles.md` → `docs/principles.md`), an architecture
-   overview with a simple diagram (`architecture.md` → `docs/architecture.md`), and the user guides
-   (`diataxis-*.md` → `docs/tutorials|how-to|reference|explanation/`) — writing only the ones this product
-   actually needs and stripping the guidance as you go. These are the operator's own documents to get right: the
-   engine drafts them from the starting shape but does not check them, so never imply that it did.
+   operator themselves, or the engine). Mark each document's stage in its frontmatter. **By default — unless the
+   operator chose in step 3 to keep it light — also author the deeper documents** from their starting shapes in
+   the same `scaffold/` folder: the backbone the full write-up owes — the guiding principles
+   (`principles.md` → `docs/principles.md`) and an architecture overview with a simple diagram
+   (`architecture.md` → `docs/architecture.md`) — plus the user guides
+   (`diataxis-*.md` → `docs/tutorials|how-to|reference|explanation/`), writing only the guides this product
+   actually needs and stripping the guidance as you go. These carry the same bar as the description: the engine
+   checks their shape, but whether the design is *right* is the operator's own call — never imply it judged it.
 5. **Check it, and report what was — and was not — checked, and how "done" will be judged.** Run the form
-   check: `uv run --directory .engine --frozen -- python tools/validate.py --check engine/check/product-spec-form`.
-   Tell the operator plainly what it found, and state the bound: it checked that every part is present and
-   well-formed; it did **not** check that the design is *right* — that is their call. Fix anything flagged and
-   re-run until it is clean. Then, for each described capability, show the operator how its acceptance criteria
+   check over the description (`uv run --directory .engine --frozen -- python tools/validate.py --check engine/check/product-spec-form`),
+   and — when the full write-up is in play — the shape check over the fuller documents (same command with
+   `--check engine/check/product-design-form`). Tell the operator plainly what they found, in plain words rather
+   than the checks' own names, under the one bound that covers both: the engine checked that every part is
+   present and well-formed; it did **not** check that the design is *right* — that is their call. Fix anything
+   flagged and re-run until it is clean. Then, for
+   each described capability, show the operator how its acceptance criteria
    split between what they can confirm themselves and what rests on the engine's account — run
    `uv run --directory .engine --frozen -- python tools/spec_referent.py acceptance-split --doc docs/spec/<capability>.md`
    and read its plain-language count back. Do this **before** they settle the description (step 7), while they
@@ -61,8 +67,9 @@ short markers the files carry in their frontmatter stay in the files, never on s
    themselves and how much rests on the engine's account.
 6. **Offer a deeper, advisory review before they settle — when it is available.** If the engine's optional
    design reviews are installed, offer the operator the same four independent reviews it runs on a plan before
-   building, now reading the **description itself**: whether it is the right thing, whether it is sound, whether
-   it can be built, and whether it is safe. They **only advise** — nothing they raise blocks the document, and
+   building, now reading the **description and the fuller documents** — the guiding principles and the
+   architecture overview especially, where the soundness of a design actually lives: whether it is the right
+   thing, whether it is sound, whether it can be built, and whether it is safe. They **only advise** — nothing they raise blocks the document, and
    the operator's own go-ahead is still what settles it. This is the **second** place those four reviews are
    offered (the first is before a build). When they are not installed, the form check above plus the operator's
    own read is the bar — say that plainly, never imply a review ran.
@@ -103,7 +110,9 @@ short markers the files carry in their frontmatter stay in the files, never on s
 ## Done when
 
 `docs/spec/` holds a master index and one document per capability, the form check
-(`engine/check/product-spec-form`) reports no problems, and the operator has seen the result: its bound stated,
+(`engine/check/product-spec-form`) reports no problems, and — unless the operator chose to keep the description
+light — the guiding principles and the architecture overview are written and the fuller-document check
+(`engine/check/product-design-form`) reports no problems too. The operator has seen the result: its bound stated,
 and for each capability the two-tier split of how "done" is judged — what they can confirm themselves versus
 what rests on the engine's account. They have given their go-ahead on every document they consider settled. When the operator has chosen to hand
 the settled work to a build, a build order at `docs/spec/build-plan.md` groups it into phases and there is a

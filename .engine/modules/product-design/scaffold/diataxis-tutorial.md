@@ -3,9 +3,10 @@
 <!-- Starting shape for a learning-oriented guide under docs/tutorials/. A tutorial takes a beginner by the hand
 through one complete, working experience — the goal is that they succeed and gain confidence, not that they
 understand everything. Copy it to docs/tutorials/<name>.md. This is one of four kinds of user guide (a
-learning tutorial, a task how-to, a reference, and an explanation — the Diátaxis split); author the kinds the
-product actually needs, on the "write it down properly" path. It is NOT checked by the engine — it is yours to
-get right. Keep every step something the reader does and sees a result from. Strip these comments and the
+learning tutorial, a task how-to, a reference, and an explanation — the Diátaxis split); these guides are
+optional, so author only the kinds the product actually needs. A guide's SHAPE is checked when it is present
+(the engine confirms the sections a guide of its kind needs), but whether it is RIGHT is yours to get right —
+the engine never judges that. Keep every step something the reader does and sees a result from. Strip these comments and the
 bracketed placeholders before committing. -->
 
 ## Before you start

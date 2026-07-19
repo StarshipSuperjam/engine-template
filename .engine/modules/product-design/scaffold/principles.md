@@ -2,9 +2,10 @@
 
 <!-- Starting shape for docs/principles.md — the handful of durable rules your product holds itself to, so
 later decisions have something settled to check against. Copy it to docs/principles.md and replace the guidance
-here with the real thing. This is a fuller-detail document: it is authored only when the operator has chosen to
-go deeper (the "write it down properly" path), and unlike the description under docs/spec/ it is NOT checked by
-the engine — it is yours to get right. Keep it short; a few real principles beat many vague ones. The bracketed
+here with the real thing. This is part of the full write-up, which is the default: it is authored unless the
+operator has chosen to keep the description light. Its SHAPE is checked (the engine confirms the sections below
+are present and well-formed, the same as the description under docs/spec/), but whether the principles are
+RIGHT is yours to get right — the engine never judges that. Keep it short; a few real principles beat many vague ones. The bracketed
 placeholders and these comment blocks are written for the author, not the reader, and must not survive into the
 committed file. -->
 

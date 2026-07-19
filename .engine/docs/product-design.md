@@ -16,13 +16,14 @@ nothing important is forgotten. The engine does this with you through one comman
 describe what you want; it lays out the pieces, helps you write each one up, checks that every part is present
 and well-formed, and keeps the result as ordinary files in your project under a folder called `docs/spec/`.
 
-You stay in control of how much detail to capture. You can write just enough to get moving, or take more time
-up front to think each piece through so there are fewer surprises later — the engine names that trade-off and
-lets you choose, and it leans toward keeping things light unless you ask for more. For a product meant to last,
-the fuller path can also write up the guiding principles behind it, an overview of how it fits together (with a
-simple diagram), and guides for the people who will use it. These fuller write-ups are drafted for you from a
-starting shape, but they are yours to get right — unlike your description under `docs/spec/`, the engine does
-not check them.
+You stay in control of how much detail to capture, but the default is the full write-up. Alongside the
+description of each capability under `docs/spec/`, the engine also writes the guiding principles behind your
+product, an overview of how it fits together (with a simple diagram), and the guides the people who use it will
+need. If you would rather capture just enough to get moving, say so and the engine keeps it light — the
+description alone — and you can add the rest whenever you like; your choice is written down, so nothing is
+assumed. The engine checks these fuller write-ups the same way it checks your description — that every part is
+present and well-formed — but it never judges whether the design itself is *right*; that stays your call (and
+your reviewers').
 
 Each piece of your description moves through three plain stages as it matures: **not yet described** (a piece
 you have named but not written up yet), **in progress** (you are writing it), and **settled** (you have looked
@@ -36,8 +37,8 @@ When you make a significant choice — settling something you weighed real alter
 already settled, or adding or dropping a whole piece — the engine can also write a short **decision record**:
 what you decided, why, and what you ruled out and why. These are kept as plain files under `docs/adr/`, numbered
 in your project's own sequence, and they are what a later session reads before re-opening a choice, so it does
-not re-argue ground you already settled. This is the one such write-up the engine does check — but only lightly:
-it makes sure each record it wrote still names what you ruled out, never whether your reasons were the right ones
+not re-argue ground you already settled. For a decision record the engine makes one small extra content check —
+that each record it wrote still names what you ruled out — never whether your reasons were the right ones
 (that stays your call). A record you keep in some other style is left untouched.
 
 Once a piece is settled, you can hand it to a build. Two things follow, at two different moments. Right away,

@@ -816,7 +816,8 @@
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-provider-parity-committed-exceptions",
           "contract:eADR-0036-codex-degradation-disclosure",
-          "contract:eADR-0037-upgrade-overwrite-disclosure"
+          "contract:eADR-0037-upgrade-overwrite-disclosure",
+          "contract:eADR-0038-structured-description-by-default"
         ]
       },
       "slug": "contract-frontmatter",
@@ -880,7 +881,8 @@
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-provider-parity-committed-exceptions",
           "contract:eADR-0036-codex-degradation-disclosure",
-          "contract:eADR-0037-upgrade-overwrite-disclosure"
+          "contract:eADR-0037-upgrade-overwrite-disclosure",
+          "contract:eADR-0038-structured-description-by-default"
         ]
       },
       "slug": "contract-shape",
@@ -945,7 +947,8 @@
           "contract:eADR-0034-dual-provider-adapter-core",
           "contract:eADR-0035-provider-parity-committed-exceptions",
           "contract:eADR-0036-codex-degradation-disclosure",
-          "contract:eADR-0037-upgrade-overwrite-disclosure"
+          "contract:eADR-0037-upgrade-overwrite-disclosure",
+          "contract:eADR-0038-structured-description-by-default"
         ]
       },
       "slug": "contract-threshold",
@@ -1635,6 +1638,7 @@
           "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
+          "policy:spec-structure-integrity",
           "policy:triage-threshold"
         ]
       },
@@ -1695,6 +1699,7 @@
           "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
+          "policy:spec-structure-integrity",
           "policy:triage-threshold"
         ]
       },
@@ -1753,6 +1758,33 @@
       "source": {
         "fingerprint": "sha256:6af50fc9d737a2b2987cac591645307136e78da8b8572d2c8c229f0463d77607",
         "path": ".engine/check/product-adr-form.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI",
+        "pre-close",
+        "pre-commit"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:product-design-form",
+      "kind": "custom/script",
+      "name": ".engine/check/product-design-form.json",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "product-design-form",
+      "source": {
+        "fingerprint": "sha256:e09c1f8c7ceda041512236a772c48a2489e7fcaf3f90895e1f67d9533bf0424c",
+        "path": ".engine/check/product-design-form.json"
       },
       "status": "active",
       "suites": [
@@ -3567,6 +3599,26 @@
       "type": "contract"
     },
     {
+      "id": "contract:eADR-0038-structured-description-by-default",
+      "name": ".engine/contracts/eADR-0038-structured-description-by-default.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:contract.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "eADR-0038-structured-description-by-default",
+      "source": {
+        "fingerprint": "sha256:fe933ce10482225dade2a7346ea0c95e8f69a7814c66d24ec31dd90ee8ff0618",
+        "path": ".engine/contracts/eADR-0038-structured-description-by-default.md"
+      },
+      "status": "accepted",
+      "type": "contract"
+    },
+    {
       "id": "doc:getting-started",
       "name": ".engine/docs/getting-started.md",
       "owner": "core",
@@ -3600,7 +3652,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:6d5cb37f8047d05675f96cc157985bc3acc8eb20a63159b15893e7f00d54210f",
+        "fingerprint": "sha256:b8883ebc451c52ca1600b33076c08e66f19050d6b233bd5873044601d97d7e5d",
         "path": ".engine/docs/product-design.md"
       },
       "status": "active",
@@ -3810,7 +3862,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:1c8707bb6c32d613e954a20e0066a870eddde1b4da5f758d4580be030085315e",
+        "fingerprint": "sha256:d78dcb70e3ac83ab2222433b3ac67348ff0a4ed9af7fa62de947b71f1c6f311d",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
@@ -4245,7 +4297,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:c1584b9f141d5f3f6499ee10a0f6cb2f851e02ecaf25c5669b49f60b35a40f8e",
+        "fingerprint": "sha256:a47bbffc5a64f4301b3dca41347c0780c52f03518c7c10010c9eb7d65dccb622",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -4476,6 +4528,27 @@
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
+      "type": "policy"
+    },
+    {
+      "id": "policy:spec-structure-integrity",
+      "name": ".engine/policies/spec-structure-integrity.md",
+      "owner": "product-design",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "spec-structure-integrity",
+      "source": {
+        "fingerprint": "sha256:cafb4384feba8f7a3ffc8bf745708a20f286eeaa32b1f0610f47e135c5696a08",
+        "path": ".engine/policies/spec-structure-integrity.md"
+      },
+      "status": "active",
+      "title": "Spec structure integrity",
       "type": "policy"
     },
     {
@@ -6471,6 +6544,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:design_form",
+      "name": ".engine/tools/product_design/design_form.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "design_form",
+      "source": {
+        "fingerprint": "sha256:62c27250808d7c2202a90f46585f3b8756a2a0045b66d9ac0a61d9fbd3dd6440",
+        "path": ".engine/tools/product_design/design_form.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:disposition_issue_resolution_check",
       "name": ".engine/tools/disposition_issue_resolution_check.py",
       "owner": "core",
@@ -8307,6 +8397,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_design_form",
+      "name": ".engine/tools/product_design/test_design_form.py",
+      "owner": "product-design",
+      "predicates": {
+        "provided_by": [
+          "module:product-design"
+        ]
+      },
+      "slug": "test_design_form",
+      "source": {
+        "fingerprint": "sha256:8d22754aa4d13862d3810f0ad9d96044fcc36ff966a6ab0609f2bd7f79dd4bf6",
+        "path": ".engine/tools/product_design/test_design_form.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_design_review",
       "name": ".engine/tools/test_design_review.py",
       "owner": "core",
@@ -8946,7 +9053,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:96d935254736f70372ea695d69b9118cd09ddf0166c3f31c4f7221dce4b32154",
+        "fingerprint": "sha256:d8e56852955b1af3a9b1f5aff4f39b9dbd913b66bc2d8effad250ffc925c059c",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -9048,7 +9155,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:7ca5c7c8c2a42e41c26bd0ed51b138d8cb10b990b2a62a75e85d87fc484ef09c",
+        "fingerprint": "sha256:27165c81131651b27fce7405dbb07d49330acccb227c738875753d9567f609cb",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
@@ -9337,7 +9444,7 @@
       },
       "slug": "test_scaffold",
       "source": {
-        "fingerprint": "sha256:b7707e378801f23b2a0b8ca344352c8d5b166495b8914f4e874513bdf9181feb",
+        "fingerprint": "sha256:09e0593a27eb7f396089b46c3f8466f3e412ad252a0db3c36066b5d866f705a2",
         "path": ".engine/tools/product_design/test_scaffold.py"
       },
       "status": "active",
