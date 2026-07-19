@@ -416,15 +416,34 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("naming it, not hiding it", out, "the honest-ceiling banner leads the demo")
 
-    def test_show_short_circuits_when_already_set_up(self):
+    def test_show_short_circuits_in_the_workshop_where_origin_equals_home(self):
+        # The workshop (or any non-copy): manifest present AND origin == recorded home -> NOT a downstream copy
+        # -> short-circuit "already set up", never re-offering setup. (#353: presence alone is not "provisioned".)
         with tempfile.TemporaryDirectory() as d:
             _module(d, "core", "required")
             inst._write_json(inst._engine_manifest_path(d),
-                             {"engine_release": "1.0.0", "packages": {"core": "1.0.0"}, "identity": "solo"})
-            with inst._redirect_root(d):
+                             {"engine_release": "1.0.0", "packages": {"core": "1.0.0"}, "identity": "solo",
+                              "home_repository": "acme/engine"})
+            with inst._redirect_root(d), mock.patch.object(inst.boot, "repo_slug", return_value="acme/engine"):
                 rc, out = self._run(["show"])
             self.assertEqual(rc, 0)
-            self.assertIn(inst._ALREADY_SET_UP, out, "a set-up project short-circuits, never re-offering setup")
+            self.assertIn(inst._ALREADY_SET_UP, out, "the workshop (origin == home) short-circuits")
+
+    def test_show_offers_setup_on_a_downstream_copy_that_inherited_the_manifest(self):
+        # The #353 fix: a fresh generated copy INHERITS the manifest, so is_provisioned() is true — but its origin
+        # differs from the recorded upstream home, so it is a downstream copy still pending setup. show must fall
+        # into the gather (offer setup) rather than short-circuit "already set up".
+        with tempfile.TemporaryDirectory() as d:
+            _module(d, "core", "required")
+            inst._write_json(inst._engine_manifest_path(d),
+                             {"engine_release": "1.0.0", "packages": {"core": "1.0.0"}, "identity": "solo",
+                              "home_repository": "StarshipSuperjam/engine-template"})
+            with inst._redirect_root(d), mock.patch.object(inst.boot, "repo_slug",
+                                                           return_value="adopter/their-product"):
+                rc, out = self._run(["show"])
+            self.assertEqual(rc, 0)
+            self.assertNotIn(inst._ALREADY_SET_UP, out, "a downstream copy must NOT report 'already set up'")
+            self.assertIn("who reviews changes here", out, "a downstream copy shows the setup gather instead")
 
     def test_show_presents_the_walkthrough_when_not_set_up(self):
         with tempfile.TemporaryDirectory() as d:

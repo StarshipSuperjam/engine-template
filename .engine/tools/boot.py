@@ -83,6 +83,7 @@ import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 import license_health    # noqa: E402  (provisioning's leftover-template-LICENSE detector; boot relays its detection)
+import first_run_health  # noqa: E402  (#353: the un-finished-first-run detector; boot relays its detection and OFFERS setup)
 import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
 import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
 import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
@@ -1118,6 +1119,23 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         foreign_license = None
     try:
+        # The un-finished-first-run signal (#353), RELAYED from first_run_health's OFFLINE, READ-ONLY detection
+        # (boot computes no new state): the operator's main checkout is still a construction-state copy of the
+        # template whose one-time setup hasn't finished, so it silently reports itself "already set up." boot
+        # OFFERS to walk /engine-setup; the assistant runs setup on the operator's consent — never a boot-time
+        # transform. No-op in the workshop (origin == home) and in a finished project (setup tool retired);
+        # degrades QUIETLY to None otherwise. The fork-parentage DEDUPE is a SEPARATE best-effort ONLINE step
+        # (forked_from_home), kept OFF the offline detector's critical path: it suppresses the offer ONLY for a
+        # confirmed fork of the engine home (a contributor's fork, not an adopter). A network miss offers normally.
+        first_run = first_run_health.detect_first_run_pending()
+        if first_run and first_run.get("present"):
+            # Pass the detector's OWN origin slug (read from the examined checkout's disk remote), not `repo`
+            # (env-first) — so the online fork check is about the same repository the offline verdict placed.
+            if first_run_health.forked_from_home(first_run.get("own"), token, first_run.get("home")) is True:
+                first_run = None
+    except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
+        first_run = None
+    try:
         # The self-review freshness signal, RELAYED from audit_digest's own detection (boot computes no new
         # state). Called arg-less so it reads the committed digest + today and owns STALENESS_DAYS/the re-arm
         # copy itself — boot never re-detects or re-literals the bound. Low-stakes (a missing digest is the
@@ -1257,6 +1275,11 @@ def gather_signals(session_id: str | None = None) -> dict:
         # engine's own template seed (with a best-effort `pr_open` dedupe flag), or None (healthy / the engine's
         # own template repo / unresolvable). Rendered below the governance alarms; retire/collapse decided hook-side.
         "foreign_license": foreign_license,
+        # the un-finished-first-run signal (#353): the main checkout is still a construction-state template copy
+        # whose one-time setup hasn't finished (origin != recorded home, setup tool still present), with the
+        # fork-of-home offer suppressed; or None (workshop / finished / a contributor's fork / unresolvable).
+        # Rendered as the top onboarding OFFER — the one thing to do before anything else on a fresh copy.
+        "first_run": first_run,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
         # the memory auto-restore offer: local memory is empty + a backup is configured, or None
@@ -1319,7 +1342,26 @@ def render_dashboard(s: dict) -> str:
     pinned: list[str] = []        # governance-critical alarms, loudest first
     degraded: list[str] = []      # the consolidated "what I couldn't refresh / verify" notice
 
-    if s["gate"] == "off":
+    # The un-finished-first-run OFFER (#353), pinned FIRST — on a brand-new copy of the template it is the
+    # root onboarding action, and it FRAMES every other signal (an un-set-up repo hasn't turned its own safety
+    # gate on yet, hasn't swapped in its own project floor). READ-ONLY: boot offers, the assistant runs
+    # `/engine-setup` on the operator's consent, never a boot-time transform. Provenance-framed (a copied-in
+    # template state, not a defect the operator caused) and reversible-in-tone ("if I've got this wrong, tell
+    # me"). When it fires it SUPPRESSES the redundant "your safety gate is off" offer just below, because
+    # first-run setup is exactly what turns the gate on — one onboarding ask, not two. The offer keeps
+    # showing until setup actually runs (the detector is stateless by design — it nudges toward the real
+    # fix rather than being dismissible), so the copy makes no "I'll stop bringing it up" promise it can't keep.
+    first_run = s.get("first_run")
+    if first_run and first_run.get("present"):
+        pinned.append(
+            "🚀 **This looks like a fresh copy of the engine template — first-time setup hasn't finished "
+            "yet.** That's the one thing to do before we start building: it swaps in your own project's "
+            "starting files and turns on your safety gate, so your main branch is protected. Say **set up my "
+            "project** and I'll walk you through `/engine-setup` step by step — nothing on your project changes "
+            "until you approve each step. If setup was interrupted partway, running it again just picks up "
+            "where it left off.")
+
+    if s["gate"] == "off" and not (first_run and first_run.get("present")):
         # boot OFFERS the fix here and stays READ-ONLY; the assistant runs the already-built, idempotent
         # bootstrap.ControlPlane.apply(branch=PROTECTED_BRANCH) on the operator's consent — the shared
         # repair-offer contract (boot-session-start.md). boot never imports bootstrap (bootstrap imports

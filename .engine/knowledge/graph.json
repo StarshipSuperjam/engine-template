@@ -3914,7 +3914,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:3475aaf2f910324c9e9ee7db3633d1692655958fc0107079c12dd3afc4da7b49",
+        "fingerprint": "sha256:1198e64bd0cfafe8a41af74b10bf21d2823afcb1aa6f8b145d8e790b037e3a09",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -5562,7 +5562,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:af5a96445286d951f749c156167cffd98ef5d02799a1b60eb9b225d45743c8ec",
+        "fingerprint": "sha256:2ec1e091c63f6db9378edff05297175519ee60f87efd3db53378e7e9a5347491",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6640,6 +6640,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:first_run_health",
+      "name": ".engine/tools/first_run_health.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "first_run_health",
+      "source": {
+        "fingerprint": "sha256:3779ef7f4dc902e293aa37e30d09d302c1adc0bd9e12a5b06c72c4a93d2dc2f7",
+        "path": ".engine/tools/first_run_health.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:first_run_reference_closure_check",
       "name": ".engine/tools/first_run_reference_closure_check.py",
       "owner": "core",
@@ -6786,7 +6803,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:a360247cabf02527a562b9b2c2ed16a7f8fe0c357c357a6a990c327f16a405d5",
+        "fingerprint": "sha256:cffaa7803768d2006667129043ab3e110651af717938dd26d99a11357e20dfa7",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7194,7 +7211,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:6d510c2be6206851b1dc3885bc685fbebd7d1479e29751a0dc4afa21c80c16db",
+        "fingerprint": "sha256:fdf1726fcee3065e3d6df84dedf372b2440909c120ea6f91902af1ced612b7af",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -8044,7 +8061,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:78f422eac1604ee5daad1f6231ffaec3c201e7f957b77cf2690dbde02c18f8ea",
+        "fingerprint": "sha256:234ffd3f04552b61af20cbda32aa38dec1ab5a3beac56ad4eb7176b9531363b0",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8544,6 +8561,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_first_run_health",
+      "name": ".engine/tools/test_first_run_health.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_first_run_health",
+      "source": {
+        "fingerprint": "sha256:ed421e2d964bbd935777376e75dd561d6604583949c7793b2c01d099e31259f0",
+        "path": ".engine/tools/test_first_run_health.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_first_run_reference_closure",
       "name": ".engine/tools/test_first_run_reference_closure.py",
       "owner": "core",
@@ -8673,7 +8707,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:1651cc17cafb340f5b8f0247fe723b4c65fd8261c76e93a59431b70dba15b775",
+        "fingerprint": "sha256:e7bcc54a1c187fbe0e08e008444b04cc651f5dbedfd71fd9406d495bf85f328e",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",

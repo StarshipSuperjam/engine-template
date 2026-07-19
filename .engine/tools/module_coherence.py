@@ -278,6 +278,35 @@ def slug_eq(a: str | None, b: str | None) -> bool:
     return na is not None and na == nb
 
 
+_READ_HOME = object()  # sentinel: "no home passed -> read THIS repo's home", distinct from a passed home of None
+
+
+def is_downstream_copy(own_slug: str | None, home_slug: str | None = _READ_HOME) -> bool:
+    """True iff a repo is a DOWNSTREAM copy of the engine — its recorded update home is a DIFFERENT
+    repository than its own origin `own_slug`. This is the READ-ONLY, injectable, normalized sibling of
+    `overlay_disclosure.is_deployed()`, purpose-built for first-run detection (#353), and the ONE place the
+    downstream-copy rule lives so its two callers (the instantiator `show` branch and the boot detector)
+    cannot drift:
+      - both slugs are PARAMETERS. `own_slug` is always the caller's (never resolved here). `home_slug` is
+        the caller's too: OMIT it to have THIS repo's recorded `home_repository()` read fail-soft (the `show`
+        branch), or PASS the EXAMINED checkout's home — INCLUDING an explicit `None` for an absent home (the
+        boot detector) — and it is used verbatim. The `_READ_HOME` sentinel distinguishes "not passed" from a
+        passed `None`, so a caller that read an absent home never silently falls back to this repo's home.
+      - the compare is `slug_eq`-normalized (casefold / `.git` / trailing-slash), so an SSH-vs-HTTPS or
+        case-skewed origin never reads as "different".
+      - SAFE, fail-toward-quiet: returns False (NOT a copy) whenever the home is absent/blank/unreadable OR
+        `own_slug` is None, so the workshop (home == own) and any repo whose origin cannot be read stay quiet —
+        a consumer never nags a repo it cannot positively place. A MALFORMED manifest read here degrades to
+        False (this predicate must never crash its read-only caller), unlike the fail-LOUD `home_repository()`
+        the update path deliberately relies on — the reason this is a distinct predicate from `is_deployed`."""
+    if home_slug is _READ_HOME:
+        try:
+            home_slug = home_repository()
+        except Exception:  # noqa: BLE001 — a corrupt manifest degrades to "not a copy"; never crash the caller
+            return False
+    return bool(home_slug and own_slug and not slug_eq(home_slug, own_slug))
+
+
 # ---- what may travel in a contribution back to the ENGINE'S OWN HOME (issue #556) -----------------
 #
 # When a deployment contributes back to the engine's home (the mechanic building engine-template, or a

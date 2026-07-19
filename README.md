@@ -41,7 +41,7 @@ Slow, gated, and verifiable beats fast and opaque. The Engine deliberately trade
 
 1. Click **Use this template** above to create your own repository.
 2. Open it in [Claude Code](https://claude.com/claude-code), or in [Codex](https://openai.com/codex/) — the Engine runs natively in either.
-3. A guided first-run setup walks you through your choices and stands up the Engine for your project.
+3. A guided first-run setup walks you through your choices and stands up the Engine for your project. If it doesn't start on its own that first session — some tools ask you to approve the Engine's session hooks first — just say **set up my project**, or type `/engine-setup`, to begin.
 
 ## What's inside
 
@@ -76,6 +76,15 @@ The same Engine serves both runtimes from one core; the differences worth knowin
 ## Status
 
 The Engine is pre-1.0 and under active construction toward its first milestone. Expect rapid change.
+
+## Contributing
+
+A contribution model for the Engine is not defined yet. One behavior to revisit when it is: a repository
+**forked** from this one is currently treated as a contributor's fork, so the Engine does not prompt it at
+session start to run first-run setup (the boot setup offer is suppressed for forks of the Engine's own home).
+The sanctioned way to *adopt* the Engine is **Use this template**, not a fork — but anyone who does adopt by
+forking won't see that start-up prompt (they can still run `/engine-setup` directly). When contribution is
+defined, decide whether a fork-based adopter needs a distinct signal.
 
 ## License
 

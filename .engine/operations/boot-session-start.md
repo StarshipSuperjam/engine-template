@@ -90,6 +90,17 @@ go-ahead** and never runs a repair un-asked. Every repair is **lossless-or-it-do
 anything at risk first, or refuses/blocks rather than guess, and the assistant relays the plain-language result
 and never forces. What differs is *what* each protects and *how* it declines:
 
+- **A fresh copy still needing setup — walk `/engine-setup` (`instantiator`, #353).** The operator's main
+  checkout is still a construction-state copy of the template whose one-time setup hasn't finished — its origin
+  differs from the recorded update home and the one-time setup tool is still present — so it would otherwise
+  silently report itself "already set up." Provisioning's `first_run_health` detects it OFFLINE and boot pins
+  the onboarding offer at the **top** of the dashboard (the root action that frames every other signal; it also
+  suppresses the redundant "your safety gate is off" offer, which setup turns on). Unlike the repairs below the
+  fix is not a write boot makes: on the operator's "set up my project" the assistant walks the `/engine-setup`
+  verb (the instantiator's confirm → apply → verify → retire), which is idempotent and **resumes** a setup
+  interrupted partway; boot never runs setup itself. A best-effort ONLINE parentage read
+  (`first_run_health.forked_from_home`) suppresses the offer for a contributor's fork of the engine home (not an
+  adopter); offline the offer still shows — read-only and low-harm.
 - **A stranded checkout — un-stranding (`checkout_health.unstrand`).** The deployed-floor never-strand-main
   rule's one sanctioned write to the operator checkout: it rescues at-risk work — commits drifted off the branch,
   or unsaved changes — to a safe point first, then re-attaches the folder and restores the missing engine files.
