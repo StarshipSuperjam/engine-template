@@ -47,3 +47,5 @@ This is routine upkeep: keeping only what still earns its place is part of how t
 ## Where to go next
 
 The simplest way to begin is to tell the Engine what you want to work on, in your own words. At the start of each session it will orient you — showing where your project stands — and from there you just keep the conversation going. When you want to know what else you can ask for, run `/engine-help`.
+
+If you're starting something new and would like it written down clearly before any building begins, the Engine can help you describe it first — laid out a piece at a time, in plain language, and checked so nothing important is missing. Just say so, or run `/engine-design`. It's optional, and on a fresh project the Engine will offer it at the start until you've either done it or told it you'd rather work without a written description.

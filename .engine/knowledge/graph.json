@@ -3563,7 +3563,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:7a901fc176e85171d8187b9b65e41588cbc6a87cb4af8912e3050bbe0f81c5c5",
+        "fingerprint": "sha256:c43066e86390c6133fa7a8056003f33741a3e5645ddcaba5edbde8c5faf3f942",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -3868,7 +3868,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:1198e64bd0cfafe8a41af74b10bf21d2823afcb1aa6f8b145d8e790b037e3a09",
+        "fingerprint": "sha256:0cc812993622076e5d825234d9288dbc54379be5076a5ff9ce2ea6526e3a1a62",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -3888,7 +3888,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:5095fe133a13a49ff6c1144b67f4ff1ca729331badcd37aa08773a0bff17bd75",
+        "fingerprint": "sha256:6c6b66a28f361fb7e33a82f7ee6a3073fd79282456400fef91f5929ba3c5dc7a",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4188,7 +4188,7 @@
       },
       "slug": "onboarding-read",
       "source": {
-        "fingerprint": "sha256:12a56175f80bc91b6d937b0f434ac2d57372791340479bff1ee2edafa57ecd2a",
+        "fingerprint": "sha256:1e582e31370491a8b9a5d0992259b0ee02ec54169afc3c693de25f91bc6e369b",
         "path": ".engine/operations/onboarding-read.md"
       },
       "status": "active",
@@ -5516,7 +5516,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e8ea563c0349f3a93b754ed2ad12fe67de3665df104afbcffe0069ff114cca68",
+        "fingerprint": "sha256:70ae1581235a14790c75a58e451a715da635b58ff25ac853c6692e2468bcf17b",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5533,7 +5533,7 @@
       },
       "slug": "boot_alarm_ledger",
       "source": {
-        "fingerprint": "sha256:9f0deed295452cf4a7a52a33cbb00ad60ded09ecbc09fb84dbe29ad416c55368",
+        "fingerprint": "sha256:9c9ff3b6cc89e83a8e349093503d8a1613c37bc4d243911ec80e17ac6d19bf94",
         "path": ".engine/tools/boot_alarm_ledger.py"
       },
       "status": "active",
@@ -6657,6 +6657,23 @@
       "source": {
         "fingerprint": "sha256:12bcd18e515338a02ee798a89a011cc914dd00449e815a9dbea7d3ef43dc772e",
         "path": ".engine/tools/github_client.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:greenfield_intake",
+      "name": ".engine/tools/greenfield_intake.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "greenfield_intake",
+      "source": {
+        "fingerprint": "sha256:15bdb20a2b4d6df264914716658095b921abcc0701000029a8f923eda8e341b0",
+        "path": ".engine/tools/greenfield_intake.py"
       },
       "status": "active",
       "type": "tool"
@@ -8015,7 +8032,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:234ffd3f04552b61af20cbda32aa38dec1ab5a3beac56ad4eb7176b9531363b0",
+        "fingerprint": "sha256:17fb9a839b09106e3bed3a4ecd1469c893cfc3d430b0c7854a56edbd9756e8d3",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8032,7 +8049,7 @@
       },
       "slug": "test_boot_alarm_ledger",
       "source": {
-        "fingerprint": "sha256:f5da29620ca41b445ae094597e0f661b462dfceb29197638d14dcb23f232f093",
+        "fingerprint": "sha256:ddbab82f229e0caf573aef074394498a3235569b1f7370fc758bb059b3f71630",
         "path": ".engine/tools/test_boot_alarm_ledger.py"
       },
       "status": "active",
@@ -8578,6 +8595,23 @@
       "source": {
         "fingerprint": "sha256:6af6ceb3d6461125b4b720387bc662ffd8215f4eb9dc07b678e9c35aec4e3800",
         "path": ".engine/tools/test_github_client.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_greenfield_intake",
+      "name": ".engine/tools/test_greenfield_intake.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_greenfield_intake",
+      "source": {
+        "fingerprint": "sha256:caa356483bb2a1a2a079a9b7f9dc36f0f2c224560e4158c963b7df76942fe620",
+        "path": ".engine/tools/test_greenfield_intake.py"
       },
       "status": "active",
       "type": "tool"

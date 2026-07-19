@@ -220,11 +220,13 @@ class TestRetireAndSection15(unittest.TestCase):
             fh.write("not json{{")
         self.assertFalse(bal.is_retired("fp1", "foreign_license", path=self.path))
 
-    def test_the_eligible_class_set_is_locked_to_exactly_foreign_license(self):
+    def test_the_eligible_class_set_is_locked_to_exactly_the_two_offers(self):
         # The weakening-guard drift guard: no future alarm may become retire-eligible (silenceable) without a deliberate edit
         # to RETIRE_ELIGIBLE_CLASSES AND this assertion. Keeping this exact set is what keeps a governance alarm
-        # un-retireable.
-        self.assertEqual(bal.RETIRE_ELIGIBLE_CLASSES, frozenset({"foreign_license"}))
+        # un-retireable. The two eligible classes are the operator-dismissable OFFERS — the leftover-license
+        # cleanup (#471) and the first-engagement greenfield-intake nudge (#553); a governance/strand alarm is
+        # never here.
+        self.assertEqual(bal.RETIRE_ELIGIBLE_CLASSES, frozenset({"foreign_license", "greenfield_intake"}))
 
     @unittest.skipUnless(bal._HAVE_FCNTL, "cross-process lock needs fcntl")
     def test_retire_reports_lock_contention_honestly(self):

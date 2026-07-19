@@ -68,7 +68,7 @@ _RETIRED_NS = "__retired__"
 # be declined (collapse to terse) but NEVER retired — a mis-written or injection-planted marker cannot silence
 # it. A drift test pins this set to exactly {"foreign_license"} (test_boot_alarm_ledger) so no future alarm
 # becomes silenceable without a deliberate edit here.
-RETIRE_ELIGIBLE_CLASSES = frozenset({"foreign_license"})
+RETIRE_ELIGIBLE_CLASSES = frozenset({"foreign_license", "greenfield_intake"})
 
 
 def _run(cmd: list) -> str | None:
