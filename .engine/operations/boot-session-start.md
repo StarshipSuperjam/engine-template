@@ -143,3 +143,14 @@ and never forces. What differs is *what* each protects and *how* it declines:
   seeds no replacement (the license is the adopter's choice). On the operator's "I meant to keep this" the assistant
   runs `boot_alarm_ledger.retire` (`python tools/boot_alarm_ledger.py retire`, an Explore-permitted tool call) so the
   offer stops surfacing from this checkout; a plain decline instead collapses it to a terse reminder, never fully silent.
+- **No description yet — offer the intake, or dismiss it (`boot_alarm_ledger.retire`, #553).** When the project has
+  the `engine-design` intake installed but no product description under `docs/spec/` yet, `greenfield_intake` detects
+  the greenfield state and boot **offers** the intake at first engagement so a non-engineer discovers it — a pure
+  offer, never an action (the operator starts the intake themselves). It fires only when the intake is actually
+  installed (never offering a command that isn't there) and self-resolves the moment the intake runs and writes
+  `docs/spec/index.md`; it no-ops in the engine's own construction repo. On the operator's "I'd rather work without a
+  written description" the assistant runs `boot_alarm_ledger.retire` (class `greenfield_intake`) so the offer stops
+  surfacing — run it as `python tools/boot_alarm_ledger.py retire-greenfield` (an Explore-permitted tool call),
+which DERIVES the fingerprint from the live detector so the marker can never silently mismatch and keep the
+offer firing; never hand-build the retire call. A plain not-now instead collapses it to a terse reminder,
+never fully silent.

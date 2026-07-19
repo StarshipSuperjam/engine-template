@@ -84,6 +84,7 @@ import modes             # noqa: E402  (clear_stance + the stance vocabulary: th
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 import license_health    # noqa: E402  (provisioning's leftover-template-LICENSE detector; boot relays its detection)
 import first_run_health  # noqa: E402  (#353: the un-finished-first-run detector; boot relays its detection and OFFERS setup)
+import greenfield_intake  # noqa: E402  (the first-engagement "no description yet" detector; boot relays + offers)
 import standing_situation  # noqa: E402  ("where we are" derived live from GitHub, read-only; boot displays, never writes)
 import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
 import pr_reconcile       # noqa: E402  (#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
@@ -1136,6 +1137,15 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/network failure degrades this one signal, never the pack
         first_run = None
     try:
+        # The first-engagement nudge (#553), RELAYED from greenfield_intake's OFFLINE, READ-ONLY detection
+        # (boot computes no new state): the project has the engine-design intake installed but no product
+        # description yet, so boot OFFERS the intake so a non-engineer discovers it. Fires only when the intake
+        # is installed (never offers a command that isn't there) and no `docs/spec/` description exists (self-
+        # resolves the moment the intake runs); no-op in the engine's own construction repo. Degrades QUIETLY.
+        greenfield = greenfield_intake.detect_greenfield()
+    except Exception:  # noqa: BLE001 — a detector failure degrades this one signal, never the pack
+        greenfield = None
+    try:
         # The self-review freshness signal, RELAYED from audit_digest's own detection (boot computes no new
         # state). Called arg-less so it reads the committed digest + today and owns STALENESS_DAYS/the re-arm
         # copy itself — boot never re-detects or re-literals the bound. Low-stakes (a missing digest is the
@@ -1280,6 +1290,7 @@ def gather_signals(session_id: str | None = None) -> dict:
         # fork-of-home offer suppressed; or None (workshop / finished / a contributor's fork / unresolvable).
         # Rendered as the top onboarding OFFER — the one thing to do before anything else on a fresh copy.
         "first_run": first_run,
+        "greenfield_intake": greenfield,
         # a pull request stuck in a conflicting merge state on the two derived index files (#136), or None
         "pr_conflict": pr_conflict,
         # the memory auto-restore offer: local memory is empty + a backup is configured, or None
@@ -1534,6 +1545,28 @@ def render_dashboard(s: dict) -> str:
                 "clean slate and can add the license you choose — I can point you to choosealicense.com, help add "
                 "the one you pick, or point you to a person to talk to if the legal terms really matter to you. If "
                 "it's one you meant to keep, just say so and I'll stop bringing it up.")
+
+    # The first-engagement nudge (#553), below governance: the project has the engine-design intake but no
+    # description yet, so OFFER it so a non-engineer discovers it. A RETIRED offer (the operator said "I'm not
+    # describing a spec") renders NOTHING — the retire/collapse decision is HOOK-SIDE (_relay_lines), so the pure
+    # status-verb path (no ledger) shows the full offer (fail-toward-showing). boot OFFERS only; the operator
+    # starts the intake themselves.
+    gf = s.get("greenfield_intake")
+    if gf and gf.get("greenfield") and not gf.get("retired"):
+        if gf.get("collapsed"):
+            pinned.append(
+                "🧭 There's still no written description of this project in the engine (unchanged since last "
+                "session) — whenever you're ready, just tell me what you have in mind and I'll help you write it "
+                "down clearly and check it holds together. Or, if you'd rather work without a written "
+                "description, say so and I'll stop bringing it up.")
+        else:
+            pinned.append(
+                "🧭 **Want to start by describing what you're building?** There's no written description of this "
+                "project in the engine yet. If you tell me what you have in mind, I can help you turn it into a "
+                "clear, checked description to build from — laid out a piece at a time, in plain language (this "
+                "is what the **engine-design** command does). It's optional and you can do it any time. If you'd "
+                "rather just start building without a written description, that's fine — say so and I'll stop "
+                "offering.")
 
     out: list[str] = [f"## {PRESENT_MARKER}"]
     out.extend(f"> {line}" for line in pinned)
@@ -2008,6 +2041,18 @@ def _relay_lines(s: dict) -> list:
             s["foreign_license"] = {**fl, "retired": True}
         else:
             eligible.append({"key": "foreign_license", "value": fl_fp})
+    # The first-engagement nudge (#553) rides this SAME decide() call, exactly like the leftover-license offer:
+    # it renders only in the dashboard (no relay line, below governance), and FIRST the hook-side RETIRE honor —
+    # if the operator has said "I'm not describing a spec" (a retired marker for its fingerprint), the offer is
+    # SUPPRESSED (stamped `retired`) and never joins the ledger pass. Retire-eligibility is the ledger's code
+    # constant keyed on the LIVE class ("greenfield_intake"), never a label read from the ledger.
+    gf = s.get("greenfield_intake")
+    gf_fp = gf.get("fingerprint") if (gf and gf.get("greenfield")) else None
+    if gf_fp is not None:
+        if boot_alarm_ledger.is_retired(gf_fp, "greenfield_intake"):
+            s["greenfield_intake"] = {**gf, "retired": True}
+        else:
+            eligible.append({"key": "greenfield_intake", "value": gf_fp})
     # Always call decide — even with an empty eligible set — so a now-resolved standing alarm is DROPPED
     # from the ledger (verified-fixed), never left to wrongly collapse a later recurrence.
     decision = boot_alarm_ledger.decide(eligible)
@@ -2042,6 +2087,12 @@ def _relay_lines(s: dict) -> list:
     if fl_fp is not None and not s.get("foreign_license", {}).get("retired"):
         r = results.get("foreign_license", {"outcome": "full", "prior": None})
         s["foreign_license"] = {**s["foreign_license"], "collapsed": r.get("outcome") == "collapse"}
+    # Stamp the greenfield-nudge collapse outcome onto `s` for the (pure) dashboard renderer — HOOK-SIDE ONLY,
+    # so the status verb (no ledger) leaves it absent and renders the offer FULL (fail-toward-showing). Skipped
+    # when the offer was retired above (the renderer already shows nothing for a retired offer).
+    if gf_fp is not None and not s.get("greenfield_intake", {}).get("retired"):
+        r = results.get("greenfield_intake", {"outcome": "full", "prior": None})
+        s["greenfield_intake"] = {**s["greenfield_intake"], "collapsed": r.get("outcome") == "collapse"}
     lines: list = []
     for a in alarms:
         if not a["collapsible"]:

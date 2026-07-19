@@ -35,8 +35,10 @@ switch back to Explore first; nothing here needs to write a project file.
    of your understanding of the project and name the parts you did not get to or were unsure about — so they can
    correct a wrong read or point you at what you missed before it hardens into memory.
 5. **Hand off to the first build.** With the project understood and the understanding saved, the engine is ready
-   to build against it. Point the operator at how to start the first piece of work (a plan they approve, or
-   `/engine-start`), so the onboarding read leads straight into grounded building rather than a cold start.
+   to build against it. Point the operator at how to start the first piece of work — to **describe a new
+   capability** first, `/engine-design` (it lays the description out with them and checks it holds together);
+   to build from something already settled, a plan they approve or `/engine-start` — so the onboarding read
+   leads straight into grounded work rather than a cold start.
 
 ## Done when
 

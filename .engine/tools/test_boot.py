@@ -90,7 +90,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
             "ledger_malformed": None, "migration_stalled": False, "recall_offline": False,
-            "set_aside": None, "foreign_license": None, "first_run": None,
+            "set_aside": None, "foreign_license": None, "first_run": None, "greenfield_intake": None,
             "operator_backlog_count": None, "operator_backlog_register": None,
             "operator_backlog_degraded": False}
 
@@ -2382,6 +2382,66 @@ class TestForeignLicenseOffer(unittest.TestCase):
                 boot._relay_lines(s)                       # no marker -> not retired
                 self.assertFalse(s["foreign_license"].get("retired"))
                 self.assertIn("license file", boot.render_dashboard(s))
+
+
+class TestGreenfieldIntakeOffer(unittest.TestCase):
+    """The first-engagement greenfield-intake nudge (#553): rendered below governance, a pure offer (never an
+    action), retire-honored hook-side so the operator can dismiss it, collapses to terse, and NEVER a
+    governance-critical must-relay."""
+
+    _FIRE = {"greenfield": True, "fingerprint": "greenfield"}
+
+    def test_full_offer_invites_describing_what_to_build(self):
+        dash = boot.render_dashboard(_signals(greenfield_intake=self._FIRE))
+        self.assertIn("describing what you're building", dash)
+        self.assertIn("engine-design", dash)
+
+    def test_full_offer_surfaces_the_dismiss(self):
+        dash = boot.render_dashboard(_signals(greenfield_intake=self._FIRE))
+        self.assertIn("stop offering", dash)
+
+    def test_collapsed_offer_is_terse_and_names_the_dismiss(self):
+        dash = boot.render_dashboard(_signals(greenfield_intake={**self._FIRE, "collapsed": True}))
+        self.assertIn("unchanged since last session", dash)
+        self.assertIn("stop bringing it up", dash)
+
+    def test_offer_ranks_below_the_governance_alarms(self):
+        dash = boot.render_dashboard(_signals(gate="off", reason="ruleset absent", greenfield_intake=self._FIRE))
+        self.assertIn("safety gate is off", dash)
+        self.assertLess(dash.index("safety gate is off"), dash.index("describing what you're building"),
+                        "the greenfield offer must rank BELOW the governance alarm")
+
+    def test_a_retired_offer_renders_nothing(self):
+        dash = boot.render_dashboard(_signals(greenfield_intake={**self._FIRE, "retired": True}))
+        self.assertNotIn("describing what you're building", dash)
+
+    def test_absent_signal_renders_nothing(self):
+        self.assertNotIn("describing what you're building",
+                         boot.render_dashboard(_signals(greenfield_intake=None)))
+
+    def test_offer_is_not_a_governance_critical_must_relay(self):
+        pushed = "\n".join(boot.must_push(_signals(greenfield_intake=self._FIRE)))
+        self.assertNotIn("describing what you're building", pushed)
+
+    def test_relay_lines_honors_a_retired_marker_hook_side(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {boot_alarm_ledger.ENV_DIR: tmp}):
+                boot_alarm_ledger.retire("greenfield", "greenfield_intake")
+                s = _signals(greenfield_intake=self._FIRE)
+                boot._relay_lines(s)
+                self.assertTrue(s["greenfield_intake"].get("retired"))
+                self.assertNotIn("describing what you're building", boot.render_dashboard(s))
+
+    def test_relay_lines_collapses_an_unchanged_offer_on_the_second_session(self):
+        # The anti-nag collapse: the same greenfield state two sessions running -> the second renders terse.
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {boot_alarm_ledger.ENV_DIR: tmp}):
+                s1 = _signals(greenfield_intake=self._FIRE)
+                boot._relay_lines(s1)
+                self.assertFalse(s1["greenfield_intake"].get("collapsed"), "first session renders full")
+                s2 = _signals(greenfield_intake=self._FIRE)
+                boot._relay_lines(s2)
+                self.assertTrue(s2["greenfield_intake"].get("collapsed"), "second, unchanged, collapses to terse")
 
 
 class TestRecognitionSlice(unittest.TestCase):

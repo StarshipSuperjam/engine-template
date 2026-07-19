@@ -210,6 +210,14 @@ screen they click over a paste-this-command); and a step must be able to fail �
 surface, never a staged recipe that can only succeed (posture, not a gate). The resolution holds with or without the optional product-design
 module; a read failure is surfaced loudly, never read as "no description".
 
+**Authoring a product description is the intake's job, not this runbook's.** When the work is to *describe* a
+product — write up or plan what the operator wants built, with no settled description to realize yet — route
+to the [engine-design intake](product-intake.md) by default (the operator runs `engine-design`, or you follow
+`product-intake.md` with them); it produces the structured, checked description this runbook then realizes.
+**Do not hand-author a product description as free prose in its place** — a loosely-written spec skips the
+checks and the operator's settling. This is *product-description* work specifically: the ordinary small change
+and the trivial fast path realize a change directly and need no formal description.
+
 **The close-linkage pre-flight.** At submit, before marking ready, the orchestrator compares what the pull
 request **will** close — GitHub's computed linkage (`gh pr view --json closingIssuesReferences`, `gh api
 graphql` beneath it) **plus** the closing keywords in the integrated commit messages, which that field does
