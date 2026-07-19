@@ -79,7 +79,7 @@ class TestHomeTravelClassification(unittest.TestCase):
                   ".engine/erasures/proposal.json",
                   ".engine/operator-overrides.json", ".engine/conduct/operator.md",       # operator tuning
                   ".engine/provisioning/conduct-seed.md",                                   # maintainer seed
-                  ".engine/contracts/instance/eDEC-1.md"):                                  # deployment records
+                  ".engine/contracts/instance/acme-eADR-0001.md"):                          # deployment records
             self.assertFalse(mc.travels_to_engine_home(p), f"{p} must NEVER travel (instance/operator content)")
 
     def test_no_owned_path_is_left_ambiguous(self):

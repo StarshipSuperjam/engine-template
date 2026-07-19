@@ -440,11 +440,11 @@ class TestEngineHomeNarrowing(unittest.TestCase):
         # operator-overrides.json / contracts/instance are ownership CARVE-OUTS (not in engine_owned_paths), yet
         # must never ride upstream. The check unions them in, in BOTH the home and third-party modes.
         for home in (self.HOME, None):
-            r = self._submit([".engine/operator-overrides.json", ".engine/contracts/instance/eDEC-1.md"],
+            r = self._submit([".engine/operator-overrides.json", ".engine/contracts/instance/acme-eADR-0001.md"],
                              home=home)
             self.assertEqual(r["status"], "leak-decision-needed", f"home={home}")
             self.assertIn(".engine/operator-overrides.json", r["offending"])
-            self.assertIn(".engine/contracts/instance/eDEC-1.md", r["offending"])
+            self.assertIn(".engine/contracts/instance/acme-eADR-0001.md", r["offending"])
 
 
 class TestStatus(unittest.TestCase):

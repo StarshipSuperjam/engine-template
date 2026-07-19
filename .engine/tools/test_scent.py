@@ -189,6 +189,24 @@ class RenderLawTests(_ScentBase):
         self.assertIn("decision", text)
         self.assertIn("calendar-sync", text)       # a tag is a pointer (entity ref), surfaced; the body is not
 
+    def test_a_decision_record_tag_surfaces_as_a_pointer(self):
+        # The operator-facing capability behind #571-follow-up: a note tagged with a decision record's id
+        # surfaces through the scent as a pointer to that decision — the same way any memory does. Covers BOTH
+        # id kinds the consolidation directive now instructs the summarizer to assign: an engine decision id
+        # (eADR-####) and a product ADR id (docs/adr/…). The real handler over the real index; the tag is a
+        # pointer (entity ref), the record body is never quoted. (Distractors mirror seed_calendar so the target
+        # clears the salience bar by contrast.)
+        body = "we settled the telemetry retention window in the telemetry retention decision"
+        self.add(body, role="decision", tags=["eADR-0031", "docs/adr/0007-telemetry-retention"])
+        self.add("keep the onboarding copy short", role="lesson", tags=["onboarding"])
+        self.add("prefer snake_case for config keys", role="preference", tags=["naming"])
+        self.rebuild()
+        text = self.run_scent("what was the telemetry retention decision?", self.sid()) or ""
+        self.assertIn("decision", text)                            # the role is named
+        self.assertIn("eADR-0031", text)                          # the engine-decision pointer surfaces
+        self.assertIn("docs/adr/0007-telemetry-retention", text)  # …and the product-ADR pointer surfaces, verbatim
+        self.assertNotIn(body, text)                              # pointers, NOT the record body
+
     def test_recall_completeness_is_disclosed_once_per_session(self):
         # (#332): alongside the FIRST pointers, the scent discloses that these point to curated
         # summaries whose raw verbatim is kept and recoverable; shown once per session (like the degraded notice),
