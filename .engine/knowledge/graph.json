@@ -3905,7 +3905,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:4760c89d3798bee611404394f9027b271bc7ee267833ec9eb09ec86c04010f60",
+        "fingerprint": "sha256:7ea7a480eeef0e158d77dc9c9c0d034b70421c0ce54352a34f8f09fb26ca4d22",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4105,7 +4105,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:5a6b501ce62050c7d1bf6d74a9c9b673a4d365667b2c1a83547d46e86806af14",
+        "fingerprint": "sha256:3c141de461f20f688929c3bbd1c3fe1100de0058095abba36ba0e5b7650edf10",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -7127,7 +7127,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:3473dd75220f6ec28f0643ae405273f0571265815bda3fa00f03bc646e1c7590",
+        "fingerprint": "sha256:6d510c2be6206851b1dc3885bc685fbebd7d1479e29751a0dc4afa21c80c16db",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7144,7 +7144,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:169344431a4b400fe6ee32d5d0ea28f2d3720aabb113cc86eecac81e71b51020",
+        "fingerprint": "sha256:6f20bece3c308b26f2572114b289e5eb0083566e9951a87f6b52581d58058d2c",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -7705,7 +7705,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:78bd54c39ef12c8cf64592c91d40194ab9c129ebe762a4869c388d4301cbbc7a",
+        "fingerprint": "sha256:f552e5f87dd2336250b443601c3a1c7dafe7b5483cb2f5af257e2e19be1152d6",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -8370,6 +8370,23 @@
       "source": {
         "fingerprint": "sha256:9ed7766492386580c0a81177e2a6257ecacd18fa97098f3eb4b0a993d347085f",
         "path": ".engine/tools/test_engine_help.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_engine_home_travel",
+      "name": ".engine/tools/test_engine_home_travel.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_engine_home_travel",
+      "source": {
+        "fingerprint": "sha256:cfa21859a3866ecbc06bc8108daf1c3f7044687ba307a2d8e01ef47dc75118de",
+        "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
       "type": "tool"
@@ -9626,7 +9643,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:f15a7ef79afa13c64cafac2bec7d17f4812438b0aad6c6866225d0ec136c4bc0",
+        "fingerprint": "sha256:efc85ba9ce036ed19889a4d66f2d793ea990e44a99877b306d3171153cfb8e19",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

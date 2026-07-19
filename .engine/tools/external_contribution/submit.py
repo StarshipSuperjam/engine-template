@@ -215,16 +215,35 @@ def detect_contributing(root: str | None = None) -> str | None:
 # hard gate (that contract governs the operator's own repo, never a contribution to someone else's — the engine/product wall).
 _FALLBACK_SECTIONS = ("Summary", "What changed", "Why", "How it was checked")
 
+# The review-disclosure notes (issue #562). The engine's second, independent review runs on an in-repo change
+# (build-orchestration) but NOT on a contribution to another repo — that path has no gate linkage. The primary
+# fix is the runbook, which routes a cross-repo contribution through the same review; `reviewed` records
+# whether that happened, so the PR states the TRUTH about THIS contribution rather than an always-on warning a
+# reader learns to skip. Plain language, no engine vocabulary; a leading note so it never corrupts a foreign
+# template.
+_COLD_REVIEW_BACKSTOP = (
+    "> *A note on review: the engine runs a second, independent check on changes to its own project — a fresh "
+    "look that hunts for mistakes the tests can miss. That check has NOT been run on this contribution (it does "
+    "not run by itself on a contribution to another project). This change has had its tests, but not that "
+    "second look — so it's worth asking for that review before this is merged.*"
+)
+_COLD_REVIEW_RAN = (
+    "> *A note on review: before this contribution was prepared, the engine ran its second, independent check — "
+    "the same fresh look for mistakes the tests can miss that it runs on changes to its own project.*"
+)
 
-def build_pr_body(*, summary: str, template_text: str | None = None) -> str:
+
+def build_pr_body(*, summary: str, template_text: str | None = None, reviewed: bool = False) -> str:
     """The cross-fork pull-request body. When the upstream has a template, follow the host's form: lead with a
     plain one-line summary, then carry the upstream's template for completion. When it has none, fall back to
-    the Engine's own contribution shape (the `_FALLBACK_SECTIONS`). Never invokes the owner-repo completeness
-    check."""
+    the Engine's own contribution shape (the `_FALLBACK_SECTIONS`). Leads with a review note stating the TRUTH
+    about this contribution — that the engine's second review ran (`reviewed=True`) or that it did not (#562) —
+    so the note is informative, never an always-on warning. Never invokes the owner-repo completeness check."""
     summary = summary.strip()
+    note = _COLD_REVIEW_RAN if reviewed else _COLD_REVIEW_BACKSTOP
     if template_text is not None:
-        return f"{summary}\n\n{template_text}"
-    parts = [f"## {_FALLBACK_SECTIONS[0]}\n\n{summary}\n"]
+        return f"{note}\n\n{summary}\n\n{template_text}"
+    parts = [f"{note}\n", f"## {_FALLBACK_SECTIONS[0]}\n\n{summary}\n"]
     for section in _FALLBACK_SECTIONS[1:]:
         parts.append(f"## {section}\n\n")
     return "\n".join(parts)
@@ -273,7 +292,7 @@ def _status_narration(upstream_repo: str, pr_url: str, state: str) -> str:
 
 
 def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
-                        leak_overridden: bool = False) -> str:
+                        leak_overridden: bool = False, reviewed: bool = False) -> str:
     # Never assert "carries no engine files" when the operator reached here by OVERRIDING a leak
     # (proceed_despite_leak=True, confirm=False) — that would be a false-clean claim at the authorize gate.
     cleanliness = (
@@ -281,12 +300,23 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
         if leak_overridden else
         "the changes carry no engine files"
     )
+    # The review line states the TRUTH about this contribution (reviewed or not) and, when NOT reviewed, names
+    # WHY it matters at the actual decision moment — not a vague "if this matters". (#562)
+    review_line = (
+        " I've also run the engine's second, independent review on it — the same check it runs on changes to "
+        "its own project."
+        if reviewed else
+        " One more thing worth knowing: the engine's second, independent review — the one that catches mistakes "
+        "the tests can miss and that runs on changes to its own project — has NOT run on this, because it "
+        "doesn't run by itself on a contribution to another project. Unless this is trivial, ask me to run it "
+        "before you send it; a real mistake can otherwise reach the merge looking fully checked."
+    )
     return (
         f"I've prepared the contribution to {upstream_repo} ({head} → {base}): I compared it against "
         f"`{diff_ref}` — the branch I'm treating as the project's default — and {cleanliness}, and the "
         "pull-request text is ready. If that isn't the branch this should be measured against, tell me before "
-        "I open it. I won't open it until you say so — opening a pull request on a project you don't own is "
-        "your call. Say the word and I'll submit it."
+        f"I open it.{review_line} I won't open it until you say so — opening a pull request on a project you "
+        "don't own is your call. Say the word and I'll submit it."
     )
 
 
@@ -302,13 +332,28 @@ def _unverified_narration(upstream_repo: str) -> str:
     )
 
 
-def _leak_narration(upstream_repo: str, offending: list, diff_ref: str) -> str:
+def _leak_narration(upstream_repo: str, offending: list, diff_ref: str,
+                    contributing_to_engine_home: bool = False) -> str:
     """The submission's own pause narration — distinct from the upstream-clean check message (which is a merge-gate
     nudge that 'never blocks'). Opening a pull request is a one-way outward act, so the submission tool PAUSES
-    here and surfaces the leak as a decision rather than send the engine's files along on its own; it names the
-    files and both ways forward (clear them, or proceed anyway) in plain words ("never a bare block"). It also
-    names the branch it compared against (`diff_ref`) so a mis-aimed comparison is catchable here."""
+    here and surfaces the leak as a decision rather than send the files along on its own; it names the files and
+    both ways forward (clear them, or proceed anyway) in plain words ("never a bare block"), and names the branch
+    it compared against (`diff_ref`) so a mis-aimed comparison is catchable here. The framing DIFFERS by case:
+    contributing to the engine's OWN home, the flagged files are this copy's own private state (the engine's
+    code legitimately travels), so it must NOT say "the Engine's files shouldn't ride into a repo that isn't
+    yours" — that would be backwards."""
     files = ", ".join(offending)
+    if contributing_to_engine_home:
+        return (
+            f"Before opening the pull request, I checked what it would carry to {upstream_repo} — comparing "
+            f"against `{diff_ref}` — and found files that belong to just this copy of the engine, not to the "
+            f"shared template: {files}. Your engine code and its maps do travel with a contribution like this — "
+            "but these are your own saved state, settings, or private tuning, and they should stay here rather "
+            "than go into the shared template. I'd take them off this branch first (nothing is lost — they stay "
+            "on your copy) and then I'll prepare the contribution again — or, if you're sure, tell me to go "
+            "ahead anyway. I've paused rather than send them along on my own, because opening this pull request "
+            "can't be undone — so it's your call."
+        )
     return (
         f"Before opening the pull request, I checked what it would carry to {upstream_repo} — comparing against "
         f"`{diff_ref}` — and found files that belong to the Engine, not to the project you're contributing to: "
@@ -427,8 +472,9 @@ def _run_gh(args: list):
 
 
 def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str, summary: str,
-           run=_run_git, root=None, owned=None, gh_run=None, github=_UNSET,
-           confirm: bool = False, proceed_despite_leak: bool = False, now: str | None = None) -> dict:
+           run=_run_git, root=None, owned=None, gh_run=None, github=_UNSET, home=_UNSET,
+           confirm: bool = False, proceed_despite_leak: bool = False, reviewed: bool = False,
+           now: str | None = None) -> dict:
     """Prepare (and, on an explicit affirmative decision, open) a cross-fork contribution pull request.
 
     `base` and `remote` are TWO roles that were once conflated into one value (issue #561), which made a live
@@ -470,11 +516,28 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
       - `"degraded-draft"` — clean and `confirm=True`, but the upstream was unreachable; the submission is
         DRAFTED for the operator to file. Carries `draft` (the issue body), `promoted`, and the `narration`.
 
+    CONTRIBUTING TO THE ENGINE'S OWN HOME (issue #556). When the contribution TARGET is the engine's own home
+    repository — `slug_eq(upstream_repo, home)`, where `home` is the manifest's `home_repository` — the engine's
+    own SOURCE legitimately rides upstream (it IS the contribution: the mechanic building engine-template, or a
+    fork-native deployment escalating an engine fix). In that case the leak check narrows to this deployment's
+    ACCRETED STATE and the operator's private tuning (`module_coherence.travels_to_engine_home` /
+    `is_deployment_private`) — so product code and the CI-required derived indexes travel, but `engine.json`,
+    the state cursor, audits, erasures, the memory-backup pointer, the operator's overrides/conduct, and the
+    deployment's own decision records stay flagged. For any OTHER target the full engine-owned set is flagged,
+    unchanged — engine files must never leak into a stranger's product. `home` gates the relaxation and is
+    safety-load-bearing: it only relaxes on a positive EXACT full-slug match; a None/unreadable/look-alike home
+    never relaxes (strict full check). `home` is injectable (`_UNSET` -> read the real manifest; `None` -> the
+    no-home path) so the offline suite can drive both branches hermetically.
+
     Every boundary is injectable for offline proof: `run` (git diff / content read), `root` (template detection
     AND the engine's own tree for content provenance), `owned` (engine-owned set), `gh_run` (the gh transport),
-    `github` (telemetry boundary). Two independent decisions gate the outward act: `proceed_despite_leak`
-    acknowledges a hygiene leak, and `confirm` authorizes opening the pull request — the real `gh pr create` is
-    reached only when `confirm=True` (and never while a leak is unacknowledged).
+    `github` (telemetry boundary), `home` (the engine-home coordinate). Two independent decisions gate the
+    outward act: `proceed_despite_leak` acknowledges a hygiene leak, and `confirm` authorizes opening the pull
+    request — the real `gh pr create` is reached only when `confirm=True` (and never while a leak is
+    unacknowledged). `reviewed` records whether the caller ran the engine's second independent review before
+    submitting (issue #562): it selects the truthful review note in the prepared narration and the PR body — a
+    contribution that WAS reviewed says so; one that was not carries the "no cold review ran" backstop. It
+    changes only disclosure, never the gate.
     """
     now = now or telemetry.utc_now()
 
@@ -502,10 +565,28 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     #    back-merge needs the engine's own tree as a source distinct from the contribution checkout, which is
     #    the deferred cross-repo branch-mechanics build-spec leaf (see the module docstring); until it lands the
     #    safe direction is to over-flag by name, never under-flag.
+    if home is _UNSET:
+        try:
+            home = module_coherence.home_repository()
+        except Exception:  # noqa: BLE001 — a malformed manifest degrades THIS flow to the strict full check
+            home = None    # (never relax on a home we could not confirm); the accessor stays fail-loud for its
+            #                other callers (overlay_disclosure / release_cut), the degradation is submit-local.
+    contributing_to_engine_home = module_coherence.slug_eq(upstream_repo, home)
     owned_resolved = _resolve_owned(owned)
-    findings = upstream_clean_check.findings("soft", changed=changed, owned=owned_resolved)
+    # The effective flag set. When contributing to the engine's OWN home, the engine's source + CI-required
+    # indexes legitimately travel, so narrow to the deployment's accreted state (#556); otherwise keep the full
+    # owned set (a stranger's repo must never receive engine files). In BOTH modes, union the deployment-private
+    # carve-outs (operator tuning + the deployment's own decision records) — they sit outside `engine_owned_paths`
+    # yet must never ride upstream. Default-flag is safe: a path the home-travel classifier doesn't positively
+    # recognise as engine source/index/config stays flagged.
+    if contributing_to_engine_home:
+        effective_owned = {p for p in owned_resolved if not module_coherence.travels_to_engine_home(p)}
+    else:
+        effective_owned = set(owned_resolved)
+    effective_owned |= {p for p in changed if module_coherence.is_deployment_private(p)}
+    findings = upstream_clean_check.findings("soft", changed=changed, owned=effective_owned)
     if findings:
-        owned_set = set(owned_resolved)
+        owned_set = effective_owned
         offending = [p for p in changed if p in owned_set]
         # Telemetry-on-fire fires WHICHEVER way the operator decides (the design's "emits a telemetry finding
         # when it fires"): a knowingly-carried leak is exactly the event worth a durable trace.
@@ -518,14 +599,15 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
                 "findings": findings,
                 "offending": offending,
                 "promoted": promoted,
-                "narration": _leak_narration(upstream_repo, offending, diff_ref),
+                "narration": _leak_narration(upstream_repo, offending, diff_ref,
+                                             contributing_to_engine_home),
             }
         # proceed_despite_leak: the operator has acknowledged the leak — fall through to the human confirm gate.
 
     # 2. Follow the host's conventions: build the body to the upstream's template, else the fallback shape.
     template_text = detect_upstream_pr_template(root)
     contributing = detect_contributing(root)
-    body = build_pr_body(summary=summary, template_text=template_text)
+    body = build_pr_body(summary=summary, template_text=template_text, reviewed=reviewed)
     pr = {"repo": upstream_repo, "base": base, "head": head, "title": title, "body": body,
           "followed_template": template_text is not None, "contributing": contributing}
 
@@ -535,7 +617,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     if not confirm:
         return {"status": "prepared", "pr": pr,
                 "narration": _prepared_narration(upstream_repo, head, base, diff_ref,
-                                                  leak_overridden=bool(findings))}
+                                                  leak_overridden=bool(findings), reviewed=reviewed)}
 
     # 4. Open the pull request (the one un-exercised-at-v1 boundary). Degrade to a draft on any failure.
     gh = gh_run or _run_gh
@@ -737,6 +819,29 @@ def demo() -> int:
         s_unknown = status(pr_url=pr_url, gh_run=lambda args: (1, "", "could not resolve host github.com"))
         if s_unknown["status"] != "unknown" or "couldn't reach" not in s_unknown["narration"]:
             failures.append(f"status case: expected an honest unknown, got {s_unknown['status']}")
+
+        # Case 7 — contributing back to the ENGINE'S OWN HOME (#556). The engine's product code travels (it IS
+        #          the contribution), but this deployment's OWN accreted state stays flagged. The very same diff
+        #          to a STRANGER's repo flags every engine file — the safety case that must never regress.
+        home = "StarshipSuperjam/engine-template"
+        home_owned = [".engine/tools/boot.py", ".engine/state/state.json"]   # product + instance-state
+        home_diff = run_with([".engine/tools/boot.py", ".engine/state/state.json"])
+        r7 = submit(upstream_repo=home, base="main", remote="origin", head="me:fix", title="Fix",
+                    summary="Fix.", run=home_diff, root=root_without, owned=home_owned, gh_run=gh_ok,
+                    github=None, home=home, confirm=False, now=now)
+        print("--- contributing to the engine's OWN home: product travels, this deployment's state stays flagged ---")
+        print(r7["narration"], "\n")
+        if r7["status"] != "leak-decision-needed":
+            failures.append(f"home case: expected the deployment's state still flagged, got {r7['status']}")
+        if ".engine/state/state.json" not in r7.get("offending", []):
+            failures.append("home case: the deployment's own state.json was NOT flagged (an instance-state leak)")
+        if ".engine/tools/boot.py" in r7.get("offending", []):
+            failures.append("home case: product code was over-flagged — the #556 bug this fixes")
+        r7s = submit(upstream_repo="someone/else", base="main", remote="upstream", head="me:fix", title="Fix",
+                     summary="Fix.", run=home_diff, root=root_without, owned=home_owned, gh_run=gh_ok,
+                     github=None, home=home, confirm=False, now=now)
+        if r7s["status"] != "leak-decision-needed" or ".engine/tools/boot.py" not in r7s.get("offending", []):
+            failures.append("stranger case: engine source MUST be flagged for a third-party target (safety case)")
     finally:
         shutil.rmtree(root_with, ignore_errors=True)
         shutil.rmtree(root_without, ignore_errors=True)
@@ -749,7 +854,9 @@ def demo() -> int:
     print("DEMO PASSED — an unreadable diff is held rather than narrated clean or opened; a leaked engine file "
           "pauses for your decision (clear it, or proceed anyway) rather than a bare halt, and traces to "
           "telemetry either way; a clean contribution is only PREPARED until you authorize it; on your go-ahead "
-          "it opens following the host's template (or the engine's fallback shape); an unreachable upstream "
+          "it opens following the host's template (or the engine's fallback shape); a contribution back to the "
+          "engine's OWN home lets the engine's product code travel while still flagging this deployment's own "
+          "state, and the same diff to a stranger's repo flags every engine file; an unreachable upstream "
           "degrades to a drafted submission, nothing lost; and the status check tells you honestly where a "
           "submission stands, or that it couldn't be read.")
     return 0
