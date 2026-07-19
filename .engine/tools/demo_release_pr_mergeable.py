@@ -15,14 +15,15 @@ RED *before* its fix:
      Step 3 asserts the bumped, regenerated tree passes the version-derivation self-tests — the layer a
      tree-only check (Part A's original demo) could not see.
   3. THE PULL-REQUEST BODY. The generated body must carry all eight sections `pr-body-completeness`
-     requires (a RELEASE_PAT-opened PR is not author-exempt). Step 4 shows the rendered body passes that
-     hard check; Step 5 is a negative control — an incomplete body still trips it, so Step 4's green is
-     not vacuous.
+     requires AND the consent preamble (a RELEASE_PAT-opened PR is not author-exempt). Step 4 shows the
+     rendered body passes that hard check; Step 5 is a negative control — an incomplete body still trips
+     it — and Step 6 a second negative control — a fully-sectioned body that dropped the preamble still
+     trips it — so Step 4's green is not vacuous on either leg.
 
 Everything runs ROOTED IN THE COPY: each tool is invoked as `<copy>/.engine/tools/<tool>.py`, so its
 `validate.ROOT` resolves to the copy — the real repo's maps are never touched. It runs the REAL tools
 (release_cut, knowledge_gen, self_map, validate); only the repo it acts on is a throwaway. Offline, no
-network, no real-repo mutation, and able to fail (the two negative controls prove the checks bite).
+network, no real-repo mutation, and able to fail (the three negative controls prove the checks bite).
 
   uv run --directory .engine -- python tools/demo_release_pr_mergeable.py
 """
@@ -40,6 +41,7 @@ import validate     # to locate the real repo root (validate.ROOT)
 GRAPH_SIG = "knowledge/graph.json) is out of date"   # knowledge-coverage: the graph is stale
 SELFMAP_SIG = "self-map.md) is out of date"           # self-map-drift: the self-map is stale
 BODY_SIG = "Required section '##"                      # pr-body-completeness: a required section is missing
+PREAMBLE_SIG = "consent preamble"                     # pr-body-completeness: the preamble anchor is absent
 
 
 def _copy_repo(dst: str) -> None:
@@ -142,9 +144,9 @@ def main() -> int:
         with open(os.path.join(engine, "body.md"), "w") as fh:
             fh.write(body_md)
         body_result = _validate(engine, pr_body_file="body.md")
-        body_complete = BODY_SIG not in body_result
+        body_complete = BODY_SIG not in body_result and PREAMBLE_SIG not in body_result
         print("\n4. THE BODY FIX — the rendered release body clears pr-body-completeness:")
-        print(f"   all eight required sections present + filled = {body_complete}")
+        print(f"   eight required sections filled AND the consent preamble carried = {body_complete}")
         ok &= body_complete
 
         # 5. NEGATIVE CONTROL — an incomplete body STILL trips the gate, so Step 4's green isn't vacuous.
@@ -156,10 +158,24 @@ def main() -> int:
         print(f"   incomplete body flagged by pr-body-completeness = {body_check_bites}")
         ok &= body_check_bites
 
+        # 6. PREAMBLE NEGATIVE CONTROL — a body with all eight sections filled but the preamble DROPPED
+        #    still trips the gate, so Step 4's preamble check is not vacuous (the #491 preamble-drop class).
+        _sections = ["Purpose", "Scope", "Out of scope", "Risk", "Validation", "Review",
+                     "Files of interest", "Claude involvement"]
+        preambleless = "\n".join(f"## {s}\n**Real summary**\n- a real bullet\n*Impact: real consequence*"
+                                 for s in _sections)
+        with open(os.path.join(engine, "no_preamble_body.md"), "w") as fh:
+            fh.write(preambleless)
+        no_preamble_result = _validate(engine, pr_body_file="no_preamble_body.md")
+        preamble_check_bites = PREAMBLE_SIG in no_preamble_result and BODY_SIG not in no_preamble_result
+        print("\n6. PREAMBLE NEGATIVE CONTROL — a fully-sectioned body that dropped the preamble is caught:")
+        print(f"   preamble-less body flagged by pr-body-completeness = {preamble_check_bites}")
+        ok &= preamble_check_bites
+
         print("\n" + (f"DEMO PASSED: a {version} cut goes red on stale maps; regenerating the maps clears them, the "
-                      "bumped tree passes the version-derivation self-tests, and the rendered eight-section body "
-                      "clears pr-body-completeness — the release PR is mergeable, and the body gate still bites "
-                      "an incomplete body."
+                      "bumped tree passes the version-derivation self-tests, and the rendered eight-section body — "
+                      "consent preamble included — clears pr-body-completeness; the release PR is mergeable, and the "
+                      "body gate still bites both an incomplete body and a fully-sectioned body that dropped the preamble."
                       if ok else "DEMO DID NOT BEHAVE AS EXPECTED — see the per-step results above."))
         return 0 if ok else 1
     finally:

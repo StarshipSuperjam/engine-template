@@ -53,6 +53,14 @@ IMPACT_RULE = {"id": "engine/check/pr-body-completeness",
                "kind": "presence", "tier": "hard", "suites": ["CI"],
                "params": {"sections": SECTIONS, "filled_subsection_label": "Impact"},
                "message": "Fill the section and its Impact line."}
+# The same shape WITH the required-phrases enforcement param — a two-anchor fixture, so the new
+# leg is exercised in isolation from the shipped-JSON drift tests below.
+PHRASES_RULE = {"id": "engine/check/pr-body-completeness",
+                "target": {"context": "pull-request-body"},
+                "kind": "presence", "tier": "hard", "suites": ["CI"],
+                "params": {"sections": SECTIONS,
+                           "required_phrases": ["binding gate anchor", "unverified anchor"]},
+                "message": "Fill the sections and carry the preamble."}
 
 
 class TestCompletenessTeeth(unittest.TestCase):
@@ -1043,6 +1051,25 @@ class TestPRContractNoDrift(unittest.TestCase):
             rule = json.load(fh)
         self.assertEqual(rule["params"].get("filled_subsection_label"), "Impact")
 
+    def test_committed_preamble_anchors_are_present_in_the_template(self):
+        # Leg (d): the check's required_phrases (the consent-preamble anchors) must each
+        # appear VERBATIM in the committed PR template. This binds template<->check so a
+        # future reword of the preamble in the template that leaves the check hunting the
+        # old phrase — which would redden every correctly-authored PR — fails CI here
+        # instead. The subset direction (each check phrase is in the template) permits a
+        # COORDINATED reword of both; an un-coordinated one is what this catches.
+        check_path = os.path.join(self._repo_root(), ".engine", "check",
+                                  "pr-body-completeness.json")
+        with open(check_path, encoding="utf-8") as fh:
+            phrases = json.load(fh)["params"].get("required_phrases")
+        self.assertTrue(phrases, "the shipped check must declare the preamble anchors")
+        tmpl_path = os.path.join(self._repo_root(), ".github", "pull_request_template.md")
+        with open(tmpl_path, encoding="utf-8") as fh:
+            template = fh.read()
+        for phrase in phrases:
+            self.assertIn(phrase, template,
+                          f"preamble anchor {phrase!r} required by the check is absent from the template")
+
 
 class TestEmptinessLabelScope(unittest.TestCase):
     """The emptiness leg's Impact-awareness is scoped to the enforced label and off by
@@ -1156,7 +1183,90 @@ class TestImpactFillEnforcement(unittest.TestCase):
             shipped = json.load(fh)
         passed, found = validate.kind_presence(shipped, {"pr_body": self._body("*Impact: <slot>*")})
         self.assertFalse(passed)
-        self.assertEqual(len(found), 8)
+        # this _body carries no preamble, so the shipped rule also fires its required_phrases leg; assert on
+        # the Impact-leg findings specifically (the behaviour this test pins), not the total count.
+        impact_findings = [f for f in found if "no filled Impact line" in f["message"]]
+        self.assertEqual(len(impact_findings), 8)
+
+
+class TestRequiredPhrasesLeg(unittest.TestCase):
+    """The required-phrases leg, gated behind params.required_phrases. It guards a fixed
+    anchor a heading scan cannot see — the consent preamble that drops when a body is
+    reconstructed instead of filled verbatim. Absent param => the leg is skipped."""
+
+    def _sections(self):  # 8 filled sections + Impact lines, no preamble
+        return "\n".join(f"## {s}\n**Real summary**\n- a real bullet\n*Impact: real consequence*"
+                         for s in SECTIONS)
+
+    def _body(self, anchors):  # the anchors (a preamble stand-in) above the eight filled sections
+        return ("\n".join(anchors) + "\n" + self._sections()) if anchors else self._sections()
+
+    def test_all_missing_anchors_flag_in_one_finding(self):
+        # a whole-preamble drop is ONE finding that lists every missing anchor, not one per anchor
+        passed, found = validate.kind_presence(PHRASES_RULE, {"pr_body": self._body([])})
+        self.assertFalse(passed)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["severity"], "hard")
+        self.assertIn("consent preamble", found[0]["message"])
+        self.assertIn("binding gate anchor", found[0]["message"])
+        self.assertIn("unverified anchor", found[0]["message"])
+
+    def test_all_anchors_present_passes(self):
+        passed, found = validate.kind_presence(
+            PHRASES_RULE, {"pr_body": self._body(["binding gate anchor", "unverified anchor"])})
+        self.assertTrue(passed)
+        self.assertEqual(found, [])
+
+    def test_partial_lists_only_the_missing_anchor(self):
+        passed, found = validate.kind_presence(
+            PHRASES_RULE, {"pr_body": self._body(["binding gate anchor"])})  # second anchor absent
+        self.assertFalse(passed)
+        self.assertEqual(len(found), 1)
+        self.assertIn("unverified anchor", found[0]["message"])
+        self.assertNotIn('"binding gate anchor"', found[0]["message"])  # the present anchor is not listed
+
+    def test_hard_wrapped_anchor_is_flagged_with_a_wrap_hint(self):
+        # a present-but-wrapped anchor reads as absent (substring match is one physical line); the finding
+        # points the author at the wrap, not only "restore the preamble" (usability recovery path).
+        wrapped = self._body(["binding gate\nanchor", "unverified anchor"])  # first anchor split by a wrap
+        passed, found = validate.kind_presence(PHRASES_RULE, {"pr_body": wrapped})
+        self.assertFalse(passed)
+        self.assertEqual(len(found), 1)
+        self.assertIn("line wrap", found[0]["message"])
+        self.assertIn("binding gate anchor", found[0]["message"])  # the split anchor is the one listed
+
+    def test_param_absent_skips_the_leg(self):
+        # COMPLETENESS_RULE declares no required_phrases; a preamble-less body still passes,
+        # proving the leg is strictly gated (every other presence check is unaffected).
+        passed, found = validate.kind_presence(COMPLETENESS_RULE, {"pr_body": self._body([])})
+        self.assertTrue(passed)
+        self.assertEqual(found, [])
+
+    def test_file_target_branch_flags_missing_anchor(self):
+        # parity with the file-target path: the leg also runs on a prose-file target
+        with tempfile.TemporaryDirectory() as d:
+            p = _write(d, "doc.md", "## Alpha\nreal content\n")
+            rule = _rule(kind="presence", target={"path": "x"},
+                         params={"sections": ["Alpha"], "required_phrases": ["must appear here"]})
+            passed, found = _run_kind(validate.kind_presence, rule, [p])
+        self.assertFalse(passed)
+        self.assertTrue(any("must appear here" in f["message"] for f in found))
+
+    def test_shipped_rule_flags_a_preamble_less_body_and_passes_with_it(self):
+        # exercise the SHIPPED rule against the REAL template preamble — the falsification
+        # that a body dropping the preamble is caught, and one carrying it is cleared.
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(root, ".engine", "check", "pr-body-completeness.json"),
+                  encoding="utf-8") as fh:
+            shipped = json.load(fh)
+        passed, found = validate.kind_presence(shipped, {"pr_body": self._body([])})
+        self.assertFalse(passed)
+        self.assertTrue(any("consent preamble" in f["message"] for f in found))
+        # now with every declared anchor present, the preamble leg is satisfied
+        anchors = shipped["params"]["required_phrases"]
+        passed, found = validate.kind_presence(shipped, {"pr_body": self._body(anchors)})
+        self.assertTrue(passed)
+        self.assertEqual(found, [])
 
 
 # ---- the generic closed kinds + suite-context gating --------------

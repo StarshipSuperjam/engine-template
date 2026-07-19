@@ -443,6 +443,27 @@ def subsection_fill_findings(body: str, sections: list, label: str, tier: str,
     return findings
 
 
+def phrase_presence_findings(phrases: list, body: str, tier: str, message: str, where: str) -> list:
+    """ONE finding when any required anchor of the consent preamble is absent from `body`. This
+    guards a fixed anchor a template scan of `## ` headings cannot see — the pull-request preamble
+    blockquote, which sits above the first heading. Each anchor is a whole-body substring match, so
+    it must sit on one physical line (a hard wrap inside an anchor reads as absent). The findings
+    are consolidated into a single entry that lists every missing anchor, so a whole-preamble drop —
+    the common case — reads as one defect, not one wall of text per anchor. This is a set of
+    structural anchors for one consent surface, never a growable registry of arbitrary required
+    sentences, and never a judgement of the prose around them."""
+    missing = [p for p in phrases if p not in body]
+    if not missing:
+        return []
+    absent = "; ".join(f'"{p}"' for p in missing)
+    return [finding(tier, f"The {where} is missing the consent preamble — the italic note at the very "
+                    f"top that tells a reader a green check shows conformance, not correctness, and that "
+                    f"their merge is the binding gate. These anchors of it are absent: {absent}. It drops "
+                    f"when a body is reconstructed rather than filled from the template verbatim; if the "
+                    f"preamble looks present, check that no line wrap falls inside an anchor (each must sit "
+                    f"on one unwrapped line). Restore the preamble. {message}")]
+
+
 # ---- kind: presence --------------------------------------------------------
 
 def kind_presence(rule, ctx):
@@ -453,14 +474,17 @@ def kind_presence(rule, ctx):
     template body does NOT pass on its own. When params carry a
     `filled_subsection_label`, each non-empty section must ALSO carry a filled line
     under that label (e.g. `Impact:`), and that labelled line is not itself counted as
-    section content. Both the leg and the exclusion are skipped when the param is absent,
-    so other presence checks are exactly unaffected. Presence + non-emptiness (and the
-    labelled line, when required) are gated; truthfulness is posture (this cannot judge
-    whether the content is accurate)."""
+    section content. When params carry `required_phrases`, each listed phrase must appear
+    verbatim in the body — for a fixed anchor a heading scan cannot see, such as the consent
+    preamble above the first `## ` heading. Each leg is skipped when its param is absent, so
+    other presence checks are exactly unaffected. Presence + non-emptiness (and the labelled
+    line / required phrases, when configured) are gated; truthfulness is posture (this cannot
+    judge whether the content is accurate)."""
     tier = rule["tier"]
     params = rule.get("params") or {}
     sections = params.get("sections", [])
     label = params.get("filled_subsection_label")
+    phrases = params.get("required_phrases")
     message = rule["message"]
     target = rule.get("target") or {}
     if target.get("context") == "pull-request-body":
@@ -472,6 +496,8 @@ def kind_presence(rule, ctx):
         if label:
             findings += subsection_fill_findings(body, sections, label, tier, message,
                                                  "pull-request body")
+        if phrases:
+            findings += phrase_presence_findings(phrases, body, tier, message, "pull-request body")
         return (len(findings) == 0), findings
     findings = []
     for path in target_files(rule):
@@ -480,6 +506,8 @@ def kind_presence(rule, ctx):
         findings.extend(section_presence_findings(text, sections, tier, message, where, label))
         if label:
             findings.extend(subsection_fill_findings(text, sections, label, tier, message, where))
+        if phrases:
+            findings.extend(phrase_presence_findings(phrases, text, tier, message, where))
     return (len(findings) == 0), findings
 
 

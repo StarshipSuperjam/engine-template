@@ -364,6 +364,23 @@ class RenderPRBody(unittest.TestCase):
         findings = validate.section_presence_findings(body, required, "hard", "", "pull-request body")
         self.assertEqual(findings, [], f"release body missing/empty required sections: {findings}")
 
+    def test_body_carries_the_consent_preamble_and_clears_the_full_gate(self):
+        # A RELEASE_PAT-opened release PR is not author-exempt, so its body must also carry the consent
+        # preamble the completeness gate now requires (required_phrases), not just the eight sections.
+        # Assert against the SHIPPED check via the real kind_presence, so this tracks the exact gate and
+        # FAILS if render_pr_body ever stops emitting the preamble (the #491 preamble-drop class).
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(root, ".engine", "check", "pr-body-completeness.json"), encoding="utf-8") as fh:
+            shipped = json.load(fh)
+        with _Tree({"core": _module("core"), "qa-review": _module("qa-review")}):
+            proposal = rc.classify(rc.Baseline(None, True, "no prior release"), None)
+            applied = rc.apply("0.1.0", "0.1.0", {}, None, dry_run=False)
+        body = rc.render_pr_body(proposal, applied)
+        passed, findings = validate.kind_presence(shipped, {"pr_body": body})
+        self.assertTrue(passed, f"release body fails the shipped completeness gate: {findings}")
+        for phrase in shipped["params"]["required_phrases"]:
+            self.assertIn(phrase, body, f"release body dropped preamble anchor {phrase!r}")
+
     def test_body_follows_the_pr_template_form_not_just_headers(self):
         # The completeness gate only checks the eight HEADERS are present; a header-only body passes it but is
         # not a template-conforming body. Every section must carry the repo template's shape — a bold one-line
