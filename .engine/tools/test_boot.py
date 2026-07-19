@@ -90,7 +90,7 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
             "ledger_malformed": None, "migration_stalled": False, "recall_offline": False,
-            "set_aside": None, "foreign_license": None,
+            "set_aside": None, "foreign_license": None, "first_run": None,
             "operator_backlog_count": None, "operator_backlog_register": None,
             "operator_backlog_degraded": False}
 
@@ -117,6 +117,38 @@ def _blocking(n):
     """n blocking-finding rows ({number, title}) — what needs_attention surfaces for the never-shed relay and
     its collapse fingerprint. Numbers 1..n, so the derived fingerprint is a stable identity set."""
     return [{"number": str(i), "title": f"broken thing {i}"} for i in range(1, n + 1)]
+
+
+class TestFirstRunOffer(unittest.TestCase):
+    """#353: a fresh (or partway-set-up) copy of the template gets the onboarding OFFER pinned at the TOP of the
+    dashboard; a workshop / finished project shows nothing; and the offer suppresses the redundant safety-gate-off
+    offer, since first-run setup is exactly what turns the gate on."""
+
+    _FIRST_RUN = {"present": True, "main": "/proj", "home": "StarshipSuperjam/engine-template", "own": "acme/widgets"}
+
+    def test_offer_shows_when_first_run_pending(self):
+        dash = boot.render_dashboard(_signals(first_run=self._FIRST_RUN)).lower()
+        self.assertIn("set up my project", dash)
+        self.assertIn("first-time setup hasn't finished", dash)
+
+    def test_offer_pins_above_the_findings_alarm(self):
+        dash = boot.render_dashboard(_signals(first_run=self._FIRST_RUN, finding_count=3))
+        self.assertLess(dash.index("set up my project"), dash.index("open engine finding"),
+                        "the onboarding offer frames every other signal, so it pins first")
+
+    def test_no_offer_when_not_pending(self):
+        self.assertNotIn("set up my project", boot.render_dashboard(_signals()).lower())
+        self.assertNotIn("set up my project", boot.render_dashboard(_signals(first_run=None)).lower())
+
+    def test_first_run_offer_suppresses_the_redundant_gate_off_offer(self):
+        dash = boot.render_dashboard(
+            _signals(gate="off", reason="branch protection not found", first_run=self._FIRST_RUN)).lower()
+        self.assertIn("set up my project", dash)
+        self.assertNotIn("turn my safety gate back on", dash)
+
+    def test_gate_off_offer_shows_normally_without_first_run(self):
+        dash = boot.render_dashboard(_signals(gate="off", reason="branch protection not found")).lower()
+        self.assertIn("turn my safety gate back on", dash)
 
 
 class TestProductLine(unittest.TestCase):

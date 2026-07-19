@@ -354,9 +354,13 @@ def _engine_manifest_path(root: str | None = None) -> str:
 
 
 def is_provisioned(root: str | None = None) -> bool:
-    """True when this repo has already been set up — keyed off the engine manifest's presence (the
-    checkpoint the design uses; no separate state is introduced). A fresh generated repo has no
-    confirm-written manifest yet, so setup runs; the construction repo has one, so setup short-circuits."""
+    """True iff the engine manifest (.engine/engine.json) is PRESENT — the RAW manifest-presence predicate,
+    NOT on its own "this repo is set up." The manifest TRAVELS with the template, so a fresh generated copy
+    inherits one too; keying "already set up" on presence alone is exactly the dead-on-arrival bug (#353).
+    Callers that must tell a finished repo from an un-transformed copy pair this with observable installed
+    shape — `module_coherence.is_downstream_copy(...)` (origin != recorded home) and the setup tool's presence
+    (`first_run_health`); the `show` branch below does. Kept as the low-level predicate other callers/tests
+    rely on (no separate state file is introduced — the derivation reads existing shape)."""
     return os.path.isfile(_engine_manifest_path(root))
 
 
@@ -3447,9 +3451,13 @@ def main(argv: list) -> int:
         print("This is the workshop where the engine is built — the overlap check runs when the engine is "
               "added to a project that already has its own files. Nothing to detect here.")
         return 0
-    # `show` (or no argument): the read-only gather walkthrough. In an already-set-up repo (this one), it
-    # short-circuits rather than re-offering setup.
-    if is_provisioned():
+    # `show` (or no argument): the read-only gather walkthrough. Short-circuit "already set up" ONLY when a
+    # manifest is present AND this is NOT a downstream copy still pending setup (#353). The manifest TRAVELS
+    # with the template, so its mere presence cannot mean "provisioned": a fresh generated copy inherits one.
+    # A downstream copy (its origin differs from the recorded update home) falls into the gather and offers
+    # setup; the workshop (origin == home) and any repo whose origin can't be read stay short-circuited
+    # (safe-quiet — never a false "set up your project" in the workshop itself).
+    if is_provisioned() and not module_coherence.is_downstream_copy(boot.repo_slug()):
         print(_ALREADY_SET_UP)
         return 0
     print(present_gather())

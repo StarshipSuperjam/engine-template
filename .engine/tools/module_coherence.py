@@ -278,6 +278,27 @@ def slug_eq(a: str | None, b: str | None) -> bool:
     return na is not None and na == nb
 
 
+def is_downstream_copy(own_slug: str | None) -> bool:
+    """True iff this repo is a DOWNSTREAM copy of the engine — its recorded update home is a DIFFERENT
+    repository than its own origin `own_slug`. This is the READ-ONLY, injectable, normalized sibling of
+    `overlay_disclosure.is_deployed()`, purpose-built for first-run detection (#353):
+      - `own_slug` is a PARAMETER (never resolved here), so a test/demo can force the comparison — the caller
+        resolves it (e.g. from the EXAMINED checkout's git origin), never a process-env slug that CI would pin.
+      - the compare is `slug_eq`-normalized (casefold / `.git` / trailing-slash), so an SSH-vs-HTTPS or
+        case-skewed origin never reads as "different".
+      - SAFE, fail-toward-quiet: returns False (NOT a copy) whenever the home is absent/blank/unreadable OR
+        `own_slug` is None, so the workshop (home == own) and any repo whose origin cannot be read stay quiet —
+        a consumer never nags a repo it cannot positively place. A MALFORMED manifest degrades to False here
+        (this predicate must never crash its read-only caller), unlike the fail-LOUD `home_repository()` the
+        update path deliberately relies on — the reason this is a distinct predicate from `is_deployed`, not a
+        second copy of it."""
+    try:
+        home = home_repository()
+    except Exception:  # noqa: BLE001 — a corrupt manifest degrades to "not a copy" here; never crash the caller
+        return False
+    return bool(home and own_slug and not slug_eq(home, own_slug))
+
+
 # ---- what may travel in a contribution back to the ENGINE'S OWN HOME (issue #556) -----------------
 #
 # When a deployment contributes back to the engine's home (the mechanic building engine-template, or a

@@ -1635,7 +1635,6 @@
           "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
-          "policy:spec-structure-integrity",
           "policy:triage-threshold"
         ]
       },
@@ -1696,7 +1695,6 @@
           "policy:external-contribution",
           "policy:finding-disposition",
           "policy:migration-discipline",
-          "policy:spec-structure-integrity",
           "policy:triage-threshold"
         ]
       },
@@ -1755,33 +1753,6 @@
       "source": {
         "fingerprint": "sha256:6af50fc9d737a2b2987cac591645307136e78da8b8572d2c8c229f0463d77607",
         "path": ".engine/check/product-adr-form.json"
-      },
-      "status": "active",
-      "suites": [
-        "CI",
-        "pre-close",
-        "pre-commit"
-      ],
-      "tier": "hard",
-      "type": "check"
-    },
-    {
-      "id": "check:product-design-form",
-      "kind": "custom/script",
-      "name": ".engine/check/product-design-form.json",
-      "owner": "product-design",
-      "predicates": {
-        "governed_by": [
-          "schema:check.v1"
-        ],
-        "provided_by": [
-          "module:product-design"
-        ]
-      },
-      "slug": "product-design-form",
-      "source": {
-        "fingerprint": "sha256:34922096ade1c3bf98546cfac7f47d0923afad896a78c9399d4f8e2122aec991",
-        "path": ".engine/check/product-design-form.json"
       },
       "status": "active",
       "suites": [
@@ -2849,7 +2820,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:63c677d4800f576fde9ea25f6b41a61e2bd530eb2d92b1e3f14ddb594b9cbadb",
+        "fingerprint": "sha256:93e4971cdbb9a4f6dfd9e174cc4f3808aaaa67498c0184ee5273d80ec8f47e21",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
@@ -3329,7 +3300,7 @@
       },
       "slug": "eADR-0024-modes-three-stances-two-axes",
       "source": {
-        "fingerprint": "sha256:cabd1e4e6a789a3a1aaf7ed3787ac05d05a8f961f64a6f757341b50df99c1229",
+        "fingerprint": "sha256:6984eb6b4f15982c8b27b525b51be51876f679495eb3156f4b41cc892d51485d",
         "path": ".engine/contracts/eADR-0024-modes-three-stances-two-axes.md"
       },
       "status": "accepted",
@@ -3629,7 +3600,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:b8883ebc451c52ca1600b33076c08e66f19050d6b233bd5873044601d97d7e5d",
+        "fingerprint": "sha256:6d5cb37f8047d05675f96cc157985bc3acc8eb20a63159b15893e7f00d54210f",
         "path": ".engine/docs/product-design.md"
       },
       "status": "active",
@@ -3839,7 +3810,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:d78dcb70e3ac83ab2222433b3ac67348ff0a4ed9af7fa62de947b71f1c6f311d",
+        "fingerprint": "sha256:1c8707bb6c32d613e954a20e0066a870eddde1b4da5f758d4580be030085315e",
         "path": ".engine/modules/product-design/manifest.json"
       },
       "status": "optional",
@@ -3914,7 +3885,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:3475aaf2f910324c9e9ee7db3633d1692655958fc0107079c12dd3afc4da7b49",
+        "fingerprint": "sha256:1198e64bd0cfafe8a41af74b10bf21d2823afcb1aa6f8b145d8e790b037e3a09",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -3934,7 +3905,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:bc76343049aa9a25a3832526e549e88ceac18da67c9e01d078bc2a97404da0a9",
+        "fingerprint": "sha256:7ea7a480eeef0e158d77dc9c9c0d034b70421c0ce54352a34f8f09fb26ca4d22",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4134,7 +4105,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:5fdbaa3423adc752af8244e8611db1aa48227ade9820b7cb66fe61047d2b732b",
+        "fingerprint": "sha256:3c141de461f20f688929c3bbd1c3fe1100de0058095abba36ba0e5b7650edf10",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -4254,7 +4225,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:d714216f81800812578021895e8c5b441880bef9a3b2ee0e31da26f06edc94c5",
+        "fingerprint": "sha256:b2f0421e24cbc62937a0a1276b0a7781ee3b9a7cf97d4db756737dda60bbc178",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -4274,7 +4245,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:a47bbffc5a64f4301b3dca41347c0780c52f03518c7c10010c9eb7d65dccb622",
+        "fingerprint": "sha256:c1584b9f141d5f3f6499ee10a0f6cb2f851e02ecaf25c5669b49f60b35a40f8e",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -4505,27 +4476,6 @@
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
-      "type": "policy"
-    },
-    {
-      "id": "policy:spec-structure-integrity",
-      "name": ".engine/policies/spec-structure-integrity.md",
-      "owner": "product-design",
-      "predicates": {
-        "governed_by": [
-          "schema:policy.v1"
-        ],
-        "provided_by": [
-          "module:product-design"
-        ]
-      },
-      "slug": "spec-structure-integrity",
-      "source": {
-        "fingerprint": "sha256:92823596b1a938f11d3e738238d7d1f93a8d2691a23b27a69e7ab6e7a38ed782",
-        "path": ".engine/policies/spec-structure-integrity.md"
-      },
-      "status": "active",
-      "title": "Spec structure integrity",
       "type": "policy"
     },
     {
@@ -5562,7 +5512,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:af5a96445286d951f749c156167cffd98ef5d02799a1b60eb9b225d45743c8ec",
+        "fingerprint": "sha256:9814134da857452c376dce41153a37267453c114c28205d9b48236c2a71f2d2c",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5715,7 +5665,7 @@
       },
       "slug": "close_linkage_preflight",
       "source": {
-        "fingerprint": "sha256:650553c392772a8b2aa054a6c8a74cad03c3cf464d20b6eca07c987e7d615f6b",
+        "fingerprint": "sha256:aca1a9f37ac1791452c984c5d73d5950db9d0a37a545c6f0d4e8ebdce61002aa",
         "path": ".engine/tools/close_linkage_preflight.py"
       },
       "status": "active",
@@ -6038,7 +5988,7 @@
       },
       "slug": "demo_boot_alarm_collapse",
       "source": {
-        "fingerprint": "sha256:3d49d95918e0f5610a3c45c00c46b58329119a822e30c39fed20bdf381df6be7",
+        "fingerprint": "sha256:e6bdf76f974f55ae8832b7b29837d0ca3aaf13464ab42309e4fc7d982b4ef501",
         "path": ".engine/tools/demo_boot_alarm_collapse.py"
       },
       "status": "active",
@@ -6055,7 +6005,7 @@
       },
       "slug": "demo_boot_set_aside_readout",
       "source": {
-        "fingerprint": "sha256:af7a9fdf1f83a5aa02e04814420693aff8e1cdaac063df82c82c35bd984e7f7b",
+        "fingerprint": "sha256:b846e723f2a663c7124d014034c42c66d51b995cac8dd3ed04bc7b8695117ce6",
         "path": ".engine/tools/demo_boot_set_aside_readout.py"
       },
       "status": "active",
@@ -6123,7 +6073,7 @@
       },
       "slug": "demo_contract_rate",
       "source": {
-        "fingerprint": "sha256:9b7a009a244d1820a02a23b9c4f9b58bbfb51c3cb07f35702f24eea66165528f",
+        "fingerprint": "sha256:1ae097bc91bf91433718d6b04e3c5679ad92683cad74f6411986c4b276213c9b",
         "path": ".engine/tools/demo_contract_rate.py"
       },
       "status": "active",
@@ -6242,7 +6192,7 @@
       },
       "slug": "demo_memory_degradation_backup",
       "source": {
-        "fingerprint": "sha256:68e1d123fd9d97d13cc3a04ee6e7aa407d603861bc37de01805ee764c1c963aa",
+        "fingerprint": "sha256:0d0498e8c5f290460fe98af65bf9f20bcccef043fe45672eb9395999406d397d",
         "path": ".engine/tools/demo_memory_degradation_backup.py"
       },
       "status": "active",
@@ -6259,7 +6209,7 @@
       },
       "slug": "demo_operator_backlog",
       "source": {
-        "fingerprint": "sha256:931e35d0c480f59108118e7f5ac2eef5e24e62dd43804522afed4a3d7028a0fd",
+        "fingerprint": "sha256:c842849a1c261ee505f93dd76db8a9d3c8dbc5ad0601dda1929618b48b0f885e",
         "path": ".engine/tools/demo_operator_backlog.py"
       },
       "status": "active",
@@ -6521,23 +6471,6 @@
       "type": "tool"
     },
     {
-      "id": "tool:design_form",
-      "name": ".engine/tools/product_design/design_form.py",
-      "owner": "product-design",
-      "predicates": {
-        "provided_by": [
-          "module:product-design"
-        ]
-      },
-      "slug": "design_form",
-      "source": {
-        "fingerprint": "sha256:d0f3fc7c26513b41608f169266547f6ab3835d440af6a5c0fac931667fc4f70b",
-        "path": ".engine/tools/product_design/design_form.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:disposition_issue_resolution_check",
       "name": ".engine/tools/disposition_issue_resolution_check.py",
       "owner": "core",
@@ -6616,7 +6549,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:e6f74bd76d7f411e48a022b4aa92fcd4758cc9847f86c7b0fed807855d60d73b",
+        "fingerprint": "sha256:3f0be07e1ba7f04baaa1cc4ae5104e4bdeb9cb289122265d2e4f03808c36082e",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -6635,6 +6568,23 @@
       "source": {
         "fingerprint": "sha256:286492cd34c976c9359cc521af6e10e088ea9761196e6a49346564353703124e",
         "path": ".engine/tools/external_contribution/__init__.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:first_run_health",
+      "name": ".engine/tools/first_run_health.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "first_run_health",
+      "source": {
+        "fingerprint": "sha256:145793c119826f8d66c77124447b7e739501534754422be1534c63fefab2f967",
+        "path": ".engine/tools/first_run_health.py"
       },
       "status": "active",
       "type": "tool"
@@ -6735,7 +6685,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:ef0f085ef6cf40341b4713e6e842d7a730cf83600756fecafde9805161811383",
+        "fingerprint": "sha256:b6b023891e2e103dd65bb71e0db65168adacf0de51e6b202d1bdd10bf067318a",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -6786,7 +6736,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:a360247cabf02527a562b9b2c2ed16a7f8fe0c357c357a6a990c327f16a405d5",
+        "fingerprint": "sha256:cffaa7803768d2006667129043ab3e110651af717938dd26d99a11357e20dfa7",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7160,7 +7110,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:fcf1fd137f3378495dda94ce385932bcb48cc57161a187038ddd64c1dfc6b8bc",
+        "fingerprint": "sha256:26cada73ae54d3135e7e1803b91b903e89c09ff6addea2ba014429265e04c8e8",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -7194,7 +7144,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:6d510c2be6206851b1dc3885bc685fbebd7d1479e29751a0dc4afa21c80c16db",
+        "fingerprint": "sha256:433a2bda1a9ef8aba305ddae4e2c5fdcd7be9c85e729a9f8eb129f6ed1523dc3",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7755,7 +7705,7 @@
       },
       "slug": "standing_situation",
       "source": {
-        "fingerprint": "sha256:18e501192357a61fb76cdfd206047fd78a381cc1f5d4bb9babb6065db91dd216",
+        "fingerprint": "sha256:dfa1b5ffae4674468517e4544aa1b46e979b316b227d1117a0a3a3c8e2d1914c",
         "path": ".engine/tools/standing_situation.py"
       },
       "status": "active",
@@ -7772,7 +7722,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:fc6744dfa3ae27421cc464cb0b511a70d7b23e0dd0145d536372758923acd1c2",
+        "fingerprint": "sha256:f552e5f87dd2336250b443601c3a1c7dafe7b5483cb2f5af257e2e19be1152d6",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -7806,7 +7756,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:bee4b76b651a4b95798a00a7810f10a1158344b6370b2a3bded50ddd58380eb5",
+        "fingerprint": "sha256:3cb2043aea751b85c81eb01ff2c4294cc6aaf235193428bbeef4b5bb853441a1",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -7993,7 +7943,7 @@
       },
       "slug": "test_authoring_scaffolds",
       "source": {
-        "fingerprint": "sha256:2a9d00cf92f8864fb9cbc5682c070bd234b4b9ab9d969dffec84168b204b17cf",
+        "fingerprint": "sha256:e703bc2215a36f353ac9546642dcc15198903744635ac7a8449a9185c322f5c0",
         "path": ".engine/tools/product_design/test_authoring_scaffolds.py"
       },
       "status": "active",
@@ -8044,7 +7994,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:78f422eac1604ee5daad1f6231ffaec3c201e7f957b77cf2690dbde02c18f8ea",
+        "fingerprint": "sha256:055692620550adce30aa83d6776fb54d7fd2ed70598f0ed710835e6dc5f15546",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8374,23 +8324,6 @@
       "type": "tool"
     },
     {
-      "id": "tool:test_design_form",
-      "name": ".engine/tools/product_design/test_design_form.py",
-      "owner": "product-design",
-      "predicates": {
-        "provided_by": [
-          "module:product-design"
-        ]
-      },
-      "slug": "test_design_form",
-      "source": {
-        "fingerprint": "sha256:e55935267c56e9bb327b50262bb6d69e4262a94a0cef778feaa4bee3bf06e29d",
-        "path": ".engine/tools/product_design/test_design_form.py"
-      },
-      "status": "active",
-      "type": "tool"
-    },
-    {
       "id": "tool:test_design_review",
       "name": ".engine/tools/test_design_review.py",
       "owner": "core",
@@ -8486,7 +8419,7 @@
       },
       "slug": "test_engine_status",
       "source": {
-        "fingerprint": "sha256:bbebd96e3779110074c05c1440022a788396f64098382dc758103ccb7e46eff5",
+        "fingerprint": "sha256:dd3ce3771e9d18c5f769d085c3d74cb8a824b3bc9a653eb449b8fd95d98c4636",
         "path": ".engine/tools/test_engine_status.py"
       },
       "status": "active",
@@ -8537,8 +8470,25 @@
       },
       "slug": "test_erasure_proposer",
       "source": {
-        "fingerprint": "sha256:fd7be2f35aac2d9d1a9fdd8ac9b1248de7932e278e3ada51f821a50ba3543623",
+        "fingerprint": "sha256:023b0f3bcb88cb53cca34cc536a78c13bab50b86ca83d78970169805d675f00c",
         "path": ".engine/tools/memory/test_erasure_proposer.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_first_run_health",
+      "name": ".engine/tools/test_first_run_health.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_first_run_health",
+      "source": {
+        "fingerprint": "sha256:b3f902ec3afd7e0ae1c54c3feba87b3e1eb5c6ed115629f4cde5809142b7ef3b",
+        "path": ".engine/tools/test_first_run_health.py"
       },
       "status": "active",
       "type": "tool"
@@ -8673,7 +8623,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:1651cc17cafb340f5b8f0247fe723b4c65fd8261c76e93a59431b70dba15b775",
+        "fingerprint": "sha256:e7bcc54a1c187fbe0e08e008444b04cc651f5dbedfd71fd9406d495bf85f328e",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9047,7 +8997,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:d8e56852955b1af3a9b1f5aff4f39b9dbd913b66bc2d8effad250ffc925c059c",
+        "fingerprint": "sha256:96d935254736f70372ea695d69b9118cd09ddf0166c3f31c4f7221dce4b32154",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -9149,7 +9099,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:27165c81131651b27fce7405dbb07d49330acccb227c738875753d9567f609cb",
+        "fingerprint": "sha256:7ca5c7c8c2a42e41c26bd0ed51b138d8cb10b990b2a62a75e85d87fc484ef09c",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
@@ -9438,7 +9388,7 @@
       },
       "slug": "test_scaffold",
       "source": {
-        "fingerprint": "sha256:09e0593a27eb7f396089b46c3f8466f3e412ad252a0db3c36066b5d866f705a2",
+        "fingerprint": "sha256:b7707e378801f23b2a0b8ca344352c8d5b166495b8914f4e874513bdf9181feb",
         "path": ".engine/tools/product_design/test_scaffold.py"
       },
       "status": "active",
@@ -9693,7 +9643,7 @@
       },
       "slug": "test_standing_situation",
       "source": {
-        "fingerprint": "sha256:c2bb2f2d8e2e1e3199d883d7b8330204da26d052135daae714960fabdcbda47f",
+        "fingerprint": "sha256:45156db5a265125171e7521d6da2b62d42bed699b21b4480a3b0066ea60255e2",
         "path": ".engine/tools/test_standing_situation.py"
       },
       "status": "active",
@@ -9727,7 +9677,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:ef5f3ffb51c97ab5b62b212cb25a67feda1744d7038667dc11bb3939f055aec6",
+        "fingerprint": "sha256:efc85ba9ce036ed19889a4d66f2d793ea990e44a99877b306d3171153cfb8e19",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
@@ -9761,7 +9711,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:492fb11f381f0e53d0f178d8c5baecf0574ad14cb6ca25143fb8147e7b3f2838",
+        "fingerprint": "sha256:99a2000464a3692d9a7f4b69e003b59fd0bf17584a7396100f3911f847b88c3b",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
