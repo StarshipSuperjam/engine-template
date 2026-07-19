@@ -147,6 +147,45 @@ class TestPresentGather(unittest.TestCase):
         self.assertIn("Including this also turns on: b", out, "the optional pull-in is surfaced")
         self.assertNotIn("core", out, "an always-present required dependency is never surfaced")
 
+    def test_welcome_orients_to_what_is_already_running(self):
+        # The first-run welcome briefs the new operator (post-adoption, not a prospect) on the always-present
+        # essentials — DESCRIBED, never offered as a choice — in the operator-onboarding voice and consistent
+        # with the README's "What's inside" names. It must land AHEAD of the choices, and name capabilities,
+        # never raw module ids. manifests=[] + a minimal catalog keep the assertion deterministic.
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "c.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump([{"id": "x", "verb": "engine-x", "description": "Does x.",
+                            "category": "Product Management"}], fh)
+            with mock.patch.object(inst.boot, "repo_slug", return_value="acme/widgets"):
+                out = inst.present_gather(catalog_path=p, manifests=[])
+        self.assertIn("What's already running", out, "the welcome names what comes live automatically")
+        for capability in ("Memory", "State", "Knowledge", "Attention", "review gate",
+                           "Explore and Build", "boot briefing", "Unattended routines", "self-review"):
+            self.assertIn(capability, out, f"the live section names {capability!r}")
+        # Honest without over-claiming (plan-gate consent findings): memory backup is off by default, and
+        # unattended routines never merge unwatched.
+        self.assertIn("backup stays off until you ask", out, "backup is not implied to be on")
+        self.assertIn("I never merge on my own", out, "unattended action is bounded by the review gate")
+        # Described, never offered: the live essentials come before the choices, and no raw module id leaks.
+        self.assertLess(out.index("What's already running"), out.index("Optional add-ons"),
+                        "what's-live orients before the choices")
+        self.assertNotIn("core", out, "capability copy names capabilities, never raw module ids")
+
+    def test_optional_section_states_add_later_and_removable(self):
+        # The honest lifecycle framing the operator asked for, kept simple and consistent with the README:
+        # add later, removable — kept distinct from the delete-on-unkeep detail (never conflated into a
+        # "dormant, toggle it back" illusion).
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "c.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump([{"id": "x", "verb": "engine-x", "description": "Does x.",
+                            "category": "Product Management"}], fh)
+            out = self._gather(p)
+        self.assertIn("you can add any later", out, "add-later is stated")
+        self.assertIn("removable", out, "removability is stated")
+        self.assertIn("fresh request, not a checkbox you flip back", out, "delete-on-unkeep detail is kept")
+
 
 class TestOptionalDependencyClosure(unittest.TestCase):
     @staticmethod

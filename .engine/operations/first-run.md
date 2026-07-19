@@ -14,12 +14,16 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
 
 1. **Check it's a new project.** Run `python3 .engine/tools/instantiator.py show`. If it reports the project is
    already set up, stop and tell the operator — first-time setup only runs once, on a brand-new project.
-2. **Present the choices.** That same command prints the project's details and the choices to make: who
-   reviews changes here (on their own — the usual choice; or with a team), and which optional add-ons to
-   include or leave out (grouped by what they help with). It also confirms **what this engine builds** — usually
-   the very repo it's set up in, so there's nothing to decide; but if this engine exists to work on a *different*
-   project (a fork it contributes to, or a template it maintains), it asks which project that is. Show these to
-   the operator in plain words.
+2. **Orient the new operator, then present the choices.** That same command opens with a plain-language
+   welcome — a fuller orientation than the README (this operator has already adopted the Engine; they need
+   orienting, not convincing) to **what's already running**: the always-present essentials (memory, state,
+   knowledge, attention, the review gate, Explore/Build, the boot briefing, unattended routines, periodic
+   self-review), described, never offered as a choice. Then it prints the project's details and the choices to
+   make: who reviews changes here (on their own — the usual choice; or with a team), and which optional add-ons
+   to include or leave out (grouped by what they help with — each can be added later or removed). It also
+   confirms **what this engine builds** — usually the very repo it's set up in, so there's nothing to decide;
+   but if this engine exists to work on a *different* project (a fork it contributes to, or a template it
+   maintains), it asks which project that is. Show all of this to the operator in plain words.
 3. **Take the operator's answers** — their reviewer choice, which optional add-ons to keep, and — only if this
    engine works on a project *different* from the repo it's set up in — which project that is (its owner/name).
 4. **State plainly what confirming does, then confirm.** Before saving, tell the operator: any optional add-on
