@@ -7,9 +7,8 @@
 
   <p>
     <a href="LICENSE"><img alt="License: Source-available (Apache-2.0 + Commons Clause)" src="https://img.shields.io/static/v1?label=license&message=Source-available%20%28Apache-2.0%20%2B%20Commons%20Clause%29&color=0b7285" /></a>
-    <a href="#status"><img alt="Status: pre-1.0, approaching v1" src="https://img.shields.io/static/v1?label=status&message=pre-1.0%20%C2%B7%20approaching%20v1&color=e8590c" /></a>
-    <a href="#runtime-support"><img alt="Runtime: Claude Code" src="https://img.shields.io/static/v1?label=runtime&message=Claude%20Code&color=6f42c1" /></a>
-    <a href="#runtime-support"><img alt="Runtime: Codex" src="https://img.shields.io/static/v1?label=runtime&message=Codex&color=10a37f" /></a>
+    <a href="https://github.com/StarshipSuperjam/engine-template/releases"><img alt="Version: 0.2.0" src="https://img.shields.io/static/v1?label=version&message=0.2.0&color=0969da" /></a>
+    <a href="#runtime-support"><img alt="Runtime: Claude Code and Codex" src="https://img.shields.io/badge/runtime-Claude%20Code-6f42c1" /></a><a href="#runtime-support"><img alt="Codex" src="https://img.shields.io/badge/Codex-10a37f" /></a>
   </p>
 
   <p><a href="#get-started"><strong>Jump to Get started ↓</strong></a></p>
