@@ -7,7 +7,7 @@
 
   <p>
     <a href="LICENSE"><img alt="License: Source-available (Apache-2.0 + Commons Clause)" src="https://img.shields.io/static/v1?label=license&message=Source-available%20%28Apache-2.0%20%2B%20Commons%20Clause%29&color=0b7285" /></a>
-    <a href="https://github.com/StarshipSuperjam/engine-template/releases"><img alt="Version: 0.2.0" src="https://img.shields.io/static/v1?label=version&message=0.2.0&color=0969da" /></a>
+    <a href="https://github.com/StarshipSuperjam/engine-template/releases"><img alt="Latest release version" src="https://img.shields.io/github/v/release/StarshipSuperjam/engine-template?label=version&color=0969da" /></a>
     <a href="#runtime-support"><img alt="Runtime: Claude Code and Codex" src="https://img.shields.io/badge/runtime-Claude%20Code-6f42c1" /></a><a href="#runtime-support"><img alt="Codex" src="https://img.shields.io/badge/Codex-10a37f" /></a>
   </p>
 
