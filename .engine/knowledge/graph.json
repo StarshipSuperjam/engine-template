@@ -8016,7 +8016,7 @@
       },
       "slug": "test_authoring_scaffolds",
       "source": {
-        "fingerprint": "sha256:e703bc2215a36f353ac9546642dcc15198903744635ac7a8449a9185c322f5c0",
+        "fingerprint": "sha256:2a9d00cf92f8864fb9cbc5682c070bd234b4b9ab9d969dffec84168b204b17cf",
         "path": ".engine/tools/product_design/test_authoring_scaffolds.py"
       },
       "status": "active",

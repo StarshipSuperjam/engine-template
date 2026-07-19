@@ -2,15 +2,16 @@
 """Conformance test for the fuller-detail authoring scaffolds
 (.engine/modules/product-design/scaffold/{principles,architecture,diataxis-*}.md).
 
-These are the "write it down properly" templates the product-intake authoring branch draws from when the operator
-chooses the fuller path — the product principles, the architecture overview (with a C4-style diagram), and the
-four kinds of user guide. Unlike the three spec-corpus templates (index / capability / build-plan, tied to the
-form + coverage checks in test_scaffold.py), these fuller documents are **authoring-only**: the "What it
-produces" table marks them product-owned, not validated, so NO engine check runs on them and there is no
-write-from = check-against tie to lock. This test therefore guards only what is real to guard: that each template
-is committed and carries the strip-on-author convention (an HTML guidance comment the author removes, and
-bracketed placeholders to replace), so the scaffold the engine authors from stays a genuine starting shape and
-never silently disappears. It reads the templates from disk, so it exercises exactly the bytes that ship.
+These are the fuller documents the product-intake authoring branch draws from — the product principles, the
+architecture overview (with a C4-style diagram), and the four kinds of user guide. As of #553 the full write-up
+is the DEFAULT (opt-out to a lighter one), and these documents are now checked for SHAPE by the design-form
+check (`design_form.py`), so the backbone (principles + architecture) has its own write-from = check-against tie
+in test_scaffold.py's DesignFormScaffoldConventionTests. What the engine still never does — for these or any
+document — is judge whether the design is RIGHT; that stays the operator's call. This test guards the two things
+that travel with the scaffold itself: the strip-on-author convention (an HTML guidance comment the author
+removes, and bracketed placeholders to replace) so the starting shape never silently disappears, and the honest
+bound stated in the template prose — checked for shape, but the operator's to get right, never ruled correct. It
+reads the templates from disk, so it exercises exactly the bytes that ship.
 """
 from __future__ import annotations
 import os
@@ -23,7 +24,7 @@ import validate  # noqa: E402
 
 _SCAFFOLD_DIR = os.path.join(validate.ROOT, ".engine", "modules", "product-design", "scaffold")
 
-# The fuller-detail authoring templates (authoring-only; no form check ties to them).
+# The fuller-detail authoring templates (shape-checked by design_form; the backbone tie is in test_scaffold.py).
 _FULLER_TEMPLATES = (
     "principles.md",
     "architecture.md",
@@ -55,14 +56,20 @@ class FullerScaffoldConventionTests(unittest.TestCase):
             self.assertTrue(re.search(r"<[^>\n]+>", text.split("-->", 1)[-1]),
                             f"{name} must carry at least one bracketed placeholder for the author to replace")
 
-    def test_every_fuller_template_names_its_authoring_only_bound(self):
-        # Each template states plainly that it is the operator's to get right / not checked by the engine, so the
-        # "not validated" bound travels with the scaffold itself, not only the runbook copy. Whitespace is
-        # normalized so the phrase is found regardless of where the guidance prose line-wraps.
+    def test_every_fuller_template_names_its_shape_checked_not_ruled_correct_bound(self):
+        # Each template states plainly the honest bound — its shape is checked, but whether the design is RIGHT
+        # is the operator's to get right, never ruled by the engine — so the bound travels with the scaffold
+        # itself, not only the runbook copy. Whitespace is normalized so the phrase is found regardless of where
+        # the guidance prose line-wraps. Guards against a regression to the old "NOT checked by the engine" copy,
+        # which became false once design_form began checking these documents' shape (#553).
         for name in _FULLER_TEMPLATES:
             normalized = " ".join(_read(name).split())
-            self.assertIn("NOT checked by the engine", normalized,
-                          f"{name} must state that it is authoring-only (not checked by the engine)")
+            self.assertIn("yours to get right", normalized,
+                          f"{name} must state the design is the operator's to get right")
+            self.assertIn("the engine never judges that", normalized,
+                          f"{name} must state the engine never judges whether the design is right")
+            self.assertNotIn("NOT checked by the engine", normalized,
+                             f"{name} must not carry the stale 'not checked' copy — its shape is now checked")
 
     def test_architecture_template_carries_a_mermaid_flowchart_diagram(self):
         # The C4-style container view ships as a mermaid `flowchart` so it renders on GitHub and stays diffable.
