@@ -1612,6 +1612,31 @@
       "type": "check"
     },
     {
+      "id": "check:operator-guarded-paths",
+      "kind": "custom/script",
+      "name": ".engine/check/operator-guarded-paths.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "operator-guarded-paths",
+      "source": {
+        "fingerprint": "sha256:6e85a2e398b413e38f4d5e43c66ccce5fcfb4b28603432c2f095b4c4e4972a3b",
+        "path": ".engine/check/operator-guarded-paths.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:policy-frontmatter",
       "kind": "schema",
       "name": ".engine/check/policy-frontmatter.json",
@@ -3105,7 +3130,7 @@
       },
       "slug": "eADR-0011-guardrail-integrity",
       "source": {
-        "fingerprint": "sha256:cac8d7389e687929136e42716de3df3ee3589a7253d768f0692bd2c0e6d9a2e3",
+        "fingerprint": "sha256:992473935a8aea09629154ed600ab2b93cbc9aa45f7e47aea80ca8509f98c201",
         "path": ".engine/contracts/eADR-0011-guardrail-integrity.md"
       },
       "status": "accepted",
@@ -3605,7 +3630,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:cee2e8dd1f13b61c341187c58fec9453754578265a8072fac76471f7d0fbdcb5",
+        "fingerprint": "sha256:49b1a50beefbd2244325950bcbc576ad8b31302016ecd30b3d8c8cd1197040a1",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -3889,7 +3914,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:4e72cc4098ccb8cd2d2b69a5eef29c556a4d01e47f6f4d6521df0217664152e0",
+        "fingerprint": "sha256:958587ac4d3ff68ceac615b7229ba604fe1706aad177cfd87bccfe2acee3f73d",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -7241,7 +7266,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:fdf1726fcee3065e3d6df84dedf372b2440909c120ea6f91902af1ced612b7af",
+        "fingerprint": "sha256:4330691719cf8bfb8c939e954087148b9e0abd76ec34590a6b3ecd55f0a70c98",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7277,6 +7302,23 @@
       "source": {
         "fingerprint": "sha256:d388a359980db17f0a5c3f946055cf0310658def70b607b83aa251be7e229cdd",
         "path": ".engine/tools/product_design/obligation_matrix.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:operator_guarded_paths_check",
+      "name": ".engine/tools/operator_guarded_paths_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "operator_guarded_paths_check",
+      "source": {
+        "fingerprint": "sha256:42c81842ca7438a890ee9b6d3a906ed015dd237c89408c9989b4f40c6e206af4",
+        "path": ".engine/tools/operator_guarded_paths_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -9128,7 +9170,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:d8e56852955b1af3a9b1f5aff4f39b9dbd913b66bc2d8effad250ffc925c059c",
+        "fingerprint": "sha256:487f1f52df3609e90bbbd2bb9e34163b47255f771d00e85ad6b333f0ac7e468c",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -9164,6 +9206,23 @@
       "source": {
         "fingerprint": "sha256:baef442964dfda575a4b4576a114dcae22b15502a0e0dcab0e3a8661dfabaecc",
         "path": ".engine/tools/test_operation.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_operator_guarded_paths_check",
+      "name": ".engine/tools/test_operator_guarded_paths_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_operator_guarded_paths_check",
+      "source": {
+        "fingerprint": "sha256:ddc65d0d81c853f7d0599a091b21079c7beb682325d53195a4b5d90a46342d10",
+        "path": ".engine/tools/test_operator_guarded_paths_check.py"
       },
       "status": "active",
       "type": "tool"
@@ -9655,7 +9714,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:487672221772e2dfc70c66f583a94fa8c529ba1e4bd951960670ea423580bc21",
+        "fingerprint": "sha256:c21d74104a1773e12377f5433776b038bc95fdb266f1cfba163d7c375bc854f0",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -10080,7 +10139,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:b2b901c62262d6e80315f0e0b9d974223af896d3ac0e882348c03175191fde3a",
+        "fingerprint": "sha256:b3a8d40820bb93b7f3130f4e0919eda0396f625408f28cf1fb887450a74c1cf3",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

@@ -601,6 +601,83 @@ class TestWeakeningClassifier(unittest.TestCase):
         self.assertFalse(weakening_guard.is_guardrail(".engine/tools/boot.py", derived_scripts=frozenset()))
         self.assertTrue(weakening_guard.is_guardrail(".engine/tools/boot.py", derived_scripts=None))
 
+    def test_instance_declared_path_is_guarded_by_the_union(self):
+        # #532: a DEPLOYMENT's own product path (exact or under a declared prefix) is guarded via the instance
+        # pair; a path it did not declare is not. The engine floor is checked FIRST and independently, so the
+        # instance argument can only ADD — an empty instance pair never subtracts an engine-floor path.
+        inst = ({"scanners/contain.py"}, ("scanners/",))
+        self.assertTrue(weakening_guard.is_guardrail("scanners/contain.py",
+                        derived_scripts=frozenset(), instance_guards=inst))
+        self.assertTrue(weakening_guard.is_guardrail("scanners/deep/x.py",
+                        derived_scripts=frozenset(), instance_guards=inst))
+        self.assertFalse(weakening_guard.is_guardrail("src/app.py",
+                         derived_scripts=frozenset(), instance_guards=inst))
+        # engine floor still guards regardless of an EMPTY instance pair (the union never subtracts)
+        for p in (".engine/tools/validate.py", ".github/workflows/engine-ci.yml", ".engine/check/x.json"):
+            self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset(), instance_guards=(set(), ())), p)
+
+    def test_instance_read_is_empty_and_silent_and_filters_degenerate(self):
+        # Absent declaration (the steady state in this construction repo) -> the empty pair, silently.
+        self.assertEqual(weakening_guard._read_instance_guards(), (set(), ()))
+        # Defensive parse behind the CI shape gate: non-string / empty / degenerate members are dropped so the
+        # catastrophic empty-prefix (`startswith("")` guards everything) can never take effect even off-gate.
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump({"guarded_paths": ["a.py", "", 3], "guarded_prefixes": ["scanners/", "", ".", "/"]}, fh)
+            p = fh.name
+        try:
+            self.assertEqual(weakening_guard._read_instance_guards(p), ({"a.py"}, ("scanners/",)))
+        finally:
+            os.unlink(p)
+
+    def test_instance_declaration_shrink_flags_removal_and_deletion_not_addition(self):
+        # The directional detector for the declaration file (#532): removing a declared path is a WEAKENING
+        # (flag -> ack); a pure addition is a strengthening (never flags). Mirrors home_repoint's shape.
+        rel = weakening_guard.INSTANCE_DECL_REL
+        removed = ('@@\n   "guarded_paths": [\n-    "scanners/old.py",\n     "scanners/keep.py"\n   ]')
+        self.assertEqual(weakening_guard.instance_declaration_shrink(
+            [{"filename": rel, "status": "modified", "patch": removed}]), ("shrink", ["scanners/old.py"]))
+        added = ('@@\n   "guarded_paths": [\n     "scanners/keep.py",\n+    "scanners/new.py"\n   ]')
+        self.assertIsNone(weakening_guard.instance_declaration_shrink(
+            [{"filename": rel, "status": "modified", "patch": added}]))
+        self.assertEqual(weakening_guard.instance_declaration_shrink(
+            [{"filename": rel, "status": "removed"}]), ("removed", []))
+        # a non-declaration file is ignored; an unreadable declaration patch fails closed
+        self.assertIsNone(weakening_guard.instance_declaration_shrink(
+            [{"filename": "src/app.py", "status": "modified", "patch": removed}]))
+        self.assertEqual(weakening_guard.instance_declaration_shrink(
+            [{"filename": rel, "status": "modified", "patch": ""}]), ("unreadable-patch", []))
+        # a RENAME off the canonical path is a full removal (the reader loads a fixed path) — the silent-drop
+        # bypass the deliverable gate caught: it must NOT slip past unflagged.
+        self.assertEqual(weakening_guard.instance_declaration_shrink(
+            [{"filename": "docs/old-guards.json", "status": "renamed", "previous_filename": rel}]), ("removed", []))
+        # an escape/embedded separator that could disguise a removal -> fail closed
+        escaped = '@@\n   "guarded_paths": [\n-    "scanners/a\\b.py"\n   ]'
+        self.assertEqual(weakening_guard.instance_declaration_shrink(
+            [{"filename": rel, "status": "modified", "patch": escaped}]), ("escaped", []))
+
+    def test_flagged_changes_unions_the_base_declaration_end_to_end(self):
+        # The load-bearing WIRING (#532): flagged_changes with the DEFAULT instance seam actually reads the base
+        # declaration from disk and flags an edit to a declared product path. A refactor that broke the base-read
+        # threading would make THIS fail rather than passing green with the injected-pair tests above.
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump({"guarded_paths": ["scanners/contain.py"], "guarded_prefixes": ["scanners/"]}, fh)
+            decl_path = fh.name
+        original = weakening_guard._BASE_INSTANCE_GUARDS
+        try:
+            weakening_guard._BASE_INSTANCE_GUARDS = decl_path
+            flagged = weakening_guard.flagged_changes(
+                [{"filename": "scanners/contain.py", "status": "modified"},
+                 {"filename": "scanners/deep/helper.py", "status": "modified"},
+                 {"filename": "src/app.py", "status": "modified"}],
+                derived_scripts=frozenset())
+            names = {shown for _status, shown in flagged}
+            self.assertIn("scanners/contain.py", names)      # the exact declared path
+            self.assertIn("scanners/deep/helper.py", names)  # under the declared prefix
+            self.assertNotIn("src/app.py", names)            # undeclared -> not flagged
+        finally:
+            weakening_guard._BASE_INSTANCE_GUARDS = original
+            os.unlink(decl_path)
+
 
 def _write_check_json(path, obj):
     with open(path, "w", encoding="utf-8") as fh:
