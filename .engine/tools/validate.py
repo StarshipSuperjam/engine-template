@@ -444,23 +444,24 @@ def subsection_fill_findings(body: str, sections: list, label: str, tier: str,
 
 
 def phrase_presence_findings(phrases: list, body: str, tier: str, message: str, where: str) -> list:
-    """For each required phrase, a finding when it does not appear verbatim in `body`. This
-    guards a fixed anchor of a document — the shipped copy that a template scan of `## `
-    headings cannot see (e.g. the pull-request preamble blockquote, which sits above the first
-    heading). A phrase is a whole-body substring match, so it must appear on one physical line
-    (an authored hard wrap inside the phrase would read as absent). Presence only — this is a set
-    of structural anchors for one consent surface, never a growable registry of arbitrary
-    required sentences, and never a judgement of the prose around them."""
-    findings = []
-    for phrase in phrases:
-        if phrase not in body:
-            findings.append(finding(tier, f"The {where} is missing a required anchor of the "
-                            f"consent preamble — the phrase \"{phrase}\" does not appear. This is "
-                            f"the italic note at the very top that tells a reader a green check "
-                            f"shows conformance, not correctness, and that their merge is the "
-                            f"binding gate; it drops when a body is reconstructed rather than "
-                            f"filled from the template verbatim. Restore the preamble. {message}"))
-    return findings
+    """ONE finding when any required anchor of the consent preamble is absent from `body`. This
+    guards a fixed anchor a template scan of `## ` headings cannot see — the pull-request preamble
+    blockquote, which sits above the first heading. Each anchor is a whole-body substring match, so
+    it must sit on one physical line (a hard wrap inside an anchor reads as absent). The findings
+    are consolidated into a single entry that lists every missing anchor, so a whole-preamble drop —
+    the common case — reads as one defect, not one wall of text per anchor. This is a set of
+    structural anchors for one consent surface, never a growable registry of arbitrary required
+    sentences, and never a judgement of the prose around them."""
+    missing = [p for p in phrases if p not in body]
+    if not missing:
+        return []
+    absent = "; ".join(f'"{p}"' for p in missing)
+    return [finding(tier, f"The {where} is missing the consent preamble — the italic note at the very "
+                    f"top that tells a reader a green check shows conformance, not correctness, and that "
+                    f"their merge is the binding gate. These anchors of it are absent: {absent}. It drops "
+                    f"when a body is reconstructed rather than filled from the template verbatim; if the "
+                    f"preamble looks present, check that no line wrap falls inside an anchor (each must sit "
+                    f"on one unwrapped line). Restore the preamble. {message}")]
 
 
 # ---- kind: presence --------------------------------------------------------

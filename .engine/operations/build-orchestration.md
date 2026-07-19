@@ -106,10 +106,9 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    the **Review** section by **reading `.github/pull_request_template.md` in full, never grepping it for
    headers** — each section is a bold summary line, then bullets, then an italic `*Impact:*` line, none of
    which a header scan reveals. **Fill from the template's literal text, never reconstruct the body from
-   memory** — reconstruction is how the leading consent preamble (the italic blockquote above the first
-   heading) silently drops, most often when a `Closes #N` / `Part of #N` / slice-narration line is prepended
-   at the top; carry that preamble verbatim and keep each of its lines unwrapped (the completeness gate now
-   matches its anchor phrases, and a hard wrap inside one reads as absent). **Run the close-linkage pre-flight** (`close_linkage_preflight.py check`) and
+   memory** — reconstruction silently drops the leading consent preamble (the blockquote above the first
+   heading), most often when a `Closes #N` / narration line is prepended; carry it verbatim and unwrapped
+   (the completeness gate matches its anchors, and a hard wrap inside one reads as absent). **Run the close-linkage pre-flight** (`close_linkage_preflight.py check`) and
    fold its lines into Review, applying any disclosed defang it emits (see Notes). **Mark the pull request
    ready** (`gh pr ready`) — the act that submits it —
    **only once** validation is green, the pre-submission review is clean (no unresolved `blocking` or

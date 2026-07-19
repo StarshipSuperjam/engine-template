@@ -1201,11 +1201,15 @@ class TestRequiredPhrasesLeg(unittest.TestCase):
     def _body(self, anchors):  # the anchors (a preamble stand-in) above the eight filled sections
         return ("\n".join(anchors) + "\n" + self._sections()) if anchors else self._sections()
 
-    def test_missing_anchors_flag_one_each(self):
+    def test_all_missing_anchors_flag_in_one_finding(self):
+        # a whole-preamble drop is ONE finding that lists every missing anchor, not one per anchor
         passed, found = validate.kind_presence(PHRASES_RULE, {"pr_body": self._body([])})
         self.assertFalse(passed)
-        self.assertEqual(len(found), 2)  # one per missing anchor, sections are all filled
-        self.assertTrue(all("consent preamble" in f["message"] and f["severity"] == "hard" for f in found))
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["severity"], "hard")
+        self.assertIn("consent preamble", found[0]["message"])
+        self.assertIn("binding gate anchor", found[0]["message"])
+        self.assertIn("unverified anchor", found[0]["message"])
 
     def test_all_anchors_present_passes(self):
         passed, found = validate.kind_presence(
@@ -1213,12 +1217,23 @@ class TestRequiredPhrasesLeg(unittest.TestCase):
         self.assertTrue(passed)
         self.assertEqual(found, [])
 
-    def test_partial_flags_only_the_missing_anchor(self):
+    def test_partial_lists_only_the_missing_anchor(self):
         passed, found = validate.kind_presence(
             PHRASES_RULE, {"pr_body": self._body(["binding gate anchor"])})  # second anchor absent
         self.assertFalse(passed)
         self.assertEqual(len(found), 1)
         self.assertIn("unverified anchor", found[0]["message"])
+        self.assertNotIn('"binding gate anchor"', found[0]["message"])  # the present anchor is not listed
+
+    def test_hard_wrapped_anchor_is_flagged_with_a_wrap_hint(self):
+        # a present-but-wrapped anchor reads as absent (substring match is one physical line); the finding
+        # points the author at the wrap, not only "restore the preamble" (usability recovery path).
+        wrapped = self._body(["binding gate\nanchor", "unverified anchor"])  # first anchor split by a wrap
+        passed, found = validate.kind_presence(PHRASES_RULE, {"pr_body": wrapped})
+        self.assertFalse(passed)
+        self.assertEqual(len(found), 1)
+        self.assertIn("line wrap", found[0]["message"])
+        self.assertIn("binding gate anchor", found[0]["message"])  # the split anchor is the one listed
 
     def test_param_absent_skips_the_leg(self):
         # COMPLETENESS_RULE declares no required_phrases; a preamble-less body still passes,
