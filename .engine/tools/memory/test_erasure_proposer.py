@@ -680,18 +680,61 @@ class PrBodyConsentTests(unittest.TestCase):
 
 
 class BatchProposeTests(_Base):
-    """One merge clears the backlog. `propose` bundles ALL currently-earned notes (minus any already
-    scheduled or proposed) into ONE single-purpose pull request, so the operator consents to the whole batch once."""
+    """One merge clears one COHERENT batch. `propose` bundles the oldest homogeneous group of currently-earned
+    notes (same note-kind and vintage, minus any already scheduled or proposed) into ONE single-purpose pull
+    request, so the operator consents to a coherent batch once and a large backlog clears over successive
+    batches — a note the operator keeps only ever holds up its own group (issue #536)."""
 
-    def test_batches_all_earned_notes_into_one_pull_request(self):
+    def test_one_homogeneous_group_bundles_into_one_pull_request(self):
+        # Three duplicates of the same vintage (all in the "about a month ago" bucket) are one homogeneous
+        # group, so they clear in ONE pull request — the operator consents to the coherent batch once.
         ids = {self._retired(f"old duplicate {i}", age_days=60 + i, batch=f"b{i}") for i in range(3)}
         opener = _OpenerSpy(number=42)
         transport, _labels = _no_existing_transport()
         result = emit.propose(opener=opener, transport=transport, root=self._tmp.name)
         self.assertEqual(result["opened"], [42])
-        self.assertEqual(len(opener.calls), 1, "ONE pull request clears the whole batch, not one per note")
+        self.assertEqual(len(opener.calls), 1, "ONE pull request clears the coherent group, not one per note")
         self.assertEqual(set(result["targets"]), ids)
         self.assertIn("clearing 3 notes", result["message"])
+
+    def test_a_heterogeneous_pool_offers_only_the_oldest_group(self):
+        # Two vintages of duplicate: an older group (~100d → "about 3 months ago") and a newer group
+        # (~40d → "about a month ago"). propose offers ONLY the oldest group, so the newer notes are not
+        # dragged into a batch the operator hasn't seen as a unit (the #536 core: small coherent batches).
+        older = {self._retired(f"older dup {i}", age_days=100 + i, batch=f"o{i}") for i in range(2)}
+        newer = {self._retired(f"newer dup {i}", age_days=40 + i, batch=f"n{i}") for i in range(2)}
+        opener = _OpenerSpy(number=55)
+        transport, _labels = _no_existing_transport()
+        result = emit.propose(opener=opener, transport=transport, root=self._tmp.name)
+        self.assertEqual(set(result["targets"]), older, "only the oldest homogeneous group is offered")
+        self.assertEqual(set(result["targets"]) & newer, set(), "a newer group is never dragged in")
+        self.assertIn("clearing 2 notes", result["message"])
+
+    def test_a_declined_group_steps_aside_so_a_newer_group_is_offered(self):
+        # #536 partial-keep: the operator DECLINES the oldest group (wants to keep a note in it). The next
+        # check must not re-offer that same oldest group forever and starve the newer one — it steps the
+        # declined group aside and offers the NEWER group, so the keeper blocks only its own group.
+        older = {self._retired(f"older dup {i}", age_days=100 + i, batch=f"o{i}") for i in range(2)}
+        newer = {self._retired(f"newer dup {i}", age_days=40 + i, batch=f"n{i}") for i in range(2)}
+        hub = emit._DemoHub(self._tmp.name)
+        first = emit.propose(opener=hub.open, transport=hub.transport, root=self._tmp.name)
+        self.assertEqual(set(first["targets"]), older)                    # the oldest group is offered first
+        hub.close(first["opened"][0])                                     # the operator DECLINES it (keep)
+        second = emit.propose(opener=hub.open, transport=hub.transport, root=self._tmp.name)
+        self.assertEqual(set(second["targets"]), newer, "the declined group steps aside; the newer group is offered")
+        self.assertTrue(second["opened"] and second["opened"][0] != first["opened"][0])
+
+    def test_all_groups_declined_re_offers_the_oldest(self):
+        # When every remaining group has been declined (nothing fresh is left), a decline is still "not this
+        # time", not "keep forever" — the oldest declined group is re-offered rather than nothing at all.
+        older = {self._retired(f"older dup {i}", age_days=100 + i, batch=f"o{i}") for i in range(2)}
+        hub = emit._DemoHub(self._tmp.name)
+        first = emit.propose(opener=hub.open, transport=hub.transport, root=self._tmp.name)
+        self.assertEqual(set(first["targets"]), older)
+        hub.close(first["opened"][0])                                     # decline the only group
+        second = emit.propose(opener=hub.open, transport=hub.transport, root=self._tmp.name)
+        self.assertEqual(set(second["targets"]), older, "the only group, though declined, is re-offered")
+        self.assertTrue(second["opened"])
 
     def test_excludes_an_already_enacted_target_from_the_batch(self):
         keep = self._retired("still earned", age_days=60, batch="b1")

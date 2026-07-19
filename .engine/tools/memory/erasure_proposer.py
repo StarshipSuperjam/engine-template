@@ -16,8 +16,11 @@ invariant `test_forget.py` pins by source scan: the only sanctioned callers of t
 
 Content-free binding: the committed proposal carries `{"targets": [<stable content-free record id>, …],
 "costs": [<plain-language paraphrase>, …]}` — parallel arrays, `costs[i]` describing `targets[i]`, so one merged
-pull request can clear a whole batch of earned notes in a single consent act (the operator directive: one merge
-clears the backlog). Each `target` is a note's uuid-hex id (reveals nothing about the gitignored content); each
+pull request clears a whole COHERENT batch of earned notes in a single consent act. The earned notes are offered
+in small HOMOGENEOUS groups (one note-kind and one coarse vintage per pull request — see `_select_group`), so a
+large backlog clears over successive coherent batches rather than one all-or-nothing pile, and a note the operator
+wants to keep only ever holds up its own group, never the rest (issue #536). Each `target` is a note's uuid-hex
+id (reveals nothing about the gitignored content); each
 `cost` is built ONLY from content-free metadata (the note's role/kind rendered as plain words + a coarse age bucket)
 — never the note's text, never its session id or tags. A test scans the whole serialized proposal for every note's
 distinctive words and flips red if any leaks. The committed grammar is what the operator reads (the pull-request
@@ -235,45 +238,49 @@ def _reader(transport=None):
 
 
 def _proposed_targets(gh):
-    """The set of target ids already covered by an `engine-erasure` pull request that is OPEN or MERGED — the
-    cross-PR dedup, so auto-open never opens a second pull request for a target already awaiting the operator or
-    already consented. A CLOSED-and-unmerged (declined) pull request is deliberately NOT covered: its targets return
-    to the earned pool and are re-offered at the next check — the operator's decline is "not this time", not "keep
-    forever" (a close still never erases; nothing is lost). Follows pages to exhaustion so a MERGED pull request
-    beyond the first page is never dropped (which would re-propose an already-consented target; a merged-but-not-yet-
-    enacted one is also covered locally by `_erased_targets`, but do not rely on that alone). Reads each candidate's
-    proposal at its merge tree (merged) or head (open). Returns the set, or None if the pull-request LIST could not
-    be read (host doubt -> the caller DECLINES to open, fail-SAFE). Never raises."""
+    """A pair `(covered, declined)` of target-id sets read from the `engine-erasure` pull requests:
+    `covered` = targets in a pull request that is OPEN or MERGED (the cross-PR dedup, so auto-open never
+    opens a second pull request for a target already awaiting the operator or already consented);
+    `declined` = targets in a CLOSED-and-unmerged (declined) pull request. A declined target is NOT
+    covered — it returns to the earned pool and is re-offered (the operator's decline is "not this time",
+    not "keep forever"; a close still never erases) — but it is reported so the batch selector can step a
+    just-declined GROUP aside for a fresher one (issue #536). Follows pages to exhaustion so a MERGED pull
+    request beyond the first page is never dropped (which would re-propose an already-consented target; a
+    merged-but-not-yet-enacted one is also covered locally by `_erased_targets`, but do not rely on that
+    alone). Reads each candidate's proposal at its merge tree (merged) or head (open/declined). Returns
+    `(None, None)` if the pull-request LIST could not be read (host doubt -> the caller DECLINES to open,
+    fail-SAFE). Never raises."""
     items: list = []
     page = 1
     while page <= _MAX_PR_PAGES:
         raw = observer._get(gh, f"/repos/{gh.repo}/issues?state=all&labels={observer.ERASURE_LABEL}"
                                 f"&per_page=100&page={page}")
         if raw is None:
-            return None                               # could not read the list -> cannot dedup -> decline upstream
+            return None, None                         # could not read the list -> cannot dedup -> decline upstream
         if not isinstance(raw, list):
             if page == 1:
-                return set()                          # matches the earlier contract for a malformed 1st response
+                return set(), set()                   # matches the earlier contract for a malformed 1st response
             break                                     # a malformed later page -> stop; use the pages already read
         items.extend(raw)
         if len(raw) < 100:
             break                                     # a short page is the last page
         page += 1
-    out: set = set()
+    covered: set = set()
+    declined: set = set()
     for item in items:
         if not (isinstance(item, dict) and "pull_request" in item and isinstance(item.get("number"), int)):
             continue
         pr = observer._get(gh, f"/repos/{gh.repo}/pulls/{item['number']}")
         if not isinstance(pr, dict):
             continue
-        if pr.get("state") == "closed" and not pr.get("merged_at"):
-            continue                                  # a declined (closed, unmerged) PR -> re-offer, not covered
-        ref = pr.get("merge_commit_sha") or (pr.get("head") or {}).get("sha")
+        is_declined = pr.get("state") == "closed" and not pr.get("merged_at")
+        ref = pr.get("merge_commit_sha") or (pr.get("head") or {}).get("sha")   # merged tree, else head
         if not isinstance(ref, str) or not ref:
             continue
+        sink = declined if is_declined else covered   # a declined PR feeds re-offer step-aside, not the dedup
         for target in observer._read_targets(gh, ref):  # reads ONLY the content-free ids from the committed proposal
-            out.add(target)
-    return out
+            sink.add(target)
+    return covered, declined
 
 
 def _open_erasure_pr_numbers(gh):
@@ -416,11 +423,13 @@ def _pr_body(proposal: dict) -> str:
             "the erasure, and nothing merges on its own. If you would rather keep the note, just **close** this pull "
             "request — declining loses nothing (the note stays exactly where it is, still hidden from recall and "
             "fully recoverable). Closing is 'not now', not 'keep forever' — the engine may offer it again at a later "
-            "review, until you erase it.\n")
+            "review, until you erase it. The engine offers earned notes in small batches, so if more have earned "
+            "removal you may see further batches like this at later reviews — each one its own separate choice.\n")
     listed = "\n".join(_collapse(costs))
     return (
         f"This pull request proposes to **permanently erase {n} remembered notes** from the engine's memory, in one "
-        f"batch.\n\n"
+        f"batch. The engine offers earned notes in small same-kind batches, so if more have earned removal you may see "
+        f"further batches like this at later reviews — each one its own separate choice.\n\n"
         f"**What they are** (merging consents to erasing all {n}; identical notes are grouped with a count):\n\n"
         f"{listed}\n\n"
         f"Merging this pull request is your consent to erase all {n} notes — the single thing the engine can do to "
@@ -431,6 +440,53 @@ def _pr_body(proposal: dict) -> str:
         f"note stays exactly where it is (still hidden from recall and fully recoverable). Closing is 'not now', not "
         f"'keep forever' — the engine may offer these notes again at a later review, until you erase them. (There is "
         f"no per-note pick — keeping one means keeping them all.)\n")
+
+
+# --- the coherent-batch selector (issue #536: small homogeneous batches, a keeper blocks only its group) ----
+
+def _group_key(record: dict, now: int) -> tuple:
+    """A content-free homogeneity key for batching: the note's KIND (a consolidated-raw turn-delta vs a
+    crash-duplicate) plus its coarse vintage bucket (the SAME `_age_phrase` the cost line uses). Notes
+    that share a key form one coherent batch. Built only from kind + birth-age — never the note's
+    text/session/tags — and never written to the committed proposal (mirrors `_collapse`: no grouping key
+    leaks into the body)."""
+    ts = record.get("ts")
+    age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
+    kind = "raw" if forget._is_ambient_capture(record) else "duplicate"
+    return (kind, _age_phrase(age))
+
+
+def _grouped(candidates: list, now: int) -> list:
+    """Partition candidates (already oldest-first) into homogeneous groups by `_group_key`, each group in
+    oldest-first order and the groups themselves ordered by their oldest member. Returns a list of
+    record-lists; the union is exactly `candidates` (no note dropped or duplicated)."""
+    order: list = []
+    buckets: dict = {}
+    for r in candidates:
+        k = _group_key(r, now)
+        if k not in buckets:
+            order.append(k)
+            buckets[k] = []
+        buckets[k].append(r)
+    return [buckets[k] for k in order]
+
+
+def _select_group(candidates: list, declined: set, now: int) -> list:
+    """Choose the ONE coherent batch to offer this check — the OLDEST homogeneous group none of whose
+    notes sit in a currently-declined (closed-unmerged) erasure pull request. So a batch the operator has
+    set aside steps ASIDE and the next-oldest fresh group is offered instead: a note the operator wants
+    to keep only ever holds up its own group, never starving the newer ones behind it (issue #536).
+    Merge-time consent is untouched — the chosen group is still all-or-nothing per pull request. If EVERY
+    group has a declined member (nothing fresh is left), fall back to the oldest group, so a declined
+    batch is still re-offered when nothing else is pending — a decline stays 'not this time', never 'keep
+    forever'."""
+    if not candidates:
+        return candidates
+    groups = _grouped(candidates, now)
+    for group in groups:
+        if not any(r[records.RECORD_ID_KEY] in declined for r in group):
+            return group
+    return groups[0]
 
 
 # --- the auto-open orchestrator ----------------------------------------------------------------------------
@@ -445,6 +501,7 @@ def propose(path: "str | None" = None, *, opener=None, transport=None, root: "st
     Injection: tests/demo pass `opener` (a stub that never touches git/network) and/or `transport` (the GitHub seam).
     An un-injected call reaches the REAL opener (the deployed auto-open path); an injected `transport` with no `opener`
     is a practice run that writes the proposal but opens nothing (the footgun guard, mirroring module_manager)."""
+    now = int(time.time()) if now is None else now     # resolve ONCE so earned/grouping/costs share one clock
     earned = earned_targets(path=path, now=now)
     if not earned:
         return {"opened": [], "targets": [], "message": "No notes have earned erasure — nothing to propose."}
@@ -453,7 +510,7 @@ def propose(path: "str | None" = None, *, opener=None, transport=None, root: "st
     if gh is None:
         return {"opened": [], "targets": [],
                 "message": "Could not reach GitHub; will try again at the next review."}
-    proposed = _proposed_targets(gh)
+    proposed, declined = _proposed_targets(gh)
     if proposed is None:                               # host doubt on the dedup list -> DECLINE (fail-SAFE), never
         return {"opened": [], "targets": [],           # coalesce to empty (that would fail-OPEN into a duplicate open)
                 "message": "Could not check existing erasure pull requests; declined to open (no duplicate risk)."}
@@ -462,6 +519,9 @@ def propose(path: "str | None" = None, *, opener=None, transport=None, root: "st
     if not candidates:
         return {"opened": [], "targets": [],
                 "message": "Every earned note is already scheduled or proposed for erasure."}
+    candidates = _select_group(candidates, declined, now)  # offer ONE coherent batch — the oldest homogeneous group
+                                                           # not currently set aside (issue #536); merge-time all-or-
+                                                           # nothing per pull request is unchanged
     open_already = _open_erasure_pr_numbers(gh)        # the one-in-flight serializer: one erasure PR (one consent
     if open_already is None:                           # act) in flight at a time — for a batch it holds the WHOLE
         return {"opened": [], "targets": [],           # next batch until the current one is merged or closed
@@ -750,12 +810,14 @@ def _demo() -> int:
     print("What this just proved: the engine picks what has EARNED erasure — old crash-duplicate leftovers AND the raw")
     print("turn-by-turn notes of a session whose summary has settled (the bulk source) — while leaving a recent note, a")
     print("freshly-consolidated session's raw, and a harness-injected pseudo-turn alone. It describes EACH in plain words")
-    print("that carry NONE of the note's text, and opens ONE single-purpose pull request clearing the whole batch, which")
-    print("it labels so a later session can find it. The body lists the notes (identical ones grouped with a count), so")
-    print("you see the whole batch you are consenting to; merging is all-or-nothing. They are PERMANENTLY erased only")
-    print("because YOU merge that pull request; nothing is erased now, and nothing merges on its own. If you CLOSE a")
-    print("request instead, nothing is lost and the same notes are simply re-offered at a later check — a decline is")
-    print("'not now', never 'keep forever'. On a fresh project there is nothing earned, so it proposes nothing; if GitHub")
+    print("that carry NONE of the note's text, and opens ONE single-purpose pull request clearing one COHERENT batch")
+    print("(one note-kind and vintage), so a large backlog clears over successive small batches. The body lists the notes")
+    print("(identical ones grouped with a count), so you see the whole batch you are consenting to; merging is")
+    print("all-or-nothing per batch. They are PERMANENTLY erased only because YOU merge that pull request; nothing is")
+    print("erased now, and nothing merges on its own. If you CLOSE a request to keep something in it, nothing is lost and")
+    print("the engine STEPS THAT BATCH ASIDE — it offers other earned notes next and re-offers the set you kept only when")
+    print("nothing else is pending, so keeping one note never blocks clearing the rest (a decline is 'not now', never")
+    print("'keep forever'). On a fresh project there is nothing earned, so it proposes nothing; if GitHub")
     print(f"is unreachable it simply tries again next time — nothing breaks. That was a PRACTICE cabinet, thrown away.")
     print(f"Vary it: change the note ages or EARNED_ERASURE_MIN_AGE_DAYS (now {EARNED_ERASURE_MIN_AGE_DAYS}) near the top")
     print("and re-run — watch the settled notes become earned and the fresh ones stay safe.")
@@ -863,19 +925,22 @@ def _demo_body(tree: str) -> bool:
     print(f"  => {'a settled consolidated session raw earns erasure; a fresh one and an injected pseudo-turn do not, and no words leak.' if part7 else '!!! the wrong raw was selected, or a word leaked'}")
 
     # --- PART 8 ------------------------------------------------------------------------------------------
-    print("\nPART 8 — you DECLINE (close) a request; the next check RE-OFFERS the same notes (a close is 'not now')")
+    print("\nPART 8 — you DECLINE a batch to keep a note in it; the next check STEPS ASIDE to a DIFFERENT batch,")
+    print("         so keeping one note holds up only its own group, never the rest (issue #536)")
     print("-" * 96)
     hub8 = _DemoHub(tree)
-    first8 = propose(opener=hub8.open, transport=hub8.transport, root=tree)
-    declined = first8["opened"][0] if first8["opened"] else None
-    if declined is not None:
-        hub8.close(declined)                              # the operator closes it WITHOUT merging — a decline
-    reoffer = propose(opener=hub8.open, transport=hub8.transport, root=tree)
-    part8 = (declined is not None and bool(reoffer["opened"]) and reoffer["opened"][0] != declined
-             and set(reoffer["targets"]) == set(first8["targets"]) and bool(first8["targets"]))
-    print(f"  you closed #{declined}; the next check re-offered the same notes in "
-          f"#{reoffer['opened'][0] if reoffer['opened'] else '—'}: {'yes' if part8 else 'NO'}")
-    print(f"  => {'a declined request comes back next time — nothing is stranded, and a close is never forever.' if part8 else '!!! a declined request was not re-offered'}")
+    first8 = propose(opener=hub8.open, transport=hub8.transport, root=tree)   # the oldest group (the settled raw)
+    kept = first8["opened"][0] if first8["opened"] else None
+    if kept is not None:
+        hub8.close(kept)                                  # the operator closes it WITHOUT merging — keep this batch
+    stepaside = propose(opener=hub8.open, transport=hub8.transport, root=tree)  # steps aside to the OTHER group
+    first_set, next_set = set(first8["targets"]), set(stepaside["targets"])
+    part8 = (kept is not None and bool(stepaside["opened"]) and stepaside["opened"][0] != kept
+             and bool(first_set) and bool(next_set) and not (next_set & first_set))
+    print(f"  you closed #{kept} to keep a note in that batch; the next check offered a DIFFERENT batch "
+          f"#{stepaside['opened'][0] if stepaside['opened'] else '—'} instead of re-pestering you with the same one: "
+          f"{'yes' if part8 else 'NO'}")
+    print(f"  => {'a batch you set aside steps aside; a note you keep holds up only its own group, and the rest still clears.' if part8 else '!!! the declined batch was not stepped aside'}")
 
     return part1 and part2 and part3 and part4 and part5 and part6 and part7 and part8
 
