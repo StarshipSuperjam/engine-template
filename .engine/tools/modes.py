@@ -7,8 +7,8 @@ Three stances on two axes:
   - build   (interactive, writes on) — entered by a typed verb OR by accepting a plan;
   - routine (unattended, scope-locked, writes on) — entered by an operator-authored scheduled fire.
 
-This module ships THREE things (the operator-typed Build verb and Routine entry are later —
-post-core):
+This module ships THREE things (the operator-typed Build and Routine stance-entry verbs — set-build and
+set-routine — are the deliberate in-session entries, run by the operator-typed skills, never the model):
 
   1. THE STANCE SIGNAL — an ephemeral, session-keyed marker in OS-temp storage, never committed and
      never carried across sessions. It is set only by a deliberate in-session entry, and CLEARED at
@@ -610,6 +610,24 @@ def main(argv: list) -> int:
         ok = set_stance(_resolve_session(argv), BUILD)
         print(f"set Build: {ok}")
         return 0 if ok else 1
+    if cmd == "set-routine":
+        # The unattended Routine stance-entry — run by the operator-authored scheduled fire through the
+        # engine-routine skill (which carries the operator-only flag), never the model on its own. Unlike
+        # set-build it grants the write stance ONLY on POSITIVE proof of worktree isolation: a scheduled run
+        # that mutated the operator's own checkout is the never-strand-main harm, so any inability to confirm
+        # isolation declines (stays Explore) and the run reports why rather than writing.
+        import checkout_health  # lazy: keep modes importable stand-alone (mirrors the providers seam import)
+        session = _resolve_session(argv)
+        if not session:
+            print("set Routine: False (no session id resolvable)")
+            return 1
+        if not checkout_health.is_isolated_worktree():
+            print("set Routine: False (not a dedicated worktree — a routine writes only in an isolated "
+                  "worktree, never the operator's checkout)")
+            return 1
+        ok = set_stance(session, ROUTINE)
+        print(f"set Routine: {ok}")
+        return 0 if ok else 1
     if cmd == "clear":
         ok = clear_stance(_arg(argv, "--session"))
         print(f"cleared: {ok}")
@@ -617,8 +635,9 @@ def main(argv: list) -> int:
     if cmd == "demo":
         return _demo(argv[1:])
     print("usage: modes.py [hook | accept-hook | classify <Tool> [cmd] [--session S] [--pm MODE] "
-          "[--plan-file] | stance [--session S] | set-build [--session S] | clear --session S | demo]  "
-          "(stance/set-build resolve the session from --session else $CLAUDE_CODE_SESSION_ID)",
+          "[--plan-file] | stance [--session S] | set-build [--session S] | set-routine [--session S] | "
+          "clear --session S | demo]  (stance/set-build/set-routine resolve the session from --session else "
+          "$CLAUDE_CODE_SESSION_ID; set-routine also requires a dedicated worktree)",
           file=sys.stderr)
     return 2
 

@@ -53,10 +53,10 @@ _CLAUDE_VERB_GLOBS = (".claude/skills/engine-*/SKILL.md", ".claude/commands/engi
 _CODEX_VERB_GLOBS = (".agents/skills/engine-*/SKILL.md",)
 _ENGINE_VERB_GLOBS = _CLAUDE_VERB_GLOBS + _CODEX_VERB_GLOBS
 
-# What a one-tree-only verb's listing appends, so a broken mirror is surfaced, never hidden. The
-# engine-routine verb is legitimately Claude-only for now (its Codex twin ships with the routine
-# adapter); the sanctioned asymmetries live in the provider-exception ledger, and this line simply
-# tells the operator which runtime a verb works on today.
+# What a one-tree-only verb's listing appends, so a broken mirror is surfaced, never hidden. Every engine
+# command now has both twins (no runtime-only verb is expected); the sanctioned asymmetries live in the
+# provider-exception ledger, and this line simply tells the operator which runtime a verb works on today if a
+# mirror ever goes missing.
 _ONLY_CLAUDE_NOTE = " (currently only available when working in Claude Code)"
 _ONLY_CODEX_NOTE = " (currently only available when working in Codex)"
 

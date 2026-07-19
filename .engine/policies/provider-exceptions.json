@@ -2,14 +2,6 @@
   "$schema": "../schemas/provider-exceptions.v1.json",
   "exceptions": [
     {
-      "kind": "skill",
-      "id": "engine-routine",
-      "missing_or_weaker": "missing",
-      "provider": "codex",
-      "reason": "The routine (unattended-session) capability has no Codex backend yet; a typed command with no backend would be a stub. The Codex routine adapter and this command ship together in the follow-up change, immediately after the dual-runtime floor is validated live.",
-      "contract_ref": "eADR-0034"
-    },
-    {
       "kind": "hook",
       "id": ".engine/tools/modes.py accept-hook",
       "missing_or_weaker": "missing",

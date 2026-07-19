@@ -133,14 +133,19 @@ class TestDriftGate(_FixtureTree):
         problems = codex_gen.check(self.root)
         self.assertTrue(any("is missing" in p for p in problems), problems)
 
-    def test_the_excluded_skill_is_not_rendered(self):
+    def test_no_skill_is_excluded_and_engine_routine_now_renders(self):
+        # The routine backend shipped, so SKILL_EXCLUDE is empty: an engine-routine skill renders its twin
+        # like every other (the old exclusion, which would have shipped a stub, is retired).
+        self.assertEqual(codex_gen.SKILL_EXCLUDE, frozenset(),
+                         "no skill is excluded once the routine backend exists")
         _write(os.path.join(self.root, ".claude", "skills", "engine-routine", "SKILL.md"),
                SKILL_SRC.replace("engine-widget", "engine-routine"))
         codex_gen.generate(self.root)
-        self.assertFalse(os.path.exists(os.path.join(self.root, ".agents", "skills",
-                                                     "engine-routine")),
-                         "the ledgered exclusion must not render (a stub would ship)")
-        self.assertEqual([p for p in codex_gen.check(self.root) if "engine-routine" in p], [])
+        self.assertTrue(os.path.isfile(os.path.join(self.root, ".agents", "skills", "engine-routine",
+                                                    "SKILL.md")), "the twin now renders")
+        self.assertTrue(os.path.isfile(os.path.join(self.root, ".agents", "skills", "engine-routine",
+                                                    "agents", "openai.yaml")), "with its operator-only policy")
+        self.assertEqual(codex_gen.check(self.root), [], "and the drift gate is clean")
 
 
 class TestCommittedRendersInSync(unittest.TestCase):

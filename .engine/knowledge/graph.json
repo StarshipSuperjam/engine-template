@@ -634,6 +634,7 @@
           "codex-skill:engine-design",
           "codex-skill:engine-help",
           "codex-skill:engine-parts",
+          "codex-skill:engine-routine",
           "codex-skill:engine-setup",
           "codex-skill:engine-start",
           "codex-skill:engine-status",
@@ -670,6 +671,7 @@
           "codex-skill:engine-design",
           "codex-skill:engine-help",
           "codex-skill:engine-parts",
+          "codex-skill:engine-routine",
           "codex-skill:engine-setup",
           "codex-skill:engine-start",
           "codex-skill:engine-status",
@@ -2670,6 +2672,46 @@
       "type": "codex-skill"
     },
     {
+      "id": "codex-skill:engine-routine",
+      "name": ".agents/skills/engine-routine/SKILL.md",
+      "owner": "routine-mode",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:routine-mode"
+        ]
+      },
+      "slug": "engine-routine",
+      "source": {
+        "fingerprint": "sha256:c43bd3cdd9ddb59de78eeb90adffc3800acb3f7534d686ca091f7e898638252b",
+        "path": ".agents/skills/engine-routine/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-routine.policy",
+      "name": ".agents/skills/engine-routine/agents/openai.yaml",
+      "owner": "routine-mode",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:routine-mode"
+        ]
+      },
+      "slug": "engine-routine.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-routine/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
       "id": "codex-skill:engine-setup",
       "name": ".agents/skills/engine-setup/SKILL.md",
       "owner": "core",
@@ -3829,7 +3871,7 @@
       },
       "slug": "routine-mode",
       "source": {
-        "fingerprint": "sha256:f162465e691787b9fa127938586a8bda443529da38e44f5c3a3c38448e5071b9",
+        "fingerprint": "sha256:9f40bcad6438d483d4b70451c0a5470bca203daf5f3079c0712583778abb0d3b",
         "path": ".engine/modules/routine-mode/manifest.json"
       },
       "status": "required",
@@ -3928,7 +3970,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:664f011e408abe2d459fe8ae1f3e73c221c3792872ff588402c2eb9238cc7faf",
+        "fingerprint": "sha256:708e8d2789c94daa96eac3973fd7679b5304859859173a8585ab137a9aa83544",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -4208,7 +4250,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:d714216f81800812578021895e8c5b441880bef9a3b2ee0e31da26f06edc94c5",
+        "fingerprint": "sha256:90333bb4f1ca601fc8cac7c4d784763699e97018beb579b7fe8ee21d2d5c55e2",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -4268,7 +4310,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:7531542d1e9cf33fd750c74ae8a45d3ddd2917f7613d6ff47be8aa6f65a04d79",
+        "fingerprint": "sha256:cf4f626e00a4825ce716ab907f66c439981931b2fbdbdd08544a21af956358b6",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -4455,7 +4497,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:0ba24d683a227a244fa742c1e15a76435a6c2b54ff5ce6a98935b54a0923cb25",
+        "fingerprint": "sha256:b1dc2da68dec0e3077eaeb2db03deacebb4f5c5ed47acbf47eaca6a3a73bce04",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -5206,7 +5248,7 @@
       },
       "slug": "engine-routine",
       "source": {
-        "fingerprint": "sha256:810434b766919c273553354178d4ddce1d5646b494b19a3ea3a1a34e1b646313",
+        "fingerprint": "sha256:8e10a615757d801b1ed8cbdc3f64129f764303bfddbde574e65fd6db33abd1bf",
         "path": ".claude/skills/engine-routine/SKILL.md"
       },
       "status": "active",
@@ -5635,7 +5677,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:2ed1095b666a7b56e6fd34a50b0ca573c15cd57a17bda9f636fd9492b8ca7fa3",
+        "fingerprint": "sha256:bc6c9355927a1a5d2223a153fd11106997accd601cd322d8d7e81beb9b8cbe65",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -5720,7 +5762,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:cd40705736c4043361b47ef265cd73cd0fb7c67897939846be81e366ed53e425",
+        "fingerprint": "sha256:db85152e85fcbf22abf7b96c0709557e834c7a256fbba9a65ee3507461808a2f",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -6519,7 +6561,7 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:0fc140d7c43eef3664e50c133413803caded3e93674a6b2ee2e6ca20d47851c5",
+        "fingerprint": "sha256:67943066a5f0c46fcc69eaafe5b2594932087e0660990ea25e5ecec961a7259a",
         "path": ".engine/tools/engine_help.py"
       },
       "status": "active",
@@ -7148,7 +7190,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:fcf1fd137f3378495dda94ce385932bcb48cc57161a187038ddd64c1dfc6b8bc",
+        "fingerprint": "sha256:4f27413a09247580e23b12cd47b2cc233b0adfa7449c84d50f493cdf60298925",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -8151,7 +8193,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:9c8ce0910bc68ccc223a9e8a6f3603f32ce0a9759c66c881396f76911b92c273",
+        "fingerprint": "sha256:8a07cc0b101f2dfc0c3c780d639c0a7a9b351511cf1d090cc94dde18eaa1fb7f",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -8202,7 +8244,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:aa5ba75322cdc51117e8cad50039758e7d908bb6c6f24b44aeaf295b989f9ab1",
+        "fingerprint": "sha256:db1d2ce1a72fbc687265f5ca2b677cd44d0fe59af58b53910240b2c8c494f9f1",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -9018,7 +9060,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:689182b02f72b0d28b147fc244664454ce23d6797ebd1c160657f8dcec813e2b",
+        "fingerprint": "sha256:f3c171bb362cce167145995b643b3948bfa14704ba771ccc5d6196f80886a466",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",

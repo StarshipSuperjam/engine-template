@@ -8,6 +8,10 @@
     ],
     "skill": [
       ".claude/skills/engine-routine/SKILL.md"
+    ],
+    "codex-skill": [
+      ".agents/skills/engine-routine/SKILL.md",
+      ".agents/skills/engine-routine/agents/openai.yaml"
     ]
   },
   "wires": [],
