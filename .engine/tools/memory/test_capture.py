@@ -612,7 +612,7 @@ def _codex_msg(role, text):
 
 
 class CodexTranscriptTests(CaptureTestCase):
-    """The provider-routed Codex reader and its fail-loud contract (eADR-0036): a Codex-tagged
+    """The provider-routed Codex reader and its fail-loud contract (eADR-0034): a Codex-tagged
     session captures through the dedicated recognizer ONLY, and every zero-yield shape a format
     change can take reads as unrecognized — a loud status, never a silent green."""
 

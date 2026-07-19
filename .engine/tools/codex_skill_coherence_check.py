@@ -7,7 +7,7 @@ a frontmatter flag but the companion policy file — `agents/openai.yaml` carryi
 `policy.allow_implicit_invocation: false` (the model must never start the command on its own; the
 operator's explicit $-invocation still works). This check goes red when an engine Codex skill ships
 without that companion, or with the policy absent or not false — so the self-election protection
-cannot be dropped on one runtime while the other stays green (eADR-0035). Operator-authored,
+cannot be dropped on one runtime while the other stays green (eADR-0034). Operator-authored,
 un-prefixed product skills in the same directory are not engine-governed.
 
 Reads local committed files only. Emits finding.v1 JSON on stdout, exit 0 on a successful

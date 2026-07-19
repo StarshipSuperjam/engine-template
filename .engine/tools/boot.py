@@ -1237,7 +1237,7 @@ def gather_signals(session_id: str | None = None) -> dict:
         "low_severity_count": low_severity_count, "triage_pressure_line": triage_pressure_line,
         "contract_rate_line": contract_rate_line,
         # One plain line when the last capture attempt could NOT save a session's conversation to
-        # memory (the loud half of the fail-soft capture, eADR-0036); None when fine or no marker.
+        # memory (the loud half of the fail-soft capture, eADR-0034); None when fine or no marker.
         "capture_status_line": capture_status_line(),
         # One plain line when there is no recent evidence of the hooks running (the silently-off
         # detector — Codex trust-pending, unapproved hooks, or a pre-hooks version); None when fresh.

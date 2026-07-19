@@ -814,8 +814,6 @@
           "contract:eADR-0032-attention-policy-plus-function",
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
-          "contract:eADR-0035-provider-parity-committed-exceptions",
-          "contract:eADR-0036-codex-degradation-disclosure",
           "contract:eADR-0037-upgrade-overwrite-disclosure"
         ]
       },
@@ -878,8 +876,6 @@
           "contract:eADR-0032-attention-policy-plus-function",
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
-          "contract:eADR-0035-provider-parity-committed-exceptions",
-          "contract:eADR-0036-codex-degradation-disclosure",
           "contract:eADR-0037-upgrade-overwrite-disclosure"
         ]
       },
@@ -943,8 +939,6 @@
           "contract:eADR-0032-attention-policy-plus-function",
           "contract:eADR-0033-boot-refresh-family",
           "contract:eADR-0034-dual-provider-adapter-core",
-          "contract:eADR-0035-provider-parity-committed-exceptions",
-          "contract:eADR-0036-codex-degradation-disclosure",
           "contract:eADR-0037-upgrade-overwrite-disclosure"
         ]
       },
@@ -3529,48 +3523,8 @@
       },
       "slug": "eADR-0034-dual-provider-adapter-core",
       "source": {
-        "fingerprint": "sha256:833f54e2e9ab04b25c87494c76db50d99ff9c2332160a6cd83cc4513fac88104",
+        "fingerprint": "sha256:22dfa6eb20d62f07f682a436ff334ea6cd21bf7b00c9386514050966842ee639",
         "path": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0035-provider-parity-committed-exceptions",
-      "name": ".engine/contracts/eADR-0035-provider-parity-committed-exceptions.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0035-provider-parity-committed-exceptions",
-      "source": {
-        "fingerprint": "sha256:79d30adea6208d676a215dd214ddd970decac6dbd03ccc20d120c02a927b0c5e",
-        "path": ".engine/contracts/eADR-0035-provider-parity-committed-exceptions.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0036-codex-degradation-disclosure",
-      "name": ".engine/contracts/eADR-0036-codex-degradation-disclosure.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0036-codex-degradation-disclosure",
-      "source": {
-        "fingerprint": "sha256:f07f9a81bf2fdf912ea97fe83a5ef0244fbf171fbbcb12e77b906630168e56c1",
-        "path": ".engine/contracts/eADR-0036-codex-degradation-disclosure.md"
       },
       "status": "accepted",
       "type": "contract"
@@ -3934,7 +3888,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:bc76343049aa9a25a3832526e549e88ceac18da67c9e01d078bc2a97404da0a9",
+        "fingerprint": "sha256:5095fe133a13a49ff6c1144b67f4ff1ca729331badcd37aa08773a0bff17bd75",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -3974,7 +3928,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:a43b503d8a78e191851af86f66a63e733c8e6dfe6fd4c2c716c2bd4a69b64731",
+        "fingerprint": "sha256:664f011e408abe2d459fe8ae1f3e73c221c3792872ff588402c2eb9238cc7faf",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -4501,7 +4455,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:50b8a111e00bf877d1a79b7537e8f99ee4ec591c4000f090d040edd77b7bc500",
+        "fingerprint": "sha256:0ba24d683a227a244fa742c1e15a76435a6c2b54ff5ce6a98935b54a0923cb25",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -5002,7 +4956,7 @@
       },
       "slug": "provider-exceptions.v1",
       "source": {
-        "fingerprint": "sha256:e1cd518ef5ed22722f16be751054f629062a20da6e9290570bc600b251de91b8",
+        "fingerprint": "sha256:636bec53406003d27ac86c252adaef105e9368b5869fb9ba24dfbd7d36a39745",
         "path": ".engine/schemas/provider-exceptions.v1.json"
       },
       "status": "active",
@@ -5562,7 +5516,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:2ec1e091c63f6db9378edff05297175519ee60f87efd3db53378e7e9a5347491",
+        "fingerprint": "sha256:e8ea563c0349f3a93b754ed2ad12fe67de3665df104afbcffe0069ff114cca68",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5647,7 +5601,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:9f3765669731f95c67fe5530f833d0e26c47d3388dfe603cd12292fe2251be34",
+        "fingerprint": "sha256:9a0d173ad45e74e7475b71237e0ee18cc9acb971c40fe29ff0f2e41f09903aa7",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -5783,7 +5737,7 @@
       },
       "slug": "codex_skill_coherence_check",
       "source": {
-        "fingerprint": "sha256:1e1357c5f5938bef98a69b542af9a57fca03e20a89060d32ca9a70b16533fad3",
+        "fingerprint": "sha256:70358d82aa526de55b251302d4a55c250f6a68fd68b515ed69603ef20f8058e2",
         "path": ".engine/tools/codex_skill_coherence_check.py"
       },
       "status": "active",
@@ -7415,7 +7369,7 @@
       },
       "slug": "provider_parity_check",
       "source": {
-        "fingerprint": "sha256:119fabbbf3ee2b1f4f8ae4c24f32700e209eac4de17d1232b5a9dde3e6a1c7db",
+        "fingerprint": "sha256:56e86e82583c81207a46105eb9ce55fe9437d68ff5ed2bb771c6b01ff59ec53e",
         "path": ".engine/tools/provider_parity_check.py"
       },
       "status": "active",
@@ -7449,7 +7403,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:49d7dcc3ef891b451510f06a69b9f1d69d4e63327b51f015c829cb15bf19f4af",
+        "fingerprint": "sha256:2448a0b6e7bb3ae9b4001cfe2e444e35a5417953c2d0ed89d3f042ecb2544feb",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -7823,7 +7777,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:bee4b76b651a4b95798a00a7810f10a1158344b6370b2a3bded50ddd58380eb5",
+        "fingerprint": "sha256:4bd12ef3e3bf977d6d29d920e3b9fff07474ec66d9dc73f02868785c423de125",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -8146,7 +8100,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:ea9eddb9ef093cea2288f31659ed65bcb4a8dbcdb6a79cca32f4c259552ecc78",
+        "fingerprint": "sha256:aecde2aa2f381d31871a3678df8f43246ef748a23ea6b33332059a9eb3e5734a",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -9268,7 +9222,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:396dd479b16e9cdaae59f25925cfff176ca89f0591738980de94c4a8c34c719d",
+        "fingerprint": "sha256:f9cc973805c054adbf880ce14fb7b9ba3ec821df6d4534ba56670de93518d8ed",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -10033,7 +9987,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:4170e6b481744fec1561558b9bc3708a217e9a10f948fb22bd5bc0fc41f42151",
+        "fingerprint": "sha256:b2b901c62262d6e80315f0e0b9d974223af896d3ac0e882348c03175191fde3a",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
@@ -10050,7 +10004,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:ebfa289c01389aa8207ca7848246b83c8110bf286f688a12dc451262c476eecd",
+        "fingerprint": "sha256:7a3c2c754c8a5fffa2e10e13bdd0d2de7ffc6c2b60c9d82afb81546a880838fc",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

@@ -6,7 +6,7 @@ title: Validate the Codex adapter live — the post-merge pass bar, and the upda
 
 Prove, in a live Codex session, the adapter behavior no check in this repository can prove from
 inside (the platform's hook firing, discovery, and sandbox behavior only exist under a running Codex
-binary — eADR-0036), and keep Codex sessions healthy across engine updates. Enter this runbook right
+binary — eADR-0034), and keep Codex sessions healthy across engine updates. Enter this runbook right
 after the dual-runtime change merges (the named acceptance step), after any later change to the
 Codex adapter surfaces, or when a Codex session reports its hooks are not running.
 

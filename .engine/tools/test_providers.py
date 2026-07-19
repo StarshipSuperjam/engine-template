@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the provider-normalization seam (providers.py) — the laws eADR-0034/0036 rest on:
+"""Self-tests for the provider-normalization seam (providers.py) — the laws eADR-0034 rest on:
 normalize is the IDENTITY for a Claude payload (the byte-stability pin); a Codex edit is rewritten
 with EVERY path its batch patch names; session resolution is payload-first and the live-session
 marker REFUSES on any ambiguity (stale, foreign-owned, future-stamped) rather than guessing; and the

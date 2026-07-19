@@ -20,7 +20,7 @@ Three laws:
      the env chain is the CLI fallback; the live-session marker is the last resort for a typed
      Codex verb — and on any ambiguity (stale, foreign-owned, unreadable) it resolves NOTHING, so
      a stance change degrades to "could not identify the session" and the stance stays Explore,
-     never a silent flip of the wrong session (eADR-0036).
+     never a silent flip of the wrong session (eADR-0034).
 """
 from __future__ import annotations
 import hashlib
@@ -158,7 +158,7 @@ def session_from_env() -> str | None:
 # payloadless CLI has no env var to read. FAIL-SAFE BY CONSTRUCTION: per-user temp scope, owner-only
 # permissions, owner + freshness checked on read, and any ambiguity resolves to None — the caller's
 # stance change then reports failure instead of flipping an unidentified session. KNOWN LIMIT
-# (disclosed, eADR-0036): two CONCURRENT sessions of the same user in one repo share the marker
+# (disclosed, eADR-0034): two CONCURRENT sessions of the same user in one repo share the marker
 # last-writer-wins, so the typed verb can only be trusted to address the most recently started
 # session; the stance readout (`$engine-status`) is the check.
 _MARKER_MAX_AGE = 24 * 3600      # a marker older than one session-day is stale — refuse, never guess

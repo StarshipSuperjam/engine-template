@@ -80,7 +80,7 @@ _FLOOR_ENFORCEMENT_CONFIG = (
     #                               settings.json posture; a fence-scoped guard is the recorded refinement)
     ".engine/policies/provider-exceptions.json",  # the parity check's sanctioned-exception ledger — the file
     #                               that grants exemptions from an enforcement check is itself guarded, or
-    #                               widening an exception would be the quiet way around the check (eADR-0035)
+    #                               widening an exception would be the quiet way around the check (eADR-0034)
 )
 # The validator + this guard. validate.py is ALSO the sole home of the 5 built-in HARD check kinds
 # (presence/schema/shape/coverage/coherence): those carry no `params.script`, so the derived clause below

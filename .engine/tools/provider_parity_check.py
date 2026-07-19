@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Provider parity — the custom/script entry for engine/check/codex-provider-parity (eADR-0035).
+"""Provider parity — the custom/script entry for engine/check/codex-provider-parity (eADR-0034).
 
 Every capability the engine exposes on one AI runtime must have its counterpart on the other, in
 BOTH directions, and the only sanctioned differences are the committed entries of the
@@ -97,14 +97,14 @@ def findings(tier: str, root: str | None = None) -> list:
         out.append(validate.finding(tier,
                    f"Runtime parity broke: {detail} — present for {side} with no counterpart and no "
                    f"committed exception. Add the counterpart, or record the difference in "
-                   f"{LEDGER_REL} with a reason (eADR-0035).", None))
+                   f"{LEDGER_REL} with a reason (eADR-0034).", None))
 
     # HOOKS
     def hooks_with_canary(rel_path: str) -> set:
         """Extract the engine hook set — and go LOUD when extraction is blind: a registration file
         that carries `.engine/` commands from which the grammar patterns extract NOTHING means the
         patterns rotted against the command form, and every hook difference would silently vanish
-        (an empty set equals an empty set). A broken check must never report green (eADR-0036)."""
+        (an empty set equals an empty set). A broken check must never report green (eADR-0034)."""
         try:
             data = _load_json(os.path.join(base, rel_path))
         except (OSError, ValueError):
