@@ -62,7 +62,13 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    tightly-coupled work; *parallel workers*, each in its own isolated worktree returning mechanical work
    product (not commits), when the work is loosely-coupled and decomposable and holding the whole result
    while generating it would lose grounding; *time-distributed routine* for large decomposable bulk work
-   (Notes). Delegation buys cohesion under context pressure, not speed.
+   (Notes). Delegation buys cohesion under context pressure, not speed. **Iterate with scoped test runs,
+   not the full suite.** While implementing, run just the test module(s) covering what you touched by
+   narrowing the discovery pattern — `uv run --directory .engine --frozen -- python -m unittest discover
+   -s tools -p 'test_<name>.py' -b` finishes in seconds. The full suite stays the pre-submission gate
+   (step 6), run once when the work is ready — serial (the proven command), and runnable in the background
+   so it never blocks the session. A scoped run accelerates the loop; it is never the merge signal — only
+   the full suite (step 6) and CI are.
 5. **Integrate — the orchestrator is the single writer.** Review each work product for correctness and fit,
    revise what does not cohere, and author the final commit(s) with the whole result in view. A failed
    worker leaves a missing planned commit the orchestrator re-dispatches or completes — no phantom-slot

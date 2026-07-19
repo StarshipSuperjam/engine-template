@@ -59,7 +59,10 @@ proceeding. Ground-truth every concrete finding against the source before record
   self-test suite runs about 4 minutes (4,000+ tests, varying with machine and cache), so give it a
   generous time limit: a tool whose command
   timeout defaults to ~2 minutes cuts it off mid-run — which reads as a hang, not a failure — so set an
-  explicit timeout with headroom (≥ 9 minutes) or run it in the background.
+  explicit timeout with headroom (≥ 9 minutes) or run it in the background. While iterating, run just the
+  test file(s) for what you changed — narrow the pattern, e.g. `-p 'test_<name>.py'` (seconds); the full
+  suite is the pre-submission gate, never the iteration loop, and it can run in the background so it never
+  blocks.
 - **Plan-first, one step at a time**; each step finished and re-grounded from merged disk before the next.
 - **Building starts only by the maintainer's explicit say-so** — `$engine-start` (or an explicitly approved
   plan). Never infer build intent from casual phrasing. The write-gate is a local guardrail; the protected
