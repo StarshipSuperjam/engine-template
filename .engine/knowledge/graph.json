@@ -2885,7 +2885,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:886573a4d516df08fc142972e6bd96b160e6e70b742520086474a46876758b17",
+        "fingerprint": "sha256:d3a141664ba761165ca80a61fe7910a74be05d49d2e1ca21a8ab4ae8b4861c9a",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
@@ -3165,7 +3165,7 @@
       },
       "slug": "eADR-0014-one-history-living-documents",
       "source": {
-        "fingerprint": "sha256:91627508bb4016535b108b2aa53f765585d16a0ecb5e81005302b366445a7fc5",
+        "fingerprint": "sha256:d28af0de197bef90d35dd11a1dbccdf455bc5ee88c5601a425dab745942e15d8",
         "path": ".engine/contracts/eADR-0014-one-history-living-documents.md"
       },
       "status": "accepted",
@@ -4743,7 +4743,7 @@
       },
       "slug": "contract.v1",
       "source": {
-        "fingerprint": "sha256:70f4508a183dba0531ab1c3a980516d27409e67a16ce475fc23b4b82d5e2e5ec",
+        "fingerprint": "sha256:95a37258f57a0193099b9e498078d3a5c13be69f8fcf24b1560822ae0f03a55b",
         "path": ".engine/schemas/contract.v1.json"
       },
       "status": "active",
