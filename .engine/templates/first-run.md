@@ -112,6 +112,16 @@ engine's **own** workshop, so I cleared it: no borrowed focus, no borrowed count
 template's own to-do list. Nothing of yours was lost — a brand-new project has nothing there yet — and this changes
 nothing else. I didn't do it silently — this note is me telling you.
 
+## Your product's release version is ready to use
+
+Your project now carries its own version file — product-version.json at the top level, starting at 0.0.0. This is
+where your **product's** release version lives, separate from the engine's own version. When you want to publish a
+release of your product, the engine's release workflow reads and updates this file, tags your repository, and
+publishes a GitHub Release — the same reviewed flow, where your merge is the only go-ahead, that the engine uses for
+itself. Publishing your first release needs a one-time credential the release workflow walks you through the first
+time you run it. The file is yours: change the starting version if you like, and it stays put when the engine
+updates. I didn't add it silently — this note is me telling you it's here.
+
 ## If I couldn't set up file ownership for reviews
 
 I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files for

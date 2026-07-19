@@ -127,6 +127,7 @@ COPY_HEADINGS = {
     "claude-floor-seeded": "Your project's working guide",
     "agents-floor-seeded": "Your project's working guide for Codex",
     "state-reseeded": "Your project starts from a clean slate",
+    "product-version-seeded": "Your product's release version is ready to use",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
     "actions-enablement": "One more switch only you can flip",
@@ -322,6 +323,16 @@ FALLBACK_COPY = {
         "to work with you (for example, speaking plainly, and explaining choices before you make them). "
         "They're here from the first session, and they're yours: change, add, or remove any of them any time "
         "with /engine-conduct ($engine-conduct in Codex). I didn't put them in place silently — this note is me telling you they're here."
+    ),
+    "product-version-seeded": (
+        "Your project now carries its own version file — product-version.json at the top level, starting at "
+        "0.0.0. This is where your PRODUCT's release version lives, separate from the engine's own version. "
+        "When you want to publish a release of your product, the engine's release workflow reads and updates "
+        "this file, tags your repository, and publishes a GitHub Release — the same reviewed flow, where your "
+        "merge is the only go-ahead, that the engine uses for itself. Publishing your first release needs a "
+        "one-time credential the release workflow walks you through the first time you run it. The file is "
+        "yours: change the starting version if you like, and it stays put when the engine updates. I didn't add "
+        "it silently — this note is me telling you it's here."
     ),
 }
 
@@ -1326,6 +1337,38 @@ def _seed_state(say, copy=None) -> str:
     return "reseeded"
 
 
+_PRODUCT_VERSION_REL = "product-version.json"
+_PRODUCT_VERSION_SEED = "0.0.0"
+
+
+def _seed_product_version(say, copy=None) -> str:
+    """Seed the deployed repo's own PRODUCT version file (#516) at first-run, so a deployment inherits a
+    working product-release lane: once deployed, the engine's release workflow cuts THIS file's version, not the
+    engine's. A product-OWNED root file (eADR-0007 — it lives in product territory and SURVIVES an engine
+    uninstall, unlike anything under .engine/). Seed-then-own: seed-iff-absent, so a re-run, or an operator who
+    already set a product version, is a no-op. BELT: `_root_is_construction()` — this runs AFTER
+    `_seed_deployed_floor`, so a generated repo's root is already the swapped floor and the guard passes; the
+    construction workshop (or an un-redirected test whose root is still the construction file) never gets a
+    product file, because there the engine IS the product and cuts the engine version. Fail-open: an unwritable
+    path never strands the phase. Discloses only on an actual seed (never on a no-op). Product-mode does not
+    strictly NEED the file — a deployed repo without it still cuts a product release, creating it on the first
+    cut — but seeding gives a new deployment a visible, discoverable starting point from day one."""
+    if _root_is_construction():
+        return "present"                          # workshop / pre-swap -> the engine is the product; never seed
+    path = os.path.join(validate.ROOT, _PRODUCT_VERSION_REL)
+    if os.path.exists(path):
+        return "present"                          # already seeded / operator-owned -> idempotent no-op
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"version": _PRODUCT_VERSION_SEED}, fh, indent=2)
+            fh.write("\n")
+    except OSError:
+        return "skipped"                          # unwritable -> never strand the phase
+    if copy is not None:
+        say(copy["product-version-seeded"])
+    return "seeded"
+
+
 def _apply_substrates(say, copy=None) -> dict:
     """STEP 5 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
     re-derive the knowledge graph (idempotent), confirm the state seed is present AND reset a traveled
@@ -1359,6 +1402,7 @@ def _apply_substrates(say, copy=None) -> dict:
     result["claude_floor"] = _seed_deployed_floor(say, copy)
     result["agents_floor"] = _seed_agents_floor(say, copy)
     result["state"] = _seed_state(say, copy)   # AFTER the floor swap (its construction-repo belt reads the swapped root)
+    result["product_version"] = _seed_product_version(say, copy)   # AFTER the floor swap (same belt), #516
     return result
 
 
@@ -1599,6 +1643,7 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_inbox_drain.py",
     ".engine/tools/demo_release_cut.py",
     ".engine/tools/demo_release_terminal.py",
+    ".engine/tools/demo_release_product_mode.py",
     ".engine/tools/demo_weakening_guard_narrowed_set.py",
     ".engine/tools/demo_memory_degradation_backup.py",
     ".engine/tools/demo_attention_live_dials.py",

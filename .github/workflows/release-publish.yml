@@ -1,9 +1,11 @@
 # release-publish — publish the tag + GitHub Release when a release pull request merges. This is the
 # terminal half of a release: release.yml opens the release PR and stops; when the maintainer merges it,
 # THIS workflow tags the exact reviewed merge commit and publishes the GitHub Release the version points
-# at, then comments the outcome back onto the PR in plain language. The maintainer's merge click is still
-# the only go-ahead — this runs AFTER that consent, on a commit already trusted (it landed on protected
-# `main`).
+# at, then comments the outcome back onto the PR in plain language. WHAT it publishes follows the cut: the
+# ENGINE's version in the construction repo, the deployed repo's OWN PRODUCT version once deployed (#516) —
+# read automatically from the merged commit; either way the tag + Release land in THIS repository. The
+# maintainer's merge click is still the only go-ahead — this runs AFTER that consent, on a commit already
+# trusted (it landed on protected `main`).
 #
 # PRESENT-BUT-INERT UNTIL A RELEASE MERGES. The workflow ships committed in every repo but does nothing
 # until a `release/*` pull request merges. It is NOT exercised end-to-end during construction — the first
@@ -15,7 +17,7 @@
 # `release/*` merge safe: it makes a no-op when the recorded version is the dev sentinel or a pre-release,
 # it refuses a version that is not newer than the current latest release, and it never overwrites a tag
 # already on a different commit. So the branch name is not trusted as consent — those guards are.
-name: Publish a merged engine release
+name: Publish a merged release
 
 # Not pull_request_target: the merged code is already on trusted `main`, so this reads the base workflow
 # and acts on the reviewed merge commit — never fork head code. (A fork pull request also gets a read-only
@@ -47,7 +49,8 @@ jobs:
       startsWith(github.event.pull_request.head.ref, 'release/')
     steps:
       # Check out the EXACT reviewed merge commit (not main's tip, which may have moved) — the version is read
-      # from that commit's engine.json and the tag is pinned to it, so the tag lands on the reviewed unit.
+      # from that commit (engine.json in the construction repo, product-version.json once deployed) and the tag
+      # is pinned to it, so the tag lands on the reviewed unit.
       - name: Check out the merged release commit
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

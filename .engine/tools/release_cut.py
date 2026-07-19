@@ -130,6 +130,67 @@ def _strictly_greater(new: str, cur: str) -> bool:
     return _is_prerelease(cur) and not _is_prerelease(new)
 
 
+# --------------------------------------------------------------------------- product-release mode (#516)
+# Once the engine is DEPLOYED, this same machinery cuts the deployed repo's OWN product release instead of the
+# engine's version: the version is read from (and written to) a product-owned `product-version.json` at the
+# repository ROOT (product territory, eADR-0007 — so it survives an engine uninstall), the baseline is the
+# deployed repo's own last release, and the tag + GitHub Release publish into the deployed repo itself
+# (release_terminal already targets GITHUB_REPOSITORY). The CONSTRUCTION repo (where the engine IS the product)
+# keeps cutting the engine version, unchanged. A deployment inherits a working release system instead of
+# building versioning plumbing from scratch. The workflow shell is untouched: product-mode speaks the SAME
+# propose/apply JSON shape (a `mode`, an `engine_floor_version` carrying the patch-bump default, an `engine`
+# key carrying the recorded version) with product semantics underneath, plus a `product` marker the renderers
+# and the publisher read to speak of the PRODUCT rather than the engine.
+PRODUCT_VERSION_REL = "product-version.json"
+_PRODUCT_MALFORMED = object()   # the file exists but is not a readable {"version": "<semver>"} -> refuse loudly
+
+
+def _product_version_path(root: str | None = None) -> str:
+    return os.path.join(root if root is not None else validate.ROOT, PRODUCT_VERSION_REL)
+
+
+def read_product_version(root: str | None = None):
+    """The current product version string, or None (no file — an un-seeded deployment / a first cut), or the
+    `_PRODUCT_MALFORMED` sentinel (the file is present but is not a readable `{"version": "<semver>"}`).
+    Malformed is NEVER silently treated as absent: the mode resolver turns it into a loud refuse, so a corrupt
+    product file can never fall through to an ENGINE cut in a deployed repo."""
+    path = _product_version_path(root)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001 — present-but-unreadable is a loud refuse, never "absent"
+        return _PRODUCT_MALFORMED
+    v = data.get("version") if isinstance(data, dict) else None
+    return v if isinstance(v, str) and _valid_version(v) else _PRODUCT_MALFORMED
+
+
+def release_mode(own_slug: str | None = None, root: str | None = None) -> tuple:
+    """Which release this repo cuts: `("engine" | "product" | "refuse", ctx)` where `ctx` carries the current
+    product version (`current`, None on a first product cut) and the repo `slug`. PRODUCT dominates: a repo is
+    in product-mode when it carries a `product-version.json` OR it is a downstream deployment (recorded update
+    home != own origin) — so product-mode ARMS on a deployed repo's very first upgrade, and the first product
+    cut CREATES the file. A present-but-MALFORMED product file is a loud REFUSE, never an engine cut. Only the
+    construction repo — not a downstream copy, no product file — cuts the ENGINE version. `own_slug`/`root` are
+    injectable so a fixture forces either mode offline.
+
+    File-presence DOMINATES deliberately. `module_coherence.is_downstream_copy` fails soft to False on an
+    unreadable origin; keying product-mode on the downstream check alone could route a deployed repo that DOES
+    carry the product file into an engine cut whenever its origin momentarily can't be read. Because a present
+    product file forces product-mode on its own, that regression cannot happen — the deployed repo's committed
+    declaration wins over live origin resolution."""
+    pv = read_product_version(root)
+    if pv is _PRODUCT_MALFORMED:
+        return "refuse", {"current": None, "slug": own_slug}
+    if own_slug is None:
+        import boot   # local: only mode resolution needs the origin slug (mirrors _generate_notes_body)
+        own_slug = boot.repo_slug()
+    if pv is not None or module_coherence.is_downstream_copy(own_slug):
+        return "product", {"current": pv, "slug": own_slug}
+    return "engine", {"current": None, "slug": own_slug}
+
+
 # --------------------------------------------------------------------------- baseline resolution
 class Baseline:
     """The last-release baseline for the diff. `ref` is None in FIRST-CUT mode (the home has no
@@ -140,11 +201,25 @@ class Baseline:
         self.note = note
 
 
-def resolve_baseline() -> Baseline:
-    """The last released tag from the engine's HOME repo (#369 `home_repository`), or a first-cut
-    baseline when the home has no release yet. A TRANSPORT failure (offline/DNS) is not a first cut —
-    it is unknowable, and we say so rather than guess an empty baseline."""
-    home = module_manager._home_repository()
+def _product_baseline(slug: str | None) -> Baseline:
+    """The product baseline for a deployed repo's OWN release stream. When the repo slug could NOT be resolved
+    (`boot.repo_slug()` returned None — no GITHUB_REPOSITORY and no readable git origin), a product cut must
+    NOT fall through to `resolve_baseline`'s engine-`home_repository` default (that would diff the product
+    against the ENGINE's releases): with no slug there is no release stream to look up, so it is a first cut —
+    the version is chosen, not derived. On the sanctioned CI path the slug is always set, so this is defensive."""
+    if not slug:
+        return Baseline(None, True, "the repository could not be identified, so there is no prior release to "
+                                    "diff against — treating this as the first product release.")
+    return resolve_baseline(slug=slug)
+
+
+def resolve_baseline(slug: str | None = None) -> Baseline:
+    """The last released tag to diff against, or a first-cut baseline when there is no release yet. `slug`
+    defaults to the engine's HOME repo (#369 `home_repository` — the engine's own release stream); in
+    PRODUCT-mode (#516) the caller passes the DEPLOYED repo's own slug, so a product cut resolves the product's
+    own last release, never the engine's home. A TRANSPORT failure (offline/DNS) is not a first cut — it is
+    unknowable, and we say so rather than guess an empty baseline."""
+    home = slug if slug is not None else module_manager._home_repository()
     if not home:
         return Baseline(None, True, "no home repository is recorded, so there is no prior release to "
                                     "diff against — treating this as the first cut.")
@@ -362,8 +437,9 @@ def _modules_in_tree(tree_root: str) -> dict:
 
 # --------------------------------------------------------------------------- floor classification
 def _bump_at_least(current: str, level: str) -> str:
-    """The version `current` bumped to at least the given `level` (major|minor). Used to express the
-    mechanical FLOOR as a concrete next version for the change inventory; the maintainer may raise it."""
+    """The version `current` bumped to at least the given `level` (major|minor|patch). Used to express the
+    mechanical FLOOR as a concrete next version for the change inventory (the engine floor uses major/minor; a
+    product cut's derive-default uses patch); the maintainer may raise it."""
     parts = list(validate._ver_tuple(current))
     while len(parts) < 3:
         parts.append(0)
@@ -461,6 +537,34 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         "package_floor": package_floor,
         "change_inventory": inventory,
         "impacts": impacts,
+    }
+
+
+# --------------------------------------------------------------------------- product proposal (#516)
+def _product_proposal(baseline: Baseline, current_version: str, merged_prs: list) -> dict:
+    """The release proposal for a PRODUCT cut — the SAME mode-neutral shape the workflow shell and the
+    renderers consume, with product semantics. A product has no engine packages to diff, so there is no
+    capability floor: the mechanical `engine_floor_version` is simply a PATCH bump of the current product
+    version (the derive-the-version default when the operator leaves the version blank; raise-only still lets
+    them name any higher one), and None on a first cut (where the version is chosen, not derived). The `product`
+    marker rides in the proposal so the renderers and the publisher speak of the PRODUCT."""
+    first_cut = baseline.first_cut
+    note = ("this deployment has no published release yet — this is the first release of your product."
+            if first_cut else f"releasing your product; the last release was {baseline.ref}.")
+    inventory = (["First release: establishes the starting version of your product. No prior release exists, "
+                  "so the version is chosen, not derived."] if first_cut else [])
+    return {
+        "mode": "first-cut" if first_cut else "diff",
+        "product": True,
+        "baseline": baseline.ref,
+        "baseline_note": note,
+        "current_engine": current_version,           # the current PRODUCT version (the renderers' generic key)
+        "engine_floor_level": "none",                # a product has no structural capability floor
+        "engine_floor_version": None if first_cut else _bump_at_least(current_version, "patch"),
+        "package_floor": {},
+        "change_inventory": inventory,
+        "impacts": [],
+        "merged_prs": merged_prs,
     }
 
 
@@ -714,6 +818,53 @@ def apply(engine_ver: str, all_ver: str | None, packages: dict, proposal: dict |
             "proposed_floor": (proposal or {}).get("package_floor", {})}
 
 
+# --------------------------------------------------------------------------- apply (product writer, #516)
+def apply_product(version: str, dry_run: bool, root: str | None = None) -> dict:
+    """Record the product version into `product-version.json` — the product analogue of `apply`. A product has
+    no engine packages, so there is no per-package/floor/split-brain machinery: one root file, one version.
+    Validate the version, enforce RAISE-ONLY against the current product version, then write ATOMICALLY (temp
+    sibling + os.replace, temp cleaned up on ANY error), mirroring `apply`'s staged swap for the single file. An
+    ABSENT file is a first cut from the construction sentinel (the summary reads 'no earlier version'); the
+    common seeded first cut reads its `0.0.0` starting version ('0.0.0 → …'); a present-but-MALFORMED file
+    refuses loudly. Returns the same result shape `apply` does (`engine` = the recorded version, `targets` =
+    {} for a product) plus a `product` marker, so the workflow shell and the renderers are unchanged."""
+    path = _product_version_path(root)
+    current = read_product_version(root)
+    if current is _PRODUCT_MALFORMED:
+        return {"applied": False, "reason": "malformed-product-file",
+                "violations": [f"{PRODUCT_VERSION_REL} is present but is not a readable "
+                               f"{{\"version\": \"<semver>\"}} object"],
+                "recovery": f"fix {PRODUCT_VERSION_REL} to be a JSON object with a version like 0.1.0, then re-run."}
+    from_v = current if current is not None else SENTINEL
+    if not _valid_version(version):
+        return {"applied": False, "reason": "invalid-version",
+                "violations": [f"product version '{version}' is not a valid version (expected like 1.2.0)"],
+                "recovery": "use dotted-number versions, optionally with a -prerelease suffix (1.2.0, 1.0.0-rc1)."}
+    if not _strictly_greater(version, from_v):
+        return {"applied": False, "reason": "raise-only",
+                "violations": [f"product version {version} is not higher than the current {from_v}"],
+                "recovery": "choose a version strictly higher than the current one, then re-run."}
+    if dry_run:
+        return {"applied": False, "reason": "dry-run", "engine": version, "from_engine": from_v,
+                "targets": {}, "product": True}
+    d = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"version": version}, fh, indent=2)
+            fh.write("\n")
+        os.replace(tmp, path)   # atomic swap; tmp no longer exists after this
+    except OSError as exc:
+        raise RuntimeError(f"a write error interrupted the cut ({exc}); {PRODUCT_VERSION_REL} was not changed.")
+    finally:
+        if os.path.exists(tmp):   # any un-swapped temp on an error path (mirrors apply()'s finally)
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    return {"applied": True, "engine": version, "from_engine": from_v, "targets": {}, "product": True}
+
+
 # --------------------------------------------------------------------------- rendering
 def _render_proposal(p: dict) -> str:
     lines = ["Release proposal", "================", "", p["baseline_note"], ""]
@@ -794,7 +945,8 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
     request's job), it tells a reader of the published release what changed and why it matters. A None/empty
     proposal (the best-effort fallback when the publish-time recompute could not run) degrades to the version
     + readiness line alone. Maintainer register: 'engine version vX.Y.Z', no internal vocabulary."""
-    out = [f"Engine version {tag}.", "", _gate_path_line(gate_state)]
+    product = bool((proposal or {}).get("product"))
+    out = [f"Release {tag}." if product else f"Engine version {tag}.", "", _gate_path_line(gate_state, product)]
     proposal = proposal or {}
     if proposal.get("engine_floor_level") == "major":
         out += ["", "⚠️ **This release makes a breaking change.** Something an earlier version provided was "
@@ -832,14 +984,16 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
 
 
 # --------------------------------------------------------------------------- release-PR body (legibility)
-def _gate_path_line(state: str) -> str:
+def _gate_path_line(state: str, product: bool = False) -> str:
     """The legible gate-path line: the three release-readiness states must read as VISIBLY DISTINCT, never
     alike. Only `sub-bar` is reachable today — no acceptance-benchmark instrument is built, so nothing measures
     a release — but `passed`/`errored` are rendered here structurally so a future benchmark reads legibly
-    rather than as a retrofit (the standing legibility invariant, not a one-of-three accident)."""
+    rather than as a retrofit (the standing legibility invariant, not a one-of-three accident). `product` swaps
+    the subject to 'this release' for a deployed repo's product cut (the sub-bar text is already neutral)."""
+    subject = "this release" if product else "the engine"
     if state == "passed":
-        return ("**Release readiness — passed.** The engine was exercised against its readiness check and met "
-                "the bar for this release.")
+        return (f"**Release readiness — passed.** {_cap(subject)} was exercised against its readiness check and "
+                "met the bar for this release.")
     if state == "errored":
         return ("**Release readiness — could not be checked (it errored).** The readiness check did not run to "
                 "completion, so readiness is unproven — treat this release as unverified until it runs clean.")
@@ -858,7 +1012,9 @@ def _version_lines(applied: dict) -> list:
     # the first cut moves from the construction sentinel `0.0.0-dev`, which is internal and means nothing to the
     # maintainer — say "no earlier version" instead of surfacing it.
     from_shown = "no earlier version" if from_engine == SENTINEL else from_engine
-    lines = [f"- Engine: {from_shown} → {engine}"]
+    # PRODUCT cut: one product version, no per-capability lines (a product has no engine packages; targets={}).
+    label = "Product" if applied.get("product") else "Engine"
+    lines = [f"- {label}: {from_shown} → {engine}"]
     if targets and all(v == engine for v in targets.values()):
         lines.append(f"- Every capability ({len(targets)}): → {engine}")
     else:
@@ -916,18 +1072,24 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
                            "(the release was refused or the result is malformed).")
     # the construction sentinel `0.0.0-dev` is internal — never surface it to the maintainer (see _version_lines)
     from_shown = "no earlier version" if from_engine == SENTINEL else from_engine
+    # PRODUCT cut (#516): a deployed repo cutting its OWN product release — speak of the product, not the engine.
+    product = bool(applied.get("product") or proposal.get("product"))
+    thing = "product" if product else "engine"
 
     # The consent preamble every pull request carries at the top — lifted from the template so the release
-    # body reads the same and satisfies the pull-request-completeness gate's preamble anchors.
-    out = [f"# A new engine version: {from_shown} → {engine}", "", _template_preamble(), ""]
+    # body reads the same and satisfies the pull-request-completeness gate's preamble anchors (#589). Emitted in
+    # BOTH modes, so a product release PR clears the same gate an engine one does.
+    out = [f"# A new {'release of your product' if product else 'engine version'}: "
+           f"{from_shown} → {engine}", "", _template_preamble(), ""]
 
     out += _pr_section(
         "Purpose",
-        f"This records a new version of your engine — {from_shown} → {engine} — for you to review and publish.",
+        f"This records a new version of your {thing} — {from_shown} → {engine} — for you to review and publish.",
         [f"- Merging this is your go-ahead to release {engine}; closing it releases nothing and changes none of "
          "your own settings or content.",
          "- A release only ever moves the version up, never down."],
-        f"merging publishes {engine} for your instances to upgrade to; nothing is published until then.")
+        (f"merging publishes {engine} as a release of your product; nothing is published until then." if product
+         else f"merging publishes {engine} for your instances to upgrade to; nothing is published until then."))
 
     # Scope — the versions recorded + the change inventory that set them (the itemised version lines and the
     # least-version floor line stay verbatim; they are what a reviewer checks the release against).
@@ -967,17 +1129,21 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
         scope += [f"- {c}" for c in change_summary(proposal)]
     out += _pr_section(
         "Scope",
-        "The engine and capability versions this records, and the changes that set them.",
+        ("The product version this records, and the changes that set it." if product
+         else "The engine and capability versions this records, and the changes that set them."),
         scope,
-        "these are the exact versions written into the manifests and the maps that mirror them.")
+        ("this is the exact version written into product-version.json." if product
+         else "these are the exact versions written into the manifests and the maps that mirror them."))
 
     out += _pr_section(
         "Out of scope",
         "What merging does not do.",
-        ["- It does not change how your engine behaves beyond the version stamp.",
+        [f"- It does not change how your {thing} behaves beyond the version stamp.",
          "- It does not migrate any of your data.",
          "- It does not touch your own settings or content."],
-        "the only thing this pull request changes is the recorded version and the generated maps that mirror it.")
+        ("the only thing this pull request changes is the recorded product version." if product
+         else "the only thing this pull request changes is the recorded version and the generated maps that "
+              "mirror it."))
 
     # Risk — the gate-path line is the (already bold-led) section summary; the breaking-change warning and
     # the interface-impact list are its bullets, so a reviewer scanning "Risk" sees the weight here, not only
@@ -997,6 +1163,9 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
         # own sentence — so the consent surface the maintainer reads FIRST is no rougher than the Release body.
         risk += [f"- **{_cap(im.get('what')) or 'A contract surface changed'}.**"
                  + (f" {_cap(im.get('why'))}" if im.get("why") else "") for im in impacts]
+    elif product:
+        risk.append("- The summary can only show what it detects mechanically — the list of merged pull "
+                    "requests above. Your own knowledge of what you shipped is the backstop (see Review).")
     else:
         risk.append("- No changes to interface contract files were detected — this does not cover a removed "
                     "capability or a data migration, which would be listed under Scope. The summary can only "
@@ -1009,8 +1178,9 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
     out += _pr_section(
         "Validation",
         "The engine's own tooling produced this and `engine-ci` checks it — the mechanical floor.",
-        ["- A green check shows the versions agree across all the files that record them, the generated maps "
-         "are in sync, and this summary is complete.",
+        [("- A green check shows the recorded version is well-formed and this summary is complete." if product else
+          "- A green check shows the versions agree across all the files that record them, the generated maps "
+          "are in sync, and this summary is complete."),
          f"- It does **not** judge whether {engine} is the right version to release — that judgment is yours."],
         f"green means the release conforms to the engine's rules, not that {engine} is the right call.")
 
@@ -1021,25 +1191,30 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
          f"to release {engine}.",
          "- **Want a higher version** — close this and run the release again with a higher version number (a "
          "release can only ever go up, never down).",
-         "- **Something's missing** — if you know you changed something that is not listed above (for example "
-         "you removed a capability but do not see it here), close this and run the release again with the "
+         "- **Something's missing** — if you know you changed something that is not listed above" +
+         ("" if product else " (for example you removed a capability but do not see it here)") +
+         ", close this and run the release again with the "
          "version you know it should be; the summary shows only what it can detect mechanically, so your own "
          "knowledge of what you shipped is the backstop."],
         f"your merge is the binding consent to publish {engine} — the engine never merges this for you.")
 
     out += _pr_section(
         "Files of interest",
-        "Where to look — the recorded versions and the maps that mirror them.",
-        ["- `.engine/engine.json` and each installed capability's `.engine/modules/<id>/manifest.json` — the "
-         "recorded versions.",
-         "- `.engine/knowledge/graph.json` and `.engine/self-map.md` — the generated maps, refreshed to match."],
+        ("Where to look — the recorded product version." if product
+         else "Where to look — the recorded versions and the maps that mirror them."),
+        (["- `product-version.json` — the recorded version of your product."] if product else
+         ["- `.engine/engine.json` and each installed capability's `.engine/modules/<id>/manifest.json` — the "
+          "recorded versions.",
+          "- `.engine/knowledge/graph.json` and `.engine/self-map.md` — the generated maps, refreshed to match."]),
         "these are the only files this pull request changes.")
 
     out += _pr_section(
         "Claude involvement",
         "The engine's release workflow prepared this; the version choice and the decision to publish are yours.",
-        ["- It computed the version, recorded it into the manifests, regenerated the derived maps, and opened "
-         "this for your review.",
+        [("- It computed the version, recorded it into product-version.json, and opened this for your review."
+          if product else
+          "- It computed the version, recorded it into the manifests, regenerated the derived maps, and opened "
+          "this for your review."),
          "- The version follows the engine's release process; nothing is published until you merge."],
         f"the mechanical steps are the engine's; the decision to publish {engine} is yours.")
 
@@ -1063,6 +1238,21 @@ def _current_sha() -> "str | None":
 
 
 def _cmd_propose(args) -> int:
+    mode, ctx = release_mode()
+    if mode == "refuse":
+        print(f"RELEASE-CUT ERROR: your product's version file ({PRODUCT_VERSION_REL}) could not be read — it "
+              f'must be a small JSON file with a version, like {{"version": "0.1.0"}}. Fix it, then run the '
+              f"release again. Nothing was changed.", file=sys.stderr)
+        return 2
+    if mode == "product":
+        # PRODUCT cut (#516): baseline is the DEPLOYED repo's own last release; no capability tree to diff.
+        # A None slug (unresolved origin) forces a first cut — never the engine-home fallback (see _product_baseline).
+        baseline = _product_baseline(ctx["slug"])
+        merged = ([] if args.baseline_tree
+                  else merged_pr_titles(baseline.ref, _current_sha(), repo=ctx["slug"]))
+        proposal = _product_proposal(baseline, ctx["current"] or "0.0.0", merged)
+        print(json.dumps(proposal, indent=2) if args.json else _render_proposal(proposal))
+        return 0
     baseline = resolve_baseline()
     tree, cleanup = _baseline_tree_for(baseline, args.baseline_tree)
     try:
@@ -1099,21 +1289,32 @@ def _print_refusal(result: dict) -> None:
 
 
 def _cmd_apply(args) -> int:
-    packages = {}
-    for spec in args.package or []:
-        if "=" not in spec:
-            print(f"CONFIG ERROR: --package expects id=version, got '{spec}'.", file=sys.stderr)
-            return 2
-        mid, ver = spec.split("=", 1)
-        packages[mid.strip()] = ver.strip()
-    proposal = None
-    if args.proposal:
-        if not os.path.isfile(args.proposal):
-            print(f"CONFIG ERROR: the proposal file '{args.proposal}' does not exist. Pass the path to a "
-                  f"proposal written by `propose --json`.", file=sys.stderr)
-            return 2
-        proposal = validate.load_json(args.proposal)
-    result = apply(args.engine, getattr(args, "all"), packages, proposal, args.dry_run)
+    mode, _ctx = release_mode()
+    if mode == "refuse":
+        print(f"CONFIG ERROR: your product's version file ({PRODUCT_VERSION_REL}) could not be read — it must "
+              f'be a small JSON file with a version, like {{"version": "0.1.0"}}. Fix it, then run the release '
+              f"again. Nothing was changed.", file=sys.stderr)
+        return 2
+    if mode == "product":
+        # PRODUCT cut (#516): write the one root product-version.json; --all/--package/--proposal (engine
+        # package machinery) do not apply to a product and are ignored.
+        result = apply_product(args.engine, args.dry_run)
+    else:
+        packages = {}
+        for spec in args.package or []:
+            if "=" not in spec:
+                print(f"CONFIG ERROR: --package expects id=version, got '{spec}'.", file=sys.stderr)
+                return 2
+            mid, ver = spec.split("=", 1)
+            packages[mid.strip()] = ver.strip()
+        proposal = None
+        if args.proposal:
+            if not os.path.isfile(args.proposal):
+                print(f"CONFIG ERROR: the proposal file '{args.proposal}' does not exist. Pass the path to a "
+                      f"proposal written by `propose --json`.", file=sys.stderr)
+                return 2
+            proposal = validate.load_json(args.proposal)
+        result = apply(args.engine, getattr(args, "all"), packages, proposal, args.dry_run)
     ok = bool(result.get("applied")) or result.get("reason") == "dry-run"
     if args.json:
         print(json.dumps(result, indent=2))

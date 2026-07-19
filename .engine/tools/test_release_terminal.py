@@ -369,5 +369,82 @@ class LatestReadFailure(unittest.TestCase):
             rt.publish(client, "0.1.0", COMMIT)
 
 
+class ProductRelease(unittest.TestCase):
+    """Product-mode publish (#516): a deployed repo publishes its OWN product release — the PR comment and the
+    notes speak of the product, and the publish decision/idempotency logic is the SAME (reused, not forked)."""
+
+    def test_run_stamps_product_and_comments_the_product(self):
+        fake = _FakeGitHub(latest="__none__")
+        r = rt.run(_client(fake), "0.1.0", COMMIT, pr_number=42, product=True)
+        self.assertTrue(r["published"])
+        self.assertTrue(r["product"])
+        self.assertTrue(r["announced"])
+        # the comment posted to the PR speaks of the product, not the engine
+        comment = [b for (m, p, b) in fake.calls if p.endswith("/comments")][0]["body"]
+        self.assertIn("Release v0.1.0 is now published", comment)
+        self.assertNotIn("Engine version", comment)
+        self.assertNotIn("Your instances", comment)
+
+    def test_comment_body_product_vs_engine_wording(self):
+        pub = {"published": True, "reason": "published", "tag": "v0.1.0", "product": True}
+        self.assertIn("Release v0.1.0 is now published", rt._comment_body(pub))
+        self.assertNotIn("Your instances", rt._comment_body(pub))
+        # the engine path is unchanged (no product marker)
+        eng = {"published": True, "reason": "published", "tag": "v0.1.0"}
+        self.assertIn("Engine version v0.1.0 is now released", rt._comment_body(eng))
+        # already-published + nothing-to-publish also speak the right noun
+        already = {"published": True, "reason": "already-published", "tag": "v0.1.0", "product": True}
+        self.assertIn("Release v0.1.0 was already published", rt._comment_body(already))
+        nothing = {"published": False, "reason": "nothing-to-publish", "tag": None, "product": True, "message": ""}
+        self.assertIn("did not set a new product version", rt._comment_body(nothing))
+
+    def test_proposal_for_publish_product_builds_a_product_proposal(self):
+        # first product release: baseline injected (offline), no target so the merged-PR list is skipped.
+        p = rt._proposal_for_publish(baseline=release_cut.Baseline(None, True, "n"), product=True,
+                                     slug="acme/my-product")
+        self.assertIsNotNone(p)
+        self.assertTrue(p["product"])
+        self.assertEqual(p["mode"], "first-cut")
+        # and the published notes speak of the product's release, not the engine version
+        notes = rt._release_notes("v0.1.0", proposal=p)
+        self.assertTrue(notes.startswith("Release v0.1.0."))
+        self.assertNotIn("Engine version", notes)
+
+    def test_product_publish_reuses_the_same_raise_only_and_idempotency(self):
+        # the publish DECISION logic is shared: an older product version is refused, a newer one publishes,
+        # a re-run is a clean no-op — exactly the engine path, just marked product.
+        fake = _FakeGitHub(latest="v0.2.0")
+        older = rt.run(_client(fake), "0.1.0", COMMIT, pr_number=None, product=True)
+        self.assertFalse(older["published"])
+        self.assertEqual(older["reason"], "not-newer")
+
+    def test_cmd_publish_refuses_a_malformed_product_file_before_any_publish(self):
+        # the publish CLI edge mode-gates too: a malformed product-version.json at the merged commit exits 2
+        # BEFORE the client is built or the network is touched (never an engine publish in a product repo).
+        import json, os, shutil, tempfile, validate
+        root = tempfile.mkdtemp()
+        os.makedirs(os.path.join(root, ".engine"))
+        with open(os.path.join(root, ".engine", "engine.json"), "w") as fh:
+            json.dump({"engine_release": "0.2.0", "packages": {}, "identity": "solo",
+                       "home_repository": "acme/eng"}, fh)
+        with open(os.path.join(root, "product-version.json"), "w") as fh:
+            fh.write("{ not json")
+        saved_root = validate.ROOT
+        saved_env = {k: os.environ.get(k) for k in ("GITHUB_REPOSITORY", "GITHUB_TOKEN")}
+        validate.ROOT = root
+        os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"] = "acme/deployed", "tok"
+
+        class _Args:
+            commit, pr = "a" * 40, None
+        try:
+            code = rt._cmd_publish(_Args())
+        finally:
+            validate.ROOT = saved_root
+            for k, v in saved_env.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+            shutil.rmtree(root, ignore_errors=True)
+        self.assertEqual(code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
