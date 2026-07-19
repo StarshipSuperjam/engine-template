@@ -180,6 +180,16 @@ class TestBuildPrBody(unittest.TestCase):
         self.assertIn("<fill this in>", body)               # template path taken
         self.assertIn("one-liner", body)
 
+    def test_inline_html_in_an_authored_body_is_not_read_as_an_unfilled_prompt(self):
+        # #557 false-hold guard (surfaced by review): a complete authored body that legitimately embeds an HTML
+        # image or link — attribute syntax carries `=`/`"` — must NOT read as a leftover template prompt, else a
+        # ready contribution to the engine's home would be wrongly HELD with a misleading "sections to fill" note.
+        for html in ('<img width="500" alt="a screenshot">', '<a href="https://example.com">the link</a>'):
+            body = submit.build_pr_body(summary="x", authored_body=f"## Purpose\n\n**Real.** {html}\n")
+            self.assertFalse(submit._has_unfilled_placeholders(body), html)
+        # ...but a genuine leftover template prompt is still caught (the #557 signal is intact).
+        self.assertTrue(submit._has_unfilled_placeholders("## Purpose\n\n<one-line summary of the change>\n"))
+
 
 class TestSubmitFlow(unittest.TestCase):
     # home=None keeps the flow tests hermetic (no real-manifest read) and on the non-home path (no narrowing);

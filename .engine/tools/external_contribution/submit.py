@@ -233,20 +233,23 @@ _COLD_REVIEW_RAN = (
 )
 
 
-# The host completeness gate (`pr-body-completeness`) counts a section EMPTY when it holds only the template's
-# angle-bracket placeholder PROMPTS — "<one-line summary of why this change exists>" and the like. A body still
-# carrying such a prompt would fail that gate, so the submit flow uses the SAME signal (#557) to tell a ready
-# body from an unfilled template it must not open blind. The pattern is deliberately narrow — an angle-bracket
-# span that is lowercase-led AND contains whitespace — so it matches the template's prose prompts but not an
-# HTML comment (`<!-- ... -->`, `!`-led) or an inline code token (`<div>`, `<T>`, no inner space).
-_PLACEHOLDER_RE = re.compile(r"<[a-z][^>\n]*\s[^>\n]*>")
+# A leftover template PROMPT — the angle-bracket placeholders a pull-request template ships for the author to
+# replace, "<one-line summary of why this change exists>" and the like. A body still carrying one is a template
+# left unfilled, the #557 signal the submit flow keys on to avoid opening a raw template blind. This detects a
+# leftover PROMPT, not full section completeness: it does NOT judge a blank section or an empty Impact line — an
+# authored body's fuller completeness is the author's job, and for the home target the home's own CI is the
+# backstop (submit never invokes the owner-repo completeness check — the engine/product wall). The pattern is
+# deliberately narrow: a single-line angle span, lowercase-led, containing a space, and free of `=`/`"` — so it
+# matches a template's prose prompt but NOT an HTML comment (`<!-- -->`, `!`-led), a bare tag (`<div>`, no inner
+# space), or an inline HTML tag WITH attributes (`<img width="...">`, `<a href="...">`) an author legitimately
+# puts in a real body (the false-hold #557's review caught).
+_PLACEHOLDER_RE = re.compile(r'<[a-z][^>\n"=]*[ \t][^>\n"=]*>')
 
 
 def _has_unfilled_placeholders(body: str) -> bool:
-    """True when the assembled body still carries an angle-bracket placeholder prompt — the mechanical signal
-    that a host template (or an authored body) was left with sections to fill. Mirrors the host completeness
-    gate's own rule rather than re-implementing its section logic (the engine/product wall — submit never
-    invokes the owner-repo check)."""
+    """True when the assembled body still carries a leftover template placeholder PROMPT — the mechanical signal
+    that a pull-request template was left unfilled (#557). It detects a leftover prompt, not full section
+    completeness, and never invokes the owner-repo completeness check (the engine/product wall)."""
     return _PLACEHOLDER_RE.search(body) is not None
 
 
@@ -355,18 +358,27 @@ def _prepared_narration(upstream_repo: str, head: str, base: str, diff_ref: str,
     # normal contribution flow, so this is an advisory, not a block; the engine can't know whether that host
     # gates completeness, so it names the gap and offers to fill it rather than assert the text is ready.
     unfilled_line = (
-        " One thing first, though: the pull-request text still carries this project's own template with its "
-        "sections not yet filled in. I should write those before this opens, or the project may bounce an "
-        "incomplete description — ask me to fill it in and I'll prepare it again."
+        " Also, before this opens: the pull-request text still carries this project's own template with its "
+        "sections not yet filled in — I should write those in first, or the project may bounce an incomplete "
+        "description."
         if body_unfilled else ""
     )
     ready = "the pull-request text is ready" if not body_unfilled else "I've assembled the pull-request text"
+    # When the body is unfilled, the closing must LEAD to the fill-first path (the recommended one) and make
+    # open-as-is the explicit, qualified fallback — never end on a bare "say the word and I'll submit it" that a
+    # skimming reader would act on (the #557 review's usability catch).
+    closing = (
+        "Tell me to fill in the text first — that's what I'd do — or, if you know this project doesn't need "
+        "every section, say the word and I'll open it as it is."
+        if body_unfilled else
+        "Say the word and I'll submit it."
+    )
     return (
         f"I've prepared the contribution to {upstream_repo} ({head} → {base}): I compared it against "
         f"`{diff_ref}` — the branch I'm treating as the project's default — and {cleanliness}, and "
         f"{ready}. If that isn't the branch this should be measured against, tell me before "
         f"I open it.{review_line}{unfilled_line} I won't open it until you say so — opening a pull request on a "
-        "project you don't own is your call. Say the word and I'll submit it."
+        f"project you don't own is your call. {closing}"
     )
 
 
@@ -681,10 +693,12 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
           "followed_template": template_text is not None, "body_unfilled": body_unfilled,
           "contributing": contributing}
 
-    # 2b. #557 — never open a body the target's own completeness gate will bounce. When the target is the
-    #     engine's OWN home (whose gate this engine ships and enforces) and the assembled body still carries
-    #     unfilled placeholders, HOLD before the one-way open — regardless of `confirm`, so a direct
-    #     confirm=True cannot route past this consent-critical surface. A NON-home host is only ADVISED (in the
+    # 2b. #557 — don't open the engine's OWN home a pull-request body that is still its unfilled template. When
+    #     the target is the engine's home (whose completeness gate this engine ships) and the assembled body
+    #     still carries a leftover template prompt, HOLD before the one-way open — regardless of `confirm`, so a
+    #     direct confirm=True cannot route past this consent-critical surface. (This catches the raw-template
+    #     case #557 is about; an authored body incomplete in other ways is the author's job, backstopped by the
+    #     home's own CI.) A NON-home host is only ADVISED (in the
     #     prepared narration below): carrying a host's template for completion is a normal contribution flow,
     #     and the engine cannot know whether that host gates completeness. The remedy — author the body — is
     #     always available and is the engine's own job, so the hold names it rather than dead-ends.

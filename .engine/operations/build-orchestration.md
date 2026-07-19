@@ -238,9 +238,9 @@ mechanic contributing to its home engine-template, or a fork escalating an engin
 `external-contribution-submit`, not a session-owned draft — a path with no built-in gate linkage. So **run the
 plan-review and pre-submission passes above before submitting it**; the submit tool records on the prepared
 pull request and in its body whether that review ran — an honest disclosure, never a substitute for it. **When
-the target gates body completeness (engine-template does), author the full body to its template as an in-repo
-PR's is and pass `submit(authored_body=...)`** (#557) — submit won't open an unfilled template against the
-engine's home, and only advises it elsewhere.
+the target gates body completeness (engine-template does), author the full body to its template (as you would
+an in-repo PR's) and pass it via `submit(authored_body=...)`** (#557) — submit won't open an unfilled template
+against the engine's home, and only advises it elsewhere.
 
 **A recognized automation's pull request carries a disclosed not-applicable check — relay both decisions
 plainly.** Walking the operator to merge a dependency-update pull request from a recognized automation
