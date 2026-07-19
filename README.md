@@ -77,21 +77,31 @@ The same Engine serves both runtimes from one core; the differences worth knowin
 
 The Engine can advance a *planned* build on a schedule while you're away — each run does one planned chunk,
 adds its commits to an open pull request, and **never merges**; your review at the merge stays the only gate.
-You set this up in your runtime's scheduler, running `/engine-routine` (Claude Code) or `$engine-routine`
-(Codex).
 
-**On Claude Code — a Claude Desktop routine.** In Claude Desktop, create a routine and choose when it runs; put
-`/engine-routine` in its Instructions; turn on **"Work in an isolated copy of the repo"** (worktree mode — a
-scheduled run won't isolate on its own, and the Engine refuses to write unless it's in a dedicated worktree);
-and set the **permission mode** to the non-interactive one (Claude acts without pausing to ask), in Claude
-Desktop's permission settings.
+**First, plan the build (a normal, interactive session).** A routine doesn't plan — it *advances* a plan. So
+before you schedule anything, work with the Engine in a normal session to produce what it will follow: a build
+Issue holding the ordered checklist and the files each step may touch, and an open **draft pull request** on a
+branch. The routine reads that Issue and adds commits to that pull request, so point the schedule at that
+build's branch (below), not a fresh copy of your default branch. With no plan to find, the first run has
+nothing to do and says so.
 
-**On Codex — a Codex Automation.** In the Codex app, create an Automation with a schedule (or an RFC-5545
-recurrence); put `$engine-routine` in its prompt; choose **"run on a dedicated background worktree"** (the same
-isolation requirement); ensure the unattended approval posture — `approval_policy = "never"` with a
-`workspace-write` sandbox (subject to your org's policy; if it won't allow this, the run pauses for an approval
-no one gives, so it can't run unattended); and **grant network access** so it can push, open the pull request,
-and file Issues.
+Then set up the schedule in your runtime, running `/engine-routine` (Claude Code) or `$engine-routine` (Codex):
+
+**On Claude Code — a Claude Desktop routine.** Create a routine and choose when it runs; put `/engine-routine`
+in its Instructions; turn on **"Work in an isolated copy of the repo"** (worktree mode — the Engine refuses to
+write unless the run is in a dedicated worktree, so this is required) and make sure that copy is on your build's
+branch; and set the **permission mode** to the one that lets the session act without pausing to ask you — the
+most permissive / "allow everything" option in Claude Desktop's permission settings (the same place you approve
+or restrict what Claude can do).
+
+**On Codex — a Codex Automation.** Create an Automation with a schedule (or an RFC-5545 recurrence); put
+`$engine-routine` in its prompt; and choose **"run on a dedicated background worktree"** (the same isolation
+requirement), on your build's branch. Two settings live in your **Codex settings/config** (`.codex/config.toml`),
+not on the Automation's own screen: the sandbox must be workspace-write (`sandbox_mode = "workspace-write"`) and
+the approval posture non-interactive (`approval_policy = "never"`) — subject to your organization's policy. If
+that policy won't allow the non-interactive posture, the run pauses for an approval no one gives, so it can't
+run unattended; confirm it's in effect before you rely on it. Finally, **grant the run network access** so it
+can push, open the pull request, and file Issues.
 
 **Both runtimes — confirm before you rely on it.**
 - Keep the computer on and the app running during the scheduled time — a local run only works while your machine
@@ -99,13 +109,19 @@ and file Issues.
 - The version must support scheduling (Codex Automations need a 2026 build).
 - git/GitHub credentials must be reachable to a scheduled run **without** an interactive prompt — otherwise it
   can't push or even leave an Issue.
-- **After any Engine update that changes its hooks, run one normal interactive session first** (on Codex,
-  re-approve with `/hooks`). An unattended run can't re-approve hooks itself; with hooks off it safely refuses
-  to write and does nothing until you do.
+- **On Codex, after any Engine update that changes its hooks, run one normal interactive session and re-approve
+  the hooks (`/hooks`) before the routine runs again.** Codex turns changed hooks off until you re-trust them,
+  and an unattended run can't do that itself. With its hooks off, the run is *designed* to notice the missing
+  start-of-session briefing and refuse to write — but that is the run following its own procedure, not a
+  mechanical lock, so your review at the merge is the real guarantee. (Claude Code keeps its hooks on, so this
+  step doesn't apply there.)
 
 You'll see each run in your scheduling app's history and its progress on the pull request. If a run can't safely
-start — hooks not running, or not isolated — it reports why in that run's output and stops (an offline run
-leaves no trace, so check the app's history). Anything it can't decide mid-build it leaves as a GitHub Issue.
+start — hooks not running, or not isolated — it reports why in that run's output and stops. It files a GitHub
+Issue only for something it hits mid-build that needs you; when GitHub itself is unreachable it can't file one,
+so the run's own history in the app is the only record of that. **The routine never finishes the pull request** —
+when you're back, open a normal session and ask the Engine to wrap it up, review it for cohesion, and submit it
+for your merge.
 
 ## Status
 

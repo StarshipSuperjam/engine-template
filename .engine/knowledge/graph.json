@@ -3970,7 +3970,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:08f4ff22295b5e10a5350720edb48318eeaca0ef088dba9057f3a0c0d68ff78a",
+        "fingerprint": "sha256:708e8d2789c94daa96eac3973fd7679b5304859859173a8585ab137a9aa83544",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -4250,7 +4250,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:ee95c12c5bea41a902f077354116fbec9f51b8a8b072795b12071aba5d7b5b1b",
+        "fingerprint": "sha256:90333bb4f1ca601fc8cac7c4d784763699e97018beb579b7fe8ee21d2d5c55e2",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -8193,7 +8193,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:5e167ded130a7948ce6efdaa537e01f0fd80a438a1fa600178faf428fd968d36",
+        "fingerprint": "sha256:8a07cc0b101f2dfc0c3c780d639c0a7a9b351511cf1d090cc94dde18eaa1fb7f",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",

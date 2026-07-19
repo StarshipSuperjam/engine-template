@@ -119,6 +119,20 @@ class TestIsolatedWorktree(unittest.TestCase):
             # git can't answer -> False, the safe floor: isolation must be proven, never merely un-disproven
             self.assertFalse(checkout_health.is_isolated_worktree(cwd=tmp))
 
+    def test_invariant_holds_from_a_subdirectory(self):
+        # The production caller runs from the .engine/ subdir with no cwd; pin the subdir invariant BOTH ways
+        # (git resolves the toplevel from any subdir), so a future cwd-sensitive refactor can't silently break it.
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _repo(tmp, "main")               # _repo already creates .engine/
+            self.assertFalse(checkout_health.is_isolated_worktree(cwd=os.path.join(main, ".engine")),
+                             "a subdir of the operator's main checkout is still not isolated")
+            wt = os.path.join(tmp, "wt")
+            _git(main, "worktree", "add", "-q", "--detach", wt)
+            sub = os.path.join(wt, "sub")
+            os.makedirs(sub)
+            self.assertTrue(checkout_health.is_isolated_worktree(cwd=sub),
+                            "a subdir of a dedicated worktree is isolated")
+
 
 class TestDemo(unittest.TestCase):
     def test_demo_runs(self):

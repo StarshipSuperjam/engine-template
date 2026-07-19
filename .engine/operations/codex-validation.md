@@ -33,9 +33,13 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
 8. Check review reach: the ten personas under `.codex/agents/` are visible to the session and a
    spawned one reports without editing anything.
 9. Check help: `$engine-help` renders the commands with the `$` prefix.
-10. Check the routine backend (unattended work). Item zero: the installed Codex build supports Automations,
-    and a scheduled Automation fires SessionStart (you see the start-of-session briefing / a resolvable
-    session) — the platform fact the whole routine rides on. Then configure a Codex Automation with
+10. Check the routine backend (unattended work). Item zero (two platform facts the whole routine rides on,
+    unverifiable from inside the repo): the installed Codex build supports Automations and a scheduled
+    Automation fires SessionStart (you see the start-of-session briefing / a resolvable session); AND the
+    Automation's "dedicated background worktree" is a git-linked worktree the isolation gate recognizes — i.e.
+    `set-routine` **enters** Routine there, rather than declining "not a dedicated worktree" (if it declines,
+    Codex is isolating by a means the gate doesn't yet detect — a defect owed a fix here, since the ledger
+    exception was retired on the twin's presence, ahead of this live check). Then configure a Codex Automation with
     `$engine-routine`, a dedicated background worktree, `approval_policy = "never"` + `workspace-write`, and
     network access, pointed at a scope-locked build Issue with an open draft pull request. Confirm it enters
     **Routine** (the run reports "Running unattended (routine)…"), advances one planned chunk into the pull
