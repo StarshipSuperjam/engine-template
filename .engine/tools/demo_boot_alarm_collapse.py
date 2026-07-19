@@ -37,7 +37,9 @@ import boot_alarm_ledger  # noqa: E402
 # A complete, valid signals dict (the boundary we fake — what a live boot would have READ). The collapse
 # logic under test is real; only these inputs are synthetic.
 _BASE = {"state": {"schema_version": 1}, "refused": False, "gate": "on", "reason": None,
-         "finding_count": 0, "register": "", "debt_count": 0, "debt_as_of": None, "att_lines": [],
+         "finding_count": 0, "register": "", "total_open": None, "counts_state": "offline",
+         "all_open_register": None, "blocking_findings": [], "blocking_finding_fingerprint": None,
+         "debt_count": 0, "debt_as_of": None, "att_lines": [],
          "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None, "pr_conflict": None,
          "restore_offer": None, "migration_revert": None, "audit_stale": None, "live_standing": None,
          "neighborhood": None}
@@ -46,39 +48,49 @@ _BASE = {"state": {"schema_version": 1}, "refused": False, "gate": "on", "reason
 def _signals(**over):
     s = dict(_BASE)
     s.update(over)
+    # Derive the BLOCKING finding fingerprint from any blocking_findings a caller set (the never-shed relay's
+    # collapse key), unless it was set explicitly — mirrors gather_signals.
+    if "blocking_finding_fingerprint" not in over:
+        s["blocking_finding_fingerprint"] = (
+            sorted(f"#{b['number']}" for b in (s.get("blocking_findings") or [])) or None)
     return s
 
 
+def _blocking(n):
+    """n blocking-finding rows ({number, title}) — what the never-shed relay counts."""
+    return [{"number": str(i), "title": f"broken thing {i}"} for i in range(1, n + 1)]
+
+
 def _findings_line(lines):
-    return next((l for l in lines if "finding" in l), "(no findings relay)")
+    return next((l for l in lines if "BLOCKING" in l), "(no findings relay)")
 
 
 def main() -> int:
     failures = []
-    register = "https://github.com/StarshipSuperjam/engine-template/issues?q=is:open+label:engine"
-    findings = _signals(finding_count=20, register=register)
+    register = "https://github.com/StarshipSuperjam/engine-template/issues?q=is:open+is:issue+label:engine"
+    findings = _signals(blocking_findings=_blocking(20), register=register)
 
     with tempfile.TemporaryDirectory() as d:
         os.environ[boot_alarm_ledger.ENV_DIR] = d
         ledger = boot_alarm_ledger.ledger_path()
         print(f"(isolated demo ledger: {ledger})\n")
 
-        print("=== Session 1 — 20 open findings, seen for the FIRST time ===")
+        print("=== Session 1 — 20 BLOCKING findings, seen for the FIRST time ===")
         first = _findings_line(boot._relay_lines(findings))
         print(f"  {first}\n")
         if "still" in first.lower():
             failures.append("session 1 should relay FULL, not a 'still' reminder")
 
-        print("=== Session 2 — same 20 findings, UNCHANGED (the resume Shane complained about) ===")
+        print("=== Session 2 — same 20 blocking findings, UNCHANGED (the resume Shane complained about) ===")
         second = _findings_line(boot._relay_lines(findings))
         print(f"  {second}\n")
         if "still" not in second.lower():
             failures.append("session 2 (unchanged) should COLLAPSE to a 'still …' reminder")
-        if "review" not in second.lower() or "issues" not in second:
-            failures.append("the terse reminder must STILL offer the review and keep the link")
+        if "blocking" not in second.lower() or "issues" not in second:
+            failures.append("the terse reminder must STILL name the blocking findings and keep the link")
 
-        print("=== Session 3 — findings rose to 25, this got WORSE ===")
-        worse = _findings_line(boot._relay_lines(_signals(finding_count=25, register=register)))
+        print("=== Session 3 — blocking findings rose to 25, this got WORSE ===")
+        worse = _findings_line(boot._relay_lines(_signals(blocking_findings=_blocking(25), register=register)))
         print(f"  {worse}\n")
         if "still" in worse.lower() or "grown" not in worse.lower():
             failures.append("a worsened condition must relay FULL with the 'grown' label, never collapse")
@@ -91,19 +103,21 @@ def main() -> int:
         print(f"  unchanged:   {g2}\n")
         if "still" in g1.lower():
             failures.append("gate first-sight should relay FULL, not a 'still' reminder")
-        if "still off" not in g2.lower() or "re-enabling" not in g2.lower():
+        if "still off" not in g2.lower() or "turn my safety gate back on" not in g2.lower():
             failures.append("gate unchanged should collapse to a 'still off …' reminder that keeps the fix")
 
         print("=== Grounding survives — the one-line marker + all-clear never collapse ===")
-        marker = boot.present_marker_line(_signals(finding_count=25, register=register))
+        # Findings no longer drive the marker (a routine count is a quiet fact); a governance alarm does, and
+        # names itself every session even as its relay collapses. All-clear renders calmly with the ▸ marker.
+        marker = boot.present_marker_line(_signals(gate="off", reason="x"))
         clear_relay = boot._relay_lines(_signals(gate="on"))
         clear_marker = boot.present_marker_line(_signals(gate="on"))
         print(f"  marker while alarmed: {marker}")
         print(f"  all-clear relay (empty list = nothing pushed): {clear_relay}")
         print(f"  all-clear marker: {clear_marker}\n")
-        if "25 open engine finding" not in marker:
+        if marker != "⚠ Your safety gate is off":
             failures.append("the present-marker must name the alarm every session (never collapses)")
-        if clear_relay != [] or clear_marker != f"{boot.PRESENT_MARKER}: all clear":
+        if clear_relay != [] or clear_marker != f"▸ {boot.PRESENT_MARKER}: all clear":
             failures.append("a healthy session must render all-clear, never a collapsed/odd marker")
 
         print("=== Fail-toward-full — a corrupt ledger relays in FULL, never silent ===")

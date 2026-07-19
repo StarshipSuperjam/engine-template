@@ -60,7 +60,7 @@ def _in_recall(rid):
 def _signals_with(report):
     """A complete, valid signals dict — the boundary we fake — carrying the REAL set-aside report under test."""
     return {"state": {"schema_version": 1}, "refused": False, "gate": "on", "reason": None,
-            "finding_count": 0, "unrated_count": 0, "register": "", "finding_fingerprint": None,
+            "finding_count": 0, "unrated_count": 0, "register": "", 
             "debt_count": 0, "debt_as_of": None, "att_lines": [], "att_degraded": [], "shipped": [],
             "stance": "Exploring", "strand": None, "behind_origin": None, "off_main": None,
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,

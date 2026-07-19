@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""Operator-runnable demo of the "Your open issues" line — the count of YOUR own open issues (your product
-backlog) on the session status card, shown next to the engine's own self-health findings.
+"""Operator-runnable demo of the whole-backlog status card — YOUR own open issues (your product backlog) and
+the engine's own self-health findings, folded into one plain total the card leads with and kept as two
+distinct lines below.
 
-It answers, in plain words, a question a non-engineer can't read code to verify: *does the status card show
-MY open issues separately from the engine's own findings — and does it keep the two apart (the engine never
-counting my product work as its own, and never counting its own items as mine)?*
+It answers, in plain words, a question a non-engineer can't read code to verify: *does the status card lead
+with my whole open backlog, keep my own work and the engine's own findings as distinct lines, and never turn a
+routine backlog into an alarm?*
 
 It runs the REAL logic end-to-end — telemetry's own `count_open_operator_issues` (one Search-API call) and
 `list_open_engine_issues`, boot's own `open_operator_count` / `open_findings` relays, and boot's own
-`render_dashboard` — with only the network boundary faked (a transport that serves a Search count for the
-operator backlog and an engine-labelled issue list for the engine findings). No network, no token, no edits.
+`render_dashboard` / `present_marker_line` — with only the network boundary faked (a transport that serves a
+Search count for the operator backlog and an engine-labelled issue list for the engine findings). No network,
+no token, no edits.
 
 It shows, and CHECKS (so this demo can FAIL — it is a falsification, not a showcase):
-  * TWO SEPARATE COUNTS — an engine read finding 2 self-health items and an operator read finding 3 backlog
-    items render as distinct lines ("Engine findings: 2" and "Your open issues: 3"), never summed;
-  * THE BACKLOG IS ACTIONABLE — the operator line carries its own clickable filtered register (the exact
-    `-label:` list the count came from), so a bare number is something you can click through to;
+  * ONE HEADLINE TOTAL — an engine read finding 2 self-health items and an operator read finding 3 backlog
+    items lead the card as "5 open issues (2 are engine-health)" — the whole backlog, the engine share named;
+  * TWO DISTINCT LINES BELOW — the same two counts render as their own lines ("Your open issues: 3" above
+    "Engine findings: 2"), your own work first, each with its own clickable filtered register;
   * AN HONEST FAILURE, NOT A SILENT VANISH — when only the backlog read fails, the line says it couldn't be
     read this session rather than disappearing (and never shows a false 0);
   * NO ACCESS STAYS SILENT — with no GitHub access the line is suppressed entirely, like every other
     GitHub-derived line, so it never claims "0" it did not check;
-  * NEVER AN ALARM — a routine backlog never reaches the ⚠ status marker, which stays engine-scoped.
+  * A CALM MARKER, NEVER A ⚠ ALARM — the whole-backlog total leads the top marker with a calm `▸`, never a ⚠:
+    a backlog is work to see, not a governance alarm.
 
 Vary it yourself: change the counts below and re-run.
 
@@ -35,6 +38,7 @@ import boot         # noqa: E402
 import telemetry    # noqa: E402
 
 _REPO, _TOKEN = "acme/store", "tok"
+_ALL_OPEN = f"https://github.com/{_REPO}/issues?q=is:open+is:issue"
 
 
 class _FakeNetwork:
@@ -64,12 +68,27 @@ def _engine_issue(number, title):
     return {"number": number, "title": title, "body": "The engine flagged this about its own health."}
 
 
+def _counts_state(finding_count, operator_count):
+    """Derive the whole-backlog total + degraded state the way gather_signals does, so the demo renders the
+    real headline the operator sees rather than a hand-seeded one."""
+    have_e = finding_count is not None
+    have_o = operator_count is not None
+    if have_e and have_o:
+        return "both", finding_count + operator_count
+    if have_e or have_o:
+        return "partial", None
+    return "offline", None
+
+
 def _render(finding_count, operator_count, operator_register, operator_degraded):
     """Render boot's REAL dashboard carrying these two counts as a live SessionStart would — every OTHER
     status signal is the only thing faked (mirrors the sibling boot-card demos)."""
+    counts_state, total_open = _counts_state(finding_count, operator_count)
     s = {"state": {"schema_version": 1, "standing_situation": {}, "integration_debt": {}},
          "refused": False, "gate": "on", "reason": None,
-         "finding_count": finding_count, "unrated_count": None, "register": "", "finding_fingerprint": None,
+         "finding_count": finding_count, "unrated_count": None, "register": "",
+         "total_open": total_open, "counts_state": counts_state, "all_open_register": _ALL_OPEN,
+         "blocking_findings": [], "blocking_finding_fingerprint": None,
          "debt_count": 0, "debt_as_of": None, "att_lines": [], "att_degraded": [], "shipped": [],
          "stance": "Exploring", "strand": None, "behind_origin": None, "off_main": None, "pr_conflict": None,
          "restore_offer": None, "migration_revert": None, "audit_stale": None, "live_standing": None,
@@ -92,7 +111,7 @@ def _read_through(fake):
 
     telemetry.GitHubIssues = _bound
     try:
-        finding_count, _reg, _fp, _low, _find = boot.open_findings(_REPO, _TOKEN)
+        finding_count, _reg, _low, _find = boot.open_findings(_REPO, _TOKEN)
         operator_count, register = boot.open_operator_count(_REPO, _TOKEN)
         return finding_count, operator_count, register
     finally:
@@ -102,7 +121,7 @@ def _read_through(fake):
 def main():
     failures = []
 
-    print("=== Two separate counts — engine findings vs your own backlog ===")
+    print("=== One headline total + two distinct lines — your backlog and the engine's findings ===")
     fake = _FakeNetwork(operator_total=3, engine_issues=[_engine_issue(1, "CI keeps flaking"),
                                                          _engine_issue(2, "a hook crashed")])
     finding_count, operator_count, register = _read_through(fake)
@@ -113,10 +132,15 @@ def main():
         failures.append("the engine read must count its 2 engine-labelled findings")
     if operator_count != 3:
         failures.append("the operator read must count 3 backlog issues from the Search total_count")
+    if "**5 open issues** (2 are engine-health)" not in dash:
+        failures.append("the card must lead with the whole-backlog total, the engine share named")
     if "**Engine findings:** 2" not in dash:
-        failures.append("the card must show the engine findings line")
+        failures.append("the card must keep the engine findings as its own line")
     if "**Your open issues:** 3" not in dash:
-        failures.append("the card must show the operator backlog as a distinct line")
+        failures.append("the card must keep the operator backlog as its own distinct line")
+    # your own work leads the two subset lines (the engine's own findings are the lower priority)
+    if dash.index("**Your open issues:**") > dash.index("**Engine findings:**"):
+        failures.append("your own open issues must render ABOVE the engine findings")
     if register is None or register not in dash:
         failures.append("the backlog line must carry its clickable filtered register")
     if "-label:engine" not in (register or ""):
@@ -148,28 +172,33 @@ def main():
     if "Your open issues" in dash3:
         failures.append("with no access the backlog line must be suppressed entirely")
 
-    print("=== Never an alarm — the backlog never reaches the ⚠ status marker ===")
-    marker = boot.present_marker_line(_marker_signals(operator_count=40))
+    print("=== A calm marker, never a ⚠ alarm — the whole-backlog total leads the top marker ===")
+    marker = boot.present_marker_line(_marker_signals(finding_count=2, operator_count=40))
     print(f"  marker: {marker!r}\n")
-    if "open issues" in marker or "40" in marker:
-        failures.append("a routine backlog must never appear in the ⚠ status marker")
+    if marker != f"▸ {boot.PRESENT_MARKER}: 42 open issues (2 are engine-health)":
+        failures.append("the marker must lead with the calm whole-backlog total")
+    if "⚠" in marker:
+        failures.append("a routine backlog total must never be a ⚠ alarm")
 
     if failures:
         print("DEMO FAILED:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("All checks passed: your backlog and the engine's findings are two distinct counts, the backlog is "
-          "clickable, a solo read failure is stated (never a false 0), no access stays silent, and a routine "
-          "backlog never becomes a ⚠ alarm.")
+    print("All checks passed: the card leads with your whole open backlog (the engine share named), keeps your "
+          "own work and the engine's findings as two distinct lines, states a solo read failure (never a false "
+          "0), stays silent with no access, and leads the marker with a calm total — never a ⚠ alarm.")
     return 0
 
 
-def _marker_signals(operator_count):
-    """A minimal all-clear signals dict carrying an operator backlog, to prove the marker ignores it."""
-    return {"gate": "on", "reason": None, "refused": False, "finding_count": 0, "strand": None,
+def _marker_signals(finding_count, operator_count):
+    """A minimal calm signals dict carrying both counts, to show the marker leads with the whole-backlog total
+    (a calm ▸ line, never a ⚠)."""
+    counts_state, total_open = _counts_state(finding_count, operator_count)
+    return {"gate": "on", "reason": None, "refused": False, "finding_count": finding_count, "strand": None,
             "behind_origin": None, "off_main": None, "pr_conflict": None, "migration_revert": None,
-            "restore_offer": None, "absent_home": None, "operator_backlog_count": operator_count}
+            "restore_offer": None, "absent_home": None, "operator_backlog_count": operator_count,
+            "counts_state": counts_state, "total_open": total_open}
 
 
 if __name__ == "__main__":

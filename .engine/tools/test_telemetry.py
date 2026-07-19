@@ -392,6 +392,15 @@ class TestOperatorIssueCount(unittest.TestCase):
         self.assertIn("-label:acme",
                       telemetry.GitHubIssues("o/r", "tok", label="acme").operator_issues_query_url())
 
+    def test_engine_and_all_open_register_urls_carry_is_issue(self):
+        # The engine-findings link and the whole-backlog link must both filter to `is:issue` — the finding
+        # COUNT skips PRs (list_open_engine_issues), so a link that included PRs could over-count the header.
+        gi = telemetry.GitHubIssues("you/proj", "tok")
+        self.assertEqual(gi.issues_query_url(),
+                         "https://github.com/you/proj/issues?q=is:open+is:issue+label:engine")
+        self.assertEqual(gi.all_open_issues_query_url(),
+                         "https://github.com/you/proj/issues?q=is:open+is:issue")
+
 
 class TestLabelEnsure(unittest.TestCase):
     def test_creates_label_iff_absent(self):
@@ -558,8 +567,8 @@ def _cache_transport(*, open_issues=(), milestones=(200, []), pulls=(200, []), i
 
 _STANDING_OK = dict(
     milestones=(200, [{"title": "Ship the beta"}]),
-    pulls=(200, [{"number": 99, "merged_at": "x", "body": "Closes #80"}]),
-    issues={80: (200, {"number": 80, "title": "The drift fix", "labels": [{"name": "engine"}]})})
+    pulls=(200, [{"number": 99, "title": "The drift fix", "merged_at": "2026-06-13T00:00:00Z"}]),
+    issues={})
 
 
 class TestCacheRefresh(unittest.TestCase):
@@ -583,7 +592,7 @@ class TestCacheRefresh(unittest.TestCase):
         self.assertEqual(data["integration_debt"]["as_of"], T[2])
         self.assertIn("is:open", data["integration_debt"]["register"])
         self.assertEqual(data["standing_situation"],
-                         {"milestone": ["Ship the beta"], "phase": "The drift fix (issue #80)", "as_of": T[2]})
+                         {"milestone": ["Ship the beta"], "phase": "The drift fix (PR #99)", "as_of": T[2]})
         self.assertEqual(list(validate.Draft202012Validator(self._schema()).iter_errors(data)), [])
 
     def test_debt_read_failure_preserves_debt_and_still_refreshes_standing(self):
@@ -765,13 +774,13 @@ class TestStandingCacheRefresh(unittest.TestCase):
     def test_refresh_standing_derives_and_writes_only_standing(self):
         transport = _standing_transport(
             milestones=(200, [{"title": "Ship the beta"}]),
-            pulls=(200, [{"number": 99, "merged_at": "x", "body": "Closes #80"}]),
-            issues={80: (200, {"number": 80, "title": "The drift fix", "labels": [{"name": "engine"}]})})
+            pulls=(200, [{"number": 99, "title": "The drift fix", "merged_at": "2026-06-13T00:00:00Z"}]),
+            issues={})
         with tempfile.TemporaryDirectory() as d:
             sp = _write_state(d, open_count=3, as_of=T[0], register="https://x/issues")
             written = telemetry.refresh_standing(sp, "o/r", "tok", now=T[2], transport=transport)
             data = validate.load_json(sp)
-        self.assertEqual(written, {"milestone": ["Ship the beta"], "phase": "The drift fix (issue #80)", "as_of": T[2]})
+        self.assertEqual(written, {"milestone": ["Ship the beta"], "phase": "The drift fix (PR #99)", "as_of": T[2]})
         self.assertEqual(data["standing_situation"], written)
         self.assertEqual(data["integration_debt"]["open_count"], 3)   # debt left untouched
         self.assertEqual(list(validate.Draft202012Validator(self._schema()).iter_errors(data)), [])

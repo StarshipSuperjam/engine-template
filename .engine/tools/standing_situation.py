@@ -6,11 +6,12 @@ The corrected design: "where we are" is a **read-only projection of native sourc
 orientation — never a stored marker any session *advances* (that was the rejected category error). This module
 is that projection:
 
-  - **phase** <- the most-recently-merged **tracked build Issue**, formatted "<title> (issue #N)". GitHub's REST
-    API exposes no "closing issue references" (that field is GraphQL-only), so we read it the way GitHub itself
-    derives it: take the recent closed PRs, order the merged ones by `merged_at` (newest first), parse each PR
-    body for a closing keyword (`Closes/Fixes/Resolves #N`, the common forms), and take the first whose
-    referenced Issue carries the engine label. A PR that closes several Issues contributes its first reference.
+  - **phase** <- the most-recently-**merged pull request**, formatted "<title> (PR #N)" — the honest "what
+    merged last", read directly from the merge record rather than inferred. Take the recent closed PRs, keep the
+    merged ones, order them by `merged_at` (newest first), and take that PR's title. This reads the actual last
+    merge (any PR, whatever it closed), so it never falls through to an older item because a PR listed a
+    non-engine issue first — the failure the earlier closing-ref/engine-label walk was prone to. The persisted
+    cache key stays `phase` (schema/cache continuity); its meaning is now "the last merged PR", not a plan cursor.
   - **milestone** <- the titles of the project's OPEN GitHub Milestones, read as they are — every open one, in
     GitHub's earliest-due-first order — or an empty list when the project keeps none ("none set" — the honest
     normal state, not an error). GitHub has no notion of a single "current" milestone, so the engine names what
@@ -33,16 +34,10 @@ calls it for the live display, telemetry calls it to refresh the offline cache o
 Run the demo: `uv run --directory .engine -- python tools/standing_situation.py demo`
 """
 from __future__ import annotations
-import re
 import sys
 
-# GitHub's own issue-closing keywords (https://docs.github.com/issues — closing keywords). Matching these in a
-# merged PR's body approximates, over REST, the linkage GitHub records as `closingIssuesReferences` for the
-# common forms ("Closes #80", "Closes: #80", "Fixed #80"). The leading \b keeps it from matching inside other
-# words (e.g. "discloses #80", "unfixed #80"); the separator allows a space and/or a colon.
-_CLOSES_RE = re.compile(r"\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)\b[:\s]+#(\d+)", re.IGNORECASE)
-
-# How many recent closed PRs to scan for the latest tracked build before giving up (returning None for phase).
+# How many recent closed PRs to scan for the latest merged one before giving up (returning None for phase). A
+# window because the newest CLOSED PRs may be unmerged (closed without merging); we want the newest MERGED one.
 _PR_WINDOW = 30
 
 
@@ -76,11 +71,13 @@ def derive_milestone(gh) -> list[str]:
     return [title for m in data if isinstance(m, dict) and (title := (m.get("title") or "").strip())]
 
 
-def derive_phase(gh, *, window: int = _PR_WINDOW) -> str | None:
-    """The most-recently-merged tracked build Issue, as "<title> (issue #N)", or None when no tracked build
-    is found in the recent window. Walks closed PRs newest-first; for each *merged* PR, parses its body for a
-    closing keyword and, if the referenced Issue carries the engine label, returns that Issue's title. A read
-    failure raises DeriveUnavailable (never read as "no phase")."""
+def derive_last_merged(gh, *, window: int = _PR_WINDOW) -> str | None:
+    """The most-recently-merged pull request, as "<title> (PR #N)", or None when the recent window holds no
+    merged PR. Reads the recent closed PRs, keeps the merged ones, orders them by `merged_at` (newest first),
+    and returns that PR's title — the actual last merge, whatever it closed. A read failure raises
+    DeriveUnavailable (never read as "nothing merged"). It reads the merge record directly — no body parsing,
+    no second read, no engine-label filter — so it never falls through to an older item the way the old
+    closing-ref walk could when a PR listed a non-engine issue first."""
     pulls = _read(gh, f"/repos/{gh.repo}/pulls?state=closed&sort=updated&direction=desc&per_page={window}")
     if not isinstance(pulls, list):
         raise DeriveUnavailable("pulls response was not a list")
@@ -89,29 +86,21 @@ def derive_phase(gh, *, window: int = _PR_WINDOW) -> str | None:
     merged = sorted((pr for pr in pulls if isinstance(pr, dict) and pr.get("merged_at")),
                     key=lambda pr: pr["merged_at"], reverse=True)
     for pr in merged:
-        match = _CLOSES_RE.search(pr.get("body") or "")
-        if not match:
-            continue                         # this PR closed no Issue (e.g. a standalone slice) — skip
-        number = int(match.group(1))
-        issue = _read(gh, f"/repos/{gh.repo}/issues/{number}")
-        if not isinstance(issue, dict):
-            raise DeriveUnavailable(f"issue #{number} response was not an object")
-        names = {lab.get("name") for lab in (issue.get("labels") or []) if isinstance(lab, dict)}
-        if gh.label not in names:
-            continue                         # closed a non-engine Issue (not a tracked build) — keep walking
-        title = (issue.get("title") or "").strip()
-        if title:
-            return f"{title} (issue #{number})"
-    return None                              # no tracked build in the window -> phase is "—" (honest)
+        number = pr.get("number")
+        title = (pr.get("title") or "").strip()
+        if title and isinstance(number, int):   # skip a blank-titled PR rather than render "… (PR #N)" nameless
+            return f"{title} (PR #{number})"
+    return None                                  # no merged PR in the window -> phase is "—" (honest)
 
 
 def derive_standing_situation(gh) -> dict:
     """Assemble {"milestone", "phase"} live from native sources, read-only. ALL-OR-NOTHING: if either read
     fails, DeriveUnavailable propagates (boot then shows the cached line). On success, milestone is the list of
-    open Milestone titles (empty when none) and phase is None when there is no tracked build (boot renders the
-    honest "none set" / "—"). Milestone is read first so a read failure short-circuits before the phase walk."""
+    open Milestone titles (empty when none) and phase ("what merged last") is None when the window holds no
+    merged PR (boot renders the honest "none set" / "—"). Milestone is read first so a read failure
+    short-circuits before the last-merged read."""
     milestone = derive_milestone(gh)
-    phase = derive_phase(gh)
+    phase = derive_last_merged(gh)
     return {"milestone": milestone, "phase": phase}
 
 
@@ -127,17 +116,14 @@ class _FakeGH:
         self._transport = transport
 
 
-def _canned(milestones, pulls, issues):
-    """Build a transport answering the three GETs derive makes, from canned fixtures. `milestones` is the
-    milestones-list payload; `pulls` the closed-PRs payload; `issues` maps issue number -> issue object."""
+def _canned(milestones, pulls):
+    """Build a transport answering the two GETs the derive makes, from canned fixtures. `milestones` is the
+    open-milestones payload; `pulls` the recent closed-PRs payload (each {number, title, merged_at})."""
     def transport(method, path, body):
         if "/milestones" in path:
             return 200, milestones
         if "/pulls" in path:
             return 200, pulls
-        m = re.search(r"/issues/(\d+)", path)
-        if m:
-            return 200, issues.get(int(m.group(1)))
         return 404, None
     return transport
 
@@ -150,8 +136,9 @@ def _fail_transport(method, path, body):
 
 def _where_lines(boot, *, live, state) -> list:
     """Render the REAL boot card over a complete signals dict and return its standing block — the
-    'Where we are' line, the 'Milestone' line, and the cached-staleness sub-line when present — so the
-    operator sees the actual card text, not a Python structure."""
+    'What merged last' line, the 'Milestone' line, and the cached-staleness sub-line when present — so the
+    operator sees the actual card text, not a Python structure. The count/total signals boot's renderer
+    reads via `.get()` are deliberately absent here — this demo isolates the standing block."""
     signals = {"state": state, "refused": False, "gate": "on", "reason": None,
                "finding_count": 0, "register": "",
                "debt_count": 0, "debt_as_of": None, "att_lines": [], "att_degraded": [],
@@ -160,7 +147,7 @@ def _where_lines(boot, *, live, state) -> list:
     lines = boot.render_dashboard(signals).splitlines()
     out = []
     for i, ln in enumerate(lines):
-        if ln.startswith("**Where we are"):
+        if ln.startswith("**What merged last"):
             out.append(ln)
             for nxt in lines[i + 1:i + 3]:          # the Milestone line + an optional staleness sub-line
                 if nxt.startswith("**Milestone") or nxt.startswith("_("):
@@ -174,16 +161,16 @@ def _where_lines(boot, *, live, state) -> list:
 def _demo() -> int:
     import boot  # lazy (boot imports this module at top; importing it here avoids a load-time cycle)
 
-    print("What boot shows for 'where we are' — derived live from your GitHub each session:\n")
+    print("What boot shows for 'what merged last' — derived live from your GitHub each session:\n")
 
-    # (1) A project with SEVERAL open milestones — GitHub elects none, so the engine names them all — plus a
-    #     recent tracked build.
+    # (1) SEVERAL open milestones — GitHub elects none, so the engine names them all — plus two merged PRs, the
+    #     newest of which is what shows. #42 (newer merged_at) must win over #41.
     gh1 = _FakeGH(_canned(
         milestones=[{"title": "Ship the beta", "due_on": "2026-09-01T00:00:00Z"},
                     {"title": "Public launch", "due_on": "2026-11-01T00:00:00Z"}],
-        pulls=[{"number": 42, "merged_at": "2026-06-10T00:00:00Z", "body": "Closes #40\n\nthe checkout page"}],
-        issues={40: {"number": 40, "title": "Build the checkout page", "labels": [{"name": "engine"}]}}))
-    print("1) A project with several open milestones — the engine names them all, electing none:")
+        pulls=[{"number": 41, "title": "Wire up the cart", "merged_at": "2026-06-08T00:00:00Z"},
+               {"number": 42, "title": "Add the checkout page", "merged_at": "2026-06-10T00:00:00Z"}]))
+    print("1) Several open milestones — the engine names them all, electing none — and the last merged PR:")
     l1 = _where_lines(boot, live=derive_standing_situation(gh1), state=None)
     for ln in l1:
         print("   " + ln)
@@ -192,8 +179,7 @@ def _demo() -> int:
     # (2) A project that keeps NO milestone (this repo's real state) — "No milestone is open" is honest-normal.
     gh2 = _FakeGH(_canned(
         milestones=[],
-        pulls=[{"number": 99, "merged_at": "2026-06-13T00:00:00Z", "body": "Closes #80\n\nthe un-stranding fix"}],
-        issues={80: {"number": 80, "title": "Operator checkout can silently drift", "labels": [{"name": "engine"}]}}))
+        pulls=[{"number": 99, "title": "Stop the operator checkout drifting", "merged_at": "2026-06-13T00:00:00Z"}]))
     print('2) A project that keeps NO GitHub milestone — "No milestone is open" is a normal state, not an error:')
     l2 = _where_lines(boot, live=derive_standing_situation(gh2), state=None)
     for ln in l2:
@@ -207,7 +193,7 @@ def _demo() -> int:
     except DeriveUnavailable:
         live3 = None
     cached_state = {"schema_version": 1,
-                    "standing_situation": {"milestone": None, "phase": "Building the checkout page (issue #40)",
+                    "standing_situation": {"milestone": None, "phase": "Add the checkout page (PR #42)",
                                            "as_of": "2026-06-10T12:00:00Z"},
                     "integration_debt": {}}
     print("3) When GitHub can't be read, boot falls back to the last cached copy and says so plainly:")
@@ -215,27 +201,36 @@ def _demo() -> int:
         print("   " + ln)
     print()
 
-    # (4) Before/after — the stale committed marker (shown as if current) vs the live-derived lines.
-    stale_phase = "Making the Engine's status and alarms reach you (issue #83)"
-    print("4) Issue #100 in one view:")
-    print(f'   BEFORE — a stored marker nothing updated, shown as if current:  "{stale_phase}"')
-    print("   AFTER  — derived live from GitHub each session:")
-    for ln in _where_lines(boot, live=derive_standing_situation(gh2), state=None):
+    # (4) The stale-fallthrough fix (defect A): the NEWEST merged PR here closes a non-engine issue first. The
+    #     old closing-ref/engine-label walk skipped such a PR and fell through to an OLDER engine issue, showing
+    #     a stale item as "where we are"; the new derive reads the merge record directly, so the newest wins.
+    gh4 = _FakeGH(_canned(
+        milestones=[],
+        pulls=[{"number": 111, "title": "Fix the submit base conflation", "merged_at": "2026-07-19T01:00:00Z"},
+               {"number": 90, "title": "Name every open milestone", "merged_at": "2026-07-18T22:00:00Z"}]))
+    print("4) The stale-fallthrough fix (defect A) — the newest merged PR always wins:")
+    print("   BEFORE — the closing-ref walk could skip the newest PR and show an OLDER item as current.")
+    print("   AFTER  — derived from the merge record, so the actual last merge shows:")
+    l4 = _where_lines(boot, live=derive_standing_situation(gh4), state=None)
+    for ln in l4:
         print("            " + ln)
     print()
-    print("Note: in THIS construction repo the phase line shows a maintainer-framed issue title verbatim")
-    print("(e.g. #80's '...silently drift'); in a generated project, build-issue titles are written to read")
-    print("cleanly for you. No real GitHub call was made, and your saved status was not modified.")
-    # Self-check: scenario 1 names BOTH open milestones under the plural label (electing none), scenario 2
-    # (no milestone) names none, and an unreadable GitHub raises rather than reading a confident 'none set'
-    # (it falls back to the cached copy).
+    print("Note: in THIS construction repo the line shows a maintainer-framed PR title verbatim; in a generated")
+    print("project, PR titles read cleanly for you. No real GitHub call was made, and your saved status was not")
+    print("modified.")
+    # Self-check (must be able to FAIL on a broken derivation — [[demo-must-exercise-real-logic]]): scenario 1
+    # names BOTH open milestones under the plural label AND shows the NEWEST merged PR (#42, not the older #41);
+    # scenario 2 names no milestone; scenario 4 shows the newest PR (#111, not the older #90) — the defect-A
+    # guarantee; an unreadable GitHub raises (falls back to the cached copy), never a confident live 'none set'.
     ok = (all(any(name in ln for ln in l1) for name in ("Ship the beta", "Public launch"))
           and any("Milestones:" in ln for ln in l1)
+          and any("Add the checkout page (PR #42)" in ln for ln in l1)
           and not any("Ship the beta" in ln for ln in l2)
+          and any("Fix the submit base conflation (PR #111)" in ln for ln in l4)
           and live3 is None)
     if not ok:
-        print("\nDEMO UNEXPECTED: the live 'where we are' derivation did not behave as expected across the "
-              "milestone / no-milestone / unreadable cases.", file=sys.stderr)
+        print("\nDEMO UNEXPECTED: the live 'what merged last' derivation did not behave as expected across the "
+              "milestone / no-milestone / newest-PR-wins / unreadable cases.", file=sys.stderr)
         return 1
     return 0
 

@@ -35,7 +35,7 @@ from memory import ledger, ledger_health      # noqa: E402
 _BASE_SIGNALS = {
     "state": {"schema_version": 1, "standing_situation": {}, "integration_debt": {}},
     "refused": False, "gate": "on", "reason": None, "finding_count": 0, "register": "",
-    "finding_fingerprint": None, "debt_count": 0, "debt_as_of": None, "att_lines": [],
+    "debt_count": 0, "debt_as_of": None, "att_lines": [],
     "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
     "behind_origin": None, "off_main": None, "pr_conflict": None, "restore_offer": None,
     "migration_revert": None, "audit_stale": None, "live_standing": None, "neighborhood": None,
