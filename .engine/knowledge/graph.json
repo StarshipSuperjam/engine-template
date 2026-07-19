@@ -3934,7 +3934,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:7ea7a480eeef0e158d77dc9c9c0d034b70421c0ce54352a34f8f09fb26ca4d22",
+        "fingerprint": "sha256:bc76343049aa9a25a3832526e549e88ceac18da67c9e01d078bc2a97404da0a9",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -4134,7 +4134,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:3c141de461f20f688929c3bbd1c3fe1100de0058095abba36ba0e5b7650edf10",
+        "fingerprint": "sha256:5fdbaa3423adc752af8244e8611db1aa48227ade9820b7cb66fe61047d2b732b",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -7772,7 +7772,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:f552e5f87dd2336250b443601c3a1c7dafe7b5483cb2f5af257e2e19be1152d6",
+        "fingerprint": "sha256:fc6744dfa3ae27421cc464cb0b511a70d7b23e0dd0145d536372758923acd1c2",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -9727,7 +9727,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:efc85ba9ce036ed19889a4d66f2d793ea990e44a99877b306d3171153cfb8e19",
+        "fingerprint": "sha256:ef5f3ffb51c97ab5b62b212cb25a67feda1744d7038667dc11bb3939f055aec6",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",

@@ -159,6 +159,37 @@ class TestBuildPrBody(unittest.TestCase):
         # default (not reviewed) carries the backstop
         self.assertIn("NOT been run", submit.build_pr_body(summary="x", template_text=None, reviewed=False))
 
+    def test_authored_body_is_carried_verbatim_and_wins_over_a_template(self):
+        # #557: a session-authored body (written to the host's form) is used AS THE BODY — the host's raw
+        # template is NOT stuffed in. The #562 review note still LEADS it (dropping the note here would reopen
+        # the gap #562 closed), and no raw <placeholder> survives.
+        authored = "## Purpose\n\n**Real content.**\n\n*Impact: works.*\n"
+        body = submit.build_pr_body(summary="one-liner", template_text="## Host\n\n<fill this in please>",
+                                    authored_body=authored)
+        self.assertIn(authored.strip(), body)
+        self.assertNotIn("<fill this in please>", body)     # the raw template was not used
+        self.assertNotIn("one-liner", body)                 # the summary is not stuffed when a body is authored
+        self.assertIn("second, independent check", body)    # #562 note still rides the authored body
+        self.assertFalse(submit._has_unfilled_placeholders(body))
+
+    def test_empty_or_whitespace_authored_body_falls_back_to_the_template(self):
+        # A blank/whitespace authored body is treated as "none given" — the same predicate build_pr_body uses to
+        # decide the path, so submit's body_unfilled signal can't drift from it.
+        body = submit.build_pr_body(summary="one-liner", template_text="## Host\n\n<fill this in>",
+                                    authored_body="   \n  ")
+        self.assertIn("<fill this in>", body)               # template path taken
+        self.assertIn("one-liner", body)
+
+    def test_inline_html_in_an_authored_body_is_not_read_as_an_unfilled_prompt(self):
+        # #557 false-hold guard (surfaced by review): a complete authored body that legitimately embeds an HTML
+        # image or link — attribute syntax carries `=`/`"` — must NOT read as a leftover template prompt, else a
+        # ready contribution to the engine's home would be wrongly HELD with a misleading "sections to fill" note.
+        for html in ('<img width="500" alt="a screenshot">', '<a href="https://example.com">the link</a>'):
+            body = submit.build_pr_body(summary="x", authored_body=f"## Purpose\n\n**Real.** {html}\n")
+            self.assertFalse(submit._has_unfilled_placeholders(body), html)
+        # ...but a genuine leftover template prompt is still caught (the #557 signal is intact).
+        self.assertTrue(submit._has_unfilled_placeholders("## Purpose\n\n<one-line summary of the change>\n"))
+
 
 class TestSubmitFlow(unittest.TestCase):
     # home=None keeps the flow tests hermetic (no real-manifest read) and on the non-home path (no narrowing);
@@ -287,6 +318,51 @@ class TestSubmitFlow(unittest.TestCase):
         r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED, root=self.root,
                           gh_run=_gh_ok(rec), github=None, confirm=True)
         self.assertIn("if the project reviews contributions", r["narration"])
+
+    def _gated_root(self):
+        # A checkout whose PR template carries angle-bracket placeholder PROMPTS (like engine-template's own).
+        root = tempfile.mkdtemp(prefix="engine-submit-gated-")
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        os.makedirs(os.path.join(root, ".github"))
+        with open(os.path.join(root, ".github", "pull_request_template.md"), "w", encoding="utf-8") as fh:
+            fh.write("## Purpose\n\n**<one-line summary of why this change exists>**\n")
+        return root
+
+    def test_authored_body_opens_a_filled_body_against_a_gated_template(self):
+        # #557: a session-authored body against a host WITH a gated template → the body IS the authored text
+        # (not the raw template), body_unfilled is False, and it prepares normally.
+        authored = "## Purpose\n\n**It fixes the thing.**\n\n*Impact: the thing works.*\n"
+        rec = {}
+        r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED, root=self._gated_root(),
+                          gh_run=_gh_ok(rec), github=None, authored_body=authored, confirm=False)
+        self.assertEqual(r["status"], "prepared")
+        self.assertFalse(r["pr"]["body_unfilled"])
+        self.assertIn(authored.strip(), r["pr"]["body"])
+        self.assertNotIn("<one-line summary", r["pr"]["body"])   # the raw placeholder template was not used
+
+    def test_unfilled_body_to_engine_home_is_held_even_with_confirm(self):
+        # #557: NO authored body against the engine's OWN home (whose completeness gate this engine enforces
+        # would reject an unfilled body) → HELD before the one-way open, regardless of confirm=True, so the
+        # consent-critical disclosure can't be routed past. gh pr create is never reached; the remedy is named.
+        rec = {}
+        r = submit.submit(upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
+                          head="me:fix", title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
+                          home="StarshipSuperjam/engine-template", run=_run(["src/app.py"]), owned=OWNED,
+                          root=self._gated_root(), gh_run=_gh_ok(rec), github=None, confirm=True)
+        self.assertEqual(r["status"], "body-incomplete")
+        self.assertTrue(r["pr"]["body_unfilled"])
+        self.assertNotIn("args", rec)                       # the one-way open was NOT reached
+        self.assertIn("come back red", r["narration"])      # names why, and offers to author it
+
+    def test_unfilled_body_to_a_foreign_host_is_advised_not_held(self):
+        # #557: the SAME unfilled template to a host that is NOT the engine's home is only ADVISED (carrying a
+        # host's template for completion is a normal flow, and the engine can't know whether that host gates
+        # completeness) — it prepares, with the unfilled state disclosed in the narration.
+        r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED, root=self._gated_root(),
+                          gh_run=_gh_ok({}), github=None, confirm=False)
+        self.assertEqual(r["status"], "prepared")
+        self.assertTrue(r["pr"]["body_unfilled"])
+        self.assertIn("sections not yet filled", r["narration"])
 
 
 class TestEngineHomeNarrowing(unittest.TestCase):
