@@ -49,8 +49,11 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
    explore at every SessionStart, so a copy of that directive replayed on a resumed session is inert — the
    session reports its stance from the live signal (explore), and the kickoff proceeds only if the live
    signal still reads build. Neither path is silent or self-elected — the model never flips its own stance.
-4. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire; it
-   never merges the protected branch (authored later). It is the same workflow, constrained.
+4. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire: a
+   scheduled automation (a Claude Desktop routine or a Codex Automation) runs the routine command, which enters
+   the Routine write-stance through `set-routine` — and only after confirming the run is isolated in a dedicated
+   worktree and the engine's hooks are running, else it refuses to write and stops. It never merges the
+   protected branch. It is the same workflow, constrained.
 
 To check the live stance, `python tools/modes.py stance` — it resolves the session from `--session` or
 `$CLAUDE_CODE_SESSION_ID`, and says `unknown` (non-zero) rather than a misleading `explore` when it cannot

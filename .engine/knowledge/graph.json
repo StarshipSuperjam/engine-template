@@ -3970,7 +3970,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:664f011e408abe2d459fe8ae1f3e73c221c3792872ff588402c2eb9238cc7faf",
+        "fingerprint": "sha256:08f4ff22295b5e10a5350720edb48318eeaca0ef088dba9057f3a0c0d68ff78a",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -4250,7 +4250,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:d714216f81800812578021895e8c5b441880bef9a3b2ee0e31da26f06edc94c5",
+        "fingerprint": "sha256:ee95c12c5bea41a902f077354116fbec9f51b8a8b072795b12071aba5d7b5b1b",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -6561,7 +6561,7 @@
       },
       "slug": "engine_help",
       "source": {
-        "fingerprint": "sha256:0fc140d7c43eef3664e50c133413803caded3e93674a6b2ee2e6ca20d47851c5",
+        "fingerprint": "sha256:67943066a5f0c46fcc69eaafe5b2594932087e0660990ea25e5ecec961a7259a",
         "path": ".engine/tools/engine_help.py"
       },
       "status": "active",

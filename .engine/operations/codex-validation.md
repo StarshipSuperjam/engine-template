@@ -33,13 +33,22 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
 8. Check review reach: the ten personas under `.codex/agents/` are visible to the session and a
    spawned one reports without editing anything.
 9. Check help: `$engine-help` renders the commands with the `$` prefix.
+10. Check the routine backend (unattended work). Item zero: the installed Codex build supports Automations,
+    and a scheduled Automation fires SessionStart (you see the start-of-session briefing / a resolvable
+    session) — the platform fact the whole routine rides on. Then configure a Codex Automation with
+    `$engine-routine`, a dedicated background worktree, `approval_policy = "never"` + `workspace-write`, and
+    network access, pointed at a scope-locked build Issue with an open draft pull request. Confirm it enters
+    **Routine** (the run reports "Running unattended (routine)…"), advances one planned chunk into the pull
+    request, and **never merges**. Then confirm the safety refusals: pointed at your main checkout (worktree
+    off), or with hooks un-retrusted after an update, it **refuses to write** and says why in the run output —
+    no ungated or main-checkout writes.
 
 ## Done when
 
 Every step above passed in a live Codex session — or each failure is recorded as a defect owed an
-immediate fix in this line of work (a failure inside this bar is never re-scoped as a follow-up;
-the only standing follow-up is the routine adapter and its `engine-routine` command, ledgered in
-`.engine/policies/provider-exceptions.json`).
+immediate fix in this line of work (a failure inside this bar is never re-scoped as a follow-up). With the
+routine adapter shipped, the provider-exception ledger carries no remaining capability follow-up — every
+engine command now has its Codex twin.
 
 ## Notes
 
