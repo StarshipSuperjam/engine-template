@@ -1,7 +1,7 @@
 # engine-template — construction governance (read first, every build session)
 
-This file governs the **construction of the engine-template repository** — the work still being carried PR by PR,
-from a complete and locked design, to v1. The engine's own machinery now runs that construction: the SessionStart
+This file governs the **construction of the engine-template repository** — the work still being carried PR by PR
+toward v1. The engine's own machinery now runs that construction: the SessionStart
 **boot** briefing, the **modes** Explore/Build write-gate, the **validation** suite, and the **build-orchestration**
 runbook are all live and govern every build session. This file is the maintainer-construction layer over that
 machinery — the durable trust model, the two cold-context audit gates, and the harness invariants the machinery
@@ -27,22 +27,23 @@ follows, not a gate (the real protection is the merge gate below), and they are 
 the externalized state, memory, knowledge, attention, guardrails, and control plane a non-engineer needs to direct
 cold-booting AI sessions on any project. **M1 — the point at which the nascent engine took over building itself —
 is crossed:** the engine's own boot, validation, modes write-gate, and build-orchestration machinery now govern
-construction, and the in-repo engine builds the remaining v1 work under the same protected-`main` merge gate. What
-remains is the rest of the v1 module set and the design-rationale transplant (moving the design's *why* into the
-Engine before the build locus leaves); this file governs that work and is superseded piece by piece (see the
-supersession section) as each hand-built rung gives way to the module that prefigures it.
+construction, and the in-repo engine builds the remaining v1 work under the same protected-`main` merge gate. The
+design's *why* now lives inside the Engine as its own decision records (the eADRs under `.engine/contracts/`), so
+the build reads an in-repo record, not an external workspace. What remains is the rest of the v1 module set; this
+file governs that work and is superseded piece by piece (see the supersession section) as each hand-built rung
+gives way to the module that prefigures it.
 
-## Source authority — the design is canonical and reference-only
+## What governs the work — the design record is in-repo
 
-The complete design lives in the **sibling workspace `../engine-planning/`** (canonical and build-ready). It is
-the single source of truth. This build **reads** it and **never edits** it. Start from `../engine-planning/CLAUDE.md`,
-then `principles.md`, `constraints.md`, `goals-and-quality.md`, and the relevant `systems/**` and `modules/**`
-docs governing the current step; `wbs/build-conformance.md` carries the deliverable-gate protocol (active until v1).
+The governing design record is the engine's own decision set — the plain-language eADRs under
+`.engine/contracts/` — plus the operations runbooks under `.engine/operations/`. That in-repo record is the
+single source of truth. The sibling `../engine-planning/` workspace was the build-time design scaffold and is
+**retired** — it is not consulted or cited.
 
-**Never invent structure.** Where the design defers a concrete value (a "build-spec leaf"), decide it **explicitly
-with the maintainer and record it**, never silently. Where the design genuinely lacks needed grammar or
-contradicts itself, **stop and raise it** — do not paper over it. A change that would edit a `locked` design doc
-stops for the litigation alarm in `../engine-planning/CLAUDE.md`.
+**Never invent structure.** Where a concrete value is not yet fixed (a "build-spec leaf"), decide it **explicitly
+with the maintainer and record it**, never silently. Where a needed rule or grammar genuinely doesn't exist, or
+the record contradicts itself, **stop and raise it with the maintainer and record the decision as an eADR** — do
+not paper over it, and never invent structure silently.
 
 The Codex adapter surfaces (`AGENTS.md`, `.agents/`, `.codex/`, and the provider seam) are governed by the
 engine's own decision records (`.engine/contracts/` — eADR-0034); cold gate reviewers judge Codex
@@ -52,7 +53,7 @@ work against those records.
 
 The maintainer (Shane) is a **non-engineer and the sole gate-holder, with no outside engineer.** He directs the
 build and approves every merge but **cannot read code.** So no construction step may rest on code-reading or an
-engineer's review. The merge gate is **informed consent over an evidence bundle** (`principles.md` §17): mechanical
+engineer's review. The merge gate is **informed consent over an evidence bundle**: mechanical
 green (deterministic), independent cold-context cross-checks (worth = independence + adversarial pressure),
 **behavioral demonstration the maintainer runs and varies himself** (the one class that routes around AI
 judgment), and an honest self-report that names its own tier. Confidence is bounded by how much of a change has a
@@ -77,10 +78,10 @@ smell to recheck, never a verdict to relay). My adjudication raises confidence; 
 
 - **Full spec capability every PR — no construction milestone licenses an under-build.** Each PR drives the
   slice it touches to its full spec capability; M1, the engine's v1, and "once deployed" are never reasons to
-  ship less (`principles.md` §20). The build-conformance review flags a slice built partial or parked behind a
+  ship less. The build-conformance review flags a slice built partial or parked behind a
   milestone as a divergence. The only sanctioned non-builds are the engine==product construction-repo
   differences (no rendered CODEOWNERS, the hand-seeded manifest, this distinct construction-governance file)
-  and a capability a `locked` design doc or logged decision explicitly scopes out of v1 — a build session may
+  and a capability an eADR or a logged decision explicitly scopes out of v1 — a build session may
   not reclassify in-spec work as out-of-scope to dodge building it.
 - Every change is a **pull request against protected `main`**; **validator-green before merge** (the
   mechanical floor — the seed validator, now `validators-core`).
@@ -98,9 +99,9 @@ smell to recheck, never a verdict to relay). My adjudication raises confidence; 
   evidence bundle, not the gate-holder's ability to read code.
 - **Operator-facing copy uses the right word, judged in context — never a banned-word list.** Clarity over
   engineer-shorthand is a writing-and-review *judgment*, and keeping internal machinery out of operator
-  narration is a *relevance* judgment (engine-planning §12) — neither is a mechanical word-substring filter
-  (which would grade prose, against §7) and **no forbidden-word list is kept or created** (a list invites
-  list-growth and teaches that word-banning is a writing function — D-225). Whether a render leans on jargon
+  narration is a *relevance* judgment — neither is a mechanical word-substring filter
+  (which would grade prose) and **no forbidden-word list is kept or created** (a list invites
+  list-growth and teaches that word-banning is a writing function). Whether a render leans on jargon
   is judged by the `audit` prose probe and the per-PR build-conformance review, not a filter.
 - **A behavioral demo is a falsification that can fail, and it has a declared fate — it does not accumulate.**
   Every committed `demo_*.py` must exercise the real surface and be able to fail (a parallel reimplementation
@@ -108,13 +109,11 @@ smell to recheck, never a verdict to relay). My adjudication raises confidence; 
   test, kept as construction evidence walled from travel (the first-run retirement set, so it does not ship
   into a generated repo), or **promoted by an explicit logged decision** to a standing operator capability —
   the only state in which a demo travels. The whole construction set retires with the build-conformance
-  harness at v1. This is a reminder; the durable rule's canonical home is upstream — the engine-planning
-  glossary "Behavioral attestation" (referenced by `wbs/build-conformance.md` §6/§10, which itself retires at
-  v1 — D-228) — not duplicated here.
+  harness at v1.
 
 ## The seed (stage 0) and its frozen names
 
-The stage-0 seed was the irreducibly-ungated trust root (`../engine-planning/wbs/stage-0-harness.md` §2): this
+The stage-0 seed was the irreducibly-ungated trust root: this
 `CLAUDE.md`; the uv tool-runtime (`.engine/pyproject.toml` + `.engine/uv.lock`, with `.engine/.venv/` gitignored);
 the seed validator (`.engine/tools/validate.py`) as a thin dispatcher over rule data (`.engine/check/`); the PR
 template (`.github/pull_request_template.md`, the eight required sections); two CI workflows; and the
@@ -139,19 +138,16 @@ modes Explore write-gate; and **this `CLAUDE.md` → the `core` grammar + the bo
 what **retires this file at v1**, when the build locus leaves the repo and the deployed floor (`CLAUDE.deployed.md`)
 becomes the only `CLAUDE.md` a generated repo carries. That supersession swaps **which governance file is
 active** — the construction body retires, the boot floor takes over — and **never licenses building a slice
-less completely before then** (`principles.md` §20; stage-0 §6): the seed governance being provisional is a
+less completely before then**: the seed governance being provisional is a
 governance *handoff*, not deferred capability. **The protected-branch human merge gate is the one rung
 that never retires** — every other rung is superseded by machinery; the gate-holder's merge is forever.
 
 ## Resume order for a build session
 
 1. This file — the trust model, the two cold-context audit gates, and the harness invariants above.
-2. `../engine-planning/CLAUDE.md`, then `principles.md` + `constraints.md` + `goals-and-quality.md` — the design
-   canon, still the single source of truth.
-3. `.engine/operations/operating-modes.md` for the session stance (Explore/Build write-gate), and
+2. `.engine/operations/operating-modes.md` for the session stance (Explore/Build write-gate), and
    `.engine/self-map.md` with `.engine/operations/knowledge-impact-check.md` for where the engine's parts are and
    what each one touches, depends on, checks, and governs.
-4. The `systems/**` / `modules/**` design docs governing the current step, and `wbs/build-conformance.md` for the
-   deliverable-gate protocol.
-5. `.engine/operations/build-orchestration.md` — the live build workflow — then plan the one next step, run the
+3. The eADRs governing the current work (`.engine/contracts/`) — the in-repo design record.
+4. `.engine/operations/build-orchestration.md` — the live build workflow — then plan the one next step, run the
    plan gate, build, run the deliverable gate, and assemble the evidence bundle.
