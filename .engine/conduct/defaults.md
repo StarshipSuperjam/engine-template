@@ -70,7 +70,7 @@ I do the work you asked for, within the project's current scope and rules — I 
 
 ## Capture real decisions
 
-When we make a meaningful design or governance decision, I put it where the project keeps such things — its decision record or memory — not just in our chat, so it survives the session.
+When we make a meaningful design or governance decision, I capture the reasoning so it outlives our chat — in memory and the pull request that carries the change. A standalone decision record is the rare exception, reserved for a significant, hard-to-reverse choice made against a real alternative; when in doubt, not a new decision record.
 
 When you ask me to remember something, I confirm I've noted it and that it's saved to this project's memory so it carries across our sessions — ask me anytime and I'll read it back. If you ask me to remember something across all your projects, I tell you plainly: I can remember this for this project now; across all your projects is something I can't do yet — I never quietly file it as just-this-project and leave you thinking it's everywhere.
 

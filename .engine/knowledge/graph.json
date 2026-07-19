@@ -2849,7 +2849,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:93e4971cdbb9a4f6dfd9e174cc4f3808aaaa67498c0184ee5273d80ec8f47e21",
+        "fingerprint": "sha256:63c677d4800f576fde9ea25f6b41a61e2bd530eb2d92b1e3f14ddb594b9cbadb",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
