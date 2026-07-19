@@ -215,18 +215,34 @@ def _demo() -> int:
     for ln in l4:
         print("            " + ln)
     print()
+
+    # (5) MANY open milestones (#558): past a glanceable few the line names the first five and moves the true
+    #     total into the engine's own label — a disclosed sample, electing none. Seven open here, cap five.
+    gh5 = _FakeGH(_canned(
+        milestones=[{"title": f"Phase {i}", "due_on": f"2026-0{i}-01T00:00:00Z"} for i in range(1, 8)],
+        pulls=[{"number": 51, "title": "Wire the thing", "merged_at": "2026-06-14T00:00:00Z"}]))
+    print("5) Many open milestones — the first five are named and the true total is disclosed, electing none:")
+    l5 = _where_lines(boot, live=derive_standing_situation(gh5), state=None)
+    for ln in l5:
+        print("   " + ln)
+    print()
+
     print("Note: in THIS construction repo the line shows a maintainer-framed PR title verbatim; in a generated")
     print("project, PR titles read cleanly for you. No real GitHub call was made, and your saved status was not")
     print("modified.")
     # Self-check (must be able to FAIL on a broken derivation — [[demo-must-exercise-real-logic]]): scenario 1
     # names BOTH open milestones under the plural label AND shows the NEWEST merged PR (#42, not the older #41);
     # scenario 2 names no milestone; scenario 4 shows the newest PR (#111, not the older #90) — the defect-A
-    # guarantee; an unreadable GitHub raises (falls back to the cached copy), never a confident live 'none set'.
+    # guarantee; scenario 5 caps at five names and discloses the true total of seven, naming none beyond the cap
+    # (#558); an unreadable GitHub raises (falls back to the cached copy), never a confident live 'none set'.
     ok = (all(any(name in ln for ln in l1) for name in ("Ship the beta", "Public launch"))
           and any("Milestones:" in ln for ln in l1)
           and any("Add the checkout page (PR #42)" in ln for ln in l1)
           and not any("Ship the beta" in ln for ln in l2)
           and any("Fix the submit base conflation (PR #111)" in ln for ln in l4)
+          and any("(showing 5 of 7 open)" in ln for ln in l5)
+          and any('"Phase 1"' in ln for ln in l5)
+          and not any('"Phase 7"' in ln for ln in l5)
           and live3 is None)
     if not ok:
         print("\nDEMO UNEXPECTED: the live 'what merged last' derivation did not behave as expected across the "
