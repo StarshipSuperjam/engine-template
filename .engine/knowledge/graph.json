@@ -5512,7 +5512,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:1ca84ff3a376c04f263fce548034c17b8c8d908981b145ac7fb97eb246476a39",
+        "fingerprint": "sha256:86946ca766c42020019b0de9bb3e0035fd22d73bf5a45dcda6de49f0ef47606b",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6199,6 +6199,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_operator_backlog",
+      "name": ".engine/tools/demo_operator_backlog.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_operator_backlog",
+      "source": {
+        "fingerprint": "sha256:c842849a1c261ee505f93dd76db8a9d3c8dbc5ad0601dda1929618b48b0f885e",
+        "path": ".engine/tools/demo_operator_backlog.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_overlay_disclosure",
       "name": ".engine/tools/demo_overlay_disclosure.py",
       "owner": "core",
@@ -6702,7 +6719,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:f9b177d8dfc286a6c8a1f7508cc298a4ca12a6c1f3a9ac59a33e708c8eca9750",
+        "fingerprint": "sha256:a360247cabf02527a562b9b2c2ed16a7f8fe0c357c357a6a990c327f16a405d5",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7722,7 +7739,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:2144c0db548ac09aa52f120450157d2070ca018a4c3c04f6d2fa31c451da74bf",
+        "fingerprint": "sha256:3cb2043aea751b85c81eb01ff2c4294cc6aaf235193428bbeef4b5bb853441a1",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -7960,7 +7977,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f28c0b13ae7bf11fae521431d709077fbf57e96695dfb2b60d354a18c161389f",
+        "fingerprint": "sha256:6c9a1075fec78c43917a42451c82e09ae72a6c1410cb3485c53ccc5be78057c9",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9643,7 +9660,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:1ab668303efb53ab22104b6aae1d59bb8e8f17c5cdcbae761197bee7133f05c3",
+        "fingerprint": "sha256:99a2000464a3692d9a7f4b69e003b59fd0bf17584a7396100f3911f847b88c3b",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

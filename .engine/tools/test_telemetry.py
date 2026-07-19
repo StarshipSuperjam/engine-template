@@ -295,7 +295,7 @@ class TestDegradedRead(unittest.TestCase):
             sp = _write_state(d, open_count=7, as_of="2026-06-01T00:00:00Z")
             r = run(gh(f), [rec("rule:b")], telemetry.Cache(_tmpcache()), TH, T[0], state_path=sp)
         self.assertTrue(r.degraded)
-        self.assertIn("7 open problems", r.degraded_line)
+        self.assertIn("7 open engine findings", r.degraded_line)
         self.assertIn("re-ground before you rely on it", r.degraded_line)
         self.assertIn("until GitHub returns", r.degraded_line)
         # zero Issue writes (POST /issues or PATCH /issues/N) — the read failed before any write
@@ -320,6 +320,77 @@ class TestDegradedRead(unittest.TestCase):
     def test_degraded_readout_unknown_when_no_offline_count(self):
         line = telemetry.degraded_readout(None, None)
         self.assertIn("unknown until GitHub returns", line)
+
+
+_UNSET = object()
+
+
+class _FakeSearch:
+    """A minimal Search-API stand-in for count_open_operator_issues — isolated from the shared FakeGH
+    because `/search/issues` ends in `/issues` and would be swallowed by FakeGH's bare-array `/issues`
+    branch. Records the path it was asked for; serves the `{total_count, items}` envelope, a failure
+    status, or a caller-supplied malformed body."""
+
+    def __init__(self, total=0, *, status=200, data=_UNSET):
+        self.total = total
+        self.status = status
+        self.data = data
+        self.paths: list = []
+
+    def transport(self, method, path, body):
+        self.paths.append(path)
+        if self.status >= 400:
+            return self.status, None
+        if self.data is not _UNSET:
+            return 200, self.data
+        return 200, {"total_count": self.total, "items": []}
+
+
+class TestOperatorIssueCount(unittest.TestCase):
+    """The operator's own open-issue count (issues WITHOUT the engine label) is answered in ONE Search-API
+    call reading `total_count` — never by paginating the backlog — filters on `self.label` so a renamed
+    engine label keeps the count the exact complement, and RAISES on any failure so a degraded read is
+    never a false 0."""
+
+    def test_count_reads_total_count_in_a_single_search_call(self):
+        f = _FakeSearch(total=42)
+        self.assertEqual(telemetry.GitHubIssues("you/proj", "tok", transport=f.transport)
+                         .count_open_operator_issues(), 42)
+        self.assertEqual(len(f.paths), 1)                       # ONE call, no pagination
+        self.assertIn("/search/issues", f.paths[0])
+        self.assertIn("is%3Aopen", f.paths[0])                  # only OPEN issues (a dropped is:open would count closed)
+        self.assertIn("is%3Aissue", f.paths[0])                 # is:issue -> PRs excluded server-side
+        self.assertIn("-label%3A%22engine%22", f.paths[0])      # excludes the engine label (quoted)
+        self.assertIn("repo%3Ayou/proj", f.paths[0])   # quote() keeps '/' (safe='/'), encodes ':' -> %3A
+
+    def test_filter_tracks_a_custom_label_so_the_two_reads_stay_complements(self):
+        f = _FakeSearch(total=3)
+        telemetry.GitHubIssues("o/r", "tok", label="acme-engine", transport=f.transport)\
+            .count_open_operator_issues()
+        self.assertIn("-label%3A%22acme-engine%22", f.paths[0])   # not the hardcoded default
+
+    def test_raises_on_http_error_never_a_false_zero(self):
+        for status in (403, 422, 500):
+            f = _FakeSearch(status=status)
+            with self.assertRaises(telemetry.DegradedReadError):
+                telemetry.GitHubIssues("o/r", "tok", transport=f.transport).count_open_operator_issues()
+
+    def test_raises_on_an_unexpected_shape(self):
+        # A 200 with no total_count (a bare list, an error envelope) OR a present-but-non-int total_count
+        # (null / string / object) must raise DegradedReadError, never read as a count — honoring the
+        # docstring so a malformed-but-present body can't slip past into a bare int() TypeError.
+        for bad in ([], {"items": []}, None, {"total_count": None}, {"total_count": "oops"},
+                    {"total_count": {}}):
+            f = _FakeSearch(data=bad)
+            with self.assertRaises(telemetry.DegradedReadError):
+                telemetry.GitHubIssues("o/r", "tok", transport=f.transport).count_open_operator_issues()
+
+    def test_register_url_matches_the_counted_filter(self):
+        gi = telemetry.GitHubIssues("you/proj", "tok")
+        self.assertEqual(gi.operator_issues_query_url(),
+                         "https://github.com/you/proj/issues?q=is:open+is:issue+-label:engine")
+        self.assertIn("-label:acme",
+                      telemetry.GitHubIssues("o/r", "tok", label="acme").operator_issues_query_url())
 
 
 class TestLabelEnsure(unittest.TestCase):

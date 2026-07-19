@@ -332,6 +332,24 @@ def open_findings(repo: str | None, token: str | None) -> tuple[int | None, str 
         return None, None, None, None, None
 
 
+def open_operator_count(repo: str | None, token: str | None) -> tuple[int | None, str | None]:
+    """The OPERATOR's own open issues — those WITHOUT the engine-domain label, their product backlog —
+    RELAYED read-only from telemetry's single Search-API count (never a backlog pagination, never the write
+    loop). Returns (count, register_url): count is None when there is no GitHub access (no repo/token) OR the
+    read degraded, and the register is the human-citable filtered list. A DELIBERATELY SEPARATE read from
+    `open_findings` — its own client, its own try/except — so the operator backlog and the engine's own
+    findings degrade independently and are never conflated (the engine/product wall). Whether a None means
+    'no access' (suppress) or 'read failed' (say so) is decided by the caller, which knows if repo/token were
+    present. Boot only reads; telemetry owns the count."""
+    if not repo or not token:
+        return None, None
+    try:
+        gh = telemetry.GitHubIssues(repo, token)
+        return gh.count_open_operator_issues(), gh.operator_issues_query_url()
+    except Exception:  # noqa: BLE001 — DegradedReadError or any transport failure -> None (degraded)
+        return None, None
+
+
 # ---- attention (consume the ranked partition; resolve member ids to plain language) ---------
 
 def _resolve_member(member_id: str, state: dict | None, titles: dict | None = None) -> str:
@@ -942,6 +960,10 @@ def gather_signals(session_id: str | None = None) -> dict:
     repo, token = repo_slug(), gh_token()
     gate, reason = protected_branch_signal(repo, token)
     finding_count, register, finding_fingerprint, low_severity_count, findings = open_findings(repo, token)
+    # The operator's OWN open-issue count (their product backlog — issues WITHOUT the engine label), a
+    # DELIBERATELY separate read from the engine findings above so the two degrade independently. None when
+    # there is no GitHub access or the read failed; the caller distinguishes those (operator_backlog_degraded).
+    operator_backlog_count, operator_backlog_register = open_operator_count(repo, token)
     # The render-only triage-pressure line: one plain-language
     # "backlog is growing" line once the COMPLETE open low-severity count crosses the governed threshold, else
     # None. Boot DISPLAYS it read-only (it never runs a triage pass); the count is the durable-Issue
@@ -979,7 +1001,7 @@ def gather_signals(session_id: str | None = None) -> dict:
     gh = telemetry.GitHubIssues(repo, token) if repo and token else None
     # Thread the live debt register boot ALREADY read (open_findings, above) into the ranking as the PER-ISSUE
     # rows, so the ranking grades each open finding on its own severity (making the policy's debt-blocking
-    # threshold and busy-session flex actually govern) while the "Open problems" header still reads the SAME
+    # threshold and busy-session flex actually govern) while the "Engine findings" header still reads the SAME
     # number off the SAME read — `finding_count == len(findings)`, so they cannot disagree — and the SessionStart
     # path makes no second GitHub call. None (no repo/token, or a failed read) -> telemetry degrades and the
     # committed count stands in -> boot raises the loud 'couldn't reach' notice.
@@ -1135,6 +1157,12 @@ def gather_signals(session_id: str | None = None) -> dict:
         "state": state, "refused": refused,
         "gate": gate, "reason": reason,
         "finding_count": finding_count, "register": register, "finding_fingerprint": finding_fingerprint,
+        # The operator's own open-issue count + its clickable filtered register (their product backlog), or
+        # None. `operator_backlog_degraded` is True ONLY when GitHub access existed but the read failed — so
+        # render can tell "read failed, say so" from "no access, stay silent" and never show a false 0.
+        "operator_backlog_count": operator_backlog_count,
+        "operator_backlog_register": operator_backlog_register,
+        "operator_backlog_degraded": bool(repo and token) and operator_backlog_count is None,
         # How many open findings carry NO urgency rating — from the SAME read as the count above, so the two
         # can never disagree. None when the register could not be read (the card then says nothing about it
         # rather than guessing zero).
@@ -1440,8 +1468,8 @@ def render_dashboard(s: dict) -> str:
             # GitHub issues) so a zero here reads as "checked, and there are none", not "unknown". Only this
             # branch is a genuine live read; the "none recorded yet" branch below is reached when the register
             # could not be read at all, so it must NOT claim a fresh source.
-            out.append(f"**Open problems:** {s['finding_count']} _(as of this session, source: GitHub Issues)_")
-            # Say when open problems carry no urgency rating. Without this the card reads "18 open" beside
+            out.append(f"**Engine findings:** {s['finding_count']} _(as of this session, source: GitHub Issues)_")
+            # Say when engine findings carry no urgency rating. Without this the card reads "18 open" beside
             # "Nothing is blocking right now" and the two together imply the engine weighed them and found
             # none urgent. It did not weigh them at all: nothing has ever rated them, so the debt-blocking
             # rule has nothing to compare and they neither block nor count toward the waiting-work meter
@@ -1454,9 +1482,25 @@ def render_dashboard(s: dict) -> str:
                 out.append(f"_{which}, so nothing weighs them against the bar that decides what stops you. "
                            f"That is not a judgement that they are minor — it means no one has rated them._")
         elif s["debt_count"]:
-            out.append(f"**Open problems:** {telemetry.degraded_readout(s['debt_count'], s['debt_as_of'])}")
+            out.append(f"**Engine findings:** {telemetry.degraded_readout(s['debt_count'], s['debt_as_of'])}")
         else:
-            out.append("**Open problems:** none recorded yet.")
+            out.append("**Engine findings:** none recorded yet.")
+        # The operator's OWN open issues (their product backlog — issues WITHOUT the engine label), a plain
+        # facts-block line, NEVER the ⚠ marker: a routine backlog is not a governance alarm. It carries its
+        # clickable filtered register so the count is actionable. Three states, never a false 0: a live count
+        # (shown with its link); a read that FAILED while GitHub was reachable (say so — not a silent vanish,
+        # since a solo operator-read failure is not covered by the att_degraded outage notice); or no GitHub
+        # access at all (stay silent, like every other GitHub-derived line when there is no token).
+        if s.get("operator_backlog_count") is not None:
+            reg = s.get("operator_backlog_register")
+            tail = f" → {reg}" if reg else ""
+            # "your own filed work" alone carries the distinction now that the line above is labelled
+            # "Engine findings" — no need to also spell out "separate from the engine findings above".
+            out.append(f"**Your open issues:** {s['operator_backlog_count']} _(as of this session, source: "
+                       f"GitHub Issues)_ — your own filed work{tail}")
+        elif s.get("operator_backlog_degraded"):
+            out.append("**Your open issues:** _I couldn't read your issue backlog from GitHub this session, "
+                       "so I'm not showing a count — re-ground before you rely on it._")
         # The render-only triage-pressure line, only when the live low-severity backlog crosses the threshold
         # (suppressed on a degraded read or a below-threshold count — telemetry owns that decision).
         if s.get("triage_pressure_line"):

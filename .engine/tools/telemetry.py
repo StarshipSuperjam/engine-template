@@ -669,6 +669,34 @@ class GitHubIssues:
         """The human-citable register: where the live list of open engine items lives."""
         return f"https://github.com/{self.repo}/issues?q=is:open+label:{self.label}"
 
+    def count_open_operator_issues(self) -> int:
+        """The number of the OPERATOR's own open Issues — every open issue WITHOUT the engine-domain label,
+        their product backlog — the exact complement of `list_open_engine_issues` over the open non-PR set.
+        Answered in a SINGLE call via GitHub's Search API (`total_count`), never by paginating the whole
+        backlog: the list endpoint's `labels=` param is include-only (no negative filter), so the naive read
+        would fetch every open issue just to drop the engine-labelled ones — the heaviest read on the boot
+        path. Search filters server-side (`-label:` excludes the engine label; `is:issue` drops PRs), exactly
+        the query `operator_issues_query_url` builds for the human register, so the count and the citable list
+        are one query. RAISES DegradedReadError on any HTTP error OR an unexpected shape — a failed read must
+        never be mistaken for a real 0. Reads the wrapped `{total_count, items: [...]}` envelope through the
+        same transport as `list_head_check_runs`. Two Search caveats, both fine for a once-per-session
+        'as of this session' count: a brief indexing lag (a just-filed issue may take seconds to appear) and a
+        30-request/minute limit. The label is quoted so a build-spec-leaf label carrying a space stays one term."""
+        q = f'repo:{self.repo} is:open is:issue -label:"{self.label}"'
+        status, data = self._transport(
+            "GET", f"/search/issues?q={urllib.parse.quote(q)}&per_page=1", None)
+        # Reject a present-but-non-int total_count (null / string / object) as an unexpected shape too, not
+        # just a missing key — so a malformed-but-present count raises DegradedReadError (the documented
+        # failure) rather than a bare int() TypeError, and can never read as a real count.
+        if status >= 400 or not isinstance(data, dict) or not isinstance(data.get("total_count"), int):
+            raise DegradedReadError(f"GitHub returned {status} counting open operator issues")
+        return int(data["total_count"])
+
+    def operator_issues_query_url(self) -> str:
+        """The human-citable register: where the operator's own open (non-engine) issues live — the same
+        `-label:` filter `count_open_operator_issues` counts, so the clickable list matches the count."""
+        return f"https://github.com/{self.repo}/issues?q=is:open+is:issue+-label:{self.label}"
+
     def list_head_check_runs(self, ref: str) -> list:
         """Every CI check-run on `ref` (a branch name or SHA), paginated to exhaustion. The response is the
         wrapped `{total_count, check_runs: [...]}` object (unlike the bare-array issues endpoint), so the
@@ -801,10 +829,10 @@ def degraded_readout(count, as_of) -> str:
     PRODUCES it; boot renders it."""
     if count is None:
         return ("I couldn't reach GitHub to refresh the engine's self-monitoring backlog, and there "
-                "is no offline count to fall back on — treat the engine's open-problem count as "
+                "is no offline count to fall back on — treat the count of open engine findings as "
                 "unknown until GitHub returns.")
     when = as_of or "an earlier session"
-    return (f"{count} open problems as of {when} — I couldn't refresh this, so it may be wrong; "
+    return (f"{count} open engine findings as of {when} — I couldn't refresh this, so it may be wrong; "
             f"re-ground before you rely on it. The per-issue detail is temporarily unreachable until "
             f"GitHub returns.")
 
