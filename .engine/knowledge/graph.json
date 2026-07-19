@@ -5868,7 +5868,7 @@
       },
       "slug": "consolidate",
       "source": {
-        "fingerprint": "sha256:6199ff891c2f6604c2975c76ab9e68d80ba70c32cd4edaadcd58e47f431b2d00",
+        "fingerprint": "sha256:b739aaa8f766708615117ee7b9edd089068d83a654f2c212340d8447780dff9c",
         "path": ".engine/tools/memory/consolidate.py"
       },
       "status": "active",
@@ -8316,7 +8316,7 @@
       },
       "slug": "test_consolidate",
       "source": {
-        "fingerprint": "sha256:b621c9a2ecc1487980ba22b1d81f256e64822b0f3afd00e532c1e61ada56ee39",
+        "fingerprint": "sha256:313deb1b122b67c83b103966591c88e213b78efcf6e87d6ba79f26b675e5fcce",
         "path": ".engine/tools/memory/test_consolidate.py"
       },
       "status": "active",
@@ -8486,7 +8486,7 @@
       },
       "slug": "test_engine_home_travel",
       "source": {
-        "fingerprint": "sha256:cfa21859a3866ecbc06bc8108daf1c3f7044687ba307a2d8e01ef47dc75118de",
+        "fingerprint": "sha256:a6b1303c96e9c4ea714ac74183523239222b826b8019fc419a105271c0155d17",
         "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
@@ -9489,7 +9489,7 @@
       },
       "slug": "test_scent",
       "source": {
-        "fingerprint": "sha256:4d48f53e40a20992472be3f7c9cac26431d693d0b3ce117b7d980450bc51053b",
+        "fingerprint": "sha256:240a03b83b586f5e68883e0ad4ae5731c9368eab1f88e39d98952643b15a672b",
         "path": ".engine/tools/test_scent.py"
       },
       "status": "active",
@@ -9761,7 +9761,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:ef5f3ffb51c97ab5b62b212cb25a67feda1744d7038667dc11bb3939f055aec6",
+        "fingerprint": "sha256:4326f228f63b07479354f3608cb80038e81086096eb5c168754b3e39328adeb2",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
