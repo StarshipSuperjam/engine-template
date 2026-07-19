@@ -9,6 +9,7 @@
     <a href="LICENSE"><img alt="License: Source-available (Apache-2.0 + Commons Clause)" src="https://img.shields.io/static/v1?label=license&message=Source-available%20%28Apache-2.0%20%2B%20Commons%20Clause%29&color=0b7285" /></a>
     <a href="#status"><img alt="Status: pre-1.0, approaching v1" src="https://img.shields.io/static/v1?label=status&message=pre-1.0%20%C2%B7%20approaching%20v1&color=e8590c" /></a>
     <a href="#runtime-support"><img alt="Runtime: Claude Code" src="https://img.shields.io/static/v1?label=runtime&message=Claude%20Code&color=6f42c1" /></a>
+    <a href="#runtime-support"><img alt="Runtime: Codex" src="https://img.shields.io/static/v1?label=runtime&message=Codex&color=10a37f" /></a>
   </p>
 
   <p><a href="#get-started"><strong>Jump to Get started ↓</strong></a></p>
@@ -191,18 +192,67 @@ Claude Code is the primary, most-exercised runtime. The Engine also serves Codex
 but that path is newer and not yet stress-tested: genuinely supported, though less proven, with the differences
 and rough edges worth knowing below.
 
-| Capability | Claude Code | Codex |
-|---|---|---|
-| Instruction floor | `CLAUDE.md` (conduct auto-imported) | `AGENTS.md` (conduct by required reading — an instruction, not a mechanism) |
-| Session hooks (boot, write-gate, memory, status) | Native, on by default | Native; **requires your one-time approval in Codex settings**, and re-approval after any Engine update that changes them — the Engine tells you when |
-| Explore / Build write-gate | A session hook that blocks writes until you build | Same gate; Codex's own docs call its hook a guardrail, not a complete boundary — the protected branch and your merge remain the wall on both |
-| Build entry | `/engine-start` or plan approval | `$engine-start` only (Codex has no plan-approval signal) |
-| Typed commands | `/engine-…` (10) | `$engine-…` (10) |
-| Review personas | 10 native agents | The same 10, rendered natively (read-only sandbox) |
-| Memory & knowledge servers | `.mcp.json` | `.codex/config.toml` (trusted projects only) |
-| Session-memory capture | Native transcripts | Dedicated reader; Codex's transcript format is not a stable interface, so a format change degrades **loudly** ("memory not captured"), never silently |
-| Minimum version | Current | A 2026 build with hooks support (~v0.114+) |
-| Windows | Supported | Untested by this project — the hook launcher carries the standard fallbacks, but no Windows/Codex run has verified them |
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th width="42%">Claude Code</th>
+<th width="42%">Codex</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Instruction floor</td>
+<td><code>CLAUDE.md</code> (conduct auto-imported)</td>
+<td><code>AGENTS.md</code> (conduct by required reading — an instruction, not a mechanism)</td>
+</tr>
+<tr>
+<td>Session hooks (boot, write-gate, memory, status)</td>
+<td>Native, on by default</td>
+<td>Native; <strong>requires your one-time approval in Codex settings</strong>, and re-approval after any Engine update that changes them — the Engine tells you when</td>
+</tr>
+<tr>
+<td>Explore / Build write-gate</td>
+<td>A session hook that blocks writes until you build</td>
+<td>Same gate; Codex's own docs call its hook a guardrail, not a complete boundary — the protected branch and your merge remain the wall on both</td>
+</tr>
+<tr>
+<td>Build entry</td>
+<td><code>/engine-start</code> or plan approval</td>
+<td><code>$engine-start</code> only (Codex has no plan-approval signal)</td>
+</tr>
+<tr>
+<td>Typed commands</td>
+<td><code>/engine-…</code> (10)</td>
+<td><code>$engine-…</code> (10)</td>
+</tr>
+<tr>
+<td>Review personas</td>
+<td>10 native agents</td>
+<td>The same 10, rendered natively (read-only sandbox)</td>
+</tr>
+<tr>
+<td>Memory &amp; knowledge servers</td>
+<td><code>.mcp.json</code></td>
+<td><code>.codex/config.toml</code> (trusted projects only)</td>
+</tr>
+<tr>
+<td>Session-memory capture</td>
+<td>Native transcripts</td>
+<td>Dedicated reader; Codex's transcript format is not a stable interface, so a format change degrades <strong>loudly</strong> ("memory not captured"), never silently</td>
+</tr>
+<tr>
+<td>Minimum version</td>
+<td>Current</td>
+<td>A 2026 build with hooks support (~v0.114+)</td>
+</tr>
+<tr>
+<td>Windows</td>
+<td>Supported</td>
+<td>Untested by this project — the hook launcher carries the standard fallbacks, but no Windows/Codex run has verified them</td>
+</tr>
+</tbody>
+</table>
 
 ## Running unattended
 
