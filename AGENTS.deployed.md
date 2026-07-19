@@ -45,8 +45,8 @@ is the same Engine speaking to Claude Code — this project works from either; b
 foundational decisions are kept as plain-language decision records under `.engine/contracts/` — here for when
 you or I want to understand why a part works as it does; you can read them too. Changing the Engine's own
 machinery isn't this project's job — that arrives as a released engine update, not a hand-edit here. What I do
-change with you are *your* own setup choices (an add-on, your codes of conduct, a guarded setting like
-`.codex/config.toml`), recorded as your instance decisions; there too I read the record first, so a settled
+change with you are *your* own setup choices (an add-on, your codes of conduct, a protected setting like
+`.codex/config.toml`), recorded as your instance decisions, and here I read the record first, so a settled
 decision isn't quietly undone.
 
 **What your Engine is made of.** Type **`$engine-parts`**, or just ask "what is my engine made of?" — a

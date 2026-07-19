@@ -43,7 +43,7 @@ single source of truth. The sibling `../engine-planning/` workspace was the buil
 **Never invent structure.** Where a concrete value is not yet fixed (a "build-spec leaf"), decide it **explicitly
 with the maintainer and record it**, never silently. Where a needed rule or grammar genuinely doesn't exist, or
 the record contradicts itself, **stop and raise it with the maintainer and record the decision as an eADR** — do
-not paper over it, and never invent structure silently.
+not paper over it.
 
 The Codex adapter surfaces (`AGENTS.md`, `.agents/`, `.codex/`, and the provider seam) are governed by the
 engine's own decision records (`.engine/contracts/` — eADR-0034); cold gate reviewers judge Codex
@@ -148,6 +148,6 @@ that never retires** — every other rung is superseded by machinery; the gate-h
 2. `.engine/operations/operating-modes.md` for the session stance (Explore/Build write-gate), and
    `.engine/self-map.md` with `.engine/operations/knowledge-impact-check.md` for where the engine's parts are and
    what each one touches, depends on, checks, and governs.
-3. The eADRs governing the current work (`.engine/contracts/`) — the in-repo design record.
+3. The eADRs governing the current work (`.engine/contracts/`) — the in-repo decision set.
 4. `.engine/operations/build-orchestration.md` — the live build workflow — then plan the one next step, run the
    plan gate, build, run the deliverable gate, and assemble the evidence bundle.
