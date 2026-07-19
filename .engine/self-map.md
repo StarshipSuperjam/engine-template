@@ -9,7 +9,7 @@
 > It does not show whether each part *works* or is well designed — that is your review and each
 > module's own checks, never something this map attests.
 
-Engine release `0.2.0` · identity `solo`
+Engine release `0.3.0` · identity `solo`
 
 ## Surfaces
 
