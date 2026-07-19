@@ -2750,7 +2750,7 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:6398a90695346ea456c881152b22056271cfc4fb13f814dafb55c2f2a235adc1",
+        "fingerprint": "sha256:bc628acf309ee2f8157a4a980ca9924cb01431fe7216a3347e91ef0c2586e20e",
         "path": ".agents/skills/engine-setup/SKILL.md"
       },
       "status": "active",
@@ -4175,7 +4175,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:7208335c00e27b0ca2e2ff3f05aed3c1371b7543da6735ea804edd4ae15ec7ca",
+        "fingerprint": "sha256:6455202451e4abeb7c96e2370e400f516d97c1584e687c2f12b998e4b421c724",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -5295,7 +5295,7 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:171998f47315e5c3f37e48da8069ac5c12d23d8f63cda26140f436d5706d499e",
+        "fingerprint": "sha256:05e939bbee4558b88cdb7aad9504e3de9f191f3bf11c3bed770b2b34bfe6dd9f",
         "path": ".claude/skills/engine-setup/SKILL.md"
       },
       "status": "active",
@@ -6892,7 +6892,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:573a164c564b5439feec0a16c1e0f68c650220278568f50732cb218a3a2d60cc",
+        "fingerprint": "sha256:7664e1374e809265f5bd8061bab6dba3f7da58c9baeadf74325cde92da05c62a",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -8830,7 +8830,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:3aa1ef0f8d8ff720593cb604815355fd2aa94fe74275ca77aa621ac9f1e37fed",
+        "fingerprint": "sha256:cbf5b7fd4d454910b78b9fba8b543125667fe068c8e2269b09d936a7a9cc176a",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",

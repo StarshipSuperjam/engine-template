@@ -101,6 +101,51 @@ _DESELECT_PREFACE = (
     "When you confirm: the optional add-ons you did NOT keep will be removed from this project — their files\n"
     "are deleted, not just switched off. Wanting one later is a fresh request, not a checkbox you flip back."
 )
+# The first-run WELCOME orientation — for someone who has already adopted the Engine and is now its operator,
+# not a prospect being convinced (that is the README's job). Fuller and more concrete than the README on
+# purpose: it walks the new operator through what is ALREADY running, in plain "here is what this does for you"
+# terms — the always-present essentials, never a choice, so they are described, not offered. Named and framed to
+# match the README's "What's inside" so the two never tell the story two different ways, but authored at its own
+# onboarding depth, never copied. Capability-level (Memory, State, Knowledge, …), never module ids — so no raw
+# id leaks into operator copy, and the render is the same in every Engine because the spine is invariant.
+_LIVE_ALREADY_RUNNING = (
+    "What's already running. You didn't choose these and you don't set them up — they came with your Engine and\n"
+    "are on from this first session:\n"
+    "\n"
+    "  Your project's memory and bearings\n"
+    "    • Memory — I keep a searchable record of the decisions we make, the pushback you give me, and the\n"
+    "      lessons we learn, so a fresh session picks up where the last one left off instead of starting cold. It\n"
+    "      captures as we work and distills itself over time. It can also back itself up to a private repo — that\n"
+    "      backup stays off until you ask for it.\n"
+    "    • State — a short 'where things stand' note I read first each session to get my bearings, and the floor\n"
+    "      I fall back on when GitHub can't be reached.\n"
+    "    • Knowledge — a map of how your project's parts actually connect, built from your code rather than\n"
+    "      guessed, so before I change something I can see what else depends on it.\n"
+    "    • Attention — how I work out what to do next, with a built-in rule that blocking problems come ahead of\n"
+    "      new features, so nothing urgent gets buried.\n"
+    "\n"
+    "  What keeps your changes safe\n"
+    "    • The review gate — every change I make arrives as a pull request against a protected main branch I\n"
+    "      cannot merge on my own. Your approval is the one gate nothing gets past. Automatic checks run on each\n"
+    "      change, and a separate guard makes me get your deliberate sign-off before anything can weaken a\n"
+    "      safety check.\n"
+    "    • Explore and Build — I start every session able only to read and look around; I can change files only\n"
+    "      after you deliberately put me into Build — and even then the change still goes through the review\n"
+    "      gate.\n"
+    "\n"
+    "  How each session runs\n"
+    "    • The boot briefing and status — a plain-language orientation each time a session starts, and a readout\n"
+    "      you can ask for anytime showing where things stand, what shipped, and what needs you.\n"
+    "    • Unattended routines — when you set one up, I can advance a plan you've already approved on a schedule\n"
+    "      while you're away. I never merge on my own, even then.\n"
+    "    • Periodic self-review — a cold, independent check of the Engine's own health that reports what has\n"
+    "      drifted or outlived its use. It only tells you; it never changes anything itself.\n"
+    "\n"
+    "  Wherever you work\n"
+    "    • I run natively in both Claude Code and Codex.\n"
+    "    • Everything falls back to plain files in your repo: if a service is down the work slows but is never\n"
+    "      stranded, because every index and cache rebuilds from what's committed."
+)
 _DEMO_BRIDGE = ("(In this first step I only show you the choice and what confirming would do — nothing is "
                 "deleted yet. The actual setup runs in the next part.)")
 _DEMO_LIVE_NOTE = ("(One real touch in this practice run: the project name and branch just below are read live "
@@ -390,7 +435,8 @@ def selectable(catalog_entries: list) -> dict:
     are never a choice. An entry whose category is unrecognized is grouped last under its own raw label
     rather than dropped (degrade, never hide a real option). All entries are presented uniformly today; a
     catalog `status` of `default-on` (added unless opted out) or `experimental` (opt-in) will want a distinct
-    default-state/label — `owes →` whoever first populates the catalog (the catalog ships empty here)."""
+    default-state/label — `owes →` whoever first sets a catalog `status` other than plain `optional` (every
+    committed entry ships as plain `optional` today)."""
     grouped: dict = {cat: [] for cat in _CATEGORY_ORDER}
     for entry in catalog_entries:
         grouped.setdefault(entry.get("category") or "Other", []).append(entry)
@@ -433,7 +479,8 @@ def optional_dependency_closure(manifests) -> dict:
 
 def present_gather(root: str | None = None, catalog_path: str | None = None, team=None,
                    manifests=None) -> str:
-    """The plain-language GATHER walkthrough the operator reads: the repo coordinates I derived, the one
+    """The plain-language GATHER walkthrough the operator reads: the repo coordinates I derived, the WELCOME
+    orientation to what is already running (the always-present essentials — described, never offered), the one
     identity choice (plus a team-tier recommendation when an existing team is detected — brownfield arrival,
     a suggestion, not a seizure), the optional features to pick from
     (grouped by discipline, or the no-add-ons line when the catalog is empty), and the plain statement that
@@ -446,10 +493,13 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
     coords = (f"{ident['owner']}/{ident['name']}" if ident["owner"] and ident["name"]
               else "(I couldn't read your project's name from GitHub — I'll ask you instead)")
     lines = [
-        "Setting up your project. Here's what I found and what I'll ask you:",
+        "Welcome — your Engine is here, and this is your first-run walkthrough. Here's what I found, what's",
+        "already running, and the few choices I'll ask you to make:",
         "",
         f"Your project: {coords}",
         f"The branch I'll protect with a review gate: {ident['branch']}",
+        "",
+        _LIVE_ALREADY_RUNNING,
         "",
         _TIER_PROMPT,
         "",
@@ -460,7 +510,8 @@ def present_gather(root: str | None = None, catalog_path: str | None = None, tea
         lines += ["", load_copy()["team-recommended"]]
     lines += [
         "",
-        "Optional add-ons you can include or leave out:",
+        "Optional add-ons — include what you want now; you can add any later just by asking, and any is",
+        "removable. Leave out anything you don't need:",
         "",
     ]
     grouped = selectable(module_catalog.entries(catalog_path))

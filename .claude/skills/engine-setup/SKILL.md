@@ -9,8 +9,10 @@ allowed-tools: Bash(python3 .engine/tools/instantiator.py *), Bash(uv run --dire
 ## Steps
 
 1. Follow the procedure in `.engine/operations/first-run.md`. In short: run
-   `python3 .engine/tools/instantiator.py show` to present the choices — who reviews changes here, and which
-   optional add-ons to include — take the operator's answers, then confirm to save their choices. From there
+   `python3 .engine/tools/instantiator.py show` to welcome the new operator — a plain-language orientation to
+   what's already running (the essentials that come with every Engine, described not chosen) — and present the
+   choices: who reviews changes here, and which optional add-ons to include (each addable later or removable).
+   Take the operator's answers, then confirm to save their choices. From there
    the engine continues: it installs the choices and turns on the review gate, checks that everything fits
    together (pausing in plain words if something needs fixing — the operator's choices are never lost), offers the
    operator a private off-computer backup of the project's memory (creating one only on a clear yes to a named
