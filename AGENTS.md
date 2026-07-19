@@ -55,7 +55,11 @@ proceeding. Ground-truth every concrete finding against the source before record
   deferral is an explicitly recorded decision, never a quiet stub.
 - Every change is a **pull request against protected `main`**; **validator-green before merge**. Run the
   same checks CI runs: `uv run --directory .engine --frozen -- python tools/validate.py --suite CI` and
-  `uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b`.
+  `uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b`. The
+  self-test suite runs about 4 minutes (4,000+ tests, varying with machine and cache), so give it a
+  generous time limit: a tool whose command
+  timeout defaults to ~2 minutes cuts it off mid-run — which reads as a hang, not a failure — so set an
+  explicit timeout with headroom (≥ 9 minutes) or run it in the background.
 - **Plan-first, one step at a time**; each step finished and re-grounded from merged disk before the next.
 - **Building starts only by the maintainer's explicit say-so** — `$engine-start` (or an explicitly approved
   plan). Never infer build intent from casual phrasing. The write-gate is a local guardrail; the protected
