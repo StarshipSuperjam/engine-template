@@ -17,11 +17,10 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
 `.claude/settings.json`. The stance lifecycle:
 
 1. **Every session boots in explore.** At session start, boot clears the stance signal first
-   (`modes.clear_stance`), and a resumed session is keyed to a fresh session id, so its prior marker is
-   absent and it does not inherit a prior build stance. When the signal is absent, unreadable, or
-   unrecognized, the stance is explore — the safe default is the floor, never the ceiling. (The boot
-   clear is best-effort; session-keying and absent-resolves-to-explore are the reliable legs, backstopped
-   by the protected-branch merge.)
+   (`modes.clear_stance`), so a resumed session does not inherit a prior build stance. When the signal is
+   absent, unreadable, or unrecognized, the stance is explore — the safe default is the floor, never the
+   ceiling. (Any absent, unreadable, or unrecognized signal reliably resolves to explore; the boot clear
+   that removes a prior marker is best-effort, and the protected-branch merge is the absolute backstop.)
 2. **While exploring, the gate denies the building actions and allows everything else.** It denies the
    small enumerated set that begins building — editing files (Edit / Write / MultiEdit / NotebookEdit),
    creating a branch, committing, and opening a pull request (via `gh pr create` or the GitHub MCP

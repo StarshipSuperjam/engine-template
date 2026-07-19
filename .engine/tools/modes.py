@@ -12,13 +12,12 @@ post-core):
 
   1. THE STANCE SIGNAL — an ephemeral, session-keyed marker in OS-temp storage, never committed and
      never carried across sessions. It is set only by a deliberate in-session entry, and CLEARED at
-     every SessionStart (boot calls clear_stance first; combined with session-keying — a resume is keyed
-     to a fresh session id, so the prior marker is absent — a resumed session resolves to Explore rather
-     than resurrecting a prior Build). When the signal is absent, unreadable, or unrecognized, the stance
-     is explore: the safe default is the floor, never the ceiling (stance is session-scoped and never
-     persists). The boot clear is best-effort (a failed delete is swallowed, below); session-keying and
-     absent-resolves-to-Explore are the reliable legs, backstopped by the protected-branch merge — not a
-     mechanical guarantee.
+     every SessionStart (boot calls clear_stance first). When the signal is absent, unreadable, or
+     unrecognized, the stance is explore — the reliable, code-level floor — so a resumed session resolves
+     to Explore rather than resurrecting a prior Build (the safe default is the floor, never the ceiling;
+     stance is session-scoped and never persists). The boot clear that removes a prior marker is
+     best-effort (a failed delete is swallowed, below), so this is not a mechanical guarantee; the
+     protected-branch merge is the absolute backstop.
 
   2. THE EXPLORE WRITE-GATE — a PreToolUse hook, active only while the stance is explore, that DENIES the
      small enumerated set that BEGINS building — edits to engine or product files, branch creation,
@@ -154,9 +153,9 @@ def clear_stance(session_id: str | None) -> bool:
     """Delete the session's stance marker → the session resolves to EXPLORE. Idempotent (a missing
     marker is success) and never raises. Boot calls this FIRST at every SessionStart so a resumed
     session does not inherit a prior Build signal. This clear is best-effort — a failed delete is
-    swallowed (below), so it is not a mechanical guarantee; the reliable resume-safety legs are
-    session-keying (a resume gets a fresh session id → the prior marker is absent) and
-    absent-resolves-to-Explore, with the protected-branch merge as the absolute backstop."""
+    swallowed (below), so it is not a mechanical guarantee; the reliable floor is that an absent,
+    unreadable, or unrecognized signal resolves to Explore, with the protected-branch merge as the
+    absolute backstop."""
     path = _signal_path(session_id)
     if not path:
         return False

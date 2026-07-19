@@ -423,7 +423,8 @@ def _pr_body(proposal: dict) -> str:
             "the erasure, and nothing merges on its own. If you would rather keep the note, just **close** this pull "
             "request — declining loses nothing (the note stays exactly where it is, still hidden from recall and "
             "fully recoverable). Closing is 'not now', not 'keep forever' — the engine may offer it again at a later "
-            "review, until you erase it.\n")
+            "review, until you erase it. The engine offers earned notes in small batches, so if more have earned "
+            "removal you may see further batches like this at later reviews — each one its own separate choice.\n")
     listed = "\n".join(_collapse(costs))
     return (
         f"This pull request proposes to **permanently erase {n} remembered notes** from the engine's memory, in one "

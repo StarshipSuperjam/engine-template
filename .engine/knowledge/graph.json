@@ -3329,7 +3329,7 @@
       },
       "slug": "eADR-0024-modes-three-stances-two-axes",
       "source": {
-        "fingerprint": "sha256:369a5c4f0ba40802e3715cb36a6473f4bcbfda8fb07f457b08792bb0ddbbf061",
+        "fingerprint": "sha256:cabd1e4e6a789a3a1aaf7ed3787ac05d05a8f961f64a6f757341b50df99c1229",
         "path": ".engine/contracts/eADR-0024-modes-three-stances-two-axes.md"
       },
       "status": "accepted",
@@ -4254,7 +4254,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:306b4dbfaf8fa582753223859ca1df70549fa857f8ee1c8fa6306cd722140c8b",
+        "fingerprint": "sha256:d714216f81800812578021895e8c5b441880bef9a3b2ee0e31da26f06edc94c5",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -5562,7 +5562,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:ee141cbe6dfa53f6b2f90efab5874cb59f911d9bb0dc9634bc8619385ef276fd",
+        "fingerprint": "sha256:2ed668c0fafbb8a1bc226539a210505f2fadcf090e78761dc7bfb7626288b825",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6616,7 +6616,7 @@
       },
       "slug": "erasure_proposer",
       "source": {
-        "fingerprint": "sha256:2e879d3c299e511b92d3a84ffa1b337467ce56e9375b399f10e8fa1e7cc8b1c5",
+        "fingerprint": "sha256:e6f74bd76d7f411e48a022b4aa92fcd4758cc9847f86c7b0fed807855d60d73b",
         "path": ".engine/tools/memory/erasure_proposer.py"
       },
       "status": "active",
@@ -6735,7 +6735,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:dcc4473ffaa1708bd39f60aad571b799956b7c5a7a8716469abe61b364744521",
+        "fingerprint": "sha256:ef0f085ef6cf40341b4713e6e842d7a730cf83600756fecafde9805161811383",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -7160,7 +7160,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:88527fafd20c503a1595d8b5fb27657e4dd890094824a54b587dd51d695017ec",
+        "fingerprint": "sha256:fcf1fd137f3378495dda94ce385932bcb48cc57161a187038ddd64c1dfc6b8bc",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",

@@ -2014,8 +2014,8 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     status = ["--- the full status (your grounding for this session) ---", dashboard]
 
     # Measure before injecting (#495 — owed regardless of D-309): past the platform's per-value output
-    # cap it saves the full value to a file and substitutes a preview of the first characters (plus the
-    # file path). The grounding marker near the top of the pack survives inside that preview; what drops
+    # cap it saves the full value to a file and substitutes a preview of the first 2,000 characters (plus
+    # the file path). The grounding marker near the top of the pack survives inside that preview; what drops
     # from the injected context is the material past it — the status headline and dashboard. So Tier 0
     # (the governance instructions, marker, and alarm relay) is never shed; the orientation tier goes
     # first, the status dashboard only after it, keeping the essential content within the surviving

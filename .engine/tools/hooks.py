@@ -239,7 +239,8 @@ def inject(context: str) -> dict:
 
 # The platform's per-value output cap (#495, a pre-existing latent defect the D-309 pass surfaced): past
 # 10,000 characters the platform saves the full payload to a file and substitutes a preview of the first
-# ~2,000 characters (plus the file path). The boot pack's grounding marker sits near the top, so it
+# 2,000 characters (plus the file path) — both figures verified against the shipped Claude Code 2.1.185
+# binary. The boot pack's grounding marker sits near the top, so it
 # survives inside that preview; what drops from the injected context is everything past it — the status
 # headline, the write-gate summary, and the dashboard. So measure-before-inject sheds the lowest-value
 # tiers to keep the essential content within the surviving preview window. The cap binds EACH output
