@@ -525,6 +525,34 @@ class TestResolveSession(unittest.TestCase):
             self.assertEqual(quiet_call.run(modes.main, ["set-build"]), 0)
             self.assertEqual(modes.current_stance("cli-env-session"), modes.BUILD)
 
+    def test_set_routine_cli_enters_routine_only_when_isolated(self):
+        # set-routine grants the unattended write-stance ONLY on proven worktree isolation.
+        import checkout_health
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
+                mock.patch.object(checkout_health, "is_isolated_worktree", return_value=True):
+            self.assertEqual(quiet_call.run(modes.main, ["set-routine", "--session", "sR"]), 0)
+            self.assertEqual(modes.current_stance("sR"), modes.ROUTINE)
+
+    def test_set_routine_cli_declines_when_not_isolated(self):
+        # In the operator's main checkout (isolation not provable) set-routine DECLINES — stays explore,
+        # never grants an unattended write stance that could strand the operator's checkout.
+        import checkout_health
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
+                mock.patch.object(checkout_health, "is_isolated_worktree", return_value=False):
+            self.assertEqual(quiet_call.run(modes.main, ["set-routine", "--session", "sR"]), 1)
+            self.assertEqual(modes.current_stance("sR"), modes.EXPLORE)
+
+    def test_set_routine_cli_declines_when_session_unresolvable(self):
+        # No resolvable session -> decline (return 1) before any stance is written (the session check comes
+        # first, so a garbled/absent id never keys a routine marker to nothing).
+        import providers
+        with mock.patch.dict(os.environ,
+                             {providers.MARKER_ENV: os.path.join(tempfile.gettempdir(),
+                                                                 "no-such-marker.json")}, clear=True):
+            self.assertEqual(quiet_call.run(modes.main, ["set-routine"]), 1)
+
     def test_set_build_makes_the_gate_allow_writes_for_that_session(self):
         # The end-to-end modes contract the Build verb relies on: set-build for a session id makes the
         # PreToolUse gate PERMIT a write for THAT SAME id (one it denies in explore), and ONLY that id.

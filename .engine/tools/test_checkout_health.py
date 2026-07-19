@@ -97,6 +97,29 @@ class TestDetectStrand(unittest.TestCase):
             self.assertIsNone(checkout_health.detect_strand(cwd=root))
 
 
+class TestIsolatedWorktree(unittest.TestCase):
+    """is_isolated_worktree — the POSITIVE isolation gate the unattended Routine stance-entry requires."""
+
+    def test_main_checkout_is_not_isolated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(checkout_health.is_isolated_worktree(cwd=_repo(tmp, "main")))
+
+    def test_linked_worktree_is_isolated_and_its_main_is_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _repo(tmp, "main")
+            wt = os.path.join(tmp, "wt")
+            _git(main, "worktree", "add", "-q", "--detach", wt)
+            self.assertTrue(checkout_health.is_isolated_worktree(cwd=wt),
+                            "a dedicated linked worktree is isolated")
+            self.assertFalse(checkout_health.is_isolated_worktree(cwd=main),
+                             "the same repo's main checkout is not")
+
+    def test_non_git_dir_is_not_isolated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # git can't answer -> False, the safe floor: isolation must be proven, never merely un-disproven
+            self.assertFalse(checkout_health.is_isolated_worktree(cwd=tmp))
+
+
 class TestDemo(unittest.TestCase):
     def test_demo_runs(self):
         # the operator-runnable demo classifies fixtures + prints the warm strand line; rc 0, never raises.
