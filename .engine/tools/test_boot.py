@@ -131,9 +131,12 @@ class TestFirstRunOffer(unittest.TestCase):
         self.assertIn("set up my project", dash)
         self.assertIn("first-time setup hasn't finished", dash)
 
-    def test_offer_pins_above_the_findings_alarm(self):
-        dash = boot.render_dashboard(_signals(first_run=self._FIRST_RUN, finding_count=3))
-        self.assertLess(dash.index("set up my project"), dash.index("open engine finding"),
+    def test_offer_pins_at_the_top_above_other_alarms(self):
+        # The onboarding offer frames every other signal, so it pins FIRST — above e.g. a stranded-checkout alarm.
+        dash = boot.render_dashboard(_signals(first_run=self._FIRST_RUN, strand=True)).lower()
+        self.assertIn("set up my project", dash)
+        self.assertIn("drifted into a broken state", dash)
+        self.assertLess(dash.index("set up my project"), dash.index("drifted into a broken state"),
                         "the onboarding offer frames every other signal, so it pins first")
 
     def test_no_offer_when_not_pending(self):
