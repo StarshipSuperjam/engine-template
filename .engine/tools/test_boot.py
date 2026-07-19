@@ -87,7 +87,9 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
             "ledger_malformed": None, "migration_stalled": False, "recall_offline": False,
-            "set_aside": None, "foreign_license": None}
+            "set_aside": None, "foreign_license": None,
+            "operator_backlog_count": None, "operator_backlog_register": None,
+            "operator_backlog_degraded": False}
 
 
 def _signals(**over):
@@ -132,18 +134,59 @@ class TestOpenProblemsProvenance(unittest.TestCase):
 
     def test_a_live_count_names_its_source_and_freshness(self):
         dash = boot.render_dashboard(_signals(finding_count=3))
-        self.assertIn("Open problems:** 3", dash)
+        self.assertIn("Engine findings:** 3", dash)
         self.assertIn("as of this session, source: GitHub Issues", dash)
 
     def test_a_genuine_zero_read_carries_the_same_provenance(self):
         dash = boot.render_dashboard(_signals(finding_count=0))
-        self.assertIn("Open problems:** 0", dash)
+        self.assertIn("Engine findings:** 0", dash)
         self.assertIn("as of this session, source: GitHub Issues", dash)
 
     def test_the_unreadable_branch_makes_no_fresh_source_claim(self):
         dash = boot.render_dashboard(_signals(finding_count=None, debt_count=0))
         self.assertIn("none recorded yet", dash)
         self.assertNotIn("source: GitHub Issues", dash)   # the couldn't-read branch never claims a fresh read
+
+
+class TestOperatorBacklogLine(unittest.TestCase):
+    """The operator's OWN open-issue count (their product backlog — issues WITHOUT the engine label) is a
+    plain facts-block line distinct from the engine findings above it: shown with a clickable register when
+    live, an honest 'couldn't read' when the read failed with access, and SUPPRESSED entirely (never a false
+    0) when there was no GitHub access — and NEVER routed through the ⚠ marker (a routine backlog is not a
+    governance alarm)."""
+
+    def test_a_live_count_shows_with_its_clickable_register(self):
+        dash = boot.render_dashboard(_signals(
+            operator_backlog_count=40,
+            operator_backlog_register="https://github.com/o/r/issues?q=is:open+is:issue+-label:engine"))
+        self.assertIn("**Your open issues:** 40", dash)
+        self.assertIn("as of this session, source: GitHub Issues", dash)
+        self.assertIn("your own filed work, separate from the engine findings above", dash)
+        self.assertIn("issues?q=is:open+is:issue+-label:engine", dash)   # the count is actionable
+
+    def test_a_genuine_zero_backlog_reads_as_checked_none(self):
+        dash = boot.render_dashboard(_signals(operator_backlog_count=0,
+                                              operator_backlog_register="https://github.com/o/r/issues"))
+        self.assertIn("**Your open issues:** 0", dash)   # a live 0 is shown, never suppressed
+
+    def test_a_read_that_failed_with_access_says_so_never_silently_vanishes(self):
+        # The solo-operator-read-failure case the shared-outage att_degraded notice does NOT cover: say it
+        # plainly rather than dropping the line the operator has learned to expect.
+        dash = boot.render_dashboard(_signals(operator_backlog_count=None, operator_backlog_degraded=True))
+        self.assertIn("**Your open issues:**", dash)
+        self.assertIn("couldn't read your issue backlog", dash)
+        self.assertNotIn("Your open issues:** 0", dash)   # a failed read is NEVER a false 0
+
+    def test_no_github_access_suppresses_the_line_entirely(self):
+        dash = boot.render_dashboard(_signals(operator_backlog_count=None, operator_backlog_degraded=False))
+        self.assertNotIn("Your open issues", dash)   # no token -> silent, like every GitHub-derived line
+
+    def test_the_backlog_never_reaches_the_status_marker(self):
+        # A routine product backlog is not a governance alarm; the ⚠ marker stays engine-scoped.
+        marker = boot.present_marker_line(_signals(finding_count=0, operator_backlog_count=40))
+        self.assertNotIn("open issues", marker)
+        self.assertNotIn("40", marker)
+        self.assertIn("all clear", marker)
 
 
 class TestDegradedNotice(unittest.TestCase):
@@ -962,7 +1005,7 @@ class TestRecentDecisionsRender(unittest.TestCase):
         # neither blocks nor counts toward the waiting-work meter. "Not rated" and "rated, not urgent" look
         # identical on the card and mean opposite things.
         card = boot.render_dashboard(_signals(finding_count=18, unrated_count=18, debt_count=18))
-        self.assertIn("**Open problems:** 18", card)
+        self.assertIn("**Engine findings:** 18", card)
         self.assertIn("None of these carries an urgency rating", card)
         self.assertIn("not a judgement that they are minor", card)
 

@@ -4105,7 +4105,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:5a6b501ce62050c7d1bf6d74a9c9b673a4d365667b2c1a83547d46e86806af14",
+        "fingerprint": "sha256:82d63e496c3d97548c270dd2261de4422888659fdf18eb403e56fb970091c607",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -4125,7 +4125,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:dd4f44c3a9b38e7ce9bc77eab9b0c86e78472ca30eabdb34d8b18a72aa7fc966",
+        "fingerprint": "sha256:2f00d9f489dba47e03e0e0f738d63940c2cb31bdc2894d5c385607c198f0eb71",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -4731,7 +4731,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:61d0be4d52cd654e20023899e4524086546455df09d287a221ca2fb040ae32d9",
+        "fingerprint": "sha256:9f8ad5254813804f300ca115c56c76ad833030a2cdebc4f22f5373042c784dda",
         "path": ".engine/schemas/engine.v1.json"
       },
       "status": "active",
@@ -5512,7 +5512,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:1ca84ff3a376c04f263fce548034c17b8c8d908981b145ac7fb97eb246476a39",
+        "fingerprint": "sha256:58971ac403e7afb93c8e59b0a4020310de6f47a5dc8d641c4a2b20d22e43831a",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5631,7 +5631,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:2ed1095b666a7b56e6fd34a50b0ca573c15cd57a17bda9f636fd9492b8ca7fa3",
+        "fingerprint": "sha256:2f9b6ee3788dad664454d49bef9efe4e6496af8b42ec36248a73500a87ff75fb",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -6199,6 +6199,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_operator_backlog",
+      "name": ".engine/tools/demo_operator_backlog.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_operator_backlog",
+      "source": {
+        "fingerprint": "sha256:1e05c8f3ed259cc1f3b6beb4fd0020ddee5d80c7a4da865a6ac018438faa33a0",
+        "path": ".engine/tools/demo_operator_backlog.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_overlay_disclosure",
       "name": ".engine/tools/demo_overlay_disclosure.py",
       "owner": "core",
@@ -6702,7 +6719,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:f9b177d8dfc286a6c8a1f7508cc298a4ca12a6c1f3a9ac59a33e708c8eca9750",
+        "fingerprint": "sha256:556677481b2ee0c43d68b7573fd2eb652c153aca159f6da4cfcc4f40366021e4",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7688,7 +7705,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:78bd54c39ef12c8cf64592c91d40194ab9c129ebe762a4869c388d4301cbbc7a",
+        "fingerprint": "sha256:9c013f646f0256e87c89cffc4def4d675f5286651c0317775117c4842953053b",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -7722,7 +7739,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:2144c0db548ac09aa52f120450157d2070ca018a4c3c04f6d2fa31c451da74bf",
+        "fingerprint": "sha256:e1314e25b3cdb46e6b8847ee042c6a15115546919d5778ed4293a9d754124633",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -7960,7 +7977,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f28c0b13ae7bf11fae521431d709077fbf57e96695dfb2b60d354a18c161389f",
+        "fingerprint": "sha256:e52fc666b32b2ae663e9f2fddf02594a7ad87acb3af08da9f7104c9a9c29c5b9",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -8079,7 +8096,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:9c8ce0910bc68ccc223a9e8a6f3603f32ce0a9759c66c881396f76911b92c273",
+        "fingerprint": "sha256:0f952113ebed7c5d202c8adade7a13f2f9054c79ea7d5ccabe82b46f523cb245",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -8555,7 +8572,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:1651cc17cafb340f5b8f0247fe723b4c65fd8261c76e93a59431b70dba15b775",
+        "fingerprint": "sha256:5b73a25ac2eed27688e645b4c1dd80b981a0a1116ceb4cba41bd66b13ecac3f5",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9609,7 +9626,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:f15a7ef79afa13c64cafac2bec7d17f4812438b0aad6c6866225d0ec136c4bc0",
+        "fingerprint": "sha256:2adb29c9c1244723184b54455716a067a1ed6de2539891fb4148e893da79698d",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
@@ -9643,7 +9660,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:1ab668303efb53ab22104b6aae1d59bb8e8f17c5cdcbae761197bee7133f05c3",
+        "fingerprint": "sha256:72516898e1a14e828a9a9e288fdeb7d9279369f4f05fe05267e6836476a28906",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
