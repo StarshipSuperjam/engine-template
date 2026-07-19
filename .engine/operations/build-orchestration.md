@@ -19,7 +19,7 @@ frontmatter — so a standalone operator- or module-authored persona is admitted
 arrives in a pack; none installed means a **disclosed no-op pass**, never a silent green. The canonical
 persona set lives in `.claude/agents/` (on Codex the reviewers are the same personas' committed renders under
 `.codex/agents/`); a change to the engine's Codex adapter surfaces is judged against the engine's own
-decision records (`.engine/contracts/` — eADR-0034/0035/0036) and, after merge, the live pass in
+decision records (`.engine/contracts/` — eADR-0034) and, after merge, the live pass in
 `.engine/operations/codex-validation.md`. The one mechanical hook is the pull-request
 **Review** section's presence-gate (the completeness check over `.github/pull_request_template.md`);
 everything else is a deliberate-effort nudge whose only wall is the protected-branch merge.

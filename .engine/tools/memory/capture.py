@@ -205,7 +205,7 @@ def _is_noise(text: str) -> bool:
 # Codex's transcript format is EXPLICITLY unstable (its docs reserve the right to change it), so a
 # Codex-tagged session parses ONLY through this dedicated recognizer and NEVER falls through to the
 # tolerant Claude parser above — a partially-recognized transcript writing fragments into long-term
-# memory is strictly worse than an honestly-empty capture (eADR-0036). The recognizer captures fully
+# memory is strictly worse than an honestly-empty capture (eADR-0034). The recognizer captures fully
 # or not at all: a transcript with no recognized record shapes reads as UNRECOGNIZED, the capture is
 # a zero-record no-op, and the loud status marker (below) says so.
 
@@ -697,7 +697,7 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
     }
 
 
-# --- The capture-status marker (loud degradation, eADR-0036) ----------------------------------
+# --- The capture-status marker (loud degradation, eADR-0034) ----------------------------------
 # The one intended Claude-side behavioral delta of the dual-runtime work: capture used to no-op
 # SILENTLY on a fault. Now every capture attempt records its outcome to a gitignored marker —
 # captured / no-transcript / invalid-path / unparseable — which boot renders as one plain dashboard
@@ -781,7 +781,7 @@ def _capture(payload, *, cwd) -> int:
         # hold and BEFORE the no-delta early return — so even a no-delta turn (noise-only, interrupted) still
         # refreshes liveness and a live session can never drift stale to the consolidation sweep.
         refresh_lease_locked(data_dir, session_id)
-        # PROVIDER-ROUTED parsing (eADR-0036): a Codex session's transcript goes ONLY through the
+        # PROVIDER-ROUTED parsing (eADR-0034): a Codex session's transcript goes ONLY through the
         # Codex recognizer — an unrecognized (changed) format is a loud zero-capture, never a
         # fall-through to the tolerant Claude parser below, which could capture fragments.
         import providers  # lazy: the tools-dir seam; this package puts the tools dir on sys.path

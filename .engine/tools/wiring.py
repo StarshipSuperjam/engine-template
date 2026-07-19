@@ -25,7 +25,7 @@ REVERSAL KEYS ON ENGINE-NAMESPACED IDENTITY, never bare content (module-system 1
   - codex-hook  -> .codex/hooks.json (the Codex runtime's registration), keyed on {event, matcher,
                    type, command} exactly like `hook`; command -> .engine/. Codex trusts hooks per
                    exact definition, so every apply/reverse that changes the file carries the
-                   re-trust notice in its finding (eADR-0036).
+                   re-trust notice in its finding (eADR-0034).
   - codex-mcp   -> .codex/config.toml, the engine server rendered inside a comment-fenced
                    engine-managed block keyed on the engine-prefixed server name — a fence, never a
                    whole-file TOML rewrite, so product tables outside the fences are untouched; the
@@ -101,7 +101,7 @@ CODEX_CONFIG_PATH = os.path.join(validate.ROOT, ".codex", "config.toml")  # code
 
 # The plain-language re-trust notice every codex-hook change carries: Codex records trust against each
 # hook's exact definition, so a new or changed registration is silently SKIPPED until the operator
-# re-trusts it — the one moment to say so is when the engine makes the change (eADR-0036).
+# re-trusts it — the one moment to say so is when the engine makes the change (eADR-0034).
 CODEX_RETRUST_NOTE = ("Codex skips new or changed hooks until you approve them again — open Codex "
                       "and run /hooks to re-approve the engine's hooks.")
 

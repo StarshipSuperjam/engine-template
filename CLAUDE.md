@@ -45,7 +45,7 @@ contradicts itself, **stop and raise it** — do not paper over it. A change tha
 stops for the litigation alarm in `../engine-planning/CLAUDE.md`.
 
 The Codex adapter surfaces (`AGENTS.md`, `.agents/`, `.codex/`, and the provider seam) are governed by the
-engine's own decision records (`.engine/contracts/` — eADR-0034/0035/0036); cold gate reviewers judge Codex
+engine's own decision records (`.engine/contracts/` — eADR-0034); cold gate reviewers judge Codex
 work against those records.
 
 ## The trust model — informed consent on evidence, never code review

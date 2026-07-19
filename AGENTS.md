@@ -26,7 +26,7 @@ the maintainer explicitly starts a build.
 state, memory, knowledge, attention, guardrails, and control plane a non-engineer needs to direct
 cold-booting AI sessions on any project. The Engine builds itself here under its own governance. The
 governing design record is the Engine's own decision set — the plain-language eADRs under
-`.engine/contracts/` (for the dual-runtime work, start with eADR-0034/0035/0036) — plus the operations
+`.engine/contracts/` (for the dual-runtime work, start with eADR-0034) — plus the operations
 runbooks under `.engine/operations/`. Where a needed rule or grammar genuinely doesn't exist, stop and
 raise it with the maintainer and record the decision as an eADR — never invent structure silently.
 

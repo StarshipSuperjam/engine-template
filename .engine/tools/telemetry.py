@@ -1209,7 +1209,7 @@ def _capture_marker_message() -> str:
 def spool_capture_marker(*, marker_path: str = CAPTURE_STATUS_PATH,
                          spool_path: str = INBOX_SPOOL_PATH) -> bool:
     """Feed a FAILING memory-capture status marker into the findings inbox as ONE benign finding —
-    the persistence-gated half of the capture degradation surface (eADR-0036: boot's dashboard line
+    the persistence-gated half of the capture degradation surface (eADR-0034: boot's dashboard line
     is the immediate half; this leg tracks a PERSISTENT failure as a durable finding via the drain's
     cross-session accrual, so a one-off hiccup never becomes an Issue). The marker is NOT cleared —
     the next successful capture overwrites it with 'captured', which simply stops the feed. De-duped
