@@ -27,8 +27,8 @@ Render rules (the whole mapping, so review needs no second source):
       — all engine commands are operator-typed).
     - the body is the Claude body with the typed prefix rewritten (/engine-x -> $engine-x) and the
       Claude session flag dropped (the engine resolves the session itself on Codex).
-    - `engine-routine` is NOT rendered: its backend (the routine adapter) is not built yet, and a
-      command with no backend is a stub; the absence is a provider-exception ledger entry.
+    - every engine skill is rendered; there is no exclusion. (The routine backend — the set-routine
+      stance-entry — shipped, so `engine-routine` now has its Codex twin like the rest.)
 """
 from __future__ import annotations
 import glob
@@ -46,7 +46,7 @@ SKILL_SRC_ROOT = os.path.join(".claude", "skills")
 AGENT_OUT_DIR = os.path.join(".codex", "agents")
 SKILL_OUT_ROOT = os.path.join(".agents", "skills")
 
-SKILL_EXCLUDE = frozenset({"engine-routine"})   # ledgered: ships with its backend (the routine adapter)
+SKILL_EXCLUDE = frozenset()   # no exclusions — every engine skill has a Codex twin (the routine backend shipped)
 
 _EFFORT_BY_TIER = {"judgment": "high", "mechanical": "low"}
 

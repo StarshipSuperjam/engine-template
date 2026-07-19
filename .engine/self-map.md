@@ -154,6 +154,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 - depends on: `core`
 - provides:
+  - codex-skill: `.agents/skills/engine-routine/SKILL.md`, `.agents/skills/engine-routine/agents/openai.yaml`
   - operation: `.engine/operations/routine-entry.md`
   - skill: `.claude/skills/engine-routine/SKILL.md`
 - wires: none (this module adds no shared-state edits)
