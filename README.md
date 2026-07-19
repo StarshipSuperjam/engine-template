@@ -1,7 +1,7 @@
 <!-- engine-template:landing-front -->
 
 <div align="center">
-  <img src="assets/engine_banner.jpg" width="700" alt="Engine" />
+  <img src="assets/engine_banner.jpg" width="700" alt="Engine — direct AI on real engineering work, and stay the person who decides, without reading a line of code" />
 
   <p><strong>Direct real engineering work — and stay the person who decides — without reading a line of code.</strong></p>
 
@@ -15,8 +15,8 @@
 </div>
 
 The Engine keeps a human director in charge of AI that writes the code. It does that by making every change
-**legible** and **consentable** — so you can direct serious work on a real project and approve it on evidence
-you can actually judge, rather than on trust or a code review you'd have to perform yourself. (It runs natively
+**legible** and **safe to approve** — so you can direct serious work on a real project and approve it on
+evidence you can actually judge, rather than on trust or a code review you'd have to perform yourself. (It runs natively
 in Claude Code and Codex.)
 
 ## Why the Engine
@@ -43,8 +43,8 @@ one you can undo.
 
 ## What's inside
 
-The Engine externalizes the cognition and controls it runs on — each one committed to your repository and open
-to inspection, not a black box. Every Engine ships with all of these:
+The Engine keeps its thinking and its safety controls as files in your own repository — open to inspection, not
+a black box. Every Engine ships with all of these:
 
 **Externalized cognition**
 
@@ -53,8 +53,8 @@ to inspection, not a black box. Every Engine ships with all of these:
   private repo.
 - **State** — a small committed "where things stand" pointer a fresh session reads first to orient, and the
   floor it falls back to when GitHub is unreachable.
-- **Knowledge** — an always-current, queryable map of how your project's parts actually connect, generated
-  from the code itself rather than guessed.
+- **Knowledge** — a queryable map of how your project's parts actually connect, generated from the code itself
+  rather than guessed, and refreshed as the project changes.
 - **Attention** — a deterministic, inspectable prioritizer for what to do next, with a built-in guarantee that
   blocking problems surface ahead of new features — a structural rule, not a dial anyone has to calibrate.
 
@@ -129,7 +129,8 @@ not running, never passed off as a silent green.
 - A **GitHub account**, and a repository created with **Use this template** (not a fork — see
   [Contributing](#contributing)).
 - **Claude Code** (current version), or **Codex** (a 2026 build with hooks support, around v0.114 or later).
-- The **GitHub CLI (`gh`) signed in** — otherwise code-ownership and the review gate quietly defer until it is.
+- The **GitHub CLI (`gh`) signed in** — otherwise assigning who reviews your changes, and the review gate
+  itself, quietly defer until it is.
 - A **network connection** for a one-time tool download during setup. Setup pauses to ask before it downloads
   anything; offline, it stops safely rather than guessing.
 
@@ -143,13 +144,19 @@ not running, never passed off as a silent green.
    bigger setup with a security trade-off it explains), and **which optional add-ons to include**. Then it
    installs, wires, and verifies your selection.
 4. **Two GitHub steps only you can do.**
-   - Approve the **one-time authorization screen** that lets the Engine turn on branch protection. GitHub
-     describes the permission in sweeping terms, but it only reaches repositories you already control.
+   - Approve the **one-time authorization screen** that lets the Engine turn on branch protection. During
+     setup, `gh` opens this screen in your browser — approve it there. Be aware the permission it asks for
+     covers **all of your GitHub repositories, not just this one**; that breadth is real, though it only
+     reaches repositories you already have access to, and it's what lets the Engine set up the review gate.
    - **Enable GitHub Actions** on the new repo (its **Actions** tab). Until you do, the automatic checks can't
      run — and *no* pull request can pass them, including setup's own.
-5. **Turn on the two live helpers.** Approve the Engine's **memory** and **knowledge** servers when your app
-   prompts (or in its settings), then **fully quit and reopen** the app. Until then the Engine runs on its
-   committed-file fallback — it works, but can be out of date.
+5. **Turn on the two live helpers.** Approve the Engine's **memory** and **knowledge** servers — on Claude
+   Code, when the app prompts (or in its settings); on Codex, by trusting the project in its settings — then
+   **fully quit and reopen** the app. Until then the Engine runs on its committed-file fallback: it works, but
+   can be out of date.
+
+When setup finishes it removes its own walkthrough files and tells you it's done — that's your signal the Engine
+is live. From there, just make your first request, or ask for a status readout to see where things stand.
 
 ### What the Engine handles for you
 
@@ -186,13 +193,15 @@ traveled files and repairs an existing protection ruleset in place, so it never 
 
 ## Runtime support
 
-The same Engine serves both runtimes from one core; the differences worth knowing:
+Claude Code is the primary, most-exercised runtime. The Engine also serves Codex natively from the same core —
+but that path is newer and not yet stress-tested: genuinely supported, though less proven, with the differences
+and rough edges worth knowing below.
 
 | Capability | Claude Code | Codex |
 |---|---|---|
 | Instruction floor | `CLAUDE.md` (conduct auto-imported) | `AGENTS.md` (conduct by required reading — an instruction, not a mechanism) |
 | Session hooks (boot, write-gate, memory, status) | Native, on by default | Native; **requires your one-time approval** (`/hooks`), and re-approval after any Engine update that changes them — the Engine tells you when |
-| Explore / Build write-gate | PreToolUse gate | Same gate; Codex's own docs call its hook a guardrail, not a complete boundary — the protected branch and your merge remain the wall on both |
+| Explore / Build write-gate | A session hook that blocks writes until you build | Same gate; Codex's own docs call its hook a guardrail, not a complete boundary — the protected branch and your merge remain the wall on both |
 | Build entry | `/engine-start` or plan approval | `$engine-start` only (Codex has no plan-approval signal) |
 | Typed commands | `/engine-…` (10) | `$engine-…` (10) |
 | Review personas | 10 native agents | The same 10, rendered natively (read-only sandbox) |
