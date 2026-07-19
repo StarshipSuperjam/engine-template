@@ -875,6 +875,28 @@ def _pr_section(header: str, summary: str, body_lines: list, impact: str) -> lis
     return [f"## {header}", "", f"**{summary}**", "", *body_lines, "", f"*Impact: {impact}*", ""]
 
 
+def _template_preamble() -> str:
+    """The consent-preamble blockquote lifted VERBATIM from the repo pull-request template, so the release
+    body carries the same standing note on how to read the checks that every other pull request carries —
+    one source, no second copy to drift, and always the preamble the pull-request-completeness gate requires.
+    It is the leading `>` blockquote that sits above the first `## ` heading in the template."""
+    path = os.path.join(validate.ROOT, ".github", "pull_request_template.md")
+    with open(path, encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    block: list = []
+    for line in lines:
+        if line.startswith("## "):
+            break
+        if line.startswith(">"):
+            block.append(line)
+        elif block:                    # the blockquote ended before the first heading
+            break
+    if not block:
+        raise RuntimeError("the pull-request template carries no consent-preamble blockquote to lift into "
+                           "the release body (.github/pull_request_template.md).")
+    return "\n".join(block)
+
+
 def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -> str:
     """The release pull request's body — the maintainer's whole evidence bundle, authored HERE (never
     composed in workflow bash) so the gate-path legibility has one home. It takes both the `propose` JSON
@@ -895,7 +917,9 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
     # the construction sentinel `0.0.0-dev` is internal — never surface it to the maintainer (see _version_lines)
     from_shown = "no earlier version" if from_engine == SENTINEL else from_engine
 
-    out = [f"# A new engine version: {from_shown} → {engine}", ""]
+    # The consent preamble every pull request carries at the top — lifted from the template so the release
+    # body reads the same and satisfies the pull-request-completeness gate's preamble anchors.
+    out = [f"# A new engine version: {from_shown} → {engine}", "", _template_preamble(), ""]
 
     out += _pr_section(
         "Purpose",

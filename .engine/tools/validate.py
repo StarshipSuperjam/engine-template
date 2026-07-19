@@ -443,6 +443,26 @@ def subsection_fill_findings(body: str, sections: list, label: str, tier: str,
     return findings
 
 
+def phrase_presence_findings(phrases: list, body: str, tier: str, message: str, where: str) -> list:
+    """For each required phrase, a finding when it does not appear verbatim in `body`. This
+    guards a fixed anchor of a document — the shipped copy that a template scan of `## `
+    headings cannot see (e.g. the pull-request preamble blockquote, which sits above the first
+    heading). A phrase is a whole-body substring match, so it must appear on one physical line
+    (an authored hard wrap inside the phrase would read as absent). Presence only — this is a set
+    of structural anchors for one consent surface, never a growable registry of arbitrary
+    required sentences, and never a judgement of the prose around them."""
+    findings = []
+    for phrase in phrases:
+        if phrase not in body:
+            findings.append(finding(tier, f"The {where} is missing a required anchor of the "
+                            f"consent preamble — the phrase \"{phrase}\" does not appear. This is "
+                            f"the italic note at the very top that tells a reader a green check "
+                            f"shows conformance, not correctness, and that their merge is the "
+                            f"binding gate; it drops when a body is reconstructed rather than "
+                            f"filled from the template verbatim. Restore the preamble. {message}"))
+    return findings
+
+
 # ---- kind: presence --------------------------------------------------------
 
 def kind_presence(rule, ctx):
@@ -453,14 +473,17 @@ def kind_presence(rule, ctx):
     template body does NOT pass on its own. When params carry a
     `filled_subsection_label`, each non-empty section must ALSO carry a filled line
     under that label (e.g. `Impact:`), and that labelled line is not itself counted as
-    section content. Both the leg and the exclusion are skipped when the param is absent,
-    so other presence checks are exactly unaffected. Presence + non-emptiness (and the
-    labelled line, when required) are gated; truthfulness is posture (this cannot judge
-    whether the content is accurate)."""
+    section content. When params carry `required_phrases`, each listed phrase must appear
+    verbatim in the body — for a fixed anchor a heading scan cannot see, such as the consent
+    preamble above the first `## ` heading. Each leg is skipped when its param is absent, so
+    other presence checks are exactly unaffected. Presence + non-emptiness (and the labelled
+    line / required phrases, when configured) are gated; truthfulness is posture (this cannot
+    judge whether the content is accurate)."""
     tier = rule["tier"]
     params = rule.get("params") or {}
     sections = params.get("sections", [])
     label = params.get("filled_subsection_label")
+    phrases = params.get("required_phrases")
     message = rule["message"]
     target = rule.get("target") or {}
     if target.get("context") == "pull-request-body":
@@ -472,6 +495,8 @@ def kind_presence(rule, ctx):
         if label:
             findings += subsection_fill_findings(body, sections, label, tier, message,
                                                  "pull-request body")
+        if phrases:
+            findings += phrase_presence_findings(phrases, body, tier, message, "pull-request body")
         return (len(findings) == 0), findings
     findings = []
     for path in target_files(rule):
@@ -480,6 +505,8 @@ def kind_presence(rule, ctx):
         findings.extend(section_presence_findings(text, sections, tier, message, where, label))
         if label:
             findings.extend(subsection_fill_findings(text, sections, label, tier, message, where))
+        if phrases:
+            findings.extend(phrase_presence_findings(phrases, text, tier, message, where))
     return (len(findings) == 0), findings
 
 
