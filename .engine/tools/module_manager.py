@@ -377,10 +377,12 @@ def _home_repository() -> str | None:
     records no home (a repo generated before this coordinate shipped). The release-fetch callers pass this
     as `repo=` so they resolve the HOME, never the deployed repo's own `origin` (which `boot.repo_slug()`
     returns and which has no engine releases). On a None home the caller REFUSES with a plain remedy and
-    never falls back to origin — the engine does not guess a home."""
-    engine = module_coherence.load_engine_manifest() or {}
-    home = engine.get("home_repository")
-    return home if isinstance(home, str) and home.strip() else None
+    never falls back to origin — the engine does not guess a home.
+
+    Delegates to `module_coherence.home_repository()`, the single accessor (also read by the
+    external-contribution submit flow), so the field name and the absent/blank/unreadable -> None contract
+    live in one place rather than two that could drift."""
+    return module_coherence.home_repository()
 
 
 def _release_is_missing(exc: BaseException) -> bool:

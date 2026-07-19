@@ -233,6 +233,12 @@ core/control-plane's; the step that ensures the engine-domain label exists is pr
 *human* web issue templates are a separate control-plane artifact a person files through. This runbook
 fixes only the distributed-implement *workflow shape* and the build-Issue *format*.
 
+**A cross-repo contribution runs these same gates (#562).** A change a deployment builds for ANOTHER repo (the
+mechanic contributing to its home engine-template, or a fork escalating an engine fix) is delivered through
+`external-contribution-submit`, not a session-owned draft — a path with no built-in gate linkage. So **run the
+plan-review and pre-submission passes above before submitting it**; the submit tool records on the prepared
+pull request and in its body whether that review ran — an honest disclosure, never a substitute for it.
+
 **A recognized automation's pull request carries a disclosed not-applicable check — relay both decisions
 plainly.** Walking the operator to merge a dependency-update pull request from a recognized automation
 (Dependabot), the `engine-ci` green includes a **disclosed not-applicable pass** for the PR-body

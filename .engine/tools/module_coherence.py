@@ -241,6 +241,109 @@ def load_engine_manifest():
     return validate.load_json(path) if os.path.isfile(path) else None
 
 
+def home_repository() -> str | None:
+    """The engine's HOME repository slug (`owner/repo`) recorded in the manifest — the single coordinate for
+    where the engine fetches its own updates from AND where a fork-native deployment escalates a contribution
+    to (schema: engine.v1.json `home_repository`). `None` when the manifest is absent or records no/blank home.
+    A present-but-MALFORMED manifest RAISES (loud), via `load_engine_manifest` -> `validate.load_json` — this
+    preserves the fail-loud commitment that `module_manager._home_repository` (which delegates here) and its
+    callers `overlay_disclosure.is_deployed` / `release_cut` rely on: a corrupt manifest must not be silently
+    read as "no home". A caller that must not crash on a corrupt manifest degrades LOCALLY (the
+    external-contribution submit flow wraps this call so a malformed home falls to its strict full check)."""
+    engine = load_engine_manifest() or {}
+    home = engine.get("home_repository")
+    return home if isinstance(home, str) and home.strip() else None
+
+
+def normalize_slug(slug: str | None) -> str | None:
+    """A GitHub `owner/repo` slug normalized for equality — strip surrounding whitespace and a trailing slash,
+    case-fold (GitHub slugs are case-insensitive), and drop a trailing `.git`. `None`/blank -> `None`. This is
+    the ONE slug-normalizer the contribution-home comparison uses; it mirrors `instantiator._norm`'s
+    strip/casefold/.git discipline and adds the trailing-slash strip. Kept here so the home/own comparison is
+    single-homed rather than re-implemented per call site."""
+    if not isinstance(slug, str):
+        return None
+    s = slug.strip().rstrip("/").casefold()
+    if s.endswith(".git"):
+        s = s[:-4]
+    return s or None
+
+
+def slug_eq(a: str | None, b: str | None) -> bool:
+    """True iff two `owner/repo` slugs are the SAME repository, compared as EXACT normalized full slugs (never
+    a repo-name-only match). Safety-load-bearing: it is the switch that lets the engine's own source travel to
+    the engine's home, so a loose match (name-only, substring) would let engine code ride into a look-alike
+    third-party repo. `None` on either side is never equal (an unconfirmed home never satisfies it)."""
+    na, nb = normalize_slug(a), normalize_slug(b)
+    return na is not None and na == nb
+
+
+# ---- what may travel in a contribution back to the ENGINE'S OWN HOME (issue #556) -----------------
+#
+# When a deployment contributes back to the engine's home (the mechanic building engine-template, or a
+# fork-native deployment escalating an engine fix), the engine's own SOURCE legitimately rides upstream — it
+# IS the contribution. What must NEVER ride upstream, even to the home, is this deployment's ACCRETED STATE
+# and the operator's private tuning. The leak check narrows to that never-travels set for the home case.
+#
+# SAFE DIRECTION (default-flag). `travels_to_engine_home` returns True ONLY for content proven safe to travel
+# — the engine's source namespaces, the build/runtime config, and the two CI-REQUIRED derived indexes. Any
+# path it does not positively recognise stays flagged (an over-flag is an operator-decidable nudge; an
+# under-flag would leak). A future committed per-instance store therefore flags by default until it is
+# explicitly classified — and the `test_engine_home_travel_classification` completeness test fails until it is.
+
+# The two derived indexes the engine's HOME repo regenerates and whose freshness its CI hard-gates
+# (`knowledge-coverage`, `self-map-drift` — both unbypassable at CI). A contribution that stripped them could
+# not merge, and they regenerate correctly from the home checkout, so they MUST travel (not instance-state).
+_CI_REQUIRED_INDEXES = frozenset({".engine/knowledge/graph.json", ".engine/self-map.md"})
+
+# Committed, identical-across-instances engine build/runtime config (not under a surface namespace) that is
+# product and travels: the tool-runtime pin/lock, the suite manifest, the repo ignore rules, the Codex root
+# pointer, and the governance floor(s).
+_HOME_TRAVEL_FILES = frozenset({
+    ".engine/pyproject.toml", ".engine/uv.lock", ".engine/suites.json",
+    ".gitignore", "AGENTS.md", "CLAUDE.md", "CLAUDE.deployed.md",
+})
+
+# The engine's SOURCE namespaces — surface-catalogued kinds plus the module/template/provisioning trees and
+# the assistant/Codex adapter roots. Everything an engine ships as code/config lives under one of these.
+# KNOWN ASSUMPTION (bounded): these prefixes are broad, so "default-flag" is fully safe only for a path OUTSIDE
+# them — a path UNDER one is positively recognised as travelling. That holds because these namespaces hold
+# only identical-across-instances code/config today (swept: no per-instance data store lives under one). If a
+# future committed per-instance store were placed under a source namespace (e.g. `.engine/tools/x/state.json`)
+# it would travel unflagged, and neither the runtime default-flag nor `test_no_owned_path_is_left_ambiguous`
+# (which recognises data by the instance-DIR prefixes below) would catch it. A new per-instance store must be
+# kept OUT of these namespaces (or its module's `provides` + the instance-dir list extended). Hardening to an
+# explicit source-file allowlist is a deferred option, not needed while the sweep holds.
+_HOME_TRAVEL_PREFIXES = (
+    ".engine/tools/", ".engine/check/", ".engine/schemas/", ".engine/operations/",
+    ".engine/policies/", ".engine/interfaces/", ".engine/docs/", ".engine/conduct/",
+    ".engine/contracts/", ".engine/modules/", ".engine/templates/", ".engine/provisioning/",
+    ".claude/", ".codex/", ".agents/", ".github/",
+)
+
+
+def travels_to_engine_home(path: str) -> bool:
+    """True iff `path` is engine content that legitimately rides into a contribution to the engine's OWN home
+    (source, build config, or a CI-required derived index) — False for this deployment's accreted state and
+    the operator's private tuning, which never travel. OPERATOR_CONFIG and the per-instance eADR stream are
+    checked FIRST, so an operator-authored file under a source namespace (e.g. `.engine/conduct/operator.md`,
+    the provisioning seeds) never travels despite its prefix. Default is False (flag): only positively
+    recognised source/index/config travels."""
+    if path in OPERATOR_CONFIG or path.startswith(tuple(d + "/" for d in DEPLOYMENT_CONTRACTS)):
+        return False  # operator/maintainer tuning + the deployment's own decision records — private, never travel
+    if path in _CI_REQUIRED_INDEXES or path in _HOME_TRAVEL_FILES:
+        return True
+    return path.startswith(_HOME_TRAVEL_PREFIXES)
+
+
+def is_deployment_private(path: str) -> bool:
+    """True iff `path` is operator/deployment-private committed content that must NOT ride into ANY upstream —
+    the operator's tuning (OPERATOR_CONFIG) or the deployment's own decision records (DEPLOYMENT_CONTRACTS).
+    These sit OUTSIDE `engine_owned_paths` (they are ownership carve-outs), so the leak check unions them in
+    explicitly, closing the gap where a deployment's private content could ride upstream unflagged."""
+    return path in OPERATOR_CONFIG or path.startswith(tuple(d + "/" for d in DEPLOYMENT_CONTRACTS))
+
+
 def _walk_engine_files() -> list:
     """Every file under .engine/ on the live filesystem (relpaths), pruning regenerable cache dirs
     (PRUNE_DIRS, any depth), gitignored runtime roots (PRUNE_PATHS), the committed-but-non-surface

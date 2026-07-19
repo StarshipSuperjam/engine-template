@@ -139,17 +139,32 @@ class TestBuildPrBody(unittest.TestCase):
         body = submit.build_pr_body(summary="Fixes the bug.", template_text="## Their Heading\n<!-- fill -->")
         self.assertIn("## Their Heading", body)
         self.assertIn("Fixes the bug.", body)
+        # #562 backstop rides every cross-fork body, additively (never corrupts the host's template).
+        self.assertIn("second, independent check", body)
+        self.assertTrue(body.lstrip().startswith(">"))       # a leading note, before the summary/template
 
     def test_falls_back_to_engine_shape_when_absent(self):
         body = submit.build_pr_body(summary="Fixes the bug.", template_text=None)
         self.assertIn("## Summary", body)
         self.assertIn("## How it was checked", body)
         self.assertIn("Fixes the bug.", body)
+        self.assertIn("second, independent check", body)    # #562 backstop present in the fallback shape too
+
+    def test_reviewed_note_states_the_review_ran_not_the_backstop(self):
+        # #562: reviewed=True must state the review RAN (not the "has NOT been run" backstop), so the note is
+        # informative about THIS contribution rather than an always-on warning.
+        body = submit.build_pr_body(summary="Fixes the bug.", template_text=None, reviewed=True)
+        self.assertIn("ran its second, independent check", body)
+        self.assertNotIn("NOT been run", body)
+        # default (not reviewed) carries the backstop
+        self.assertIn("NOT been run", submit.build_pr_body(summary="x", template_text=None, reviewed=False))
 
 
 class TestSubmitFlow(unittest.TestCase):
+    # home=None keeps the flow tests hermetic (no real-manifest read) and on the non-home path (no narrowing);
+    # the home-narrowing tests below pass home= explicitly to drive the engine's-own-home branch.
     BASE = dict(upstream_repo="upstream/project", base="main", remote="upstream", head="me:feature",
-                title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z")
+                title="Fix the thing", summary="Fixes the thing.", now="2026-01-01T00:00:00Z", home=None)
 
     def setUp(self):
         # An empty template root injected into every flow call, so template detection never reads the real
@@ -272,6 +287,88 @@ class TestSubmitFlow(unittest.TestCase):
         r = submit.submit(**self.BASE, run=_run(["src/app.py"]), owned=OWNED, root=self.root,
                           gh_run=_gh_ok(rec), github=None, confirm=True)
         self.assertIn("if the project reviews contributions", r["narration"])
+
+
+class TestEngineHomeNarrowing(unittest.TestCase):
+    """#556: contributing back to the engine's OWN home narrows the leak check to instance-state — product
+    code and the CI-required indexes travel, the deployment's accreted state and private tuning stay flagged.
+    For any other target the full engine-owned set is flagged, unchanged. `home` is injected to drive both
+    branches hermetically; the classification itself is proven against the real owned set in
+    test_engine_home_travel."""
+    HOME = "StarshipSuperjam/engine-template"
+    OWNED = [".engine/tools/boot.py",              # product source — travels to the home
+             ".engine/knowledge/graph.json",       # CI-required derived index — travels
+             ".engine/state/state.json",           # instance cursor — never travels
+             ".engine/engine.json"]                # deployment identity manifest — never travels
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="engine-home-narrow-")
+        self.addCleanup(__import__("shutil").rmtree, self.root, True)
+
+    def _submit(self, changed, *, home, upstream="StarshipSuperjam/engine-template"):
+        return submit.submit(upstream_repo=upstream, base="main", remote="origin", head="me:fix",
+                             title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
+                             run=_run(changed), owned=self.OWNED, root=self.root, gh_run=_gh_ok({}),
+                             github=None, home=home, confirm=False)
+
+    def test_home_lets_product_travel_but_flags_instance_state(self):
+        r = self._submit([".engine/tools/boot.py", ".engine/state/state.json", ".engine/engine.json"],
+                         home=self.HOME)
+        self.assertEqual(r["status"], "leak-decision-needed")     # instance-state still caught
+        self.assertIn(".engine/state/state.json", r["offending"])
+        self.assertIn(".engine/engine.json", r["offending"])      # the BLOCKING identity leak stays flagged
+        self.assertNotIn(".engine/tools/boot.py", r["offending"]) # product source travels — no over-flag
+        # The home-case narration must NOT use the backwards third-party framing (the file is this copy's own
+        # state, not "the Engine's files riding into a repo that isn't yours"); it says they belong to this copy.
+        self.assertIn("belong to just this copy", r["narration"])
+        self.assertNotIn("a repository that isn't yours", r["narration"])
+
+    def test_malformed_home_degrades_to_the_strict_full_check_not_a_crash(self):
+        # A corrupt manifest makes the real home_repository() RAISE; submit() must degrade LOCALLY to the strict
+        # full check (never relax on a home it could not confirm), not crash the contribution flow.
+        import module_coherence as _mc
+        from unittest import mock
+        with mock.patch.object(_mc, "load_engine_manifest", side_effect=ValueError("bad json")):
+            r = submit.submit(upstream_repo="StarshipSuperjam/engine-template", base="main", remote="origin",
+                              head="me:fix", title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
+                              run=_run([".engine/tools/boot.py"]), owned=self.OWNED, root=self.root,
+                              gh_run=_gh_ok({}), github=None, confirm=False)   # home defaults to _UNSET -> real
+        self.assertEqual(r["status"], "leak-decision-needed")     # strict: boot.py flagged (no relaxation)
+        self.assertIn(".engine/tools/boot.py", r["offending"])
+
+    def test_home_lets_the_ci_required_indexes_travel(self):
+        # graph.json / self-map.md must travel: the home's CI hard-gates their freshness, so a stripped
+        # contribution could not merge. A clean product+index diff PREPARES (nothing flagged).
+        r = self._submit([".engine/tools/boot.py", ".engine/knowledge/graph.json"], home=self.HOME)
+        self.assertEqual(r["status"], "prepared")
+
+    def test_third_party_flags_all_engine_files(self):
+        # Same diff, but the target is NOT the engine's home (home=None) — every engine file is flagged, the
+        # safety case that must never regress: engine code must not leak into a stranger's product.
+        r = self._submit([".engine/tools/boot.py", ".engine/state/state.json"], home=None)
+        self.assertEqual(r["status"], "leak-decision-needed")
+        self.assertIn(".engine/tools/boot.py", r["offending"])    # source flagged for a third party
+        self.assertIn(".engine/state/state.json", r["offending"])
+
+    def test_lookalike_home_does_not_relax(self):
+        # slug_eq is an EXACT full-slug match: a look-alike owner must NOT satisfy the home switch, or the whole
+        # engine could travel to an arbitrary repo. upstream is the look-alike; home is the real one.
+        r = submit.submit(upstream_repo="attacker/engine-template", base="main", remote="origin", head="me:fix",
+                          title="Fix", summary="Fix.", now="2026-01-01T00:00:00Z",
+                          run=_run([".engine/tools/boot.py"]), owned=self.OWNED, root=self.root,
+                          gh_run=_gh_ok({}), github=None, home=self.HOME, confirm=False)
+        self.assertEqual(r["status"], "leak-decision-needed")     # not relaxed — boot.py flagged
+        self.assertIn(".engine/tools/boot.py", r["offending"])
+
+    def test_deployment_private_flagged_in_both_modes_even_when_unowned(self):
+        # operator-overrides.json / contracts/instance are ownership CARVE-OUTS (not in engine_owned_paths), yet
+        # must never ride upstream. The check unions them in, in BOTH the home and third-party modes.
+        for home in (self.HOME, None):
+            r = self._submit([".engine/operator-overrides.json", ".engine/contracts/instance/eDEC-1.md"],
+                             home=home)
+            self.assertEqual(r["status"], "leak-decision-needed", f"home={home}")
+            self.assertIn(".engine/operator-overrides.json", r["offending"])
+            self.assertIn(".engine/contracts/instance/eDEC-1.md", r["offending"])
 
 
 class TestStatus(unittest.TestCase):
