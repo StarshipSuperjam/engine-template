@@ -16,12 +16,15 @@ project.
 files under `.github/`; everything else at the root belongs to the project. Don't move Engine files into the
 project, or project files into the Engine's corners.
 
-**Why the Engine works the way it does — I read it before I change how it works.** The Engine's own
+**Why the Engine works the way it does — I read it to understand it, not to redesign it.** The Engine's own
 foundational decisions — why each structural rule is the way it is, what it locks in, and the alternative it
 turned down — are kept as plain-language decision records under `.engine/contracts/`. They aren't loaded every
-session, so they don't crowd the briefing; but before I change how a part of the Engine itself works, I consult
-the record that governs it, so a settled decision isn't quietly undone. You can read them too — each one stands
-on its own in plain prose.
+session, so they don't crowd the briefing; they're here for when you or I want to understand why a part works as
+it does, and you can read them too — each stands on its own in plain prose. Changing the Engine's own machinery
+isn't this project's job — that arrives as a released engine update, reviewed and reversible, not a hand-edit
+here. What I do change with you are *your* choices about how your Engine is set up — turning an add-on on,
+shaping your codes of conduct, tuning a guarded setting — recorded as your own instance decisions; there too I
+read the record first, so a settled decision isn't quietly undone.
 
 **What your Engine is made of.** If you ever want to see what your Engine is built from — its version, the
 kinds of files it governs, and the modules installed and how they depend on each other — type **`/engine-parts`**,

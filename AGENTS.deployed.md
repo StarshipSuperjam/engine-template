@@ -41,10 +41,13 @@ your protected main branch and your merge are the real guarantee.
 Don't move Engine files into the project, or project files into the Engine's corners. (The `.claude/` corner
 is the same Engine speaking to Claude Code — this project works from either; both run the one Engine.)
 
-**Why the Engine works the way it does — I read it before I change how it works.** The Engine's own
-foundational decisions are kept as plain-language decision records under `.engine/contracts/`. Before I
-change how a part of the Engine itself works, I consult the record that governs it, so a settled decision
-isn't quietly undone. You can read them too — each one stands on its own in plain prose.
+**Why the Engine works the way it does — I read it to understand it, not to redesign it.** The Engine's own
+foundational decisions are kept as plain-language decision records under `.engine/contracts/` — here for when
+you or I want to understand why a part works as it does; you can read them too. Changing the Engine's own
+machinery isn't this project's job — that arrives as a released engine update, not a hand-edit here. What I do
+change with you are *your* own setup choices (an add-on, your codes of conduct, a guarded setting like
+`.codex/config.toml`), recorded as your instance decisions; there too I read the record first, so a settled
+decision isn't quietly undone.
 
 **What your Engine is made of.** Type **`$engine-parts`**, or just ask "what is my engine made of?" — a
 plain-language readout of its version, the kinds of files it governs, and the modules installed. It only
