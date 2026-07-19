@@ -666,8 +666,10 @@ class GitHubIssues:
         return data or {"number": number}
 
     def issues_query_url(self) -> str:
-        """The human-citable register: where the live list of open engine items lives."""
-        return f"https://github.com/{self.repo}/issues?q=is:open+label:{self.label}"
+        """The human-citable register: where the live list of open engine findings lives. `is:issue` matches
+        `list_open_engine_issues`, which skips PRs — so the clickable list can never include an engine-labelled
+        PR the count excluded (which would make the link over-count the header figure)."""
+        return f"https://github.com/{self.repo}/issues?q=is:open+is:issue+label:{self.label}"
 
     def count_open_operator_issues(self) -> int:
         """The number of the OPERATOR's own open Issues — every open issue WITHOUT the engine-domain label,
@@ -696,6 +698,13 @@ class GitHubIssues:
         """The human-citable register: where the operator's own open (non-engine) issues live — the same
         `-label:` filter `count_open_operator_issues` counts, so the clickable list matches the count."""
         return f"https://github.com/{self.repo}/issues?q=is:open+is:issue+-label:{self.label}"
+
+    def all_open_issues_query_url(self) -> str:
+        """The human-citable register for the whole open backlog — every open issue, engine and operator alike
+        (no label term). This is the exact union of `issues_query_url` (engine findings) and
+        `operator_issues_query_url` (the operator's own), so the total the status card leads with links to a
+        list whose size equals `finding_count + operator_backlog_count`. `is:issue` drops PRs on both sides."""
+        return f"https://github.com/{self.repo}/issues?q=is:open+is:issue"
 
     def list_head_check_runs(self, ref: str) -> list:
         """Every CI check-run on `ref` (a branch name or SHA), paginated to exhaustion. The response is the
