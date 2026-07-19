@@ -106,6 +106,12 @@ FOUNDATION_INFRA = (
     ".github/workflows/audit-prep.yml",
     ".github/workflows/engine-issue-conformance.yml",
     ".github/workflows/engine-overlay-disclosure.yml",
+    # the release lifecycle (#516): engine-owned workflows that cut + publish a release — the engine's version
+    # in the construction repo, the deployed repo's own product version once deployed. Foundation like every
+    # other engine workflow, so an engine improvement to the release path (and the deployed-repo product wording)
+    # reaches a deployed repo on its next upgrade rather than freezing at whatever the initial copy carried.
+    ".github/workflows/release.yml",
+    ".github/workflows/release-publish.yml",
     ".github/dependabot.yml",
     ".github/pull_request_template.md",
     ".github/ISSUE_TEMPLATE/*.md",

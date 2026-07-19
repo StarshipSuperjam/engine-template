@@ -4175,7 +4175,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:dd4f44c3a9b38e7ce9bc77eab9b0c86e78472ca30eabdb34d8b18a72aa7fc966",
+        "fingerprint": "sha256:7208335c00e27b0ca2e2ff3f05aed3c1371b7543da6735ea804edd4ae15ec7ca",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -6389,6 +6389,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_release_product_mode",
+      "name": ".engine/tools/demo_release_product_mode.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_release_product_mode",
+      "source": {
+        "fingerprint": "sha256:df2172f7f63a2de21f9d66fa30ded2eeabdde3b7131b62df6ef1a23a4e29c575",
+        "path": ".engine/tools/demo_release_product_mode.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_release_terminal",
       "name": ".engine/tools/demo_release_terminal.py",
       "owner": "core",
@@ -6875,7 +6892,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:52bf115c5cafb6444bfd10634680206c9e4f8b06611e594717445b22da4652b9",
+        "fingerprint": "sha256:573a164c564b5439feec0a16c1e0f68c650220278568f50732cb218a3a2d60cc",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7283,7 +7300,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:4330691719cf8bfb8c939e954087148b9e0abd76ec34590a6b3ecd55f0a70c98",
+        "fingerprint": "sha256:b075b85daa0f6c0b99eb4c02aa4fc1acf859bde42fe97979af554dc27e9195eb",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7589,7 +7606,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:798e07e5dd38973c5a25ef78b343d726eab6aa62789cb4bf10af1ea9f0a5303f",
+        "fingerprint": "sha256:45f3db0c2cd80f02174391b08acc4d0d0df74ceab6781c7cfab2c5cb7aca1249",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -7623,7 +7640,7 @@
       },
       "slug": "release_terminal",
       "source": {
-        "fingerprint": "sha256:1c6fb317dabf722aeaa4e2567e04fce960354e68b0a07186297f93cde0e0d29a",
+        "fingerprint": "sha256:9d8971d7e3b8cc011d1915116d64a27aaa922cfdd51c8bed061e8f9fbc768a29",
         "path": ".engine/tools/release_terminal.py"
       },
       "status": "active",
@@ -8813,7 +8830,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:871eced67d38ae65dbf8245c9e8f1557a81626c747cdc589b79ed4029e0ae245",
+        "fingerprint": "sha256:3aa1ef0f8d8ff720593cb604815355fd2aa94fe74275ca77aa621ac9f1e37fed",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9459,7 +9476,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:5927ca081368c159fa6e565aeab258cda31009b25dcdb1341bc6d8d76a9307a4",
+        "fingerprint": "sha256:15669075d8ff4f899eba2e25a5f7139f906ba9881f06236be7446b7270d9de8f",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -9476,7 +9493,7 @@
       },
       "slug": "test_release_terminal",
       "source": {
-        "fingerprint": "sha256:475046e6d9bced8edf9c9ce6cafb0a7ec6648a52ea6178f3d7a6e3a39f4bc758",
+        "fingerprint": "sha256:80768592626f05387ad184a26445fd422ca0990b3fa922d49a5fe13bd2fa4082",
         "path": ".engine/tools/test_release_terminal.py"
       },
       "status": "active",

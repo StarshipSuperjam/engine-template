@@ -150,7 +150,7 @@ class TerminalCutClient:
 
 
 # --------------------------------------------------------------------------- release notes + PR comment prose
-def _proposal_for_publish(baseline=None, baseline_tree=None, target=None):
+def _proposal_for_publish(baseline=None, baseline_tree=None, target=None, product=False, slug=None):
     """The release proposal (change inventory + interface impacts + floor level + the merged-PR work list) for
     the published Release notes, recomputed from the merged tree against the prior release (the same
     `release_cut.classify` the cut ran). BEST-EFFORT by design: any anomaly — an unreachable home, a malformed
@@ -162,8 +162,17 @@ def _proposal_for_publish(baseline=None, baseline_tree=None, target=None):
     `target` is the merged commit being published (the generate-notes head for the pull-request list).
     `baseline`/`baseline_tree` are injectable so tests run offline: the recompute reaches GitHub through
     `module_manager` (NOT this tool's `transport` seam), so an injected local tree is the only offline path,
-    and the pull-request list is skipped unless a `target` is passed."""
+    and the pull-request list is skipped unless a `target` is passed. In PRODUCT-mode (#516) the baseline is
+    the DEPLOYED repo's own last release (`slug`) and there is no capability tree to diff — the proposal is the
+    product proposal (merged PRs beside the version), so the published notes describe the PRODUCT release."""
     try:
+        if product:
+            b = baseline if baseline is not None else release_cut._product_baseline(slug)
+            current = release_cut.read_product_version()
+            if not isinstance(current, str):        # absent / malformed at publish -> a safe display default
+                current = "0.0.0"
+            merged = release_cut.merged_pr_titles(b.ref, target, repo=slug) if target else []
+            return release_cut._product_proposal(b, current, merged)
         b = baseline if baseline is not None else release_cut.resolve_baseline()
         if b.first_cut:
             # The GENUINE first release: the home has no prior release yet (the new tag is created after these
@@ -204,19 +213,25 @@ def _rerun_hint(run_url: "str | None") -> str:
     if run_url:
         return f" To finish it, re-run this workflow here: {run_url} — re-running is safe."
     return (" To finish it, open this repository's **Actions** tab, find the most recent "
-            "\"Publish a merged engine release\" run, and re-run it — re-running is safe.")
+            "\"Publish a merged release\" run, and re-run it — re-running is safe.")
 
 
 def _comment_body(result: dict, run_url: "str | None" = None) -> str:
     """The plain-language comment posted back to the merged release PR — the legible surface a non-engineer
     actually sees after merging (the Actions run log is not). One home for the release/failure prose. Every
     non-success outcome — including a transient read/transport failure (`errored`) — lands here with a
-    recovery, so the legibility promise holds on the PR for every path, not only the decided refusals."""
+    recovery, so the legibility promise holds on the PR for every path, not only the decided refusals. In a
+    deployed repo (`product`) it speaks of the PRODUCT release, not the engine (#516)."""
     tag = result.get("tag") or "the new version"
+    product = bool(result.get("product"))
     if result.get("published"):
         if result.get("reason") == "already-published":
-            return (f"**Engine version {tag} was already published**, so nothing changed — there is nothing "
+            noun = "Release" if product else "Engine version"
+            return (f"**{noun} {tag} was already published**, so nothing changed — there is nothing "
                     f"for you to do.")
+        if product:
+            return (f"**Release {tag} is now published.** Your product's release {tag} is live. "
+                    f"You do not need to do anything else.")
         return (f"**Engine version {tag} is now released.** Your instances can upgrade to it. "
                 f"You do not need to do anything else.")
     # the "did not finish" family — a failed tag/Release step, or a transient failure while checking state.
@@ -226,7 +241,7 @@ def _comment_body(result: dict, run_url: "str | None" = None) -> str:
                 f"{_rerun_hint(run_url)} Nothing else you did is lost.")
     if result.get("reason") == "nothing-to-publish":
         return (f"**No release was published.** {result.get('message', '')} This is expected if this branch "
-                f"did not set a new engine version.")
+                f"did not set a new {'product' if product else 'engine'} version.")
     # a loud refusal (not newer than the latest release, or a tag already on a different commit)
     return (f"**This merge did not publish a release.** {result.get('message', '')} "
             f"{result.get('recovery', '')}").strip()
@@ -300,7 +315,7 @@ def publish(client: TerminalCutClient, engine_release: str, commit_sha: str, pro
     #    Release is a clean no-op — a re-run after a half-done publish completes it here.
     if client.release_exists(tag):
         return {"published": True, "reason": "already-published", "tag": tag, "commit": commit_sha,
-                "message": f"engine version {tag} is already released."}
+                "message": f"{tag} is already released."}
     status = client.create_release(tag, tag, _release_notes(tag, proposal=proposal))
     if status not in (200, 201):
         return {"published": False, "reason": "release-create-failed", "tag": tag,
@@ -308,7 +323,7 @@ def publish(client: TerminalCutClient, engine_release: str, commit_sha: str, pro
                            f"(GitHub returned {status}).",
                 "recovery": "re-run this workflow run to finish publishing the release."}
     return {"published": True, "reason": "published", "tag": tag, "commit": commit_sha,
-            "message": f"engine version {tag} is now released."}
+            "message": f"{tag} is now released."}
 
 
 def _bare(tag: str) -> str:
@@ -318,11 +333,12 @@ def _bare(tag: str) -> str:
 
 
 def run(client: TerminalCutClient, engine_release: str, commit_sha: str, pr_number: "int | None",
-        run_url: "str | None" = None, proposal=None) -> dict:
+        run_url: "str | None" = None, proposal=None, product: bool = False) -> dict:
     """Publish, then announce the outcome on the merged PR (both success AND failure — the legibility
     surface). A comment failure is NOTED, never allowed to flip the publish verdict: the published Release
     is the durable success artifact, and a missing comment is a legibility gap, not a publish failure.
-    `proposal` is the pre-computed Release-notes proposal, threaded to `publish` (None => minimal notes)."""
+    `proposal` is the pre-computed Release-notes proposal, threaded to `publish` (None => minimal notes).
+    `product` marks a deployed repo's product release (#516) so the PR comment speaks of the product."""
     try:
         result = publish(client, engine_release, commit_sha, proposal=proposal)
     except PublishError as exc:
@@ -335,6 +351,7 @@ def run(client: TerminalCutClient, engine_release: str, commit_sha: str, pr_numb
                              "unexpected error while checking the release.",
                   "recovery": "re-running is safe and nothing you did is lost.",
                   "error_detail": str(exc)}
+    result["product"] = product   # the comment renderer speaks of the product vs the engine (#516)
     if pr_number:
         try:
             status = client.post_pr_comment(pr_number, _comment_body(result, run_url))
@@ -372,17 +389,31 @@ def _cmd_publish(args) -> int:
         print("CONFIG ERROR: the engine manifest (.engine/engine.json) is missing; nothing to publish.",
               file=sys.stderr)
         return 2
-    engine_release = engine.get("engine_release", SENTINEL)
+    # Which release is being published — the engine's version (construction repo) or the deployed repo's own
+    # PRODUCT version (#516). PRODUCT dominates: a present product-version.json (or a downstream deployment)
+    # publishes the product. A present-but-malformed product file refuses loudly, never an engine publish.
+    mode, ctx = release_cut.release_mode()
+    if mode == "refuse":
+        print(f"CONFIG ERROR: your product's version file ({release_cut.PRODUCT_VERSION_REL}) could not be read "
+              f'— it must be a small JSON file with a version, like {{"version": "0.1.0"}}. Fix it, then re-run. '
+              f"Nothing was published.", file=sys.stderr)
+        return 2
+    product = (mode == "product")
+    # In product-mode the version comes from product-version.json at the merged commit; an absent/None value
+    # degrades to the dev sentinel, which publish() turns into a clean "nothing to publish" no-op (a stray
+    # release/* merge that carried no product version).
+    engine_release = (ctx["current"] or SENTINEL) if product else engine.get("engine_release", SENTINEL)
     pr_number = int(args.pr) if args.pr else None
     run_url = os.environ.get("RUN_URL", "").strip() or None   # the workflow's own run URL, for a re-run link
 
     # The Release-notes proposal is recomputed HERE, at the CLI edge — best-effort, so a network hiccup
     # yields the minimal notes and never blocks the publish (which has already created the tag by then). The
     # merged commit is the head for the merged-PR list.
-    proposal = _proposal_for_publish(target=args.commit)
+    proposal = _proposal_for_publish(target=args.commit, product=product, slug=ctx["slug"])
 
     client = TerminalCutClient(repo, token)
-    result = run(client, engine_release, args.commit, pr_number, run_url=run_url, proposal=proposal)
+    result = run(client, engine_release, args.commit, pr_number, run_url=run_url, proposal=proposal,
+                 product=product)
 
     # plain-language outcome to the run log (the PR comment carries the same words to the maintainer)
     print(result.get("message", ""))

@@ -39,7 +39,10 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    operator's starting codes of conduct from the project's seed and tells them, plainly, that the stance is
    present and theirs to tune; resets the project's starting place-marker to a clean slate so a new project
    never inherits the template's own focus, open-work count, or issue list (disclosed in plain language, and
-   left untouched once the project has set its own); switches the engine on; and turns on the branch review gate that makes every
+   left untouched once the project has set its own); seeds a starting version file for the project's OWN
+   releases (`product-version.json`, at `0.0.0`) so once deployed the release workflow cuts the project's
+   product release, not the engine's — publishing a real release still needs the one-time `RELEASE_PAT` the
+   release workflow explains; switches the engine on; and turns on the branch review gate that makes every
    change go through approval (which may ask for a one-time GitHub approval, explained in plain words first). Show the operator the plain-language result
    of each step. If the engine's programs can't be set up (for example, no internet), setup **stops safely at
    that point and never falls back to a different setup** — say so, and run `apply --first-run` again later to

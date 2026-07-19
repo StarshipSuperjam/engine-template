@@ -2821,5 +2821,44 @@ class TestAugmentDemoRunsGreen(unittest.TestCase):
         self.assertIn("fixture cannot discharge", out, "the inductive ceiling is named")
 
 
+class TestSeedProductVersion(unittest.TestCase):
+    """The product-version seed (#516): a deployed repo gets its own product-version.json at first-run so the
+    release path cuts the PRODUCT once deployed. Seed-iff-absent; construction-belt protects the workshop;
+    disclosed on an actual seed."""
+
+    def _pv(self, d):
+        with open(os.path.join(d, "product-version.json")) as fh:
+            return json.load(fh)
+
+    def test_seeds_product_version_in_a_deployed_root(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d):
+            outcome = inst._seed_product_version(said.append, inst.load_copy())
+            self.assertEqual(outcome, "seeded")
+            self.assertEqual(self._pv(d), {"version": "0.0.0"})
+        self.assertTrue(said, "the seed is disclosed, never silent")
+        self.assertIn("product-version.json", "\n".join(said))
+
+    def test_construction_root_belt_never_seeds(self):
+        # BELT: the construction-governance CLAUDE.md at root (the workshop, where the engine IS the product) ->
+        # never seed a product file; the engine cuts the engine version there.
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d):
+            with open(os.path.join(d, "CLAUDE.md"), "w") as fh:
+                fh.write("# engine-template — construction governance\n\nbody\n")
+            outcome = inst._seed_product_version(lambda t: None, inst.load_copy())
+        self.assertEqual(outcome, "present")
+        self.assertFalse(os.path.exists(os.path.join(d, "product-version.json")))
+
+    def test_existing_file_is_an_idempotent_noop(self):
+        said = []
+        with tempfile.TemporaryDirectory() as d, inst._redirect_root(d):
+            with open(os.path.join(d, "product-version.json"), "w") as fh:
+                fh.write('{"version": "1.4.2"}\n')
+            outcome = inst._seed_product_version(said.append, inst.load_copy())
+            self.assertEqual(outcome, "present")
+            self.assertEqual(self._pv(d), {"version": "1.4.2"}, "an operator's own version is never overwritten")
+        self.assertEqual(said, [], "no disclosure on a no-op")
+
+
 if __name__ == "__main__":
     unittest.main()

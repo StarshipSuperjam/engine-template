@@ -1,9 +1,12 @@
-# release — cut a new engine version. The maintainer triggers this by hand (never on a schedule); it decides
-# the next version from what changed since the last release, records it into the manifests, and opens a
-# release PULL REQUEST for the maintainer to read and merge. THE MERGE IS THE ONLY GO-AHEAD: this workflow
-# opens the pull request and STOPS — it has no merge step, no auto-merge, and never tags or publishes a
-# release (the tag + GitHub Release on merge is a later slice). The maintainer's merge click stays the sole,
-# human, unbypassable consent act.
+# release — cut a new release. The maintainer triggers this by hand (never on a schedule); it decides the next
+# version, records it, and opens a release PULL REQUEST for the maintainer to read and merge. WHAT it releases
+# depends on where it runs: in the ENGINE's construction repo it cuts the engine's version (from what changed
+# since the last engine release, recorded into the manifests); once the engine is DEPLOYED into a product repo
+# it cuts that repo's OWN PRODUCT version (from product-version.json), publishing the product, not the engine
+# (#516). The tool detects which automatically — the workflow is the same in both. THE MERGE IS THE ONLY
+# GO-AHEAD: this workflow opens the pull request and STOPS — it has no merge step, no auto-merge, and never
+# tags or publishes a release (the tag + GitHub Release on merge is release-publish.yml). The maintainer's
+# merge click stays the sole, human, unbypassable consent act.
 #
 # PRESENT-BUT-INERT UNTIL ARMED. The workflow ships committed in every repo, but a real run needs a one-time
 # maintainer setup: a repository secret `RELEASE_PAT` — a fine-grained personal access token scoped to THIS
@@ -22,16 +25,16 @@
 # its GRAMMAR (the actionlint workflow lints it) and by read-review, NOT by a run; the version-decision, the
 # manifest write, and the pull-request-body rendering it drives ARE unit-tested and demoed (release_cut.py /
 # test_release_cut.py / demo_release_cut.py). The first end-to-end run is the first release itself.
-name: Release a new engine version
+name: Release a new version
 # The maintainer sees this line, not the comment above, when this runs — so it says plainly what pressing
 # "Run workflow" does: it opens a pull request to review and merge; nothing is released until that merge.
-run-name: Release ${{ inputs.engine_version || 'the next version' }} — opens a pull request for you to review and merge
+run-name: Release ${{ inputs.version || 'the next version' }} — opens a pull request for you to review and merge
 
 on:
   workflow_dispatch:
     inputs:
-      engine_version:
-        description: "The new engine version, like 0.1.0. Leave blank to use the smallest version the changes require. A release can only ever go up, never down."
+      version:
+        description: "The new version, like 0.1.0. Leave blank to use the smallest version the changes require. A release can only ever go up, never down."
         required: false
         type: string
 
@@ -90,9 +93,10 @@ jobs:
             echo "::error::Could not read this repository over the API to check whether a release already exists. Nothing was changed. Run this again once the repository is reachable."
             exit 1
           fi
-      # Decide the versions — writes nothing. `propose` resolves the last release from the home repository and,
-      # in diff mode, fetches that release's tree itself (a tested Python path, not a shell call into a private
-      # helper); first-cut mode diffs nothing. GITHUB_TOKEN authenticates the same-repo release read.
+      # Decide the versions — writes nothing. `propose` resolves the last release (the engine's home in the
+      # construction repo; the deployed repo's OWN last release once deployed) and, in engine diff mode, fetches
+      # that release's tree itself (a tested Python path, not a shell call into a private helper); first-cut mode
+      # and a product cut diff no tree. GITHUB_TOKEN authenticates the release read.
       - name: Decide the new versions (writes nothing yet)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -108,7 +112,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          ENGINE_VERSION: ${{ inputs.engine_version }}
+          ENGINE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           # Read a field from the proposal. `if ! var=$(...)` catches a read failure in THIS shell (not a
