@@ -139,7 +139,9 @@ def main():
 
     print("=== No GitHub access — the line is suppressed entirely, never a claimed 0 ===")
     ncount, nreg = boot.open_operator_count(None, None)
-    dash3 = _render(0, ncount, nreg, operator_degraded=False)
+    # With no access the engine read has nothing either, so render its line as unread too (finding_count
+    # None) — otherwise the card would show a fresh-looking "Engine findings: 0" that no-access can't produce.
+    dash3 = _render(None, ncount, nreg, operator_degraded=False)
     print(dash3 + "\n")
     if ncount is not None:
         failures.append("no repo/token must return None (no read attempted)")

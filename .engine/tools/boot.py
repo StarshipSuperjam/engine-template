@@ -1469,7 +1469,7 @@ def render_dashboard(s: dict) -> str:
             # branch is a genuine live read; the "none recorded yet" branch below is reached when the register
             # could not be read at all, so it must NOT claim a fresh source.
             out.append(f"**Engine findings:** {s['finding_count']} _(as of this session, source: GitHub Issues)_")
-            # Say when open problems carry no urgency rating. Without this the card reads "18 open" beside
+            # Say when engine findings carry no urgency rating. Without this the card reads "18 open" beside
             # "Nothing is blocking right now" and the two together imply the engine weighed them and found
             # none urgent. It did not weigh them at all: nothing has ever rated them, so the debt-blocking
             # rule has nothing to compare and they neither block nor count toward the waiting-work meter
@@ -1494,8 +1494,10 @@ def render_dashboard(s: dict) -> str:
         if s.get("operator_backlog_count") is not None:
             reg = s.get("operator_backlog_register")
             tail = f" → {reg}" if reg else ""
+            # "your own filed work" alone carries the distinction now that the line above is labelled
+            # "Engine findings" — no need to also spell out "separate from the engine findings above".
             out.append(f"**Your open issues:** {s['operator_backlog_count']} _(as of this session, source: "
-                       f"GitHub Issues)_ — your own filed work, separate from the engine findings above{tail}")
+                       f"GitHub Issues)_ — your own filed work{tail}")
         elif s.get("operator_backlog_degraded"):
             out.append("**Your open issues:** _I couldn't read your issue backlog from GitHub this session, "
                        "so I'm not showing a count — re-ground before you rely on it._")

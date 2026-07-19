@@ -295,7 +295,7 @@ class TestDegradedRead(unittest.TestCase):
             sp = _write_state(d, open_count=7, as_of="2026-06-01T00:00:00Z")
             r = run(gh(f), [rec("rule:b")], telemetry.Cache(_tmpcache()), TH, T[0], state_path=sp)
         self.assertTrue(r.degraded)
-        self.assertIn("7 open problems", r.degraded_line)
+        self.assertIn("7 open engine findings", r.degraded_line)
         self.assertIn("re-ground before you rely on it", r.degraded_line)
         self.assertIn("until GitHub returns", r.degraded_line)
         # zero Issue writes (POST /issues or PATCH /issues/N) — the read failed before any write
@@ -358,6 +358,7 @@ class TestOperatorIssueCount(unittest.TestCase):
                          .count_open_operator_issues(), 42)
         self.assertEqual(len(f.paths), 1)                       # ONE call, no pagination
         self.assertIn("/search/issues", f.paths[0])
+        self.assertIn("is%3Aopen", f.paths[0])                  # only OPEN issues (a dropped is:open would count closed)
         self.assertIn("is%3Aissue", f.paths[0])                 # is:issue -> PRs excluded server-side
         self.assertIn("-label%3A%22engine%22", f.paths[0])      # excludes the engine label (quoted)
         self.assertIn("repo%3Ayou/proj", f.paths[0])   # quote() keeps '/' (safe='/'), encodes ':' -> %3A
@@ -375,8 +376,11 @@ class TestOperatorIssueCount(unittest.TestCase):
                 telemetry.GitHubIssues("o/r", "tok", transport=f.transport).count_open_operator_issues()
 
     def test_raises_on_an_unexpected_shape(self):
-        # A 200 with no total_count (a bare list, or an error envelope) must not read as a count.
-        for bad in ([], {"items": []}, None):
+        # A 200 with no total_count (a bare list, an error envelope) OR a present-but-non-int total_count
+        # (null / string / object) must raise DegradedReadError, never read as a count — honoring the
+        # docstring so a malformed-but-present body can't slip past into a bare int() TypeError.
+        for bad in ([], {"items": []}, None, {"total_count": None}, {"total_count": "oops"},
+                    {"total_count": {}}):
             f = _FakeSearch(data=bad)
             with self.assertRaises(telemetry.DegradedReadError):
                 telemetry.GitHubIssues("o/r", "tok", transport=f.transport).count_open_operator_issues()

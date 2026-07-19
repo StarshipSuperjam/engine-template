@@ -685,7 +685,10 @@ class GitHubIssues:
         q = f'repo:{self.repo} is:open is:issue -label:"{self.label}"'
         status, data = self._transport(
             "GET", f"/search/issues?q={urllib.parse.quote(q)}&per_page=1", None)
-        if status >= 400 or not isinstance(data, dict) or "total_count" not in data:
+        # Reject a present-but-non-int total_count (null / string / object) as an unexpected shape too, not
+        # just a missing key — so a malformed-but-present count raises DegradedReadError (the documented
+        # failure) rather than a bare int() TypeError, and can never read as a real count.
+        if status >= 400 or not isinstance(data, dict) or not isinstance(data.get("total_count"), int):
             raise DegradedReadError(f"GitHub returned {status} counting open operator issues")
         return int(data["total_count"])
 
@@ -826,10 +829,10 @@ def degraded_readout(count, as_of) -> str:
     PRODUCES it; boot renders it."""
     if count is None:
         return ("I couldn't reach GitHub to refresh the engine's self-monitoring backlog, and there "
-                "is no offline count to fall back on — treat the engine's open-problem count as "
+                "is no offline count to fall back on — treat the count of open engine findings as "
                 "unknown until GitHub returns.")
     when = as_of or "an earlier session"
-    return (f"{count} open problems as of {when} — I couldn't refresh this, so it may be wrong; "
+    return (f"{count} open engine findings as of {when} — I couldn't refresh this, so it may be wrong; "
             f"re-ground before you rely on it. The per-issue detail is temporarily unreachable until "
             f"GitHub returns.")
 

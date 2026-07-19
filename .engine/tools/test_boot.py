@@ -161,7 +161,7 @@ class TestOperatorBacklogLine(unittest.TestCase):
             operator_backlog_register="https://github.com/o/r/issues?q=is:open+is:issue+-label:engine"))
         self.assertIn("**Your open issues:** 40", dash)
         self.assertIn("as of this session, source: GitHub Issues", dash)
-        self.assertIn("your own filed work, separate from the engine findings above", dash)
+        self.assertIn("your own filed work", dash)   # names ownership; "Engine findings" above carries the contrast
         self.assertIn("issues?q=is:open+is:issue+-label:engine", dash)   # the count is actionable
 
     def test_a_genuine_zero_backlog_reads_as_checked_none(self):
