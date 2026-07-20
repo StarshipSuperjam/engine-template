@@ -4115,7 +4115,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:3f0f04be17875f06ba811a25b8e987ff9e1c23ce04d12e44ea3b538d995527f1",
+        "fingerprint": "sha256:f538cc0722ca818daa1aaebb62c5f7ecf44ae1a6ca992c170d05527309e8e84e",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -5947,6 +5947,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_594_upgrade_tail_reexec",
+      "name": ".engine/tools/demo_594_upgrade_tail_reexec.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_594_upgrade_tail_reexec",
+      "source": {
+        "fingerprint": "sha256:13c72d0e093b4d7bf8bf96f6ff1560f54bd64fb1b9fb30d6eaca70c049934d52",
+        "path": ".engine/tools/demo_594_upgrade_tail_reexec.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_actionlint",
       "name": ".engine/tools/demo_actionlint.py",
       "owner": "core",
@@ -7317,7 +7334,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:6f20bece3c308b26f2572114b289e5eb0083566e9951a87f6b52581d58058d2c",
+        "fingerprint": "sha256:b3c1442f5c07a380b25cb399c0c8f34f7c9a587fb3b521c2da794783ba2d9488",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9187,7 +9204,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:dc6180c5d69bd9b5f76db8952616c5aeb2795443665576c18e1b6c0349b94fa0",
+        "fingerprint": "sha256:6248d11f8a2d4b55da2d2d9adf3fb49307d97f4756a12d8db1750d98e4ce018e",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
