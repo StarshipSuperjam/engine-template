@@ -907,21 +907,68 @@ def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> 
     return copied, candidates
 
 
+def _wiring_delta(old_by_id: dict, new_by_id: dict) -> dict:
+    """PURE identity-keyed delta between the currently-installed manifests (`old_by_id`) and a release's
+    manifests (`new_by_id`): {"added", "removed", "updated"}, each a list of (module_id, wire).
+
+    Reads DECLARATIONS only — `wiring.declared_wire_identity`, never `is_applied`/`apply_all` — so a release's
+    brand-new seam vocabulary is never executed by the running (pre-overlay) process (#594). It is the SINGLE
+    SOURCE of the removal rule shared with `_apply_wiring_deltas`, so the read-only preview (`plan_upgrade`)
+    cannot promise a wiring change the apply won't make:
+      - removed  = an old engine-identifiable wire whose identity is gone in the new version — EXACTLY the set
+        `_apply_wiring_deltas` reverses (identity-less wires, whose identity is None, are never reversed and so
+        are never reported removed, matching the apply's reversal firewall).
+      - added    = a new wire whose identity is absent from the old version (an identity-less new wire counts
+        as added only when it is not byte-identical to an existing old wire — a genuinely-new seam has no
+        identity and can only ever be an addition).
+      - updated  = a wire present in both by identity but whose declaration content changed (an in-place
+        re-apply — e.g. an `mcp` server, keyed on name, whose definition changed, or a `gitignore` fence,
+        keyed on its key, whose lines changed): the apply re-applies it in place, so it is neither a removal
+        nor an addition."""
+    added, removed, updated = [], [], []
+    for mid in sorted(set(old_by_id) | set(new_by_id)):
+        old_list = (old_by_id.get(mid) or {}).get("wires") or []
+        new_list = (new_by_id.get(mid) or {}).get("wires") or []
+        old_by_key = {}
+        for w in old_list:
+            k = wiring.declared_wire_identity(w)
+            if k is not None:
+                old_by_key[k] = w
+        new_ids = {wiring.declared_wire_identity(w) for w in new_list} - {None}
+        for w in old_list:
+            k = wiring.declared_wire_identity(w)
+            if k is not None and k not in new_ids:          # gone in the new version -> the apply reverses it
+                removed.append((mid, w))
+        for w in new_list:
+            if not isinstance(w, dict):
+                continue                                     # a malformed (non-dict) wire — the apply's
+                                                             # declared_wire_identity/apply_all ignore it too
+            k = wiring.declared_wire_identity(w)
+            if k is None:
+                if w not in old_list:                        # identity-less new wire, not already present
+                    added.append((mid, w))
+            elif k not in old_by_key:
+                added.append((mid, w))                       # genuinely-new identity
+            elif old_by_key[k] != w:
+                updated.append((mid, w))                     # same identity, changed content -> re-applied
+    return {"added": added, "removed": removed, "updated": updated}
+
+
 def _apply_wiring_deltas(old_by_id: dict, new_by_id: dict) -> list:
     """Reverse the wires a module no longer declares and (re)apply the wires it declares now (the
     scenario's 'apply/reverse wiring deltas'). For an unchanged version the delta is empty (apply_all is
     idempotent). A removed engine-identifiable wire is reversed so it does not linger; a same-identity
     content change is re-applied, and if a seam cannot update in place the forward coherence leg (step 5)
-    catches the drift. Returns plain-language lines."""
+    catches the drift. The removal decision is single-homed in `_wiring_delta` so the read-only preview
+    reports the same reversals this applies. Returns plain-language lines."""
+    removed_by_mid: dict = {}
+    for mid, w in _wiring_delta(old_by_id, new_by_id)["removed"]:
+        removed_by_mid.setdefault(mid, []).append(w)
     lines = []
     for mid, new_m in new_by_id.items():
-        new_list = new_m.get("wires") or []
-        new_ids = {wiring.declared_wire_identity(w) for w in new_list} - {None}
-        for w in (old_by_id.get(mid) or {}).get("wires") or []:
-            k = wiring.declared_wire_identity(w)
-            if k is not None and k not in new_ids:     # wire removed in the new version -> reverse it
-                lines.append(validate.fmt(wiring.reverse(w)))
-        for f in wiring.apply_all(new_list):           # apply the new version's wires (idempotent)
+        for w in removed_by_mid.get(mid, []):               # reverse this module's removed wires first
+            lines.append(validate.fmt(wiring.reverse(w)))
+        for f in wiring.apply_all(new_m.get("wires") or []):  # then apply the new version's wires (idempotent)
             lines.append(validate.fmt(f))
     return lines
 
@@ -1258,47 +1305,182 @@ def _spawn_upgrade_tail(state: dict) -> dict:
         shutil.rmtree(work, ignore_errors=True)
 
 
+_WIRE_KIND_LABELS = {
+    "hook": "an automatic engine action",
+    "codex-hook": "an automatic engine action (Codex)",
+    "mcp": "a connected engine tool",
+    "codex-mcp": "a connected engine tool (Codex)",
+    # NOT "a data folder": a gitignore wire only controls whether an engine housekeeping folder is tracked by
+    # version control — turning it off deletes NO data, and "data folder" would read to a non-engineer as
+    # losing their data on the consent-critical data-safety axis (usability review).
+    "gitignore": "an internal engine housekeeping rule",
+    "permission": "an engine permission setting",
+    "ontology-entry": "an engine knowledge entry",
+}
+
+
+def _describe_wire(w: dict) -> str:
+    """One plain-language line for a single settings change the operator can read — WHAT kind of setting
+    moves, never the internal seam vocabulary (no 'wire'/'seam'/'matcher'). A light identifying hint is
+    added only where it reads plainly: a connected tool's name, or the housekeeping rule's target. Robust to
+    a malformed (non-dict) wire from a tampered release — the preview must never crash the operator's check."""
+    if not isinstance(w, dict):
+        return "an engine setting"
+    kind = w.get("type")
+    label = _WIRE_KIND_LABELS.get(kind, "an engine setting")
+    if kind in ("mcp", "codex-mcp") and w.get("name"):
+        return f"{label} ({w['name']})"
+    if kind == "gitignore":
+        first = next((ln for ln in (w.get("lines") or []) if ln), None)
+        if first:
+            return f"{label} ({first})"
+    return label
+
+
+def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
+                 available: str | None = None, target_ref: str | None = None) -> dict:
+    """READ-ONLY upgrade impact preview: what an update WOULD change — the engine files it replaces or adds,
+    the settings it turns on/off/updates, and the stored-data or config changes it would make — computed
+    WITHOUT applying anything (no overlay, no wiring, no migration, no manifest bump). It mirrors the reads
+    `upgrade()`'s parent phase does and none of its writes.
+
+    Composes the SAME pure blocks the apply uses so the preview cannot drift from what the apply does:
+    `_overlay_copy_map` (the overlay's own file membership, guarded by the SAME `_within_root` containment
+    wall — a tampered release can never make the preview enumerate host paths), `_wiring_delta` (the shared
+    removal rule, declaration-only so a release's new seam vocabulary is never executed — #594), and
+    `select_migrations` (the same selector the apply pre-flights with).
+
+    Fixture-testable offline: inject `release_tree` (a local extracted release) and the network is never
+    touched — pass `target_ref`/`available` for the version line. On the real path it resolves the latest
+    release ref (unless a concrete one is named or passed), returns UP-TO-DATE before any download, and only
+    then fetches the tree read-only into a temp dir it always removes. Degrades plainly (never raises) on a
+    missing release or an unreachable home. Returns a flat dict the CLI renders in plain language."""
+    out = {"refused": False, "reason": None, "status": None, "current": None, "available": None,
+           "target_ref": None, "named_ref": ref if (ref and ref != "latest") else None,
+           "from_versions": {}, "target_versions": {},
+           "files": {"replaced": [], "added": []},
+           "wires": {"added": [], "removed": [], "updated": []},
+           "migrations": [], "backed_up": None}
+    tmp = None
+    try:
+        engine = module_coherence.load_engine_manifest() or {"packages": {}}
+        from_versions = dict(engine.get("packages") or {})
+        present_ids = sorted(from_versions)
+        out["from_versions"] = from_versions
+        out["current"] = engine.get("engine_release")
+        if not present_ids:
+            return {**out, "refused": True, "reason": "There are no installed modules to update."}
+        injected = release_tree is not None
+        named = out["named_ref"] is not None
+        if injected:
+            target_ref = target_ref or ref or "latest"
+        else:
+            home = _home_repository()
+            if not home:
+                out["status"] = "no-home"
+                out["reason"] = ("This engine has no update home recorded, so I can't check for updates. Tell "
+                                 "me the repository your engine updates from and I'll record it, then check "
+                                 "again.")
+                return out
+            try:
+                target_ref = target_ref or _resolve_release_ref(ref, repo=home)   # concrete ref -> no network
+            except Exception as exc:   # noqa: BLE001 — offline / no published release -> degrade, never crash
+                return _preview_degrade(out, home, exc, target=ref or "latest")
+        out["target_ref"] = target_ref
+        out["available"] = available or target_ref
+        # UP-TO-DATE before any download: an unnamed check whose latest is not newer needs no fetch.
+        if not named and validate._ver_tuple(out["available"]) <= validate._ver_tuple(out["current"] or "0"):
+            out["status"] = "up-to-date"
+            return out
+        if not injected:
+            tmp = tempfile.mkdtemp(prefix="engine-preview-")
+            try:
+                release_tree = _fetch_release_tree(target_ref, tmp, repo=home)
+            except Exception as exc:   # noqa: BLE001
+                return _preview_degrade(out, home, exc, target=target_ref)
+        # Read the release's manifests + capture the installed ones — the SAME reads upgrade() does, no writes.
+        candidates = {}
+        for mid in present_ids:
+            man_src = os.path.join(release_tree, ".engine", "modules", mid, "manifest.json")
+            if not os.path.isfile(man_src):
+                return {**out, "refused": True, "status": "missing-module",
+                        "reason": f"The update at {target_ref} does not contain the installed module '{mid}', "
+                                  f"so it can't be previewed and nothing was changed."}
+            candidates[mid] = validate.load_json(man_src)
+            out["target_versions"][mid] = candidates[mid].get("version")
+        old_by_id = {}
+        for mid in present_ids:
+            cur = os.path.join(_modules_dir(mid), "manifest.json")
+            old_by_id[mid] = validate.load_json(cur) if os.path.isfile(cur) else {}
+        # FILES — the overlay's OWN membership function (drift-proof vs the apply), guarded by the SAME
+        # containment wall the apply uses (module_manager `_overlay_engine_code`): a tampered release must
+        # never make the read-only preview enumerate or probe paths outside the engine.
+        to_copy = _overlay_copy_map(release_tree, candidates)
+        escapes = sorted(rel for rel in to_copy if not _within_root(rel))
+        if escapes:
+            shown = ", ".join(escapes[:3]) + ("…" if len(escapes) > 3 else "")
+            return {**out, "refused": True, "status": "unsafe-release",
+                    "reason": f"Stopped the update check: the update at {target_ref} described files outside "
+                              f"the engine ({shown}), so nothing further was read. This can mean the release "
+                              f"is not one to trust — check your engine's update home."}
+        replaced, added_files = [], []
+        for rel in sorted(to_copy):
+            (replaced if os.path.exists(os.path.join(validate.ROOT, rel)) else added_files).append(rel)
+        out["files"] = {"replaced": replaced, "added": added_files}
+        # SETTINGS (wiring) — the shared identity delta, so the preview reports the apply's own reversals.
+        out["wires"] = _wiring_delta(old_by_id, candidates)
+        # STORED-DATA / CONFIG changes — the same pure selector the apply pre-flights with.
+        selected = select_migrations(from_versions, out["target_versions"], list(candidates.values()))
+        out["migrations"] = [{"module_id": s.get("module_id"), "version": s.get("version"),
+                              "description": s.get("description"), "kind": s.get("kind")} for s in selected]
+        if any(s.get("kind") == "data" for s in selected):
+            out["backed_up"] = _resolve_backup_seam(None) is not None   # engine-wide readiness probe; no write
+        out["status"] = "update-available"
+        return out
+    finally:
+        if tmp and os.path.isdir(tmp):
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _preview_degrade(out: dict, home: str, exc: BaseException, target: str) -> dict:
+    """Map a release-resolve/fetch failure in the read-only preview to a plain degrade dict (never raises):
+    a missing/renamed home names it and asks the operator to check; a transport failure degrades to 'the
+    engine is unchanged and still working'. Mirrors upgrade()'s three-state resolution, preview-worded."""
+    if _release_is_missing(exc):
+        return {**out, "status": "missing-release",
+                "reason": (f"Couldn't find a release to update to at your engine's update home, {home} "
+                           f"(looked for '{target}'). That home may have no published releases yet, or it may "
+                           f"have been renamed or removed. The engine is unchanged.")}
+    return {**out, "status": "unreachable",
+            "reason": (f"Couldn't reach your engine's update home ({home}) to check for updates — the network "
+                       f"may be down right now. The engine is unchanged and still working.")}
+
+
 def upgrade_preview(ref: str | None = None) -> dict:
     """Read-only pre-flight for the `upgrade` command's preview-by-default surface (the #594 footgun close):
-    mutate NOTHING. Reports (1) whether the working copy is coherent — a half-applied earlier update leaves
-    engine.json bumped but the tree inconsistent, so a version-only check would wrongly read 'up to date';
-    and (2) the current vs available engine version. Degrades plainly when no home is recorded or the home
-    is unreachable. The richer impact preview (files/wires/migrations) is a later refinement."""
-    out = {"coherent": None, "hard_findings": 0, "current": None, "available": None,
-           "named_ref": ref if (ref and ref != "latest") else None, "status": None, "reason": None}
+    mutate NOTHING. First the coherence pre-check — a half-applied earlier update leaves engine.json bumped
+    but the tree inconsistent, so a version-only check would wrongly read 'up to date'; then the full impact
+    preview via `plan_upgrade` (current vs available version, and — when an update is available or a version
+    is named — the files, settings, and stored-data changes it would make). Degrades plainly when no home is
+    recorded or the home is unreachable, and never raises (a preview must not crash the operator's check)."""
+    current = (module_coherence.load_engine_manifest() or {}).get("engine_release")
+    named = ref if (ref and ref != "latest") else None
     hard = [f for f in module_coherence.check_coherence() if f.get("severity") == "hard"]
-    out["coherent"], out["hard_findings"] = (not hard), len(hard)
-    out["current"] = (module_coherence.load_engine_manifest() or {}).get("engine_release")
     if hard:
         # A hard coherence finding means the tree is inconsistent — most often a stalled update, but it can
         # also be an interrupted add/remove. State the SYMPTOM, don't assert "a previous update" as the cause.
-        out["status"] = "inconsistent"
-        out["reason"] = ("Your engine has a consistency problem — something a recent change (an update, or "
-                         "adding or removing a module) left unfinished. You can run `upgrade --confirm` to "
-                         "try to finish an update, or ask me to undo the staged changes.")
-        return out
-    home = _home_repository()
-    if not home:
-        out["status"] = "no-home"
-        out["reason"] = ("This engine has no update home recorded, so I can't check for updates. Tell me the "
-                         "repository your engine updates from and I'll record it, then check again.")
-        return out
-    if out["named_ref"]:
-        # A specific version was named without --confirm. This light check can't fetch to validate it, so it
-        # routes to --confirm (which fetches that version and refuses cleanly if it doesn't exist) rather
-        # than reporting on the latest and quietly ignoring what was asked.
-        out["status"] = "named-target"
-        return out
+        return {"status": "inconsistent", "coherent": False, "hard_findings": len(hard),
+                "current": current, "named_ref": named, "reason":
+                ("Your engine has a consistency problem — something a recent change (an update, or adding or "
+                 "removing a module) left unfinished. You can run `upgrade --confirm` to try to finish an "
+                 "update, or ask me to undo the staged changes.")}
     try:
-        out["available"] = _resolve_release_ref(None, repo=home)
-    except Exception:   # noqa: BLE001 — offline / no published release -> degrade, never crash
-        out["status"] = "unreachable"
-        out["reason"] = (f"Couldn't reach your engine's update home ({home}) to check for updates — the "
-                         f"engine is unchanged and still working.")
-        return out
-    newer = validate._ver_tuple(out["available"]) > validate._ver_tuple(out["current"] or "0")
-    out["status"] = "update-available" if newer else "up-to-date"
-    return out
+        plan = plan_upgrade(ref)
+    except Exception as exc:   # noqa: BLE001 — a preview must never crash the operator's update check
+        return {"status": "unreachable", "current": current, "named_ref": named,
+                "reason": f"Couldn't complete the update check — the engine is unchanged and still working. ({exc})"}
+    plan["coherent"], plan["hard_findings"] = True, 0
+    return plan
 
 
 def _display_ver(v):
@@ -1308,23 +1490,53 @@ def _display_ver(v):
 
 
 def _render_upgrade_preview(p: dict) -> None:
-    """Plain-language render of `upgrade_preview` (bare `upgrade`, no --confirm)."""
-    if p.get("reason"):                      # inconsistent / no-home / unreachable all carry a reason
+    """Plain-language render of the update preview (bare `upgrade`, no --confirm) — what an update WOULD
+    change, in the operator's own terms. Changes nothing."""
+    if p.get("reason"):     # inconsistent / no-home / unreachable / missing / unsafe all carry a reason
         print(p["reason"])
         return
     current = _display_ver(p.get("current"))
-    if p.get("status") == "named-target":
-        ref = p.get("named_ref")
-        print(f"You're on version {current}. To update to {ref}, run `upgrade --confirm {ref}` — it fetches "
-              f"that version and refuses cleanly if it isn't a real release. (Bare `upgrade` checks the "
-              f"latest available version; a specific version is applied with --confirm.)")
-        return
     if p.get("status") == "up-to-date":
         print(f"Your engine is up to date (version {current}). Nothing to update.")
         return
-    print(f"An update is available: you're on {current}, and {_display_ver(p.get('available'))} is published.")
-    print("This only checked your engine — nothing changed. Run `upgrade --confirm` to apply the update; it "
-          "arrives as a pull request you review.")
+    named = p.get("named_ref")
+    target = _display_ver(p.get("target_ref") or p.get("available"))
+    if named:
+        print(f"You're on version {current}. Here's what updating to {target} would change:")
+    else:
+        print(f"An update is available: you're on {current}, and {target} is published. Here's what "
+              f"updating would change:")
+    files = p.get("files") or {}
+    nrep, nadd = len(files.get("replaced") or []), len(files.get("added") or [])
+    if nrep or nadd:
+        parts = ([f"{nrep} engine file{'s' if nrep != 1 else ''} updated"] if nrep else [])
+        parts += ([f"{nadd} new file{'s' if nadd != 1 else ''}"] if nadd else [])
+        print(f"  Files: {', '.join(parts)} — your settings and saved data are kept.")
+        # These aren't in the file overlay above (they are kept-merged / re-rendered, not overwritten), so an
+        # apply also touches them — name them here so they aren't a surprise in the pull request's diff.
+        print("  It also refreshes the engine's own block in your CLAUDE.md and the engine-file review list — "
+              "your own content is kept.")
+    w = p.get("wires") or {}
+    for verb, items in (("Turns on", w.get("added")), ("Updates", w.get("updated")),
+                        ("Turns off", w.get("removed"))):
+        for _mid, wire in (items or []):
+            print(f"  {verb}: {_describe_wire(wire)}")
+    migs = p.get("migrations") or []
+    for m in migs:
+        what = ("stored data" if m.get("kind") == "data"
+                else "a setting" if m.get("kind") == "config" else "an engine record")
+        print(f"  Changes {what}: {m.get('description') or m.get('module_id')}")
+    if any(m.get("kind") == "data" for m in migs):
+        if p.get("backed_up") is True:
+            print("  Your stored data is backed up before any data change.")
+        elif p.get("backed_up") is False:
+            print("  Note: a stored-data change needs a backup set up first — ask me to set one up before "
+                  "applying, or the update refuses that step and changes nothing.")
+    if not (nrep or nadd or any(w.get(k) for k in ("added", "updated", "removed")) or migs):
+        print("  No file or settings changes — a version bump only.")
+    tail = f" (or run `upgrade --confirm{(' ' + named) if named else ''}`)"
+    print(f"\nThis only checked your engine — nothing changed. To apply, type `/engine-upgrade` and confirm"
+          f"{tail}; it arrives as a pull request you review.")
 
 
 _UPGRADE_USAGE = ("usage: module_manager.py upgrade [ref] [--confirm] [--json]\n"
@@ -2619,11 +2831,15 @@ def main(argv: list) -> int:
                 return 2
             ref = next((a for a in argv[1:] if not a.startswith("-")), None)
             if "--confirm" not in argv:
-                preview = upgrade_preview(ref)       # READ-ONLY — changes nothing
-                if "--json" in argv:
-                    print(json.dumps(preview, indent=2))
-                else:
-                    _render_upgrade_preview(preview)
+                try:
+                    preview = upgrade_preview(ref)   # READ-ONLY — changes nothing
+                    if "--json" in argv:
+                        print(json.dumps(preview, indent=2))
+                    else:
+                        _render_upgrade_preview(preview)
+                except Exception as exc:   # noqa: BLE001 — the check must never crash on a malformed release
+                    print(f"Couldn't complete the update check — the engine is unchanged and still working. "
+                          f"({exc})")
                 return 0
             result = upgrade(ref)
             if "--json" in argv:

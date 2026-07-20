@@ -1534,22 +1534,31 @@ class TestUpgradeTailAndSafeCli(unittest.TestCase):
         self.assertNotIn("up to date", module_manager._display_ver(preview["current"]) or "")
 
     def test_preview_reports_available_or_up_to_date_when_coherent(self):
+        # Slice 2: an available update now PREVIEWS impact (a real fetch), so the fetch is stubbed to a local
+        # release; up-to-date still short-circuits BEFORE any fetch (no download when there's nothing newer).
         with tempfile.TemporaryDirectory() as d:
             live = os.path.join(d, "live")
             os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)   # coherent, engine_release 0.0.0
-                orig = module_manager._resolve_release_ref
+                orig_r, orig_f = module_manager._resolve_release_ref, module_manager._fetch_release_tree
+                fetched = []
                 try:
-                    module_manager._resolve_release_ref = lambda ref, repo=None, token=None: "9.9.9"
+                    module_manager._resolve_release_ref = lambda ref, repo=None, token=None: "v0.2.0"
+                    module_manager._fetch_release_tree = (
+                        lambda ref, dest, repo=None, token=None: fetched.append(ref) or release)
                     available = module_manager.upgrade_preview()
                     module_manager._resolve_release_ref = lambda ref, repo=None, token=None: "0.0.0"
                     current = module_manager.upgrade_preview()
                 finally:
-                    module_manager._resolve_release_ref = orig
+                    module_manager._resolve_release_ref = orig_r
+                    module_manager._fetch_release_tree = orig_f
         self.assertEqual(available["status"], "update-available")
-        self.assertEqual(available["available"], "9.9.9")
+        self.assertEqual(available["available"], "v0.2.0")
+        self.assertEqual(available["target_versions"]["base"], "0.2.0")   # it read the release's real manifest
         self.assertEqual(current["status"], "up-to-date")
+        self.assertEqual(fetched, ["v0.2.0"])   # fetched once for the available update, never for up-to-date
 
     def _run_main(self, argv):
         out, err = io.StringIO(), io.StringIO()
@@ -1575,23 +1584,28 @@ class TestUpgradeTailAndSafeCli(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("unknown option", err)
 
-    def test_preview_of_a_named_version_routes_to_confirm_not_a_latest_check(self):
-        # A named ref without --confirm must not silently report on the LATEST version; it routes to --confirm.
+    def test_preview_of_a_named_version_previews_that_versions_impact(self):
+        # Slice 2 lifts slice 1's "a named ref can't be previewed" limit: a named ref now previews THAT
+        # version's real impact (fetching it directly), never latching onto the latest release.
         with tempfile.TemporaryDirectory() as d:
             live = os.path.join(d, "live")
             os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)
-                called = []
-                orig = module_manager._resolve_release_ref
+                orig_f = module_manager._fetch_release_tree
+                fetched = []
                 try:
-                    module_manager._resolve_release_ref = lambda *a, **k: called.append(True) or "9.9.9"
-                    preview = module_manager.upgrade_preview("v1.2.3")
+                    module_manager._fetch_release_tree = (
+                        lambda ref, dest, repo=None, token=None: fetched.append(ref) or release)
+                    preview = module_manager.upgrade_preview("v0.2.0")
                 finally:
-                    module_manager._resolve_release_ref = orig
-        self.assertEqual(preview["status"], "named-target")
-        self.assertEqual(preview["named_ref"], "v1.2.3")
-        self.assertEqual(called, [])   # it did NOT resolve/latch onto the latest release
+                    module_manager._fetch_release_tree = orig_f
+        self.assertEqual(preview["status"], "update-available")
+        self.assertEqual(preview["named_ref"], "v0.2.0")
+        self.assertEqual(preview["target_ref"], "v0.2.0")
+        self.assertEqual(fetched, ["v0.2.0"])   # fetched the NAMED version, not the latest
+        self.assertTrue(any(m["kind"] == "data" for m in preview["migrations"]))   # its real impact was read
 
     def _capture_child_env(self, practice):
         """Run _spawn_upgrade_tail with subprocess.run stubbed, returning the env the child would get."""
@@ -1686,6 +1700,133 @@ class TestUpgradeTailAndSafeCli(unittest.TestCase):
         import quiet_call
         code = quiet_call.run(demo.main)   # captures the demo's walkthrough (keeps the suite summary clean)
         self.assertEqual(code, 0)
+
+
+class TestUpgradePreviewImpact(unittest.TestCase):
+    """The read-only `plan_upgrade` impact preview (slice 2 of #594) — computed offline via an injected
+    release tree, so no test touches the network."""
+
+    def test_offline_impact_names_files_settings_and_data_changes(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                plan = module_manager.plan_upgrade("v0.2.0", release_tree=release, target_ref="v0.2.0")
+        self.assertFalse(plan["refused"])
+        self.assertEqual(plan["status"], "update-available")
+        # SETTINGS: base swaps its 'oldcache' gitignore for 'newcache' -> one turned off, one turned on
+        self.assertIn("oldcache", [w.get("key") for _m, w in plan["wires"]["removed"]])
+        self.assertIn("newcache", [w.get("key") for _m, w in plan["wires"]["added"]])
+        self.assertEqual(plan["wires"]["updated"], [])
+        # STORED-DATA / CONFIG: both migrations surface with their real kinds
+        self.assertEqual(sorted(m["kind"] for m in plan["migrations"]), ["config", "data"])
+        # a data migration + no vault configured in the fixture -> backup NOT ready (reported, never refused)
+        self.assertFalse(plan["backed_up"])
+        # FILES: base_tool.py is replaced; the release's new migration files are added
+        self.assertIn(".engine/tools/base_tool.py", plan["files"]["replaced"])
+        self.assertTrue(any("migrations/" in r for r in plan["files"]["added"]))
+        self.assertEqual(plan["target_versions"]["base"], "0.2.0")
+
+    def test_a_same_identity_content_change_is_updated_not_removed_and_added(self):
+        # R1 (arch plan-gate): an mcp server is keyed on NAME, so a definition change is an in-place re-apply
+        # the preview must call 'updated' — never surface it as both a removal and an addition.
+        old = {"base": {"wires": [{"type": "mcp", "name": "engine-x", "definition": {"a": 1}}]}}
+        new = {"base": {"wires": [{"type": "mcp", "name": "engine-x", "definition": {"a": 2}}]}}
+        delta = module_manager._wiring_delta(old, new)
+        self.assertEqual([w["name"] for _m, w in delta["updated"]], ["engine-x"])
+        self.assertEqual(delta["added"], [])
+        self.assertEqual(delta["removed"], [])
+
+    def test_preview_removed_set_is_exactly_what_the_apply_reverses(self):
+        # R1 single-home: the removed set the preview reports IS the set _apply_wiring_deltas would reverse.
+        # A same-identity survivor (engine-keep) is not removed; an identity that vanishes (gone) is.
+        old = {"base": {"wires": [{"type": "gitignore", "key": "gone", "lines": ["x/"]},
+                                  {"type": "mcp", "name": "engine-keep", "definition": {}}]}}
+        new = {"base": {"wires": [{"type": "mcp", "name": "engine-keep", "definition": {}},
+                                  {"type": "gitignore", "key": "fresh", "lines": ["y/"]}]}}
+        self.assertEqual([w.get("key") for _m, w in module_manager._wiring_delta(old, new)["removed"]],
+                         ["gone"])
+
+    def test_an_identity_less_removed_wire_is_never_reported_removed(self):
+        # R1: a permission wire has no engine identity, so the apply never reverses it -> the preview must
+        # not promise a removal that won't happen.
+        old = {"base": {"wires": [{"type": "permission", "value": "Bash(*)"}]}}
+        new = {"base": {"wires": []}}
+        self.assertEqual(module_manager._wiring_delta(old, new)["removed"], [])
+
+    def test_a_tampered_release_escaping_path_refuses_the_preview(self):
+        # R4 (risk plan-gate): a release whose provides climb OUT of the engine must REFUSE the preview and
+        # enumerate nothing — the same containment wall the apply uses, now on the read-only path.
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = os.path.join(d, "release")
+            base = os.path.join(release, ".engine", "modules", "base")
+            os.makedirs(base)
+            module_manager._write_json(os.path.join(base, "manifest.json"),
+                                       {"id": "base", "version": "0.2.0", "status": "required",
+                                        "provides": {"tool": ["../sneak.py"]}, "depends": {}})  # climbs out
+            with open(os.path.join(d, "sneak.py"), "w", encoding="utf-8") as fh:
+                fh.write("# a file the escaping glob would match, OUTSIDE the engine\n")
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                plan = module_manager.plan_upgrade("v0.2.0", release_tree=release, target_ref="v0.2.0")
+        self.assertTrue(plan["refused"])
+        self.assertEqual(plan["status"], "unsafe-release")
+        self.assertEqual(plan["files"], {"replaced": [], "added": []})   # nothing host-path was enumerated
+
+    def test_render_speaks_plain_language_with_no_seam_jargon(self):
+        # R5 (product plan-gate): the operator-facing render describes settings plainly, never 'wire'/'seam'/
+        # 'matcher', and matches the operation doc's "turn settings on/off" framing.
+        plan = {"status": "update-available", "current": "0.3.0", "target_ref": "v0.3.1",
+                "available": "v0.3.1", "named_ref": None,
+                "files": {"replaced": [".engine/tools/x.py"], "added": [".engine/tools/y.py"]},
+                "wires": {"added": [("base", {"type": "mcp", "name": "engine-graph"})],
+                          "removed": [("base", {"type": "gitignore", "key": "old",
+                                                "lines": [".engine/old/"]})],
+                          "updated": []},
+                "migrations": [{"module_id": "base", "kind": "data", "description": "Reshape stored data."}],
+                "backed_up": False}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            module_manager._render_upgrade_preview(plan)
+        text = out.getvalue()
+        self.assertIn("Turns on: a connected engine tool (engine-graph)", text)
+        self.assertIn("Turns off: an internal engine housekeeping rule", text)   # NOT "data folder" (misread)
+        self.assertIn("Changes stored data", text)
+        self.assertIn("needs a backup", text)
+        self.assertIn("/engine-upgrade", text)
+        for jargon in ("wire", "seam", "matcher"):
+            self.assertNotIn(jargon, text.lower())
+
+    def test_a_malformed_non_dict_wire_never_crashes_the_preview(self):
+        # A tampered release with a non-dict wire entry must not crash the operator's check (the render sits
+        # outside upgrade_preview's own guard). _wiring_delta skips it; _describe_wire degrades gracefully.
+        self.assertEqual(module_manager._describe_wire("not-a-dict"), "an engine setting")
+        delta = module_manager._wiring_delta({"base": {"wires": []}},
+                                             {"base": {"wires": ["junk", 7, {"type": "mcp", "name": "ok"}]}})
+        self.assertEqual([w["name"] for _m, w in delta["added"]], ["ok"])   # only the well-formed wire
+
+    def test_bare_upgrade_previews_and_never_applies(self):
+        # The CLI dispatch: bare `upgrade` renders the preview and NEVER reaches the apply path.
+        canned = {"status": "update-available", "current": "0.3.0", "target_ref": "v0.3.1",
+                  "available": "v0.3.1", "named_ref": None, "files": {"replaced": [], "added": []},
+                  "wires": {"added": [], "removed": [], "updated": []}, "migrations": [], "backed_up": None}
+        orig_prev, orig_up = module_manager.upgrade_preview, module_manager.upgrade
+        applied = []
+        try:
+            module_manager.upgrade_preview = lambda ref=None: canned
+            module_manager.upgrade = lambda *a, **k: applied.append(True) or {}
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = module_manager.main(["upgrade"])
+        finally:
+            module_manager.upgrade_preview, module_manager.upgrade = orig_prev, orig_up
+        self.assertEqual(code, 0)
+        self.assertEqual(applied, [])                       # apply path never entered
+        self.assertIn("nothing changed", out.getvalue())
 
 
 if __name__ == "__main__":

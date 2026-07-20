@@ -1,0 +1,34 @@
+---
+name: engine-upgrade
+description: Check for an engine update and see exactly what it would change — files, settings, and stored data — then apply it as a pull request you review. Nothing changes until you approve.
+invocation: operator-typed
+disable-model-invocation: true
+allowed-tools: Bash(uv run *)
+---
+
+## Steps
+
+1. Show what an update would change — this only checks and changes nothing — by running:
+   `uv run --directory .engine -- python tools/module_manager.py upgrade`
+   (add a specific version at the end to check that one instead of the latest). Show the operator the
+   result exactly as it is printed — the version you're on and the one available, and the files, settings,
+   and stored-data changes an update would make. Do not summarize or reword it. If it reports the engine is
+   up to date, or that it couldn't reach the update home, say so plainly and stop.
+2. Before applying, tell the operator plainly what applying does: it downloads the new version and runs its
+   own update steps, then opens the change as a **pull request for your review** — nothing about the running
+   engine changes until you merge it, and merging can be undone by reverting it. If the check flagged a
+   stored-data change with no backup set up, say that a backup must be set up first or the update will refuse
+   that step.
+3. Only after the operator says to go ahead, apply the update by running:
+   `uv run --directory .engine -- python tools/module_manager.py upgrade --confirm`
+   (add the same specific version if they named one). Show the result exactly.
+4. Point the operator to the pull request it opened: reviewing and merging it is their approval; reverting
+   it undoes the update. If a step stalled instead, relay the recovery line the command printed — do not
+   improvise one.
+
+## Notes
+
+This is a command you type when you want to update the engine. I won't start an update on my own — that is
+your call. If you just mention wanting to update in conversation, I'll point you here rather than run
+anything; the update only ever begins from this typed command, and applying always waits for your explicit
+go-ahead after you've seen what would change. The check in step 1 is safe to run any time: it only reads.

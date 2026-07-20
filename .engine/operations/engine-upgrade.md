@@ -17,9 +17,13 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
 
 ## Steps
 
-1. **See where you stand.** `module_manager.py upgrade` on its own **only checks — it changes nothing**: it
-   tells you the version you're on, whether a newer one is available, and whether a previous update looks
-   unfinished. (`module_manager.py status` also lists the installed modules and the current version.)
+1. **See where you stand — and what an update would change.** Type `/engine-upgrade` (the operator command
+   for the whole flow), or run `module_manager.py upgrade` directly. Either way it **only checks — it changes
+   nothing**: it tells you the version you're on, whether a newer one is available, whether a previous update
+   looks unfinished, and — when an update is available — **what that update would change**: the engine files
+   it replaces or adds, the settings it turns on or off or updates, and any stored-data change (and whether a
+   backup is set up for it). To see this it fetches the new version's files read-only; nothing is applied.
+   (`module_manager.py status` also lists the installed modules and the current version.)
 2. **Apply the update — deliberately.** `module_manager.py upgrade --confirm` (optionally name a specific
    version) fetches the newer released version, replaces the engine's own files with it while **keeping your
    settings and saved data untouched**, turns shared-file settings on or off to match the new version,
@@ -44,10 +48,30 @@ no backup set up, or a module was missing), with nothing changed.
 
 ## Notes
 
+**The operator command, and how a mention of "upgrade" is handled.** `/engine-upgrade` is the command you
+type to run the whole flow: it checks, shows you exactly what an update would change, and — only after you say
+to go ahead — applies it as a pull request you review. "The `upgrade` command" throughout this runbook means
+that typed command (`module_manager.py upgrade`, and `... --confirm` to apply) — never the word "upgrade"
+spoken in conversation. If you simply mention wanting to update, the engine **points you to
+`/engine-upgrade`** rather than running anything. This routing rests on three layers, named honestly:
+- the `/engine-upgrade` command **cannot be started by the engine on its own** — only you typing it begins it
+  (a firm mechanical limit);
+- a conversational "I want to upgrade" is answered by pointing you to the command, not by acting on it (an
+  instruction the engine follows — a rule, not a lock);
+- and under both, **applying only ever opens a pull request** — nothing about the running engine changes
+  until you merge it. So even if that middle rule were ever slipped, the worst outcome is a pull request you
+  can simply reject.
+
+**What the check covers.** The check answers four things before you commit to an update: whether an update is
+**available** and to which version; the **impact** it would have (the files, settings, and stored-data changes
+above); the **progress** of applying it, which the apply step reports as it goes — what it applied, the data
+it migrated, and the pull request it opened; and the **validation** — the engine's own consistency check runs
+at the end, and, with the pull request's own checks, is visible on the pull request you review.
+
 **Saved data is backed up before it is changed — or the update stops.** Most updates only replace the
 engine's code, which a reverted pull request restores on its own. When an update also needs to change saved
 data, it makes a backup first, so the change can be undone. If no backup is set up yet, the update **refuses**
-that step rather than risk data it can't restore — set up a backup, then update again. And if an update is
+that step rather than risk data it can't restore — ask the engine to set up a backup, then update again. And if an update is
 undone *after* it already changed saved data, the engine notices on its next start and tells you, in plain
 language, the exact command to restore the backup so your data and the engine match again.
 
