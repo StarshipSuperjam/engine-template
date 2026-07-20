@@ -936,26 +936,53 @@ def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> 
 # operator-facing overwrite disclosure (overlay_replace_paths) never widens to files the reconcile only ADDS.
 
 
+def _plain_oserror(exc: OSError) -> str:
+    """The human half of an OSError for an operator-facing line — 'permission denied', not '[Errno 13] ...'."""
+    return (getattr(exc, "strerror", None) or str(exc)).lower()
+
+
+def _safe_retire_entry(p) -> bool:
+    """True iff a retire-manifest entry is a safe, in-tree, repo-RELATIVE path that does NOT resolve to the
+    repo root. Rejects the shapes that would widen a delete to the whole tree or outside it — an empty string,
+    '.', '/', a '..' escape, or an absolute path (the whole-repo `rmtree` guard, security review)."""
+    if not isinstance(p, str) or not p.strip() or os.path.isabs(p):
+        return False
+    norm = os.path.normpath(p)
+    if norm in ("", ".", os.sep) or norm.startswith(".." + os.sep) or norm == "..":
+        return False
+    return _within_root(p) and os.path.abspath(os.path.join(validate.ROOT, p)) != os.path.abspath(validate.ROOT)
+
+
 def retire_set(tree_root: str) -> tuple:
     """The first-run-only assets a release RETIRES from a deployed repo — the `provision()` projection, read
     from the release's OWN `.engine/provisioning/first-run-assets.json` (self-describing, core-owned, travels,
     and survives retirement). Returns (files:set, dirs:set) of repo-relative paths. RAISES `_UpgradeRefused`
-    on an absent, unreadable, or empty/malformed manifest: the upgrade reconcile fails LOUD (a clean refusal),
-    never a silent fall-through to the un-projected template shape — which would resurrect the retired set the
-    reconcile exists to keep out (risk-S3)."""
+    on an absent, unreadable, empty, or STRUCTURALLY-DANGEROUS manifest (an entry that is empty, absolute, or
+    resolves to the repo root — which would turn a mis-authored release into a whole-tree delete): the upgrade
+    reconcile fails LOUD (a clean refusal), never a silent fall-through to the un-projected template shape —
+    which would resurrect the retired set the reconcile exists to keep out (risk-S3, security review)."""
     manifest = os.path.join(tree_root, ".engine", "provisioning", "first-run-assets.json")
     try:
         data = validate.load_json(manifest)
         files = {p for p in (data.get("files") or []) if isinstance(p, str)}
         dirs = {p for p in (data.get("directories") or []) if isinstance(p, str)}
-    except Exception as exc:   # noqa: BLE001 — absent/unreadable/malformed -> clean refusal, never silent
+    except Exception:   # noqa: BLE001 — absent/unreadable/malformed -> clean refusal, never silent
         raise _UpgradeRefused(
-            "the engine release's one-time-setup file list could not be read "
-            f"({exc}), so the update was not opened for review and nothing was merged.")
+            "The update was applied to your working copy, but the new version's setup-file list was missing or "
+            "unreadable, so the update was NOT opened for review and nothing was merged. Run the update again "
+            "to retry, or ask me to undo the update's changes.")
     if not files and not dirs:
         raise _UpgradeRefused(
-            "the engine release's one-time-setup file list was empty, so the update could not tell which "
-            "setup-only files to keep out of your repo; it was not opened for review and nothing was merged.")
+            "The update was applied to your working copy, but the new version's setup-file list was empty, so "
+            "the update could not tell which setup-only files to keep out of your repo; it was NOT opened for "
+            "review and nothing was merged. Run the update again to retry, or ask me to undo the update's "
+            "changes.")
+    if any(not _safe_retire_entry(p) for p in (files | dirs)):
+        raise _UpgradeRefused(
+            "The update was applied to your working copy, but the new version's setup-file list named an "
+            "unusable path, so the update was stopped rather than risk removing the wrong thing — nothing was "
+            "opened for review or merged. This is an engine defect to report; ask me to undo the update's "
+            "changes.")
     return files, dirs
 
 
@@ -1007,14 +1034,12 @@ def _reconcile_carveouts() -> tuple:
     return exact, prefixes
 
 
-def _deliver_synced(tree_root: str, manifests_by_id: dict, *, project_retire: bool, exclude=None) -> list:
-    """Copy every `engine_synced_map` member the LIVE tree lacks or that DIFFERS, honoring an `exclude` skip
-    set (arrival's class-1 'leave-as-is' keeps; the upgrade passes none). Containment fail-closed BEFORE any
-    write (the topology wall, mirroring `_overlay_engine_code`). Returns the delivered repo-relative paths.
-    The single shared deliver primitive for BOTH the upgrade tail reconcile (`project_retire=True`) and
-    brownfield arrival (`project_retire=False`) — so arrival now delivers the fixture category too (#599)."""
+def _copy_synced(to_deliver: dict, *, exclude=None) -> list:
+    """Copy every (repo-relative -> source-abspath) member the LIVE tree lacks or that DIFFERS, honoring an
+    `exclude` skip set (arrival's class-1 'leave-as-is' keeps; the upgrade passes none). Containment
+    fail-closed BEFORE any write (the topology wall, mirroring `_overlay_engine_code`). Returns the delivered
+    repo-relative paths. Takes a precomputed map so a caller that also needs the KEEP set does not re-glob it."""
     import filecmp   # local: only the reconcile deliver needs the byte-compare
-    to_deliver = engine_synced_map(tree_root, manifests_by_id, project_retire=project_retire)
     escapes = sorted(rel for rel in to_deliver if not _within_root(rel))
     if escapes:
         shown = ", ".join(escapes[:3]) + ("…" if len(escapes) > 3 else "")
@@ -1032,6 +1057,14 @@ def _deliver_synced(tree_root: str, manifests_by_id: dict, *, project_retire: bo
         shutil.copyfile(src, dst)
         delivered.append(rel)
     return delivered
+
+
+def _deliver_synced(tree_root: str, manifests_by_id: dict, *, project_retire: bool, exclude=None) -> list:
+    """The shared deliver primitive for BOTH the upgrade tail reconcile (`project_retire=True`) and brownfield
+    arrival (`project_retire=False`) — so arrival now delivers the fixture category too (#599). Computes the
+    `engine_synced_map` and copies via `_copy_synced`."""
+    return _copy_synced(engine_synced_map(tree_root, manifests_by_id, project_retire=project_retire),
+                        exclude=exclude)
 
 
 def _wiring_delta(old_by_id: dict, new_by_id: dict) -> dict:
@@ -1477,14 +1510,17 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
     the parent pre-overlay — the rename/drop orphans) UNIONED with the release's RETIRE set (the first-run
     files the parent's copy-only overlay resurrected onto this deployed tree), minus the KEEP set and the
     carve-outs. Returns (fixtures_delivered:list, removed:dict{engine, suspect, left_in_place})."""
-    # ADD (provision-projected). A bad retire manifest raises _UpgradeRefused up to the tail (clean refusal).
-    delivered = _deliver_synced(release_tree, candidates, project_retire=True)
+    # Compute the release's synced map + retire set ONCE — the deliver leg and the KEEP set both read the map;
+    # a bad/dangerous retire manifest raises up to the tail (clean refusal).
+    r_files, r_dirs = retire_set(release_tree)
+    synced = engine_synced_map(release_tree, candidates, project_retire=True)
+    # ADD (provision-projected).
+    delivered = _copy_synced(synced)
     fixtures_delivered = sorted(rel for rel in delivered
                                 if any(rel == ns or rel.startswith(ns + "/")
                                        for ns in module_coherence.FIXTURE_PATHS))
     # DELETE — compute the WHOLE candidate set first (the live globs need the files still on disk).
-    r_files, r_dirs = retire_set(release_tree)
-    keep = engine_synced_paths(release_tree, candidates, project_retire=True)
+    keep = set(synced.keys()) | set(_FOUNDATION_KEYED)
     exact_cv, prefix_cv = _reconcile_carveouts()
 
     def _spared(rel: str) -> bool:
@@ -1494,23 +1530,45 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
                        if not _spared(rel) and _within_root(rel)
                        and os.path.isfile(os.path.join(validate.ROOT, rel)))
     glob_prefixes = _glob_namespace_prefixes(old_by_id)
+    tracked = module_coherence._tracked_paths()   # git-tracked relpaths, or None when git is unavailable
     removed = {"engine": [], "suspect": [], "left_in_place": []}
     for rel in to_delete:
+        # A known first-run (retire-set) file is engine; otherwise a file under a GLOB provides namespace could
+        # be one the operator added — surface it — while a literal-named file is engine.
+        suspect = rel not in r_files and bool(glob_prefixes) and rel.startswith(glob_prefixes)
+        if suspect and tracked is not None and rel not in tracked:
+            # An UNTRACKED (git-ignored) file under an engine folder is almost certainly the operator's own,
+            # and the undo cannot restore it (git only restores tracked files). LEAVE it, surface it — so every
+            # file the reconcile actually removes stays recoverable (security review).
+            removed["left_in_place"].append(
+                f"{rel} — left in place: it looks like a file you added (the engine does not track it), so I "
+                f"did not remove it. Delete it yourself if you don't need it.")
+            continue
         try:
             os.remove(os.path.join(validate.ROOT, rel))
-            # A known first-run (retire-set) file is engine, not suspect; otherwise a file under a GLOB
-            # provides namespace could be one the operator added (surface it), and a literal-named file is engine.
-            suspect = rel not in r_files and glob_prefixes and rel.startswith(glob_prefixes)
             removed["suspect" if suspect else "engine"].append(rel)
         except OSError as exc:
-            removed["left_in_place"].append(f"could not remove {rel} ({exc})")
-    # Resurrected first-run DIRECTORIES (the setup skills the overlay's provides glob re-copied) — a retire
-    # dir is never in keep (provision-projected) nor a carve-out, so remove the whole tree when it reappears.
+            removed["left_in_place"].append(f"{rel} (could not remove: {_plain_oserror(exc)})")
+    # Resurrected first-run DIRECTORIES (the setup skills the overlay's provides glob re-copied). Guard them
+    # like the file leg PLUS a whole-tree sanity check: never rmtree the repo root (retire_set already refuses
+    # that), a carve-out, or a directory that CONTAINS a kept/carve-out path (rmtree would take the nested
+    # protected file with it) — the security-review fix for the previously-unguarded directory leg.
     for d in sorted(r_dirs):
         dp = os.path.join(validate.ROOT, *d.split("/"))
-        if _within_root(d) and os.path.isdir(dp):
-            shutil.rmtree(dp, ignore_errors=True)
-            removed["engine"].append(d.rstrip("/") + "/ (setup folder)")
+        dnorm = d.rstrip("/") + "/"
+        if os.path.abspath(dp) == os.path.abspath(validate.ROOT):
+            continue
+        if dnorm.startswith(prefix_cv) or any(c.startswith(dnorm) for c in prefix_cv):
+            continue   # under, or an ancestor of, a carve-out namespace (operator memory/data/records/fixtures)
+        if any(k == d or k.startswith(dnorm) for k in keep) or any(e == d or e.startswith(dnorm) for e in exact_cv):
+            continue   # would delete a kept or foundation path nested under it
+        if not os.path.isdir(dp):
+            continue
+        try:
+            shutil.rmtree(dp)
+            removed["engine"].append(dnorm + "(setup folder)")
+        except OSError as exc:
+            removed["left_in_place"].append(f"{dnorm} (could not remove: {_plain_oserror(exc)})")
     return fixtures_delivered, removed
 
 
@@ -1523,7 +1581,8 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
 _STRUCTURAL_GATE_CHECK_IDS = frozenset({
     "engine/check/catalog-coverage",        # a delivered/removed file leaving the surface catalog incomplete
     "engine/check/census-completeness",     # the census of catalogued surfaces vs the tree
-    "engine/check/self-map-drift",          # the self-map matching the reconciled module graph
+    "engine/check/self-map-drift",          # the regenerated self-map matching the reconciled module graph
+    "engine/check/knowledge-coverage",      # the regenerated knowledge graph matching the reconciled surfaces
     "engine/check/codex-provider-parity",   # an orphaned .claude/agents/* with no .codex twin (the #599 class)
     "engine/check/codex-agent-coherence",   # the Codex agent renders matching their .claude sources
 })
@@ -1660,9 +1719,11 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # Regenerate the deployed-state-dependent indexes (self-map + knowledge graph) from the reconciled tree,
     # so they describe the DEPLOYED shape rather than the construction shape the release shipped (#599).
     _regen_indexes()
-    # Author the review-PR body FIRST — it carries the reconcile facts (fixtures, removals) and the gate
-    # checks its completeness. Guarded: render reads the PR template (I/O) and can raise, so a failure degrades
-    # to a clean refusal (staged, not opened), never a traceback (the surfaced-never-a-crash rule).
+    # Author the review-PR body FIRST — it carries the reconcile facts (fixtures, removals) into the pull
+    # request, and rendering it early catches a template-read failure before staging (the structural gate does
+    # NOT check body completeness — the release's own CI does, on the opened PR). Guarded: render reads the PR
+    # template (I/O) and can raise, so a failure degrades to a clean refusal (staged, not opened), never a
+    # traceback (the surfaced-never-a-crash rule).
     try:
         body = render_upgrade_pr_body(from_versions, target_versions, tail)
     except Exception as exc:   # noqa: BLE001 — staged but not prepared; surfaced, never a traceback
@@ -2087,6 +2148,11 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # remove a file the release renamed or dropped — INCLUDING a dropped FOUNDATION_INFRA artifact (a
         # workflow, an issue template) the post-overlay tail could no longer name from the new constant alone
         # (arch-S1). Threaded into the tail state next to `old_by_id`.
+        # KNOWN BOUND (tech-integrity review): this reads the ON-DISK manifests, which a PRIOR aborted run may
+        # have already overlaid. So if an update is interrupted AFTER the overlay but BEFORE the delete leg
+        # removed a rename orphan, a plain re-run recomputes `old_owned` from the overlaid manifests and no
+        # longer sees that orphan — the gate then keeps refusing. It fails SAFE (nothing merges); the recourse
+        # is the undo, then update again. A self-healing fix (persisting the pre-overlay set) is deferred.
         old_owned = sorted(set(module_coherence.engine_owned_paths(module_coherence.discover_manifests())))
         # PRE-FLIGHT the data-migration backup guard BEFORE any overlay (the half-state law): refuse the
         # WHOLE upgrade if a data migration in range has no backup seam — nothing is applied.

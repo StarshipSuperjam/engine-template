@@ -1929,7 +1929,84 @@ class TestUpgradeReconcile(unittest.TestCase):
                 res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
                                              opener=lambda **k: {"number": 9}, backup=lambda *a, **k: {"ok": 1})
         self.assertIsNone(res.get("pr"))
-        self.assertIn("one-time-setup file list", res["reason"])
+        self.assertIn("setup-file list", res["reason"])
+        self.assertIn("undo", res["reason"].lower())   # the refusal names a recourse (usability review)
+
+    def test_structural_gate_binds_to_live_ci_hard_rules(self):
+        # T-S2/DH-2: the gate's rule filter only NARROWS, so a renamed or dropped check id would silently shrink
+        # the gate while it still reports "passed". Bind the set to the live corpus: every id must be a live CI
+        # hard rule, and the filter must select exactly them — a drift fails loudly HERE, not silently at the gate.
+        rules = module_manager.validate.load_rules()
+        by_id = {r.get("id"): r for r in rules}
+        for cid in module_manager._STRUCTURAL_GATE_CHECK_IDS:
+            self.assertIn(cid, by_id, f"gate check id {cid} is not a live rule (renamed/removed?)")
+            self.assertEqual(by_id[cid].get("tier"), "hard", f"{cid} is no longer a hard check")
+            self.assertIn("CI", by_id[cid].get("suites") or [], f"{cid} left the CI suite")
+        selected = {r.get("id") for r in rules if r.get("id") in module_manager._STRUCTURAL_GATE_CHECK_IDS}
+        self.assertEqual(selected, set(module_manager._STRUCTURAL_GATE_CHECK_IDS),
+                         "the gate filter must select exactly its declared ids against the live roster")
+
+    def test_a_root_resolving_retire_entry_refuses_never_deleting_the_tree(self):
+        # security review: a retire manifest whose directory entry resolves to the repo root (or is empty/absolute)
+        # must REFUSE cleanly, never rmtree the whole tree.
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            fra = os.path.join(release, ".engine", "provisioning", "first-run-assets.json")
+            with open(fra, encoding="utf-8") as fh:
+                data = json.load(fh)
+            data["directories"] = [""]        # resolves to the repo root
+            with open(fra, "w", encoding="utf-8") as fh:
+                json.dump(data, fh)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: {"number": 9}, backup=lambda *a, **k: {"ok": 1})
+                survived = os.path.isfile(os.path.join(live, ".engine", "engine.json"))
+        self.assertIsNone(res.get("pr"))
+        self.assertTrue(survived, "the repo must still exist — the dangerous retire entry was refused")
+        self.assertIn("unusable path", res["reason"])
+
+    def test_an_untracked_operator_file_under_an_engine_glob_is_left_not_deleted(self):
+        # security review: a git-ignored (untracked) operator file under an engine glob namespace is NOT
+        # recoverable by the undo, so the reconcile LEAVES it and surfaces it, rather than deleting it.
+        import subprocess
+        scratch = os.path.join(".engine", "tools", "untracked_scratch.py")
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                self._augment(live, release)
+                subprocess.run(["git", "init", "-q"], cwd=live, check=True)
+                subprocess.run(["git", "add", "-A"], cwd=live, check=True)
+                subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "x"],
+                               cwd=live, check=True)
+                with open(os.path.join(live, scratch), "w", encoding="utf-8") as fh:
+                    fh.write("# an operator's own scratch tool, never committed\n")
+                res = module_manager.upgrade(ref="v0.2.0", release_tree=release,
+                                             opener=lambda **k: {"number": 7}, backup=lambda *a, **k: {"ok": 1})
+                left = os.path.exists(os.path.join(live, scratch))
+        self.assertTrue(left, "an untracked operator file under an engine glob must be left in place")
+        self.assertTrue(any("untracked_scratch.py" in s for s in res["orphans_removed"]["left_in_place"]),
+                        "the preserved untracked file must be surfaced to the operator")
+
+    def test_deliver_synced_delivers_the_fixture_category_for_arrival(self):
+        # SC-3: arrival delivers via the shared primitive with project_retire=False; prove it carries the
+        # fixture category the copy-only overlay missed (the arrival gap #599 also closes).
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            candidates = {"base": module_manager.validate.load_json(
+                os.path.join(release, ".engine", "modules", "base", "manifest.json"))}
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                delivered = module_manager._deliver_synced(release, candidates, project_retire=False)
+        self.assertIn(".engine/_fixtures/probe/bad_input.md", delivered)
 
     def test_the_599_falsification_demo_passes(self):
         # Covers the reconcile end-to-end on a real clone — the delete leg removes a renamed-away engine agent
