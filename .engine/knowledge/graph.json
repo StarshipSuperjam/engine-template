@@ -4159,7 +4159,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:12cae7b0fa344a8878c8906a0f223a658a9954ee23ee7dfb227a8529e03d70a0",
+        "fingerprint": "sha256:d15c354b8086f40b90ef30004b5d7b9765bcd132d4ed9225aa20e92948041c31",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -7400,7 +7400,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:7e6afd28d8b950e1253027f9490808d851515c689a869dd350e76699a46e3dd1",
+        "fingerprint": "sha256:de3fd6b1db8e9562d0a276a939b64196066f3e1830968e4390234cde14a5cfa3",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9270,7 +9270,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:446a33ff1fe7e1dbfe04c1caefa1830f74f697b0692495844a504a53db903f11",
+        "fingerprint": "sha256:9d093a1369aa4de71ef36ce8de64fece656576e9f29f55e309c6f62b906e4584",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

@@ -1794,12 +1794,20 @@ class TestUpgradePreviewImpact(unittest.TestCase):
             module_manager._render_upgrade_preview(plan)
         text = out.getvalue()
         self.assertIn("Turns on: a connected engine tool (engine-graph)", text)
-        self.assertIn("Turns off: a private engine data folder", text)
+        self.assertIn("Turns off: an internal engine housekeeping rule", text)   # NOT "data folder" (misread)
         self.assertIn("Changes stored data", text)
         self.assertIn("needs a backup", text)
         self.assertIn("/engine-upgrade", text)
         for jargon in ("wire", "seam", "matcher"):
             self.assertNotIn(jargon, text.lower())
+
+    def test_a_malformed_non_dict_wire_never_crashes_the_preview(self):
+        # A tampered release with a non-dict wire entry must not crash the operator's check (the render sits
+        # outside upgrade_preview's own guard). _wiring_delta skips it; _describe_wire degrades gracefully.
+        self.assertEqual(module_manager._describe_wire("not-a-dict"), "an engine setting")
+        delta = module_manager._wiring_delta({"base": {"wires": []}},
+                                             {"base": {"wires": ["junk", 7, {"type": "mcp", "name": "ok"}]}})
+        self.assertEqual([w["name"] for _m, w in delta["added"]], ["ok"])   # only the well-formed wire
 
     def test_bare_upgrade_previews_and_never_applies(self):
         # The CLI dispatch: bare `upgrade` renders the preview and NEVER reaches the apply path.

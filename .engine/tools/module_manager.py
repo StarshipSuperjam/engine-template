@@ -940,6 +940,9 @@ def _wiring_delta(old_by_id: dict, new_by_id: dict) -> dict:
             if k is not None and k not in new_ids:          # gone in the new version -> the apply reverses it
                 removed.append((mid, w))
         for w in new_list:
+            if not isinstance(w, dict):
+                continue                                     # a malformed (non-dict) wire — the apply's
+                                                             # declared_wire_identity/apply_all ignore it too
             k = wiring.declared_wire_identity(w)
             if k is None:
                 if w not in old_list:                        # identity-less new wire, not already present
@@ -1307,7 +1310,10 @@ _WIRE_KIND_LABELS = {
     "codex-hook": "an automatic engine action (Codex)",
     "mcp": "a connected engine tool",
     "codex-mcp": "a connected engine tool (Codex)",
-    "gitignore": "a private engine data folder",
+    # NOT "a data folder": a gitignore wire only controls whether an engine housekeeping folder is tracked by
+    # version control — turning it off deletes NO data, and "data folder" would read to a non-engineer as
+    # losing their data on the consent-critical data-safety axis (usability review).
+    "gitignore": "an internal engine housekeeping rule",
     "permission": "an engine permission setting",
     "ontology-entry": "an engine knowledge entry",
 }
@@ -1316,8 +1322,11 @@ _WIRE_KIND_LABELS = {
 def _describe_wire(w: dict) -> str:
     """One plain-language line for a single settings change the operator can read — WHAT kind of setting
     moves, never the internal seam vocabulary (no 'wire'/'seam'/'matcher'). A light identifying hint is
-    added only where it reads plainly: a connected tool's name, or a data folder's path."""
-    kind = (w or {}).get("type")
+    added only where it reads plainly: a connected tool's name, or the housekeeping rule's target. Robust to
+    a malformed (non-dict) wire from a tampered release — the preview must never crash the operator's check."""
+    if not isinstance(w, dict):
+        return "an engine setting"
+    kind = w.get("type")
     label = _WIRE_KIND_LABELS.get(kind, "an engine setting")
     if kind in ("mcp", "codex-mcp") and w.get("name"):
         return f"{label} ({w['name']})"
@@ -1500,8 +1509,13 @@ def _render_upgrade_preview(p: dict) -> None:
     files = p.get("files") or {}
     nrep, nadd = len(files.get("replaced") or []), len(files.get("added") or [])
     if nrep or nadd:
-        parts = ([f"{nrep} engine file(s) updated"] if nrep else []) + ([f"{nadd} new"] if nadd else [])
+        parts = ([f"{nrep} engine file{'s' if nrep != 1 else ''} updated"] if nrep else [])
+        parts += ([f"{nadd} new file{'s' if nadd != 1 else ''}"] if nadd else [])
         print(f"  Files: {', '.join(parts)} — your settings and saved data are kept.")
+        # These aren't in the file overlay above (they are kept-merged / re-rendered, not overwritten), so an
+        # apply also touches them — name them here so they aren't a surprise in the pull request's diff.
+        print("  It also refreshes the engine's own block in your CLAUDE.md and the engine-file review list — "
+              "your own content is kept.")
     w = p.get("wires") or {}
     for verb, items in (("Turns on", w.get("added")), ("Updates", w.get("updated")),
                         ("Turns off", w.get("removed"))):
@@ -1516,13 +1530,13 @@ def _render_upgrade_preview(p: dict) -> None:
         if p.get("backed_up") is True:
             print("  Your stored data is backed up before any data change.")
         elif p.get("backed_up") is False:
-            print("  Note: a stored-data change needs a backup set up first — set one up before applying, or "
-                  "the update refuses that step and changes nothing.")
+            print("  Note: a stored-data change needs a backup set up first — ask me to set one up before "
+                  "applying, or the update refuses that step and changes nothing.")
     if not (nrep or nadd or any(w.get(k) for k in ("added", "updated", "removed")) or migs):
         print("  No file or settings changes — a version bump only.")
-    confirm = f"upgrade --confirm{(' ' + named) if named else ''}"
-    print(f"\nThis only checked your engine — nothing changed. To apply, run `{confirm}` (or `/engine-upgrade`); "
-          f"it arrives as a pull request you review.")
+    tail = f" (or run `upgrade --confirm{(' ' + named) if named else ''}`)"
+    print(f"\nThis only checked your engine — nothing changed. To apply, type `/engine-upgrade` and confirm"
+          f"{tail}; it arrives as a pull request you review.")
 
 
 _UPGRADE_USAGE = ("usage: module_manager.py upgrade [ref] [--confirm] [--json]\n"
@@ -2817,11 +2831,15 @@ def main(argv: list) -> int:
                 return 2
             ref = next((a for a in argv[1:] if not a.startswith("-")), None)
             if "--confirm" not in argv:
-                preview = upgrade_preview(ref)       # READ-ONLY — changes nothing
-                if "--json" in argv:
-                    print(json.dumps(preview, indent=2))
-                else:
-                    _render_upgrade_preview(preview)
+                try:
+                    preview = upgrade_preview(ref)   # READ-ONLY — changes nothing
+                    if "--json" in argv:
+                        print(json.dumps(preview, indent=2))
+                    else:
+                        _render_upgrade_preview(preview)
+                except Exception as exc:   # noqa: BLE001 — the check must never crash on a malformed release
+                    print(f"Couldn't complete the update check — the engine is unchanged and still working. "
+                          f"({exc})")
                 return 0
             result = upgrade(ref)
             if "--json" in argv:
