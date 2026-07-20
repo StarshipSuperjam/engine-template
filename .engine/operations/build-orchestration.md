@@ -97,11 +97,16 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    *nature* of what changed to make a **proportional re-audit judgment** — a large cosmetic delta may
    warrant nothing, a small logic change a close look. The magnitude is data behind the call, never a
    threshold that fires a rerun (a fixed trigger spends cold-review effort out of proportion to its value).
-   When warranted, **re-invoke the coupled `spec-conformance` + `divergence-hunter` pair (Notes) scoped to
-   the post-review diff, before the record is finalized** — an independent cold read of the repair, sized to
-   the risk; where nothing is `locked`, conformance is its disclosed no-op and the hunter carries the pass.
-   The re-audit never blocks — a `blocking` finding from it gates the merge, like any. The Review record
-   states the reviewed→submitted commits, the measured divergence, and the disposition (see Notes).
+   When warranted, **re-invoke the pre-submission passes that fit the repair, scoped to the post-review
+   diff, before the record is finalized** — an independent cold read of the repair, sized to the risk: the
+   coupled `spec-conformance` + `divergence-hunter` pair where a `locked` requirement exists to check
+   against, else its disclosed no-op (Notes), the read then leaning on the other installed passes and the
+   recorded correlate. The re-audit is never itself a gate; a `blocking` finding it surfaces gates the merge
+   as any finding does. **If the branch is rebased after the review launch, re-record the reviewed commit —
+   the rebase onto new `main` is itself grounds to re-review — else the divergence conflates upstream
+   churn.** Author the record as the last act before ready; a later push (including the re-audit's own fix)
+   re-measures and re-judges. The Review record states the reviewed→submitted commits, the measured
+   divergence, and the disposition (see Notes).
    **Re-derive every not-applicable carve-out the negative-fixture meta-check lists.** When that meta-check
    (`engine/check/hard-check-bite`) reports a hard check as *not applicable* (its loud soft note — a check
    exempted from a negative fixture), the gate does not take the disclosure's word: for each one it re-derives
@@ -149,8 +154,8 @@ change large enough that the merged version differs materially from the reviewed
 re-audit ran and what it found, and beneath it carries a plain supporting note of the **reviewed and
 submitted commits and how much changed between them** (`git diff --shortstat`) — so the operator, or a
 later cold session, can re-derive that figure from the two commits and check the claim; the completeness
-check confirms the line is present, never that its figure is true, which rests on those re-derivable
-commits and on the re-audit when one ran. With no review packs installed it says so plainly
+check confirms the Review section is filled — not that this divergence line is present, nor that its figure
+is true, which rests on those re-derivable commits and on the re-audit when one ran. With no review packs installed it says so plainly
 — "no extra review ran", never a green pass — and carries the standing caveat that it is the engine's own
 account and the operator's merge is the real gate. A trivial fast-path build fills it with a truthful one.
 
