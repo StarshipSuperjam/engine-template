@@ -2914,7 +2914,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:bc6220a6972ad04d39ff04528bd7c4c0aca50496483dd70fe4cec41b0449c7dd",
+        "fingerprint": "sha256:0524315e78bb1fbdbb3f78c438363df7fc407afd5feef4cc4b87a2a82de9e5da",
         "path": ".agents/skills/engine-upgrade/SKILL.md"
       },
       "status": "active",
@@ -3979,7 +3979,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:5a538e9c44645061b9e615835033955246f701c9868db18c76ca7b242f8348e4",
+        "fingerprint": "sha256:b22b897b9900fd9aa5f4b984f92ea0a3f817af33b88ed536107487f96c9dc467",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -4159,7 +4159,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:d15c354b8086f40b90ef30004b5d7b9765bcd132d4ed9225aa20e92948041c31",
+        "fingerprint": "sha256:afc79a0347c60d2457638fe6c3483d8a42a8d3e6dda9ff0eb9720edc11bb2648",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -5427,7 +5427,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:efbe46c420505ddacf57c023a68175bb3b1316a2db62cb6d69350f11632c38e6",
+        "fingerprint": "sha256:da5d7084e59222ce7716df943f9f27b955c89a40bccccb14996be977f7d54757",
         "path": ".claude/skills/engine-upgrade/SKILL.md"
       },
       "status": "active",
@@ -5649,7 +5649,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:cbeb0eb9bf2dc401e269d4496d56810d2661bef89b56a16905ef624cdf52e45a",
+        "fingerprint": "sha256:54f12854902f3870b0152453a6c772ed03b66d862af695f8935b10b4560149d2",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5768,7 +5768,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:bc6c9355927a1a5d2223a153fd11106997accd601cd322d8d7e81beb9b8cbe65",
+        "fingerprint": "sha256:17ac803b69447d72f87d61cdee7e799ce97a5b3ed6b15451c8db35bca96265ba",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -6008,6 +6008,23 @@
       "source": {
         "fingerprint": "sha256:b3244cb21cc2de95d766298fd51cb4480551fcf6cbdf595529156d498f2796c3",
         "path": ".engine/tools/demo_467_deployment_eadr_namespace.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_594_rollback_discard",
+      "name": ".engine/tools/demo_594_rollback_discard.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_594_rollback_discard",
+      "source": {
+        "fingerprint": "sha256:9c8acf319f514b70b2055949f1d47b30d82efbce7e92b6606a3311ff3b9578c7",
+        "path": ".engine/tools/demo_594_rollback_discard.py"
       },
       "status": "active",
       "type": "tool"
@@ -7400,7 +7417,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:de3fd6b1db8e9562d0a276a939b64196066f3e1830968e4390234cde14a5cfa3",
+        "fingerprint": "sha256:78bef41caa13f72db8ac69ecb32547dd0f1e49f9adedca0ab777d54f5a473d3b",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -8250,7 +8267,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f45edcf17915905cc978a0fcb8c453e6fbd42eddca69e7eaa9b6887c11ec829f",
+        "fingerprint": "sha256:5e87eddd122b5e90882024051afc1a46b6bd85d8f607ba716be43b802a5c238b",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9270,7 +9287,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:9d093a1369aa4de71ef36ce8de64fece656576e9f29f55e309c6f62b906e4584",
+        "fingerprint": "sha256:afd0b04b24bc1b899b25780c2b20b6b7446eb156d0afeee2748fc1a22015bfb4",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

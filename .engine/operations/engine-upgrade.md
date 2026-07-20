@@ -98,14 +98,24 @@ working; the update is simply not applied, and it says so. This is different fro
 release** — renamed, removed, or with nothing published yet: there the engine names the home and asks you to
 check it, rather than quietly waiting, because the home itself may be wrong.
 
-**If an update stops half-applied, finish it — don't discard it.** An update installs the new version's own
-files first, then applies its settings and re-checks consistency. If it stops partway (a consistency problem,
-a rebuild that failed), the working copy is changed but **nothing was opened for review or merged** — so it is
-safe. To finish it, run `module_manager.py upgrade --confirm` **again** without discarding — the second run
-uses the just-installed version's own logic to complete the step that stalled. If it keeps stopping at the
-same place, the version you're updating *to* is one published before this finish-the-update fix; wait for a
-newer release and update to that instead. (Bare `upgrade` reports a half-finished tree as *unfinished*, not
-"up to date", and never claims success when a step didn't complete — so you can always tell the two apart.)
+**If an update stops half-applied, you can finish it or undo it.** An update installs the new version's files
+first, then applies its settings and re-checks consistency. If it stops partway, the working copy is changed
+but **nothing was opened for review or merged** — safe either way. `/engine-upgrade` shows both choices:
+- **Finish it** — `module_manager.py upgrade --confirm` **again**; the second run uses the just-installed
+  version's own logic to complete the stalled step. (If it keeps stopping, the version you're updating *to*
+  predates this finish-the-update fix; wait for a newer release and update to that.)
+- **Undo it** — `module_manager.py rollback --confirm` puts the engine back the way it was. It **saves a
+  recovery point** of your current state first (nothing is lost), **refuses** if you have unrelated unsaved
+  work of your own (asking you to set it aside first), and puts back any saved memory the update changed.
+
+Bare `upgrade` reports a half-finished tree as *unfinished*, not "up to date", and bare `rollback` shows the
+same choice — so you can always tell where you stand.
+
+**Undoing an update you've already merged.** This can't be undone locally — the engine never rewrites your main
+line. Instead its pull request is reverted (a normal reviewed change you merge — "reverting the pull request
+undoes the update"). Once the code is back, the saved memory from before the update is put back (`rollback
+--confirm`, or the engine's offer at the next start). That last step needs your backup reachable; if it isn't,
+your memory is left unchanged and the engine offers again later — your code is safely back either way.
 
 **The required safety checks keep their names across versions**, so an update can never break the review gate
 that protects the project.

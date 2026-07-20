@@ -87,7 +87,8 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
             "behind_origin": None, "off_main": None,
-            "pr_conflict": None, "restore_offer": None, "migration_revert": None, "audit_stale": None,
+            "pr_conflict": None, "restore_offer": None, "migration_revert": None, "staged_update": None,
+            "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
             "ledger_malformed": None, "migration_stalled": False, "recall_offline": False,
             "set_aside": None, "foreign_license": None, "first_run": None, "greenfield_intake": None,
@@ -451,6 +452,37 @@ class TestDegradedNotice(unittest.TestCase):
                 p.stop()
         self.assertTrue(relayed["migration_stalled"])       # the detector's signal is relayed verbatim
         self.assertFalse(failed["migration_stalled"])       # a detector fault degrades quietly to False, never breaks
+
+    def test_gather_relays_the_staged_update_signal_and_degrades_quietly(self):
+        patchers = _offline()
+        try:
+            with mock.patch("module_manager._staged_upgrade_dirty", return_value=True):
+                relayed = boot.gather_signals()
+            with mock.patch("module_manager._staged_upgrade_dirty", side_effect=Exception("boom")):
+                failed = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertTrue(relayed["staged_update"])           # a stuck/half-applied update is surfaced at startup
+        self.assertIsNone(failed["staged_update"])          # a detector fault degrades quietly to None, never breaks
+
+    def test_staged_update_offer_shows_in_the_dashboard_and_marker(self):
+        dash = boot.render_dashboard(_signals(staged_update=True)).lower()
+        self.assertIn("half-finished", dash)                # the plain state, leading with "nothing was merged"
+        self.assertIn("/engine-upgrade", dash)              # routes to the one command that finishes or undoes it
+        marker = boot.present_marker_line(_signals(staged_update=True)).lower()
+        self.assertIn("half-finished", marker)
+
+    def test_a_staged_update_suppresses_the_competing_memory_ahead_offer(self):
+        # When both fire (a stall between a data migration and the version bump), the staged undo puts memory
+        # back too — so the standalone memory-ahead offer must not compete, and must not lead the operator to
+        # restore memory while the code is still half-staged. Staged-first, matching the marker + diagnosis.
+        dash = boot.render_dashboard(_signals(staged_update=True, migration_revert={"tag": "x"})).lower()
+        self.assertIn("half-finished", dash)                       # the staged offer shows
+        self.assertNotIn("restore my memory from before the update", dash)   # the memory-ahead offer is suppressed
+        # with no staged update, the memory-ahead offer shows normally
+        dash2 = boot.render_dashboard(_signals(migration_revert={"tag": "x"})).lower()
+        self.assertIn("restore my memory from before the update", dash2)
 
 
 class TestPresentMarker(unittest.TestCase):

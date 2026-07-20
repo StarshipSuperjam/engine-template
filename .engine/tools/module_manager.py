@@ -1473,7 +1473,8 @@ def upgrade_preview(ref: str | None = None) -> dict:
                 "current": current, "named_ref": named, "reason":
                 ("Your engine has a consistency problem — something a recent change (an update, or adding or "
                  "removing a module) left unfinished. You can run `upgrade --confirm` to try to finish an "
-                 "update, or ask me to undo the staged changes.")}
+                 "update, or undo it with `rollback` (type `/engine-upgrade` and choose to undo) — undoing "
+                 "saves a recovery point of your current state first.")}
     try:
         plan = plan_upgrade(ref)
     except Exception as exc:   # noqa: BLE001 — a preview must never crash the operator's update check
@@ -2741,10 +2742,254 @@ def remove_engine_demo() -> bool:
     return ok
 
 
+# ---- rollback: undo a staged/stalled update, or restore memory after a reverted one ----------
+#
+# `rollback` is the deliberate counterpart to `upgrade`, surfaced through the one `/engine-upgrade` command.
+# It is the ONE operator action that changes the working copy WITHOUT a reviewable pull request — a stalled
+# update was never committed, so there is nothing to open a PR against. The honest safety floor (accepted by
+# the maintainer, and stated in the pull request body): it acts ONLY on a real staged/ahead state; it saves a
+# recovery point (a local "safe point" branch capturing everything) BEFORE touching anything, so nothing is
+# unrecoverable; the memory restore keeps its resurrection guard, so an older copy never overwrites newer
+# memory; and the operator-typed skill (disable-model-invocation) plus the conduct routing are the
+# pre-execution gates. No false "never" — the same honesty as slice 2's routing posture.
+
+_ROLLBACK_USAGE = ("usage: module_manager.py rollback [--confirm] [--json]\n"
+                   "  Without --confirm it only CHECKS what undoing would do and changes nothing.\n"
+                   "  With --confirm it undoes a staged/stalled update (saving a recovery point first),\n"
+                   "  or puts your saved memory back to the copy from before an update that was taken out.")
+
+
+def _git(root: str, *args: str, timeout: int = 30):
+    """Run a read-only-or-additive git command in `root`; stdout on success, None on any failure (missing
+    binary, non-zero exit, timeout). The rollback path never forces (`-f`) and never touches gitignored data."""
+    import subprocess   # local: only the rollback git plumbing needs it
+    try:
+        r = subprocess.run(["git", "-C", root, *args], capture_output=True, text=True,
+                           timeout=timeout, check=False)
+        return r.stdout if r.returncode == 0 else None
+    except Exception:   # noqa: BLE001 — a git failure is reported by the caller, never a traceback
+        return None
+
+
+def _git_status_paths(root: str) -> set:
+    """Repo-relative paths git reports as changed — staged OR unstaged, tracked OR untracked (`??`) — from
+    `git status --porcelain`. Empty when git is unavailable (callers degrade safely: the guard then finds no
+    'foreign' work and the staged-update signal reads clean)."""
+    paths: set = set()
+    for line in (_git(root, "status", "--porcelain") or "").splitlines():
+        if len(line) < 4:
+            continue
+        p = line[3:]
+        if " -> " in p:                       # a rename 'XY old -> new' — the new path is what's on disk now
+            p = p.split(" -> ", 1)[1]
+        paths.add(p.strip().strip('"'))
+    return paths
+
+
+def _upgrade_footprint() -> set:
+    """Every repo-relative path an upgrade's tail can WRITE — single-sourced so the discard's foreign-work
+    guard and the staged-update signal cannot drift from what an update actually touches. The overlay's own
+    membership (a module's `provides` files + module manifests + FOUNDATION_CODE) ∪ the wiring-seam target
+    files ∪ engine.json ∪ CODEOWNERS ∪ the keyed-merge floor files (CLAUDE.md/AGENTS.md) — the tail's floor
+    merge writes the last pair, which FOUNDATION_CODE deliberately carves out of the overlay set."""
+    paths = set(overlay_replace_paths())
+    paths.update(module_coherence.WIRING_TARGETS.values())
+    paths.update({module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS",
+                  _ROOT_CLAUDE_REL, _ROOT_AGENTS_REL})
+    return paths
+
+
+def _staged_upgrade_dirty() -> bool:
+    """Is an update STAGED but not committed — the precise, coherence-independent signal of a stalled/
+    half-applied update in the working tree? True iff any OVERLAY-CODE path (a module's `provides` file, a
+    module manifest, or a FOUNDATION_CODE file — files an operator never hand-edits) differs from HEAD. A
+    successfully-applied update is committed to its own branch (clean here); an operator editing their own
+    `settings.json` does NOT trip this (settings are not overlay-code). Coherence-independent by design: a
+    stall that leaves the wiring applied but the tree half-built passes `check_coherence` yet is still dirty
+    here."""
+    dirty = _git_status_paths(validate.ROOT)
+    return bool(dirty and (dirty & set(overlay_replace_paths())))
+
+
+def _diagnose_undo() -> dict:
+    """Read-only: which undo state is the engine in? Precedence — a staged/stalled update first (dirty
+    overlay-code), then memory-ahead-of-code (a reverted/merged update whose stored-data change outlived the
+    code), then nothing-local. Never mutates and never promotes a durable Issue (github=None)."""
+    current = (module_coherence.load_engine_manifest() or {}).get("engine_release")
+    if _staged_upgrade_dirty():
+        return {"state": "staged", "current": current}
+    offer = None
+    try:
+        from memory import restore_vault as _rv   # lazy: restore_vault -> backup_vault -> boot is a back-edge
+        offer = _rv.detect_migration_revert(github=None)   # github=None: an undo never promotes a durable Issue
+    except Exception:   # noqa: BLE001 — detection fault degrades to no-offer
+        offer = None
+    if offer:
+        return {"state": "memory-ahead", "current": current, "tag": offer.get("tag")}
+    return {"state": "none", "current": current}
+
+
+def _put_back_pre_update_memory(transport, base: dict) -> dict:
+    """Put the saved memory back to the copy from before an update, reusing the exact restore the engine
+    offers at startup. Fires only when the store is genuinely ahead of the code (`detect_migration_revert`),
+    so it never runs on a clean match. Keeps the resurrection guard (never `override`), so an older copy can't
+    overwrite newer memory. Degrades plainly when the backup can't be reached (the local stamp persists, so
+    boot re-offers it)."""
+    result = dict(base)
+    try:
+        from memory import restore_vault as _rv
+        import memory as _memory
+    except Exception:   # noqa: BLE001 — memory tools absent -> nothing to restore
+        result["restored"] = False
+        return result
+    offer = None
+    try:
+        offer = _rv.detect_migration_revert(github=None)
+    except Exception:   # noqa: BLE001
+        offer = None
+    if not offer or not offer.get("tag"):
+        result["restored"] = False
+        result["memory_note"] = "no saved-memory change to put back"
+        return result
+    try:
+        res = _memory.restore_pre_migration(tag=offer["tag"], consent="y", transport=transport)
+    except Exception as exc:   # noqa: BLE001 — vault unreachable / fetch failure
+        result["restored"] = False
+        result["memory_note"] = (f"couldn't reach your backup to put the copy back ({exc}); your memory is "
+                                 f"unchanged — try again when you're online")
+        return result
+    result["restored"] = bool(res.get("ok"))
+    result["memory_note"] = res.get("message")
+    return result
+
+
+def _discard_staged_update(resync, transport) -> dict:
+    """Discard a staged/stalled update: guard the operator's own work, save a recovery point, return the
+    working tree to its pre-update state, rebuild the runtime, and put back any memory the update changed."""
+    import checkout_health   # lazy: the shared lossless-rescue primitive + the safe git readers
+    root = validate.ROOT
+    result: dict = {"state": "staged", "undone": False}
+    # (a) GUARD — refuse if the operator has their OWN uncommitted work (anything the update didn't write).
+    foreign = sorted(_git_status_paths(root) - _upgrade_footprint())
+    if foreign:
+        result["refused"] = True
+        result["your_changes"] = foreign[:20]
+        shown = ", ".join(foreign[:8]) + (" …" if len(foreign) > 8 else "")
+        result["reason"] = (f"You have unsaved work of your own in files this update didn't touch, so I "
+                            f"stopped rather than risk it: {shown}. Save that work somewhere safe first (or "
+                            f"ask me to help you set it aside), then ask me to undo the update again. Nothing "
+                            f"has changed.")
+        return result
+    # (b) which branch to return to — a stall was never committed, so its pre-update state IS this branch's HEAD.
+    branch = (_git(root, "rev-parse", "--abbrev-ref", "HEAD") or "").strip()
+    if not branch or branch == "HEAD":
+        result["refused"] = True
+        result["reason"] = ("I couldn't tell which branch you're on (or you're not on one), so I stopped "
+                            "rather than risk your work. Nothing has changed.")
+        return result
+    # (c) RECOVERY POINT — save everything (a lossless "safe point" branch) BEFORE anything is undone.
+    rescue = checkout_health.save_recovery_point(
+        root, message="engine: saved your work before undoing the staged update")
+    if not rescue:
+        result["refused"] = True
+        result["reason"] = ("I couldn't save a recovery point first, so I stopped — nothing was undone and "
+                            "your staged update is untouched.")
+        return result
+    result["recovery_point"] = rescue
+    # (d) DISCARD — return to the pre-update branch; the switch reverts the tree to its last-saved state and
+    #     drops the update's added files (they live only on the recovery point now). save_recovery_point left
+    #     us on the rescue branch with a clean tree, so this switch cannot lose anything.
+    if _git(root, "checkout", branch) is None:
+        result["partial"] = True
+        result["reason"] = (f"I saved your work to a recovery point ('{rescue}') but couldn't finish putting "
+                            f"your engine back automatically. Nothing was lost — ask me and I'll take it "
+                            f"from here.")
+        return result
+    result["undone"] = True
+    result["branch"] = branch
+    # (e) rebuild the tool-runtime for the restored (older) code; surface a failure, never hide it.
+    if resync is not None and resync() is False:
+        result["resync_failed"] = True
+    # (f) put back any memory the update changed — engine.json is back at the old version now, so a stored-data
+    #     change is 'ahead' and detect_migration_revert finds it.
+    for k, v in _put_back_pre_update_memory(transport, {}).items():
+        if k in ("restored", "memory_note"):
+            result[k] = v
+    return result
+
+
+def rollback(*, confirm: bool = False, resync=_UNSET, transport=None) -> dict:
+    """Undo an engine update — the deliberate counterpart to `upgrade`, surfaced through `/engine-upgrade`.
+    Read-only unless `confirm`. Three states: a STAGED/stalled update (discard it, saving a recovery point
+    first); memory AHEAD of the code after a reverted/merged update (put the saved copy back); or nothing to
+    undo locally (a merged update is undone by reverting its pull request — guided, never a local reset of
+    protected `main`). `resync` seams the tool-runtime rebuild (tests inject a no-op); `transport` is the
+    memory backup transport (the real vault in production, a fake in tests)."""
+    resync = _resync_tool_runtime if resync is _UNSET else resync
+    diag = _diagnose_undo()
+    if not confirm:
+        return diag
+    if diag["state"] == "staged":
+        return _discard_staged_update(resync, transport)
+    if diag["state"] == "memory-ahead":
+        return _put_back_pre_update_memory(transport, {"state": "memory-ahead"})
+    return dict(diag)   # nothing to undo locally
+
+
+def _render_rollback(r: dict, applied: bool) -> None:
+    """Plain-language render of a rollback preview (applied=False) or result (applied=True)."""
+    state = r.get("state")
+    if not applied:
+        if state == "staged":
+            # Disclose EVERYTHING the undo touches, up front, so the operator consents from a full picture:
+            # the engine's own files, the shared setup files they may have edited, and any saved memory.
+            print("An update is staged but not finished — I can undo it. First I save a recovery point of "
+                  "everything exactly as it is now, then put your engine back to before the update: its own "
+                  "files, the shared setup files it changes (like your CLAUDE.md and your settings), and any "
+                  "saved memory the update changed. Nothing is lost — if you'd edited those setup files "
+                  "yourself, your version is kept on the recovery point. I'll stop and ask first if you have "
+                  "unsaved work of your own in other files.\n"
+                  "To go ahead, type `/engine-upgrade` and choose to undo (or run `rollback --confirm`). To "
+                  "finish the update instead, run `upgrade --confirm`.")
+        elif state == "memory-ahead":
+            print("Your saved memory was changed by an update that's no longer in place, so your memory and "
+                  "your engine don't match right now. I can put your memory back to the copy saved before "
+                  "that update.\nTo go ahead, type `/engine-upgrade` and choose to undo (or run "
+                  "`rollback --confirm`).")
+        else:
+            print("There's nothing to undo — your engine and saved memory match. To undo an update you "
+                  "already merged, revert its pull request; ask me and I'll prepare that for you.")
+        return
+    if r.get("refused") or r.get("partial"):
+        print(r["reason"])
+        return
+    if state == "staged" and r.get("undone"):
+        line = ("Done — I undid the staged update and put your engine back to before it: its own files, the "
+                "shared setup files, and any saved memory the update changed. I saved everything as it was to "
+                f"a recovery point ('{r.get('recovery_point')}') — if you'd made your own edits to the setup "
+                "files, your version is there.")
+        if r.get("resync_failed"):
+            line += (" One heads-up: I couldn't rebuild the engine's tool-runtime automatically — ask me and "
+                     "I'll finish that.")
+        if r.get("restored") is False and r.get("memory_note") and "no saved-memory" not in r["memory_note"]:
+            line += f" A note on your saved memory: {r['memory_note']}."
+        print(line)
+        return
+    if state == "memory-ahead":
+        if r.get("restored") is True:
+            print("Done — I put your saved memory back to the copy from before the update. Your memory and "
+                  "engine match again.")
+        else:
+            print(r.get("memory_note") or "Your memory is unchanged.")
+        return
+    print("There was nothing to undo — nothing changed.")
+
+
 def main(argv: list) -> int:
     if not argv:
         print("usage: module_manager.py {status | sync-groups | add <id> [--json] | "
               "plan-remove <id> | remove <id> [--json] | upgrade [ref] [--confirm] [--json] | "
+              "rollback [--confirm] [--json] | "
               "remove-engine [--confirm] [--keep-protection|--remove-protection] [--json] | demo}",
               file=sys.stderr)
         return 2
@@ -2851,6 +3096,30 @@ def main(argv: list) -> int:
             if result.get("refused"):
                 return 1
             return 0 if result.get("pr") else 1
+        if cmd == "rollback":
+            # UNDO by default is a CHECK: bare `rollback` (and `--help`, and any stray flag) changes nothing;
+            # undoing takes a deliberate `--confirm`, mirroring `upgrade`/`remove-engine`.
+            if "--help" in argv or "-h" in argv:
+                print(_ROLLBACK_USAGE)
+                return 0
+            unknown = [a for a in argv[1:] if a.startswith("-") and a not in ("--confirm", "--json")]
+            if unknown:
+                print(f"CONFIG ERROR: unknown option(s) for rollback: {' '.join(unknown)}\n{_ROLLBACK_USAGE}",
+                      file=sys.stderr)
+                return 2
+            confirm = "--confirm" in argv
+            try:
+                result = rollback(confirm=confirm)
+            except Exception as exc:   # noqa: BLE001 — the check/undo must never crash into a traceback
+                print(f"Couldn't complete that — your engine is unchanged. ({exc})")
+                return 1
+            if "--json" in argv:
+                print(json.dumps(result, indent=2))
+            else:
+                _render_rollback(result, applied=confirm)
+            if result.get("refused") or result.get("partial"):
+                return 1
+            return 0
         if cmd == "remove-engine":
             # Destructive + operator-privileged: without --confirm this only PREVIEWS (changes nothing).
             if "--confirm" not in argv:

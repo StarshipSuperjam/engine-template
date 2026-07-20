@@ -126,6 +126,18 @@ and never forces. What differs is *what* each protects and *how* it declines:
   reconciling against the latest default branch, regenerating those two files, and keeping both pieces of work. If
   anything else clashed it changes nothing, restores the branch exactly, and routes the operator to a
   plain-language decision. It never claims the merge is now guaranteed — a later change can still land first.
+- **A half-finished engine update — finish it or undo it (`/engine-upgrade` → `module_manager.rollback`, #594).**
+  An update was started but not completed, so the tree sits part-way between versions — detected offline by
+  `module_manager._staged_upgrade_dirty` (overlay-code differs from the last commit — a non-engineer's ordinary
+  edits don't touch engine code, and no coherence pass is needed). Nothing was merged, so it's safe — a
+  recovery offer, not a governance alarm. On the operator's go-ahead the assistant opens `/engine-upgrade`,
+  which offers **finish** (`upgrade --confirm`) or **undo** (`rollback --confirm`). The undo is
+  lossless-or-it-does-not-run: it saves a recovery point (a local "safe point" branch capturing everything)
+  **before** reverting the tree, **refuses** if the operator has unsaved work of their own in files the update
+  doesn't touch, resets the update's own files and the shared setup files it changes (keeping the operator's
+  version of those on the recovery point, disclosed in the result), and puts back any saved memory the update
+  changed (keeping the guard that an older copy never overwrites newer memory). boot only imports the fix path
+  through the lazy read-only detector and never runs it un-asked; the assistant relays the plain result.
 - **A safety gate that's off — re-enable branch protection (`bootstrap.ControlPlane.apply`, #392).** On the
   operator's "turn my safety gate back on," the assistant runs the already-built `ControlPlane.apply` instead of a
   manual settings walk-through: it re-enables the protection floor on the default branch — idempotent and additive,
