@@ -17,19 +17,21 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
 
 ## Steps
 
-1. **See your current version.** `module_manager.py status` lists the installed modules and the version the
-   engine is on, so it is clear what an update would move from.
-2. **Update.** `module_manager.py upgrade` (optionally name a specific version) fetches the newer released
-   version, replaces the engine's own files with it while **keeping your settings and saved data untouched**,
-   turns shared-file settings on or off to match the new version, rebuilds the engine's tools, reshapes any
-   saved data the new version needs in a new form, re-checks that everything fits together, and opens the
-   change as a pull request. The release is fetched from the engine's **update home** — the repository the
-   engine updates from (see Notes) — never from this repository's own remote. It is refused, in plain
-   language, and **nothing is changed**, if no update home is recorded (the engine tells you plainly and asks
-   you to record it, rather than guess one), if the home has no such release — it may have been renamed or
-   removed (the engine names the home so you can check it), if the network can't be reached (the engine stays
-   on its current version), if a needed change to saved data can't be backed up first (see Notes), or if a
-   required module is missing from the release.
+1. **See where you stand.** `module_manager.py upgrade` on its own **only checks — it changes nothing**: it
+   tells you the version you're on, whether a newer one is available, and whether a previous update looks
+   unfinished. (`module_manager.py status` also lists the installed modules and the current version.)
+2. **Apply the update — deliberately.** `module_manager.py upgrade --confirm` (optionally name a specific
+   version) fetches the newer released version, replaces the engine's own files with it while **keeping your
+   settings and saved data untouched**, turns shared-file settings on or off to match the new version,
+   rebuilds the engine's tools, reshapes any saved data the new version needs in a new form, re-checks that
+   everything fits together, and opens the change as a pull request. Applying **takes the `--confirm`** — bare
+   `upgrade` (and `upgrade --help`) never starts a real update. The release is fetched from the engine's
+   **update home** — the repository the engine updates from (see Notes) — never from this repository's own
+   remote. It is refused, in plain language, and **nothing is changed**, if no update home is recorded (the
+   engine tells you plainly and asks you to record it, rather than guess one), if the home has no such release
+   — it may have been renamed or removed (the engine names the home so you can check it), if the network can't
+   be reached (the engine stays on its current version), if a needed change to saved data can't be backed up
+   first (see Notes), or if a required module is missing from the release.
 3. **Review and merge.** The update lands as a pull request with the engine's checks. Merging it is your
    approval; reverting it undoes the update. Until you merge, nothing about the running engine has changed.
 
@@ -71,6 +73,15 @@ offers to record it — updates simply wait until it's set, rather than the engi
 working; the update is simply not applied, and it says so. This is different from a home that has **no such
 release** — renamed, removed, or with nothing published yet: there the engine names the home and asks you to
 check it, rather than quietly waiting, because the home itself may be wrong.
+
+**If an update stops half-applied, finish it — don't discard it.** An update installs the new version's own
+files first, then applies its settings and re-checks consistency. If it stops partway (a consistency problem,
+a rebuild that failed), the working copy is changed but **nothing was opened for review or merged** — so it is
+safe. To finish it, run `module_manager.py upgrade --confirm` **again** without discarding — the second run
+uses the just-installed version's own logic to complete the step that stalled. If it keeps stopping at the
+same place, the version you're updating *to* is one published before this finish-the-update fix; wait for a
+newer release and update to that instead. (Bare `upgrade` reports a half-finished tree as *unfinished*, not
+"up to date", and never claims success when a step didn't complete — so you can always tell the two apart.)
 
 **The required safety checks keep their names across versions**, so an update can never break the review gate
 that protects the project.

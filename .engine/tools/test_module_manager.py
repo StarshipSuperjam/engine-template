@@ -15,6 +15,7 @@ matches its name.
 from __future__ import annotations
 import contextlib
 import io
+import json
 import os
 import sys
 import tempfile
@@ -1501,6 +1502,190 @@ class TestBackupSeamResolution(unittest.TestCase):
     def test_an_injected_backup_wins_over_resolution(self):
         sentinel = lambda store, ver: {"ok": True}
         self.assertIs(module_manager._resolve_backup_seam(sentinel), sentinel)
+
+
+class TestUpgradeTailAndSafeCli(unittest.TestCase):
+    """The #594 fix (the version-sensitive tail runs as freshly-overlaid code) + the safe upgrade CLI
+    (preview-by-default, --confirm to apply, no footgun)."""
+
+    def _incoherent_fixture(self, live):
+        """A coherent upgrade fixture made INCOHERENT by declaring a gitignore wire that is never applied —
+        the shape a half-applied earlier update leaves (engine.json bumped, the tree inconsistent)."""
+        module_manager._build_upgrade_fixture(live)
+        man_path = os.path.join(live, ".engine", "modules", "base", "manifest.json")
+        man = json.load(open(man_path, encoding="utf-8"))
+        man["wires"] = list(man.get("wires") or []) + [
+            {"type": "gitignore", "key": "never-applied", "lines": [".engine/base/.nope/"]}]
+        with open(man_path, "w", encoding="utf-8") as fh:
+            json.dump(man, fh)
+
+    def test_preview_flags_a_half_applied_tree_instead_of_up_to_date(self):
+        # The false-clear the plan-gate caught: engine.json is bumped before coherence, so a version-only
+        # check would read "up to date" on a half-applied tree. The preview must run coherence and say so.
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                self._incoherent_fixture(live)
+                preview = module_manager.upgrade_preview()
+        self.assertFalse(preview["coherent"])
+        self.assertEqual(preview["status"], "inconsistent")
+        self.assertIn("--confirm", preview["reason"])
+        self.assertNotIn("up to date", module_manager._display_ver(preview["current"]) or "")
+
+    def test_preview_reports_available_or_up_to_date_when_coherent(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)   # coherent, engine_release 0.0.0
+                orig = module_manager._resolve_release_ref
+                try:
+                    module_manager._resolve_release_ref = lambda ref, repo=None, token=None: "9.9.9"
+                    available = module_manager.upgrade_preview()
+                    module_manager._resolve_release_ref = lambda ref, repo=None, token=None: "0.0.0"
+                    current = module_manager.upgrade_preview()
+                finally:
+                    module_manager._resolve_release_ref = orig
+        self.assertEqual(available["status"], "update-available")
+        self.assertEqual(available["available"], "9.9.9")
+        self.assertEqual(current["status"], "up-to-date")
+
+    def _run_main(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = module_manager.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_upgrade_help_prints_usage_and_never_applies(self):
+        # --help must print usage AND never reach the apply path (upgrade() must not be called).
+        orig = module_manager.upgrade
+        called = []
+        try:
+            module_manager.upgrade = lambda *a, **k: called.append(True)
+            code, out, _ = self._run_main(["upgrade", "--help"])
+        finally:
+            module_manager.upgrade = orig
+        self.assertEqual(code, 0)
+        self.assertIn("PREVIEWS only", out)
+        self.assertEqual(called, [])   # apply path never entered
+
+    def test_upgrade_rejects_an_unknown_flag(self):
+        code, _, err = self._run_main(["upgrade", "--yolo"])
+        self.assertEqual(code, 2)
+        self.assertIn("unknown option", err)
+
+    def test_preview_of_a_named_version_routes_to_confirm_not_a_latest_check(self):
+        # A named ref without --confirm must not silently report on the LATEST version; it routes to --confirm.
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                called = []
+                orig = module_manager._resolve_release_ref
+                try:
+                    module_manager._resolve_release_ref = lambda *a, **k: called.append(True) or "9.9.9"
+                    preview = module_manager.upgrade_preview("v1.2.3")
+                finally:
+                    module_manager._resolve_release_ref = orig
+        self.assertEqual(preview["status"], "named-target")
+        self.assertEqual(preview["named_ref"], "v1.2.3")
+        self.assertEqual(called, [])   # it did NOT resolve/latch onto the latest release
+
+    def _capture_child_env(self, practice):
+        """Run _spawn_upgrade_tail with subprocess.run stubbed, returning the env the child would get."""
+        import subprocess
+        captured = {}
+
+        def _stub(argv, **kw):
+            captured.update(kw.get("env") or {})
+            return type("P", (), {"returncode": 1, "stderr": ""})()   # non-zero -> clean failure branch
+        orig = subprocess.run
+        try:
+            subprocess.run = _stub
+            module_manager._spawn_upgrade_tail({
+                "release_tree": "/tmp", "target_ref": "v1", "from_versions": {}, "target_versions": {},
+                "present_ids": [], "old_by_id": {}, "handle": None, "practice": practice,
+                "marker": module_manager._UPGRADE_TAIL_MARKER})
+        finally:
+            subprocess.run = orig
+        return captured
+
+    def test_child_env_scopes_the_github_token_by_practice(self):
+        # Security boundary: the freshly-downloaded child holds the token ONLY on the real (PR-opening) path,
+        # never on a practice run — and is always marked as an internal child.
+        orig_token = os.environ.get("GITHUB_TOKEN")
+        os.environ["GITHUB_TOKEN"] = "sekret"
+        try:
+            practice_env = self._capture_child_env(True)
+            real_env = self._capture_child_env(False)
+        finally:
+            if orig_token is None:
+                os.environ.pop("GITHUB_TOKEN", None)
+            else:
+                os.environ["GITHUB_TOKEN"] = orig_token
+        self.assertEqual(practice_env.get("ENGINE_UPGRADE_CHILD"), "1")
+        self.assertNotIn("GITHUB_TOKEN", practice_env)          # practice: token withheld
+        self.assertEqual(real_env.get("GITHUB_TOKEN"), "sekret")  # real path: token passed deliberately
+
+    def test_a_child_failure_maps_to_a_clean_recoverable_result_and_renders_it(self):
+        # A child that dies (non-zero exit / no result file) must yield a clean "run again with --confirm"
+        # result, and _render_upgrade must SURFACE that reason — never claim "staged and consistent".
+        import subprocess
+        orig_run = subprocess.run
+        try:
+            subprocess.run = lambda a, **kw: type("P", (), {"returncode": 1, "stderr": "boom"})()
+            tail = module_manager._spawn_upgrade_tail({
+                "release_tree": "/tmp", "target_ref": "v1", "from_versions": {}, "target_versions": {},
+                "present_ids": [], "old_by_id": {}, "handle": None, "practice": False,
+                "marker": module_manager._UPGRADE_TAIL_MARKER})
+        finally:
+            subprocess.run = orig_run
+        self.assertTrue(tail["applied"])
+        self.assertIn("--confirm", tail["reason"])
+        self.assertIsNone(tail.get("pr"))
+        # the renderer must print the recovery reason, not the false "staged and consistent"
+        result = {"refused": False, "from": {"core": "0.2.0"}, "to": {"core": "0.3.0"}, "copied": [],
+                  "notes": [], "findings": [], "pr": None}
+        module_manager._merge_tail(result, tail)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            module_manager._render_upgrade(result)
+        rendered = out.getvalue()
+        self.assertIn("--confirm", rendered)
+        self.assertNotIn("staged and consistent", rendered)
+
+    def test_upgrade_tail_command_refuses_without_the_child_env_marker(self):
+        # The internal verb must not be drivable by a stray operator command / injected instruction.
+        os.environ.pop("ENGINE_UPGRADE_CHILD", None)
+        code, _, err = self._run_main(["__upgrade_tail__", "/no/such/state.json"])
+        self.assertEqual(code, 2)
+        self.assertIn("internal step", err)
+
+    def test_upgrade_tail_command_refuses_a_state_without_the_internal_marker(self):
+        with tempfile.TemporaryDirectory() as d:
+            state_path = os.path.join(d, "state.json")
+            with open(state_path, "w", encoding="utf-8") as fh:
+                json.dump({"release_tree": d, "present_ids": [], "from_versions": {},
+                           "target_versions": {}, "target_ref": "v1", "old_by_id": {},
+                           "practice": True, "result_path": os.path.join(d, "r.json")}, fh)  # NO marker
+            os.environ["ENGINE_UPGRADE_CHILD"] = "1"
+            try:
+                code, _, err = self._run_main(["__upgrade_tail__", state_path])
+            finally:
+                os.environ.pop("ENGINE_UPGRADE_CHILD", None)
+        self.assertEqual(code, 2)
+        self.assertIn("marker", err)
+
+    def test_the_594_falsification_demo_passes(self):
+        # Covers the subprocess tail end-to-end (a release's new wire seam applies via a fresh child, the
+        # in-process path reproduces the bug) and is the regression test that lets the demo retire at
+        # first run. Heavier than a unit test (copytree + subprocess), run once.
+        import demo_594_upgrade_tail_reexec as demo
+        import quiet_call
+        code = quiet_call.run(demo.main)   # captures the demo's walkthrough (keeps the suite summary clean)
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":
