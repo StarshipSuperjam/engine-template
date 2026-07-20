@@ -24,6 +24,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import module_manager  # noqa: E402
 import module_coherence  # noqa: E402
+import validate  # noqa: E402
 import wiring  # noqa: E402
 
 
@@ -2025,6 +2026,23 @@ class TestUpgradeReconcile(unittest.TestCase):
             self.assertEqual(out, dest)
             self.assertTrue(os.path.isdir(os.path.join(dest, ".engine")),
                             "the archived tree root should contain .engine/ directly (no wrapper dir)")
+
+
+class TestReconcileDeliverySuperset(unittest.TestCase):
+    """#599 Slice 3 drift guard: the reconcile deliver set must never drop BELOW what the engine considers
+    owned. Holds by construction today (`engine_synced_map` globs the same `provides` as `engine_owned_paths`);
+    pinned so a future `provides` refactor (e.g. key-filtering groups) can't silently drop a delivered index
+    like self-map.md / suites.json without reddening. A SUPERSET guard — `delivered` legitimately carries more
+    (fixtures, module manifests). This is the honest, narrow residual the earlier release-cut ownership check
+    was reduced to: it proves the reconcile covers the owned surface, NOT that every classification is correct."""
+
+    def test_deliver_set_covers_every_owned_engine_file(self):
+        manifests = module_coherence.discover_manifests()
+        by_id = {m.get("id"): m for _rel, m in manifests}
+        owned_engine = {p for p in module_coherence.engine_owned_paths(manifests) if p.startswith(".engine/")}
+        delivered = module_manager.engine_synced_paths(validate.ROOT, by_id, project_retire=False)
+        missing = sorted(owned_engine - delivered)
+        self.assertEqual(missing, [], f"reconcile deliver set dropped owned engine files: {missing}")
 
 
 class TestUpgradePreviewImpact(unittest.TestCase):

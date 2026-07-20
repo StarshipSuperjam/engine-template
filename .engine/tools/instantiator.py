@@ -1695,6 +1695,10 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_release_cut.py",
     ".engine/tools/demo_release_terminal.py",
     ".engine/tools/demo_release_product_mode.py",
+    # #599 Slice 3: the migration-accumulation guard falsification. Engine-version cuts are construction-repo
+    # activity (a deployed repo cuts products), so this is maintainer build evidence, imported by nothing —
+    # retires here; the permanent regression lives in test_release_cut.MigrationAccumulation.
+    ".engine/tools/demo_599c_migration_accumulation.py",
     ".engine/tools/demo_weakening_guard_narrowed_set.py",
     ".engine/tools/demo_memory_degradation_backup.py",
     ".engine/tools/demo_attention_live_dials.py",

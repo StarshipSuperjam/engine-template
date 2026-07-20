@@ -181,6 +181,76 @@ class Classify(unittest.TestCase):
         self.assertIsNone(p["engine_floor_version"])
 
 
+class MigrationAccumulation(unittest.TestCase):
+    # #599 Slice 3: migrations replay by RANGE, so a version-key present in the previous release but dropped in
+    # the candidate would be SILENTLY SKIPPED on a multi-version upgrade. classify() flags it; the cut is refused.
+    _MIG = {"0.2.0": {"description": "d", "run": "r", "kind": "config"}}
+
+    def _classify(self, live, baseline):
+        base = _baseline_tree(baseline)
+        try:
+            with _Tree(live):
+                return rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_dropped_migration_key_is_flagged(self):
+        p = self._classify({"core": _module("core")}, {"core": _module("core", migrations=self._MIG)})
+        self.assertEqual(len(p["migration_violations"]), 1)
+        self.assertIn("core", p["migration_violations"][0])
+        self.assertIn("0.2.0", p["migration_violations"][0])
+
+    def test_retained_migration_is_clean(self):
+        p = self._classify({"core": _module("core", migrations=self._MIG)},
+                           {"core": _module("core", migrations=self._MIG)})
+        self.assertEqual(p["migration_violations"], [])
+
+    def test_rekeyed_migration_is_not_a_false_drop(self):
+        # baseline '0.4' and candidate '0.4.0' are the SAME version — normalization must not read a drop.
+        live = {"core": _module("core", migrations={"0.4.0": {"description": "d", "run": "r", "kind": "config"}})}
+        base = {"core": _module("core", migrations={"0.4": {"description": "d", "run": "r", "kind": "config"}})}
+        self.assertEqual(self._classify(live, base)["migration_violations"], [])
+
+    def test_whole_removed_module_is_not_a_dropped_migration(self):
+        # a removed CAPABILITY is inventoried as removed (major bump); its migrations are a KNOWN BOUND for
+        # Slice 4, NOT double-counted here as a dropped-migration violation.
+        base = {"core": _module("core"),
+                "legacy": _module("legacy", migrations={"0.1.0": {"description": "d", "run": "r", "kind": "data"}})}
+        p = self._classify({"core": _module("core")}, base)
+        self.assertEqual(p["migration_violations"], [])
+        self.assertIn("Removed the 'legacy'", " ".join(p["change_inventory"]))
+
+    def test_propose_refuses_a_dropped_migration_with_a_plain_reason(self):
+        import io
+        import contextlib
+        import types
+        base = _baseline_tree({"core": _module("core", migrations=self._MIG)})
+        saved = rc.resolve_baseline
+        rc.resolve_baseline = lambda *a, **k: rc.Baseline("v0.0.9", False, "diff")
+        try:
+            with _Tree({"core": _module("core")}):
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = rc._cmd_propose(types.SimpleNamespace(json=True, baseline_tree=base))
+            self.assertEqual(code, 2)                                   # non-zero => the propose step fails the cut
+            self.assertIn("upgrade step", err.getvalue().lower())       # a plain reason to stderr, never bare exit
+            self.assertIn("0.2.0", err.getvalue())
+        finally:
+            rc.resolve_baseline = saved
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_added_migration_is_not_a_violation(self):
+        # the common real-cut case: the candidate ADDS a key the baseline lacked -> a gain, not a drop.
+        p = self._classify({"core": _module("core", migrations=self._MIG)}, {"core": _module("core")})
+        self.assertEqual(p["migration_violations"], [])
+
+    def test_product_cut_has_no_migration_guard(self):
+        # engine-mode only: a product cut is built by _product_proposal, a different path that never computes
+        # the guard, so a product release can never be refused by the engine-migration accumulation rule.
+        p = rc._product_proposal(rc.Baseline("v0.1.0", False, ""), "0.1.0", [])
+        self.assertNotIn("migration_violations", p)
+
+
 class Apply(unittest.TestCase):
     def test_raise_only_refuses_engine_non_increase(self):
         # the ENGINE version must strictly increase — an equal engine version is refused (a cut always moves it)

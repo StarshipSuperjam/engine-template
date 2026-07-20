@@ -456,6 +456,39 @@ def _max_level(a: str, b: str) -> str:
     return a if order[a] >= order[b] else b
 
 
+def _migration_accumulation_violations(was: dict, present: dict) -> list:
+    """Every migration a RETAINED module shipped in the previous release but the candidate no longer declares —
+    a dropped migration version-key. Upgrades replay migrations by version RANGE (`module_manager.select_migrations`
+    runs each key where from < ver <= target), so a key silently removed from a manifest is SKIPPED on a
+    multi-version jump, never run — the #599 silent-skip class, at the migration layer. Keys are compared on
+    NORMALIZED version tuples (`validate._ver_tuple`), so a re-key ('0.4' -> '0.4.0', equal as versions) is not a
+    false drop. A whole REMOVED module is NOT checked here — it is inventoried as a removed capability, and its
+    still-unrun migrations for a lagging upgrader are a KNOWN BOUND handled with the min-upgradeable-from floor.
+    The sanctioned way to retire a transform is to KEEP its key with a no-op `run`, never to delete the key.
+
+    Coverage assumes a POPULATED baseline: a missing baseline tree fails closed upstream (classify raises), but a
+    baseline that resolves yet carries no module manifests compares against an empty set and finds no drop — loud
+    in practice (every present module then reads as newly Added and forces a major floor), so the residual gap is
+    low, but the hard fail-closed guarantee is only at the no-tree level."""
+    def _norm(v):
+        # Compare on a length-normalized version tuple so a re-key ('0.4' -> '0.4.0', equal as versions but a
+        # 2- vs 3-tuple) is not read as a drop. Keys are conventionally MAJOR.MINOR.PATCH but NOT schema-enforced
+        # (the migrations schema constrains only the value, not the key), so this normalization is load-bearing.
+        t = validate._ver_tuple(v)
+        return t + (0,) * (3 - len(t)) if len(t) < 3 else t
+    out = []
+    for mid, man in present.items():
+        old = was.get(mid)
+        if not old:
+            continue
+        new_keys = {_norm(k) for k in (man.get("migrations") or {})}
+        for ver in sorted((old.get("migrations") or {}), key=validate._ver_tuple):
+            if _norm(ver) not in new_keys:
+                out.append(f"the '{mid}' capability dropped the upgrade step for version {ver} that the last "
+                           f"release shipped; an engine updating across this version would skip it")
+    return out
+
+
 def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
     """The proposal: the floor per package + engine, the change inventory, and the impact statements.
     In first-cut mode there is no baseline to diff, so no delta/floor is derived — the initial version
@@ -537,6 +570,9 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         "package_floor": package_floor,
         "change_inventory": inventory,
         "impacts": impacts,
+        # A dropped migration key on a retained module — the cut is refused on this, before apply writes (see
+        # _cmd_propose). Empty on a clean diff; a stable field of the diff proposal so the refusal is legible.
+        "migration_violations": _migration_accumulation_violations(was, present),
     }
 
 
@@ -1268,10 +1304,18 @@ def _cmd_propose(args) -> int:
     # a baseline tree is injected (the tests' / `--baseline-tree` offline path), best-effort otherwise.
     proposal["merged_prs"] = ([] if args.baseline_tree
                               else merged_pr_titles(baseline.ref, _current_sha()))
-    if args.json:
-        print(json.dumps(proposal, indent=2))
-    else:
-        print(_render_proposal(proposal))
+    print(json.dumps(proposal, indent=2) if args.json else _render_proposal(proposal))
+    # A dropped migration key would be silently skipped on a multi-version upgrade (the #599 class at the
+    # migration layer) — REFUSE the cut here, before `apply` writes anything. `propose` runs under
+    # `set -euo pipefail` in release.yml, so this non-zero exit fails the release job at this step; apply and
+    # pr-body never run, so there is no PR body to carry the fact — the refusal message is the whole surface.
+    if proposal.get("migration_violations"):
+        _print_refusal({"reason": "an upgrade step was dropped", "violations": proposal["migration_violations"],
+                        "recovery": "nothing was written and no release was opened. Restore each dropped upgrade "
+                                    "step to the capability's settings file; to retire a step, keep its version "
+                                    "key and make its action do nothing — never delete the key, or engines that "
+                                    "have not yet run it will skip it forever."})
+        return 2
     return 0
 
 
