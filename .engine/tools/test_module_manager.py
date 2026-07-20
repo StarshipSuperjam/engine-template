@@ -1829,5 +1829,181 @@ class TestUpgradePreviewImpact(unittest.TestCase):
         self.assertIn("nothing changed", out.getvalue())
 
 
+import subprocess   # noqa: E402 — the rollback tests exercise real git in a throwaway repo
+
+
+def _git(root, *args):
+    return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
+
+
+def _init_repo(root):
+    """A throwaway git repo with the fixture engine committed as the pre-update baseline (branch `main`)."""
+    _git(root, "init", "-b", "main")
+    _git(root, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    _git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "baseline")
+
+
+def _stage_a_stalled_update(root):
+    """Reproduce the #594-shape staged/stalled upgrade ON DISK, uncommitted: a release that ADDS a new
+    provides file + a new wire to the present `base` module (not just an edited file) — the overlay overwrote
+    base's manifest to declare an extra tool + a new gitignore wire, wrote that new tool, changed the existing
+    tool, and bumped engine.json. Nothing is committed, so this is exactly a stall's working tree."""
+    eng = os.path.join(root, ".engine")
+    module_manager._write_json(
+        os.path.join(eng, "modules", "base", "manifest.json"),
+        {"id": "base", "version": "0.2.0", "status": "required",
+         "provides": {"tool": [".engine/tools/base_tool.py", ".engine/tools/base_extra.py"]},
+         "depends": {}, "migrations": {},
+         "wires": [{"type": "gitignore", "key": "oldcache", "lines": [".engine/base/.oldcache/"]},
+                   {"type": "gitignore", "key": "newcache", "lines": [".engine/base/.newcache/"]}]})
+    with open(os.path.join(eng, "tools", "base_tool.py"), "w") as fh:
+        fh.write("# base v2\n")                                   # an existing overlay-code file, changed
+    with open(os.path.join(eng, "tools", "base_extra.py"), "w") as fh:
+        fh.write("# new tool the release added\n")                # a NEW provides file (the #594 shape)
+    module_manager._write_json(
+        os.path.join(eng, "engine.json"),
+        {"engine_release": "0.2.0", "packages": {"base": "0.2.0"}, "identity": "solo",
+         "home_repository": "acme/engine-home"})                  # the version bump
+
+
+class TestRollback(unittest.TestCase):
+    """The `rollback` undo: the staged-update signal, the foreign-work guard, the recovery-point-then-discard
+    sequence on a real temp git repo (the #594 new-file shape), the restore-then-detect ordering + consent/
+    no-override on the memory leg, and the confirm-gated CLI."""
+
+    def _staged_repo(self, d):
+        live = os.path.join(d, "live")
+        os.makedirs(live)
+        with module_manager._redirect_root(live):   # _build_upgrade_fixture applies a wire via the redirected paths
+            module_manager._build_upgrade_fixture(live)
+        _init_repo(live)                        # commit the pre-update baseline
+        _stage_a_stalled_update(live)           # then dirty the tree with a staged update
+        return live
+
+    def test_staged_update_is_detected_by_dirty_overlay_code_not_coherence(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = self._staged_repo(d)
+            with module_manager._redirect_root(live):
+                self.assertTrue(module_manager._staged_upgrade_dirty())
+                self.assertEqual(module_manager._diagnose_undo()["state"], "staged")
+
+    def test_discard_saves_a_recovery_point_then_restores_the_tree_to_before_the_update(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = self._staged_repo(d)
+            calls = {"resync": 0}
+            with module_manager._redirect_root(live):
+                res = module_manager.rollback(confirm=True, resync=lambda: calls.__setitem__("resync", 1) or True,
+                                              transport=None)
+            self.assertTrue(res.get("undone"))
+            self.assertEqual(calls["resync"], 1)                 # the runtime rebuild seam was called
+            self.assertTrue((res.get("recovery_point") or "").startswith("engine-rescue/"))
+            # the tree is clean again, the added file is gone, and the changed file/engine.json are back
+            self.assertEqual(_git(live, "status", "--porcelain").stdout.strip(), "")
+            self.assertFalse(os.path.exists(os.path.join(live, ".engine", "tools", "base_extra.py")))
+            with open(os.path.join(live, ".engine", "tools", "base_tool.py")) as fh:
+                self.assertEqual(fh.read(), "# base v0\n")
+            eng = module_manager.validate.load_json(os.path.join(live, ".engine", "engine.json"))
+            self.assertEqual(eng["engine_release"], "0.0.0")     # engine.json reverted -> data undo can now fire
+            # the recovery point still holds the discarded update (nothing lost)
+            self.assertIn("engine-rescue/", _git(live, "branch").stdout)
+
+    def test_discard_refuses_when_the_operator_has_their_own_unsaved_work(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = self._staged_repo(d)
+            with open(os.path.join(live, "my_notes.txt"), "w") as fh:   # foreign, outside the footprint
+                fh.write("my own work\n")
+            with module_manager._redirect_root(live):
+                res = module_manager.rollback(confirm=True, resync=lambda: True, transport=None)
+            self.assertTrue(res.get("refused"))
+            self.assertIn("my_notes.txt", res.get("your_changes") or [])
+            # nothing was undone or rescued — the staged update and the operator's file are both still there
+            self.assertTrue(os.path.exists(os.path.join(live, ".engine", "tools", "base_extra.py")))
+            self.assertTrue(os.path.exists(os.path.join(live, "my_notes.txt")))
+            self.assertNotIn("engine-rescue/", _git(live, "branch").stdout)
+
+    def test_footprint_covers_the_floor_files_and_wiring_targets_the_guard_would_else_miss(self):
+        # RC-B1: engine_owned_paths omits these; the guard would false-refuse a real stall without them.
+        with tempfile.TemporaryDirectory() as d:
+            live = self._staged_repo(d)
+            with module_manager._redirect_root(live):
+                fp = module_manager._upgrade_footprint()
+            for must in ("CLAUDE.md", "AGENTS.md", ".github/CODEOWNERS", module_coherence.ENGINE_MANIFEST_REL):
+                self.assertIn(must, fp)
+            for target in module_coherence.WIRING_TARGETS.values():
+                self.assertIn(target, fp)
+
+    def test_memory_leg_restores_with_consent_and_never_override_after_the_code_is_back(self):
+        # The staged discard's step (f): once engine.json is reverted, put the pre-update memory back — with
+        # the operator's confirm standing in for consent, and NEVER override (the resurrection guard stays on).
+        from memory import restore_vault as _rv
+        import memory as _memory
+        captured = {}
+        saved_detect, saved_restore = _rv.detect_migration_revert, _memory.restore_pre_migration
+        _rv.detect_migration_revert = lambda **k: {"tag": "engine-snapshot/ns/base@0.2.0"}
+        _memory.restore_pre_migration = lambda **k: captured.update(k) or {"ok": True, "message": "put back"}
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                live = self._staged_repo(d)
+                with module_manager._redirect_root(live):
+                    res = module_manager.rollback(confirm=True, resync=lambda: True, transport="FAKE")
+        finally:
+            _rv.detect_migration_revert, _memory.restore_pre_migration = saved_detect, saved_restore
+        self.assertTrue(res.get("undone"))
+        self.assertEqual(captured.get("consent"), "y")
+        self.assertEqual(captured.get("tag"), "engine-snapshot/ns/base@0.2.0")
+        self.assertEqual(captured.get("transport"), "FAKE")
+        self.assertNotEqual(captured.get("override"), True)      # resurrection guard preserved
+        self.assertTrue(res.get("restored"))
+
+    def test_memory_ahead_state_restores_the_pre_update_copy_without_a_discard(self):
+        from memory import restore_vault as _rv
+        import memory as _memory
+        captured = {}
+        saved_detect, saved_restore = _rv.detect_migration_revert, _memory.restore_pre_migration
+        # a clean tree (no staged update) but the store is ahead of the code -> state 2
+        _rv.detect_migration_revert = lambda **k: {"tag": "engine-snapshot/ns/base@0.2.0"}
+        _memory.restore_pre_migration = lambda **k: captured.update(k) or {"ok": True, "message": "put back"}
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                live = os.path.join(d, "live")
+                os.makedirs(live)
+                with module_manager._redirect_root(live):
+                    module_manager._build_upgrade_fixture(live)
+                _init_repo(live)                                # clean tree, nothing staged
+                with module_manager._redirect_root(live):
+                    self.assertEqual(module_manager._diagnose_undo()["state"], "memory-ahead")
+                    res = module_manager.rollback(confirm=True, resync=lambda: True, transport="FAKE")
+        finally:
+            _rv.detect_migration_revert, _memory.restore_pre_migration = saved_detect, saved_restore
+        self.assertTrue(res.get("restored"))
+        self.assertEqual(captured.get("consent"), "y")
+        self.assertNotEqual(captured.get("override"), True)
+
+    def test_bare_rollback_previews_and_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = self._staged_repo(d)
+            with module_manager._redirect_root(live):
+                diag = module_manager.rollback(confirm=False)     # no confirm -> read-only diagnosis
+            self.assertEqual(diag["state"], "staged")
+            self.assertTrue(os.path.exists(os.path.join(live, ".engine", "tools", "base_extra.py")))  # untouched
+            self.assertNotIn("engine-rescue/", _git(live, "branch").stdout)
+
+    def test_cli_rollback_gate(self):
+        with tempfile.TemporaryDirectory() as d:
+            live = self._staged_repo(d)
+            with module_manager._redirect_root(live):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    self.assertEqual(module_manager.main(["rollback"]), 0)          # bare -> preview, exit 0
+                self.assertIn("undo", out.getvalue())
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    self.assertEqual(module_manager.main(["rollback", "--bogus"]), 2)  # unknown flag -> exit 2
+                self.assertIn("CONFIG ERROR", err.getvalue())
+                self.assertEqual(module_manager.main(["rollback", "--help"]), 0)    # help -> usage, exit 0
+                # still nothing changed by any of the read-only calls
+                self.assertNotIn("engine-rescue/", _git(live, "branch").stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

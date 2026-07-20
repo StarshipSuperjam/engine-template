@@ -290,10 +290,12 @@ def _in_head(main: str, rel: str) -> bool:
     return _run(["git", "-C", main, "cat-file", "-e", f"HEAD:{rel}"]) is not None
 
 
-def _make_rescue(main: str) -> str | None:
+def save_recovery_point(main: str, *, message: str) -> str | None:
     """Create a fresh rescue branch (a "safe point") at the current HEAD — capturing any off-branch commits —
-    and, if the tree is dirty, commit the working changes onto it, so NOTHING at risk is left unsaved before
-    HEAD moves. Returns the rescue branch name, or None if it could not be created (then the fix refuses)."""
+    and, if the tree is dirty, commit the working changes onto it with `message`, so NOTHING at risk is left
+    unsaved before HEAD moves. Returns the rescue branch name, or None if it could not be created/committed
+    (the caller then refuses). Shared by the strand repair and `rollback` — each supplies its own commit
+    message; the primitive (collision-safe naming, inline identity, verify-the-commit-took) is single-homed."""
     sha = (_run(["git", "-C", main, "rev-parse", "--short", "HEAD"]) or "").strip() or "head"
     name = f"{_RESCUE_PREFIX}/{sha}"
     n = 1
@@ -304,13 +306,17 @@ def _make_rescue(main: str) -> str | None:
         return None
     if (_run(["git", "-C", main, "status", "--porcelain"]) or "").strip():   # dirty -> save it on the rescue
         _ok(["git", "-C", main, "add", "-A"])
-        _ok(["git", "-C", main, *_RESCUE_IDENT, "commit", "-m",
-             "engine: saved unsaved work before un-stranding the checkout"])
+        _ok(["git", "-C", main, *_RESCUE_IDENT, "commit", "-m", message])
         if (_run(["git", "-C", main, "status", "--porcelain"]) or "").strip():
             return None   # the rescue commit did not take -> REFUSE (the work stays safe + uncommitted on
             #               this rescue branch; HEAD never moves on to the default branch) — losslessness is
             #               then self-evident, not reliant on git's later checkout-refusal as a backstop
     return name
+
+
+def _make_rescue(main: str) -> str | None:
+    """The strand repair's rescue: a "safe point" before un-stranding the checkout (see save_recovery_point)."""
+    return save_recovery_point(main, message="engine: saved unsaved work before un-stranding the checkout")
 
 
 def assess(cwd: str | None = None) -> dict:

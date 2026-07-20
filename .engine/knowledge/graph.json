@@ -2914,7 +2914,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:bc6220a6972ad04d39ff04528bd7c4c0aca50496483dd70fe4cec41b0449c7dd",
+        "fingerprint": "sha256:2e670d67b85f4e6f56ecdefa2e70c19d65b07741bc772ba97e95840fa5df2dcf",
         "path": ".agents/skills/engine-upgrade/SKILL.md"
       },
       "status": "active",
@@ -3979,7 +3979,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:5a538e9c44645061b9e615835033955246f701c9868db18c76ca7b242f8348e4",
+        "fingerprint": "sha256:9a9808ae16aee33113464b208cab22d42f4a18706aecd6bdf826715728d91dd2",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -4159,7 +4159,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:d15c354b8086f40b90ef30004b5d7b9765bcd132d4ed9225aa20e92948041c31",
+        "fingerprint": "sha256:afc79a0347c60d2457638fe6c3483d8a42a8d3e6dda9ff0eb9720edc11bb2648",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -5427,7 +5427,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:efbe46c420505ddacf57c023a68175bb3b1316a2db62cb6d69350f11632c38e6",
+        "fingerprint": "sha256:bef845dbb6a0de0ed40a139f9c516bb41a5e8f3c9daf8a077fcb87266abe30a1",
         "path": ".claude/skills/engine-upgrade/SKILL.md"
       },
       "status": "active",
@@ -5649,7 +5649,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:cbeb0eb9bf2dc401e269d4496d56810d2661bef89b56a16905ef624cdf52e45a",
+        "fingerprint": "sha256:0fd6d778ec288685176bda4d2582d5a1c902d33baaacdddf8e1fde8185ed4a69",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5768,7 +5768,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:bc6c9355927a1a5d2223a153fd11106997accd601cd322d8d7e81beb9b8cbe65",
+        "fingerprint": "sha256:17ac803b69447d72f87d61cdee7e799ce97a5b3ed6b15451c8db35bca96265ba",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -7400,7 +7400,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:de3fd6b1db8e9562d0a276a939b64196066f3e1830968e4390234cde14a5cfa3",
+        "fingerprint": "sha256:7f6ea12e9c079c8373a5e1e5f671ab69980564f6491ab0fd64ababe168daf2c2",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -8250,7 +8250,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f45edcf17915905cc978a0fcb8c453e6fbd42eddca69e7eaa9b6887c11ec829f",
+        "fingerprint": "sha256:1a081f6b237ba8295d4d11a73c9887cfa30473261b227cab4caf213673bfbe87",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9270,7 +9270,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:9d093a1369aa4de71ef36ce8de64fece656576e9f29f55e309c6f62b906e4584",
+        "fingerprint": "sha256:b3febdfd6e6068eb42581e213933856d7c83ed2923a474263c835fd0bbc0d73e",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

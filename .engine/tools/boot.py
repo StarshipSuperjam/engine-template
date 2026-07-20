@@ -1207,6 +1207,17 @@ def gather_signals(session_id: str | None = None) -> dict:
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         migration_revert = None
     try:
+        # A staged/stalled engine update left half-applied in the working tree — surfaced read-only so an
+        # update the operator walked away from is discoverable at STARTUP, not only when they re-run the command
+        # (the parallel to the memory-ahead offer above). module_manager is imported LAZILY (it is off the
+        # cold-start path, and its own `boot` use is lazy — no cycle). This is a cheap git read only
+        # (overlay-code dirty vs HEAD, NOT a coherence pass), so a stall that leaves the wiring applied but the
+        # tree half-built is still caught. Degrades QUIETLY to None — a clean tree is the normal state.
+        import module_manager as _mm
+        staged_update = bool(_mm._staged_upgrade_dirty())
+    except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        staged_update = None
+    try:
         # The memory-health signal (#396), RELAYED from memory's own LOCAL read (no network; boot computes
         # no new state). Reads the live ledger and reports how many lines are unreadable — a rotting store that
         # would otherwise lose recall line by line with no signal. Lazy import (memory off the cold-start path).
@@ -1322,6 +1333,7 @@ def gather_signals(session_id: str | None = None) -> dict:
         "restore_offer": restore_offer,
         # the code-older-than-data offer (#303): the store is ahead of the engine after a reverted update, or None
         "migration_revert": migration_revert,
+        "staged_update": staged_update,
         # the memory-health count (#396): unreadable lines in the live ledger (>0 -> a rot heads-up), 0/None otherwise
         "ledger_malformed": ledger_malformed,
         # the stalled-migration signal (#396): True iff a memory migration didn't finish (orphaned marker) and
@@ -1536,6 +1548,19 @@ def render_dashboard(s: dict) -> str:
             "memory and the engine don't match. I can put your memory back to **the copy saved before that update**, so "
             "they line up again. Say **restore my memory from before the update** and I'll bring it back — nothing on "
             "this computer changes until you say so.")
+
+    # A staged/stalled engine update, surfaced read-only at the recovery tier — an update was started but not
+    # finished, so the working tree sits part-way between versions. LEADS with "nothing was merged, you're safe"
+    # (the stall is never the operating baseline), then routes to the one `/engine-upgrade` command, which
+    # offers the choice: finish it, or undo it (undoing saves a recovery point first). boot OFFERS only; the
+    # assistant runs `/engine-upgrade` on consent (boot-session-start.md). module_manager owns the detector +
+    # the fix; boot owns this wording and never imports the fix path except through the lazy detector above.
+    if s.get("staged_update"):
+        pinned.append(
+            "🛠️ **An engine update looks half-finished** — it was started but not completed, so your engine is "
+            "part-way between versions. **Nothing was merged, so you're safe.** Type **/engine-upgrade** and I'll "
+            "show you the choice: finish the update, or undo it and put your engine back the way it was — if you "
+            "undo, I save a recovery point of your current state first, so nothing is lost.")
 
     # The leftover-template-LICENSE OFFER (#471), surfaced read-only at the strand/offer tier — the LOWEST-urgency
     # offer, BELOW the governance alarms (a foreign copyright is a bounded, operator-correctable residual, never
@@ -1882,6 +1907,9 @@ def present_marker_line(s: dict) -> str:
                 "to date' and I'll sort it out safely")
     if s["pr_conflict"]:   # the always-visible surface so a stuck PR cannot rot unnoticed (not a must_push)
         return f"⚠ {PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it"
+    if s.get("staged_update"):   # a recovery OFFER (not a ⚠ alarm): an update was started but not finished
+        return (f"▸ {PRESENT_MARKER}: an engine update looks half-finished — type /engine-upgrade and I'll help "
+                "you finish it or undo it")
     if s.get("migration_revert"):   # a recovery OFFER (not a ⚠ alarm): the store is ahead of the code after a revert
         return (f"▸ {PRESENT_MARKER}: your saved memory is ahead of the engine after an update was undone — say "
                 "'restore my memory from before the update' and I'll bring back the copy from before it")
