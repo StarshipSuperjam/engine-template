@@ -682,7 +682,12 @@ def select_migrations(from_versions: dict, target_versions: dict, manifests: lis
     by dependency (validate.topological_order) and, within a module, by ASCENDING version using
     validate._ver_tuple (NEVER string order — '0.10.0' must sort AFTER '0.9.0'). `manifests` is a list of
     manifest dicts; `from_versions`/`target_versions` are {module_id: version}. Returns a list of
-    {module_id, version, description, run, kind} — fixture-testable with no disk/network."""
+    {module_id, version, description, run, kind} — fixture-testable with no disk/network.
+
+    ACCUMULATION CONTRACT (enforced at release-cut by release_cut._migration_accumulation_violations): because
+    selection is by RANGE, a key removed from a manifest is simply never iterated for an engine sitting below it
+    — silently skipped, never run. So a shipped migration key must NEVER be dropped; to retire a transform, keep
+    its key and make its `run` a no-op. A release that drops a previously-shipped key is refused before the cut."""
     out = []
     for m in validate.topological_order(list(manifests)):
         mid = m.get("id")
@@ -1017,7 +1022,12 @@ def engine_synced_paths(tree_root: str, manifests_by_id: dict, *, project_retire
     PLUS the five keyed/rendered foundation files FOUNDATION_CODE deliberately excludes (engine.json,
     CODEOWNERS, root CLAUDE.md/AGENTS.md, .gitignore) — re-rendered or keyed-merged locally, never delete
     candidates. DISTINCT from `module_coherence.engine_owned_paths` (which omits fixtures + manifests) — do
-    not dedupe."""
+    not dedupe.
+
+    INVARIANT (pinned by test_module_manager.TestReconcileDeliverySuperset, #599 Slice 3): this deliver set is a
+    SUPERSET of every `provides`-owned `.engine/` file — the reconcile never ships less than the owned surface.
+    Honest bound: that is all it proves. It does NOT prove a file is delivered to the RIGHT place, nor that an
+    operator-authored file parked under an engine glob is classified correctly — those stay merge-gate concerns."""
     return set(engine_synced_map(tree_root, manifests_by_id, project_retire=project_retire).keys()) | set(_FOUNDATION_KEYED)
 
 
@@ -1577,7 +1587,7 @@ def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old
 # hard checks read a PR/event/network context that does not exist pre-open on the operator's machine
 # (arch-S4, feasibility-B1/S1). This subset reads the reconciled TREE live and is exactly what #599 trips —
 # and none of it reaches the network or needs the repo token. The full-CI proof lives in the tests' real-tag
-# belt and the cut-time upgrade-path matrix (Slice 3), never on an operator's upgrade.
+# belt and the cut-time upgrade-path matrix (Slice 4), never on an operator's upgrade.
 _STRUCTURAL_GATE_CHECK_IDS = frozenset({
     "engine/check/catalog-coverage",        # a delivered/removed file leaving the surface catalog incomplete
     "engine/check/census-completeness",     # the census of catalogued surfaces vs the tree

@@ -6064,6 +6064,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_599c_migration_accumulation",
+      "name": ".engine/tools/demo_599c_migration_accumulation.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_599c_migration_accumulation",
+      "source": {
+        "fingerprint": "sha256:97f250e9b0cae07c464bb2efa26692b987fd6df14c5a7319442e09df2e6f9d7e",
+        "path": ".engine/tools/demo_599c_migration_accumulation.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_actionlint",
       "name": ".engine/tools/demo_actionlint.py",
       "owner": "core",
@@ -7009,7 +7026,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:c5618d6327ff7a778f382bb3f2a22ebbd5c9cc11a590e7457680441f77fd9605",
+        "fingerprint": "sha256:e8bcbecf8bd6fe808c78deea11cad42660588228ab0ed91c10daa092c7e67615",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7434,7 +7451,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:93e57188cf84f4d7ba25f4264d7ecf546e476a5406825d056375451405195047",
+        "fingerprint": "sha256:666d2eb9f41dd47fd30c3e9a2157db01302fc08c0319b11926e83fdd28790d65",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -7723,7 +7740,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:d4ad244df745e3c91bd6fe8e21183d1a3bc250ccb6a27f23fafcf33e5e5f9570",
+        "fingerprint": "sha256:89068a678adb32fd770da5b0148b6c8827f09665ca7faf0e758e39abc48c61ca",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -9304,7 +9321,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:369192781eb6237b9da3b4d73959482cce201cb5b9e2e0d9e6fd19bc318c8560",
+        "fingerprint": "sha256:712e95c5a050c2f345a98558ec649148f85da5abfab93155f5dff2c48b164bed",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -9593,7 +9610,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:15669075d8ff4f899eba2e25a5f7139f906ba9881f06236be7446b7270d9de8f",
+        "fingerprint": "sha256:f7fe6b796a32cca07e800d43cc36afae26aeb15b34cd5f3673a9ee8bfb0e03b8",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
