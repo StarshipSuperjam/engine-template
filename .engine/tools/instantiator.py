@@ -3024,10 +3024,16 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
                             "reason": "you chose to leave a file the engine needs as it is, so the arrival "
                                       "stopped and nothing was changed — accept it to go on, or sort it out "
                                       "and run the arrival again."}
-        # (4) OVERLAY the full release module set onto the live tree (kept class-1 paths excluded).
+        # (4) OVERLAY the full release module set onto the live tree (kept class-1 paths excluded), then
+        # DELIVER the file category the copy-only overlay misses — the committed fixtures (#599). Arrival shares
+        # the upgrade's delivery gap, so it shares the fix: the same exclude-aware deliver primitive. Arrival
+        # delivers the FULL template surface and runs retire() itself at step 6, so project_retire=False here —
+        # it must NOT project the first-run set out (that is the deployed-upgrade projection, not arrival's).
         try:
-            result["overlaid"], _candidates = module_manager._overlay_engine_code(
+            result["overlaid"], candidates = module_manager._overlay_engine_code(
                 release_tree, release_ids, exclude=exclude)
+            result["overlaid"] += module_manager._deliver_synced(
+                release_tree, candidates, project_retire=False, exclude=exclude)
         except module_manager._UpgradeRefused as ur:
             return {**result, "stopped_on": "overlay", "reason": ur.reason}
         # (5) INSERT the engine floor into the operator's own CLAUDE.md (keyed, append-when-absent).

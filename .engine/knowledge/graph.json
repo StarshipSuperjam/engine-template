@@ -6040,8 +6040,25 @@
       },
       "slug": "demo_594_upgrade_tail_reexec",
       "source": {
-        "fingerprint": "sha256:13c72d0e093b4d7bf8bf96f6ff1560f54bd64fb1b9fb30d6eaca70c049934d52",
+        "fingerprint": "sha256:885155639b98d249c112dbf31c0510c68704323a7d204aca127802cebe5e686f",
         "path": ".engine/tools/demo_594_upgrade_tail_reexec.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_599_upgrade_reconcile",
+      "name": ".engine/tools/demo_599_upgrade_reconcile.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_599_upgrade_reconcile",
+      "source": {
+        "fingerprint": "sha256:a1f28e14e549aef1d3a88aea0d84d5ed36293edf3deec6181e38c49feb0c1517",
+        "path": ".engine/tools/demo_599_upgrade_reconcile.py"
       },
       "status": "active",
       "type": "tool"
@@ -6992,7 +7009,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:7664e1374e809265f5bd8061bab6dba3f7da58c9baeadf74325cde92da05c62a",
+        "fingerprint": "sha256:c5618d6327ff7a778f382bb3f2a22ebbd5c9cc11a590e7457680441f77fd9605",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7417,7 +7434,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:16ebd547c62ee316ad6b71447d2053c214c6c416429edb719c64ad0c4a3512ee",
+        "fingerprint": "sha256:26d7c624f6597bc3f1b7cff6063199fb41047f9a564d722a2754f2f457bfb041",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9287,7 +9304,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:e03ac41b85e8b33be2d193dba1aee4b03d576cff4ff93210d48b93d0aacd1c3e",
+        "fingerprint": "sha256:ee15878a070355a139fcccb2fe887124307991c6cb6d92177f66981886e6fc47",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
