@@ -102,7 +102,9 @@ def _scenario_recover() -> bool:
         # back on the stuck pull request: run the REAL reconcile.
         _git(work, "checkout", "-q", "feature")
         before = _entity_ids(work)
-        result = pr_reconcile.reconcile(apply=True, root=work, default="main")
+        # Reconcile must also remove orphaned old sources (e.g. renamed-away files) so the
+        # deployed tree matches the release tree exactly.
+        result = pr_reconcile.reconcile(apply=True, root=work, default="main", remove_orphans=True)
         after = _entity_ids(work)
 
         kept_a, kept_b = a_id in after, b_id in after
