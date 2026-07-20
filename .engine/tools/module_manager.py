@@ -2874,9 +2874,11 @@ def _discard_staged_update(resync, transport) -> dict:
     if foreign:
         result["refused"] = True
         result["your_changes"] = foreign[:20]
-        result["reason"] = ("You have unsaved changes of your own that this update didn't make — I won't "
-                            "risk them. Save or set those aside first (commit them, or move them somewhere "
-                            "safe), then ask me to undo the update again. Nothing has changed.")
+        shown = ", ".join(foreign[:8]) + (" …" if len(foreign) > 8 else "")
+        result["reason"] = (f"You have unsaved work of your own in files this update didn't touch, so I "
+                            f"stopped rather than risk it: {shown}. Save that work somewhere safe first (or "
+                            f"ask me to help you set it aside), then ask me to undo the update again. Nothing "
+                            f"has changed.")
         return result
     # (b) which branch to return to — a stall was never committed, so its pre-update state IS this branch's HEAD.
     branch = (_git(root, "rev-parse", "--abbrev-ref", "HEAD") or "").strip()
@@ -2939,10 +2941,16 @@ def _render_rollback(r: dict, applied: bool) -> None:
     state = r.get("state")
     if not applied:
         if state == "staged":
-            print("An update is staged but not finished. I can undo it — I'll save a recovery point of your "
-                  "current state first, then put your engine back the way it was, so nothing is lost.\n"
-                  "To go ahead, type `/engine-upgrade` and choose to undo (or run `rollback --confirm`). You "
-                  "can also finish the update instead with `upgrade --confirm`.")
+            # Disclose EVERYTHING the undo touches, up front, so the operator consents from a full picture:
+            # the engine's own files, the shared setup files they may have edited, and any saved memory.
+            print("An update is staged but not finished — I can undo it. First I save a recovery point of "
+                  "everything exactly as it is now, then put your engine back to before the update: its own "
+                  "files, the shared setup files it changes (like your CLAUDE.md and your settings), and any "
+                  "saved memory the update changed. Nothing is lost — if you'd edited those setup files "
+                  "yourself, your version is kept on the recovery point. I'll stop and ask first if you have "
+                  "unsaved work of your own in other files.\n"
+                  "To go ahead, type `/engine-upgrade` and choose to undo (or run `rollback --confirm`). To "
+                  "finish the update instead, run `upgrade --confirm`.")
         elif state == "memory-ahead":
             print("Your saved memory was changed by an update that's no longer in place, so your memory and "
                   "your engine don't match right now. I can put your memory back to the copy saved before "
@@ -2956,14 +2964,14 @@ def _render_rollback(r: dict, applied: bool) -> None:
         print(r["reason"])
         return
     if state == "staged" and r.get("undone"):
-        line = ("Done — I undid the staged update and put your engine back. I saved your previous state to a "
-                f"recovery point ('{r.get('recovery_point')}') in case you want it back.")
+        line = ("Done — I undid the staged update and put your engine back to before it: its own files, the "
+                "shared setup files, and any saved memory the update changed. I saved everything as it was to "
+                f"a recovery point ('{r.get('recovery_point')}') — if you'd made your own edits to the setup "
+                "files, your version is there.")
         if r.get("resync_failed"):
             line += (" One heads-up: I couldn't rebuild the engine's tool-runtime automatically — ask me and "
                      "I'll finish that.")
-        if r.get("restored") is True:
-            line += " I also put your saved memory back to the copy from before the update."
-        elif r.get("restored") is False and r.get("memory_note") and "no saved-memory" not in r["memory_note"]:
+        if r.get("restored") is False and r.get("memory_note") and "no saved-memory" not in r["memory_note"]:
             line += f" A note on your saved memory: {r['memory_note']}."
         print(line)
         return

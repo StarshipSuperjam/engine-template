@@ -1887,6 +1887,22 @@ class TestRollback(unittest.TestCase):
                 self.assertTrue(module_manager._staged_upgrade_dirty())
                 self.assertEqual(module_manager._diagnose_undo()["state"], "staged")
 
+    def test_a_coherence_green_but_uncommitted_overlay_edit_is_still_detected_as_staged(self):
+        # RC-S3: the signal must NOT key on coherence — a content-only edit to an overlay-code file leaves
+        # coherence green (it checks ownership + wiring, not file bytes) yet is a staged/uncommitted state.
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+            _init_repo(live)                                    # commit a coherent baseline
+            with open(os.path.join(live, ".engine", "tools", "base_tool.py"), "w") as fh:
+                fh.write("# base v0 — a byte changed, nothing else\n")   # content-only, uncommitted
+            with module_manager._redirect_root(live):
+                self.assertFalse([f for f in module_coherence.check_coherence()
+                                  if f.get("severity") == "hard"])       # coherence is GREEN
+                self.assertTrue(module_manager._staged_upgrade_dirty())  # yet the staged signal still fires
+
     def test_discard_saves_a_recovery_point_then_restores_the_tree_to_before_the_update(self):
         with tempfile.TemporaryDirectory() as d:
             live = self._staged_repo(d)
@@ -1939,7 +1955,15 @@ class TestRollback(unittest.TestCase):
         import memory as _memory
         captured = {}
         saved_detect, saved_restore = _rv.detect_migration_revert, _memory.restore_pre_migration
-        _rv.detect_migration_revert = lambda **k: {"tag": "engine-snapshot/ns/base@0.2.0"}
+
+        def _detect_only_after_revert(**k):
+            # The stub is ORDERING-SENSITIVE: it hands back a tag only once engine.json is back at the old
+            # version — so if the code consulted it BEFORE reverting the tree, no restore would fire and this
+            # test would fail. This pins step (f) running after step (d).
+            eng = module_manager.validate.load_json(
+                os.path.join(module_manager.validate.ROOT, ".engine", "engine.json")) or {}
+            return {"tag": "engine-snapshot/ns/base@0.2.0"} if eng.get("engine_release") == "0.0.0" else None
+        _rv.detect_migration_revert = _detect_only_after_revert
         _memory.restore_pre_migration = lambda **k: captured.update(k) or {"ok": True, "message": "put back"}
         try:
             with tempfile.TemporaryDirectory() as d:
@@ -1987,6 +2011,13 @@ class TestRollback(unittest.TestCase):
             self.assertEqual(diag["state"], "staged")
             self.assertTrue(os.path.exists(os.path.join(live, ".engine", "tools", "base_extra.py")))  # untouched
             self.assertNotIn("engine-rescue/", _git(live, "branch").stdout)
+
+    def test_the_rollback_falsification_demo_passes(self):
+        # Runs the maintainer-runnable demo end-to-end (the real undo reverts a staged update; removing the
+        # switch-back leaves it un-undone). Importing it here is what makes it TRAVEL with the engine.
+        import demo_594_rollback_discard as demo
+        import quiet_call
+        self.assertEqual(quiet_call.run(demo.main), 0)
 
     def test_cli_rollback_gate(self):
         with tempfile.TemporaryDirectory() as d:

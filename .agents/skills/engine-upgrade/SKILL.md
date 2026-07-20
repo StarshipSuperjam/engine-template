@@ -45,5 +45,6 @@ This is the one command you type to manage your engine's version — checking, a
 won't start or undo an update on my own; that is your call. If you just mention wanting to update or undo in
 conversation, I'll point you here rather than run anything. Every apply and every undo waits for your explicit
 go-ahead after you've seen what it would do. Undoing a half-finished update saves a recovery point of your
-current state first, so nothing is lost, and it stops and asks if you have unrelated unsaved work of your own.
-The checks in steps 1 and 4 are safe to run any time: they only read.
+current state first, so nothing is lost — it resets the engine's own files and the shared setup files it
+changes (keeping your version of those on the recovery point), and it stops and asks first if you have unsaved
+work of your own in other files. The checks in steps 1 and 4 are safe to run any time: they only read.

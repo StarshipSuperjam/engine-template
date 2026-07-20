@@ -2914,7 +2914,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:2e670d67b85f4e6f56ecdefa2e70c19d65b07741bc772ba97e95840fa5df2dcf",
+        "fingerprint": "sha256:0524315e78bb1fbdbb3f78c438363df7fc407afd5feef4cc4b87a2a82de9e5da",
         "path": ".agents/skills/engine-upgrade/SKILL.md"
       },
       "status": "active",
@@ -3979,7 +3979,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:9a9808ae16aee33113464b208cab22d42f4a18706aecd6bdf826715728d91dd2",
+        "fingerprint": "sha256:b22b897b9900fd9aa5f4b984f92ea0a3f817af33b88ed536107487f96c9dc467",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -5427,7 +5427,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:bef845dbb6a0de0ed40a139f9c516bb41a5e8f3c9daf8a077fcb87266abe30a1",
+        "fingerprint": "sha256:da5d7084e59222ce7716df943f9f27b955c89a40bccccb14996be977f7d54757",
         "path": ".claude/skills/engine-upgrade/SKILL.md"
       },
       "status": "active",
@@ -5649,7 +5649,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:0fd6d778ec288685176bda4d2582d5a1c902d33baaacdddf8e1fde8185ed4a69",
+        "fingerprint": "sha256:54f12854902f3870b0152453a6c772ed03b66d862af695f8935b10b4560149d2",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -6008,6 +6008,23 @@
       "source": {
         "fingerprint": "sha256:b3244cb21cc2de95d766298fd51cb4480551fcf6cbdf595529156d498f2796c3",
         "path": ".engine/tools/demo_467_deployment_eadr_namespace.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:demo_594_rollback_discard",
+      "name": ".engine/tools/demo_594_rollback_discard.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_594_rollback_discard",
+      "source": {
+        "fingerprint": "sha256:9c8acf319f514b70b2055949f1d47b30d82efbce7e92b6606a3311ff3b9578c7",
+        "path": ".engine/tools/demo_594_rollback_discard.py"
       },
       "status": "active",
       "type": "tool"
@@ -7400,7 +7417,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:7f6ea12e9c079c8373a5e1e5f671ab69980564f6491ab0fd64ababe168daf2c2",
+        "fingerprint": "sha256:78bef41caa13f72db8ac69ecb32547dd0f1e49f9adedca0ab777d54f5a473d3b",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -8250,7 +8267,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:1a081f6b237ba8295d4d11a73c9887cfa30473261b227cab4caf213673bfbe87",
+        "fingerprint": "sha256:5e87eddd122b5e90882024051afc1a46b6bd85d8f607ba716be43b802a5c238b",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -9270,7 +9287,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:b3febdfd6e6068eb42581e213933856d7c83ed2923a474263c835fd0bbc0d73e",
+        "fingerprint": "sha256:afd0b04b24bc1b899b25780c2b20b6b7446eb156d0afeee2748fc1a22015bfb4",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

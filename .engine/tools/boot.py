@@ -1542,7 +1542,10 @@ def render_dashboard(s: dict) -> str:
     # a tag/ref — the snapshot-vs-latest choice is the engine's. Worded to cover BOTH an operator-undone update and a
     # half-applied one that never landed (leads with the state, not "you undid"). boot OFFERS; the assistant runs
     # memory.restore_pre_migration(tag=…) on consent (the tag rides the signal, never the operator's eyes).
-    if s.get("migration_revert"):
+    # Staged-first precedence: when an update is stuck half-applied, its OWN undo puts the memory back too, so
+    # the standalone memory-ahead offer would be a competing (and, run first, out-of-order) prompt — suppress it
+    # under a staged update, matching present_marker_line and _diagnose_undo, which both rank staged first.
+    if s.get("migration_revert") and not s.get("staged_update"):
         pinned.append(
             "↩️ **Your saved memory was changed by an engine update that isn't in place** — so right now your "
             "memory and the engine don't match. I can put your memory back to **the copy saved before that update**, so "

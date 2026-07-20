@@ -473,6 +473,17 @@ class TestDegradedNotice(unittest.TestCase):
         marker = boot.present_marker_line(_signals(staged_update=True)).lower()
         self.assertIn("half-finished", marker)
 
+    def test_a_staged_update_suppresses_the_competing_memory_ahead_offer(self):
+        # When both fire (a stall between a data migration and the version bump), the staged undo puts memory
+        # back too — so the standalone memory-ahead offer must not compete, and must not lead the operator to
+        # restore memory while the code is still half-staged. Staged-first, matching the marker + diagnosis.
+        dash = boot.render_dashboard(_signals(staged_update=True, migration_revert={"tag": "x"})).lower()
+        self.assertIn("half-finished", dash)                       # the staged offer shows
+        self.assertNotIn("restore my memory from before the update", dash)   # the memory-ahead offer is suppressed
+        # with no staged update, the memory-ahead offer shows normally
+        dash2 = boot.render_dashboard(_signals(migration_revert={"tag": "x"})).lower()
+        self.assertIn("restore my memory from before the update", dash2)
+
 
 class TestPresentMarker(unittest.TestCase):
     def test_marker_is_project_status_byte_identical_to_the_floor(self):
