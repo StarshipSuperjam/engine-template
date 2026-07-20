@@ -7434,7 +7434,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:26d7c624f6597bc3f1b7cff6063199fb41047f9a564d722a2754f2f457bfb041",
+        "fingerprint": "sha256:d2fe24729a85c5dde07bbbe2b5670d50d8cc98028c5d9a1c941ead3ec7949433",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",

@@ -1587,12 +1587,16 @@ def _regen_indexes() -> None:
     failure surfaces as a drift finding at the gate (a clean refusal), never a crash mid-upgrade."""
     import self_map            # lazy: only the reconcile tail needs the generators
     import knowledge_gen
-    for gen, rel in ((self_map.generate, ".engine/self-map.md"),
-                     (knowledge_gen.generate, ".engine/knowledge/graph.json")):
-        if not os.path.isfile(os.path.join(validate.ROOT, rel)):
+    # Pass an EXPLICIT target under the CURRENT validate.ENGINE_DIR: the generators' own default-path constants
+    # are bound at import to the real repo, so a bare generate() would write there even under a redirected tree
+    # (a test/demo fixture). validate.ENGINE_DIR IS redirected, so building the path from it writes to the tree
+    # actually being reconciled — the deployed repo on the real child path, the fixture under a redirect.
+    for gen, target in ((self_map.generate, os.path.join(validate.ENGINE_DIR, "self-map.md")),
+                        (knowledge_gen.generate, os.path.join(validate.ENGINE_DIR, "knowledge", "graph.json"))):
+        if not os.path.isfile(target):
             continue   # the tree does not carry this index (a minimal fixture) — never fabricate one
         try:
-            gen()
+            gen(path=target)
         except Exception:  # noqa: BLE001 — a regen failure becomes a drift finding at the gate, not a traceback
             pass
 
