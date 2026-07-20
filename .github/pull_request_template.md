@@ -38,7 +38,15 @@
 
 - <the specific items, as bullets>
 
+<Replace this line with the change-profile: run `.engine/tools/scope_profile.py` and paste its whole output block here, so the reader sees the shape of this change — size, kinds of surface touched, where it lands — at a glance; report-only, it never gates the merge.>
+
 *Impact: <what this change delivers>*
+
+### Behaviors
+
+**<the capabilities this change delivers — or "none observable" for a docs / dependency / pure-refactor change>**
+
+- <each falsifiable behaviour this change completes, and the test or demo that exercises it — e.g. "The operator sees a change-profile in the Scope section — test_scope_profile.py / demo_scope_profile.py". A change with nothing observable says so plainly here. Soft nudge — it never blocks the merge.>
 
 ## Out of scope
 

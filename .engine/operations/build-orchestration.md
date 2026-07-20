@@ -122,7 +122,12 @@ everything else is a deliberate-effort nudge whose only wall is the protected-br
    memory** — reconstruction silently drops the leading consent preamble (the blockquote above the first
    heading), most often when a `Closes #N` / narration line is prepended; carry it verbatim and unwrapped
    (the completeness gate matches its anchors, and a hard wrap inside one reads as absent). **Run the close-linkage pre-flight** (`close_linkage_preflight.py check`) and
-   fold its lines into Review, applying any disclosed defang it emits (see Notes). **Mark the pull request
+   fold its lines into Review, applying any disclosed defang it emits (see Notes). **Render the
+   change-profile** (`scope_profile.py`) into `Scope` and fill the `Behaviors` section — the plain-language
+   shape of the change (size, kinds of surface touched, where it lands) and the falsifiable capabilities it
+   delivers, each naming its test or demo. Both are report-only: the profile gates nothing and the Behaviors
+   nudge is soft, there so the operator weighs a change by what it does, not its line count; a change with
+   nothing observable (a dependency bump, a docs-only edit) says so in Behaviors and moves on. **Mark the pull request
    ready** (`gh pr ready`) — the act that submits it —
    **only once** validation is green, the pre-submission review is clean (no unresolved `blocking` or
    `serious` finding), and every post-review fix is pushed; until then it stays a **draft**, which cannot be

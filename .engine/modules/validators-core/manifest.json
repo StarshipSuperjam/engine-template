@@ -49,6 +49,7 @@
       ".engine/check/policy-frontmatter.json",
       ".engine/check/policy-override-stale.json",
       ".engine/check/policy-shape.json",
+      ".engine/check/pr-behaviors-declared.json",
       ".engine/check/pr-body-completeness.json",
       ".engine/check/provider-exceptions-schema.json",
       ".engine/check/provider-vocabulary-confinement.json",

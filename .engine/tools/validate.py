@@ -120,6 +120,7 @@ META_SCHEMA_URI = "https://json-schema.org/draft/2020-12/schema"
 
 LINK_RE = re.compile(r"\]\(([^)]+)\)")
 HEADING_RE = re.compile(r"^##\s+(.*?)\s*$")          # a level-2 (## ) heading; ### does not match
+_ANY_HEADING_LINE = re.compile(r"^#{1,6}[ \t]+\S")   # any markdown heading line (## … or ### …), for emptiness
 FENCE_RE = re.compile(r"^\s*(?:```|~~~)")             # a fenced-code-block delimiter (``` or ~~~); toggles in/out
 PLACEHOLDER_RE = re.compile(r"^<[^>]*>$")             # a prompt token (decoration stripped), e.g. <why this exists>
 LIST_MARKER_RE = re.compile(r"^[-*+]\s+")             # a leading unordered-list bullet marker
@@ -378,8 +379,13 @@ def is_empty_section(text: str, label: str | None = None) -> bool:
     leg, so a section carrying only a filled Impact line still needs real summary/bullet
     content. With no label the behaviour is unchanged, so other presence checks are exact."""
     for line in text.splitlines():
-        if not line.strip() or _placeholder_only(line):
+        stripped = line.strip()
+        if not stripped or _placeholder_only(line):
             continue
+        if _ANY_HEADING_LINE.match(stripped):
+            continue                          # a bare (sub-)heading is scaffolding, not filled content:
+            # a `### Foo` line inside a section must not by itself flip that section from empty to filled,
+            # or shipping a subsection heading into a template section would silently defeat this gate.
         if label is not None and _label_remainder(line, label) is not None:
             continue
         return False
