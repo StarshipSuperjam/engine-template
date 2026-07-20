@@ -43,7 +43,8 @@
       ".claude/skills/engine-setup/SKILL.md",
       ".claude/skills/engine-start/SKILL.md",
       ".claude/skills/engine-status/SKILL.md",
-      ".claude/skills/engine-tune/SKILL.md"
+      ".claude/skills/engine-tune/SKILL.md",
+      ".claude/skills/engine-upgrade/SKILL.md"
     ],
     "doc": [
       ".engine/docs/getting-started.md"
@@ -92,7 +93,9 @@
       ".agents/skills/engine-status/SKILL.md",
       ".agents/skills/engine-status/agents/openai.yaml",
       ".agents/skills/engine-tune/SKILL.md",
-      ".agents/skills/engine-tune/agents/openai.yaml"
+      ".agents/skills/engine-tune/agents/openai.yaml",
+      ".agents/skills/engine-upgrade/SKILL.md",
+      ".agents/skills/engine-upgrade/agents/openai.yaml"
     ]
   },
   "wires": [

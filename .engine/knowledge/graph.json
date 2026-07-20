@@ -638,7 +638,8 @@
           "codex-skill:engine-setup",
           "codex-skill:engine-start",
           "codex-skill:engine-status",
-          "codex-skill:engine-tune"
+          "codex-skill:engine-tune",
+          "codex-skill:engine-upgrade"
         ]
       },
       "slug": "codex-skill-frontmatter",
@@ -675,7 +676,8 @@
           "codex-skill:engine-setup",
           "codex-skill:engine-start",
           "codex-skill:engine-status",
-          "codex-skill:engine-tune"
+          "codex-skill:engine-tune",
+          "codex-skill:engine-upgrade"
         ]
       },
       "slug": "codex-skill-shape",
@@ -2117,7 +2119,8 @@
           "skill:engine-setup",
           "skill:engine-start",
           "skill:engine-status",
-          "skill:engine-tune"
+          "skill:engine-tune",
+          "skill:engine-upgrade"
         ]
       },
       "slug": "skill-frontmatter",
@@ -2154,7 +2157,8 @@
           "skill:engine-setup",
           "skill:engine-start",
           "skill:engine-status",
-          "skill:engine-tune"
+          "skill:engine-tune",
+          "skill:engine-upgrade"
         ]
       },
       "slug": "skill-shape",
@@ -2892,6 +2896,46 @@
       "source": {
         "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
         "path": ".agents/skills/engine-tune/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-upgrade",
+      "name": ".agents/skills/engine-upgrade/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-upgrade",
+      "source": {
+        "fingerprint": "sha256:bc6220a6972ad04d39ff04528bd7c4c0aca50496483dd70fe4cec41b0449c7dd",
+        "path": ".agents/skills/engine-upgrade/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-upgrade.policy",
+      "name": ".agents/skills/engine-upgrade/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-upgrade.policy",
+      "source": {
+        "fingerprint": "sha256:52b4d77fb2942f78768d85805bb8e76de14565be64df26edd1fa612feabb6a31",
+        "path": ".agents/skills/engine-upgrade/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -3734,7 +3778,7 @@
       "predicates": {},
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:63cc35696b821a6443ff6d514466ae233505587428c79f3741cbd183d9694732",
+        "fingerprint": "sha256:1f5a7633ff1bc7278c33c631f82b1cbf16e70ff3468f1c3973433b2886a35858",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -4115,7 +4159,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:f538cc0722ca818daa1aaebb62c5f7ecf44ae1a6ca992c170d05527309e8e84e",
+        "fingerprint": "sha256:12cae7b0fa344a8878c8906a0f223a658a9954ee23ee7dfb227a8529e03d70a0",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -5366,6 +5410,28 @@
       },
       "status": "active",
       "title": "engine-tune",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-upgrade",
+      "invocation": "operator-typed",
+      "name": ".claude/skills/engine-upgrade/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-upgrade",
+      "source": {
+        "fingerprint": "sha256:efbe46c420505ddacf57c023a68175bb3b1316a2db62cb6d69350f11632c38e6",
+        "path": ".claude/skills/engine-upgrade/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-upgrade",
       "type": "skill"
     },
     {
@@ -7334,7 +7400,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:b3c1442f5c07a380b25cb399c0c8f34f7c9a587fb3b521c2da794783ba2d9488",
+        "fingerprint": "sha256:7e6afd28d8b950e1253027f9490808d851515c689a869dd350e76699a46e3dd1",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -9204,7 +9270,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:6248d11f8a2d4b55da2d2d9adf3fb49307d97f4756a12d8db1750d98e4ce018e",
+        "fingerprint": "sha256:446a33ff1fe7e1dbfe04c1caefa1830f74f697b0692495844a504a53db903f11",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

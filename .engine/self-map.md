@@ -55,7 +55,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 - depends on: nothing
 - provides:
   - check: `.engine/check/guardrail-weakening.json`, `.engine/check/protection.json`
-  - codex-skill: `.agents/skills/engine-conduct/SKILL.md`, `.agents/skills/engine-conduct/agents/openai.yaml`, `.agents/skills/engine-help/SKILL.md`, `.agents/skills/engine-help/agents/openai.yaml`, `.agents/skills/engine-parts/SKILL.md`, `.agents/skills/engine-parts/agents/openai.yaml`, `.agents/skills/engine-setup/SKILL.md`, `.agents/skills/engine-setup/agents/openai.yaml`, `.agents/skills/engine-start/SKILL.md`, `.agents/skills/engine-start/agents/openai.yaml`, `.agents/skills/engine-status/SKILL.md`, `.agents/skills/engine-status/agents/openai.yaml`, `.agents/skills/engine-tune/SKILL.md`, `.agents/skills/engine-tune/agents/openai.yaml`
+  - codex-skill: `.agents/skills/engine-conduct/SKILL.md`, `.agents/skills/engine-conduct/agents/openai.yaml`, `.agents/skills/engine-help/SKILL.md`, `.agents/skills/engine-help/agents/openai.yaml`, `.agents/skills/engine-parts/SKILL.md`, `.agents/skills/engine-parts/agents/openai.yaml`, `.agents/skills/engine-setup/SKILL.md`, `.agents/skills/engine-setup/agents/openai.yaml`, `.agents/skills/engine-start/SKILL.md`, `.agents/skills/engine-start/agents/openai.yaml`, `.agents/skills/engine-status/SKILL.md`, `.agents/skills/engine-status/agents/openai.yaml`, `.agents/skills/engine-tune/SKILL.md`, `.agents/skills/engine-tune/agents/openai.yaml`, `.agents/skills/engine-upgrade/SKILL.md`, `.agents/skills/engine-upgrade/agents/openai.yaml`
   - conduct: `.engine/conduct/defaults.md`
   - contract: `.engine/contracts/*.md`
   - doc: `.engine/docs/getting-started.md`
@@ -66,7 +66,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - policy: `.engine/policies/attention.md`, `.engine/policies/contract-threshold.md`, `.engine/policies/escalation.md`, `.engine/policies/finding-disposition.md`, `.engine/policies/triage-threshold.md`
   - provisioning: `.engine/provisioning/first-run-assets.json`, `.engine/provisioning/module-catalog.json`
   - schema: `.engine/schemas/*.json`
-  - skill: `.claude/skills/engine-conduct/SKILL.md`, `.claude/skills/engine-help/SKILL.md`, `.claude/skills/engine-parts/SKILL.md`, `.claude/skills/engine-setup/SKILL.md`, `.claude/skills/engine-start/SKILL.md`, `.claude/skills/engine-status/SKILL.md`, `.claude/skills/engine-tune/SKILL.md`
+  - skill: `.claude/skills/engine-conduct/SKILL.md`, `.claude/skills/engine-help/SKILL.md`, `.claude/skills/engine-parts/SKILL.md`, `.claude/skills/engine-setup/SKILL.md`, `.claude/skills/engine-start/SKILL.md`, `.claude/skills/engine-status/SKILL.md`, `.claude/skills/engine-tune/SKILL.md`, `.claude/skills/engine-upgrade/SKILL.md`
   - state: `.engine/state/*.json`
   - template: `.engine/templates/*.md`
   - tool: `.engine/tools/*.py`, `.engine/tools/*.sh`
