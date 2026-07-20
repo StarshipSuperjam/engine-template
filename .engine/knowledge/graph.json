@@ -1737,6 +1737,31 @@
       "type": "check"
     },
     {
+      "id": "check:pr-behaviors-declared",
+      "kind": "custom/script",
+      "name": ".engine/check/pr-behaviors-declared.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "pr-behaviors-declared",
+      "source": {
+        "fingerprint": "sha256:c16d402ecf50cef2b9b4aeaee146642f465aad25264ea738e2e92e3d2d122f90",
+        "path": ".engine/check/pr-behaviors-declared.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "soft",
+      "type": "check"
+    },
+    {
       "id": "check:pr-body-completeness",
       "kind": "presence",
       "name": ".engine/check/pr-body-completeness.json",
@@ -3958,7 +3983,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:958587ac4d3ff68ceac615b7229ba604fe1706aad177cfd87bccfe2acee3f73d",
+        "fingerprint": "sha256:cafc77d27321eb28f6bb1183c0a8f8661f82b22774d8b67f153fb85db8aeba63",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -3999,7 +4024,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:887462c35aed1ccf68431121abb7fee41a32d889bebff08eb5863405c46b90b0",
+        "fingerprint": "sha256:84845a30bc59e478c7fde27ff1d596d7c6ceecda85a1f34b0146afa6813ace25",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6608,6 +6633,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:demo_scope_profile",
+      "name": ".engine/tools/demo_scope_profile.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_scope_profile",
+      "source": {
+        "fingerprint": "sha256:5d2ebe2470df63fb214ed12b629dc14cba576eeef2f0fffe918eebfe94b9e4b0",
+        "path": ".engine/tools/demo_scope_profile.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:demo_secret_scan",
       "name": ".engine/tools/demo_secret_scan.py",
       "owner": "core",
@@ -7861,6 +7903,40 @@
       "source": {
         "fingerprint": "sha256:9cf5fa8e3456ecf00245dbd19bdc6c7dde961a8ad1b1a13e172b0b33d2fd0380",
         "path": ".engine/tools/scent.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:scope_behaviors_check",
+      "name": ".engine/tools/scope_behaviors_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "scope_behaviors_check",
+      "source": {
+        "fingerprint": "sha256:85f890d6104dc4ed3a85635765a9756f1af880e3b79911979eb9c60a0e1d67f7",
+        "path": ".engine/tools/scope_behaviors_check.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:scope_profile",
+      "name": ".engine/tools/scope_profile.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "scope_profile",
+      "source": {
+        "fingerprint": "sha256:4540bdf8dbdc3085bd327ae67c50f48c9a45e0d23ea735d7f8c1f2f5f271d774",
+        "path": ".engine/tools/scope_profile.py"
       },
       "status": "active",
       "type": "tool"
@@ -9321,7 +9397,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:487f1f52df3609e90bbbd2bb9e34163b47255f771d00e85ad6b333f0ac7e468c",
+        "fingerprint": "sha256:acfdc834838b609e5855cb89e5dc12acd7d0ce73e25d1bbb0eea9b4bb09df169",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -9765,6 +9841,23 @@
       "source": {
         "fingerprint": "sha256:83cc2b8efe66fda2b18560b09a011f8e0e7ade4759be17d11ae02d0c320d2415",
         "path": ".engine/tools/memory/test_scent_lookup.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_scope_profile",
+      "name": ".engine/tools/test_scope_profile.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_scope_profile",
+      "source": {
+        "fingerprint": "sha256:4f8cdfddaf379b49c558e24b7a0806b264026c6aab10d9656da244ce13d72d4d",
+        "path": ".engine/tools/test_scope_profile.py"
       },
       "status": "active",
       "type": "tool"
@@ -10273,7 +10366,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:e6f1e567de4bb13f5ed5f35f0d85dd93c11994d34765aa65e1ed846474622e42",
+        "fingerprint": "sha256:0ddba40f505aec1fec4af83b6b46f5d9dc946f0c1ec42078d22640ada6a7f907",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
