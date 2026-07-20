@@ -347,6 +347,25 @@ def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
     return os.path.join(dest_dir, tops.pop())
 
 
+def _archive_tree(ref: str, dest_dir: str) -> str:
+    """The OFFLINE sibling of `_fetch_release_tree`: materialize a local tag/ref's tree via `git archive`
+    piped into `dest_dir` — no network, no token. Used by the real-tag regression belt to upgrade a genuine
+    past release's tree and assert the reconciled result passes the engine's full CI (the proof the synthetic
+    fixture cannot make — B1). Returns `dest_dir` ITSELF: `git archive` writes the tree with NO owner-repo-sha
+    wrapper directory (unlike GitHub's tarball), so there is no top-level dir to descend into (arch-N2).
+    Raises if the ref's tree object is absent (a shallow checkout with no tags — the belt skips on that)."""
+    import subprocess   # local: only the offline belt needs it
+    os.makedirs(dest_dir, exist_ok=True)
+    proc = subprocess.run(["git", "-C", validate.ROOT, "archive", "--format=tar", ref],
+                          capture_output=True, timeout=120)
+    if proc.returncode != 0:
+        raise RuntimeError(f"git archive {ref} failed: {(proc.stderr or b'').decode('utf-8', 'replace')[:200]}")
+    import tarfile   # local: only the offline belt needs it
+    with tarfile.open(fileobj=io.BytesIO(proc.stdout), mode="r:") as tf:
+        tf.extractall(dest_dir, filter="data")
+    return dest_dir
+
+
 def _resolve_release_ref(ref: str | None, repo: str | None = None, token: str | None = None) -> str:
     """Resolve a target release ref to a CONCRETE tag. A pinned tag/sha passes through unchanged; None or
     "latest" is resolved to the repository's latest published release tag via the GitHub releases API — so
@@ -593,11 +612,12 @@ _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives her
 # a glob (the issue templates); the overlay loop below expands it against the release tree, so the issue
 # templates are now refreshed on update (they were silently omitted before — single-homing closed that gap;
 # forward-only).
-FOUNDATION_CODE = tuple(
-    p for p in module_coherence.FOUNDATION_INFRA
-    if p not in (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", _ROOT_CLAUDE_REL,
-                 _ROOT_AGENTS_REL, _GITIGNORE_REL)
-)
+# The five FOUNDATION_INFRA members the overlay must NOT fetch-and-replace — the engine manifest (identity,
+# bumped in place), CODEOWNERS + the two root floors + root .gitignore (re-rendered / keyed-merged locally).
+# Single-homed here so FOUNDATION_CODE (below) and the reconcile keep-set / carve-outs (issue #599) cannot drift.
+_FOUNDATION_KEYED = (module_coherence.ENGINE_MANIFEST_REL, ".github/CODEOWNERS", _ROOT_CLAUDE_REL,
+                     _ROOT_AGENTS_REL, _GITIGNORE_REL)
+FOUNDATION_CODE = tuple(p for p in module_coherence.FOUNDATION_INFRA if p not in _FOUNDATION_KEYED)
 
 
 class _UpgradeRefused(Exception):
@@ -907,6 +927,146 @@ def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> 
     return copied, candidates
 
 
+# ---- the release-authoritative synced surface (issue #599) --------------------------------------------
+#
+# The copy-only overlay (_overlay_copy_map) is a hand-enumerated subset, so every release that grows a new
+# KIND of file silently under-covers it. The reconcile drives a deployed tree to `provision(release)` — the
+# release AFTER the same first-run mutation — by reading the release's OWN self-description (manifests +
+# FOUNDATION_CODE + the fixture namespace + first-run-assets.json), layered ON TOP OF the overlay so the
+# operator-facing overwrite disclosure (overlay_replace_paths) never widens to files the reconcile only ADDS.
+
+
+def _plain_oserror(exc: OSError) -> str:
+    """The human half of an OSError for an operator-facing line — 'permission denied', not '[Errno 13] ...'."""
+    return (getattr(exc, "strerror", None) or str(exc)).lower()
+
+
+def _safe_retire_entry(p) -> bool:
+    """True iff a retire-manifest entry is a safe, in-tree, repo-RELATIVE path that does NOT resolve to the
+    repo root. Rejects the shapes that would widen a delete to the whole tree or outside it — an empty string,
+    '.', '/', a '..' escape, or an absolute path (the whole-repo `rmtree` guard, security review)."""
+    if not isinstance(p, str) or not p.strip() or os.path.isabs(p):
+        return False
+    norm = os.path.normpath(p)
+    if norm in ("", ".", os.sep) or norm.startswith(".." + os.sep) or norm == "..":
+        return False
+    return _within_root(p) and os.path.abspath(os.path.join(validate.ROOT, p)) != os.path.abspath(validate.ROOT)
+
+
+def retire_set(tree_root: str) -> tuple:
+    """The first-run-only assets a release RETIRES from a deployed repo — the `provision()` projection, read
+    from the release's OWN `.engine/provisioning/first-run-assets.json` (self-describing, core-owned, travels,
+    and survives retirement). Returns (files:set, dirs:set) of repo-relative paths. RAISES `_UpgradeRefused`
+    on an absent, unreadable, empty, or STRUCTURALLY-DANGEROUS manifest (an entry that is empty, absolute, or
+    resolves to the repo root — which would turn a mis-authored release into a whole-tree delete): the upgrade
+    reconcile fails LOUD (a clean refusal), never a silent fall-through to the un-projected template shape —
+    which would resurrect the retired set the reconcile exists to keep out (risk-S3, security review)."""
+    manifest = os.path.join(tree_root, ".engine", "provisioning", "first-run-assets.json")
+    try:
+        data = validate.load_json(manifest)
+        files = {p for p in (data.get("files") or []) if isinstance(p, str)}
+        dirs = {p for p in (data.get("directories") or []) if isinstance(p, str)}
+    except Exception:   # noqa: BLE001 — absent/unreadable/malformed -> clean refusal, never silent
+        raise _UpgradeRefused(
+            "The update was applied to your working copy, but the new version's setup-file list was missing or "
+            "unreadable, so the update was NOT opened for review and nothing was merged. Run the update again "
+            "to retry, or ask me to undo the update's changes.")
+    if not files and not dirs:
+        raise _UpgradeRefused(
+            "The update was applied to your working copy, but the new version's setup-file list was empty, so "
+            "the update could not tell which setup-only files to keep out of your repo; it was NOT opened for "
+            "review and nothing was merged. Run the update again to retry, or ask me to undo the update's "
+            "changes.")
+    if any(not _safe_retire_entry(p) for p in (files | dirs)):
+        raise _UpgradeRefused(
+            "The update was applied to your working copy, but the new version's setup-file list named an "
+            "unusable path, so the update was stopped rather than risk removing the wrong thing — nothing was "
+            "opened for review or merged. This is an engine defect to report; ask me to undo the update's "
+            "changes.")
+    return files, dirs
+
+
+def engine_synced_map(tree_root: str, manifests_by_id: dict, *, project_retire: bool) -> dict:
+    """{repo-relative -> source-abspath} the reconcile DELIVERS from `tree_root`: the copy-only overlay
+    membership (`_overlay_copy_map` — provides ∪ manifests ∪ FOUNDATION_CODE) UNIONED with the committed
+    fixture namespace (`module_coherence.FIXTURE_PATHS` — `.engine/_fixtures/**`, the file CATEGORY the
+    hand-enumerated overlay silently missed, #599 class 3). When `project_retire` (the upgrade path), the
+    release's OWN retire set is SUBTRACTED — the `provision()` projection that makes the surface the DEPLOYED
+    shape, not the template shape, so a first-run-only file is never delivered onto a deployed repo. Arrival
+    passes `project_retire=False` (it delivers the full template surface and runs `retire()` itself). Layered
+    ON TOP OF `_overlay_copy_map`, never folded into it: that map's keys double as the overwrite disclosure
+    (`overlay_replace_paths`), and a fixture is ADDED, not overwritten — folding it in would cry wolf. Adding
+    a future committed namespace is a one-line union here — the single home the release-cut guard checks."""
+    to_deliver = dict(_overlay_copy_map(tree_root, manifests_by_id))
+    for ns in module_coherence.FIXTURE_PATHS:
+        base = os.path.join(tree_root, *ns.split("/"))
+        for dirpath, _dirs, files in os.walk(base):
+            for name in files:
+                src = os.path.join(dirpath, name)
+                to_deliver[os.path.relpath(src, tree_root).replace(os.sep, "/")] = src
+    if project_retire:
+        r_files, r_dirs = retire_set(tree_root)
+        dir_prefixes = tuple(d + "/" for d in r_dirs)
+        to_deliver = {rel: src for rel, src in to_deliver.items()
+                      if rel not in r_files and not rel.startswith(dir_prefixes)}
+    return to_deliver
+
+
+def engine_synced_paths(tree_root: str, manifests_by_id: dict, *, project_retire: bool) -> set:
+    """The KEEP set the reconcile's delete leg protects: every `engine_synced_map` member (the DELIVER set)
+    PLUS the five keyed/rendered foundation files FOUNDATION_CODE deliberately excludes (engine.json,
+    CODEOWNERS, root CLAUDE.md/AGENTS.md, .gitignore) — re-rendered or keyed-merged locally, never delete
+    candidates. DISTINCT from `module_coherence.engine_owned_paths` (which omits fixtures + manifests) — do
+    not dedupe."""
+    return set(engine_synced_map(tree_root, manifests_by_id, project_retire=project_retire).keys()) | set(_FOUNDATION_KEYED)
+
+
+def _reconcile_carveouts() -> tuple:
+    """The never-delete carve-outs for the reconcile delete leg, as (exact:set, prefixes:tuple): operator
+    config, the pruned runtime roots, the deployment's per-instance eADR stream, the committed fixture
+    namespace, and the five keyed/rendered foundation files. Mirrors module_coherence's carve-out sets so an
+    operator's tuning, saved data, instance decision records, and product files are never delete candidates
+    (they are outside `old_owned` by construction — this is the belt, not the sole protection)."""
+    exact = set(module_coherence.OPERATOR_CONFIG) | set(_FOUNDATION_KEYED)
+    prefixes = tuple(sorted(d + "/" for d in (set(module_coherence.PRUNE_PATHS)
+                                              | set(module_coherence.DEPLOYMENT_CONTRACTS)
+                                              | set(module_coherence.FIXTURE_PATHS))))
+    return exact, prefixes
+
+
+def _copy_synced(to_deliver: dict, *, exclude=None) -> list:
+    """Copy every (repo-relative -> source-abspath) member the LIVE tree lacks or that DIFFERS, honoring an
+    `exclude` skip set (arrival's class-1 'leave-as-is' keeps; the upgrade passes none). Containment
+    fail-closed BEFORE any write (the topology wall, mirroring `_overlay_engine_code`). Returns the delivered
+    repo-relative paths. Takes a precomputed map so a caller that also needs the KEEP set does not re-glob it."""
+    import filecmp   # local: only the reconcile deliver needs the byte-compare
+    escapes = sorted(rel for rel in to_deliver if not _within_root(rel))
+    if escapes:
+        shown = ", ".join(escapes[:3]) + ("…" if len(escapes) > 3 else "")
+        raise _UpgradeRefused(f"the update was stopped because it tried to place files outside the engine "
+                              f"({shown}); nothing was changed.")
+    skip = set(exclude or ())
+    delivered = []
+    for rel, src in sorted(to_deliver.items()):
+        if rel in skip:                          # an operator file arrival is keeping (class-1 leave-as-is)
+            continue
+        dst = os.path.join(validate.ROOT, rel)
+        if os.path.isfile(dst) and filecmp.cmp(src, dst, shallow=False):
+            continue                              # already present and identical — not a delivery
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(src, dst)
+        delivered.append(rel)
+    return delivered
+
+
+def _deliver_synced(tree_root: str, manifests_by_id: dict, *, project_retire: bool, exclude=None) -> list:
+    """The shared deliver primitive for BOTH the upgrade tail reconcile (`project_retire=True`) and brownfield
+    arrival (`project_retire=False`) — so arrival now delivers the fixture category too (#599). Computes the
+    `engine_synced_map` and copies via `_copy_synced`."""
+    return _copy_synced(engine_synced_map(tree_root, manifests_by_id, project_retire=project_retire),
+                        exclude=exclude)
+
+
 def _wiring_delta(old_by_id: dict, new_by_id: dict) -> dict:
     """PURE identity-keyed delta between the currently-installed manifests (`old_by_id`) and a release's
     manifests (`new_by_id`): {"added", "removed", "updated"}, each a list of (module_id, wire).
@@ -1020,7 +1180,9 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     second copy to drift from the gate's anchor phrases. Imported LAZILY: release_cut imports this module, so a
     top-level import would cycle; both modules are fully loaded by the time an upgrade authors its body.
     Tolerant of a partial `result`: any outcome absent from it produces no line, never a fabricated
-    'nothing happened' claim (and reconcile outcomes a later version records are simply absent here)."""
+    'nothing happened' claim. The reconcile facts (#599) — fixtures delivered, floors created, and files
+    removed (bucketed so an operator's file under an engine folder is surfaced, never removed silently) — ride
+    the durable Scope, so the destructive delete leg is visible at the merge."""
     import release_cut  # noqa: E402 — lazy: avoids the release_cut<->module_manager import cycle (see docstring)
 
     # Scope — the version move, then every shared-file outcome the update produced or refused. BOTH the applied
@@ -1065,6 +1227,9 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     elif cf == "skipped-no-section":
         shared.append("- Did not update your project's working guide — I found no engine marked block in "
                       "CLAUDE.md, so I left the file unchanged.")
+    elif cf == "created":
+        shared.append("- Created your project's working guide (the engine's marked block in CLAUDE.md) — this "
+                      "version needs it and your repo did not have it yet.")
     af = result.get("agents_floor")
     if af == "merged":
         shared.append("- Updated the engine's Codex guide (the marked block in AGENTS.md) to this version. "
@@ -1075,6 +1240,9 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     elif af == "skipped-no-section":
         shared.append("- Did not update the engine's Codex guide — I found no engine marked block in AGENTS.md, "
                       "so I left the file unchanged.")
+    elif af == "created":
+        shared.append("- Created the engine's Codex guide (the marked block in AGENTS.md) — this version needs "
+                      "it and your repo did not have it yet.")
     fi = (result.get("foundation_ignores") or {}).get("status")
     if fi == "written":
         shared.append("- Updated the engine's ignore list (the marked block in .gitignore that keeps the "
@@ -1085,6 +1253,31 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
                       "damaged, so I left the file unchanged. Check the marker lines, then update again.")
     if shared:
         scope += ["", "What this update did to the engine's marked blocks in shared files:"] + shared
+
+    # Reconcile outcomes (#599): files this version DELIVERED (fixtures an older update would have missed) and
+    # files it REMOVED (renamed/dropped engine files, so stale copies don't linger). Removals are BUCKETED so a
+    # file that merely sits under an engine folder — and could be one the operator added — is surfaced for a
+    # deliberate look at the merge, never removed silently.
+    fixtures = result.get("fixtures_delivered") or []
+    removed = result.get("orphans_removed") or {}
+    if fixtures:
+        scope += ["", f"Engine files this version added that an older update would have missed, now delivered "
+                  f"({len(fixtures)}):"]
+        scope += [f"- {r}" for r in fixtures]
+    eng_removed = removed.get("engine") or []
+    if eng_removed:
+        scope += ["", "Engine files this version dropped or renamed, now removed so stale copies don't linger:"]
+        scope += [f"- {r}" for r in eng_removed]
+    susp_removed = removed.get("suspect") or []
+    if susp_removed:
+        scope += ["", "Files removed that sat inside an engine folder this version no longer ships — if any of "
+                  "these was a file you added yourself, tell me before merging and I'll restore it:"]
+        scope += [f"- {r}" for r in susp_removed]
+    left = removed.get("left_in_place") or []
+    if left:
+        scope += ["", "Files the update tried to remove but could not (remove them by hand if you don't need "
+                  "them):"]
+        scope += [f"- {r}" for r in left]
 
     out = ["# Updating the engine", "", release_cut.template_preamble(), ""]
     out += release_cut.pr_section(
@@ -1109,18 +1302,23 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     out += release_cut.pr_section(
         "Risk",
         "What to weigh before merging.",
-        ["- An update replaces the engine's own tool and rule files with the new version's; your project "
-         "content is not touched.",
-         "- Any shared-file block the update could not refresh is called out under Scope above — read those "
+        ["- An update replaces the engine's own tool and rule files with the new version's, and removes engine "
+         "files this version renamed or dropped; your project content is not touched.",
+         "- Every file this update removed is listed under Scope above — read them, and flag any that was "
+         "yours before merging.",
+         "- Any shared-file block the update could not refresh is also called out under Scope — read those "
          "before merging."],
-        "the update changes engine-owned files; anything it could not apply is disclosed in Scope.")
+        "the update changes and removes engine-owned files; every removal and anything it could not apply is "
+        "disclosed in Scope.")
     out += release_cut.pr_section(
         "Validation",
         "What the engine checked before opening this.",
-        ["- The engine's own consistency check passed against the updated files before this was opened.",
-         "- That check confirms the updated files are internally consistent; it does not prove the update is "
-         "right for your project — your review at the merge is the real gate."],
-        "the consistency check passed; the decision to merge is still yours.")
+        ["- A structural consistency check on the rebuilt engine passed before this update was opened — the "
+         "checks that catch a missing, orphaned, or mismatched engine file.",
+         "- That is a structural check, not the engine's full check suite: the full suite runs here on this "
+         "pull request, and your review at the merge is the real gate."],
+        "a structural consistency check passed; the full suite runs on this pull request and the merge is "
+        "still yours.")
     out += release_cut.pr_section(
         "Review",
         "How to act on this.",
@@ -1132,9 +1330,10 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         "Files of interest",
         "What this changes.",
         ["- The engine's version record (.engine/engine.json) and the module manifests.",
-         "- The engine's marked blocks in shared files (CODEOWNERS, CLAUDE.md, AGENTS.md, .gitignore), where "
-         "this version updated them — each is noted under Scope."],
-        "the changed files are the engine's own records and its marked blocks in shared files.")
+         "- The engine's own files this version added or removed, and its marked blocks in shared files "
+         "(CODEOWNERS, CLAUDE.md, AGENTS.md, .gitignore), where this version updated them — each is noted "
+         "under Scope."],
+        "the changed files are the engine's own records and files plus its marked blocks in shared files.")
     out += release_cut.pr_section(
         "Claude involvement",
         "Who did what.",
@@ -1204,11 +1403,12 @@ def _merge_claude_floor(release_tree: str) -> str:
     construction-governance file) — which also closes the latent bug where CLAUDE.md ∈ FOUNDATION_CODE
     would copy the construction file over an adopter's floor on every upgrade.
 
-    Returns: 'merged' (the engine block was replaced); 'skipped' (the release ships no floor source);
-    'skipped-no-section' (the local CLAUDE.md carries no engine `floor` fence — leave it untouched, NEVER
-    append a duplicate floor: the pre-keyed-merge raw-floor case); 'degraded' (a malformed local fence —
-    leave it untouched, never a mid-upgrade crash). Structural sibling of `_refresh_codeowners`, but with
-    no handle dependency."""
+    Returns: 'merged' (the engine block was replaced); 'created' (the floor file was ABSENT and is created
+    from the deployed floor source — the AGENTS.md-never-created case, #599 class 2); 'skipped' (the release
+    ships no floor source); 'skipped-no-section' (the local CLAUDE.md EXISTS but carries no engine `floor`
+    fence — leave it untouched, NEVER append a duplicate floor: the pre-keyed-merge raw-floor case);
+    'degraded' (a malformed local fence — leave it untouched, never a mid-upgrade crash). Structural sibling
+    of `_refresh_codeowners`, but with no handle dependency."""
     return _merge_floor(release_tree, _ROOT_CLAUDE_REL, _DEPLOYED_FLOOR_REL)
 
 
@@ -1222,8 +1422,20 @@ def _merge_floor(release_tree: str, root_rel: str, source_rel: str) -> str:
     if floor_lines and floor_lines[-1] == "":
         floor_lines = floor_lines[:-1]   # drop the trailing-newline empty element; fence_apply re-terminates
     local_path = os.path.join(validate.ROOT, root_rel)
-    local = validate.read(local_path) if os.path.isfile(local_path) else ""
+    local_exists = os.path.isfile(local_path)
+    local = validate.read(local_path) if local_exists else ""
     try:
+        if not local_exists:
+            # CREATE-IF-ABSENT (#599 class 2): the foundation floor file was never created on this deployed
+            # repo — a floor a LATER version introduced (the AGENTS.md case, which the keyed-merge below would
+            # otherwise skip forever). Create it from the DEPLOYED floor source, exactly as first-run
+            # provisioning would have. This branch fires ONLY when the file is truly absent; an EXISTING
+            # fence-less file still takes the skip below (never append a floor into an operator's own file).
+            created = wiring.fence_apply("", _FLOOR_FENCE, floor_lines, style=wiring.MD_FENCE)
+            os.makedirs(os.path.dirname(local_path) or ".", exist_ok=True)
+            with open(local_path, "w", encoding="utf-8") as fh:
+                fh.write(created)
+            return "created"
         if not wiring.fence_present(local, _FLOOR_FENCE, style=wiring.MD_FENCE):
             return "skipped-no-section"
         merged = wiring.fence_apply(local, _FLOOR_FENCE, floor_lines, style=wiring.MD_FENCE)
@@ -1272,29 +1484,219 @@ def _merge_tail(result: dict, tail: dict) -> None:
             result[key] = value
 
 
-def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, old_by_id, candidates,
-                  handle, selected, seam, practice, opener) -> dict:
+def _glob_namespace_prefixes(old_by_id: dict) -> tuple:
+    """Directory prefixes of the OLD manifests' GLOB `provides` patterns — the namespaces where a file is
+    engine-owned by WILDCARD rather than by an explicit literal. A removed file under one of these that the
+    release no longer ships is the operator-file-SUSPECT bucket (risk-S1): agents are literal `provides`, so a
+    renamed engine agent buckets as engine-dropped, while an operator's own file under `.engine/tools/` is
+    surfaced for the operator to catch at the merge. Returns a tuple of `dir/` prefixes."""
+    prefixes = set()
+    for m in old_by_id.values():
+        for _group, patterns in ((m or {}).get("provides") or {}).items():
+            for pat in patterns:
+                if any(ch in pat for ch in "*?["):
+                    head = re.split(r"[*?\[]", pat, maxsplit=1)[0]
+                    d = head.rsplit("/", 1)[0] if "/" in head else ""
+                    if d:
+                        prefixes.add(d.rstrip("/") + "/")
+    return tuple(sorted(prefixes))
+
+
+def _reconcile_surface(release_tree: str, candidates: dict, old_owned: list, old_by_id: dict) -> tuple:
+    """The #599 reconcile: drive the deployed FILE surface to `provision(release)`. ADD — deliver every
+    `engine_synced_map` member the tree lacks or that differs (fixtures + any overlay-missed file), projected
+    so the first-run-retired set is never delivered. DELETE — reusing `remove_engine`'s compute-the-whole-set-
+    before-any-deletion discipline: candidates are the OLD engine-owned surface (`old_owned`, threaded from
+    the parent pre-overlay — the rename/drop orphans) UNIONED with the release's RETIRE set (the first-run
+    files the parent's copy-only overlay resurrected onto this deployed tree), minus the KEEP set and the
+    carve-outs. Returns (fixtures_delivered:list, removed:dict{engine, suspect, left_in_place})."""
+    # Compute the release's synced map + retire set ONCE — the deliver leg and the KEEP set both read the map;
+    # a bad/dangerous retire manifest raises up to the tail (clean refusal).
+    r_files, r_dirs = retire_set(release_tree)
+    synced = engine_synced_map(release_tree, candidates, project_retire=True)
+    # ADD (provision-projected).
+    delivered = _copy_synced(synced)
+    fixtures_delivered = sorted(rel for rel in delivered
+                                if any(rel == ns or rel.startswith(ns + "/")
+                                       for ns in module_coherence.FIXTURE_PATHS))
+    # DELETE — compute the WHOLE candidate set first (the live globs need the files still on disk).
+    keep = set(synced.keys()) | set(_FOUNDATION_KEYED)
+    exact_cv, prefix_cv = _reconcile_carveouts()
+
+    def _spared(rel: str) -> bool:
+        return rel in keep or rel in exact_cv or rel.startswith(prefix_cv)
+
+    to_delete = sorted(rel for rel in (set(old_owned) | set(r_files))
+                       if not _spared(rel) and _within_root(rel)
+                       and os.path.isfile(os.path.join(validate.ROOT, rel)))
+    glob_prefixes = _glob_namespace_prefixes(old_by_id)
+    tracked = module_coherence._tracked_paths()   # git-tracked relpaths, or None when git is unavailable
+    removed = {"engine": [], "suspect": [], "left_in_place": []}
+    for rel in to_delete:
+        # A known first-run (retire-set) file is engine; otherwise a file under a GLOB provides namespace could
+        # be one the operator added — surface it — while a literal-named file is engine.
+        suspect = rel not in r_files and bool(glob_prefixes) and rel.startswith(glob_prefixes)
+        if suspect and tracked is not None and rel not in tracked:
+            # An UNTRACKED (git-ignored) file under an engine folder is almost certainly the operator's own,
+            # and the undo cannot restore it (git only restores tracked files). LEAVE it, surface it — so every
+            # file the reconcile actually removes stays recoverable (security review).
+            removed["left_in_place"].append(
+                f"{rel} — left in place: it looks like a file you added (the engine does not track it), so I "
+                f"did not remove it. Delete it yourself if you don't need it.")
+            continue
+        try:
+            os.remove(os.path.join(validate.ROOT, rel))
+            removed["suspect" if suspect else "engine"].append(rel)
+        except OSError as exc:
+            removed["left_in_place"].append(f"{rel} (could not remove: {_plain_oserror(exc)})")
+    # Resurrected first-run DIRECTORIES (the setup skills the overlay's provides glob re-copied). Guard them
+    # like the file leg PLUS a whole-tree sanity check: never rmtree the repo root (retire_set already refuses
+    # that), a carve-out, or a directory that CONTAINS a kept/carve-out path (rmtree would take the nested
+    # protected file with it) — the security-review fix for the previously-unguarded directory leg.
+    for d in sorted(r_dirs):
+        dp = os.path.join(validate.ROOT, *d.split("/"))
+        dnorm = d.rstrip("/") + "/"
+        if os.path.abspath(dp) == os.path.abspath(validate.ROOT):
+            continue
+        if dnorm.startswith(prefix_cv) or any(c.startswith(dnorm) for c in prefix_cv):
+            continue   # under, or an ancestor of, a carve-out namespace (operator memory/data/records/fixtures)
+        if any(k == d or k.startswith(dnorm) for k in keep) or any(e == d or e.startswith(dnorm) for e in exact_cv):
+            continue   # would delete a kept or foundation path nested under it
+        if not os.path.isdir(dp):
+            continue
+        try:
+            shutil.rmtree(dp)
+            removed["engine"].append(dnorm + "(setup folder)")
+        except OSError as exc:
+            removed["left_in_place"].append(f"{dnorm} (could not remove: {_plain_oserror(exc)})")
+    return fixtures_delivered, removed
+
+
+# The offline-reproducible STRUCTURAL subset of CI the pre-open gate runs against the reconciled tree. NOT
+# full CI: the full `engine-ci` required check is a TWO-step job (the validator AND the self-tests), and its
+# hard checks read a PR/event/network context that does not exist pre-open on the operator's machine
+# (arch-S4, feasibility-B1/S1). This subset reads the reconciled TREE live and is exactly what #599 trips —
+# and none of it reaches the network or needs the repo token. The full-CI proof lives in the tests' real-tag
+# belt and the cut-time upgrade-path matrix (Slice 3), never on an operator's upgrade.
+_STRUCTURAL_GATE_CHECK_IDS = frozenset({
+    "engine/check/catalog-coverage",        # a delivered/removed file leaving the surface catalog incomplete
+    "engine/check/census-completeness",     # the census of catalogued surfaces vs the tree
+    "engine/check/self-map-drift",          # the regenerated self-map matching the reconciled module graph
+    "engine/check/knowledge-coverage",      # the regenerated knowledge graph matching the reconciled surfaces
+    "engine/check/codex-provider-parity",   # an orphaned .claude/agents/* with no .codex twin (the #599 class)
+    "engine/check/codex-agent-coherence",   # the Codex agent renders matching their .claude sources
+})
+# NOT in the gate: `hard-check-bite` — it is a release-cut META-check that every hard check bites its
+# negative fixture, a property of the CHECK CORPUS (verified where releases are cut), not of the reconciled
+# deployed tree, and some checks only bite with construction/vault state a deployed repo need not have. The
+# fixture DELIVERY it once caught missing (#599 class 3) is now guaranteed by the reconcile's deliver leg and
+# asserted by the regression; the release's own CI still runs hard-check-bite on the opened pull request.
+
+
+def _reconcile_gate(body: str) -> list:
+    """The structural pre-open gate (see `_STRUCTURAL_GATE_CHECK_IDS`): `check_coherence()` in-process plus the
+    structural CI subset, run against the reconciled tree before opening the update PR. Returns the findings;
+    the tail refuses cleanly on any `hard` one. Scoped by a rule filter so `suites.json` is untouched (no
+    guardrail change) and no PR/event/network check runs."""
+    findings = list(module_coherence.check_coherence())
+    findings += validate.collect("CI", {"pr_body": body, "pr_author": None, "pr_labels": []},
+                                 with_source=True,
+                                 rule_filter=lambda r: r.get("id") in _STRUCTURAL_GATE_CHECK_IDS)
+    return findings
+
+
+def _coherence_only_gate(body: str) -> list:
+    """The fixture-safe gate for the IN-PROCESS (test/demo full-injection) path only: `check_coherence()`
+    alone. The real structural subset (`_reconcile_gate`'s custom/script checks) is a subprocess that resolves
+    `ROOT/script` and so cannot run against a throwaway fixture tree (B1). The in-process path is NEVER a real
+    deployed upgrade (`in_process` ⇒ an injected release tree + injected callables — a real upgrade fetches a
+    release and spawns a child), so the full gate on the child path is the one that matters, and it is proven
+    against a real reconciled tree by the tests' real-tag belt + `demo_599`. `body` is accepted for signature
+    parity with `_reconcile_gate`."""
+    return list(module_coherence.check_coherence())
+
+
+def _reconcile_refuse_reason() -> str:
+    """The plain-language refusal when the structural gate finds a problem in the rebuilt engine — names the
+    class of problem in words, never a check id (product-S3), and points at the re-run / undo recourse."""
+    return ("The update was applied to your working copy, but a consistency check on the rebuilt engine found "
+            "a problem, so it was NOT opened for review and nothing was merged. Run the update again to retry, "
+            "or ask me to undo the update's changes.")
+
+
+def _stage_worktree() -> None:
+    """Best-effort `git add -A` at ROOT so the pre-open structural gate sees the to-be-committed set (the
+    reconcile's adds AND deletes), not a transient dirty tree — some structural checks read git's tracked set
+    (risk-N2). Best-effort: a non-git tree (the injected test fixture) or any git error is swallowed; the gate
+    still reads the filesystem, and the real PR-open stages again."""
+    try:
+        import subprocess   # local: only the real tail stages
+        subprocess.run(["git", "-C", validate.ROOT, "add", "-A"], capture_output=True, timeout=60, check=False)
+    except Exception:  # noqa: BLE001 — best-effort; never crash the tail
+        pass
+
+
+def _regen_indexes() -> None:
+    """Regenerate the deployed-state-dependent index files — the self-map and the knowledge graph — from the
+    reconciled tree, so they describe the DEPLOYED shape (post first-run projection), NOT the construction
+    shape the release ships. Both are in `core`'s `provides`, so the overlay delivers the release's
+    construction versions; but they fingerprint the surface the reconcile just changed (the retire set is
+    absent on a deployed repo), so the shipped copies would drift (self-map-drift / knowledge-coverage). These
+    are exactly the §B 'render locally iff a function of deployed state' artifacts. Best-effort: a regen
+    failure surfaces as a drift finding at the gate (a clean refusal), never a crash mid-upgrade."""
+    import self_map            # lazy: only the reconcile tail needs the generators
+    import knowledge_gen
+    # Pass an EXPLICIT target under the CURRENT validate.ENGINE_DIR: the generators' own default-path constants
+    # are bound at import to the real repo, so a bare generate() would write there even under a redirected tree
+    # (a test/demo fixture). validate.ENGINE_DIR IS redirected, so building the path from it writes to the tree
+    # actually being reconciled — the deployed repo on the real child path, the fixture under a redirect.
+    for gen, target in ((self_map.generate, os.path.join(validate.ENGINE_DIR, "self-map.md")),
+                        (knowledge_gen.generate, os.path.join(validate.ENGINE_DIR, "knowledge", "graph.json"))):
+        if not os.path.isfile(target):
+            continue   # the tree does not carry this index (a minimal fixture) — never fabricate one
+        try:
+            gen(path=target)
+        except Exception:  # noqa: BLE001 — a regen failure becomes a drift finding at the gate, not a traceback
+            pass
+
+
+def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, old_by_id, old_owned,
+                  candidates, handle, selected, seam, practice, opener, gate=None) -> dict:
     """The version-sensitive tail of an upgrade — the work that MUST run as the freshly-overlaid engine code
     (the #594 fix): apply the new version's wiring with the FRESH appliers, re-render the release-evolvable
-    seams (ownership wall, CLAUDE/AGENTS floor, foundation ignores), run migrations, bump the engine manifest
-    AFTER migrations succeed (so an abort before them leaves nothing to silently skip on a re-run), re-check
-    coherence, and open the review pull request. Returns the tail portion of the result dict; the caller
-    merges it over the phase-1 result. On the real path this runs inside the child interpreter
-    (`_run_upgrade_tail`); the fully-injected test/demo path calls it directly. `practice` (or a None opener)
-    skips the real git/PR boundary."""
+    seams (ownership wall, CLAUDE/AGENTS floor, foundation ignores), RECONCILE the file surface to
+    `provision(release)` (deliver what the release added, remove what it dropped/renamed — #599), run
+    migrations, bump the engine manifest AFTER migrations succeed (so an abort before them leaves nothing to
+    silently skip on a re-run), gate the rebuilt tree on the structural check subset, and open the review pull
+    request. Returns the tail portion of the result dict; the caller merges it over the phase-1 result. On the
+    real path this runs inside the child interpreter (`_run_upgrade_tail`); the fully-injected test/demo path
+    calls it directly. `practice` (or a None opener) skips the real git/PR boundary. `gate` overrides the
+    structural gate for the injected test path (the real gate's custom/script checks cannot resolve against a
+    throwaway fixture tree — B1); it defaults to `_reconcile_gate`."""
     tail = {"wiring": [], "codeowners": None, "claude_floor": None, "agents_floor": None,
-            "foundation_ignores": None, "migrations": {"ran": [], "refused": []},
+            "foundation_ignores": None, "fixtures_delivered": [],
+            "orphans_removed": {"engine": [], "suspect": [], "left_in_place": []},
+            "migrations": {"ran": [], "refused": []},
             "findings": [], "pr": None, "notes": [], "applied": False, "reason": None}
     # (a) WIRING DELTAS — reverse a wire the new version drops, (re)apply the wires it declares now, with the
     # freshly-overlaid appliers (this is the seam #594 fixed: a new wire type now actually applies).
     tail["wiring"] = _apply_wiring_deltas(old_by_id, candidates)
-    # (b) RE-RENDER the release-evolvable seams (same placement as before: after overlay, before coherence).
+    # (b) RE-RENDER the release-evolvable seams. The floor merge now CREATES a never-created foundation floor
+    # (the AGENTS.md case, #599 class 2) rather than skipping it forever.
     tail["codeowners"] = _refresh_codeowners(handle)
     tail["claude_floor"] = _merge_claude_floor(release_tree)
     tail["agents_floor"] = _merge_agents_floor(release_tree)
     tail["foundation_ignores"] = wiring.apply_foundation_ignores(wiring.GITIGNORE_PATH)
+    tail["applied"] = True   # the working copy is now mutated (overlay + seams); any refusal below is half-state
+    # (b2) RECONCILE the file surface to provision(release) — the #599 authority the copy-only overlay is not.
+    # A refusal (a bad retire manifest, a containment escape) surfaces cleanly: staged, un-merged, nothing opened.
+    try:
+        tail["fixtures_delivered"], tail["orphans_removed"] = _reconcile_surface(
+            release_tree, candidates, old_owned, old_by_id)
+    except _UpgradeRefused as ur:
+        tail["reason"] = ur.reason
+        return tail
     # (c) MIGRATIONS (selected + dependency-ordered; the no-backup guard already pre-flighted in phase 1).
-    tail["applied"] = True
     tail["migrations"] = run_migrations(selected, from_versions, target_ref, backup=seam)
     if tail["migrations"].get("refused"):
         tail["reason"] = ("The update was applied to the working copy but a stored-data update could not be "
@@ -1309,17 +1711,33 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
             saved_note += (" One heads-up: I couldn't confirm that saved copy is locked, so it could be "
                            "deleted by hand — keep it in place and this undo stays available.")
         tail["notes"].append(saved_note)
-    # (d) BUMP the engine manifest — AFTER migrations succeed, BEFORE coherence. A child-launch / import /
+    # (d) BUMP the engine manifest — AFTER migrations succeed, BEFORE the gate. A child-launch / import /
     # migration failure therefore leaves engine.json UNbumped, so a re-run re-selects the migrations rather
-    # than seeing from==to and silently skipping them (risk-review). Coherence still sees a bumped manifest
-    # that matches the overlaid modules.
+    # than seeing from==to and silently skipping them (risk-review). The gate sees a bumped manifest that
+    # matches the overlaid modules.
     _bump_engine_manifest(target_versions, target_ref)
-    # (e) COHERENCE — a hard finding pauses (staged in the working copy, not landed).
-    tail["findings"] = module_coherence.check_coherence()
+    # Regenerate the deployed-state-dependent indexes (self-map + knowledge graph) from the reconciled tree,
+    # so they describe the DEPLOYED shape rather than the construction shape the release shipped (#599).
+    _regen_indexes()
+    # Author the review-PR body FIRST — it carries the reconcile facts (fixtures, removals) into the pull
+    # request, and rendering it early catches a template-read failure before staging (the structural gate does
+    # NOT check body completeness — the release's own CI does, on the opened PR). Guarded: render reads the PR
+    # template (I/O) and can raise, so a failure degrades to a clean refusal (staged, not opened), never a
+    # traceback (the surfaced-never-a-crash rule).
+    try:
+        body = render_upgrade_pr_body(from_versions, target_versions, tail)
+    except Exception as exc:   # noqa: BLE001 — staged but not prepared; surfaced, never a traceback
+        tail["notes"].append(f"(the update is staged but its review pull request could not be prepared: {exc})")
+        tail["reason"] = ("The update was applied to the working copy but its review pull request could not be "
+                          "prepared, so nothing was opened or merged. Run the update again, or ask me to undo "
+                          "the update's changes.")
+        return tail
+    # (e) STRUCTURAL GATE — refuse cleanly on any hard finding; never open a broken PR. Stage first so the
+    # tree-vs-index checks see the to-be-committed set (risk-N2).
+    _stage_worktree()
+    tail["findings"] = (gate or _reconcile_gate)(body)
     if any(f.get("severity") == "hard" for f in tail["findings"]):
-        tail["reason"] = ("The update was applied to the working copy but a consistency problem remains, so "
-                          "it was NOT opened for review. Run the update again with --confirm to finish it, "
-                          "or ask me to undo the update's changes.")
+        tail["reason"] = _reconcile_refuse_reason()
         return tail
     # (f) LAND as a reviewed pull request (skipped on a practice run — no git/PR boundary).
     if practice or opener is None:
@@ -1328,10 +1746,6 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     title = f"Maintenance: update the engine to {target_ref}"
     branch = "engine-update-" + re.sub(r"[^a-zA-Z0-9._-]+", "-", target_ref)
     try:
-        # Author the body INSIDE the guard: render_upgrade_pr_body reads the PR template (I/O) and can raise,
-        # and it runs after migrations + the manifest bump — so a body-author failure must degrade to
-        # "staged but not opened" like an opener failure, never a traceback (the surfaced-never-a-crash rule).
-        body = render_upgrade_pr_body(from_versions, target_versions, tail)
         tail["pr"] = opener(branch=branch, title=title, body=body)
     except Exception as exc:   # noqa: BLE001 — staged but not opened; surfaced, never a traceback
         tail["notes"].append(f"(the update is staged but the pull request could not be opened: {exc})")
@@ -1362,7 +1776,8 @@ def _run_upgrade_tail(state: dict) -> None:
     opener = None if practice else _open_upgrade_pr
     tail = _upgrade_tail(
         release_tree=release_tree, target_ref=state["target_ref"], from_versions=from_versions,
-        target_versions=target_versions, old_by_id=state["old_by_id"], candidates=candidates,
+        target_versions=target_versions, old_by_id=state["old_by_id"],
+        old_owned=state.get("old_owned") or [], candidates=candidates,
         handle=state.get("handle"), selected=selected, seam=seam, practice=practice, opener=opener)
     _upgrade_state_dump(tail, state["result_path"])
 
@@ -1727,6 +2142,18 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
             cur = os.path.join(_modules_dir(mid), "manifest.json")
             old_by_id[mid] = validate.load_json(cur) if os.path.isfile(cur) else {}
         result["to"] = target_versions
+        # Capture the OLD engine-owned surface NOW — pre-overlay, with THIS (source) version's code: the old
+        # `provides` globbed against the pristine deployed tree, UNIONED with the old FOUNDATION_INFRA (a code
+        # constant only the pre-overlay process holds). The reconcile delete leg (in the tail) needs it to
+        # remove a file the release renamed or dropped — INCLUDING a dropped FOUNDATION_INFRA artifact (a
+        # workflow, an issue template) the post-overlay tail could no longer name from the new constant alone
+        # (arch-S1). Threaded into the tail state next to `old_by_id`.
+        # KNOWN BOUND (tech-integrity review): this reads the ON-DISK manifests, which a PRIOR aborted run may
+        # have already overlaid. So if an update is interrupted AFTER the overlay but BEFORE the delete leg
+        # removed a rename orphan, a plain re-run recomputes `old_owned` from the overlaid manifests and no
+        # longer sees that orphan — the gate then keeps refusing. It fails SAFE (nothing merges); the recourse
+        # is the undo, then update again. A self-healing fix (persisting the pre-overlay set) is deferred.
+        old_owned = sorted(set(module_coherence.engine_owned_paths(module_coherence.discover_manifests())))
         # PRE-FLIGHT the data-migration backup guard BEFORE any overlay (the half-state law): refuse the
         # WHOLE upgrade if a data migration in range has no backup seam — nothing is applied.
         selected = select_migrations(
@@ -1771,15 +2198,20 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # so every real path runs it in a child interpreter of the overlaid module_manager; only a
         # fully-injected test/demo caller runs it in-process (a callable cannot cross a process boundary).
         if in_process:
+            # The in-process tail is the full-injection test/demo seam only (a real upgrade spawns a child).
+            # Its structural gate must be fixture-safe — the real subset's custom/script checks cannot resolve
+            # against a throwaway fixture tree (B1); the child path runs the full gate. See _coherence_only_gate.
             tail = _upgrade_tail(
                 release_tree=release_tree, target_ref=target_ref, from_versions=from_versions,
-                target_versions=target_versions, old_by_id=old_by_id, candidates=candidates,
-                handle=engine.get("handle"), selected=selected, seam=seam, practice=practice, opener=opener)
+                target_versions=target_versions, old_by_id=old_by_id, old_owned=old_owned,
+                candidates=candidates, handle=engine.get("handle"), selected=selected, seam=seam,
+                practice=practice, opener=opener, gate=_coherence_only_gate)
         else:
             tail = _spawn_upgrade_tail({
                 "release_tree": release_tree, "target_ref": target_ref, "from_versions": from_versions,
                 "target_versions": target_versions, "present_ids": present_ids, "old_by_id": old_by_id,
-                "handle": engine.get("handle"), "practice": practice, "marker": _UPGRADE_TAIL_MARKER})
+                "old_owned": old_owned, "handle": engine.get("handle"), "practice": practice,
+                "marker": _UPGRADE_TAIL_MARKER})
         _merge_tail(result, tail)
         return result
     finally:
@@ -2495,6 +2927,23 @@ def _build_upgrade_release(root: str) -> str:
         fh.write("# Your project runs on an Engine (v2)\n\nProject status block, refreshed in v2.\n")
     with open(os.path.join(root, "CLAUDE.md"), "w", encoding="utf-8") as fh:
         fh.write("# engine-template — construction governance (v2 release)\n\nbuild scaffolding\n")
+    # The AGENTS floor source, so a repo with no AGENTS.md yet has it CREATED on upgrade (#599 class 2).
+    with open(os.path.join(root, "AGENTS.deployed.md"), "w", encoding="utf-8") as fh:
+        fh.write("# Your project runs on an Engine — Codex floor (v2)\n\nCodex status block, refreshed in v2.\n")
+    # The committed FIXTURE namespace the copy-only overlay missed (#599 class 3) — delivered by the reconcile.
+    os.makedirs(os.path.join(eng, "_fixtures", "probe"), exist_ok=True)
+    with open(os.path.join(eng, "_fixtures", "probe", "bad_input.md"), "w", encoding="utf-8") as fh:
+        fh.write("a negative-fixture input a hard check bites on\n")
+    # The release's OWN retire manifest — the provision() projection input the reconcile reads (self-describing,
+    # core-owned, travels). The entries are the first-run-only surface a deployed repo must NOT carry; a repo
+    # that never had them stays clean, and any the copy-only overlay resurrects the reconcile removes.
+    os.makedirs(os.path.join(eng, "provisioning"), exist_ok=True)
+    # Synthetic first-run names (NOT the engine's real retired files — a literal `.engine/tools/instantiator.py`
+    # here would read as this traveling module referencing retired code, tripping first-run-reference-closure).
+    _write_json(os.path.join(eng, "provisioning", "first-run-assets.json"),
+                {"description": "first-run-only assets retired from a deployed repo (fixture)",
+                 "files": [".engine/tools/first_run_setup.py"],
+                 "directories": [".engine/first-run-scratch"]})
     return root
 
 
