@@ -1023,19 +1023,23 @@ def _version_lines(applied: dict) -> list:
     return lines
 
 
-def _pr_section(header: str, summary: str, body_lines: list, impact: str) -> list:
+def pr_section(header: str, summary: str, body_lines: list, impact: str) -> list:
     """One pull-request-body section in the repo template's shape — a **bold one-line summary**, its bullets,
     then the italic `*Impact:*` line — so the release body matches the form every engine pull request's body
     uses, not merely the required headers (a header-only body clears the completeness gate but is not a
-    template-conforming body)."""
+    template-conforming body). PUBLIC: also consumed by module_manager's upgrade-PR-body author, so the
+    engine's update pull request reads in the same template shape — the name is public because the dependency
+    crosses a module boundary (an underscore would hide that a second module relies on it)."""
     return [f"## {header}", "", f"**{summary}**", "", *body_lines, "", f"*Impact: {impact}*", ""]
 
 
-def _template_preamble() -> str:
+def template_preamble() -> str:
     """The consent-preamble blockquote lifted VERBATIM from the repo pull-request template, so the release
     body carries the same standing note on how to read the checks that every other pull request carries —
     one source, no second copy to drift, and always the preamble the pull-request-completeness gate requires.
-    It is the leading `>` blockquote that sits above the first `## ` heading in the template."""
+    It is the leading `>` blockquote that sits above the first `## ` heading in the template. PUBLIC for the
+    same cross-module reason as pr_section — the upgrade-PR-body author reuses it rather than keeping a second
+    preamble copy that could drift from the template's anchor phrases."""
     path = os.path.join(validate.ROOT, ".github", "pull_request_template.md")
     with open(path, encoding="utf-8") as fh:
         lines = fh.read().splitlines()
@@ -1080,9 +1084,9 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
     # body reads the same and satisfies the pull-request-completeness gate's preamble anchors (#589). Emitted in
     # BOTH modes, so a product release PR clears the same gate an engine one does.
     out = [f"# A new {'release of your product' if product else 'engine version'}: "
-           f"{from_shown} → {engine}", "", _template_preamble(), ""]
+           f"{from_shown} → {engine}", "", template_preamble(), ""]
 
-    out += _pr_section(
+    out += pr_section(
         "Purpose",
         f"This records a new version of your {thing} — {from_shown} → {engine} — for you to review and publish.",
         [f"- Merging this is your go-ahead to release {engine}; closing it releases nothing and changes none of "
@@ -1127,7 +1131,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
             else "What changed since the last release"
         scope += ["", f"{heading}:"]
         scope += [f"- {c}" for c in change_summary(proposal)]
-    out += _pr_section(
+    out += pr_section(
         "Scope",
         ("The product version this records, and the changes that set it." if product
          else "The engine and capability versions this records, and the changes that set them."),
@@ -1135,7 +1139,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
         ("this is the exact version written into product-version.json." if product
          else "these are the exact versions written into the manifests and the maps that mirror them."))
 
-    out += _pr_section(
+    out += pr_section(
         "Out of scope",
         "What merging does not do.",
         [f"- It does not change how your {thing} behaves beyond the version stamp.",
@@ -1175,7 +1179,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
             "*Impact: a wrong version, or a change the summary could not detect mechanically, is caught by "
             "closing and re-running with the right version — nothing publishes until you merge.*", ""]
 
-    out += _pr_section(
+    out += pr_section(
         "Validation",
         "The engine's own tooling produced this and `engine-ci` checks it — the mechanical floor.",
         [("- A green check shows the recorded version is well-formed and this summary is complete." if product else
@@ -1184,7 +1188,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
          f"- It does **not** judge whether {engine} is the right version to release — that judgment is yours."],
         f"green means the release conforms to the engine's rules, not that {engine} is the right call.")
 
-    out += _pr_section(
+    out += pr_section(
         "Review",
         "How to act on this — go ahead, raise the version, or stop.",
         [f"- **Go ahead** — if the summary above matches what you built, merge this; that merge is your consent "
@@ -1198,7 +1202,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
          "knowledge of what you shipped is the backstop."],
         f"your merge is the binding consent to publish {engine} — the engine never merges this for you.")
 
-    out += _pr_section(
+    out += pr_section(
         "Files of interest",
         ("Where to look — the recorded product version." if product
          else "Where to look — the recorded versions and the maps that mirror them."),
@@ -1208,7 +1212,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar") -
           "- `.engine/knowledge/graph.json` and `.engine/self-map.md` — the generated maps, refreshed to match."]),
         "these are the only files this pull request changes.")
 
-    out += _pr_section(
+    out += pr_section(
         "Claude involvement",
         "The engine's release workflow prepared this; the version choice and the decision to publish are yours.",
         [("- It computed the version, recorded it into product-version.json, and opened this for your review."

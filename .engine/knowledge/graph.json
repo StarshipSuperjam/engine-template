@@ -7417,7 +7417,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:78bef41caa13f72db8ac69ecb32547dd0f1e49f9adedca0ab777d54f5a473d3b",
+        "fingerprint": "sha256:16ebd547c62ee316ad6b71447d2053c214c6c416429edb719c64ad0c4a3512ee",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -7706,7 +7706,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:45f3db0c2cd80f02174391b08acc4d0d0df74ceab6781c7cfab2c5cb7aca1249",
+        "fingerprint": "sha256:d4ad244df745e3c91bd6fe8e21183d1a3bc250ccb6a27f23fafcf33e5e5f9570",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -9287,7 +9287,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:afd0b04b24bc1b899b25780c2b20b6b7446eb156d0afeee2748fc1a22015bfb4",
+        "fingerprint": "sha256:e03ac41b85e8b33be2d193dba1aee4b03d576cff4ff93210d48b93d0aacd1c3e",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",

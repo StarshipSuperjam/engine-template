@@ -1165,7 +1165,7 @@ class TestUpgradeSurfacesClaudeFloor(unittest.TestCase):
     (or a silent non-update) of a file the operator co-owns and must never be invisible at the merge gate."""
 
     def _body(self, cf):
-        return module_manager._upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {"claude_floor": cf})
+        return module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {"claude_floor": cf})
 
     def test_pr_body_names_the_merged_outcome(self):
         self.assertIn("working guide", self._body("merged").lower())
@@ -1184,13 +1184,87 @@ class TestUpgradeSurfacesClaudeFloor(unittest.TestCase):
     def test_pr_body_surfaces_the_foundation_ignores_reassertion(self):
         # #409: the .gitignore fence re-assert gets an operator-facing line on
         # upgrade, like its CODEOWNERS / CLAUDE.md siblings — not just a raw git diff.
-        body = module_manager._upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
+        body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
                                                {"foundation_ignores": {"status": "written"}})
         self.assertIn("ignore list", body.lower())
         # an unchanged ("already") re-assert stays silent — nothing changed to disclose
-        quiet = module_manager._upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
+        quiet = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
                                                 {"foundation_ignores": {"status": "already"}})
         self.assertNotIn("ignore list", quiet.lower())
+
+    def test_agents_floor_outcome_is_surfaced_like_the_claude_floor(self):
+        # Parity (#599 Slice 1): the tail computes agents_floor beside claude_floor, but the old body disclosed
+        # only claude_floor. A degraded/skipped AGENTS.md merge is an engine edit (or refusal) of a co-owned
+        # file and must reach the consent surface exactly as its CLAUDE.md sibling does.
+        merged = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
+                                                       {"agents_floor": "merged"})
+        self.assertIn("codex guide", merged.lower())
+        degraded = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
+                                                         {"agents_floor": "degraded"})
+        self.assertIn("looked damaged", degraded)
+        skipped = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"},
+                                                        {"agents_floor": "skipped-no-section"})
+        self.assertIn("no engine marked block", skipped)
+
+
+class TestUpgradePrBodyIsTemplateConforming(unittest.TestCase):
+    """#599 Slice 1: the engine's own update pull request must clear the SAME body-completeness gate every
+    engine pull request clears — the free-form body it replaced did not (an issue #599 finding). These run the
+    REAL `pr-body-completeness` check against the rendered body, so a test cannot pass on a body the merge gate
+    would reject."""
+
+    def _rule(self):
+        return module_manager.validate.load_json(
+            os.path.join(module_manager.validate.CHECK_DIR, "pr-body-completeness.json"))
+
+    def test_rendered_update_body_clears_the_completeness_gate(self):
+        body = module_manager.render_upgrade_pr_body(
+            {"base": "0.1.0"}, {"base": "0.2.0"},
+            {"codeowners": "written", "claude_floor": "merged", "agents_floor": "merged",
+             "foundation_ignores": {"status": "written"},
+             "migrations": {"ran": ["base@0.2.0: moved the cache location"]}})
+        passed, findings = module_manager.validate.kind_presence(self._rule(), {"pr_body": body})
+        self.assertTrue(passed, f"update PR body failed the completeness gate: {findings}")
+        self.assertEqual(findings, [])
+
+    def test_rendered_body_clears_the_gate_even_when_minimal(self):
+        # A clean update with no shared-file changes carries almost nothing in the tail; the body must still be
+        # a complete, conforming consent surface, never a half-filled template.
+        body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {})
+        passed, findings = module_manager.validate.kind_presence(self._rule(), {"pr_body": body})
+        self.assertTrue(passed, f"minimal update PR body failed the completeness gate: {findings}")
+
+    def test_validation_section_claims_only_the_consistency_check_not_ci(self):
+        # Consent honesty: the full-CI gate is a later slice, so this body must NOT claim the CI/full suite
+        # passed — only the consistency check that actually runs before the update is opened.
+        body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {}).lower()
+        self.assertIn("consistency check", body)
+        self.assertNotIn("ci suite", body)
+        self.assertNotIn("full ci", body)
+
+    def test_data_migration_surfaces_the_recovery_copy_fact_on_the_durable_surface(self):
+        # A data migration mutates the operator's saved memory — its reversibility fact (a recovery copy was
+        # saved first) must live on the DURABLE PR body, not only the transient CLI note; and the keep-it
+        # heads-up must ride along when the recovery copy could not be confirmed locked.
+        body = module_manager.render_upgrade_pr_body(
+            {"base": "0.1.0"}, {"base": "0.2.0"},
+            {"migrations": {"ran": ["base -> 0.2.0 (data)"], "backup_unprotected": False}})
+        self.assertIn("recovery copy", body.lower())
+        self.assertIn("your saved memory", body.lower())      # the (data) tag is glossed, not raw
+        self.assertNotIn("could not confirm", body.lower())   # locked copy -> no keep-it heads-up
+        unprot = module_manager.render_upgrade_pr_body(
+            {"base": "0.1.0"}, {"base": "0.2.0"},
+            {"migrations": {"ran": ["base -> 0.2.0 (data)"], "backup_unprotected": True}})
+        self.assertIn("could not confirm", unprot.lower())    # unlocked copy -> the keep-it heads-up rides along
+
+    def test_config_only_migration_does_not_claim_a_saved_memory_change(self):
+        # A config migration touches a committed settings file, not saved memory — it must NOT trigger the
+        # saved-memory recovery-copy reassurance (which would misstate what happened).
+        body = module_manager.render_upgrade_pr_body(
+            {"base": "0.1.0"}, {"base": "0.2.0"},
+            {"migrations": {"ran": ["base -> 0.2.0 (config)"]}}).lower()
+        self.assertIn("engine settings", body)                # the (config) tag is glossed
+        self.assertNotIn("recovery copy", body)               # no saved-memory reassurance for a config change
 
 
 class TestLifecycleRendersCarryCoherenceWarrant(unittest.TestCase):

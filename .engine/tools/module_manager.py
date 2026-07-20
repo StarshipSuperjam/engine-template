@@ -1006,46 +1006,143 @@ def _resync_tool_runtime() -> bool:
         return False
 
 
-def _upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -> str:
-    """A plain-language body for the upgrade's own pull request (operator-facing). Lists the version move
-    and the data/config changes that ran, so the reviewer sees what an approval lands. (The deployed PR
-    template fill is a later refinement; this is a readable, structured summary.)"""
-    lines = ["This pull request updates the engine to a new released version.", "",
-             "What changed:"]
+def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -> str:
+    """The engine update's own pull-request body, authored in the repository template's shape — the eight
+    required sections plus the consent preamble every engine pull request carries — so an engine update reads
+    like every other engine pull request and clears the same body-completeness gate (the free-form body it
+    replaces did not). Operator-facing and consent-critical: it is what a non-engineer reads to decide whether
+    to merge an engine self-update, so it speaks of an *update* (never a release/publish — that is the other
+    direction), carries every shared-file outcome the update produced OR refused (a floor the update could not
+    touch must never be invisible at the merge), and its Validation section claims only the consistency check
+    that actually ran before the update was opened — never a fuller CI pass the tail does not yet run.
+
+    Reuses release_cut's public template helpers (`pr_section`/`template_preamble`) — one preamble source, no
+    second copy to drift from the gate's anchor phrases. Imported LAZILY: release_cut imports this module, so a
+    top-level import would cycle; both modules are fully loaded by the time an upgrade authors its body.
+    Tolerant of a partial `result`: any outcome absent from it produces no line, never a fabricated
+    'nothing happened' claim (and reconcile outcomes a later version records are simply absent here)."""
+    import release_cut  # noqa: E402 — lazy: avoids the release_cut<->module_manager import cycle (see docstring)
+
+    # Scope — the version move, then every shared-file outcome the update produced or refused. BOTH the applied
+    # and the could-not-apply notes are surfaced: a marked block the update left unchanged is a thing the
+    # operator must see before merging, never a silent omission (the degraded/skipped branches below).
+    scope = ["The version this update moves the engine to:"]
     for mid in sorted(target_versions):
-        frm, to = from_versions.get(mid, "—"), target_versions.get(mid)
-        lines.append(f"- {mid}: {frm} -> {to}")
-    ran = result.get("migrations", {}).get("ran") or []
+        scope.append(f"- {mid}: {from_versions.get(mid, '—')} → {target_versions.get(mid)}")
+    ran = (result.get("migrations") or {}).get("ran") or []
     if ran:
-        lines += ["", "Data/settings updates that ran:"] + [f"- {r}" for r in ran]
+        # run_migrations formats each as "<mid> -> <ver> (<kind>)"; render it plainly — a unicode arrow to
+        # match the version lines above, and the raw data/config category glossed. A data migration mutates
+        # the operator's SAVED MEMORY, so it must never read more opaquely than a CODEOWNERS refresh.
+        scope += ["", "Stored data or settings the update changed:"]
+        scope += ["- " + r.replace(" -> ", " → ").replace("(data)", "(your saved memory)")
+                           .replace("(config)", "(engine settings)") for r in ran]
+        # A data migration's reversibility fact belongs on the DURABLE consent surface, not only the transient
+        # CLI note the tail also composes: a recovery copy was saved first, and — when the engine could not
+        # confirm it is locked — a keep-it heads-up. Read from the same migration result that note is built from.
+        if any("(data)" in r for r in ran):
+            saved = ("- Before changing your saved memory, the engine saved a recovery copy of it first, so "
+                     "this update stays reversible — nothing for you to do.")
+            if (result.get("migrations") or {}).get("backup_unprotected"):
+                saved += (" One heads-up: the engine could not confirm that recovery copy is locked, so it "
+                          "could be deleted by hand — leave it in place to keep the undo available.")
+            scope.append(saved)
+    shared: list = []
     co = result.get("codeowners")
     if co == "written":
-        lines += ["", "Refreshed the list of engine files that route to you for review, so this version's "
-                  "new files are covered. Any review rules you added yourself are untouched."]
+        shared.append("- Refreshed the list of engine files that route to you for review, so this version's "
+                      "new files are covered. Any review rules you added yourself are untouched.")
     elif co == "degraded":
-        lines += ["", "Could not refresh the engine-file review list (no account handle on record); your "
-                  "existing CODEOWNERS file was left unchanged."]
+        shared.append("- Could not refresh the engine-file review list (no account handle on record); your "
+                      "existing CODEOWNERS file was left unchanged.")
     cf = result.get("claude_floor")
     if cf == "merged":
-        lines += ["", "Updated your project's working guide (the engine's marked block in CLAUDE.md) to this "
-                  "version. Anything you wrote outside that block is untouched."]
+        shared.append("- Updated your project's working guide (the engine's marked block in CLAUDE.md) to this "
+                      "version. Anything you wrote outside that block is untouched.")
     elif cf == "degraded":
-        lines += ["", "Could not update your project's working guide — the engine's marked block in CLAUDE.md "
-                  "looked damaged, so I left the file unchanged. Check the marker lines, then update again."]
+        shared.append("- Could not update your project's working guide — the engine's marked block in CLAUDE.md "
+                      "looked damaged, so I left the file unchanged. Check the marker lines, then update again.")
     elif cf == "skipped-no-section":
-        lines += ["", "Did not update your project's working guide — I found no engine marked block in "
-                  "CLAUDE.md, so I left the file unchanged."]
+        shared.append("- Did not update your project's working guide — I found no engine marked block in "
+                      "CLAUDE.md, so I left the file unchanged.")
+    af = result.get("agents_floor")
+    if af == "merged":
+        shared.append("- Updated the engine's Codex guide (the marked block in AGENTS.md) to this version. "
+                      "Anything you wrote outside that block is untouched.")
+    elif af == "degraded":
+        shared.append("- Could not update the engine's Codex guide — the marked block in AGENTS.md looked "
+                      "damaged, so I left the file unchanged. Check the marker lines, then update again.")
+    elif af == "skipped-no-section":
+        shared.append("- Did not update the engine's Codex guide — I found no engine marked block in AGENTS.md, "
+                      "so I left the file unchanged.")
     fi = (result.get("foundation_ignores") or {}).get("status")
     if fi == "written":
-        lines += ["", "Updated the engine's ignore list (the marked block in .gitignore that keeps the "
-                  "engine's own tool files and per-session folders out of git) to this version. Any ignore "
-                  "lines you added yourself are untouched."]
+        shared.append("- Updated the engine's ignore list (the marked block in .gitignore that keeps the "
+                      "engine's own tool files and per-session folders out of git) to this version. Any ignore "
+                      "lines you added yourself are untouched.")
     elif fi == "degraded":
-        lines += ["", "Could not update the engine's ignore list — the marked block in .gitignore looked "
-                  "damaged, so I left the file unchanged. Check the marker lines, then update again."]
-    lines += ["", "The engine's own consistency check passed. Merging this is your review and consent; "
-              "reverting this pull request undoes the update."]
-    return "\n".join(lines)
+        shared.append("- Could not update the engine's ignore list — the marked block in .gitignore looked "
+                      "damaged, so I left the file unchanged. Check the marker lines, then update again.")
+    if shared:
+        scope += ["", "What this update did to the engine's marked blocks in shared files:"] + shared
+
+    out = ["# Updating the engine", "", release_cut.template_preamble(), ""]
+    out += release_cut.pr_section(
+        "Purpose",
+        "This updates the engine to a newer released version, for you to review and merge.",
+        ["- Merging this applies the update; closing it changes nothing and leaves your current version in "
+         "place.",
+         "- An update only ever moves the engine version forward."],
+        "merging is your consent to run the updated engine; nothing changes until you merge.")
+    out += release_cut.pr_section(
+        "Scope",
+        "The version this update records and the shared-file blocks it refreshed.",
+        scope,
+        "these are the exact versions written into the engine's records, plus the marked-block refreshes noted.")
+    out += release_cut.pr_section(
+        "Out of scope",
+        "What merging does not do.",
+        ["- It does not change your own project files, code, or content.",
+         "- It does not change any settings you configured yourself.",
+         "- It changes nothing outside the engine's own files and its marked blocks in shared files."],
+        "the update touches only engine-owned files and the engine's marked blocks in shared files.")
+    out += release_cut.pr_section(
+        "Risk",
+        "What to weigh before merging.",
+        ["- An update replaces the engine's own tool and rule files with the new version's; your project "
+         "content is not touched.",
+         "- Any shared-file block the update could not refresh is called out under Scope above — read those "
+         "before merging."],
+        "the update changes engine-owned files; anything it could not apply is disclosed in Scope.")
+    out += release_cut.pr_section(
+        "Validation",
+        "What the engine checked before opening this.",
+        ["- The engine's own consistency check passed against the updated files before this was opened.",
+         "- That check confirms the updated files are internally consistent; it does not prove the update is "
+         "right for your project — your review at the merge is the real gate."],
+        "the consistency check passed; the decision to merge is still yours.")
+    out += release_cut.pr_section(
+        "Review",
+        "How to act on this.",
+        ["- Merge to apply the update.",
+         "- Close it to decline — nothing changes and you stay on your current version.",
+         "- To undo the update after merging, ask me to undo it or revert this pull request."],
+        "merging applies the update, and it stays reversible afterward.")
+    out += release_cut.pr_section(
+        "Files of interest",
+        "What this changes.",
+        ["- The engine's version record (.engine/engine.json) and the module manifests.",
+         "- The engine's marked blocks in shared files (CODEOWNERS, CLAUDE.md, AGENTS.md, .gitignore), where "
+         "this version updated them — each is noted under Scope."],
+        "the changed files are the engine's own records and its marked blocks in shared files.")
+    out += release_cut.pr_section(
+        "Claude involvement",
+        "Who did what.",
+        ["- I assembled this update mechanically — fetching the new version, applying it, and running the "
+         "engine's consistency check.",
+         "- I did not decide to merge it; that decision is yours."],
+        "the update was assembled by the engine; your merge is the decision.")
+    return "\n".join(out)
 
 
 def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) -> dict:
@@ -1229,9 +1326,12 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
         tail["notes"].append("(practice run — the pull request was not opened)")
         return tail
     title = f"Maintenance: update the engine to {target_ref}"
-    body = _upgrade_pr_body(from_versions, target_versions, tail)
     branch = "engine-update-" + re.sub(r"[^a-zA-Z0-9._-]+", "-", target_ref)
     try:
+        # Author the body INSIDE the guard: render_upgrade_pr_body reads the PR template (I/O) and can raise,
+        # and it runs after migrations + the manifest bump — so a body-author failure must degrade to
+        # "staged but not opened" like an opener failure, never a traceback (the surfaced-never-a-crash rule).
+        body = render_upgrade_pr_body(from_versions, target_versions, tail)
         tail["pr"] = opener(branch=branch, title=title, body=body)
     except Exception as exc:   # noqa: BLE001 — staged but not opened; surfaced, never a traceback
         tail["notes"].append(f"(the update is staged but the pull request could not be opened: {exc})")
@@ -2378,6 +2478,16 @@ def _build_upgrade_release(root: str) -> str:
     with open(os.path.join(eng, "pyproject.toml"), "w") as fh:
         fh.write('[project]\nname = "x"\nversion = "0"\n\n[dependency-groups]\nbase = ["pkg-a"]\n\n'
                  '[tool.uv]\ndefault-groups = ["base"]\n')
+    # The PR template is foundation the overlay delivers (FOUNDATION_CODE), and the upgrade tail's PR-body
+    # author reads its consent-preamble blockquote from the LIVE tree (post-overlay). A real release ships it,
+    # so the fixture release must too — else the body author finds no template and the update can't open. This
+    # blockquote just needs to be a valid `>` block for template_preamble() to extract; the real completeness
+    # gate (and its anchor phrases) is verified separately, against the real template, in the unit tests.
+    os.makedirs(os.path.join(root, ".github"), exist_ok=True)
+    with open(os.path.join(root, ".github", "pull_request_template.md"), "w", encoding="utf-8") as fh:
+        fh.write("> A green mechanical check below shows this change conforms to the engine's rules; it does "
+                 "not judge whether the change is correct. Your merge is the binding gate. A safety check "
+                 "that could not run leaves its area unverified.\n\n## Purpose\n\n<why this change exists>\n")
     # The release ships BOTH the floor (CLAUDE.deployed.md — what the keyed-merge reads) and the maintainer
     # construction CLAUDE.md (which must NEVER overlay an adopter's floor — the latent-bug regression Part L
     # checks). The floor body carries a v2 marker so the merge is observable.
