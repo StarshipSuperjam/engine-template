@@ -151,11 +151,12 @@ review ran the operator's code in a throwaway copy to judge it** (said plainly, 
 running their code can have effects they would not expect), the findings' dispositions, and — when
 post-audit fixes were made — a plain line that **leads with the consequence** (a minor touch-up, or a
 change large enough that the merged version differs materially from the reviewed one), says whether a
-re-audit ran and what it found, and beneath it carries a plain supporting note of the **reviewed and
-submitted commits and how much changed between them** (`git diff --shortstat`) — so the operator, or a
-later cold session, can re-derive that figure from the two commits and check the claim; the completeness
-check confirms the Review section is filled — not that this divergence line is present, nor that its figure
-is true, which rests on those re-derivable commits and on the re-audit when one ran. With no review packs installed it says so plainly
+re-audit ran and what it found, and beneath it a **plain-language sentence of the two commits and what
+changed between them** — the reviewed and submitted commit ids and the added / deleted-or-modified line
+counts as a net change (the orchestrator measures this with `git diff --shortstat`, but the record reads as
+a sentence, never raw diff shorthand or a command to run); the completeness check confirms the Review
+section is filled — not that this divergence line is present, nor that its figure is true, which rests on
+those recorded commits and on the re-audit when one ran. With no review packs installed it says so plainly
 — "no extra review ran", never a green pass — and carries the standing caveat that it is the engine's own
 account and the operator's merge is the real gate. A trivial fast-path build fills it with a truthful one.
 
