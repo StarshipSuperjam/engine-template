@@ -19,7 +19,8 @@ _AWS = "AKIAIOSFODNN7EXAMPLE"
 _GH_PAT = "ghp_" + "A" * 36
 _GH_FINE = "github_pat_" + "B" * 30
 _ANTHROPIC = "sk-ant-" + "C" * 40
-_OPENAI = "sk-" + "D" * 40
+_OPENAI = "sk-" + "aB3xY7z9" * 6          # realistic key body: hyphen-free, contains digits
+_OPENAI_PROJ = "sk-proj-" + "aZ9bY8c7" * 6
 _STRIPE = "sk_live_" + "E" * 24
 _SLACK = "xoxb-" + "1" * 20
 _GOOGLE = "AIza" + "F" * 35
@@ -54,6 +55,9 @@ class PrecisionTests(unittest.TestCase):
     def test_openai_key(self):
         self._assert_redacted(_OPENAI, "openai-key")
 
+    def test_openai_project_key(self):
+        self._assert_redacted(_OPENAI_PROJ, "openai-key")
+
     def test_stripe_key(self):
         self._assert_redacted(_STRIPE, "stripe-key")
 
@@ -78,9 +82,10 @@ class PrecisionTests(unittest.TestCase):
         self.assertIn("done", out)
 
     def test_authorization_header_keeps_scaffold(self):
-        out = scrub.scrub_text("Authorization: Bearer " + "Z" * 30)
+        token = "aZ9bY8c7dX6e" * 3   # realistic opaque token: mixed case, contains digits
+        out = scrub.scrub_text("Authorization: Bearer " + token)
         self.assertIn("Authorization: Bearer [redacted:auth-credential]", out)
-        self.assertNotIn("Z" * 30, out)
+        self.assertNotIn(token, out)
 
     def test_url_credential_keeps_host(self):
         out = scrub.scrub_text("db at postgres://admin:hunter2@db.example.com:5432/app")
@@ -137,6 +142,21 @@ class NonCorruptionTests(unittest.TestCase):
 
     def test_short_sk_word(self):
         self._assert_untouched("the sk- prefix is short here, not a key")
+
+    def test_sk_prefixed_hyphenated_slug_left_intact(self):
+        # A `sk-`-prefixed hyphenated slug (CSS class, branch name) is NOT a key — hyphens + no long
+        # digit-bearing contiguous run. A false positive here would destroy real, unrecoverable memory.
+        self._assert_untouched("the spinner uses sk-chasing-dots-container-wrapper as its class name")
+        self._assert_untouched("our branch sk-refactor-the-memory-subsystem-now is ready to merge")
+
+    def test_sk_prefixed_digitless_word_left_intact(self):
+        # A long `sk-`-prefixed word with no digit is not a key (real keys carry digits).
+        self._assert_untouched("we called it sk-internationalization in the prototype")
+
+    def test_authorization_scheme_prose_left_intact(self):
+        # Prose ABOUT auth — a plain word after the scheme, no digit — must survive verbatim.
+        self._assert_untouched("authorization: bearer credentials are rotated weekly")
+        self._assert_untouched("the Authorization: Bearer authentication scheme is standard here")
 
 
 class IdempotencyTests(unittest.TestCase):

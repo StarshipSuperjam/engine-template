@@ -227,24 +227,19 @@ def _codex_message(rec: dict):
     """One recognized Codex conversation message as a plain {'role','text'} dict, or None for a
     non-conversation record (reasoning, function calls, meta — the same 'is this conversation at
     all?' filter doctrine, never a worth judgment). Accepts the rollout envelope
-    ({'type':'response_item','payload':{...}}) and a bare message record. Two message-bearing payload
-    shapes are recognized: a plain `message` (which must carry an explicit user/assistant role), and a
-    multi-agent `agent_message` (a role-less, assistant-side message the newer format emits — mapped to
-    'assistant' so its content is captured, verified distinct from the plain message turns, never a
-    duplicate)."""
+    ({'type':'response_item','payload':{...}}) and a bare message record. Only a `message` payload with
+    an explicit user/assistant role is a conversation turn: the newer multi-agent `agent_message` record
+    is deliberately NOT captured — on the real corpus its dominant `event_msg` form is a byte-identical
+    echo of the assistant `message` already captured here (capturing it would double-store every
+    assistant turn), so recognizing it adds duplication, not conversation."""
     payload = None
     if rec.get("type") == "response_item" and isinstance(rec.get("payload"), dict):
         payload = rec["payload"]
     elif rec.get("type") == "message":
         payload = rec
-    if not isinstance(payload, dict):
-        return None
-    ptype = payload.get("type")
-    if ptype not in ("message", "agent_message", None):
+    if not isinstance(payload, dict) or payload.get("type") not in ("message", None):
         return None
     role = payload.get("role")
-    if ptype == "agent_message" and role is None:
-        role = "assistant"
     if role not in ("user", "assistant"):
         return None
     content = payload.get("content")
@@ -265,12 +260,15 @@ def _codex_shape_detail(reason: str, recs: list) -> dict:
     """A CONTENT-FREE structural fingerprint of an unrecognized Codex transcript: which predicate refused
     it, the distinct record `type` and payload `type` names present, and the record count. It NEVER
     includes any message text — this is a diagnostic of a CHANGED FORMAT (so the next drift is
-    actionable, not a bare 'unparseable'), never a capture of the transcript's content. Type-name lists
-    are bounded so a pathological transcript cannot bloat the marker."""
-    rtypes = sorted({str(r.get("type")) for r in recs if isinstance(r, dict)})
-    ptypes = sorted({str(r["payload"].get("type")) for r in recs
-                     if isinstance(r, dict) and isinstance(r.get("payload"), dict)})
-    return {"reason": reason, "record_types": rtypes[:20], "payload_types": ptypes[:20],
+    actionable, not a bare 'unparseable'), never a capture of the transcript's content. Both the list
+    length AND each individual type-name are bounded, so a pathological transcript (a huge type value, or
+    thousands of distinct ones) cannot bloat the marker."""
+    def _names(values):
+        return sorted({str(v)[:64] for v in values})[:20]   # cap each name AND the list
+    rtypes = _names(r.get("type") for r in recs if isinstance(r, dict))
+    ptypes = _names(r["payload"].get("type") for r in recs
+                    if isinstance(r, dict) and isinstance(r.get("payload"), dict))
+    return {"reason": reason, "record_types": rtypes, "payload_types": ptypes,
             "record_count": len(recs)}
 
 
@@ -830,13 +828,15 @@ def _capture(payload, *, cwd) -> int:
         appended = 0
         for offset, rec in enumerate(delta):
             text = _message_text(rec)
-            # Redact secret-shaped content BEFORE chunking, so a credential straddling the >4KB chunk
-            # boundary is caught as one unit (eADR-0038: scrubbed at capture; precision-biased, fail-soft).
-            text = scrub.scrub_text(text)
             if not text or not text.strip():
                 continue
             if _is_noise(text):
                 continue
+            # Redact secret-shaped content AFTER the empty/noise discard — large machine-output noise
+            # (command stdout: hex, base64, minified) is dropped without being scrubbed — but BEFORE
+            # chunking, so a credential straddling the >4KB chunk boundary is still caught as one unit
+            # (eADR-0038: scrubbed at capture; precision-biased, fail-soft).
+            text = scrub.scrub_text(text)
             speaker = _speaker(rec)
             # Recognise a harness-injected pseudo-turn on the WHOLE message, before chunking, so every chunk of a
             # multi-chunk block (e.g. the >4 KB /compact continuation summary) is tagged — not just the first

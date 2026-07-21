@@ -5782,7 +5782,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:f9b0588e585d45be712da867dee354a540cbe81678a5cfa104a2ddb2bfc7fdec",
+        "fingerprint": "sha256:61c38b1af2e3871e3748a2390d1c288c515280cccd440b54a3b9561d3650bbbe",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -8026,7 +8026,7 @@
       },
       "slug": "scrub",
       "source": {
-        "fingerprint": "sha256:ad47915d1cd8ee1a8c78eebc5817c73b184cc54dee715929a10a4d2a9123dc33",
+        "fingerprint": "sha256:b97e65703e85a6d6d4b7c493dfa0c83a8d9350050d03ac3ae22463b2818e1471",
         "path": ".engine/tools/memory/scrub.py"
       },
       "status": "active",
@@ -8519,7 +8519,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:fe8595640bdd55179039aecdb488d6620fa253e7304455633e888bc6700e1150",
+        "fingerprint": "sha256:18d887248b19e68d01ad9f16b6ad4d2a22d910c98ac23c2e844e6bf0384a1c5b",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -9981,7 +9981,7 @@
       },
       "slug": "test_scrub",
       "source": {
-        "fingerprint": "sha256:b304ca4d0772ec8f76954403228477bd29ade092cf2558762ff2f38ba66664ef",
+        "fingerprint": "sha256:ecf38aac1a864195576170efab31575e3dd285b2b3b6a69ee277b1990b3e055e",
         "path": ".engine/tools/memory/test_scrub.py"
       },
       "status": "active",

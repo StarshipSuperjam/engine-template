@@ -611,12 +611,6 @@ def _codex_msg(role, text):
                         "content": [{"type": "text", "text": text}]}}
 
 
-def _codex_agent_msg(text):
-    """A newer multi-agent Codex `agent_message` — role-less, assistant-side (mapped to 'assistant')."""
-    return {"type": "response_item",
-            "payload": {"type": "agent_message", "content": [{"type": "text", "text": text}]}}
-
-
 class CodexTranscriptTests(CaptureTestCase):
     """The provider-routed Codex reader and its fail-loud contract (eADR-0034): a Codex-tagged
     session captures through the dedicated recognizer ONLY, and every zero-yield shape a format
@@ -650,19 +644,13 @@ class CodexTranscriptTests(CaptureTestCase):
         self.assertIn("Please rename the export job.", self.texts())
         self.assertEqual(self._status(), "captured")
 
-    def test_multi_agent_agent_message_is_captured_as_assistant(self):
-        """The newer multi-agent format's role-less `agent_message` is captured (mapped to assistant),
-        not silently skipped — verified against real transcripts as distinct from the plain message turns."""
-        path = self.transcript("multiagent.jsonl", [
-            {"type": "session_meta", "payload": {"id": "s"}},
-            _codex_msg("user", "Kick off the migration."),
-            _codex_agent_msg("Sub-agent here: migration step two is complete."),
-        ])
-        appended = capture.capture_turn_delta(self.payload(path))
-        self.assertEqual(appended, 2)
-        self.assertEqual([r["speaker"] for r in self.records()], ["user", "assistant"])
-        self.assertIn("Sub-agent here: migration step two is complete.", self.texts())
-        self.assertEqual(self._status(), "captured")
+    def test_a_non_jsonl_transcript_diagnostic_names_its_reason(self):
+        """The whole-format-change refusal (bytes but no JSON records) carries its own reason too."""
+        path = os.path.join(self.tmp, "plain2.jsonl")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("the format moved off JSON lines entirely\n")
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 0)
+        self.assertEqual(capture.read_capture_status().get("detail", {}).get("reason"), "no-json-records")
 
     def test_unparseable_records_a_content_free_diagnostic(self):
         """A changed format is not just 'unparseable': the marker carries a content-free structural

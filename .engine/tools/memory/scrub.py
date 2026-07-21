@@ -31,37 +31,55 @@ import re
 # the more specific pattern (Anthropic sk-ant-, Stripe sk_live_) is listed BEFORE the generic sk-, so
 # it wins the first redaction and the generic pattern then finds nothing to match. The PEM multiline
 # block is applied first so its inner base64 can never be half-caught by a single-line pattern.
+#
+# Every variable-length run is UPPER-BOUNDED (a real credential has a bounded length), and the scheme
+# run in the URL pattern is capped — this keeps each pattern linear on large pathological input (a long
+# dotted/hex paste, or repeated BEGIN markers with no END) instead of re-scanning per start position.
+# Two patterns carry a precision guard against destroying ordinary technical prose: the generic `sk-`
+# body is hyphen-free AND must contain a digit (so a `sk-`-prefixed slug like a CSS class or a branch
+# name — `sk-chasing-dots`, `sk-refactor-the-memory` — is left intact), and the Authorization credential
+# must contain a digit (so a plain word after "bearer" — "credentials", "authentication" — is not
+# redacted). A false positive here is unrecoverable, so these lean to under-redaction, by design.
 _PATTERNS = [
     # PEM private-key armor — redact the WHOLE block as one unit (the paired BEGIN/END lines are a
-    # globally reserved format; non-greedy body bounded by the END armor, no catastrophic backtracking).
-    (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
-                re.DOTALL), "[redacted:private-key]"),
+    # globally reserved format). The body is upper-bounded so a BEGIN with no matching END fails fast.
+    (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]{0,8192}?-----END [A-Z0-9 ]*PRIVATE KEY-----"),
+     "[redacted:private-key]"),
     # JWT — anchored on TWO `eyJ` segments (base64url of `{"`), which a random dotted token won't have.
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{8,2000}\.eyJ[A-Za-z0-9_-]{8,4000}\.[A-Za-z0-9_-]{8,2000}\b"),
      "[redacted:jwt]"),
     # AWS access key id — the AKIA-family prefix + exactly 16 more upper/digit chars = a minted shape.
     (re.compile(r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|AIPA)[0-9A-Z]{16}\b"), "[redacted:aws-key]"),
     # GitHub fine-grained PAT (literal prefix) — before the generic ghp_ family for clarity.
-    (re.compile(r"\bgithub_pat_[0-9A-Za-z_]{22,}\b"), "[redacted:github-token]"),
+    (re.compile(r"\bgithub_pat_[0-9A-Za-z_]{22,255}\b"), "[redacted:github-token]"),
     # GitHub tokens — vendor prefix + underscore + long base62.
-    (re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{36,}\b"), "[redacted:github-token]"),
-    # Anthropic — literal sk-ant-, BEFORE the generic sk- so it wins.
-    (re.compile(r"\bsk-ant-[0-9A-Za-z_-]{20,}\b"), "[redacted:anthropic-key]"),
+    (re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{36,255}\b"), "[redacted:github-token]"),
+    # Anthropic — literal sk-ant-, BEFORE the generic sk- so it wins (its strong prefix makes a hyphen/
+    # underscore in the body low-risk, so no digit guard is needed here).
+    (re.compile(r"\bsk-ant-[0-9A-Za-z_-]{20,255}\b"), "[redacted:anthropic-key]"),
     # Stripe — the _live_/_test_ infix is unmistakable; BEFORE the generic sk-.
-    (re.compile(r"\b(?:sk|rk|pk)_(?:live|test)_[0-9A-Za-z]{16,}\b"), "[redacted:stripe-key]"),
-    # OpenAI / generic sk- — prefix + >=20 token chars (a short "sk-" word won't match).
-    (re.compile(r"\bsk-(?:proj-)?[0-9A-Za-z_-]{20,}\b"), "[redacted:openai-key]"),
+    (re.compile(r"\b(?:sk|rk|pk)_(?:live|test)_[0-9A-Za-z]{16,255}\b"), "[redacted:stripe-key]"),
+    # OpenAI / generic sk- — the weakest-anchored vendor shape, so it is guarded: a hyphen-free body of
+    # >=20 token chars that CONTAINS A DIGIT. This redacts real keys (base62 with digits) while leaving a
+    # `sk-`-prefixed hyphenated slug or a digit-free word untouched (a false positive is unrecoverable).
+    (re.compile(r"\bsk-(?:proj-)?(?=[0-9A-Za-z]{0,80}[0-9])[0-9A-Za-z]{20,80}\b"), "[redacted:openai-key]"),
     # Slack — xox + kind letter + dashes.
-    (re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"), "[redacted:slack-token]"),
+    (re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,255}\b"), "[redacted:slack-token]"),
     # Google OAuth client id — literal domain suffix (before the AIza key so both are distinct).
-    (re.compile(r"\b[0-9]+-[0-9a-z]{20,}\.apps\.googleusercontent\.com\b"), "[redacted:google-oauth]"),
+    (re.compile(r"\b[0-9]{1,30}-[0-9a-z]{20,64}\.apps\.googleusercontent\.com\b"), "[redacted:google-oauth]"),
     # Google API key — AIza + exactly 35 chars = Google's fixed shape.
     (re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"), "[redacted:google-key]"),
-    # Authorization header — keep the scheme scaffold, redact only the credential.
-    (re.compile(r"(?i)(\bauthorization\s*:\s*(?:bearer|basic|token)\s+)[0-9A-Za-z._+/=~-]{8,}"),
+    # Authorization header — keep the scheme scaffold, redact only the credential. The credential must
+    # contain a digit (a real opaque/base64 token does; a plain word like "credentials" does not), so
+    # ordinary prose "Authorization: Bearer authentication is standard" is left intact. Case-insensitive
+    # on the header/scheme keywords only — the digit guard stays case-sensitive.
+    (re.compile(r"([Aa]uthorization\s*:\s*(?:[Bb]earer|[Bb]asic|[Tt]oken)\s+)"
+                r"(?=[0-9A-Za-z._+/=~-]{0,200}[0-9])[0-9A-Za-z._+/=~-]{8,200}"),
      r"\1[redacted:auth-credential]"),
     # Credentials embedded in a URL authority — redact only the `user:pass@` userinfo, keep proto+host.
-    (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/:@]+:[^\s/:@]+@"), r"\1[redacted:url-credential]@"),
+    # The scheme run is capped (a real scheme is short) so a long dotted paste can't drive re-scanning.
+    (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]{0,30}://)[^\s/:@]{1,128}:[^\s/:@]{1,128}@"),
+     r"\1[redacted:url-credential]@"),
 ]
 
 
