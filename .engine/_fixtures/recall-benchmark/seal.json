@@ -1,0 +1,62 @@
+{
+  "corpus_sha256": "ca389e8a0ae4aa2051f3266adfa5fc7aa3ead40d47b734e21bf03e5024d95982",
+  "questions_sha256": "2243abe86d003c1cef72fcf7788a16ccef247a44478dc2b2bc4939050599083d",
+  "bar": {
+    "recall_at_k": 5,
+    "top5_threshold": 0.9,
+    "conjunction": "the new path must BEAT the old on this set AND clear top5 >= 0.90 (human-judged, at the curation-removal gate)",
+    "nothing_relevant_rule": "success = pure top-k emptiness (no salience threshold)",
+    "new_vs_old_rule": "the SAME mechanical session/record membership scorer is applied to each path's emitted top-k; human usefulness is a SEPARATE overlay, never folded into this number",
+    "discrimination": "the old-path baseline MUST be meaningfully sub-0.90 on the paraphrased / raw-only / zero-lexical-overlap classes, or the instrument cannot justify the deletion it gates",
+    "slice6_precondition": "before the irreversible curation-removal, the maintainer must have run the private --real-local external-validity check (a real-world correlate; nothing committed)"
+  },
+  "old_path_baseline": {
+    "overall_known": {
+      "hits": 23,
+      "n": 47,
+      "recall_at_k": 0.489
+    },
+    "nothing_relevant": {
+      "correct": 6,
+      "n": 6
+    },
+    "by_vocab": {
+      "original": [
+        23,
+        27
+      ],
+      "paraphrased": [
+        0,
+        20
+      ]
+    },
+    "by_content_type": {
+      "plain": [
+        17,
+        35
+      ],
+      "exact-wording": [
+        2,
+        4
+      ],
+      "superseded": [
+        1,
+        2
+      ],
+      "nothing-relevant": [
+        6,
+        6
+      ],
+      "lesson-recall": [
+        3,
+        6
+      ]
+    },
+    "hard_classes": {
+      "hits": 0,
+      "n": 24,
+      "recall_at_k": 0.0
+    }
+  },
+  "note": "Frozen before the transcript-first path exists. The sha256s + the pinned bar + the recorded old-path baseline are the anti-gaming lock: a change to the corpus, the questions, the bar, or the baseline is a DELIBERATE re-seal (run `reseal`), never a silent edit. A test (test_recall_benchmark) fails if a sealed byte changes without a re-seal."
+}

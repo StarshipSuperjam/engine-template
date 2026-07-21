@@ -7108,7 +7108,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:9af33aeea018904b582b654e6361340e99ed831bbaab143083efa0cd915a2e0f",
+        "fingerprint": "sha256:f94cd69c6a7419139b6a5726a03263c4813d98c12a85c5388bf888206a665c70",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7790,6 +7790,23 @@
       "source": {
         "fingerprint": "sha256:abe53da6ccea6d810dc14acc4632ec8940a788ad790f2053d670303501691568",
         "path": ".engine/tools/quiet_call.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:recall_benchmark",
+      "name": ".engine/tools/recall_benchmark.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "recall_benchmark",
+      "source": {
+        "fingerprint": "sha256:7dd9a7fdfaac1b3b8c829fd8e3cee5f98274fc2ab278d5aebb41326df7a2369d",
+        "path": ".engine/tools/recall_benchmark.py"
       },
       "status": "active",
       "type": "tool"
@@ -9728,6 +9745,23 @@
       "source": {
         "fingerprint": "sha256:c1ac00596b0013daf9375f388783d4a981464befd4e5bb486cc7de697c26e5dc",
         "path": ".engine/tools/test_quiet_call.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_recall_benchmark",
+      "name": ".engine/tools/test_recall_benchmark.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_recall_benchmark",
+      "source": {
+        "fingerprint": "sha256:e342dbc1daa3d5cda14942cdb106382c40b2ba0b006f76d3afbb6e3ae918fe16",
+        "path": ".engine/tools/test_recall_benchmark.py"
       },
       "status": "active",
       "type": "tool"
