@@ -611,6 +611,12 @@ def _codex_msg(role, text):
                         "content": [{"type": "text", "text": text}]}}
 
 
+def _codex_agent_msg(text):
+    """A newer multi-agent Codex `agent_message` — role-less, assistant-side (mapped to 'assistant')."""
+    return {"type": "response_item",
+            "payload": {"type": "agent_message", "content": [{"type": "text", "text": text}]}}
+
+
 class CodexTranscriptTests(CaptureTestCase):
     """The provider-routed Codex reader and its fail-loud contract (eADR-0034): a Codex-tagged
     session captures through the dedicated recognizer ONLY, and every zero-yield shape a format
@@ -643,6 +649,47 @@ class CodexTranscriptTests(CaptureTestCase):
         self.assertEqual(appended, 2)
         self.assertIn("Please rename the export job.", self.texts())
         self.assertEqual(self._status(), "captured")
+
+    def test_multi_agent_agent_message_is_captured_as_assistant(self):
+        """The newer multi-agent format's role-less `agent_message` is captured (mapped to assistant),
+        not silently skipped — verified against real transcripts as distinct from the plain message turns."""
+        path = self.transcript("multiagent.jsonl", [
+            {"type": "session_meta", "payload": {"id": "s"}},
+            _codex_msg("user", "Kick off the migration."),
+            _codex_agent_msg("Sub-agent here: migration step two is complete."),
+        ])
+        appended = capture.capture_turn_delta(self.payload(path))
+        self.assertEqual(appended, 2)
+        self.assertEqual([r["speaker"] for r in self.records()], ["user", "assistant"])
+        self.assertIn("Sub-agent here: migration step two is complete.", self.texts())
+        self.assertEqual(self._status(), "captured")
+
+    def test_unparseable_records_a_content_free_diagnostic(self):
+        """A changed format is not just 'unparseable': the marker carries a content-free structural
+        fingerprint (which check refused it + the record/payload type names present) so the next drift
+        is diagnosable — and it NEVER leaks message text."""
+        body = "sensitive-message-body-do-not-leak"
+        path = self.transcript("shifted.jsonl", [
+            {"type": "session_meta", "payload": {"id": "s"}},
+            {"type": "response_item", "payload": {"type": "msg_v2", "who": "user", "says": body}},
+        ])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 0)
+        record = capture.read_capture_status()
+        self.assertEqual(record.get("state"), "unparseable")
+        detail = record.get("detail")
+        self.assertIsInstance(detail, dict)
+        self.assertEqual(detail.get("reason"), "no-conversation-messages")
+        self.assertIn("response_item", detail.get("record_types", []))
+        self.assertIn("msg_v2", detail.get("payload_types", []))
+        self.assertNotIn(body, json.dumps(record))   # content-free: no transcript text in the diagnostic
+
+    def test_unknown_envelope_diagnostic_names_its_reason(self):
+        path = self.transcript("future.jsonl", [
+            {"type": "totally_new_record", "body": {"role": "user", "text": "hello"}}])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 0)
+        detail = capture.read_capture_status().get("detail")
+        self.assertEqual(detail.get("reason"), "no-known-record-type")
+        self.assertIn("totally_new_record", detail.get("record_types", []))
 
     def test_a_claude_shaped_transcript_never_falls_through_on_codex(self):
         """No fall-through to the tolerant Claude parser: a Codex-tagged session handed a
@@ -719,6 +766,41 @@ class ClaudeCaptureStatusTests(CaptureTestCase):
     def test_an_invalid_path_reports_loudly_on_claude_too(self):
         self.assertEqual(capture.capture_turn_delta(self.payload("/nowhere/at/all.jsonl")), 0)
         self.assertEqual(capture.read_capture_status().get("state"), "invalid-path")
+
+
+class CaptureScrubTests(CaptureTestCase):
+    """Secret scrubbing at capture (eADR-0038): a credential in a turn is redacted in the STORED record,
+    ordinary text is byte-identical, and a secret in a >4KB multi-chunk turn is caught (scrub runs before
+    chunking). The unit-level precision/non-corruption matrix lives in test_scrub.py — these prove the
+    seam is wired into the capture write path for both runtimes' shared delta loop."""
+
+    def test_a_secret_in_a_turn_is_redacted_in_the_ledger(self):
+        secret = "AKIAIOSFODNN7EXAMPLE"
+        turn = "deploy note: key " + secret + " should be rotated quarterly"
+        path = self.transcript("s.jsonl", [_msg("user", turn)])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 1)
+        stored = self.texts()[0]
+        self.assertNotIn(secret, stored)
+        self.assertIn("[redacted:aws-key]", stored)
+        self.assertIn("should be rotated quarterly", stored)   # surrounding prose preserved
+
+    def test_an_ordinary_turn_is_stored_verbatim(self):
+        turn = "the production database password lives in the vault, never in the repo"
+        path = self.transcript("clean.jsonl", [_msg("user", turn)])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path)), 1)
+        self.assertEqual(self.texts(), [turn])
+
+    def test_a_secret_in_a_large_multichunk_turn_is_redacted(self):
+        """A >4KB turn is split into multiple chunks; scrubbing BEFORE the split means a secret is caught
+        whole regardless of where the chunk boundary lands."""
+        filler = "detail line here. " * 300
+        pem = "-----BEGIN RSA PRIVATE KEY-----\n" + "MIIEbase64body\n" * 4 + "-----END RSA PRIVATE KEY-----"
+        turn = filler + pem + filler
+        appended = capture.capture_turn_delta(self.payload(self.transcript("big.jsonl", [_msg("user", turn)])))
+        self.assertGreater(appended, 1)                        # >4KB → multiple chunks
+        joined = "\n".join(self.texts())
+        self.assertNotIn("PRIVATE KEY", joined)
+        self.assertIn("[redacted:private-key]", joined)
 
 
 if __name__ == "__main__":

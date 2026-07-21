@@ -5782,7 +5782,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:9a0d173ad45e74e7475b71237e0ee18cc9acb971c40fe29ff0f2e41f09903aa7",
+        "fingerprint": "sha256:f9b0588e585d45be712da867dee354a540cbe81678a5cfa104a2ddb2bfc7fdec",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -8016,6 +8016,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:scrub",
+      "name": ".engine/tools/memory/scrub.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "scrub",
+      "source": {
+        "fingerprint": "sha256:ad47915d1cd8ee1a8c78eebc5817c73b184cc54dee715929a10a4d2a9123dc33",
+        "path": ".engine/tools/memory/scrub.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:security_floor",
       "name": ".engine/tools/security_floor.py",
       "owner": "core",
@@ -8502,7 +8519,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:aecde2aa2f381d31871a3678df8f43246ef748a23ea6b33332059a9eb3e5734a",
+        "fingerprint": "sha256:fe8595640bdd55179039aecdb488d6620fa253e7304455633e888bc6700e1150",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -9949,6 +9966,23 @@
       "source": {
         "fingerprint": "sha256:0c58471656a34a98b8c120f74e00cd0154b3bf8cb80d26cc3477c2ec5cdd2131",
         "path": ".engine/tools/memory/test_score.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:test_scrub",
+      "name": ".engine/tools/memory/test_scrub.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "test_scrub",
+      "source": {
+        "fingerprint": "sha256:b304ca4d0772ec8f76954403228477bd29ade092cf2558762ff2f38ba66664ef",
+        "path": ".engine/tools/memory/test_scrub.py"
       },
       "status": "active",
       "type": "tool"
