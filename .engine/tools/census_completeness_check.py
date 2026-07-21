@@ -46,6 +46,8 @@ import repo_identity  # noqa: E402  (is_home_repo — the shared origin==home se
 _MANIFEST_REL = os.path.join(".engine", "provisioning", "first-run-assets.json")
 _TOOLS_REL = os.path.join(".engine", "tools")
 _PRUNE_DIRS = {"__pycache__", ".venv", ".pytest_cache", ".cache", ".uv"}
+
+
 def _is_construction_repo() -> bool:
     """True iff this checkout is the engine's OWN home repo — its git origin equals the recorded
     `home_repository`, the non-inherited signal a downstream copy never carries. Reads the REAL root

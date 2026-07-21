@@ -27,9 +27,10 @@ deployed project never carries it. The codes of conduct load every session throu
 
 1. **Ground in this runbook** — the trust model above, the **development invariants**, and the **frozen check
    names** (both in Notes). These are the durable disciplines every step below assumes.
-2. **Set the session stance** — read `.engine/operations/operating-modes.md` for the Explore/Build write-gate,
-   and `.engine/self-map.md` with `.engine/operations/knowledge-impact-check.md` for where the engine's parts
-   are and what each one touches, depends on, checks, and governs.
+2. **Set the session stance** — read `.engine/operations/operating-modes.md` for the Explore/Build write-gate
+   (eADR-0024 — the three stances; the local gate is backstopped by the protected-branch merge wall, never
+   dressed as the wall itself), and `.engine/self-map.md` with `.engine/operations/knowledge-impact-check.md`
+   for where the engine's parts are and what each one touches, depends on, checks, and governs.
 3. **Read the governing design record** — the eADRs under `.engine/contracts/` for the current work. That
    in-repo decision set plus the operations runbooks are the single source of truth. **Never invent structure:**
    where a concrete value is not yet fixed, decide it explicitly with the maintainer and record it — never

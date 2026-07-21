@@ -1405,14 +1405,17 @@ def _read_release_floor(release_tree: str, root_rel: str) -> "list | None":
     usable floor — its root file is absent, carries no `floor` fence, or carries a malformed one (an old
     pre-promotion release, whose root file is the construction body with no fence, reads as None and is
     skipped). A fence body needs no whole-file trailing-newline trim — fence_read returns the body lines
-    exactly as fenced."""
+    exactly as fenced. An empty or all-blank fence body reads as None too (no usable floor), so the upgrade
+    path skips it exactly as the arrival path (_insert_floor) does — the two never diverge on a degenerate
+    empty floor the engine would never emit."""
     src = os.path.join(release_tree, root_rel)
     if not os.path.isfile(src):
         return None
     try:
-        return wiring.fence_read(validate.read(src), _FLOOR_FENCE, style=wiring.MD_FENCE)
+        body = wiring.fence_read(validate.read(src), _FLOOR_FENCE, style=wiring.MD_FENCE)
     except wiring.WiringError:
         return None   # a malformed release fence is no usable source → skipped, never a mid-upgrade crash
+    return body if (body and any(ln.strip() for ln in body)) else None
 
 
 def _merge_agents_floor(release_tree: str) -> str:
@@ -2999,7 +3002,11 @@ def _build_upgrade_release(root: str) -> str:
         if lines and lines[-1] == "":
             lines = lines[:-1]
         with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
-            fh.write(wiring.fence_apply("", _FLOOR_FENCE, lines, style=wiring.MD_FENCE))
+            # A DECOY line OUTSIDE the floor fence: the keyed-merge reads only the fence BODY (via fence_read),
+            # so this release-only content must NEVER travel into an adopter's guide. Asserting its absence is
+            # what gives the merge test real bite (a fence_read that grabbed the whole file would leak it).
+            fh.write(wiring.fence_apply("", _FLOOR_FENCE, lines, style=wiring.MD_FENCE)
+                     + "\n<!-- release-only content outside the floor fence; must never travel -->\n")
     # The committed FIXTURE namespace the copy-only overlay missed (#599 class 3) — delivered by the reconcile.
     os.makedirs(os.path.join(eng, "_fixtures", "probe"), exist_ok=True)
     with open(os.path.join(eng, "_fixtures", "probe", "bad_input.md"), "w", encoding="utf-8") as fh:
@@ -3164,7 +3171,7 @@ def upgrade_demo() -> bool:
     with tempfile.TemporaryDirectory() as d:
         live = os.path.join(d, "live")
         os.makedirs(live)
-        release = _build_upgrade_release(os.path.join(d, "release"))   # ships a v2 floor + a construction file
+        release = _build_upgrade_release(os.path.join(d, "release"))   # ships a v2 fenced floor + a decoy outside the fence
         with _redirect_root(live):
             _build_upgrade_fixture(live)
             claude_path = os.path.join(live, "CLAUDE.md")
@@ -3184,7 +3191,7 @@ def upgrade_demo() -> bool:
                 "the operator's content below the block survived": bottom in after,
                 "the new engine floor replaced the block": "Project status block, refreshed in v2." in after,
                 "the old engine floor is gone": "Old engine floor (v1)" not in after,
-                "the construction file did NOT overlay CLAUDE.md": "construction governance" not in after,
+                "only the fence BODY merged, not the release file's other content": "must never travel" not in after,
             }
             for label, good in cl_checks.items():
                 print(f"    [{'ok' if good else 'FAIL'}] {label}")

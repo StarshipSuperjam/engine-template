@@ -2720,7 +2720,6 @@ class TestArrive(unittest.TestCase):
             self.assertTrue(res["proceeded"])
             self.assertEqual(guide.count(wiring._MD_FENCE_BEGIN_TOKEN), 1)
             self.assertIn("How we work here.", guide)                 # operator content preserved
-            self.assertNotIn("construction governance", guide)        # the release's construction file never overlaid
             self.assertTrue(os.path.isfile(os.path.join(target, ".engine", "modules", "core", "manifest.json")))
             self.assertEqual(len(prs), 1)
             self.assertEqual(prs[0].get("repo"), "you/your-project")  # the PR is aimed at the TARGET's slug

@@ -3189,7 +3189,6 @@ def arrival_demo() -> bool:
             "the engine's files were overlaid onto the product": engine_landed and len(res["overlaid"]) > 0,
             "exactly one engine floor was inserted into the project's CLAUDE.md": floors == 1,
             "the project's own guide text was kept": "How we work here." in guide,
-            "the release's construction CLAUDE.md never overlaid the guide": "construction governance" not in guide,
             "the project's SECURITY file was left as it is": "security@ourproduct.example" in
                 _read_text_or(os.path.join(target, "SECURITY.md"), ""),
             "the project's README was left as it is": _MARKETING_SEED_MARKER not in

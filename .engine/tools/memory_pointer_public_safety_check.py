@@ -35,6 +35,8 @@ import validate  # noqa: E402
 import repo_identity  # noqa: E402  (is_home_repo — the shared origin==home seam this now gates on)
 
 POINTER_REL = ".engine/memory-backup/pointer.json"
+
+
 def _is_construction_repo() -> bool:
     """True iff this checkout is the engine's OWN home repo — its git origin equals the recorded
     `home_repository`, the non-inherited signal a downstream copy never carries. Delegates to the shared

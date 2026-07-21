@@ -2280,7 +2280,11 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False) ->
     # never enters the operator relay (the machinery-out-of-operator-narration rule): the operator sees the AI's
     # behaviour (plan gate, PR, deliverable gate), not this instruction. The runbook path appears only inside
     # this larger sentence, never as a bare string literal — the file is a retired first-run asset, and a
-    # standalone constant equal to its exact path would trip the first-run reference-closure check.
+    # standalone constant equal to its exact path would trip the first-run reference-closure check. Naming that
+    # retired path here is safe ONLY because home_workshop is STRICT-POSITIVE (first_run_health.detect_home_
+    # workshop fires solely on a confirmed origin==home, unlike is_home_repo's fail-toward-home): a deployed copy
+    # — where engine-development.md does not exist — never reaches this branch. A future change that loosened
+    # detect_home_workshop toward fail-toward-home would also un-gate this reference; keep it strict-positive.
     if s.get("home_workshop"):
         out.append(
             "GROUNDING (for you, not the operator — a deployed project never sees this): you are in the engine's "
