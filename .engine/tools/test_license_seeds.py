@@ -23,9 +23,9 @@ class TestSeedSetShape(unittest.TestCase):
         self.assertIsInstance(license_seeds.HISTORICAL_SEEDS, tuple)
         self.assertGreaterEqual(len(license_seeds.HISTORICAL_SEEDS), 1)
 
-    def test_v1_carries_exactly_one_member(self):
-        # v1 scoping (maintainer decision, #471): the current Apache-2.0 + Commons Clause seed only. A future
-        # relicense APPENDS — updating this count is the deliberate act that records the new era.
+    def test_carries_exactly_one_member(self):
+        # The set carries one member (maintainer decision, #471): the current Apache-2.0 + Commons Clause seed
+        # only. A relicense APPENDS a new seed — updating this count is the deliberate act that records the new era.
         self.assertEqual(len(license_seeds.HISTORICAL_SEEDS), 1)
 
 

@@ -36,7 +36,7 @@
       "items": { "$ref": "#/$defs/operation" }
     },
     "fallback": {
-      "description": "The default/fallback implementation this contract names, so the engine always has a working answer even with no module installed. For the v1 MCP-backed interfaces this is the engine-prefixed MCP server that ships as the conforming foundation floor; a richer module overrides it by presence at the same handle. The named fallback being present is what the conformance audit verifies; a protocol-only interface whose fallback ships with a later module names it here and is an expected pending state until that module lands.",
+      "description": "The default/fallback implementation this contract names, so the engine always has a working answer even with no module installed. For the v1 MCP-backed interfaces this is the engine-prefixed MCP server that ships as the conforming foundation floor; a richer module overrides it by presence at the same handle. The named fallback being present is what the conformance audit verifies; a protocol-only interface whose fallback ships with an optional module names it here and is an expected pending state until that module is installed.",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "handle"],

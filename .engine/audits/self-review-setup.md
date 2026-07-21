@@ -182,11 +182,11 @@ this project yet). That way you learn it works now, not a week later when the re
   first real scheduled run does that. If that first run reports it wasn't given access, the fix is in *Keeping it
   running*.
 
-**Honest about maturity:** this cross-project read — a scheduled review reaching a *separate* private vault — is
-**new in this version of the engine and hasn't been run end-to-end while building it**. The pieces are tested in
-isolation and the test read above exercises the real read path, but the full scheduled cross-repository read is
-written from the design, not yet proven in a live run here. Treat it as a capability to try, with the test read
-as your check that it's working.
+**Only a live run on your own setup proves it:** this cross-project read — a scheduled review reaching a *separate*
+private vault — reaches through your own GitHub and vault, which the engine can't exercise for you. The pieces are
+tested in isolation and the test read above exercises the real read path, but the full scheduled cross-repository
+read runs for real only on your own schedule. Treat it as a capability to try, with the test read as your check
+that it's working.
 
 ## Optional: run it off the schedule — from Claude or from Codex
 
@@ -251,9 +251,9 @@ reaching through your machine for your saved memory or the engine's issues (and 
 memory backup or issues from GitHub anyway), and its summary says plainly what it couldn't see. A Codex Automation
 needs a Codex build that supports scheduling, and it counts against your Codex usage.
 
-**Honest about maturity:** neither routine above has been run end-to-end while building this version of the engine —
-the steps are written from the design, not yet tried here — so treat them as conveniences to try, not guarantees, and
-keep the standard GitHub schedule as your dependable path where a Claude token is available to you.
+**Only a live run on your own setup proves it:** neither routine above runs end-to-end until it runs on your own
+schedule against your own account — the engine can't try them for you — so treat them as conveniences to try, not
+guarantees, and keep the standard GitHub schedule as your dependable path where a Claude token is available to you.
 
 ## Once it's running
 

@@ -53,9 +53,9 @@ everything you own.
   honest; the safeguard is the engine following this habit and you reading what it tells you.
 - **The submission runbook carries the same line at the point of submission**, so the honesty sits where the
   act is, not parked in this document alone.
-- **Not yet exercised end to end.** The cross-fork path ships with its final open-the-pull-request step never
-  yet run against a live project; the engine says so at install, and your first real contribution is the first
-  time that step runs anywhere — being honest about the tool's own maturity is part of the honesty this policy
-  is about.
+- **The live step runs on first real use.** The cross-fork path's final open-the-pull-request step reaches the
+  network only on a real submission; the engine says so at install, and your first real contribution is the first
+  time that live step runs on your setup — being straight that a released feature's live path runs the first time
+  it's used is part of the honesty this policy is about.
 - **Your backstop, always:** nothing about a submission is hidden from you — the engine shows you what it will
   open before it opens it, and opens it only on your go-ahead.

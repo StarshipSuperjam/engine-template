@@ -264,8 +264,8 @@ class TestVerifyAndDegrade(unittest.TestCase):
 class TestNeverWeakensProduct(unittest.TestCase):
     def test_product_ruleset_is_left_untouched(self):
         # A pre-existing product ruleset that doesn't meet the floor -> the engine adds its OWN, never
-        # mutating the product's (augment-never-weaken; in-place product augment is a deferred brownfield
-        # concern). The product ruleset survives unchanged; no PUT touches it.
+        # mutating the product's (augment-never-weaken; the engine does not augment the product's ruleset
+        # in place). The product ruleset survives unchanged; no PUT touches it.
         fake = FakeGitHub(floor_met=False, rulesets=[{"id": 7, "name": "team protections"}])
         cp(fake).apply(announce=quiet)
         self.assertIn("team protections", fake.names())            # product still present

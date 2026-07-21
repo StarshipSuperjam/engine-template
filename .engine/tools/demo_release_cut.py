@@ -12,7 +12,7 @@ tree — nothing here reimplements the tool, and every step asserts an outcome t
      byte-identical (so a version-only cut never trips the guard on the update home).
   5. ROLLBACK — a write whose validation fails leaves every file untouched (no split-brain).
   6. RELEASE-PR BODY — the propose + apply results render the maintainer's evidence bundle: the version
-     move, a legible readiness line (sub-bar, since no benchmark is built), the confirm/raise/reject
+     move, a legible readiness line (sub-bar, since no benchmark measures a release), the confirm/raise/reject
      guidance, and three readiness states that read distinct (the legibility invariant).
 
   uv run --directory .engine -- python tools/demo_release_cut.py

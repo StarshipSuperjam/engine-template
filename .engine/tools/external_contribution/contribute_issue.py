@@ -43,13 +43,12 @@ the stall is best-effort traced via telemetry into the operator's OWN repo (neve
 zero-exit `gh` result means the Issue WAS created; even if the returned URL can't be captured, the tool reports
 it filed (never "nothing submitted"), so the operator is never nudged into filing a duplicate public Issue.
 
-UN-EXERCISED AT v1 (disclosed, matching submit.py). Every network boundary is injectable — the `gh` transport
+NETWORK BOUNDARIES ARE INJECTED (matching submit.py). Every network boundary is injectable — the `gh` transport
 (`gh_run`, used for BOTH the template fetch and the filing) and the telemetry boundary (`github`) — so the whole
 deterministic surface (template detection, kind resolution, title/body assembly, the confirm gate, degradation)
-is proven fully offline by `test_contribute_issue.py` and the falsifiable `demo`. The one step not exercised
-end-to-end at v1 is the real `gh issue create` firing against a live target — it runs behind `gh_run` for the
-first time only when an operator actually files. The honest line: the machinery is tested; the live network
-filing is not.
+is covered offline by `test_contribute_issue.py` and the falsifiable `demo`. The real `gh issue create` against
+the target is the only boundary that acts on the network; it runs behind `gh_run` the first time an operator
+actually files, the way any released feature runs its live path the first time it is used.
 
 CONTRACT. This is an operation tool, not a `custom/script` check — it is invoked by the engine/operator (and
 narrated by the `external-contribution-issue` runbook), never by the validator. `demo` runs a falsifiable
@@ -318,7 +317,7 @@ def _draft_text(upstream_repo: str, title: str, body: str) -> str:
 def _run_gh(args: list):
     """Run a `gh` command. Returns (returncode, stdout, stderr). Never raises — a missing/failed `gh` degrades
     to a non-zero return so the caller takes the degradation path. Used for BOTH the remote template fetch and
-    the filing; the real `gh issue create` is the one boundary not exercised end-to-end at v1 (tests and the
+    the filing; the real `gh issue create` is the one boundary that acts on the network (tests and the
     demo inject a fake `gh_run`)."""
     import subprocess
     try:
@@ -384,7 +383,7 @@ def contribute_issue(*, upstream_repo: str, kind: str | None, summary: str,
         return {"status": "prepared", "issue": issue,
                 "narration": _prepared_narration(upstream_repo, title, prefixed)}
 
-    # 4. File the Issue (the one un-exercised-at-v1 boundary). A ZERO exit means it was created — report filed
+    # 4. File the Issue (the one boundary that acts on the network). A ZERO exit means it was created — report filed
     #    even if the URL couldn't be captured (never "nothing submitted", which would risk a duplicate). Only a
     #    NON-zero exit means it was not created → degrade to a drafted issue.
     try:

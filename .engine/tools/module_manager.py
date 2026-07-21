@@ -1184,7 +1184,7 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     to merge an engine self-update, so it speaks of an *update* (never a release/publish — that is the other
     direction), carries every shared-file outcome the update produced OR refused (a floor the update could not
     touch must never be invisible at the merge), and its Validation section claims only the consistency check
-    that actually ran before the update was opened — never a fuller CI pass the tail does not yet run.
+    that actually ran before the update was opened — never a fuller CI pass the tail does not run.
 
     Reuses release_cut's public template helpers (`pr_section`/`template_preamble`) — one preamble source, no
     second copy to drift from the gate's anchor phrases. Imported LAZILY: release_cut imports this module, so a
@@ -1890,8 +1890,8 @@ def _below_floor_refusal(deployed_release: str | None, release_tree: str) -> str
     return (f"This engine (release {dep}) is older than the oldest release that can update cleanly to this one "
             f"({floor}). An automatic update from a version this old can't fully tidy up the files that were "
             f"renamed or removed since then, so it would stop without opening a pull request. The engine is "
-            f"unchanged — stay on {dep} for now; a clean automatic path from a version this old isn't built yet. "
-            f"(If a previous update stopped half-applied, ask me to undo it.)")
+            f"unchanged — stay on {dep} for now; an automatic clean update from a release this old isn't "
+            f"available. (If a previous update stopped half-applied, ask me to undo it.)")
 
 
 def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
@@ -2204,7 +2204,7 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # have already overlaid. So if an update is interrupted AFTER the overlay but BEFORE the delete leg
         # removed a rename orphan, a plain re-run recomputes `old_owned` from the overlaid manifests and no
         # longer sees that orphan — the gate then keeps refusing. It fails SAFE (nothing merges); the recourse
-        # is the undo, then update again. A self-healing fix (persisting the pre-overlay set) is deferred.
+        # is the undo, then update again. A self-healing recovery (persisting the pre-overlay set) is not attempted.
         old_owned = sorted(set(module_coherence.engine_owned_paths(module_coherence.discover_manifests())))
         # PRE-FLIGHT the data-migration backup guard BEFORE any overlay (the half-state law): refuse the
         # WHOLE upgrade if a data migration in range has no backup seam — nothing is applied.

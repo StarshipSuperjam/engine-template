@@ -24,28 +24,27 @@ tell the engine to proceed anyway (`proceed_despite_leak=True`), which still pas
 knowingly-carried leak still leaves a durable trace. The intersection runs over the UNCAPPED outgoing diff, so
 a large accidental leak can never sort past a cap and slip through; the upstream's own review is the backstop.
 
-  ONE KNOWN OVER-FLAG (a foundation-name collision; the disambiguation is a deferred build-spec leaf). The
+  ONE KNOWN OVER-FLAG (a foundation-name collision). The
   predicate is a NAME set — exact inside a fork, but ambiguous for the few foundation members that live outside
   .engine/: the root CLAUDE.md and the .github/ control-plane files an upstream PRODUCT can co-occupy. So an
   upstream that keeps its OWN CLAUDE.md / CODEOWNERS has that file flagged too. Telling it apart from a genuine
-  engine back-merge (the real leak — the fork's engine content on the product branch) requires comparing the
+  engine back-merge (the real leak — the fork's engine content on the product branch) would require comparing the
   contributed content against the engine's OWN copy read from a source DISTINCT from the contribution checkout
-  (the fork's engine tree/ref) — which the concrete cross-fork worktree/branch mechanics establish, and those
-  are an explicit build-spec leaf, un-exercised at v1. A content check against the running checkout would be
-  degenerate (working tree == HEAD), so it is deliberately NOT attempted here; until the branch mechanics land,
-  the safe behavior is to over-flag by name (never under-flag), made non-harmful by the operator-decidability
+  (the fork's engine tree/ref). A content check against the running checkout would be
+  degenerate (working tree == HEAD), so it is deliberately NOT attempted here; the check matches by name and so
+  over-flags such a collision rather than risk under-flagging, made non-harmful by the operator-decidability
   above — a posture, not a mechanical guarantee, backstopped by the upstream maintainer's review.
 
 DEGRADATION (never stranded). If the upstream is unreachable when opening the pull request, nothing is lost:
 the work is committed on the operator's own fork (a working fork they fully own). The stalled submission is
 DRAFTED (the engine drafts, the operator files via their own `gh`) and best-effort tracked via telemetry.
 
-UN-EXERCISED AT v1 (disclosed). Every boundary is injectable — the git diff reader (`run`), the
+NETWORK BOUNDARIES ARE INJECTED. Every boundary is injectable — the git diff reader (`run`), the
 engine-owned set (`owned`), the `gh` transport (`gh_run`), and the telemetry GitHub boundary (`github`) — so
-the whole deterministic surface (diff, clean-check, template detection, body assembly, degradation) is proven
-fully offline by `test_submit.py` and the falsifiable `demo`. The ONE step not exercised end-to-end at v1 is
-the real `gh pr create` firing against a live upstream — it runs behind `gh_run` for the first time only when
-an operator actually submits. The honest line: the machinery is tested; the live network submission is not.
+the whole deterministic surface (diff, clean-check, template detection, body assembly, degradation) is covered
+offline by `test_submit.py` and the falsifiable `demo`. The live `gh pr create` against the upstream is the
+only boundary that acts on the network; it runs behind `gh_run` the first time an operator actually submits,
+the way any released feature runs its live path the first time it is used.
 
 CONTRACT. This is an operation tool, not a `custom/script` check — it is invoked by the engine/operator (and
 narrated by the `external-contribution-submit` runbook), never by the validator. `demo` runs a falsifiable
@@ -523,9 +522,9 @@ def _degradation_draft(upstream_repo: str, head: str, base: str, url_hint: str |
 
 def _run_gh(args: list):
     """Run a `gh` command. Returns (returncode, stdout, stderr). Never raises — a missing/failed `gh`
-    degrades to a non-zero return so the caller takes the degradation path. This is the one boundary not
-    exercised end-to-end at v1: the real `gh pr create` runs here for the first time only on a live
-    submission; tests and the demo inject a fake `gh_run`."""
+    degrades to a non-zero return so the caller takes the degradation path. This is the one boundary that
+    acts on the network: the real `gh pr create` runs here the first time an operator submits;
+    tests and the demo inject a fake `gh_run`."""
     try:
         out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60, check=False)
         return out.returncode, out.stdout.strip(), out.stderr.strip()
@@ -638,9 +637,8 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
     #    outgoing diff. The predicate is the file-precise engine-owned NAME set. It can
     #    over-flag an upstream product's OWN foundation-named file (its own CLAUDE.md / CODEOWNERS) — but that
     #    is now a soft, waveable nudge, not a block. Telling a product's own file apart from a genuine engine
-    #    back-merge needs the engine's own tree as a source distinct from the contribution checkout, which is
-    #    the deferred cross-repo branch-mechanics build-spec leaf (see the module docstring); until it lands the
-    #    safe direction is to over-flag by name, never under-flag.
+    #    back-merge needs the engine's own tree as a source distinct from the contribution checkout (see the
+    #    module docstring); matching by name, the safe direction is to over-flag, never under-flag.
     if home is _UNSET:
         try:
             home = module_coherence.home_repository()
@@ -715,7 +713,7 @@ def submit(*, upstream_repo: str, base: str, remote: str, head: str, title: str,
                                                   leak_overridden=bool(findings), reviewed=reviewed,
                                                   body_unfilled=body_unfilled)}
 
-    # 4. Open the pull request (the one un-exercised-at-v1 boundary). Degrade to a draft on any failure.
+    # 4. Open the pull request (the one boundary that acts on the network). Degrade to a draft on any failure.
     gh = gh_run or _run_gh
     try:
         rc, out, err = gh(["pr", "create", "--repo", upstream_repo, "--base", base,

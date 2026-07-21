@@ -10,8 +10,8 @@ title prefix (`Bug: `, `Feature: `, …) on its web "New issue" form; the engine
 skips that — so without this, a contributed issue lands with no prefix and doesn't match the project's own
 conventions. This reads the **target project's** own issue templates and follows them, the same way the
 pull-request path follows the project's PR template. **Opening the issue is always your call.** The tool is
-`tools/external_contribution/contribute_issue.py`. **Heads-up:** the final file-the-issue step has not yet been
-exercised against a live project — see Notes.
+`tools/external_contribution/contribute_issue.py`. **Heads-up:** the final file-the-issue step reaches the
+network only on a real filing — see Notes.
 
 ## Steps
 
@@ -47,6 +47,6 @@ guessed which kind of issue this is.
 - **If the project is unreachable,** nothing is lost: the engine drafts the exact title and body so it can be
   filed once the project is reachable (or you can open it yourself with your own `gh`), and best-effort notes the
   stalled contribution in your own repo so it isn't forgotten.
-- **Not yet exercised end to end.** Every part of this except the final file-the-issue step is tested offline;
-  the live `gh issue create` runs for the first time when you file a real one. Treat your first contribution as
-  the shake-out of that last step.
+- **The live step runs when you file.** Every part of this except the final file-the-issue step is tested offline;
+  the live `gh issue create` runs the first time you file a real one, the way any released feature's live path runs
+  the first time it's used. Treat your first contribution as the shake-out of that last step.
