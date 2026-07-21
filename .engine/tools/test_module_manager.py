@@ -2179,6 +2179,50 @@ def _git(root, *args):
     return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
 
 
+class TestUpgradeFloorPreflight(unittest.TestCase):
+    """#599 Slice 4: the clean-upgrade floor refuses a below-floor engine cleanly (pre-overlay) and fails OPEN
+    on absent/dev/unparseable inputs so it never blocks a legitimate update. The refusal names both versions and
+    routes to the undo — it promises no unsupported recovery."""
+
+    def _release_tree(self, d, floor):
+        tree = os.path.join(d, "rel")
+        os.makedirs(os.path.join(tree, ".engine"))
+        eng = {"engine_release": "9.9.9", "packages": {}, "identity": "solo"}
+        if floor is not None:
+            eng["min_upgradeable_from"] = floor
+        module_manager._write_json(os.path.join(tree, ".engine", "engine.json"), eng)
+        return tree
+
+    def test_below_floor_returns_a_refusal_naming_both_versions_and_routing_to_undo(self):
+        with tempfile.TemporaryDirectory() as d:
+            reason = module_manager._below_floor_refusal("0.2.0", self._release_tree(d, "0.3.2"))
+            self.assertIsNotNone(reason)
+            self.assertIn("0.2.0", reason)
+            self.assertIn("0.3.2", reason)
+            self.assertIn("engine is unchanged", reason.lower())
+            self.assertIn("undo", reason.lower())                      # routes to the real, built recovery
+            self.assertNotIn("re-instantiate", reason.lower())         # never the unsupported recovery
+            self.assertNotIn("re-create", reason.lower())
+
+    def test_at_or_above_floor_proceeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            tree = self._release_tree(d, "0.3.2")
+            self.assertIsNone(module_manager._below_floor_refusal("0.3.2", tree))   # equal -> proceed
+            self.assertIsNone(module_manager._below_floor_refusal("0.4.0", tree))   # above -> proceed
+
+    def test_absent_floor_or_absent_manifest_proceeds(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(module_manager._below_floor_refusal("0.1.0", self._release_tree(d, None)))  # no floor
+            self.assertIsNone(module_manager._below_floor_refusal("0.1.0", d))      # no .engine/engine.json at all
+
+    def test_dev_absent_or_unparseable_deployed_version_proceeds(self):
+        # validate._ver_tuple coerces junk to a low tuple; an explicit guard must stop that reading as below-floor.
+        with tempfile.TemporaryDirectory() as d:
+            tree = self._release_tree(d, "0.3.2")
+            for dep in ("0.0.0-dev", "0.0.0", "", None, "garbage", "not.a.version"):
+                self.assertIsNone(module_manager._below_floor_refusal(dep, tree), dep)
+
+
 def _init_repo(root):
     """A throwaway git repo with the fixture engine committed as the pre-update baseline (branch `main`)."""
     _git(root, "init", "-b", "main")
