@@ -1730,21 +1730,20 @@ class TestConstructionClaudeRecognizer(unittest.TestCase):
         self.assertFalse(inst._is_construction_claude(mentions))
 
     def test_marker_is_identical_to_the_construction_repo_sentinel_marker(self):
-        # Four copies of the "construction governance" marker constant exist (self-contained per-tool, so
-        # extraction never forces a guarded-file edit); this binds them so the marker-READERS cannot silently
-        # drift. #323 Slice 1 re-keyed the two scope CHECKS (memory_pointer / census) onto the shared
-        # origin==home seam (repo_identity.is_home_repo), so their gate no longer reads this marker — they retain
-        # the constant only as the shared source that license_health and greenfield_intake import, and for this
-        # binding, until the marker itself is retired with the deployed-floor promotion. The still-LIVE marker
-        # readers are the floor-swap recognizer (inst._is_construction_claude) and the bite-harness
-        # (hcb._is_construction_root); a drift between those would let one swap/excuse a file the other still
-        # treats as the construction repo, so they must stay byte-identical.
+        # The "construction governance" marker constant is byte-bound across the tools that still READ it, so a
+        # marker reader cannot silently drift. #323 re-keyed the three home-scoped CHECKS — memory_pointer,
+        # census, AND the bite-harness (hard_check_bite) — onto the shared origin==home seam
+        # (repo_identity.is_home_repo), so none of them reads this marker any more; the bite-harness dropped its
+        # constant entirely. The still-LIVE marker readers are the floor-swap recognizer
+        # (inst._is_construction_claude, via inst._CONSTRUCTION_CLAUDE_MARKER) and license_health /
+        # greenfield_intake (which import memory_pointer_public_safety_check._CONSTRUCTION_MARKER) — those two
+        # constants must stay byte-identical or a floor swap and a leftover-LICENSE/brownfield read could
+        # disagree about the same file. census retains its constant only as a retired-in-the-next-slice binding
+        # (no reader); it is pinned here so it can't quietly diverge before removal.
         import memory_pointer_public_safety_check as sentinel
         import census_completeness_check as census
-        import hard_check_bite_check as hcb
         self.assertEqual(inst._CONSTRUCTION_CLAUDE_MARKER, sentinel._CONSTRUCTION_MARKER)
         self.assertEqual(census._CONSTRUCTION_MARKER, sentinel._CONSTRUCTION_MARKER)
-        self.assertEqual(hcb._CONSTRUCTION_MARKER, sentinel._CONSTRUCTION_MARKER)
 
 
 class TestSeedDeployedFloor(unittest.TestCase):

@@ -7040,7 +7040,7 @@
       },
       "slug": "hard_check_bite_check",
       "source": {
-        "fingerprint": "sha256:f2727cca7b40bda000dfebbff3d8fea8fa0d91b84da562d2105be8a6d48f1603",
+        "fingerprint": "sha256:e3c1f44eabe7301b5d16492523d5fad8595bb32b4d08542dba6a314392b6c9bb",
         "path": ".engine/tools/hard_check_bite_check.py"
       },
       "status": "active",
@@ -7125,7 +7125,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:530ccacdbb0acdc3f20a3f000e4e355f2a1a78785fef5d3135083604b3e91dcf",
+        "fingerprint": "sha256:743cc85c910c28c9b3c07eb6ff757b33ee3bc544f329bd77875f4bc33ed9abed",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -7812,6 +7812,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:recall_benchmark",
+      "name": ".engine/tools/recall_benchmark.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "recall_benchmark",
+      "source": {
+        "fingerprint": "sha256:4bfe883bebc23ee3f85be1038dfb128b47e7aa4af7e419b9b3da61c0fce1116f",
+        "path": ".engine/tools/recall_benchmark.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:records",
       "name": ".engine/tools/memory/records.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -7907,7 +7924,7 @@
       },
       "slug": "repo_identity",
       "source": {
-        "fingerprint": "sha256:515146cc104652c12faea3f5983017d8e9c4336360f52d0194a837270d187417",
+        "fingerprint": "sha256:1d04a928ed1d6ff043cce7b4a5a43ca6468a78583548e9dc9f921861341cacda",
         "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
@@ -9080,7 +9097,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:1b7a36ca5652a55492123b179c42f19e0e870556efbb6037cd31b8eaf7f2e335",
+        "fingerprint": "sha256:a3dd1cfcc00ad95ec5c20d793913b6146cb175b3c653f330db4755418017858b",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -9148,7 +9165,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:ea9fe417739ccf5ebe237c37bf461f807de0f11e4dbd7fc498e7d16a59200808",
+        "fingerprint": "sha256:846c9b4f113cc2515053294f638418707e41041455401d2af3de3117a7d1d258",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9767,6 +9784,23 @@
       "type": "tool"
     },
     {
+      "id": "tool:test_recall_benchmark",
+      "name": ".engine/tools/test_recall_benchmark.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_recall_benchmark",
+      "source": {
+        "fingerprint": "sha256:6acc7f8e8a8e91daf338970404d7f4fc8850c0427b5bf809bcf9dd2c342ac5b0",
+        "path": ".engine/tools/test_recall_benchmark.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
       "id": "tool:test_records",
       "name": ".engine/tools/memory/test_records.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -9845,7 +9879,7 @@
       },
       "slug": "test_repo_identity",
       "source": {
-        "fingerprint": "sha256:aff6f1381e706d0f5a0b2ecb8b81f9c2722d71924e8fa74e568ddaff3374a0d6",
+        "fingerprint": "sha256:3db9d1cc7a505de5fc8dfbe8e8d5a5d4450c54f036c6ce29aff048c97cd2b819",
         "path": ".engine/tools/test_repo_identity.py"
       },
       "status": "active",

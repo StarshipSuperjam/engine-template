@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,13 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import repo_identity  # noqa: E402
+
+
+def _mkdtemp(case: unittest.TestCase) -> str:
+    """A throwaway dir that is removed when the test finishes (no accumulation in the system temp)."""
+    d = tempfile.mkdtemp()
+    case.addCleanup(lambda: shutil.rmtree(d, ignore_errors=True))
+    return d
 
 HOME = "StarshipSuperjam/engine-template"
 _MARKER = "# engine-template — construction governance\n"
@@ -57,7 +65,7 @@ def _repo(tmp: str, name: str, *, origin: "str | None", home: "str | None" = HOM
 
 class TestIsHomeRepo(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = _mkdtemp(self)
 
     def test_home_when_origin_equals_home(self):
         repo = _repo(self.tmp, "home", origin=f"https://github.com/{HOME}.git")
@@ -112,7 +120,7 @@ class TestIsHomeRepo(unittest.TestCase):
 
 class TestOriginSlug(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = _mkdtemp(self)
 
     def test_reads_the_on_disk_remote(self):
         repo = _repo(self.tmp, "r", origin="https://github.com/owner/name.git")
@@ -125,6 +133,26 @@ class TestOriginSlug(unittest.TestCase):
     def test_none_on_a_non_github_remote(self):
         repo = _repo(self.tmp, "r", origin="https://gitlab.com/owner/name.git")
         self.assertIsNone(repo_identity.origin_slug(repo))
+
+    def test_rejects_look_alike_hosts(self):
+        # The host is anchored to the scheme/userinfo boundary: a look-alike host that merely ENDS in or
+        # CONTAINS "github.com" must not mis-parse into a slug slug_eq would then read as home.
+        for i, url in enumerate((
+            "https://notgithub.com/evil/repo.git",
+            "https://evilgithub.com/StarshipSuperjam/engine-template.git",
+            "https://gitlab.com/github.com/foo/bar.git",  # github.com as a path segment under another host
+        )):
+            repo = _repo(self.tmp, f"la{i}", origin=url)
+            self.assertIsNone(repo_identity.origin_slug(repo), f"{url} must not parse to a slug")
+
+    def test_accepts_the_real_transports(self):
+        for i, (url, want) in enumerate((
+            ("https://github.com/owner/name.git", "owner/name"),
+            ("git@github.com:owner/name.git", "owner/name"),
+            ("ssh://git@github.com/owner/name", "owner/name"),
+        )):
+            repo = _repo(self.tmp, f"ok{i}", origin=url)
+            self.assertEqual(repo_identity.origin_slug(repo), want, url)
 
 
 class TestSlugPrimitives(unittest.TestCase):
@@ -148,13 +176,13 @@ class TestSlugPrimitives(unittest.TestCase):
         self.assertFalse(repo_identity.is_downstream_copy("adopter/product", None))
 
     def test_home_repository_reads_the_manifest(self):
-        tmp = tempfile.mkdtemp()
+        tmp = _mkdtemp(self)
         repo = _repo(tmp, "r", origin=None, home="owner/name")
         self.assertEqual(repo_identity.home_repository(repo), "owner/name")
 
     def test_home_repository_raises_on_a_malformed_manifest(self):
         # The fail-LOUD contract the update path (module_manager/overlay_disclosure/release_cut) relies on.
-        tmp = tempfile.mkdtemp()
+        tmp = _mkdtemp(self)
         repo = _repo(tmp, "r", origin=None)
         with open(os.path.join(repo, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
             fh.write("{ not valid json ")

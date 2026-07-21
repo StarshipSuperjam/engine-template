@@ -36,8 +36,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402  (ROOT + load_json — the one JSON reader, fail-loud on a malformed manifest)
 
 _ENGINE_MANIFEST_REL = ".engine/engine.json"
-# `owner/repo` out of an https or ssh GitHub remote URL, tolerating a trailing `.git` and/or slash.
-_GITHUB_SLUG_RE = re.compile(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$")
+# `owner/repo` out of an https or ssh GitHub remote URL, tolerating a trailing `.git` and/or slash. The host is
+# ANCHORED to the scheme/userinfo boundary (`//github.com`, `git@github.com`, or a bare-start `github.com`) so a
+# look-alike host — `notgithub.com/evil/repo`, `evilgithub.com/owner/repo`, or a `github.com` path segment under
+# another host — cannot mis-parse into a slug that `slug_eq` would then read as the engine's home.
+_GITHUB_SLUG_RE = re.compile(r"(?:^|@|//)github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$")
 
 
 def _run(args: list) -> "str | None":
