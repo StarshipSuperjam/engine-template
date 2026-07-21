@@ -789,9 +789,9 @@ class TestPersistedDefaultBranch(unittest.TestCase):
 
 
 class TestProductBuildTarget(unittest.TestCase):
-    """The engine-mechanic executable build target (eADR-0026): the fail-closed origin-match belt, the manifest
-    reader, and the two-state per-machine path resolver. The belt is the last line of defence behind the
-    guardrail-ack — it must DENY on any doubt, never quietly pass."""
+    """The engine-mechanic executable build target readers (eADR-0026): the manifest reader and the two-state
+    per-machine path resolver. The fail-closed origin-match belt itself moved to mechanic_build.py (the guarded
+    gate); its tests live in test_mechanic_build.py. These readers stay fail-soft-quiet."""
 
     def _write_manifest(self, root: str, obj: dict) -> None:
         with open(os.path.join(root, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
@@ -813,31 +813,6 @@ class TestProductBuildTarget(unittest.TestCase):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-
-    def test_belt_true_on_matching_origin_normalized(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = _repo(tmp, "co")
-            _git(root, "remote", "add", "origin", "git@github.com:StarshipSuperjam/engine-template.git")
-            self.assertTrue(checkout_health.product_checkout_matches("StarshipSuperjam/engine-template", root))
-            # slug_eq normalizes case / .git — an SSH-vs-HTTPS-vs-case skew still matches
-            self.assertTrue(checkout_health.product_checkout_matches("starshipsuperjam/Engine-Template", root))
-
-    def test_belt_false_on_mismatch(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = _repo(tmp, "co")
-            _git(root, "remote", "add", "origin", "https://github.com/evil/look-alike.git")
-            self.assertFalse(checkout_health.product_checkout_matches("StarshipSuperjam/engine-template", root))
-
-    def test_belt_fails_closed_on_missing_inputs(self):
-        # assertIs(..., False), NOT assertFalse: the load-bearing invariant is "False, NEVER None" — a None
-        # return would flip the belt fail-OPEN. assertFalse(None) passes, so it would not catch that regression.
-        with tempfile.TemporaryDirectory() as tmp:
-            root = _repo(tmp, "co")  # no origin remote configured
-            self.assertIs(checkout_health.product_checkout_matches("o/r", root), False)   # unreadable origin
-            self.assertIs(checkout_health.product_checkout_matches("", root), False)      # blank slug
-            self.assertIs(checkout_health.product_checkout_matches(None, root), False)    # None slug
-            self.assertIs(checkout_health.product_checkout_matches("o/r", ""), False)     # blank path
-            self.assertIs(checkout_health.product_checkout_matches("o/r", os.path.join(tmp, "nope")), False)
 
     def test_recorded_target_reads_manifest_and_absent_is_none(self):
         with tempfile.TemporaryDirectory() as tmp:

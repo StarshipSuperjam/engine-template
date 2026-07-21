@@ -577,6 +577,15 @@ class TestWeakeningClassifier(unittest.TestCase):
                   ".engine/tools/wiring.py", ".engine/tools/security_floor.py"):
             self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
 
+    def test_mechanic_build_gate_is_floored(self):
+        # The engine-mechanic cross-repo-write gate (eADR-0026): its fail-closed, host-anchored belt authorizes
+        # running a SEPARATE checkout's own tools and opening a PR against it — a live runtime gate with NO
+        # on-disk floored correlate, so it MUST route through the guardrail-ack. Pinned so a future edit that drops
+        # it from _FLOOR_ENFORCEMENT_HOOKS is caught here. Its checkout_health readers stay UNGUARDED (fail-soft
+        # reporters, not the authorizing gate).
+        self.assertTrue(weakening_guard.is_guardrail(".engine/tools/mechanic_build.py", derived_scripts=frozenset()))
+        self.assertFalse(weakening_guard.is_guardrail(".engine/tools/checkout_health.py", derived_scripts=frozenset()))
+
     def test_non_gate_tooling_is_not_guarded(self):
         # The over-firing the narrowing fixes: benign tools (boot, memory, telemetry, status, the self-review renderer,
         # attention) are NOT guarded when the derived set does not name them — the whole point of the narrowing.

@@ -179,7 +179,9 @@ def repo_slug() -> str | None:
     url = _run(["git", "remote", "get-url", "origin"])
     if not url:
         return None
-    m = re.search(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?$", url)
+    # host-anchored: github.com must be the URL host (after an optional scheme and optional `user@`), never a
+    # substring of a look-alike (notgithub.com, github.com.evil.com) — a mis-parsed slug would target the wrong repo.
+    m = re.search(r"^(?:(?:https?|ssh)://)?(?:[^@/]+@)?github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", url.strip())
     return m.group(1) if m else None
 
 

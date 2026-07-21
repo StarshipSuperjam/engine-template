@@ -120,6 +120,14 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     ".engine/tools/codex_gen.py",      # renders the reviewer permission floors (read-only sandbox, policy files)
     #                                    the codex coherence checks then verify — weakening the renderer weakens
     #                                    what "in sync" means
+    ".engine/tools/mechanic_build.py", # the engine-mechanic cross-repo-write gate (eADR-0026): its fail-closed,
+    #                                    host-anchored belt (product_checkout_matches) authorizes running a
+    #                                    SEPARATE checkout's own .engine tools and opening a PR against it — a
+    #                                    weakening (fail-open on doubt, or an unanchored host parse accepting a
+    #                                    look-alike origin) is local code execution + a write to the wrong repo,
+    #                                    with NO on-disk floored correlate any check catches. A unit test is the
+    #                                    wrong instrument (the same PR can flip the belt AND its test), so a change
+    #                                    here routes through the guardrail-ack, like modes.py / close.py.
 )
 # Traveling security-floor provisions — NOT enforcement gates (they check nothing and gate no merge), so they
 # do not belong with _FLOOR_ENFORCEMENT_CONFIG above. They are the git-native security floor the control plane

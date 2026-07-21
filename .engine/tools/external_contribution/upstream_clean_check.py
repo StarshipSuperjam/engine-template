@@ -3,7 +3,7 @@
 (the external-contribution module's *soft* upstream-clean nudge).
 
 What it does: when the Engine contributes to a product repository the operator does NOT own (an open-source
-upstream, or the engine-mechanic building engine-template), the outgoing contribution must carry only the
+upstream, or engine-template reached by a fork-native deployment escalating an engine fix), the outgoing contribution must carry only the
 product's files — never the Engine's own committed files. This inspector intersects the outgoing diff's
 changed paths with the file-precise engine-owned path set and warns, in plain language, if any engine-owned
 path is about to ride along into the upstream pull request: it names the offending files, why it matters,

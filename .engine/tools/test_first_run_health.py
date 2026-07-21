@@ -110,6 +110,14 @@ class TestDetectFirstRunPending(unittest.TestCase):
         repo = _repo(self.tmp, "skew", origin="git@github.com:starshipsuperjam/Engine-Template.git")
         self.assertIsNone(first_run_health.detect_first_run_pending(cwd=repo))
 
+    def test_look_alike_host_origin_is_not_a_slug(self):
+        # Host anchor (defense-in-depth): an origin on a look-alike host that merely CONTAINS "github.com"
+        # (notgithub.com) must NOT parse to a real slug — else a copy there could be mis-placed as the home.
+        repo = _repo(self.tmp, "lookalike", origin="https://notgithub.com/starshipsuperjam/engine-template.git")
+        self.assertIsNone(first_run_health._origin_slug(repo))
+        self.assertIsNone(first_run_health._origin_slug(_repo(self.tmp, "evil2",
+                          origin="https://github.com.evil.com/starshipsuperjam/engine-template.git")))
+
     def test_resolves_the_main_checkout_from_a_linked_worktree(self):
         main = _repo(self.tmp, "main", origin="https://github.com/adopter/their-product.git")
         wt = os.path.join(self.tmp, "wt")

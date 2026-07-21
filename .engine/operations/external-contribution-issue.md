@@ -5,7 +5,9 @@ title: File an issue on a project you contribute to — following that project's
 ## Purpose
 
 How the engine opens an **issue** on a project you contribute to — an open-source project you've forked, or (the
-special case) engine-template itself, which the engine-mechanic contributes to. GitHub only fills an issue's
+special case) engine-template itself, when a fork-native deployment escalates an engine fix to it. (The
+engine-MECHANIC, which OWNS its engine-template product as a separate checkout, files directly on its own
+checkout — it does not need this un-owned-contribution path.) GitHub only fills an issue's
 title prefix (`Bug: `, `Feature: `, …) on its web "New issue" form; the engine files programmatically, which
 skips that — so without this, a contributed issue lands with no prefix and doesn't match the project's own
 conventions. This reads the **target project's** own issue templates and follows them, the same way the
