@@ -24,6 +24,7 @@ from unittest import mock
 
 import first_run_health
 import module_coherence
+import repo_identity  # the dependency-light home-repo identity seam is_downstream_copy now lives in
 
 HOME = "StarshipSuperjam/engine-template"
 
@@ -140,8 +141,9 @@ class TestIsDownstreamCopy(unittest.TestCase):
 
     def test_malformed_manifest_home_degrades_to_not_a_copy(self):
         # The fail-soft path: when home defaults (None passed) and home_repository() RAISES on a corrupt
-        # manifest, the predicate returns False rather than crashing its read-only caller.
-        with mock.patch.object(module_coherence, "home_repository", side_effect=ValueError("corrupt")):
+        # manifest, the predicate returns False rather than crashing its read-only caller. is_downstream_copy
+        # resolves home_repository in repo_identity's namespace (its single home), so the patch targets there.
+        with mock.patch.object(repo_identity, "home_repository", side_effect=ValueError("corrupt")):
             self.assertFalse(module_coherence.is_downstream_copy("adopter/their-product"))
 
 

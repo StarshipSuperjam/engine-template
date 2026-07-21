@@ -4207,7 +4207,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:7fcd8015b263a88bd1c414b18dc52343726298b48b15ccb8f42cc1ce9a809b38",
+        "fingerprint": "sha256:cb745054d06a1238ded817f74a7cfa2bd53695d43f2a689b59818f39e4fdca82",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -4227,7 +4227,7 @@
       },
       "slug": "external-contribution-issue",
       "source": {
-        "fingerprint": "sha256:0bccfc206aa018e8cc6d8ce71db93f1baefe27eb09a289d5a9ded36c5d7cdc08",
+        "fingerprint": "sha256:116d4e017dd2422a29b3c94bf34141ccc50a2ba0a3d0a8be52c4895f32666608",
         "path": ".engine/operations/external-contribution-issue.md"
       },
       "status": "active",
@@ -4247,7 +4247,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:f415e746dc5f7442593061fdb97656b5159fa6389525de1cd95f2ef422f581df",
+        "fingerprint": "sha256:5fdbaa3423adc752af8244e8611db1aa48227ade9820b7cb66fe61047d2b732b",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -4467,7 +4467,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:92b2bd09b8051a51c3d4a625010ceb70272fb5ddf1a255f5692936331081207a",
+        "fingerprint": "sha256:bbad23657094725aaeb93285af5beadbabdb06b7a3dcb3151a2a4ce974efe7aa",
         "path": ".engine/policies/attention.md"
       },
       "status": "active",
@@ -4551,7 +4551,7 @@
       },
       "slug": "external-contribution",
       "source": {
-        "fingerprint": "sha256:7d434a4a3f16d5988c112c02f811846f2914029d3c7cafdba8c28c53ac991c22",
+        "fingerprint": "sha256:267a625e288c2a33ac13457914635a3fcb9d40ec1a657cb61fc6b759fc42cfcf",
         "path": ".engine/policies/external-contribution.md"
       },
       "status": "active",
@@ -4724,7 +4724,7 @@
       },
       "slug": "audit-finding.v1",
       "source": {
-        "fingerprint": "sha256:792f40706e0ee10408bf308d7a17fd52d6fe6f5b32f7117bc095b91e416bab0f",
+        "fingerprint": "sha256:765a74aa39010cd72c149e7a205bea2104e8c362fe4b76de55578a630f8ce601",
         "path": ".engine/schemas/audit-finding.v1.json"
       },
       "status": "active",
@@ -4962,7 +4962,7 @@
       },
       "slug": "interface.v1",
       "source": {
-        "fingerprint": "sha256:52073f39fea0c0a5159be2ac83f20325e046dea62306735bb413dd784af68216",
+        "fingerprint": "sha256:9aed92f1a9b34679098d9e89931e6a66431d8538c43970553a56d63a623cabe7",
         "path": ".engine/schemas/interface.v1.json"
       },
       "status": "active",
@@ -5030,7 +5030,7 @@
       },
       "slug": "plan-review-finding.v1",
       "source": {
-        "fingerprint": "sha256:7fa83852d1f54f8c3c29169457df87be00afc68df5a6687eb4098ec8a1543b0b",
+        "fingerprint": "sha256:f7c8805b726537fde4408ad1817e63a9149f19d5cccde52125b111c52ffde9cd",
         "path": ".engine/schemas/plan-review-finding.v1.json"
       },
       "status": "active",
@@ -5064,7 +5064,7 @@
       },
       "slug": "pre-submission-review-finding.v1",
       "source": {
-        "fingerprint": "sha256:38f58f09541707001af5e806024890dd157c78b0d865127edeccff6e2025653f",
+        "fingerprint": "sha256:9fa5ddd05e068295fde408c16b80fcb40e99eaae791da4593d139fdb9ef377bb",
         "path": ".engine/schemas/pre-submission-review-finding.v1.json"
       },
       "status": "active",
@@ -5527,7 +5527,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:1b0228f2e17a2294c0452b58758dc3aa62777229c9cd7bcf4506d54c8212bd1c",
+        "fingerprint": "sha256:e3fb41d3fb9dd9556b91f1291896a5aeb93474305cd6d329cb255508eee8b03e",
         "path": ".engine/tools/attention.py"
       },
       "status": "active",
@@ -5629,7 +5629,7 @@
       },
       "slug": "audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:80de5761072f82605ff5b58d69bfe94897035e0408075870d8b15ec8e1c14399",
+        "fingerprint": "sha256:61690f88510fad9dceeccca799fb4c5f5d1f89560a3e3e8d36378b102767f2e8",
         "path": ".engine/tools/audit_soft_promote.py"
       },
       "status": "active",
@@ -5697,7 +5697,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:0de52de2ff08caaaeefb58e16eda05bcc77acb3c045a2c98f40282470353c72f",
+        "fingerprint": "sha256:54f12854902f3870b0152453a6c772ed03b66d862af695f8935b10b4560149d2",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -5935,7 +5935,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:20bf85484c7ef0eec0fa6f3873406388d423cc16edea1809d9d7a03463cc854b",
+        "fingerprint": "sha256:21e9b9a2fb64eb2b2085c130a48780a4113ae763fe076e7290d44796a3c9945b",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -6020,7 +6020,7 @@
       },
       "slug": "contribute_issue",
       "source": {
-        "fingerprint": "sha256:497091876c28ccd892f816d1a29b2a6e534c89b370fc2108113530544abc00a7",
+        "fingerprint": "sha256:0c9ddb604e84473ae64c060ddbfef8fd5dfc511cf015e2123da38b8a6a5935ba",
         "path": ".engine/tools/external_contribution/contribute_issue.py"
       },
       "status": "active",
@@ -6564,7 +6564,7 @@
       },
       "slug": "demo_release_cut",
       "source": {
-        "fingerprint": "sha256:d588cffc6a0aef29762ddbe4168c589e9928202c77fded8a279b873f6e00ebc7",
+        "fingerprint": "sha256:38b9b4d14f6bc362c28229a8f72eafd0b9d9183ef16734c865fab6503978aaba",
         "path": ".engine/tools/demo_release_cut.py"
       },
       "status": "active",
@@ -7363,7 +7363,7 @@
       },
       "slug": "license_seeds",
       "source": {
-        "fingerprint": "sha256:1a652537c342c3a7aa6d9b46b046497a748e6608d4c1dfd23566c892f5ce2a93",
+        "fingerprint": "sha256:9cf1c0cd04fd0e619bca775f68029d1a547a14ed432e40f3281bbc333adfb61e",
         "path": ".engine/tools/license_seeds.py"
       },
       "status": "active",
@@ -7516,7 +7516,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:9d4a5746564406008a76418a3e929430fc1c774ca66c9d8c129e540af255e739",
+        "fingerprint": "sha256:bdd11df7a22ef54d89ae1d331e04f38c87b05fc1c3661fa8b7f9255645a05f4e",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -7533,7 +7533,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:5c5189728e4dea149f4e39461858d05f9d007f26509e55d235d522fe973db332",
+        "fingerprint": "sha256:542e64e3a66b358c52ffa0760300463f60c3b73a408c4f0a85195faa470cc92b",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -7839,7 +7839,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:a330d56390fcbe2f37bd9b141dd6728e205dd82296c0d1e262dc3d3c565e5163",
+        "fingerprint": "sha256:7d8dc7e4fe3c1fb56cc485285fe3c6becd631699813cb7a33dfb5ba05e7b1c7f",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -7892,6 +7892,23 @@
       "source": {
         "fingerprint": "sha256:85ef34224ac42c48f5c0c22db644dd3cad23fd59477de5ba9095e47f91224ebe",
         "path": ".engine/tools/repo_behavior.py"
+      },
+      "status": "active",
+      "type": "tool"
+    },
+    {
+      "id": "tool:repo_identity",
+      "name": ".engine/tools/repo_identity.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "repo_identity",
+      "source": {
+        "fingerprint": "sha256:515146cc104652c12faea3f5983017d8e9c4336360f52d0194a837270d187417",
+        "path": ".engine/tools/repo_identity.py"
       },
       "status": "active",
       "type": "tool"
@@ -7958,7 +7975,7 @@
       },
       "slug": "rollup",
       "source": {
-        "fingerprint": "sha256:c48a30cd53611f71702597d18fccadf61619100f75f81eb445637ffe2fab444e",
+        "fingerprint": "sha256:8b4202d5c3514898d34f67f2155ea92792f127d30282a71766c12c62764d5aed",
         "path": ".engine/tools/memory/rollup.py"
       },
       "status": "active",
@@ -8077,7 +8094,7 @@
       },
       "slug": "self_map",
       "source": {
-        "fingerprint": "sha256:f7933c64164ad7b82a73592f3f47151e279237ca8162df813b4ab808f1e7a210",
+        "fingerprint": "sha256:49b34a1d08f28cf18c13e9582fd3db86f731039a59b6be8dc957b96d259ed41f",
         "path": ".engine/tools/self_map.py"
       },
       "status": "active",
@@ -8179,7 +8196,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:84f92e6d3733a83fd3da0db5fdfa66fcc5d6b2e97eefec2cddfda4c6cdd73005",
+        "fingerprint": "sha256:fc6744dfa3ae27421cc464cb0b511a70d7b23e0dd0145d536372758923acd1c2",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -8213,7 +8230,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:ba66e1fa3fbbf4cf482364da8b942e234e4b55b64853a103e4048821933feb60",
+        "fingerprint": "sha256:5a183a14514263198d502b45dd34ff7e12ce38315c510d019e555bf6fcde069e",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -8502,7 +8519,7 @@
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:adbb24e5a8b79cd7fc2109f8abac1e5dbba836eacdfb1d47d5cd91cf176ff379",
+        "fingerprint": "sha256:fa4d885f56b0956ab729fa8132ac677476a2cf7fcab85ff6f48ee05ccc6ed710",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -8978,7 +8995,7 @@
       },
       "slug": "test_first_run_health",
       "source": {
-        "fingerprint": "sha256:ed421e2d964bbd935777376e75dd561d6604583949c7793b2c01d099e31259f0",
+        "fingerprint": "sha256:6eb9c1a0cbb14e0f19a81512305a960c726de95ea055445360d06911cfb95992",
         "path": ".engine/tools/test_first_run_health.py"
       },
       "status": "active",
@@ -9131,7 +9148,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:43c0bbd28320f33596cbb6f0814f2936549509375b0e8cd50f33b0bc8e67854d",
+        "fingerprint": "sha256:cbf5b7fd4d454910b78b9fba8b543125667fe068c8e2269b09d936a7a9cc176a",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -9369,7 +9386,7 @@
       },
       "slug": "test_license_seeds",
       "source": {
-        "fingerprint": "sha256:1007f51a48427a427c34446a4c4af3b4deb8d9f55f07d816a04fdc084f26855f",
+        "fingerprint": "sha256:222bf681bff17a1b49bc6b6e948e4b114428ed2e9e8dbf8fa98b6fa31ff44789",
         "path": ".engine/tools/test_license_seeds.py"
       },
       "status": "active",
@@ -10134,7 +10151,7 @@
       },
       "slug": "test_self_review_setup",
       "source": {
-        "fingerprint": "sha256:d9a4ba6c6ea479ca8e4ad386a4be4d35bdcc73d8749be42ee07083ad2701ddea",
+        "fingerprint": "sha256:f18a90eac6bd9b65100d261a1d3df91e6db50ba126b136a95417cb340e6e09fa",
         "path": ".engine/tools/test_self_review_setup.py"
       },
       "status": "active",
@@ -10253,7 +10270,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:f3bb0ff206bee5942cddd8893d638dba6f2b98ab23b78d04eda2689e81c19762",
+        "fingerprint": "sha256:4326f228f63b07479354f3608cb80038e81086096eb5c168754b3e39328adeb2",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
@@ -10508,7 +10525,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:83cd7222278c09261a7595926ecb9b54c13e64ffff6b7278c096625cc0915ba3",
+        "fingerprint": "sha256:0ddba40f505aec1fec4af83b6b46f5d9dc946f0c1ec42078d22640ada6a7f907",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
