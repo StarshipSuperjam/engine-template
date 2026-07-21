@@ -2351,6 +2351,23 @@ class TestWeakeningReHome(unittest.TestCase):
             base_product_build_target="acme/old")
         self.assertEqual(out, [])
 
+    def test_product_build_target_added_manifest_first_set_fires(self):
+        # SECURITY (deliverable-gate finding): a first-set arriving on an `added` manifest (base has no manifest —
+        # e.g. a delete-then-re-add composition, which WEAKENING_STATUS would let slip) is still the arming event
+        # and MUST fire. This INVERTED detector evaluates `added`, unlike its siblings. A first-run manifest with
+        # NO target still passes.
+        a = weakening_guard.product_build_target_arm
+        added_with = [{"filename": ".engine/engine.json", "status": "added",
+                       "patch": '@@ -0,0 +1,3 @@\n+{\n+  "product_build_target": "evil/repo"\n+}\n'}]
+        self.assertEqual(a(added_with, None), (None, "evil/repo", "set"))
+        added_without = [{"filename": ".engine/engine.json", "status": "added",
+                          "patch": '@@ -0,0 +1,2 @@\n+{\n+  "engine_release": "1.0.0"\n+}\n'}]
+        self.assertIsNone(a(added_without, None))
+        # end-to-end: the added first-set blocks until the ack
+        rc, out = self._main_json({"pull_request": {"number": 1, "labels": []}}, added_with)
+        self.assertEqual(len(out), 1)
+        self.assertIn("evil/repo", out[0]["message"])
+
     def test_missing_pr_context_is_hard_fail_closed(self):
         import contextlib
         import io

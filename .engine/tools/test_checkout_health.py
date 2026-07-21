@@ -829,13 +829,15 @@ class TestProductBuildTarget(unittest.TestCase):
             self.assertFalse(checkout_health.product_checkout_matches("StarshipSuperjam/engine-template", root))
 
     def test_belt_fails_closed_on_missing_inputs(self):
+        # assertIs(..., False), NOT assertFalse: the load-bearing invariant is "False, NEVER None" — a None
+        # return would flip the belt fail-OPEN. assertFalse(None) passes, so it would not catch that regression.
         with tempfile.TemporaryDirectory() as tmp:
             root = _repo(tmp, "co")  # no origin remote configured
-            self.assertFalse(checkout_health.product_checkout_matches("o/r", root))      # unreadable origin
-            self.assertFalse(checkout_health.product_checkout_matches("", root))         # blank slug
-            self.assertFalse(checkout_health.product_checkout_matches(None, root))       # None slug
-            self.assertFalse(checkout_health.product_checkout_matches("o/r", ""))        # blank path
-            self.assertFalse(checkout_health.product_checkout_matches("o/r", os.path.join(tmp, "nope")))
+            self.assertIs(checkout_health.product_checkout_matches("o/r", root), False)   # unreadable origin
+            self.assertIs(checkout_health.product_checkout_matches("", root), False)      # blank slug
+            self.assertIs(checkout_health.product_checkout_matches(None, root), False)    # None slug
+            self.assertIs(checkout_health.product_checkout_matches("o/r", ""), False)     # blank path
+            self.assertIs(checkout_health.product_checkout_matches("o/r", os.path.join(tmp, "nope")), False)
 
     def test_recorded_target_reads_manifest_and_absent_is_none(self):
         with tempfile.TemporaryDirectory() as tmp:

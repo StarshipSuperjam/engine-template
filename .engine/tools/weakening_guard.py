@@ -495,6 +495,11 @@ def identity_downgrade(files: list, base_tier: str | None) -> bool:
 # because any later re-add is itself a flagged first-set. The manifest is deliberately NOT whole-file guarded
 # (version churn), so this value detector is the SOLE gate on a manifest-only arming PR — hence fail-closed.
 _PRODUCT_BUILD_TARGET_VALUE_RE = re.compile(r'"product_build_target"\s*:\s*"([^"]*)"')
+# Unlike the WEAKENING_STATUS siblings, THIS detector must ALSO evaluate an `added` manifest. Because first-set
+# is the arming event, a manifest that ARRIVES (or is re-added after a deletion) carrying a target is a first-set
+# that must fire — WEAKENING_STATUS excludes `added` (correct where first recording is benign, wrong here). A
+# first-run manifest with NO target still passes cleanly (the key-touch test finds nothing and returns None).
+_ARM_MANIFEST_STATUS = WEAKENING_STATUS | {"added"}
 
 
 def _read_base_product_build_target() -> str | None:
@@ -537,11 +542,12 @@ def product_build_target_arm(files: list, base_target: str | None) -> tuple | No
       - "escaped"          — an added manifest line carries a JSON escape or embedded separator that could hide
                              the key past the substring touch-test;
       - "unclear"          — the key is touched with an added line but no clean single-line value could be read.
-    A version-only bump (no target line touched) does not flag; a same-value formatting touch does not flag."""
+    A version-only bump (no target line touched) does not flag; a same-value formatting touch does not flag; an
+    `added` manifest WITH a target fires (a first-set arming), one WITHOUT a target passes."""
     for f in files:
         if f.get("filename") != ENGINE_MANIFEST_REL:
             continue
-        if f.get("status") not in WEAKENING_STATUS:
+        if f.get("status") not in _ARM_MANIFEST_STATUS:   # WEAKENING_STATUS + 'added' (an added first-set arms)
             continue
         patch = f.get("patch")
         if not patch:
@@ -802,8 +808,8 @@ def main() -> int:
                     f"opened pull requests only against its own repository; recording this target authorizes it to "
                     f"branch, commit, and open pull requests against `{new}`.")
         elif reason == "changed":
-            lead = (f"Your engine's executable build target is being changed from {old} to {new} — the repository "
-                    f"the engine branches, commits, and opens pull requests against.")
+            lead = (f"Your engine's executable build target is being changed from `{old}` to `{new}` — the "
+                    f"repository the engine branches, commits, and opens pull requests against.")
         elif reason == "escaped":
             lead = ("A change to `.engine/engine.json` (where your engine's executable build target is recorded) "
                     "adds an unusual character — a backslash escape or a hidden line break — where the engine's "
