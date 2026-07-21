@@ -26,7 +26,10 @@ _SLACK = "xoxb-" + "1" * 20
 _GOOGLE = "AIza" + "F" * 35
 _GOOGLE_OAUTH = "123456789012-" + "a" * 24 + ".apps.googleusercontent.com"
 _JWT = "eyJ" + "a" * 12 + ".eyJ" + "b" * 12 + "." + "c" * 20
-_PEM = ("-----BEGIN RSA PRIVATE KEY-----\n" + "MIIEmadeupbase64" * 3 + "\n-----END RSA PRIVATE KEY-----")
+# A SYNTHETIC PEM header for the redaction test — flagged as an intentional test fixture so the advisory
+# repo secret-scan (gitleaks) does not warn on it; the body is obviously fake ("madeupbase64").
+_PEM = ("-----BEGIN RSA PRIVATE KEY-----\n" + "MIIEmadeupbase64" * 3  # gitleaks:allow
+        + "\n-----END RSA PRIVATE KEY-----")
 
 
 class PrecisionTests(unittest.TestCase):
@@ -82,7 +85,7 @@ class PrecisionTests(unittest.TestCase):
         self.assertIn("done", out)
 
     def test_authorization_header_keeps_scaffold(self):
-        token = "aZ9bY8c7dX6e" * 3   # realistic opaque token: mixed case, contains digits
+        token = "aZ9bY8c7dX6e" * 3   # synthetic test token — gitleaks:allow
         out = scrub.scrub_text("Authorization: Bearer " + token)
         self.assertIn("Authorization: Bearer [redacted:auth-credential]", out)
         self.assertNotIn(token, out)

@@ -9981,7 +9981,7 @@
       },
       "slug": "test_scrub",
       "source": {
-        "fingerprint": "sha256:ecf38aac1a864195576170efab31575e3dd285b2b3b6a69ee277b1990b3e055e",
+        "fingerprint": "sha256:92767c6dd41fa98ac955386d738a71b62f1e7cfa866ad74eb34a769eb69e8894",
         "path": ".engine/tools/memory/test_scrub.py"
       },
       "status": "active",
